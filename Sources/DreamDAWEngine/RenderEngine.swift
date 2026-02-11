@@ -10,6 +10,32 @@ import os.log
 /// effect chain, mixed to the master bus, and writes the result to disk.
 public final class RenderEngine {
 
+    // MARK: - Configuration
+
+    /// Configurable render settings.
+    public struct RenderConfiguration {
+        public var sampleRate: Double
+        public var bitDepth: Int
+        public var channelCount: Int
+
+        public init(sampleRate: Double = 44100.0, bitDepth: Int = 24, channelCount: Int = 2) {
+            self.sampleRate = sampleRate
+            self.bitDepth = bitDepth
+            self.channelCount = channelCount
+        }
+
+        /// Standard preset configurations.
+        public static let cd = RenderConfiguration(sampleRate: 44100, bitDepth: 16)
+        public static let studioStandard = RenderConfiguration(sampleRate: 44100, bitDepth: 24)
+        public static let studioHD = RenderConfiguration(sampleRate: 48000, bitDepth: 24)
+        public static let highRes = RenderConfiguration(sampleRate: 96000, bitDepth: 24)
+        public static let masteringGrade = RenderConfiguration(sampleRate: 96000, bitDepth: 32)
+
+        public var displayString: String {
+            "WAV \(bitDepth)-bit / \(sampleRate >= 1000 ? String(format: "%.1f kHz", sampleRate / 1000) : "\(Int(sampleRate)) Hz")"
+        }
+    }
+
     // MARK: - Properties
 
     public init() {}
@@ -56,9 +82,9 @@ public final class RenderEngine {
 
     /// Render the entire project to a WAV file at the specified URL.
     /// This performs offline rendering — does not play through speakers.
-    public func render(project: Project, to outputURL: URL) {
+    public func render(project: Project, to outputURL: URL, config: RenderConfiguration = .studioStandard) {
         let bpm = project.bpm
-        let sampleRate = 44100.0
+        let sampleRate = config.sampleRate
         let endPosition = RenderEngine.calculateRenderEnd(project: project)
 
         guard endPosition.beats > 0 else {
@@ -78,7 +104,7 @@ public final class RenderEngine {
             self?.performRender(
                 project: project,
                 outputURL: outputURL,
-                sampleRate: sampleRate,
+                config: config,
                 totalFrames: totalFrames,
                 bpm: bpm
             )
@@ -88,11 +114,12 @@ public final class RenderEngine {
     private func performRender(
         project: Project,
         outputURL: URL,
-        sampleRate: Double,
+        config: RenderConfiguration,
         totalFrames: Int,
         bpm: Double
     ) {
-        let channelCount: AVAudioChannelCount = 2
+        let channelCount = AVAudioChannelCount(config.channelCount)
+        let sampleRate = config.sampleRate
         guard let outputFormat = AVAudioFormat(
             standardFormatWithSampleRate: sampleRate,
             channels: channelCount
@@ -253,7 +280,7 @@ public final class RenderEngine {
                     AVFormatIDKey: kAudioFormatLinearPCM,
                     AVSampleRateKey: sampleRate,
                     AVNumberOfChannelsKey: channelCount,
-                    AVLinearPCMBitDepthKey: 24,
+                    AVLinearPCMBitDepthKey: config.bitDepth,
                     AVLinearPCMIsFloatKey: false,
                     AVLinearPCMIsBigEndianKey: false,
                     AVLinearPCMIsNonInterleaved: false

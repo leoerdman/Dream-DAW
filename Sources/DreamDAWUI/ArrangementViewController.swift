@@ -58,6 +58,7 @@ public final class ArrangementViewController: NSViewController {
     // State
     private var pixelsPerBeat: CGFloat = DreamTheme.defaultPixelsPerBeat
     private var isBrowserVisible: Bool = true
+    private var keyEventMonitor: Any?
 
     /// Current view mode: arrangement (timeline) or mixer.
     private enum ViewMode {
@@ -105,7 +106,63 @@ public final class ArrangementViewController: NSViewController {
         setupAudioEngine()
         setupBindings()
         configureProject()
+        installGlobalKeyMonitor()
         startMeterTimer()
+    }
+
+    deinit {
+        if let monitor = keyEventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        meterTimer?.invalidate()
+        audioLevelMeter.removeAllTaps()
+    }
+
+    /// Install an application-level key event monitor that intercepts
+    /// Space, Return, and Escape BEFORE any SwiftUI control can consume them.
+    /// This guarantees transport shortcuts always work regardless of focus.
+    private func installGlobalKeyMonitor() {
+        keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self else { return event }
+            // Only intercept when our window is key
+            guard event.window === self.view.window else { return event }
+
+            switch event.keyCode {
+            case 49: // Space — always toggle play/pause
+                self.transportController.togglePlayPause()
+                return nil // consume the event (no bonk)
+
+            case 36: // Return
+                // If a text field has focus, let Return commit the field value, then blur
+                if let firstResponder = self.view.window?.firstResponder,
+                   firstResponder is NSTextView,
+                   let fieldEditor = firstResponder as? NSTextView,
+                   fieldEditor.isFieldEditor {
+                    // Let the text field handle Return (commit), then blur
+                    DispatchQueue.main.async {
+                        self.view.window?.makeFirstResponder(self.view)
+                    }
+                    return event // pass through so onCommit fires
+                }
+                // No text field focused — Return = Stop transport
+                if !event.modifierFlags.contains(.command) {
+                    self.transportController.stop()
+                    return nil
+                }
+                return event
+
+            case 53: // Escape — blur any focused text field
+                if let firstResponder = self.view.window?.firstResponder,
+                   firstResponder is NSTextView {
+                    self.view.window?.makeFirstResponder(self.view)
+                    return nil
+                }
+                return event
+
+            default:
+                return event
+            }
+        }
     }
 
     public override func viewDidLayout() {
@@ -421,11 +478,6 @@ public final class ArrangementViewController: NSViewController {
         }
     }
 
-    /// Cleanup on dealloc.
-    deinit {
-        meterTimer?.invalidate()
-        audioLevelMeter.removeAllTaps()
-    }
 
     // MARK: - Loading Overlay
 
@@ -552,6 +604,7 @@ public final class ArrangementViewController: NSViewController {
         // Play → stop browser preview + schedule all clips; Pause/Stop → stop all players
         transportController.onStateChange = { [weak self] state in
             guard let self = self else { return }
+            NSLog("[ArrangementVC] Transport state changed to: %@", "\(state)")
             switch state {
             case .playing:
                 self.browserSidebar.stopPreview()
@@ -702,7 +755,7 @@ public final class ArrangementViewController: NSViewController {
     public override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags
         switch event.keyCode {
-        case 49: // Space
+        case 49: // Space — handled in performKeyEquivalent
             transportController.togglePlayPause()
         case 36: // Return — stop and go to beginning
             transportController.stop()
@@ -908,14 +961,26 @@ public final class ArrangementViewController: NSViewController {
     /// Opens a full Finder-style NSSavePanel for filename and location.
     private func saveProjectAs() {
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "\(project.name) V1"
+        let fm = ProjectFileManager.shared
+
+        // Pre-fill filename with current project name
+        let currentVersion = fm.projectFolderURL != nil ? fm.currentVersion : 1
+        panel.nameFieldStringValue = "\(project.name) V\(currentVersion)"
         panel.allowedContentTypes = [.init(filenameExtension: ProjectFileManager.fileExtension) ?? .data]
         panel.canCreateDirectories = true
         panel.title = "Save Project"
         panel.prompt = "Save"
-        panel.message = "Choose where to save \"\(project.name)\". If saved outside a project folder, a new folder will be created automatically."
+        panel.message = "Choose where to save \"\(project.name)\"."
         panel.appearance = NSAppearance(named: .darkAqua)
-        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents")
+
+        // Open at the current project folder if one exists, otherwise Documents
+        if let projectFolder = fm.projectFolderURL {
+            panel.directoryURL = projectFolder
+        } else if let fileURL = project.fileURL {
+            panel.directoryURL = fileURL.deletingLastPathComponent()
+        } else {
+            panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents")
+        }
 
         // Use runModal() for a full-size standalone Finder window
         let response = panel.runModal()

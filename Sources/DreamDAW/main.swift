@@ -95,11 +95,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 
-        // Transport Menu
+        // Transport Menu — NO key equivalents here; Space/Return are handled
+        // by the local event monitor in ArrangementViewController.
         let transportMenuItem = NSMenuItem()
         let transportMenu = NSMenu(title: "Transport")
-        transportMenu.addItem(withTitle: "Play/Pause", action: #selector(togglePlay), keyEquivalent: " ")
-        transportMenu.addItem(withTitle: "Stop", action: #selector(stopTransport), keyEquivalent: "\r")
+        transportMenu.addItem(withTitle: "Play/Pause", action: #selector(togglePlay), keyEquivalent: "")
+        transportMenu.addItem(withTitle: "Stop", action: #selector(stopTransport), keyEquivalent: "")
         transportMenuItem.submenu = transportMenu
         mainMenu.addItem(transportMenuItem)
 
@@ -172,23 +173,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func saveProjectAs() {
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "\(project.name) V1"
+        let fm = ProjectFileManager.shared
+
+        // Pre-fill filename with current project name
+        let currentVersion = fm.projectFolderURL != nil ? fm.currentVersion : 1
+        panel.nameFieldStringValue = "\(project.name) V\(currentVersion)"
         panel.allowedContentTypes = [.init(filenameExtension: ProjectFileManager.fileExtension) ?? .data]
         panel.canCreateDirectories = true
         panel.title = "Save Project"
         panel.prompt = "Save"
-        panel.message = "Choose where to save \"\(project.name)\". If saved outside a project folder, a new folder will be created automatically."
+        panel.message = "Choose where to save \"\(project.name)\"."
         panel.appearance = NSAppearance(named: .darkAqua)
-        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents")
 
-        // Use runModal() for a full-size standalone Finder window
+        // Open at the current project folder if one exists
+        if let projectFolder = fm.projectFolderURL {
+            panel.directoryURL = projectFolder
+        } else if let fileURL = project.fileURL {
+            panel.directoryURL = fileURL.deletingLastPathComponent()
+        } else {
+            panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents")
+        }
+
         let response = panel.runModal()
         guard response == .OK, let fileURL = panel.url else { return }
 
         do {
             _ = try ProjectFileManager.shared.saveToFile(project: self.project, fileURL: fileURL)
-            let fm = ProjectFileManager.shared
-            self.mainWindowController?.window?.title = "Dream DAW — \(self.project.name) V\(fm.currentVersion)"
+            // project.name is now updated by saveToFile
+            self.mainWindowController?.window?.title = "\(self.project.name) V\(fm.currentVersion) — Dream DAW"
         } catch {
             let alert = NSAlert(error: error)
             alert.runModal()
@@ -214,11 +226,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func togglePlay() {
-        // Handled by ArrangementViewController keyboard shortcut
+        if let vc = mainWindowController?.window?.contentViewController as? ArrangementViewController {
+            vc.transportController.togglePlayPause()
+        }
     }
 
     @objc private func stopTransport() {
-        // Handled by ArrangementViewController keyboard shortcut
+        if let vc = mainWindowController?.window?.contentViewController as? ArrangementViewController {
+            vc.transportController.stop()
+        }
     }
 
     @objc private func openSettings() {

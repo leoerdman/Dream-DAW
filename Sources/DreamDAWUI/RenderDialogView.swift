@@ -15,6 +15,7 @@ public struct RenderDialogView: View {
     @State private var progress: Double = 0.0
     @State private var errorMessage: String?
     @State private var renderComplete: Bool = false
+    @State private var selectedPresetIndex: Int = 1  // Default to Studio Standard
 
     /// Dismiss callback.
     public var onDismiss: (() -> Void)?
@@ -24,6 +25,19 @@ public struct RenderDialogView: View {
     public init(project: Project, onDismiss: (() -> Void)? = nil) {
         self.project = project
         self.onDismiss = onDismiss
+    }
+
+    /// Available render presets.
+    private static let presets: [(name: String, config: RenderEngine.RenderConfiguration)] = [
+        ("CD Quality (16-bit / 44.1 kHz)", .cd),
+        ("Studio Standard (24-bit / 44.1 kHz)", .studioStandard),
+        ("Studio HD (24-bit / 48 kHz)", .studioHD),
+        ("High Resolution (24-bit / 96 kHz)", .highRes),
+        ("Mastering Grade (32-bit / 96 kHz)", .masteringGrade)
+    ]
+
+    private var selectedConfig: RenderEngine.RenderConfiguration {
+        Self.presets[selectedPresetIndex].config
     }
 
     // Computed render range
@@ -70,11 +84,23 @@ public struct RenderDialogView: View {
                     VStack(alignment: .trailing, spacing: 4) {
                         Text("Duration: \(formatTime(renderDurationSeconds))")
                             .foregroundColor(.secondary)
-                        Text("Format: WAV 24-bit / 44.1 kHz")
+                        Text("Format: \(selectedConfig.displayString)")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                 }
+                .padding(4)
+            }
+
+            // Quality preset picker
+            GroupBox("Quality") {
+                Picker("Render Quality", selection: $selectedPresetIndex) {
+                    ForEach(0..<Self.presets.count, id: \.self) { idx in
+                        Text(Self.presets[idx].name).tag(idx)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
                 .padding(4)
             }
 
@@ -196,7 +222,7 @@ public struct RenderDialogView: View {
             }
         }
 
-        renderEngine.render(project: project, to: outputURL)
+        renderEngine.render(project: project, to: outputURL, config: selectedConfig)
     }
 
     private func formatTime(_ seconds: Double) -> String {

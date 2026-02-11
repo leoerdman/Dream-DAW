@@ -16,25 +16,58 @@ public struct StatusBarView: View {
         self.project = project
     }
 
+    // MARK: - Computed Properties
+
+    /// Current playhead position as bars.beats.ticks string.
+    private var playheadDisplay: String {
+        transportController.playheadPosition.displayString(
+            beatsPerBar: project.timeSignature.beatsPerBar
+        )
+    }
+
+    /// Project end position (last clip end).
+    private var projectEnd: TimePosition {
+        var maxEnd = TimePosition(beats: 0)
+        for track in project.tracks {
+            let trackEnd = track.endPosition
+            if trackEnd > maxEnd { maxEnd = trackEnd }
+        }
+        return maxEnd
+    }
+
+    private var projectEndDisplay: String {
+        projectEnd.displayString(
+            beatsPerBar: project.timeSignature.beatsPerBar
+        )
+    }
+
+    /// Duration in seconds, formatted as M:SS.mmm.
+    private var durationSecondsDisplay: String {
+        let secs = projectEnd.toSeconds(bpm: project.bpm)
+        let mins = Int(secs) / 60
+        let rest = secs - Double(mins * 60)
+        return String(format: "%d:%06.3f", mins, rest)
+    }
+
     public var body: some View {
         HStack(spacing: 0) {
-            // Left: Selection info
+            // Left: Playhead position + project duration
             HStack(spacing: 12) {
-                statusText("Time Selection")
+                statusText("Arrangement")
 
                 HStack(spacing: 4) {
-                    statusLabel("Start:")
-                    statusValue("1.1.1")
+                    statusLabel("Position:")
+                    statusValue(playheadDisplay)
                 }
 
                 HStack(spacing: 4) {
                     statusLabel("End:")
-                    statusValue("1.1.1")
+                    statusValue(projectEndDisplay)
                 }
 
                 HStack(spacing: 4) {
                     statusLabel("Length:")
-                    statusValue("0.0.0")
+                    statusValue(durationSecondsDisplay)
                 }
             }
             .padding(.leading, 8)
@@ -46,7 +79,15 @@ public struct StatusBarView: View {
                 // Play indicator
                 Image(systemName: transportController.state == .playing ? "play.fill" : "stop.fill")
                     .font(.system(size: 8))
-                    .foregroundColor(Color(nsColor: DreamTheme.textMuted))
+                    .foregroundColor(transportController.state == .playing
+                        ? Color(nsColor: DreamTheme.accent)
+                        : Color(nsColor: DreamTheme.textMuted))
+
+                // Track count
+                statusText("\(project.tracks.count) tracks")
+
+                // Sample rate
+                statusText("\(Int(project.sampleRate)) Hz")
 
                 // Main output selector
                 HStack(spacing: 2) {

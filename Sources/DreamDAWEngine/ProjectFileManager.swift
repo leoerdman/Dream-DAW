@@ -77,6 +77,14 @@ public final class ProjectFileManager {
             projectFolderURL = parentDir
             currentVersion = extractVersion(from: fileURL) ?? 1
 
+            // Update the project name from the chosen filename (strip version suffix)
+            let baseName = filename
+                .replacingOccurrences(of: " V\\d+$", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespaces)
+            if !baseName.isEmpty {
+                project.name = baseName
+            }
+
             try writeProject(project, to: fileURL)
             project.fileURL = fileURL
 
@@ -107,6 +115,10 @@ public final class ProjectFileManager {
             // Save the project file inside the new folder
             currentVersion = 1
             projectFolderURL = projectFolder
+
+            // Update the project name from the chosen filename
+            project.name = projectName
+
             let destURL = makeFileURL(folder: projectFolder, name: projectName, version: currentVersion)
             try writeProject(project, to: destURL)
             project.fileURL = destURL

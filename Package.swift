@@ -50,5 +50,10 @@ let package = Package(
             dependencies: ["DreamDAWModels"],
             path: "Tests/DreamDAWModelsTests"
         ),
+        .testTarget(
+            name: "DreamDAWEngineTests",
+            dependencies: ["DreamDAWEngine", "DreamDAWModels"],
+            path: "Tests/DreamDAWEngineTests"
+        ),
     ]
 )

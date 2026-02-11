@@ -687,10 +687,27 @@ public final class TimelineCanvasView: NSView {
 
     public override func scrollWheel(with event: NSEvent) {
         if event.modifierFlags.contains(.option) {
-            // Zoom horizontally with Option+scroll
-            let zoomFactor: CGFloat = event.scrollingDeltaY > 0 ? 1.15 : 0.87
-            let newPPB = min(DreamTheme.maxPixelsPerBeat, max(DreamTheme.minPixelsPerBeat, pixelsPerBeat * zoomFactor))
+            // Zoom horizontally with Option+scroll — centered on the playhead
+            // Slower zoom: ~2x less aggressive than before (1.07 vs 1.15)
+            let zoomFactor: CGFloat = event.scrollingDeltaY > 0 ? 1.07 : 0.935
+            let oldPPB = pixelsPerBeat
+            let newPPB = min(DreamTheme.maxPixelsPerBeat, max(DreamTheme.minPixelsPerBeat, oldPPB * zoomFactor))
+
+            // Center zoom on the playhead position
+            let playheadBeat = CGFloat(playheadPosition.beats)
+            let playheadScreenX = playheadBeat * oldPPB - scrollOffset.x
+
             pixelsPerBeat = newPPB
+
+            // Adjust scroll so the playhead stays at the same screen position
+            let newScrollX = playheadBeat * newPPB - playheadScreenX
+            if let scrollView = enclosingScrollView {
+                let documentView = scrollView.documentView!
+                let maxScrollX = max(0, documentView.frame.width - scrollView.contentView.bounds.width)
+                let clampedX = max(0, min(newScrollX, maxScrollX))
+                scrollView.contentView.scroll(to: NSPoint(x: clampedX, y: scrollView.contentView.bounds.origin.y))
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
         } else {
             // Pass to parent for normal scrolling
             super.scrollWheel(with: event)

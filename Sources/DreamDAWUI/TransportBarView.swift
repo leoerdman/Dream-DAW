@@ -12,6 +12,25 @@ public struct TransportBarView: View {
     @ObservedObject var project: Project
 
     @State private var bpmText: String = ""
+
+    // MARK: - Tap Tempo State
+
+    /// Timestamps of recent taps for BPM detection.
+    @State private var tapTimestamps: [Date] = []
+
+    /// Maximum number of taps to average over.
+    private let maxTapCount = 8
+
+    /// If gap between taps exceeds this, reset the tap buffer.
+    private let tapResetInterval: TimeInterval = 3.0
+
+    // MARK: - Quantize State
+
+    /// Available quantize values for cycling.
+    private static let quantizeValues = ["1/4", "1/8", "1/16", "1/32", "1/4T", "1/8T", "1/16T", "OFF"]
+
+    /// Current quantize index.
+    @State private var quantizeIndex: Int = 0
     
     public init(transportController: TransportController, project: Project) {
         self.transportController = transportController
@@ -64,7 +83,7 @@ public struct TransportBarView: View {
     private var leftSection: some View {
         HStack(spacing: 2) {
             // Tap tempo
-            ControlBarButton(label: "Tap", action: {})
+            ControlBarButton(label: "Tap", action: { handleTapTempo() })
             
             // BPM — editable field
             TextField("BPM", text: $bpmText, onCommit: {
@@ -98,11 +117,16 @@ public struct TransportBarView: View {
             
             thinDivider
             
-            // Quantize selector
-            Text("1/4")
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundColor(Color(nsColor: DreamTheme.textSecondary))
-                .padding(.horizontal, 6)
+            // Quantize selector — click to cycle
+            Button(action: { cycleQuantize() }) {
+                Text(Self.quantizeValues[quantizeIndex])
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(quantizeIndex == Self.quantizeValues.count - 1
+                        ? Color(nsColor: DreamTheme.textMuted)
+                        : Color(nsColor: DreamTheme.textSecondary))
+                    .padding(.horizontal, 6)
+            }
+            .buttonStyle(.plain)
         }
         .padding(.leading, 8)
     }
@@ -116,6 +140,51 @@ public struct TransportBarView: View {
         }
         project.bpm = value
         transportController.bpm = value
+    }
+
+    // MARK: - Tap Tempo
+
+    /// Handle a tap tempo click: record timestamp, calculate average BPM.
+    private func handleTapTempo() {
+        let now = Date()
+
+        // Reset if too long since last tap
+        if let last = tapTimestamps.last, now.timeIntervalSince(last) > tapResetInterval {
+            tapTimestamps.removeAll()
+        }
+
+        tapTimestamps.append(now)
+
+        // Keep only the last N taps
+        if tapTimestamps.count > maxTapCount {
+            tapTimestamps.removeFirst(tapTimestamps.count - maxTapCount)
+        }
+
+        // Need at least 2 taps to calculate BPM
+        guard tapTimestamps.count >= 2 else { return }
+
+        // Calculate average interval
+        var totalInterval: TimeInterval = 0
+        for i in 1..<tapTimestamps.count {
+            totalInterval += tapTimestamps[i].timeIntervalSince(tapTimestamps[i - 1])
+        }
+        let avgInterval = totalInterval / Double(tapTimestamps.count - 1)
+
+        // Convert to BPM (60 seconds / avg interval)
+        let detectedBPM = 60.0 / avgInterval
+
+        // Clamp to valid range
+        let clamped = min(max(detectedBPM, 20.0), 999.0)
+        project.bpm = (clamped * 100).rounded() / 100  // Round to 2 decimal places
+        transportController.bpm = project.bpm
+        bpmText = String(format: "%.2f", project.bpm)
+    }
+
+    // MARK: - Quantize Cycling
+
+    /// Cycle through quantize values.
+    private func cycleQuantize() {
+        quantizeIndex = (quantizeIndex + 1) % Self.quantizeValues.count
     }
     
     // MARK: - Center Section (Transport Controls)

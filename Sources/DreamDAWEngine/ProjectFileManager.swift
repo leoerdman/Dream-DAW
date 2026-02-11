@@ -128,15 +128,7 @@ public final class ProjectFileManager {
         }
     }
 
-    /// **DEPRECATED** — Use `saveToFile(project:fileURL:)` instead.
-    /// Kept for backward compatibility.
-    @discardableResult
-    public func saveAs(project: Project, to folderURL: URL) throws -> URL {
-        // Create a default filename and delegate to the new method
-        let filename = "\(project.name) V1.\(Self.fileExtension)"
-        let fileURL = folderURL.appendingPathComponent(filename)
-        return try saveToFile(project: project, fileURL: fileURL)
-    }
+
 
     // MARK: - Directory Detection
 

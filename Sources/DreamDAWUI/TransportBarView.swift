@@ -207,13 +207,15 @@ public struct TransportBarView: View {
                 action: { transportController.stop() }
             )
             
-            // Record button
+            // Record button (not yet implemented — visually disabled)
             AbletonTransportBtn(
                 icon: "circle.fill",
                 isActive: false,
                 activeColor: Color(nsColor: DreamTheme.armButton),
                 action: {}
             )
+            .opacity(0.35)
+            .help("Recording — coming soon")
         }
         .padding(.horizontal, 6)
     }
@@ -281,7 +283,7 @@ public struct TransportBarView: View {
                 Image(systemName: "cpu")
                     .font(.system(size: 9))
                     .foregroundColor(Color(nsColor: DreamTheme.textMuted))
-                Text("0%")
+                Text("--")
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundColor(Color(nsColor: DreamTheme.textMuted))
             }

@@ -17,7 +17,8 @@ public final class SimpleSynthInstrument {
 
     /// Active voices: pitch → phase accumulator
     private var voices: [Int: Double] = [:]
-    private let voiceLock = NSLock()
+    /// os_unfair_lock — safe for audio real-time thread (no priority inversion).
+    private var voiceLock = os_unfair_lock_s()
 
     /// Master amplitude (0.0 ... 1.0).
     public var amplitude: Float = 0.3
@@ -35,8 +36,8 @@ public final class SimpleSynthInstrument {
 
     /// Start playing a note.
     public func noteOn(pitch: Int, velocity: Int = 100) {
-        voiceLock.lock()
-        defer { voiceLock.unlock() }
+        os_unfair_lock_lock(&voiceLock)
+        defer { os_unfair_lock_unlock(&voiceLock) }
 
         activeNotes.insert(pitch)
         if voices[pitch] == nil {
@@ -46,8 +47,8 @@ public final class SimpleSynthInstrument {
 
     /// Stop playing a note.
     public func noteOff(pitch: Int) {
-        voiceLock.lock()
-        defer { voiceLock.unlock() }
+        os_unfair_lock_lock(&voiceLock)
+        defer { os_unfair_lock_unlock(&voiceLock) }
 
         activeNotes.remove(pitch)
         voices.removeValue(forKey: pitch)
@@ -55,8 +56,8 @@ public final class SimpleSynthInstrument {
 
     /// Stop all notes immediately.
     public func allNotesOff() {
-        voiceLock.lock()
-        defer { voiceLock.unlock() }
+        os_unfair_lock_lock(&voiceLock)
+        defer { os_unfair_lock_unlock(&voiceLock) }
 
         activeNotes.removeAll()
         voices.removeAll()
@@ -78,10 +79,10 @@ public final class SimpleSynthInstrument {
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
             let amplitude = self.amplitude
 
-            self.voiceLock.lock()
+            os_unfair_lock_lock(&self.voiceLock)
             let currentVoices = self.voices
             let currentActive = self.activeNotes
-            self.voiceLock.unlock()
+            os_unfair_lock_unlock(&self.voiceLock)
 
             // Fill buffers
             for frame in 0..<Int(frameCount) {
@@ -107,7 +108,7 @@ public final class SimpleSynthInstrument {
             }
 
             // Update phase accumulators
-            self.voiceLock.lock()
+            os_unfair_lock_lock(&self.voiceLock)
             for pitch in currentActive {
                 guard let phase = self.voices[pitch] else { continue }
                 let frequency = Self.midiNoteToFrequency(pitch)
@@ -119,7 +120,7 @@ public final class SimpleSynthInstrument {
                     self.voices[pitch]! = self.voices[pitch]!.truncatingRemainder(dividingBy: 1.0)
                 }
             }
-            self.voiceLock.unlock()
+            os_unfair_lock_unlock(&self.voiceLock)
 
             return noErr
         }

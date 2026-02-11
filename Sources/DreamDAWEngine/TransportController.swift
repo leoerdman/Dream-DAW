@@ -39,6 +39,10 @@ public final class TransportController: ObservableObject {
     /// Callback invoked on transport state changes.
     public var onStateChange: ((TransportState) -> Void)?
 
+    /// Callback invoked when playback wraps at the loop end → loop start.
+    /// Host should re-schedule audio from the new position.
+    public var onLoopWrap: (() -> Void)?
+
     // MARK: - Initialization
 
     public init() {}
@@ -147,15 +151,18 @@ public final class TransportController: ObservableObject {
         let elapsed = now - playbackStartTime
         let beatsElapsed = elapsed * (bpm / 60.0)
         var currentBeat = playbackStartBeat + beatsElapsed
+        var didLoopWrap = false
 
         // Handle looping
         if isLooping && loopEnd.beats > loopStart.beats {
-            let loopLength = loopEnd.beats - loopStart.beats
             if currentBeat >= loopEnd.beats {
+                // Wrap to loop start
+                let loopLength = loopEnd.beats - loopStart.beats
                 let overshoot = currentBeat - loopStart.beats
                 currentBeat = loopStart.beats + overshoot.truncatingRemainder(dividingBy: loopLength)
                 playbackStartBeat = currentBeat
                 playbackStartTime = now
+                didLoopWrap = true
             }
         }
 
@@ -163,6 +170,11 @@ public final class TransportController: ObservableObject {
             guard let self = self else { return }
             self.playheadPosition = TimePosition(beats: currentBeat)
             self.onPlayheadUpdate?(self.playheadPosition)
+
+            // Re-schedule audio after loop wrap (must happen on main thread)
+            if didLoopWrap {
+                self.onLoopWrap?()
+            }
         }
     }
 }

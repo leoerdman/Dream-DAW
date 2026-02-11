@@ -12,7 +12,8 @@ public final class AudioEngine: @unchecked Sendable {
     // MARK: - Properties
 
     private let engine = AVAudioEngine()
-    private let lock = NSLock()
+    /// os_unfair_lock — fast, non-recursive lock for lifecycle operations.
+    private var lock = os_unfair_lock_s()
     private let logger = Logger(subsystem: "com.dreamdaw", category: "AudioEngine")
 
     /// Master output mixer node.
@@ -44,8 +45,8 @@ public final class AudioEngine: @unchecked Sendable {
 
     /// Start the audio engine.
     public func start() throws {
-        lock.lock()
-        defer { lock.unlock() }
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
 
         guard !isRunning else { return }
 
@@ -57,8 +58,8 @@ public final class AudioEngine: @unchecked Sendable {
 
     /// Stop the audio engine.
     public func stop() {
-        lock.lock()
-        defer { lock.unlock() }
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
 
         guard isRunning else { return }
 
@@ -69,8 +70,8 @@ public final class AudioEngine: @unchecked Sendable {
 
     /// Reset the audio engine graph.
     public func reset() {
-        lock.lock()
-        defer { lock.unlock() }
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
 
         engine.reset()
         logger.info("AudioEngine reset")
@@ -80,29 +81,29 @@ public final class AudioEngine: @unchecked Sendable {
 
     /// Attach a node to the engine graph.
     public func attach(_ node: AVAudioNode) {
-        lock.lock()
-        defer { lock.unlock() }
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
         engine.attach(node)
     }
 
     /// Detach a node from the engine graph.
     public func detach(_ node: AVAudioNode) {
-        lock.lock()
-        defer { lock.unlock() }
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
         engine.detach(node)
     }
 
     /// Connect two nodes in the audio graph.
     public func connect(_ sourceNode: AVAudioNode, to destNode: AVAudioNode, format: AVAudioFormat?) {
-        lock.lock()
-        defer { lock.unlock() }
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
         engine.connect(sourceNode, to: destNode, format: format)
     }
 
     /// Disconnect a node's outputs.
     public func disconnectNodeOutput(_ node: AVAudioNode) {
-        lock.lock()
-        defer { lock.unlock() }
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
         engine.disconnectNodeOutput(node)
     }
 

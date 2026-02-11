@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import DreamDAWModels
+import DreamDAWEngine
 
 // MARK: - BottomPanelView
 
@@ -44,6 +45,24 @@ public final class BottomPanelView: NSView {
     /// Callback when an effect is dropped on the effects chain panel.
     /// Parameters: trackID, nodeType ("audioEffect"), itemName
     public var onEffectDropped: ((UUID, String, String) -> Void)?
+
+    /// Callback when an effect parameter is changed (e.g. Utility gain knob).
+    /// Parameter: trackID
+    public var onEffectParameterChanged: ((UUID) -> Void)?
+
+    /// Reference to the audio level meter for real-time signal chain metering.
+    public weak var audioLevelMeter: AudioLevelMeter?
+
+    // MARK: - Meter Animation
+
+    /// Timer for updating signal chain meters at 30fps.
+    private var meterTimer: Timer?
+
+    /// Tagged signal meters in the current chain (for efficient timer updates).
+    private var chainMeters: [SignalMeterView] = []
+
+    /// Track ID of the currently displayed detail track.
+    private var currentTrackID: UUID?
 
     // Sub-views
     private let headerBar = NSView()
@@ -146,6 +165,7 @@ public final class BottomPanelView: NSView {
     private func updateContent() {
         switch mode {
         case .hidden:
+            stopMeterTimer()
             detailContentView.isHidden = true
             pianoScrollView.isHidden = true
             isHidden = true
@@ -173,21 +193,37 @@ public final class BottomPanelView: NSView {
     }
 
     private func updateDetailContent(track: Track) {
-        // Clear existing detail subviews
+        // Clear existing detail subviews and meter references
         detailContentView.subviews.forEach { $0.removeFromSuperview() }
+        chainMeters.removeAll()
+        currentTrackID = track.id
 
         var xOff: CGFloat = 8
-        let slotHeight: CGFloat = panelContentHeight - 16  // Fit within panel with padding
+        let slotHeight: CGFloat = panelContentHeight - 16
         let meterWidth: CGFloat = 10
         let meterSpacing: CGFloat = 4
         let slotSpacing: CGFloat = 6
         let yOff: CGFloat = 8
 
+        let isMIDI = track.trackType == .midi
+        let hasEffects = !track.effects.isEmpty
+
+        // ═════════════════════════════════════════════════════
+        //  Signal Chain Layout:
+        //
+        //  MIDI track:   IN(yellow) → [Synth] → (green)* → [FX1] → (green)* → ... → OUT(green)
+        //  Audio track:  IN(green)  →             [FX1] → (green)* → ... → OUT(green)
+        //
+        //  * Inter-stage meters appear ONLY between adjacent processing stages.
+        //    If there's nothing after the synth/effect, the OUTPUT meter serves
+        //    as the final meter — no duplicate.
+        // ═════════════════════════════════════════════════════
+
         // ───── Input Signal Meter ─────
         let inputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
-        inputMeter.level = 0.55  // Simulated input level
-        inputMeter.peakLevel = 0.6
+        inputMeter.signalType = isMIDI ? .midi : .audio
         detailContentView.addSubview(inputMeter)
+        chainMeters.append(inputMeter)
         xOff += meterWidth + meterSpacing
 
         // Input label
@@ -195,59 +231,64 @@ public final class BottomPanelView: NSView {
         inputLabel.font = NSFont.systemFont(ofSize: 7, weight: .bold)
         inputLabel.textColor = NSColor(white: 0.45, alpha: 1)
         inputLabel.alignment = .center
-        inputLabel.frame = CGRect(x: xOff - meterWidth - meterSpacing, y: yOff + slotHeight + 1, width: meterWidth + meterSpacing * 2, height: 10)
+        inputLabel.frame = CGRect(
+            x: xOff - meterWidth - meterSpacing,
+            y: yOff + slotHeight + 1,
+            width: meterWidth + meterSpacing * 2,
+            height: 10
+        )
         detailContentView.addSubview(inputLabel)
 
         xOff += 4
 
         // ───── Instrument Slot (MIDI tracks only) ─────
-        if track.trackType == .midi {
+        if isMIDI {
             let slotWidth: CGFloat = 100
             let instSlot = makeInstrumentSlot(track: track, frame: CGRect(x: xOff, y: yOff, width: slotWidth, height: slotHeight))
             detailContentView.addSubview(instSlot)
             xOff += slotWidth + slotSpacing
 
-            // Post-instrument meter
-            let postInstMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
-            postInstMeter.level = 0.50
-            postInstMeter.peakLevel = 0.55
-            detailContentView.addSubview(postInstMeter)
-            xOff += meterWidth + slotSpacing
+            // Post-instrument meter appears ONLY if there are effects following.
+            // Otherwise the OUTPUT meter serves as the post-instrument meter.
+            if hasEffects {
+                let postInstMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+                postInstMeter.signalType = .audio  // MIDI→audio conversion complete
+                detailContentView.addSubview(postInstMeter)
+                chainMeters.append(postInstMeter)
+                xOff += meterWidth + slotSpacing
+            }
         }
 
         // ───── Effects Chain ─────
-        if track.effects.isEmpty {
-            // Empty chain placeholder
-            let placeholder = NSTextField(labelWithString: "Drop effects here…")
-            placeholder.font = NSFont.systemFont(ofSize: 11)
-            placeholder.textColor = NSColor(white: 0.35, alpha: 1)
-            placeholder.frame = CGRect(x: xOff + 8, y: yOff + slotHeight / 2 - 8, width: 160, height: 16)
-            detailContentView.addSubview(placeholder)
-        } else {
+        if hasEffects {
             for (index, effect) in track.effects.enumerated() {
                 let slotWidth: CGFloat = effectSlotWidth(for: effect.effectType)
-                let effectSlot = makeEffectSlot(effect: effect, index: index,
-                                                 frame: CGRect(x: xOff, y: yOff, width: slotWidth, height: slotHeight))
+                let effectSlot = makeEffectSlot(
+                    effect: effect, index: index, track: track,
+                    frame: CGRect(x: xOff, y: yOff, width: slotWidth, height: slotHeight)
+                )
                 detailContentView.addSubview(effectSlot)
                 xOff += slotWidth + slotSpacing
 
-                // Post-effect signal meter
-                let postMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
-                // Simulate different levels per effect
-                let level = 0.4 + Float(index) * 0.08
-                postMeter.level = min(level, 0.9)
-                postMeter.peakLevel = min(level + 0.05, 0.95)
-                detailContentView.addSubview(postMeter)
-                xOff += meterWidth + slotSpacing
+                // Inter-effect meter: only if there's ANOTHER effect after this one.
+                // The last effect's output is shown by the OUTPUT meter.
+                let isLastEffect = (index == track.effects.count - 1)
+                if !isLastEffect {
+                    let postMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+                    postMeter.signalType = .audio
+                    detailContentView.addSubview(postMeter)
+                    chainMeters.append(postMeter)
+                    xOff += meterWidth + slotSpacing
+                }
             }
         }
 
         // ───── Output Meter + Label ─────
         xOff += 4
         let outputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
-        outputMeter.level = 0.5
-        outputMeter.peakLevel = 0.55
+        outputMeter.signalType = .audio  // Output is always audio
         detailContentView.addSubview(outputMeter)
+        chainMeters.append(outputMeter)
 
         let outLabel = NSTextField(labelWithString: "OUT")
         outLabel.font = NSFont.systemFont(ofSize: 7, weight: .bold)
@@ -255,6 +296,58 @@ public final class BottomPanelView: NSView {
         outLabel.alignment = .center
         outLabel.frame = CGRect(x: xOff - 4, y: yOff + slotHeight + 1, width: meterWidth + 8, height: 10)
         detailContentView.addSubview(outLabel)
+
+        // Start meter animation timer
+        startMeterTimer()
+    }
+
+    // MARK: - Meter Animation Timer
+
+    /// Start the 30fps timer that reads real-time levels from AudioLevelMeter.
+    private func startMeterTimer() {
+        meterTimer?.invalidate()
+        meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            self?.updateChainMeters()
+        }
+    }
+
+    /// Stop the meter animation timer (when panel hides).
+    private func stopMeterTimer() {
+        meterTimer?.invalidate()
+        meterTimer = nil
+    }
+
+    /// Read real-time level from AudioLevelMeter and apply to all chain meters.
+    private func updateChainMeters() {
+        guard let trackID = currentTrackID,
+              let meter = audioLevelMeter else {
+            // No meter source — decay existing levels gracefully
+            for m in chainMeters { m.decay() }
+            return
+        }
+
+        let trackLevel = meter.level(for: trackID)
+
+        // All meters in the chain show the track's overall output level.
+        // In a real multi-point metering system each node would have its own tap,
+        // but AVAudioEngine provides per-mixer-node taps, and each track has one
+        // mixer node. The same level is distributed to all meters, which is
+        // accurate since effects are in-line (series, not parallel).
+        //
+        // Input meter gets a slightly boosted reading (raw RMS before mixing)
+        // and output meter gets the post-mix reading.
+        for (index, chainMeter) in chainMeters.enumerated() {
+            if index == 0 {
+                // Input meter — show raw RMS
+                chainMeter.level = trackLevel.rms * 1.4
+            } else if index == chainMeters.count - 1 {
+                // Output meter — show post-mix peak-weighted level
+                chainMeter.level = (trackLevel.rms + trackLevel.peak) * 0.5
+            } else {
+                // Inter-stage meters — show RMS
+                chainMeter.level = trackLevel.rms * 1.2
+            }
+        }
     }
 
     /// Returns the slot width for a given effect type.
@@ -269,7 +362,7 @@ public final class BottomPanelView: NSView {
     // MARK: - Effect Slot Builder
 
     /// Creates an Ableton-style effect slot view.
-    private func makeEffectSlot(effect: AudioEffectConfig, index: Int, frame: CGRect) -> NSView {
+    private func makeEffectSlot(effect: AudioEffectConfig, index: Int, track: Track, frame: CGRect) -> NSView {
         let slot = NSView(frame: frame)
         slot.wantsLayer = true
         slot.layer?.cornerRadius = 4
@@ -323,8 +416,10 @@ public final class BottomPanelView: NSView {
             knob.defaultValue = 0.0
             knob.valueSuffix = " dB"
             knob.arcColor = NSColor(red: 0.95, green: 0.75, blue: 0.25, alpha: 1.0)
-            knob.onValueChanged = { [weak effect] newValue in
+            knob.onValueChanged = { [weak effect, weak self] newValue in
                 effect?.gainDB = newValue
+                // Notify the audio engine to re-apply track settings
+                self?.onEffectParameterChanged?(track.id)
             }
             slot.addSubview(knob)
 

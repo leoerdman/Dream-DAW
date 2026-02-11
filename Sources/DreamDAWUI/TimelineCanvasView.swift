@@ -50,6 +50,10 @@ public final class TimelineCanvasView: NSView {
     /// Parameters: (trackID, nodeType, itemName)
     public var onBrowserItemDropped: ((UUID, String, String) -> Void)?
 
+    /// Callback when zoom level changes (pixelsPerBeat, newScrollX).
+    /// Host must update ruler and layout to keep everything in sync.
+    public var onZoomChanged: ((CGFloat, CGFloat) -> Void)?
+
     /// Reference to the application's undo/redo history for recording actions.
     public weak var actionHistory: ActionHistory?
 
@@ -686,28 +690,22 @@ public final class TimelineCanvasView: NSView {
     // MARK: - Scroll & Zoom
 
     public override func scrollWheel(with event: NSEvent) {
-        if event.modifierFlags.contains(.option) {
-            // Zoom horizontally with Option+scroll — centered on the playhead
-            // Slower zoom: ~2x less aggressive than before (1.07 vs 1.15)
+        if event.modifierFlags.contains(.command) {
+            // Zoom horizontally with Cmd+scroll — centered on the playhead
             let zoomFactor: CGFloat = event.scrollingDeltaY > 0 ? 1.07 : 0.935
             let oldPPB = pixelsPerBeat
             let newPPB = min(DreamTheme.maxPixelsPerBeat, max(DreamTheme.minPixelsPerBeat, oldPPB * zoomFactor))
+            guard newPPB != oldPPB else { return }
 
             // Center zoom on the playhead position
             let playheadBeat = CGFloat(playheadPosition.beats)
             let playheadScreenX = playheadBeat * oldPPB - scrollOffset.x
 
-            pixelsPerBeat = newPPB
-
-            // Adjust scroll so the playhead stays at the same screen position
+            // Calculate new scroll X to keep playhead at the same screen position
             let newScrollX = playheadBeat * newPPB - playheadScreenX
-            if let scrollView = enclosingScrollView {
-                let documentView = scrollView.documentView!
-                let maxScrollX = max(0, documentView.frame.width - scrollView.contentView.bounds.width)
-                let clampedX = max(0, min(newScrollX, maxScrollX))
-                scrollView.contentView.scroll(to: NSPoint(x: clampedX, y: scrollView.contentView.bounds.origin.y))
-                scrollView.reflectScrolledClipView(scrollView.contentView)
-            }
+
+            // Route through host so ruler stays in sync
+            onZoomChanged?(newPPB, newScrollX)
         } else {
             // Pass to parent for normal scrolling
             super.scrollWheel(with: event)

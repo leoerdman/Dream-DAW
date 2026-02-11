@@ -125,12 +125,7 @@ public final class TrackHeaderView: NSView {
         vuMeterFillR.translatesAutoresizingMaskIntoConstraints = false
         vuMeterBarR.addSubview(vuMeterFillR)
 
-        // Peak clip indicator (red dot at top)
-        peakIndicator.wantsLayer = true
-        peakIndicator.layer?.backgroundColor = NSColor(red: 0.3, green: 0.3, blue: 0.3, alpha: 1).cgColor
-        peakIndicator.layer?.cornerRadius = 2
-        peakIndicator.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(peakIndicator)
+        // Peak clip indicator removed — clean meter style without dots
 
         // Track enable/disable button (shows track number, light green when on, gray when off)
         enableButton.title = "\(trackIndex + 1)"
@@ -179,21 +174,15 @@ public final class TrackHeaderView: NSView {
 
             // VU meter left channel (vertical bar, near right edge)
             vuMeterBarL.trailingAnchor.constraint(equalTo: vuMeterBarR.leadingAnchor, constant: -2),
-            vuMeterBarL.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            vuMeterBarL.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             vuMeterBarL.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             vuMeterBarL.widthAnchor.constraint(equalToConstant: 4),
 
             // VU meter right channel
             vuMeterBarR.trailingAnchor.constraint(equalTo: enableButton.leadingAnchor, constant: -4),
-            vuMeterBarR.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            vuMeterBarR.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             vuMeterBarR.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             vuMeterBarR.widthAnchor.constraint(equalToConstant: 4),
-
-            // Peak indicator (above the VU meters)
-            peakIndicator.centerXAnchor.constraint(equalTo: vuMeterBarL.trailingAnchor, constant: 1),
-            peakIndicator.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            peakIndicator.widthAnchor.constraint(equalToConstant: 10),
-            peakIndicator.heightAnchor.constraint(equalToConstant: 4),
 
             // Enable button (far right — shows track number)
             enableButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
@@ -275,16 +264,17 @@ public final class TrackHeaderView: NSView {
         let barHeight = vuMeterBarL.bounds.height
         let fillHeight = max(0, min(barHeight, barHeight * normalizedLevel))
 
-        // Fill from bottom up (in flipped view, bottom = maxY)
+        // Fill from bottom up — vuMeterBarL/R are non-flipped NSViews,
+        // so y=0 is the physical bottom of the bar.
         vuMeterFillL.frame = CGRect(
             x: 0,
-            y: barHeight - fillHeight,
+            y: 0,
             width: vuMeterBarL.bounds.width,
             height: fillHeight
         )
         vuMeterFillR.frame = CGRect(
             x: 0,
-            y: barHeight - fillHeight,
+            y: 0,
             width: vuMeterBarR.bounds.width,
             height: fillHeight
         )
@@ -312,24 +302,6 @@ public final class TrackHeaderView: NSView {
         }
         vuMeterFillL.layer?.backgroundColor = meterColor.cgColor
         vuMeterFillR.layer?.backgroundColor = meterColor.cgColor
-
-        // Peak indicator
-        let peakDB = 20 * log10(max(peak, 1e-8))
-        if track.trackType == .midi {
-            // MIDI: yellow peak only
-            peakIndicator.layer?.backgroundColor = peakDB > -6
-                ? NSColor(red: 1.0, green: 0.85, blue: 0.15, alpha: 1).cgColor
-                : NSColor(white: 0.3, alpha: 1).cgColor
-        } else {
-            // Audio: red > 0dB, yellow > -6dB, gray otherwise
-            if peakDB > 0 {
-                peakIndicator.layer?.backgroundColor = NSColor(red: 1.0, green: 0.15, blue: 0.15, alpha: 1).cgColor
-            } else if peakDB > -6 {
-                peakIndicator.layer?.backgroundColor = NSColor(red: 1.0, green: 0.8, blue: 0.1, alpha: 1).cgColor
-            } else {
-                peakIndicator.layer?.backgroundColor = NSColor(white: 0.3, alpha: 1).cgColor
-            }
-        }
     }
 
     private func updateButtonStates() {

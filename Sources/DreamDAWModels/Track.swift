@@ -181,9 +181,22 @@ public final class Track: ObservableObject, Identifiable, Codable {
 
     // MARK: - Computed
 
-    /// Effective volume considering mute state.
+    /// Effective volume considering mute state and Utility effect gain.
     public var effectiveVolume: Float {
-        isMuted ? 0 : volume
+        guard !isMuted else { return 0 }
+
+        // Apply cumulative Utility gain from the effects chain (dB → linear)
+        var gainLinear: Float = 1.0
+        for effect in effects where effect.effectType == .utility && effect.isEnabled {
+            // gainDB: -60 dB = nearly silent, 0 dB = unity, +6 dB = boost
+            // Use -60 dB floor as effective -infinity
+            if effect.gainDB <= -59.9 {
+                return 0  // -∞ dB → silence
+            }
+            gainLinear *= powf(10.0, effect.gainDB / 20.0)
+        }
+
+        return volume * gainLinear
     }
     
     /// Whether this track has any content.

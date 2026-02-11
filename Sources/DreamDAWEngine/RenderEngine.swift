@@ -151,12 +151,18 @@ public final class RenderEngine {
         let synth = SimpleSynthInstrument()
         let sampler = SamplerInstrument()
 
+        // Determine if any track is soloed (solo-aware rendering)
+        let anySoloed = project.tracks.contains { $0.isSoloed && $0.trackType != .master }
+
         // Render each track
         for (trackIndex, track) in project.tracks.enumerated() {
             guard track.trackType != .master else { continue }
             guard !track.isMuted else { continue }
 
-            let trackVolume = track.volume
+            // Solo-aware: if any track is soloed, only render soloed tracks
+            if anySoloed && !track.isSoloed { continue }
+
+            let trackVolume = track.effectiveVolume
             let trackPan = track.pan
 
             // Render audio clips
@@ -193,12 +199,12 @@ public final class RenderEngine {
                         let srcIdx = Int(srcPos)
                         guard srcIdx >= 0, srcIdx < Int(fileFrames) else { continue }
 
-                        for ch in 0..<Int(channelCount) {
+                    for ch in 0..<Int(channelCount) {
                             let srcCh = min(ch, Int(fileFormat.channelCount) - 1)
                             guard let srcData = fileBuffer.floatChannelData?[srcCh],
                                   let dstData = masterBuffer.floatChannelData?[ch] else { continue }
 
-                            let panGain: Float = ch == 0 ? min(1.0, 1.0 - trackPan) : min(1.0, 1.0 + trackPan)
+                            let panGain = Self.equalPowerPanGain(pan: trackPan, channel: ch)
                             dstData[outFrame] += srcData[srcIdx] * trackVolume * panGain
                         }
                     }
@@ -248,7 +254,7 @@ public final class RenderEngine {
                         guard let srcData = buffer.floatChannelData?[srcCh],
                               let dstData = masterBuffer.floatChannelData?[ch] else { continue }
 
-                        let panGain: Float = ch == 0 ? min(1.0, 1.0 - trackPan) : min(1.0, 1.0 + trackPan)
+                        let panGain = Self.equalPowerPanGain(pan: trackPan, channel: ch)
                         dstData[outFrame] += srcData[srcIdx] * trackVolume * panGain
                     }
                 }
@@ -301,5 +307,20 @@ public final class RenderEngine {
                 self.onComplete?(.failure(RenderError.renderFailed(error.localizedDescription)))
             }
         }
+    }
+
+    // MARK: - Pan Law
+
+    /// Equal-power pan gain for a given channel.
+    /// `pan` is -1.0 (full left) to +1.0 (full right).
+    /// Uses cos/sin curves to maintain constant power at center position.
+    ///
+    /// At center (pan=0): both channels ≈ 0.707 (equal power, -3dB each)
+    /// At hard left (pan=-1): L=1.0, R=0.0
+    /// At hard right (pan=+1): L=0.0, R=1.0
+    private static func equalPowerPanGain(pan: Float, channel: Int) -> Float {
+        // Normalize pan from [-1, +1] to [0, π/2]
+        let angle = (pan + 1.0) * 0.5 * Float.pi * 0.5
+        return channel == 0 ? cosf(angle) : sinf(angle)
     }
 }

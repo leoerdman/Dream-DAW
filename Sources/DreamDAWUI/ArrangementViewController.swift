@@ -70,6 +70,8 @@ public final class ArrangementViewController: NSViewController {
 
     /// Whether the render dialog is currently shown.
     private var isRenderDialogShown: Bool = false
+    /// Weak reference to the render dialog panel (avoids fragile title-based lookup).
+    private weak var renderPanel: NSPanel?
 
     // MARK: - Initialization
 
@@ -209,6 +211,9 @@ public final class ArrangementViewController: NSViewController {
         canvasScrollView.autohidesScrollers = false
         canvasScrollView.documentView = canvasView
         canvasScrollView.scrollerStyle = .overlay
+        // Disable elastic bounce — no over-scrolling past content boundaries
+        canvasScrollView.horizontalScrollElasticity = .none
+        canvasScrollView.verticalScrollElasticity = .none
         view.addSubview(canvasScrollView)
 
         // Register for drag and drop (audio files + browser items like instruments/effects)
@@ -220,6 +225,9 @@ public final class ArrangementViewController: NSViewController {
         headerScrollView.hasVerticalScroller = false
         headerScrollView.hasHorizontalScroller = false
         headerScrollView.documentView = trackHeaders
+        // Match canvas: no elastic bounce
+        headerScrollView.horizontalScrollElasticity = .none
+        headerScrollView.verticalScrollElasticity = .none
         view.addSubview(headerScrollView)
 
         // ===== BOTTOM: Status Bar =====
@@ -243,6 +251,7 @@ public final class ArrangementViewController: NSViewController {
 
         // ===== BOTTOM: Bottom Panel (Piano Roll / Track Detail) =====
         bottomPanel.isHidden = true
+        bottomPanel.audioLevelMeter = audioLevelMeter
         view.addSubview(bottomPanel)
 
         // Horizontal divider above bottom panel
@@ -555,13 +564,39 @@ public final class ArrangementViewController: NSViewController {
 
         // Transport position updates → canvas and ruler
         transportController.onPlayheadUpdate = { [weak self] position in
-            self?.canvasView.playheadPosition = position
-            self?.rulerView.playheadPosition = position
+            guard let self = self else { return }
+            self.canvasView.playheadPosition = position
+            self.rulerView.playheadPosition = position
+
+            // Sync loop toggle state (transport → ruler)
+            if self.rulerView.isLooping != self.transportController.isLooping {
+                self.rulerView.isLooping = self.transportController.isLooping
+            }
         }
 
         // Ruler click → set playhead
         rulerView.onClickPosition = { [weak self] position in
             self?.transportController.seek(to: position)
+        }
+
+        // ━━━━━ Loop Marker Wiring ━━━━━
+
+        // Initialize ruler loop state from transport controller
+        rulerView.loopStart = transportController.loopStart
+        rulerView.loopEnd = transportController.loopEnd
+        rulerView.isLooping = transportController.isLooping
+
+        // Ruler loop marker dragged → update transport & project
+        rulerView.onLoopStartChanged = { [weak self] position in
+            guard let self = self else { return }
+            self.transportController.loopStart = position
+            self.project.loopStart = position
+        }
+
+        rulerView.onLoopEndChanged = { [weak self] position in
+            guard let self = self else { return }
+            self.transportController.loopEnd = position
+            self.project.loopEnd = position
         }
 
         // Track changes → mixer (mute/volume/pan)
@@ -617,6 +652,16 @@ public final class ArrangementViewController: NSViewController {
             }
         }
 
+        // Loop wrap → stop current audio + re-schedule from loop start
+        transportController.onLoopWrap = { [weak self] in
+            guard let self = self else { return }
+            self.playbackScheduler.stopAll()
+            self.playbackScheduler.schedulePlayback(
+                project: self.project,
+                from: self.transportController.playheadPosition
+            )
+        }
+
         // Canvas → bottom panel: click track → show detail
         canvasView.onTrackClicked = { [weak self] trackID in
             guard let self = self,
@@ -639,6 +684,29 @@ public final class ArrangementViewController: NSViewController {
             self?.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName)
         }
 
+        // Canvas → host: zoom changed (Cmd+scroll) — sync ruler and scroll
+        canvasView.onZoomChanged = { [weak self] newPPB, newScrollX in
+            guard let self = self else { return }
+            // Update shared zoom level
+            self.pixelsPerBeat = newPPB
+            self.canvasView.pixelsPerBeat = newPPB
+            self.rulerView.pixelsPerBeat = newPPB
+
+            // Recompute document size for the new zoom
+            self.layoutSubviews()
+
+            // Apply the scroll position to keep playhead centered
+            let scrollView = self.canvasScrollView
+            let maxScrollX = max(0, scrollView.documentView!.frame.width - scrollView.contentView.bounds.width)
+            let clampedX = max(0, min(newScrollX, maxScrollX))
+            scrollView.contentView.scroll(to: NSPoint(x: clampedX, y: scrollView.contentView.bounds.origin.y))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+
+            // Sync ruler scroll offset
+            self.rulerView.scrollOffset = clampedX
+            self.canvasView.scrollOffset = CGPoint(x: clampedX, y: scrollView.contentView.bounds.origin.y)
+        }
+
         // Bottom panel → project: note changes from piano roll
         bottomPanel.onNotesChanged = { [weak self] track, updatedClip in
             guard let self = self,
@@ -656,6 +724,14 @@ public final class ArrangementViewController: NSViewController {
             // Refresh the bottom panel to show the newly added effect
             if let track = self.project.tracks.first(where: { $0.id == trackID }) {
                 self.bottomPanel.showDetail(for: track)
+            }
+        }
+
+        // Bottom panel → audio engine: effect parameter changed (e.g. Utility gain knob)
+        bottomPanel.onEffectParameterChanged = { [weak self] trackID in
+            guard let self = self else { return }
+            if let track = self.project.tracks.first(where: { $0.id == trackID }) {
+                self.trackMixer.applyTrackSettings(track)
             }
         }
     }
@@ -732,6 +808,16 @@ public final class ArrangementViewController: NSViewController {
         rulerView.bpm = project.bpm
         rulerView.timeSignature = project.timeSignature
 
+        // Sync loop state from project → transport & ruler
+        if let ls = project.loopStart {
+            transportController.loopStart = ls
+            rulerView.loopStart = ls
+        }
+        if let le = project.loopEnd {
+            transportController.loopEnd = le
+            rulerView.loopEnd = le
+        }
+
         trackHeaders.configure(tracks: project.tracks, masterTrack: project.masterTrack)
     }
 
@@ -765,10 +851,10 @@ public final class ArrangementViewController: NSViewController {
     public override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags
         switch event.keyCode {
-        case 49: // Space — handled in performKeyEquivalent
-            transportController.togglePlayPause()
-        case 36: // Return — stop and go to beginning
-            transportController.stop()
+        case 49: // Space — handled by installGlobalKeyMonitor
+            break
+        case 36: // Return — handled by installGlobalKeyMonitor
+            break
         case 24 where flags.contains(.command): // Cmd+=  zoom in
             setZoom(pixelsPerBeat * 1.3)
         case 27 where flags.contains(.command): // Cmd+-  zoom out
@@ -925,6 +1011,7 @@ public final class ArrangementViewController: NSViewController {
         panel.center()
         panel.isReleasedWhenClosed = false
         panel.makeKeyAndOrderFront(nil)
+        self.renderPanel = panel
 
         // Track panel close
         NotificationCenter.default.addObserver(
@@ -938,10 +1025,8 @@ public final class ArrangementViewController: NSViewController {
 
     private func dismissRenderDialog() {
         isRenderDialogShown = false
-        // Close the panel — find by title
-        for window in NSApp.windows where window.title == "Render to Audio" {
-            window.close()
-        }
+        renderPanel?.close()
+        renderPanel = nil
     }
 
     // MARK: - Project File Operations

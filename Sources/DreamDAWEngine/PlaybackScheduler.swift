@@ -50,8 +50,7 @@ public final class PlaybackScheduler {
         let bpm = project.bpm
         let sampleRate = audioEngine.sampleRate
 
-        NSLog("[PlaybackScheduler] schedulePlayback from beat %.2f, bpm=%.1f, sampleRate=%.0f, engineRunning=%d",
-              position.beats, bpm, sampleRate, audioEngine.isRunning ? 1 : 0)
+        logger.info("schedulePlayback from beat \(position.beats, format: .fixed(precision: 2)), bpm=\(bpm, format: .fixed(precision: 1)), sampleRate=\(sampleRate, format: .fixed(precision: 0)), engineRunning=\(self.audioEngine.isRunning)")
 
         // Stop all players first
         trackMixer.stopAll()
@@ -63,7 +62,7 @@ public final class PlaybackScheduler {
             guard track.trackType != .master else { continue }
 
             guard let player = trackMixer.playerNode(for: track.id) else {
-                NSLog("[PlaybackScheduler] No player node for track '%@'", track.name)
+                logger.warning("No player node for track '\(track.name)'")
                 continue
             }
 
@@ -86,9 +85,9 @@ public final class PlaybackScheduler {
 
             if hasContent {
                 playersToStart.append(player)
-                NSLog("[PlaybackScheduler] Track '%@' has content, will start player", track.name)
+                logger.debug("Track '\(track.name)' has content, will start player")
             } else {
-                NSLog("[PlaybackScheduler] Track '%@' has no content at this position", track.name)
+                logger.debug("Track '\(track.name)' has no content at this position")
             }
         }
 
@@ -97,7 +96,7 @@ public final class PlaybackScheduler {
             player.play()
         }
 
-        NSLog("[PlaybackScheduler] Started %d players", playersToStart.count)
+        logger.info("Started \(playersToStart.count) players")
     }
 
     // MARK: - Audio Clip Scheduling

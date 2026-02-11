@@ -3,9 +3,24 @@ import Foundation
 
 // MARK: - SignalMeterView
 
-/// Vertical signal level meter with green→yellow→red gradient.
-/// Sits between effect slots to visualize signal level at each point in the chain.
+/// Vertical signal level meter with configurable signal type coloring.
+///
+/// **Signal Types:**
+/// - `.audio` (default): Standard green→yellow→red gradient
+/// - `.midi`: Yellow→orange→red gradient (distinct from audio)
+///
+/// Level 0.0 = silence, 1.0 = 0 dBFS, >1.0 = clipping.
 public final class SignalMeterView: NSView {
+
+    // MARK: - Signal Type (Color Mode)
+
+    /// Determines the color palette used for the meter fill.
+    public enum SignalType {
+        /// Audio signal — green base, yellow at high levels, red on clip.
+        case audio
+        /// MIDI signal — yellow/amber base, orange at high levels, red on clip.
+        case midi
+    }
 
     // MARK: - Properties
 
@@ -14,18 +29,43 @@ public final class SignalMeterView: NSView {
         didSet { needsDisplay = true }
     }
 
-    /// Peak hold level (decays slowly).
-    public var peakLevel: Float = 0.0
+    /// Signal type determines the color palette.
+    public var signalType: SignalType = .audio {
+        didSet { needsDisplay = true }
+    }
 
     /// Whether this meter is animating.
     public var isActive: Bool = false
 
-    /// The meter width.
+    /// The meter bar width.
     private let meterWidth: CGFloat = 4
+
+    // MARK: - Color Palettes
+
+    /// Returns the gradient segments for the current signal type.
+    /// Each segment: (threshold in 0...1.2 range, fill color)
+    private var colorSegments: [(threshold: CGFloat, color: NSColor)] {
+        switch signalType {
+        case .audio:
+            return [
+                (0.70, NSColor(red: 0.25, green: 0.80, blue: 0.35, alpha: 1.0)),  // Green
+                (0.90, NSColor(red: 0.95, green: 0.80, blue: 0.15, alpha: 1.0)),  // Yellow
+                (1.20, NSColor(red: 0.95, green: 0.25, blue: 0.20, alpha: 1.0)),  // Red
+            ]
+        case .midi:
+            return [
+                (0.70, NSColor(red: 0.95, green: 0.75, blue: 0.20, alpha: 1.0)),  // Amber/Yellow
+                (0.90, NSColor(red: 0.95, green: 0.55, blue: 0.15, alpha: 1.0)),  // Orange
+                (1.20, NSColor(red: 0.95, green: 0.25, blue: 0.20, alpha: 1.0)),  // Red
+            ]
+        }
+    }
 
     // MARK: - Layout
 
-    public override var isFlipped: Bool { true }
+    // Use standard (non-flipped) coordinate system: y=0 at bottom, y increases upward.
+    // This ensures the meter naturally fills from bottom to top.
+    public override var isFlipped: Bool { false }
 
     // MARK: - Drawing
 
@@ -34,67 +74,56 @@ public final class SignalMeterView: NSView {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
 
         let meterX = (bounds.width - meterWidth) / 2
-        let meterH = bounds.height - 4
-        let meterY: CGFloat = 2
+        let pad: CGFloat = 2
+        let meterH = bounds.height - pad * 2
+        let meterBottom: CGFloat = pad
 
         // Background groove
         ctx.setFillColor(NSColor(white: 0.10, alpha: 1.0).cgColor)
-        let grooveRect = CGRect(x: meterX, y: meterY, width: meterWidth, height: meterH)
+        let grooveRect = CGRect(x: meterX, y: meterBottom, width: meterWidth, height: meterH)
         let groovePath = CGPath(roundedRect: grooveRect, cornerWidth: meterWidth / 2,
                                 cornerHeight: meterWidth / 2, transform: nil)
         ctx.addPath(groovePath)
         ctx.fillPath()
 
-        // Active level — draw from bottom (in flipped coords, bottom = meterY + meterH)
+        // Active level — fills from bottom upward
         let clampedLevel = CGFloat(min(max(level, 0.0), 1.2))
-        let fillH = meterH * clampedLevel / 1.2
-        if fillH > 0 {
-            let fillY = meterY + meterH - fillH  // bottom-up in flipped coords
-            let fillRect = CGRect(x: meterX, y: fillY, width: meterWidth, height: fillH)
+        guard clampedLevel > 0 else { return }
 
-            // Color based on level
-            let color: NSColor
-            if level > 1.0 {
-                color = NSColor(red: 0.95, green: 0.25, blue: 0.20, alpha: 1.0) // Red — clipping
-            } else if level > 0.75 {
-                color = NSColor(red: 0.95, green: 0.80, blue: 0.15, alpha: 1.0) // Yellow
-            } else {
-                color = NSColor(red: 0.25, green: 0.80, blue: 0.35, alpha: 1.0) // Green
-            }
+        let fillNorm = clampedLevel / 1.2  // Normalized 0..1
 
-            ctx.setFillColor(color.cgColor)
-            let fillPath = CGPath(roundedRect: fillRect, cornerWidth: meterWidth / 2,
-                                  cornerHeight: meterWidth / 2, transform: nil)
-            ctx.addPath(fillPath)
-            ctx.fillPath()
+        // Draw fill with rounded corners by clipping to groove shape
+        ctx.saveGState()
+        ctx.addPath(groovePath)
+        ctx.clip()
+
+        let segments = colorSegments
+        var drawnH: CGFloat = 0
+
+        for seg in segments {
+            let segTopNorm = seg.threshold / 1.2
+            let segBottomNorm = drawnH / meterH
+            if fillNorm <= segBottomNorm { break }
+
+            let segEndNorm = min(fillNorm, segTopNorm)
+            let segH = (segEndNorm - segBottomNorm) * meterH
+            guard segH > 0 else { continue }
+
+            let segRect = CGRect(x: meterX, y: meterBottom + drawnH, width: meterWidth, height: segH)
+            ctx.setFillColor(seg.color.cgColor)
+            ctx.fill(segRect)
+
+            drawnH += segH
         }
 
-        // Peak indicator line
-        if peakLevel > 0.01 {
-            let peakNorm = CGFloat(min(peakLevel, 1.2)) / 1.2
-            let peakY = meterY + meterH - meterH * peakNorm
-            ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.6).cgColor)
-            ctx.setLineWidth(1)
-            ctx.move(to: CGPoint(x: meterX, y: peakY))
-            ctx.addLine(to: CGPoint(x: meterX + meterWidth, y: peakY))
-            ctx.strokePath()
-        }
+        ctx.restoreGState()
     }
 
-    // MARK: - Animation
+    // MARK: - Level Helpers
 
-    /// Simulate a random level for visualization.
-    public func simulateLevel() {
-        let target = Float.random(in: 0.2...0.85)
-        level = level * 0.7 + target * 0.3
-        peakLevel = max(peakLevel * 0.98, level)
-        if peakLevel < 0.01 { peakLevel = 0 }
-    }
-
-    /// Decay levels toward zero.
+    /// Decay levels toward zero (smooth visual falloff).
     public func decay() {
         level = max(0, level * 0.85)
-        peakLevel = max(0, peakLevel * 0.97)
         needsDisplay = true
     }
 }

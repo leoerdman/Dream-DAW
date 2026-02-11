@@ -137,15 +137,42 @@ public final class BrowserSidebarView: NSView {
         let instruments = BrowserNode(name: "Instruments", icon: "pianokeys", isGroup: true)
         instruments.children = [
             BrowserNode(name: "Simple Sine Synth", icon: "waveform.path"),
+            BrowserNode(name: "Sampler", icon: "waveform.badge.plus"),
+        ]
+
+        // Audio Effects
+        let audioEffects = BrowserNode(name: "Audio Effects", icon: "wand.and.stars", isGroup: true)
+        audioEffects.children = [
+            BrowserNode(name: "EQ Eight", icon: "slider.horizontal.3"),
+            BrowserNode(name: "Compressor", icon: "gauge.with.dots.needle.33percent"),
+            BrowserNode(name: "Delay", icon: "clock.arrow.2.circlepath"),
+            BrowserNode(name: "Reverb", icon: "waveform.path.ecg"),
+            BrowserNode(name: "Chorus-Ensemble", icon: "waveform.path.badge.plus"),
+            BrowserNode(name: "Utility", icon: "wrench"),
+        ]
+
+        // MIDI Effects
+        let midiEffects = BrowserNode(name: "MIDI Effects", icon: "sparkles", isGroup: true)
+        midiEffects.children = [
+            BrowserNode(name: "Arpeggiator", icon: "arrow.up.right"),
+            BrowserNode(name: "Chord", icon: "music.note.list"),
+            BrowserNode(name: "Note Length", icon: "ruler"),
+            BrowserNode(name: "Scale", icon: "tuningfork"),
+        ]
+
+        // Plug-Ins (AU / VST)
+        let plugIns = BrowserNode(name: "Plug-Ins", icon: "puzzlepiece.fill", isGroup: true)
+        plugIns.children = [
+            BrowserNode(name: "Audio Units", icon: "cpu"),
         ]
 
         library.children = [
             BrowserNode(name: "Sounds", icon: "music.note"),
             BrowserNode(name: "Drums", icon: "drum.fill"),
             instruments,
-            BrowserNode(name: "Audio Effects", icon: "wand.and.stars"),
-            BrowserNode(name: "MIDI Effects", icon: "sparkles"),
-            BrowserNode(name: "Plug-Ins", icon: "puzzlepiece.fill"),
+            audioEffects,
+            midiEffects,
+            plugIns,
             BrowserNode(name: "Clips", icon: "film"),
             BrowserNode(name: "Templates", icon: "doc.text"),
         ]

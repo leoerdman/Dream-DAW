@@ -4,6 +4,14 @@ import Foundation
 import DreamDAWModels
 import DreamDAWEngine
 
+// MARK: - FlippedView
+
+/// NSView subclass with flipped coordinate system (y=0 at top).
+/// Required because all layout math in layoutSubviews() uses top-down coordinates.
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
+}
+
 // MARK: - ArrangementViewController
 
 /// Main view controller for the arrangement view — Ableton Live 11 layout.
@@ -36,6 +44,7 @@ public final class ArrangementViewController: NSViewController {
     private let browserToggleView = NSView() // Browser show/hide handle
     private let bottomPanel = BottomPanelView()
     private let bottomPanelDivider = NSView()
+    private var masterTrackHeader: TrackHeaderView?
 
     // State
     private var pixelsPerBeat: CGFloat = DreamTheme.defaultPixelsPerBeat
@@ -76,7 +85,7 @@ public final class ArrangementViewController: NSViewController {
     // MARK: - View Lifecycle
 
     public override func loadView() {
-        view = NSView()
+        view = FlippedView()
         view.wantsLayer = true
         view.layer?.backgroundColor = DreamTheme.bgPrimary.cgColor
     }
@@ -173,6 +182,12 @@ public final class ArrangementViewController: NSViewController {
         bottomPanelDivider.wantsLayer = true
         bottomPanelDivider.layer?.backgroundColor = DreamTheme.divider.cgColor
         view.addSubview(bottomPanelDivider)
+
+        // ===== BOTTOM: Master Track Header (pinned above bottom panel/status bar) =====
+        let masterHeader = TrackHeaderView(track: project.masterTrack, index: -1)
+        masterHeader.wantsLayer = true
+        view.addSubview(masterHeader)
+        self.masterTrackHeader = masterHeader
     }
 
     // MARK: - Layout (Ableton Style)
@@ -213,9 +228,10 @@ public final class ArrangementViewController: NSViewController {
             height: statusBarH
         )
 
-        // Content area (between control bar, status bar, and bottom panel)
+        // Content area (between control bar, status bar, master header, and bottom panel)
+        let masterHeaderH: CGFloat = 40  // Master track row at the bottom
         let contentTop = controlBarH
-        let contentHeight = bounds.height - controlBarH - statusBarH - bottomPanelH
+        let contentHeight = bounds.height - controlBarH - statusBarH - bottomPanelH - masterHeaderH
 
         // Browser sidebar (LEFT)
         browserSidebar.isHidden = !isBrowserVisible
@@ -316,13 +332,22 @@ public final class ArrangementViewController: NSViewController {
         // Track headers document size
         trackHeaders.frame.size.width = headerW
 
-        // Mixer hosting view (when in mixer mode)
+        // Master track header (BOTTOM, full width, above bottom panel)
+        let masterY = contentTop + contentHeight  // right after the content area
+        masterTrackHeader?.frame = CGRect(
+            x: 0,
+            y: masterY,
+            width: bounds.width,
+            height: masterHeaderH
+        )
+
+        // Mixer hosting view (when in mixer mode) — takes full content area
         if let mixerHosting = mixerHostingView {
             mixerHosting.frame = CGRect(
-                x: canvasStartX,
-                y: canvasTop,
-                width: bounds.width - canvasStartX,
-                height: canvasAreaHeight
+                x: 0,
+                y: contentTop,
+                width: bounds.width,
+                height: contentHeight + masterHeaderH  // mixer view covers master area too
             )
         }
     }
@@ -505,10 +530,18 @@ public final class ArrangementViewController: NSViewController {
             setZoom(pixelsPerBeat / 1.3)
         case 11 where flags.contains(.command) && flags.contains(.option): // Cmd+Opt+B toggle browser
             toggleBrowser()
+        case 48 where flags.contains(.shift): // Shift+Tab — toggle bottom panel (detail/clip view)
+            toggleBottomPanel()
         case 48: // Tab — toggle arrangement/mixer view
             toggleMixerView()
         case 15 where flags.contains(.command) && flags.contains(.shift): // Cmd+Shift+R — render
             showRenderDialog()
+        case 1 where flags.contains(.command) && flags.contains(.shift): // Cmd+Shift+S — save as
+            saveProjectAs()
+        case 1 where flags.contains(.command): // Cmd+S — save
+            saveProject()
+        case 31 where flags.contains(.command): // Cmd+O — open
+            openProject()
         default:
             super.keyDown(with: event)
         }
@@ -530,11 +563,18 @@ public final class ArrangementViewController: NSViewController {
     }
 
     private func showMixerView() {
-        // Hide arrangement-specific views
+        // Hide ALL arrangement-specific views
         canvasScrollView.isHidden = true
-        trackHeaders.isHidden = true
+        headerScrollView.isHidden = true
         rulerView.isHidden = true
         vertDividerRight.isHidden = true
+        vertDividerLeft.isHidden = true
+        cornerViewRight.isHidden = true
+        cornerViewLeft.isHidden = true
+        browserSidebar.isHidden = true
+        bottomPanel.isHidden = true
+        bottomPanelDivider.isHidden = true
+        masterTrackHeader?.isHidden = true
 
         // Create and show mixer view
         let mixerView = MixerView(project: project) { [weak self] track in
@@ -544,7 +584,7 @@ public final class ArrangementViewController: NSViewController {
         }
 
         let hostingView = NSHostingView(rootView: mixerView)
-        hostingView.frame = canvasScrollView.frame
+        hostingView.frame = view.bounds
         view.addSubview(hostingView)
         self.mixerHostingView = hostingView
 
@@ -555,11 +595,35 @@ public final class ArrangementViewController: NSViewController {
         mixerHostingView?.removeFromSuperview()
         mixerHostingView = nil
 
-        // Show arrangement views
+        // Restore ALL arrangement views
         canvasScrollView.isHidden = false
-        trackHeaders.isHidden = false
+        headerScrollView.isHidden = false
         rulerView.isHidden = false
+        cornerViewRight.isHidden = false
+        cornerViewLeft.isHidden = false
+        browserSidebar.isHidden = !isBrowserVisible
+        vertDividerLeft.isHidden = !isBrowserVisible
+        bottomPanelDivider.isHidden = bottomPanel.panelHeight == 0
+        masterTrackHeader?.isHidden = false
 
+        layoutSubviews()
+    }
+
+    // MARK: - Bottom Panel Toggle (Shift+Tab)
+
+    /// Toggles the bottom panel between hidden, track detail, and clip view modes.
+    /// - Hidden → shows detail for currently selected track (or first track)
+    /// - Detail showing → hides the panel
+    private func toggleBottomPanel() {
+        switch bottomPanel.mode {
+        case .hidden:
+            // Show detail for current track (use first track as fallback)
+            if let track = project.tracks.first {
+                bottomPanel.mode = .detail(track)
+            }
+        case .detail, .pianoRoll:
+            bottomPanel.mode = .hidden
+        }
         layoutSubviews()
     }
 
@@ -603,5 +667,103 @@ public final class ArrangementViewController: NSViewController {
         for window in NSApp.windows where window.title == "Render to Audio" {
             window.close()
         }
+    }
+
+    // MARK: - Project File Operations
+
+    /// Save the current project (Cmd+S).
+    private func saveProject() {
+        let fm = ProjectFileManager.shared
+
+        if fm.projectFolderURL != nil {
+            do {
+                let url = try fm.save(project: project)
+                updateWindowTitle()
+                print("[DreamDAW] Saved: \(url.lastPathComponent)")
+            } catch {
+                print("[DreamDAW] Save failed: \(error.localizedDescription)")
+                // Fall back to Save As if no folder set
+                if case ProjectFileError.noProjectFolder = error {
+                    saveProjectAs()
+                }
+            }
+        } else {
+            saveProjectAs()
+        }
+    }
+
+    /// Save the current project to a new location (Cmd+Shift+S).
+    private func saveProjectAs() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.prompt = "Save Project Here"
+        panel.message = "Choose a folder to save the project \"\(project.name)\""
+        panel.appearance = NSAppearance(named: .darkAqua)
+
+        panel.beginSheetModal(for: view.window!) { [weak self] response in
+            guard response == .OK,
+                  let folderURL = panel.url,
+                  let self = self else { return }
+
+            do {
+                let url = try ProjectFileManager.shared.saveAs(project: self.project, to: folderURL)
+                self.updateWindowTitle()
+                print("[DreamDAW] Saved as: \(url.lastPathComponent)")
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.runModal()
+            }
+        }
+    }
+
+    /// Open a project file (Cmd+O).
+    private func openProject() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.init(filenameExtension: ProjectFileManager.fileExtension) ?? .data]
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Open"
+        panel.message = "Select a Dream DAW project file (.ddpj)"
+        panel.appearance = NSAppearance(named: .darkAqua)
+
+        panel.beginSheetModal(for: view.window!) { [weak self] response in
+            guard response == .OK,
+                  let fileURL = panel.url,
+                  let self = self else { return }
+
+            do {
+                let openedProject = try ProjectFileManager.shared.open(fileURL: fileURL)
+
+                // Update the current project in-place
+                self.project.name = openedProject.name
+                self.project.bpm = openedProject.bpm
+                self.project.timeSignature = openedProject.timeSignature
+                self.project.sampleRate = openedProject.sampleRate
+                self.project.tracks = openedProject.tracks
+                self.project.masterTrack = openedProject.masterTrack
+                self.project.loopStart = openedProject.loopStart
+                self.project.loopEnd = openedProject.loopEnd
+                self.project.fileURL = openedProject.fileURL
+
+                self.reloadTracks()
+                self.configureProject()
+                self.updateWindowTitle()
+
+                print("[DreamDAW] Opened: \(openedProject.name)")
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.runModal()
+            }
+        }
+    }
+
+    /// Update the window title to reflect the current project name and version.
+    private func updateWindowTitle() {
+        let fm = ProjectFileManager.shared
+        let versionTag = fm.projectFolderURL != nil ? " V\(fm.currentVersion)" : ""
+        view.window?.title = "\(project.name)\(versionTag) — Dream DAW"
     }
 }

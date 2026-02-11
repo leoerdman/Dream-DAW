@@ -1,6 +1,7 @@
 import AppKit
 import DreamDAWModels
 import DreamDAWUI
+import DreamDAWEngine
 
 // MARK: - AppDelegate
 
@@ -141,9 +142,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openProject() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.init(filenameExtension: "dreamdaw")!]
+        panel.allowedContentTypes = [.init(filenameExtension: ProjectFileManager.fileExtension) ?? .data]
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
+        panel.message = "Select a Dream DAW project file (.ddpj)"
+        panel.appearance = NSAppearance(named: .darkAqua)
 
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
@@ -152,21 +155,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func saveProject() {
-        if let url = project.fileURL {
-            writeProject(to: url)
+        let fm = ProjectFileManager.shared
+        if fm.projectFolderURL != nil {
+            do {
+                let url = try fm.save(project: project)
+                mainWindowController?.window?.title = "Dream DAW — \(project.name) V\(fm.currentVersion)"
+            } catch {
+                saveProjectAs()
+            }
         } else {
             saveProjectAs()
         }
     }
 
     @objc private func saveProjectAs() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.init(filenameExtension: "dreamdaw")!]
-        panel.nameFieldStringValue = "\(project.name).dreamdaw"
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.prompt = "Save Project Here"
+        panel.message = "Choose a folder to save \"\(project.name)\""
+        panel.appearance = NSAppearance(named: .darkAqua)
 
         panel.begin { [weak self] response in
-            guard response == .OK, let url = panel.url else { return }
-            self?.writeProject(to: url)
+            guard response == .OK, let url = panel.url, let self = self else { return }
+            do {
+                let fileURL = try ProjectFileManager.shared.saveAs(project: self.project, to: url)
+                let fm = ProjectFileManager.shared
+                self.mainWindowController?.window?.title = "Dream DAW — \(self.project.name) V\(fm.currentVersion)"
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.runModal()
+            }
         }
     }
 
@@ -218,32 +238,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Persistence
 
-    private func writeProject(to url: URL) {
-        do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(project)
-            try data.write(to: url)
-            project.fileURL = url
-            mainWindowController?.window?.title = "Dream DAW — \(project.name)"
-        } catch {
-            let alert = NSAlert(error: error)
-            alert.runModal()
-        }
-    }
-
     private func loadProject(from url: URL) {
         do {
-            let data = try Data(contentsOf: url)
-            let decoder = JSONDecoder()
-            let loadedProject = try decoder.decode(Project.self, from: data)
-            loadedProject.fileURL = url
+            let loadedProject = try ProjectFileManager.shared.open(fileURL: url)
             project = loadedProject
+            let fm = ProjectFileManager.shared
             // Reuse existing window — replace content instead of creating new window
             if let window = mainWindowController?.window {
                 let arrangementVC = ArrangementViewController(project: project)
                 window.contentViewController = arrangementVC
-                window.title = "Dream DAW — \(project.name)"
+                window.title = "Dream DAW — \(project.name) V\(fm.currentVersion)"
             } else {
                 mainWindowController = MainWindowController(project: project)
                 mainWindowController?.showWindow()

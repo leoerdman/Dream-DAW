@@ -66,7 +66,7 @@ public enum DreamTheme {
 
     // MARK: - Dimensions
 
-    public static let controlBarHeight: CGFloat = 32        // Top control bar (Ableton-style, compact)
+    public static let controlBarHeight: CGFloat = 40        // Top control bar (enough room for all controls)
     public static let rulerHeight: CGFloat = 22             // Thinner ruler like Ableton
     public static let trackHeaderWidth: CGFloat = 220       // Right-side track headers
     public static let browserWidth: CGFloat = 240           // Left browser sidebar
@@ -76,7 +76,7 @@ public enum DreamTheme {
     public static let defaultTrackHeight: CGFloat = 32      // Ableton-compact track height
     public static let minTrackHeight: CGFloat = 24
     public static let maxTrackHeight: CGFloat = 300
-    public static let transportBarHeight: CGFloat = 32      // Same as controlBarHeight
+    public static let transportBarHeight: CGFloat = 40      // Same as controlBarHeight
     public static let clipCornerRadius: CGFloat = 2         // Ableton uses minimal rounding
     public static let clipTitleHeight: CGFloat = 14
     public static let scrollbarSize: CGFloat = 10

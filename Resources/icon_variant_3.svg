@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Background: deep purple-black -->
+    <linearGradient id="bgGrad3" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#1e1b4b"/>
+      <stop offset="40%" stop-color="#0f0a2e"/>
+      <stop offset="100%" stop-color="#050510"/>
+    </linearGradient>
+    <!-- Warm amber-orange glow -->
+    <radialGradient id="glow3" cx="0.5" cy="0.5" r="0.4">
+      <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Note gradient: gold to warm white -->
+    <linearGradient id="noteGrad3" x1="0" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#fef3c7"/>
+      <stop offset="40%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+    <filter id="shadow3">
+      <feDropShadow dx="0" dy="4" stdDeviation="14" flood-color="#f59e0b" flood-opacity="0.6"/>
+    </filter>
+    <linearGradient id="border3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="rgba(251,191,36,0.15)"/>
+      <stop offset="100%" stop-color="rgba(251,191,36,0.03)"/>
+    </linearGradient>
+  </defs>
+
+  <!-- macOS rounded rect -->
+  <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228" fill="url(#bgGrad3)"/>
+  <rect x="1.5" y="1.5" width="1021" height="1021" rx="227" ry="227" fill="none" stroke="url(#border3)" stroke-width="1.5"/>
+
+  <!-- Glow -->
+  <circle cx="512" cy="512" r="280" fill="url(#glow3)"/>
+
+  <!-- Beamed double eighth notes ♫ — gold style -->
+  <g filter="url(#shadow3)">
+    <!-- Left note head -->
+    <ellipse cx="380" cy="630" rx="62" ry="46" transform="rotate(-18, 380, 630)" fill="url(#noteGrad3)"/>
+    <!-- Right note head -->
+    <ellipse cx="644" cy="590" rx="62" ry="46" transform="rotate(-18, 644, 590)" fill="url(#noteGrad3)"/>
+    <!-- Left stem -->
+    <rect x="430" y="310" width="14" height="332" rx="7" fill="url(#noteGrad3)"/>
+    <!-- Right stem -->
+    <rect x="694" y="270" width="14" height="332" rx="7" fill="url(#noteGrad3)"/>
+    <!-- Single beam -->
+    <path d="M 430 310 L 708 270 L 708 302 L 430 342 Z" fill="url(#noteGrad3)"/>
+  </g>
+</svg>

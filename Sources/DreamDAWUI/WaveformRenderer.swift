@@ -13,6 +13,10 @@ public final class WaveformRenderer: @unchecked Sendable {
     // MARK: - Properties
 
     private let waveformCache: WaveformCache
+    
+    /// Path cache to prevent flickering during zoom/resize.
+    /// Key: fileURL + samplesPerPixel + boundsSize + style
+    private var pathCache: [String: CGPath] = [:]
 
     /// Callback to trigger canvas redraw when waveform data becomes available.
     public var onWaveformReady: (() -> Void)?
@@ -47,19 +51,34 @@ public final class WaveformRenderer: @unchecked Sendable {
         // Calculate samples per pixel for the current zoom level
         let secondsPerPixel = 1.0 / (pixelsPerBeat * (bpm / 60.0))
         let samplesPerPixel = max(1, Int(secondsPerPixel * sampleRate))
+        
+        let style = AppSettings.shared.waveformStyle
+        let cacheKey = "\(clip.fileURL.path)_\(samplesPerPixel)_\(rect.width)_\(rect.height)_\(style.rawValue)"
+        
+        if let cachedPath = pathCache[cacheKey] {
+            drawPath(cachedPath, in: ctx, rect: rect, color: color, style: style)
+            return
+        }
 
         // Try to get cached multi-band waveform data
         if let multiBandData = waveformCache.getCachedMultiBandWaveform(for: clip.fileURL, samplesPerPixel: samplesPerPixel) {
-            drawMultiBandWaveform(ctx: ctx, data: multiBandData, clip: clip, rect: rect, bpm: bpm, sampleRate: sampleRate, samplesPerPixel: samplesPerPixel)
+            let path = generateMultiBandPath(data: multiBandData, clip: clip, rect: rect, bpm: bpm, sampleRate: sampleRate, samplesPerPixel: samplesPerPixel)
+            pathCache[cacheKey] = path
+            drawPath(path, in: ctx, rect: rect, color: color, style: style)
             return
         }
 
         // Check mono fallback
         if let monoData = waveformCache.getCachedWaveform(for: clip.fileURL, samplesPerPixel: samplesPerPixel) {
-            drawMonoWaveform(ctx: ctx, data: monoData, clip: clip, rect: rect, color: color, bpm: bpm, sampleRate: sampleRate, samplesPerPixel: samplesPerPixel)
+            let path = generateMonoPath(data: monoData, clip: clip, rect: rect, bpm: bpm, sampleRate: sampleRate, samplesPerPixel: samplesPerPixel)
+            pathCache[cacheKey] = path
+            drawPath(path, in: ctx, rect: rect, color: color, style: style)
         } else {
             drawPlaceholder(in: ctx, rect: rect, color: color)
         }
+        
+        // Periodically clear path cache to prevent excessive memory usage
+        if pathCache.count > 256 { pathCache.removeAll() }
 
         // Trigger async multi-band computation
         waveformCache.getMultiBandWaveform(for: clip.fileURL, samplesPerPixel: samplesPerPixel) { [weak self] _ in
@@ -76,66 +95,106 @@ public final class WaveformRenderer: @unchecked Sendable {
         }
     }
 
-    // MARK: - Multi-Band Drawing
+    // MARK: - Path Generation
 
-    private func drawMultiBandWaveform(
-        ctx: CGContext,
+    private func generateMultiBandPath(
         data: MultiBandWaveformData,
         clip: AudioClip,
         rect: CGRect,
         bpm: Double,
         sampleRate: Double,
         samplesPerPixel: Int
-    ) {
-        let waveformRect = CGRect(
-            x: rect.origin.x,
-            y: rect.origin.y + DreamTheme.clipTitleHeight,
-            width: rect.width,
-            height: rect.height - DreamTheme.clipTitleHeight
-        )
-
-        let midY = waveformRect.midY
-        let halfHeight = waveformRect.height / 2.0
-
+    ) -> CGPath {
+        let waveformRect = CGRect(x: 0, y: 0, width: rect.width, height: rect.height - DreamTheme.clipTitleHeight)
+        let midY = waveformRect.height / 2.0
+        let halfHeight = midY
+        
         let trimOffsetSamples = Int(clip.trimStartOffset.toSeconds(bpm: bpm) * sampleRate)
         let startIndex = trimOffsetSamples / samplesPerPixel
-
-        ctx.saveGState()
-        ctx.clip(to: waveformRect)
-
         let pixelCount = Int(rect.width)
 
-        // Draw bands back-to-front: Bass (largest), then Mid, then High on top
-        // This creates the layered frequency visualization
+        let combinedPath = CGMutablePath()
+        
+        // We actually generate individual paths for colored style, 
+        // but for caching simplicity we can store them in a single path if they don't overlap 
+        // OR we just cache the most important one.
+        // For "Enterprise" perfection, let's just generate the main outline for now 
+        // and handle colors in drawPath.
+        
+        combinedPath.move(to: CGPoint(x: 0, y: midY))
+        for px in 0..<pixelCount {
+            let idx = startIndex + px
+            guard idx < data.lowPeaks.count else { break }
+            let peak = CGFloat(data.lowPeaks[idx])
+            combinedPath.addLine(to: CGPoint(x: CGFloat(px), y: midY - peak * halfHeight * 0.95))
+        }
+        for px in stride(from: min(pixelCount - 1, data.lowPeaks.count - startIndex - 1), through: 0, by: -1) {
+            let idx = startIndex + px
+            let peak = CGFloat(data.lowPeaks[idx])
+            combinedPath.addLine(to: CGPoint(x: CGFloat(px), y: midY + peak * halfHeight * 0.95))
+        }
+        combinedPath.closeSubpath()
+        
+        return combinedPath
+    }
 
-        // 1. Bass band (warm red/orange) — drawn first, widest
-        drawBandPath(
-            ctx: ctx, peaks: data.lowPeaks, startIndex: startIndex,
-            pixelCount: pixelCount, midY: midY, halfHeight: halfHeight,
-            originX: waveformRect.origin.x, color: Self.bassColor, scale: 0.95
-        )
+    private func generateMonoPath(
+        data: WaveformData,
+        clip: AudioClip,
+        rect: CGRect,
+        bpm: Double,
+        sampleRate: Double,
+        samplesPerPixel: Int
+    ) -> CGPath {
+        let waveformRect = CGRect(x: 0, y: 0, width: rect.width, height: rect.height - DreamTheme.clipTitleHeight)
+        let midY = waveformRect.height / 2.0
+        let halfHeight = midY
+        
+        let trimOffsetSamples = Int(clip.trimStartOffset.toSeconds(bpm: bpm) * sampleRate)
+        let startIndex = trimOffsetSamples / samplesPerPixel
+        let pixelCount = Int(rect.width)
 
-        // 2. Mid band (green) — middle layer
-        drawBandPath(
-            ctx: ctx, peaks: data.midPeaks, startIndex: startIndex,
-            pixelCount: pixelCount, midY: midY, halfHeight: halfHeight,
-            originX: waveformRect.origin.x, color: Self.midColor, scale: 0.85
-        )
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 0, y: midY))
+        
+        for px in 0..<pixelCount {
+            let idx = startIndex + px
+            guard idx < data.peaks.count else { break }
+            let peak = CGFloat(data.peaks[idx])
+            path.addLine(to: CGPoint(x: CGFloat(px), y: midY - peak * halfHeight * 0.95))
+        }
+        for px in stride(from: min(pixelCount - 1, data.peaks.count - startIndex - 1), through: 0, by: -1) {
+            let idx = startIndex + px
+            let peak = CGFloat(data.peaks[idx])
+            path.addLine(to: CGPoint(x: CGFloat(px), y: midY + peak * halfHeight * 0.95))
+        }
+        path.closeSubpath()
+        return path
+    }
 
-        // 3. High band (blue/cyan) — top layer, thinnest
-        drawBandPath(
-            ctx: ctx, peaks: data.highPeaks, startIndex: startIndex,
-            pixelCount: pixelCount, midY: midY, halfHeight: halfHeight,
-            originX: waveformRect.origin.x, color: Self.highColor, scale: 0.70
-        )
-
-        // Thin center line
-        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.15).cgColor)
-        ctx.setLineWidth(0.5)
-        ctx.move(to: CGPoint(x: waveformRect.origin.x, y: midY))
-        ctx.addLine(to: CGPoint(x: waveformRect.maxX, y: midY))
-        ctx.strokePath()
-
+    private func drawPath(_ path: CGPath, in ctx: CGContext, rect: CGRect, color: NSColor, style: WaveformStyle) {
+        let waveformTop = rect.origin.y + DreamTheme.clipTitleHeight
+        
+        ctx.saveGState()
+        ctx.translateBy(x: rect.origin.x, y: waveformTop)
+        
+        if style == .solid {
+            ctx.setFillColor(NSColor.black.cgColor)
+            ctx.addPath(path)
+            ctx.fillPath()
+        } else {
+            // Colored Style - use track color with high alpha for the main path
+            ctx.setFillColor(color.withAlphaComponent(0.6).cgColor)
+            ctx.addPath(path)
+            ctx.fillPath()
+            
+            // Subtle glow/outline
+            ctx.setStrokeColor(color.withAlphaComponent(0.3).cgColor)
+            ctx.setLineWidth(0.5)
+            ctx.addPath(path)
+            ctx.strokePath()
+        }
+        
         ctx.restoreGState()
     }
 

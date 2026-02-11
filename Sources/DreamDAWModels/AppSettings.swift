@@ -25,6 +25,21 @@ public enum AppLanguage: String, Codable, CaseIterable, Sendable {
     }
 }
 
+// MARK: - WaveformStyle
+
+/// Aesthetic style for waveform rendering.
+public enum WaveformStyle: String, Codable, CaseIterable, Sendable {
+    case colored = "colored"
+    case solid   = "solid"
+    
+    public var displayName: String {
+        switch self {
+        case .colored: return "Colored"
+        case .solid:   return "Classic Black"
+        }
+    }
+}
+
 // MARK: - AppSettings
 
 /// Persistent application settings stored in UserDefaults.
@@ -40,6 +55,7 @@ public final class AppSettings: ObservableObject {
         static let userStoragePath = "dreamdaw.settings.userStoragePath"
         static let samplesPath = "dreamdaw.settings.samplesPath"
         static let audioOutputDeviceUID = "dreamdaw.settings.audioOutputDeviceUID"
+        static let waveformStyle = "dreamdaw.settings.waveformStyle"
     }
     
     // MARK: - General
@@ -48,6 +64,14 @@ public final class AppSettings: ObservableObject {
     @Published public var language: AppLanguage {
         didSet {
             defaults.set(language.rawValue, forKey: Keys.language)
+        }
+    }
+    
+    /// Waveform aesthetic style.
+    @Published public var waveformStyle: WaveformStyle {
+        didSet {
+            defaults.set(waveformStyle.rawValue, forKey: Keys.waveformStyle)
+            NotificationCenter.default.post(name: .waveformStyleDidChange, object: nil)
         }
     }
     
@@ -87,6 +111,13 @@ public final class AppSettings: ObservableObject {
             self.language = .english
         }
         
+        if let styleRaw = defaults.string(forKey: Keys.waveformStyle),
+           let style = WaveformStyle(rawValue: styleRaw) {
+            self.waveformStyle = style
+        } else {
+            self.waveformStyle = .colored
+        }
+        
         if let path = defaults.string(forKey: Keys.userStoragePath), !path.isEmpty {
             self.userStoragePath = path
         } else {
@@ -104,4 +135,5 @@ public final class AppSettings: ObservableObject {
 
 public extension Notification.Name {
     static let samplesPathDidChange = Notification.Name("dreamdaw.samplesPathDidChange")
+    static let waveformStyleDidChange = Notification.Name("dreamdaw.waveformStyleDidChange")
 }

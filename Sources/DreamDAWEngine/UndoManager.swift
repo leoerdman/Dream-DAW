@@ -19,6 +19,30 @@ public protocol UndoableAction {
     func undo(on project: Project)
 }
 
+/// Groups multiple actions into a single atomic undoable unit.
+public final class CompositeUndoAction: UndoableAction {
+    public let actionName: String
+    private let actions: [UndoableAction]
+
+    public init(actionName: String, actions: [UndoableAction]) {
+        self.actionName = actionName
+        self.actions = actions
+    }
+
+    public func execute(on project: Project) {
+        for action in actions {
+            action.execute(on: project)
+        }
+    }
+
+    public func undo(on project: Project) {
+        // Reverse order for undo
+        for action in actions.reversed() {
+            action.undo(on: project)
+        }
+    }
+}
+
 // MARK: - ActionHistory
 
 /// Central undo/redo manager for the project.
@@ -183,7 +207,7 @@ public final class RemoveAudioClipAction: UndoableAction {
     }
 }
 
-/// Move an audio clip to a new position.
+/// Move an audio clip to a new position (within the same track).
 public final class MoveAudioClipAction: UndoableAction {
     public let actionName: String
     private let trackID: UUID
@@ -209,6 +233,91 @@ public final class MoveAudioClipAction: UndoableAction {
         guard let track = project.tracks.first(where: { $0.id == trackID }),
               let clipIdx = track.clips.firstIndex(where: { $0.id == clipID }) else { return }
         track.clips[clipIdx].position = oldPosition
+    }
+}
+
+/// Move an audio clip from one track to another.
+public final class TransferAudioClipAction: UndoableAction {
+    public let actionName: String
+    private let clipID: UUID
+    private let fromTrackID: UUID
+    private let toTrackID: UUID
+    private let oldPosition: TimePosition
+    private let newPosition: TimePosition
+    
+    // Store the clip instance for undo/redo stability
+    private var clip: AudioClip?
+
+    public init(clipID: UUID, fromTrackID: UUID, toTrackID: UUID, oldPosition: TimePosition, newPosition: TimePosition) {
+        self.clipID = clipID
+        self.fromTrackID = fromTrackID
+        self.toTrackID = toTrackID
+        self.oldPosition = oldPosition
+        self.newPosition = newPosition
+        self.actionName = "Move AudioClip"
+    }
+
+    public func execute(on project: Project) {
+        guard let fromTrack = project.tracks.first(where: { $0.id == fromTrackID }),
+              let toTrack = project.tracks.first(where: { $0.id == toTrackID }),
+              let idx = fromTrack.clips.firstIndex(where: { $0.id == clipID }) else { return }
+        
+        var c = fromTrack.clips.remove(at: idx)
+        c.position = newPosition
+        self.clip = c
+        toTrack.clips.append(c)
+    }
+
+    public func undo(on project: Project) {
+        guard let fromTrack = project.tracks.first(where: { $0.id == fromTrackID }),
+              let toTrack = project.tracks.first(where: { $0.id == toTrackID }),
+              var c = self.clip,
+              let idx = toTrack.clips.firstIndex(where: { $0.id == clipID }) else { return }
+        
+        toTrack.clips.remove(at: idx)
+        c.position = oldPosition
+        fromTrack.clips.append(c)
+    }
+}
+
+/// Resize an audio clip (changes position, duration, and optionally trimStartOffset).
+public final class ResizeAudioClipAction: UndoableAction {
+    public let actionName: String
+    private let trackID: UUID
+    private let clipID: UUID
+    private let oldPosition: TimePosition
+    private let oldDuration: TimePosition
+    private let oldTrim: TimePosition
+    private let newPosition: TimePosition
+    private let newDuration: TimePosition
+    private let newTrim: TimePosition
+
+    public init(clipID: UUID, trackID: UUID, oldPosition: TimePosition, oldDuration: TimePosition, oldTrim: TimePosition, newPosition: TimePosition, newDuration: TimePosition, newTrim: TimePosition) {
+        self.clipID = clipID
+        self.trackID = trackID
+        self.oldPosition = oldPosition
+        self.oldDuration = oldDuration
+        self.oldTrim = oldTrim
+        self.newPosition = newPosition
+        self.newDuration = newDuration
+        self.newTrim = newTrim
+        self.actionName = "Resize Audio Clip"
+    }
+
+    public func execute(on project: Project) {
+        guard let track = project.tracks.first(where: { $0.id == trackID }),
+              let idx = track.clips.firstIndex(where: { $0.id == clipID }) else { return }
+        track.clips[idx].position = newPosition
+        track.clips[idx].duration = newDuration
+        track.clips[idx].trimStartOffset = newTrim
+    }
+
+    public func undo(on project: Project) {
+        guard let track = project.tracks.first(where: { $0.id == trackID }),
+              let idx = track.clips.firstIndex(where: { $0.id == clipID }) else { return }
+        track.clips[idx].position = oldPosition
+        track.clips[idx].duration = oldDuration
+        track.clips[idx].trimStartOffset = oldTrim
     }
 }
 
@@ -263,7 +372,7 @@ public final class RemoveMidiClipAction: UndoableAction {
     }
 }
 
-/// Move a MIDI clip to a new position.
+/// Move a MIDI clip to a new position (within the same track).
 public final class MoveMidiClipAction: UndoableAction {
     public let actionName: String
     private let trackID: UUID
@@ -289,6 +398,84 @@ public final class MoveMidiClipAction: UndoableAction {
         guard let track = project.tracks.first(where: { $0.id == trackID }),
               let clipIdx = track.midiClips.firstIndex(where: { $0.id == clipID }) else { return }
         track.midiClips[clipIdx].position = oldPosition
+    }
+}
+
+/// Move a MIDI clip from one track to another.
+public final class TransferMidiClipAction: UndoableAction {
+    public let actionName: String
+    private let clipID: UUID
+    private let fromTrackID: UUID
+    private let toTrackID: UUID
+    private let oldPosition: TimePosition
+    private let newPosition: TimePosition
+    
+    private var clip: MidiClip?
+
+    public init(clipID: UUID, fromTrackID: UUID, toTrackID: UUID, oldPosition: TimePosition, newPosition: TimePosition) {
+        self.clipID = clipID
+        self.fromTrackID = fromTrackID
+        self.toTrackID = toTrackID
+        self.oldPosition = oldPosition
+        self.newPosition = newPosition
+        self.actionName = "Move MIDI Clip"
+    }
+
+    public func execute(on project: Project) {
+        guard let fromTrack = project.tracks.first(where: { $0.id == fromTrackID }),
+              let toTrack = project.tracks.first(where: { $0.id == toTrackID }),
+              let idx = fromTrack.midiClips.firstIndex(where: { $0.id == clipID }) else { return }
+        
+        var c = fromTrack.midiClips.remove(at: idx)
+        c.position = newPosition
+        self.clip = c
+        toTrack.midiClips.append(c)
+    }
+
+    public func undo(on project: Project) {
+        guard let fromTrack = project.tracks.first(where: { $0.id == fromTrackID }),
+              let toTrack = project.tracks.first(where: { $0.id == toTrackID }),
+              var c = self.clip,
+              let idx = toTrack.midiClips.firstIndex(where: { $0.id == clipID }) else { return }
+        
+        toTrack.midiClips.remove(at: idx)
+        c.position = oldPosition
+        fromTrack.midiClips.append(c)
+    }
+}
+
+/// Resize a MIDI clip.
+public final class ResizeMidiClipAction: UndoableAction {
+    public let actionName: String
+    private let trackID: UUID
+    private let clipID: UUID
+    private let oldPosition: TimePosition
+    private let oldDuration: TimePosition
+    private let newPosition: TimePosition
+    private let newDuration: TimePosition
+
+    public init(clipID: UUID, trackID: UUID, oldPosition: TimePosition, oldDuration: TimePosition, newPosition: TimePosition, newDuration: TimePosition) {
+        self.clipID = clipID
+        self.trackID = trackID
+        self.oldPosition = oldPosition
+        self.oldDuration = oldDuration
+        self.newPosition = newPosition
+        self.newDuration = newDuration
+        self.actionName = "Resize MIDI Clip"
+    }
+
+    public func execute(on project: Project) {
+        guard let track = project.tracks.first(where: { $0.id == trackID }),
+              let idx = track.midiClips.firstIndex(where: { $0.id == clipID }) else { return }
+        track.midiClips[idx].position = newPosition
+        track.midiClips[idx].duration = newDuration
+    }
+
+    public func undo(on project: Project) {
+        guard let track = project.tracks.first(where: { $0.id == trackID }),
+              let idx = track.midiClips.firstIndex(where: { $0.id == clipID }) else { return }
+        track.midiClips[idx].position = oldPosition
+        track.midiClips[idx].duration = oldDuration
     }
 }
 

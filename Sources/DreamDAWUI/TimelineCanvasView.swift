@@ -24,7 +24,10 @@ public final class TimelineCanvasView: NSView {
     private var cancellables = Set<AnyCancellable>()
 
     public var pixelsPerBeat: CGFloat = DreamTheme.defaultPixelsPerBeat {
-        didSet { needsDisplay = true }
+        didSet { 
+            needsDisplay = true 
+            rebuildQuadTree() // Rebuild when zoom changes as track layout might shift
+        }
     }
 
     /// Scroll offset — kept for API compatibility but no longer used for drawing.
@@ -65,7 +68,8 @@ public final class TimelineCanvasView: NSView {
     public var onClipsModified: (() -> Void)?
 
     /// Reference to the application's undo/redo history for recording actions.
-    public weak var actionHistory: ActionHistory?
+    /// Reference to the arrangement orchestrator for complex operations.
+    public var orchestrator: ArrangementOrchestrator?
 
     /// Currently dragged clip info for move operations.
     private var dragState: DragState?
@@ -96,6 +100,20 @@ public final class TimelineCanvasView: NSView {
     /// Tracking area for mouseMoved events (cursor changes on hover).
     private var hoverTrackingArea: NSTrackingArea?
 
+    // MARK: - Spatial Indexing
+
+    /// Wrapper for clips stored in the QuadTree.
+    private struct ClipWrapper: Identifiable {
+        let id: UUID
+        let trackID: UUID
+        let isMidi: Bool
+        let audioClip: AudioClip?
+        let midiClip: MidiClip?
+    }
+
+    /// QuadTree for fast spatial queries (hit-testing and culling).
+    private var quadTree: QuadTree<ClipWrapper>?
+
     // MARK: - Reactive Subscriptions
 
     private func setupSubscriptions() {
@@ -107,6 +125,7 @@ public final class TimelineCanvasView: NSView {
         // 1. Project-level changes (Name, Loop, BPM, etc.)
         project.objectWillChange
             .sink { [weak self] _ in
+                self?.rebuildQuadTree()
                 self?.needsDisplay = true
             }
             .store(in: &cancellables)
@@ -116,6 +135,7 @@ public final class TimelineCanvasView: NSView {
         project.$tracks
             .sink { [weak self] tracks in
                 self?.subscribeToTracks(tracks)
+                self?.rebuildQuadTree()
                 self?.needsDisplay = true
             }
             .store(in: &cancellables)
@@ -129,10 +149,54 @@ public final class TimelineCanvasView: NSView {
             // Observe each track for volume, pan, mute, solo changes
             track.objectWillChange
                 .sink { [weak self] _ in
+                    self?.rebuildQuadTree() // In case tracks moved/resized
                     self?.needsDisplay = true
                 }
                 .store(in: &cancellables)
         }
+    }
+
+    /// Rebuilds the spatial index (QuadTree) from the current project state.
+    private func rebuildQuadTree() {
+        guard let project = project else {
+            quadTree = nil
+            return
+        }
+
+        // Define the boundary: very large duration (e.g., 10k beats) and all tracks.
+        let boundary = QuadRect(minX: 0, maxX: 10000, minY: 0, maxY: Double(max(1, project.tracks.count)))
+        let tree = QuadTree<ClipWrapper>(boundary: boundary, capacity: 12)
+
+        for track in project.tracks {
+            guard let trackIndex = project.tracks.firstIndex(where: { $0.id == track.id }) else { continue }
+            let y = Double(trackIndex)
+
+            // Audio Clips
+            for clip in track.clips {
+                let bounds = QuadRect(
+                    minX: clip.position.beats,
+                    maxX: clip.position.beats + clip.duration.beats,
+                    minY: y,
+                    maxY: y + 1.0
+                )
+                let wrapper = ClipWrapper(id: clip.id, trackID: track.id, isMidi: false, audioClip: clip, midiClip: nil)
+                tree.insert(QuadElement(id: clip.id, bounds: bounds, value: wrapper))
+            }
+
+            // MIDI Clips
+            for clip in track.midiClips {
+                let bounds = QuadRect(
+                    minX: clip.position.beats,
+                    maxX: clip.position.beats + clip.duration.beats,
+                    minY: y,
+                    maxY: y + 1.0
+                )
+                let wrapper = ClipWrapper(id: clip.id, trackID: track.id, isMidi: true, audioClip: nil, midiClip: clip)
+                tree.insert(QuadElement(id: clip.id, bounds: bounds, value: wrapper))
+            }
+        }
+
+        self.quadTree = tree
     }
 
     // MARK: - Initialization
@@ -209,6 +273,7 @@ public final class TimelineCanvasView: NSView {
         let startMouseX: CGFloat
         let originalPosition: Double   // beats
         let originalDuration: Double   // beats
+        let originalTrim: Double       // beats (for audio)
     }
 
     // MARK: - Drawing
@@ -374,20 +439,32 @@ public final class TimelineCanvasView: NSView {
     // MARK: - Audio Clips
 
     private func drawClips(ctx: CGContext, project: Project) {
-        var yOffset: CGFloat = 0
+        // Query visible region
+        let visibleBeatsRange = Double(visibleRect.width) / Double(pixelsPerBeat)
+        let minBeat = Double(visibleRect.minX) / Double(pixelsPerBeat)
+        let maxBeat = minBeat + visibleBeatsRange
+        
+        let queryRect = QuadRect(minX: minBeat - 1.0, maxX: maxBeat + 1.0, 
+                                 minY: 0, maxY: Double(project.tracks.count))
+        
+        let candidates = quadTree?.query(range: queryRect) ?? []
+        
+        for element in candidates {
+            let wrapper = element.value
+            guard !wrapper.isMidi, let clip = wrapper.audioClip else { continue }
+            
+            guard let trackIndex = project.tracks.firstIndex(where: { $0.id == wrapper.trackID }) else { continue }
+            let track = project.tracks[trackIndex]
+            
+            // Calculate yOffset for this track
+            var trackY: CGFloat = 0
+            for i in 0..<trackIndex { trackY += project.tracks[i].height }
+            
+            let clipX = CGFloat(clip.position.beats) * pixelsPerBeat
+            let clipWidth = CGFloat(clip.duration.beats) * pixelsPerBeat
+            let clipRect = CGRect(x: clipX, y: trackY + 2, width: clipWidth, height: track.height - 4)
 
-        for track in project.tracks {
-            for clip in track.clips {
-                let clipX = CGFloat(clip.position.beats) * pixelsPerBeat
-                let clipWidth = CGFloat(clip.duration.beats) * pixelsPerBeat
-                let clipRect = CGRect(x: clipX, y: yOffset + 2, width: clipWidth, height: track.height - 4)
-
-                // Only draw if visible
-                guard clipRect.intersects(visibleRect) else { continue }
-
-                drawSingleClip(ctx: ctx, clip: clip, rect: clipRect, track: track, project: project)
-            }
-            yOffset += track.height
+            drawSingleClip(ctx: ctx, clip: clip, rect: clipRect, track: track, project: project)
         }
     }
 
@@ -457,19 +534,32 @@ public final class TimelineCanvasView: NSView {
     // MARK: - MIDI Clips
 
     private func drawMidiClips(ctx: CGContext, project: Project) {
-        var yOffset: CGFloat = 0
+        // Query visible region
+        let visibleBeatsRange = Double(visibleRect.width) / Double(pixelsPerBeat)
+        let minBeat = Double(visibleRect.minX) / Double(pixelsPerBeat)
+        let maxBeat = minBeat + visibleBeatsRange
+        
+        let queryRect = QuadRect(minX: minBeat - 1.0, maxX: maxBeat + 1.0, 
+                                 minY: 0, maxY: Double(project.tracks.count))
+        
+        let candidates = quadTree?.query(range: queryRect) ?? []
+        
+        for element in candidates {
+            let wrapper = element.value
+            guard wrapper.isMidi, let clip = wrapper.midiClip else { continue }
+            
+            guard let trackIndex = project.tracks.firstIndex(where: { $0.id == wrapper.trackID }) else { continue }
+            let track = project.tracks[trackIndex]
+            
+            // Calculate yOffset for this track
+            var trackY: CGFloat = 0
+            for i in 0..<trackIndex { trackY += project.tracks[i].height }
+            
+            let clipX = CGFloat(clip.position.beats) * pixelsPerBeat
+            let clipWidth = CGFloat(clip.duration.beats) * pixelsPerBeat
+            let clipRect = CGRect(x: clipX, y: trackY + 2, width: clipWidth, height: track.height - 4)
 
-        for track in project.tracks {
-            for midiClip in track.midiClips {
-                let clipX = CGFloat(midiClip.position.beats) * pixelsPerBeat
-                let clipWidth = CGFloat(midiClip.duration.beats) * pixelsPerBeat
-                let clipRect = CGRect(x: clipX, y: yOffset + 2, width: clipWidth, height: track.height - 4)
-
-                guard clipRect.intersects(visibleRect) else { continue }
-
-                drawSingleMidiClip(ctx: ctx, midiClip: midiClip, rect: clipRect, track: track)
-            }
-            yOffset += track.height
+            drawSingleMidiClip(ctx: ctx, midiClip: clip, rect: clipRect, track: track)
         }
     }
 
@@ -683,50 +773,71 @@ public final class TimelineCanvasView: NSView {
         let edge: ClipEdge
         let clipPosition: Double
         let clipDuration: Double
+        let clipTrim: Double  // beats
     }
 
     private func hitTestClipEdge(at location: NSPoint, project: Project) -> EdgeHit? {
-        var yOffset: CGFloat = 0
-
-        for track in project.tracks {
-            // Audio clips
-            for clip in track.clips {
-                let clipX = CGFloat(clip.position.beats) * pixelsPerBeat
-                let clipWidth = CGFloat(clip.duration.beats) * pixelsPerBeat
-                let clipRect = CGRect(x: clipX, y: yOffset + 2, width: clipWidth, height: track.height - 4)
-
-                guard location.y >= clipRect.minY && location.y <= clipRect.maxY else { continue }
-
-                if abs(location.x - clipRect.minX) <= edgeHitZone {
-                    return EdgeHit(trackID: track.id, clipID: clip.id, isMidi: false,
-                                   edge: .left, clipPosition: clip.position.beats, clipDuration: clip.duration.beats)
-                }
-                if abs(location.x - clipRect.maxX) <= edgeHitZone {
-                    return EdgeHit(trackID: track.id, clipID: clip.id, isMidi: false,
-                                   edge: .right, clipPosition: clip.position.beats, clipDuration: clip.duration.beats)
-                }
+        let beat = Double(location.x) / Double(pixelsPerBeat)
+        let queryWindowBeats = Double(edgeHitZone * 2) / Double(pixelsPerBeat)
+        
+        // Find track under mouse to narrow spatial search
+        var currentY: CGFloat = 0
+        var trackIndexUnderMouse: Int?
+        var trackUnderMouse: Track?
+        
+        for (i, t) in project.tracks.enumerated() {
+            if location.y >= currentY && location.y < currentY + t.height {
+                trackIndexUnderMouse = i
+                trackUnderMouse = t
+                break
             }
-
-            // MIDI clips
-            for midiClip in track.midiClips {
-                let clipX = CGFloat(midiClip.position.beats) * pixelsPerBeat
-                let clipWidth = CGFloat(midiClip.duration.beats) * pixelsPerBeat
-                let clipRect = CGRect(x: clipX, y: yOffset + 2, width: clipWidth, height: track.height - 4)
-
-                guard location.y >= clipRect.minY && location.y <= clipRect.maxY else { continue }
-
-                if abs(location.x - clipRect.minX) <= edgeHitZone {
-                    return EdgeHit(trackID: track.id, clipID: midiClip.id, isMidi: true,
-                                   edge: .left, clipPosition: midiClip.position.beats, clipDuration: midiClip.duration.beats)
-                }
-                if abs(location.x - clipRect.maxX) <= edgeHitZone {
-                    return EdgeHit(trackID: track.id, clipID: midiClip.id, isMidi: true,
-                                   edge: .right, clipPosition: midiClip.position.beats, clipDuration: midiClip.duration.beats)
-                }
-            }
-
-            yOffset += track.height
+            currentY += t.height
         }
+        
+        guard let trackIndex = trackIndexUnderMouse, let track = trackUnderMouse else { return nil }
+        
+        // Query QuadTree around the click
+        let queryRect = QuadRect(
+            minX: beat - queryWindowBeats,
+            maxX: beat + queryWindowBeats,
+            minY: Double(trackIndex),
+            maxY: Double(trackIndex + 1)
+        )
+        
+        let candidates = quadTree?.query(range: queryRect) ?? []
+        let trackY = currentY // Start of the track row
+        
+        for element in candidates {
+            let wrapper = element.value
+            guard wrapper.trackID == track.id else { continue }
+            
+            let clipPos: Double
+            let clipDur: Double
+            
+            if let ac = wrapper.audioClip {
+                clipPos = ac.position.beats
+                clipDur = ac.duration.beats
+            } else if let mc = wrapper.midiClip {
+                clipPos = mc.position.beats
+                clipDur = mc.duration.beats
+            } else { continue }
+            
+            let clipX = CGFloat(clipPos) * pixelsPerBeat
+            let clipWidth = CGFloat(clipDur) * pixelsPerBeat
+            let clipRect = CGRect(x: clipX, y: trackY + 2, width: clipWidth, height: track.height - 4)
+            
+            let clipTrim = (wrapper.audioClip?.trimStartOffset.beats) ?? 0
+
+            if abs(location.x - clipRect.minX) <= edgeHitZone {
+                return EdgeHit(trackID: track.id, clipID: wrapper.id, isMidi: wrapper.isMidi,
+                               edge: .left, clipPosition: clipPos, clipDuration: clipDur, clipTrim: clipTrim)
+            }
+            if abs(location.x - clipRect.maxX) <= edgeHitZone {
+                return EdgeHit(trackID: track.id, clipID: wrapper.id, isMidi: wrapper.isMidi,
+                               edge: .right, clipPosition: clipPos, clipDuration: clipDur, clipTrim: clipTrim)
+            }
+        }
+        
         return nil
     }
 
@@ -808,7 +919,8 @@ public final class TimelineCanvasView: NSView {
                 edge: edgeHit.edge,
                 startMouseX: location.x,
                 originalPosition: edgeHit.clipPosition,
-                originalDuration: edgeHit.clipDuration
+                originalDuration: edgeHit.clipDuration,
+                originalTrim: edgeHit.clipTrim
             )
             NSCursor.resizeLeftRight.set()
             // Also select the clip being resized
@@ -819,66 +931,60 @@ public final class TimelineCanvasView: NSView {
         }
 
         // ──── Priority 2: Clip body click (select + drag) ────
-        var currentY: CGFloat = 0
-        for track in project.tracks {
-            // Check audio clips
-            for clip in track.clips {
-                let clipX = CGFloat(clip.position.beats) * pixelsPerBeat
-                let clipWidth = CGFloat(clip.duration.beats) * pixelsPerBeat
-                let clipRect = CGRect(x: clipX, y: currentY + 2, width: clipWidth, height: track.height - 4)
-
-                if clipRect.contains(location) {
-                    if !clip.isSelected {
-                        if !event.modifierFlags.contains(.shift) {
-                            deselectAllClips(in: project)
-                        }
-                        selectClip(id: clip.id, isMidi: false, in: project)
-                    } else if event.modifierFlags.contains(.shift) {
-                         // Shift toggle logic could go here
-                    }
-                    
-                    needsDisplay = true
-                    onClipSelected?(track.id, clip.id)
-
-                    dragState = DragState(
-                        trackID: track.id,
-                        clipID: clip.id,
-                        isMidi: false,
-                        startMousePosition: location,
-                        originalClipBeat: clip.position.beats
-                    )
-                    return
-                }
-            }
+        if let trackIndex = project.tracks.firstIndex(where: { $0.id == clickedTrackID }) {
+            let track = project.tracks[trackIndex]
+            let queryRect = QuadRect(minX: clickBeat - 0.001, maxX: clickBeat + 0.001, 
+                                     minY: Double(trackIndex), maxY: Double(trackIndex + 1))
             
-            // Check MIDI clips
-            for clip in track.midiClips {
-                let clipX = CGFloat(clip.position.beats) * pixelsPerBeat
-                let clipWidth = CGFloat(clip.duration.beats) * pixelsPerBeat
-                let clipRect = CGRect(x: clipX, y: currentY + 2, width: clipWidth, height: track.height - 4)
-
+            let candidates = quadTree?.query(range: queryRect) ?? []
+            // Calculate yOffset for this track
+            var targetY: CGFloat = 0
+            for i in 0..<trackIndex { targetY += project.tracks[i].height }
+            
+            for element in candidates {
+                let wrapper = element.value
+                guard wrapper.trackID == track.id else { continue }
+                
+                let clipPos: Double
+                let clipDur: Double
+                if let ac = wrapper.audioClip {
+                    clipPos = ac.position.beats
+                    clipDur = ac.duration.beats
+                } else if let mc = wrapper.midiClip {
+                    clipPos = mc.position.beats
+                    clipDur = mc.duration.beats
+                } else { continue }
+                
+                let clipX = CGFloat(clipPos) * pixelsPerBeat
+                let clipWidth = CGFloat(clipDur) * pixelsPerBeat
+                let clipRect = CGRect(x: clipX, y: targetY + 2, width: clipWidth, height: track.height - 4)
+                
                 if clipRect.contains(location) {
-                    if !clip.isSelected {
+                    let isSelected: Bool
+                    if let ac = wrapper.audioClip { isSelected = ac.isSelected }
+                    else if let mc = wrapper.midiClip { isSelected = mc.isSelected }
+                    else { isSelected = false }
+                    
+                    if !isSelected {
                         if !event.modifierFlags.contains(.shift) {
                             deselectAllClips(in: project)
                         }
-                        selectClip(id: clip.id, isMidi: true, in: project)
+                        selectClip(id: wrapper.id, isMidi: wrapper.isMidi, in: project)
                     }
                     
                     needsDisplay = true
-                    onClipSelected?(track.id, clip.id)
+                    onClipSelected?(track.id, wrapper.id)
 
                     dragState = DragState(
                         trackID: track.id,
-                        clipID: clip.id,
-                        isMidi: true,
+                        clipID: wrapper.id,
+                        isMidi: wrapper.isMidi,
                         startMousePosition: location,
-                        originalClipBeat: clip.position.beats
+                        originalClipBeat: clipPos
                     )
                     return
                 }
             }
-            currentY += track.height
         }
 
         // ──── Priority 3: Empty space click ────
@@ -931,7 +1037,7 @@ public final class TimelineCanvasView: NSView {
                         track.midiClips.append(newClip)
                         // Record undo action for the clip creation
                         let action = AddMidiClipAction(trackID: track.id, clip: newClip)
-                        actionHistory?.record(action)
+                        orchestrator.history.record(action)
                         needsDisplay = true
                     }
                 }
@@ -1023,157 +1129,77 @@ public final class TimelineCanvasView: NSView {
     }
 
     public override func mouseUp(with event: NSEvent) {
-
-
         // ──── Resize end ────
-        if resizeState != nil {
+        if let resize = resizeState, let project = project {
+            let track = project.tracks.first(where: { $0.id == resize.trackID })
+            let clip = resize.isMidi ? 
+                track?.midiClips.first(where: { $0.id == resize.clipID }) as Any? :
+                track?.clips.first(where: { $0.id == resize.clipID }) as Any?
+
+            if let midi = clip as? MidiClip {
+                orchestrator?.finalizeClipResize(
+                    id: resize.clipID,
+                    trackID: resize.trackID,
+                    isMidi: true,
+                    oldPositionBeats: resize.originalPosition,
+                    oldDurationBeats: resize.originalDuration,
+                    oldTrimBeats: 0,
+                    newPositionBeats: midi.position.beats,
+                    newDurationBeats: midi.duration.beats,
+                    newTrimBeats: 0
+                )
+            } else if let audio = clip as? AudioClip {
+                orchestrator?.finalizeClipResize(
+                    id: resize.clipID,
+                    trackID: resize.trackID,
+                    isMidi: false,
+                    oldPositionBeats: resize.originalPosition,
+                    oldDurationBeats: resize.originalDuration,
+                    oldTrimBeats: resize.originalTrim,
+                    newPositionBeats: audio.position.beats,
+                    newDurationBeats: audio.duration.beats,
+                    newTrimBeats: audio.trimStartOffset.beats
+                )
+            }
+
             NSCursor.arrow.set()
             resizeState = nil
             needsDisplay = true
+            onClipsModified?()
             return
         }
 
-        // On clip drag end: handle overlap trimming + undo recording
+        // ──── Clip move drag end ────
         if let drag = dragState, let project = project {
-            for track in project.tracks where track.id == drag.trackID {
-                if drag.isMidi {
-                    if let movedIdx = track.midiClips.firstIndex(where: { $0.id == drag.clipID }) {
-                        let movedClip = track.midiClips[movedIdx]
-                        let movedStart = movedClip.position.beats
-                        let movedEnd = movedClip.endPosition.beats
+            let track = project.tracks.first(where: { $0.id == drag.trackID })
+            let clip = drag.isMidi ? 
+                track?.midiClips.first(where: { $0.id == drag.clipID }) as Any? :
+                track?.clips.first(where: { $0.id == drag.clipID }) as Any?
 
-                        // Record undo action for the move
-                        let oldPos = TimePosition(beats: drag.originalClipBeat)
-                        let newPos = movedClip.position
-                        if oldPos != newPos {
-                            let action = MoveMidiClipAction(
-                                trackID: drag.trackID,
-                                clipID: drag.clipID,
-                                oldPosition: oldPos,
-                                newPosition: newPos
-                            )
-                            actionHistory?.record(action)
-                        }
-
-                        // Trim or remove clips that the moved clip now overlaps
-                        var indicesToRemove: [Int] = []
-                        for i in (0..<track.midiClips.count) where i != movedIdx {
-                            let other = track.midiClips[i]
-                            let otherStart = other.position.beats
-                            let otherEnd = other.endPosition.beats
-
-                            // No overlap?
-                            if otherEnd <= movedStart || otherStart >= movedEnd { continue }
-
-                            // Fully covered → remove
-                            if otherStart >= movedStart && otherEnd <= movedEnd {
-                                indicesToRemove.append(i)
-                                continue
-                            }
-
-                            // Trim right side — moved clip overlaps the beginning of other
-                            if movedStart <= otherStart && movedEnd > otherStart && movedEnd < otherEnd {
-                                let newStart = movedEnd
-                                let newDuration = otherEnd - newStart
-                                track.midiClips[i].position = TimePosition(beats: newStart)
-                                track.midiClips[i].duration = TimePosition(beats: newDuration)
-                                continue
-                            }
-
-                            // Trim left side — moved clip overlaps the end of other
-                            if movedStart > otherStart && movedStart < otherEnd && movedEnd >= otherEnd {
-                                let newDuration = movedStart - otherStart
-                                track.midiClips[i].duration = TimePosition(beats: newDuration)
-                                continue
-                            }
-
-                            // Moved clip is inside other clip → split: keep left part, remove right overlap
-                            if movedStart > otherStart && movedEnd < otherEnd {
-                                // Trim to left portion only
-                                track.midiClips[i].duration = TimePosition(beats: movedStart - otherStart)
-                                continue
-                            }
-                        }
-
-                        // Remove fully covered clips (in reverse to keep indices valid)
-                        for i in indicesToRemove.sorted().reversed() {
-                            track.midiClips.remove(at: i)
-                        }
-                    }
-                } else {
-                    if let movedIdx = track.clips.firstIndex(where: { $0.id == drag.clipID }) {
-                        let movedClip = track.clips[movedIdx]
-                        let movedStart = movedClip.position.beats
-                        let movedEnd = movedClip.endPosition.beats
-
-                        // Record undo action for the move
-                        let oldPos = TimePosition(beats: drag.originalClipBeat)
-                        let newPos = movedClip.position
-                        if oldPos != newPos {
-                            let action = MoveAudioClipAction(
-                                trackID: drag.trackID,
-                                clipID: drag.clipID,
-                                oldPosition: oldPos,
-                                newPosition: newPos
-                            )
-                            actionHistory?.record(action)
-                        }
-
-                        // Trim or remove clips that the moved clip now overlaps
-                        var indicesToRemove: [Int] = []
-                        for i in (0..<track.clips.count) where i != movedIdx {
-                            let other = track.clips[i]
-                            let otherStart = other.position.beats
-                            let otherEnd = other.endPosition.beats
-
-                            // No overlap?
-                            if otherEnd <= movedStart || otherStart >= movedEnd { continue }
-
-                            // Fully covered → remove
-                            if otherStart >= movedStart && otherEnd <= movedEnd {
-                                indicesToRemove.append(i)
-                                continue
-                            }
-
-                            // Trim right side
-                            if movedStart <= otherStart && movedEnd > otherStart && movedEnd < otherEnd {
-                                let newStart = movedEnd
-                                let newDuration = otherEnd - newStart
-                                track.clips[i].position = TimePosition(beats: newStart)
-                                track.clips[i].duration = TimePosition(beats: newDuration)
-                                continue
-                            }
-
-                            // Trim left side
-                            if movedStart > otherStart && movedStart < otherEnd && movedEnd >= otherEnd {
-                                let newDuration = movedStart - otherStart
-                                track.clips[i].duration = TimePosition(beats: newDuration)
-                                continue
-                            }
-
-                            // Split: moved clip inside other → keep left portion
-                            if movedStart > otherStart && movedEnd < otherEnd {
-                                track.clips[i].duration = TimePosition(beats: movedStart - otherStart)
-                                continue
-                            }
-                        }
-
-                        for i in indicesToRemove.sorted().reversed() {
-                            track.clips.remove(at: i)
-                        }
-                    }
-                }
+            if let midi = clip as? MidiClip {
+                orchestrator?.finalizeClipMove(
+                    id: drag.clipID,
+                    fromTrackID: drag.trackID,
+                    toTrackID: drag.trackID,
+                    oldPositionBeats: drag.originalClipBeat,
+                    newPositionBeats: midi.position.beats
+                )
+            } else if let audio = clip as? AudioClip {
+                orchestrator?.finalizeClipMove(
+                    id: drag.clipID,
+                    fromTrackID: drag.trackID,
+                    toTrackID: drag.trackID,
+                    oldPositionBeats: drag.originalClipBeat,
+                    newPositionBeats: audio.position.beats
+                )
             }
+
+            NSCursor.arrow.set()
+            dragState = nil
             needsDisplay = true
-        }
-        
-        // Trigger modification callback if we were dragging or resizing
-        if dragState != nil || resizeState != nil {
             onClipsModified?()
+            return
         }
-        
-        dragState = nil
-        resizeState = nil
     }
 
     // MARK: - Keyboard Shortcuts

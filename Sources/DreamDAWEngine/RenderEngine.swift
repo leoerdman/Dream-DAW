@@ -1,4 +1,5 @@
 import AVFoundation
+import Accelerate
 import Foundation
 import DreamDAWModels
 import os.log
@@ -191,21 +192,41 @@ public final class RenderEngine {
                     // Mix into master buffer with resampling if needed
                     let ratio = fileFormat.sampleRate / sampleRate
 
-                    for outOffset in 0..<outputFrameCount {
-                        let outFrame = outputStartFrame + outOffset
-                        guard outFrame >= 0, outFrame < totalFrames else { continue }
-
-                        let srcPos = Double(sourceStartFrame) + Double(outOffset) * ratio
-                        let srcIdx = Int(srcPos)
-                        guard srcIdx >= 0, srcIdx < Int(fileFrames) else { continue }
-
-                    for ch in 0..<Int(channelCount) {
+                    if abs(ratio - 1.0) < 0.0001 {
+                        // Legendary Path: Identity Sample Rate — Vectorized Summing
+                        for ch in 0..<Int(channelCount) {
                             let srcCh = min(ch, Int(fileFormat.channelCount) - 1)
                             guard let srcData = fileBuffer.floatChannelData?[srcCh],
                                   let dstData = masterBuffer.floatChannelData?[ch] else { continue }
 
-                            let panGain = Self.equalPowerPanGain(pan: trackPan, channel: ch)
-                            dstData[outFrame] += srcData[srcIdx] * trackVolume * panGain
+                            let gain = trackVolume * Self.equalPowerPanGain(pan: trackPan, channel: ch)
+                            var gainVar = gain
+                            
+                            // dstData[outFrame] += srcData[srcIdx] * gain
+                            // Use vDSP_vsma: Vector-Scalar Multiply and Add
+                            vDSP_vsma(srcData.advanced(by: sourceStartFrame), 1, &gainVar, 
+                                      dstData.advanced(by: outputStartFrame), 1, 
+                                      dstData.advanced(by: outputStartFrame), 1, 
+                                      vDSP_Length(outputFrameCount))
+                        }
+                    } else {
+                        // Standard Path: Resampling needed (Nearest Neighbor for now)
+                        for outOffset in 0..<outputFrameCount {
+                            let outFrame = outputStartFrame + outOffset
+                            guard outFrame >= 0, outFrame < totalFrames else { continue }
+
+                            let srcPos = Double(sourceStartFrame) + Double(outOffset) * ratio
+                            let srcIdx = Int(srcPos)
+                            guard srcIdx >= 0, srcIdx < Int(fileFrames) else { continue }
+
+                            for ch in 0..<Int(channelCount) {
+                                let srcCh = min(ch, Int(fileFormat.channelCount) - 1)
+                                guard let srcData = fileBuffer.floatChannelData?[srcCh],
+                                      let dstData = masterBuffer.floatChannelData?[ch] else { continue }
+
+                                let panGain = Self.equalPowerPanGain(pan: trackPan, channel: ch)
+                                dstData[outFrame] += srcData[srcIdx] * trackVolume * panGain
+                            }
                         }
                     }
                 } catch {
@@ -225,7 +246,7 @@ public final class RenderEngine {
                             try? sampler.loadSample(url: sampleURL)
                             sampler.mode = instrConfig.samplerMode
                         }
-                        midiBuffer = sampler.renderClipToBuffer(clip: clip, bpm: bpm)
+                        midiBuffer = sampler.renderClipToBuffer(clip: clip, bpm: bpm, config: instrConfig)
                     case .sineSynth:
                         midiBuffer = synth.renderClipToBuffer(clip: clip, bpm: bpm)
                     }
@@ -242,20 +263,39 @@ public final class RenderEngine {
                 let bufferSR = buffer.format.sampleRate
                 let ratio = bufferSR / sampleRate
 
-                for outOffset in 0..<Int(Double(bufferFrames) / ratio) {
-                    let outFrame = outputStartFrame + outOffset
-                    guard outFrame >= 0, outFrame < totalFrames else { continue }
-
-                    let srcIdx = Int(Double(outOffset) * ratio)
-                    guard srcIdx >= 0, srcIdx < bufferFrames else { continue }
-
+                if abs(ratio - 1.0) < 0.0001 {
+                    // Legendary Path: Identity Sample Rate — Vectorized Summing
                     for ch in 0..<Int(channelCount) {
                         let srcCh = min(ch, Int(buffer.format.channelCount) - 1)
                         guard let srcData = buffer.floatChannelData?[srcCh],
                               let dstData = masterBuffer.floatChannelData?[ch] else { continue }
 
-                        let panGain = Self.equalPowerPanGain(pan: trackPan, channel: ch)
-                        dstData[outFrame] += srcData[srcIdx] * trackVolume * panGain
+                        let gain = trackVolume * Self.equalPowerPanGain(pan: trackPan, channel: ch)
+                        var gainVar = gain
+                        
+                        // Vector Multiply and Add
+                        vDSP_vsma(srcData, 1, &gainVar, 
+                                  dstData.advanced(by: outputStartFrame), 1, 
+                                  dstData.advanced(by: outputStartFrame), 1, 
+                                  vDSP_Length(bufferFrames))
+                    }
+                } else {
+                    // Standard Path: Resampling needed
+                    for outOffset in 0..<Int(Double(bufferFrames) / ratio) {
+                        let outFrame = outputStartFrame + outOffset
+                        guard outFrame >= 0, outFrame < totalFrames else { continue }
+
+                        let srcIdx = Int(Double(outOffset) * ratio)
+                        guard srcIdx >= 0, srcIdx < bufferFrames else { continue }
+
+                        for ch in 0..<Int(channelCount) {
+                            let srcCh = min(ch, Int(buffer.format.channelCount) - 1)
+                            guard let srcData = buffer.floatChannelData?[srcCh],
+                                  let dstData = masterBuffer.floatChannelData?[ch] else { continue }
+
+                            let panGain = Self.equalPowerPanGain(pan: trackPan, channel: ch)
+                            dstData[outFrame] += srcData[srcIdx] * trackVolume * panGain
+                        }
                     }
                 }
             }
@@ -272,9 +312,8 @@ public final class RenderEngine {
         if masterVolume != 1.0 {
             for ch in 0..<Int(channelCount) {
                 guard let data = masterBuffer.floatChannelData?[ch] else { continue }
-                for i in 0..<totalFrames {
-                    data[i] *= masterVolume
-                }
+                var volume = masterVolume
+                vDSP_vsmul(data, 1, &volume, data, 1, vDSP_Length(totalFrames))
             }
         }
 

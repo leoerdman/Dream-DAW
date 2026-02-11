@@ -203,25 +203,82 @@ public final class InstrumentConfig: ObservableObject, Identifiable, Codable {
     @Published public var isEnabled: Bool
     @Published public var sampleURL: URL?          // For sampler: loaded sample path
     @Published public var samplerMode: SamplerMode // For sampler: oneShot or loop
+    
+    // Sampler Parameters (Ableton Simpler Style)
+    @Published public var gain: Float              // 0.0 ... 2.0 (standard 1.0)
+    @Published public var startPercent: Double     // 0.0 ... 100.0
+    @Published public var endPercent: Double       // 0.0 ... 100.0
+    @Published public var loopPercent: Double      // 0.0 ... 100.0
+    @Published public var fadePercent: Double      // 0.0 ... 100.0
+    
+    // ADSR Envelope
+    @Published public var attack: Double           // Seconds
+    @Published public var decay: Double            // Seconds
+    @Published public var sustain: Double          // 0.0 ... 1.0 (linear gain)
+    @Published public var release: Double          // Seconds
+    
+    // Filter
+    @Published public var filterType: Int          // 0=LowPass, 1=HighPass, etc.
+    @Published public var filterCutoff: Double     // 20 ... 22000 Hz
+    @Published public var filterResonance: Double  // 0.0 ... 1.0
+    
+    // LFO
+    @Published public var lfoRate: Double          // Hz
+    @Published public var lfoAmount: Double        // 0.0 ... 1.0
+    @Published public var lfoType: Int             // 0=Sine, 1=Triangle, etc.
 
     public init(
         id: UUID = UUID(),
         instrumentType: InstrumentType = .sineSynth,
         isEnabled: Bool = true,
         sampleURL: URL? = nil,
-        samplerMode: SamplerMode = .oneShot
+        samplerMode: SamplerMode = .oneShot,
+        gain: Float = 1.0,
+        startPercent: Double = 0.0,
+        endPercent: Double = 100.0,
+        loopPercent: Double = 100.0,
+        fadePercent: Double = 0.0,
+        attack: Double = 0.001,
+        decay: Double = 0.6,
+        sustain: Double = 1.0,
+        release: Double = 0.05,
+        filterType: Int = 0,
+        filterCutoff: Double = 22000.0,
+        filterResonance: Double = 0.0,
+        lfoRate: Double = 1.0,
+        lfoAmount: Double = 0.0,
+        lfoType: Int = 0
     ) {
         self.id = id
         self.instrumentType = instrumentType
         self.isEnabled = isEnabled
         self.sampleURL = sampleURL
         self.samplerMode = samplerMode
+        self.gain = gain
+        self.startPercent = startPercent
+        self.endPercent = endPercent
+        self.loopPercent = loopPercent
+        self.fadePercent = fadePercent
+        self.attack = attack
+        self.decay = decay
+        self.sustain = sustain
+        self.release = release
+        self.filterType = filterType
+        self.filterCutoff = filterCutoff
+        self.filterResonance = filterResonance
+        self.lfoRate = lfoRate
+        self.lfoAmount = lfoAmount
+        self.lfoType = lfoType
     }
 
     // MARK: - Codable
 
     private enum CodingKeys: String, CodingKey {
         case id, instrumentType, isEnabled, sampleURL, samplerMode
+        case gain, startPercent, endPercent, loopPercent, fadePercent
+        case attack, decay, sustain, release
+        case filterType, filterCutoff, filterResonance
+        case lfoRate, lfoAmount, lfoType
     }
 
     public convenience init(from decoder: Decoder) throws {
@@ -231,7 +288,22 @@ public final class InstrumentConfig: ObservableObject, Identifiable, Codable {
             instrumentType: try container.decode(InstrumentType.self, forKey: .instrumentType),
             isEnabled: try container.decode(Bool.self, forKey: .isEnabled),
             sampleURL: try container.decodeIfPresent(URL.self, forKey: .sampleURL),
-            samplerMode: try container.decodeIfPresent(SamplerMode.self, forKey: .samplerMode) ?? .oneShot
+            samplerMode: try container.decodeIfPresent(SamplerMode.self, forKey: .samplerMode) ?? .oneShot,
+            gain: try container.decodeIfPresent(Float.self, forKey: .gain) ?? 1.0,
+            startPercent: try container.decodeIfPresent(Double.self, forKey: .startPercent) ?? 0.0,
+            endPercent: try container.decodeIfPresent(Double.self, forKey: .endPercent) ?? 100.0,
+            loopPercent: try container.decodeIfPresent(Double.self, forKey: .loopPercent) ?? 100.0,
+            fadePercent: try container.decodeIfPresent(Double.self, forKey: .fadePercent) ?? 0.0,
+            attack: try container.decodeIfPresent(Double.self, forKey: .attack) ?? 0.001,
+            decay: try container.decodeIfPresent(Double.self, forKey: .decay) ?? 0.6,
+            sustain: try container.decodeIfPresent(Double.self, forKey: .sustain) ?? 1.0,
+            release: try container.decodeIfPresent(Double.self, forKey: .release) ?? 0.05,
+            filterType: try container.decodeIfPresent(Int.self, forKey: .filterType) ?? 0,
+            filterCutoff: try container.decodeIfPresent(Double.self, forKey: .filterCutoff) ?? 22000.0,
+            filterResonance: try container.decodeIfPresent(Double.self, forKey: .filterResonance) ?? 0.0,
+            lfoRate: try container.decodeIfPresent(Double.self, forKey: .lfoRate) ?? 1.0,
+            lfoAmount: try container.decodeIfPresent(Double.self, forKey: .lfoAmount) ?? 0.0,
+            lfoType: try container.decodeIfPresent(Int.self, forKey: .lfoType) ?? 0
         )
     }
 
@@ -242,5 +314,20 @@ public final class InstrumentConfig: ObservableObject, Identifiable, Codable {
         try container.encode(isEnabled, forKey: .isEnabled)
         try container.encodeIfPresent(sampleURL, forKey: .sampleURL)
         try container.encode(samplerMode, forKey: .samplerMode)
+        try container.encode(gain, forKey: .gain)
+        try container.encode(startPercent, forKey: .startPercent)
+        try container.encode(endPercent, forKey: .endPercent)
+        try container.encode(loopPercent, forKey: .loopPercent)
+        try container.encode(fadePercent, forKey: .fadePercent)
+        try container.encode(attack, forKey: .attack)
+        try container.encode(decay, forKey: .decay)
+        try container.encode(sustain, forKey: .sustain)
+        try container.encode(release, forKey: .release)
+        try container.encode(filterType, forKey: .filterType)
+        try container.encode(filterCutoff, forKey: .filterCutoff)
+        try container.encode(filterResonance, forKey: .filterResonance)
+        try container.encode(lfoRate, forKey: .lfoRate)
+        try container.encode(lfoAmount, forKey: .lfoAmount)
+        try container.encode(lfoType, forKey: .lfoType)
     }
 }

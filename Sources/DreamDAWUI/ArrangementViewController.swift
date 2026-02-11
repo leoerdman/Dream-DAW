@@ -65,6 +65,7 @@ public final class ArrangementViewController: NSViewController {
     public let waveformCache: WaveformCache
     public let audioLevelMeter = AudioLevelMeter()
     public let actionHistory = ActionHistory()
+    public let orchestrator: ArrangementOrchestrator
 
     // VU meter update timer
     private var meterTimer: Timer?
@@ -122,6 +123,7 @@ public final class ArrangementViewController: NSViewController {
         self.waveformCache = WaveformCache()
         self.trackMixer = TrackMixer(audioEngine: audioEngine)
         self.playbackScheduler = PlaybackScheduler(audioEngine: audioEngine, trackMixer: trackMixer)
+        self.orchestrator = ArrangementOrchestrator(project: project, actionHistory: actionHistory)
 
         super.init(nibName: nil, bundle: nil)
 
@@ -684,7 +686,7 @@ public final class ArrangementViewController: NSViewController {
         }
 
         trackHeaders.onAddTrack = { [weak self] isAudio in
-            self?.project.addTrack(type: isAudio ? .audio : .midi)
+            self?.orchestrator.addTrack(type: isAudio ? .audio : .midi)
             self?.reloadTracks()
         }
 
@@ -972,6 +974,14 @@ public final class ArrangementViewController: NSViewController {
         trackHeaders.configure(tracks: project.tracks)
         configureMasterHeader()
         canvasView.needsDisplay = true
+        
+        // AUTO-SELECT track and SHOW details in bottom panel
+        selectTrack(trackID)
+        
+        // Force refresh bottom panel mode for the selected track
+        if let updatedTrack = project.tracks.first(where: { $0.id == trackID }) {
+            bottomPanel.mode = .detail(updatedTrack)
+        }
     }
 
     // MARK: - Master Header Management
@@ -1079,6 +1089,33 @@ public final class ArrangementViewController: NSViewController {
     }
 
     public override var acceptsFirstResponder: Bool { true }
+
+    // MARK: - Mouse Events (Zoom/Resize)
+    
+    public override func scrollWheel(with event: NSEvent) {
+        let flags = event.modifierFlags
+        
+        // --- Option + Scroll: Vertical Track Resizing (Ableton Style) ---
+        if flags.contains(.option) {
+            let delta = event.scrollingDeltaY
+            let resizeFactor: CGFloat = delta > 0 ? 1.1 : 0.9
+            
+            // Apply resize to ALL tracks for global vertical zoom
+            // Or only the one under the mouse (Enterprise refinement)
+            for track in project.tracks {
+                let newHeight = track.height * resizeFactor
+                track.height = max(30, min(300, newHeight))
+            }
+            
+            // Refresh UI
+            reloadTracks()
+            canvasView.needsDisplay = true
+            return
+        }
+        
+        // Fallback to default scrolling
+        super.scrollWheel(with: event)
+    }
 
     // MARK: - Undo/Redo
 
@@ -1366,7 +1403,7 @@ public final class ArrangementViewController: NSViewController {
     func configureProject() {
         canvasView.project = project
         canvasView.pixelsPerBeat = pixelsPerBeat
-        canvasView.actionHistory = actionHistory
+        canvasView.orchestrator = orchestrator
 
         rulerView.pixelsPerBeat = pixelsPerBeat
         rulerView.bpm = project.bpm
@@ -1435,26 +1472,20 @@ public final class ArrangementViewController: NSViewController {
         // Prevent deleting Master track
         guard id != project.masterTrack.id else { return }
         
-        // Find track
-        guard let index = project.tracks.firstIndex(where: { $0.id == id }) else { return }
-        let track = project.tracks[index]
+        // Use Orchestrator for business logic & undo history
+        orchestrator.deleteTrack(id: id)
         
-        // 1. Stop audio for this track
+        // Track-specific cleanup
         trackMixer.stopPlayer(for: id)
         
-        // 2. Remove from project
-        project.tracks.remove(at: index)
-        
-        // 3. Update selection if necessary
         if project.selectedTrackID == id {
             project.selectedTrackID = nil
             bottomPanel.mode = .hidden
             layoutSubviews()
         }
         
-        // 4. Reload UI
         reloadTracks()
-        logger.info("Deleted track: \(track.name)")
+        logger.info("Deleted track ID: \(id)")
         
         // Refresh audio context
         refreshAudio()

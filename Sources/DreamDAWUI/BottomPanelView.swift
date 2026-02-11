@@ -473,7 +473,14 @@ public final class BottomPanelView: NSView {
         let headerH: CGFloat = 18
 
         if let instrument = track.instrument {
-            // Instrument assigned — warm amber background
+            if instrument.instrumentType == .sampler {
+                // Return a high-fidelity SamplerView for the sampler
+                let samplerView = SamplerView(config: instrument, track: track)
+                samplerView.frame = frame
+                return samplerView
+            }
+
+            // Default instrument slot for other types
             slot.layer?.backgroundColor = NSColor(red: 0.14, green: 0.12, blue: 0.10, alpha: 1).cgColor
             slot.layer?.borderWidth = 1
             slot.layer?.borderColor = NSColor(red: 0.85, green: 0.55, blue: 0.1, alpha: 0.5).cgColor
@@ -507,7 +514,8 @@ public final class BottomPanelView: NSView {
                 iconView.contentTintColor = NSColor(red: 0.95, green: 0.70, blue: 0.25, alpha: 1)
                 slot.addSubview(iconView)
             }
-        } else {
+        }
+ else {
             // Empty instrument slot
             slot.layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
             slot.layer?.borderWidth = 1

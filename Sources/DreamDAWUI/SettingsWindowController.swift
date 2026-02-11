@@ -7,6 +7,7 @@ import CoreAudio
 /// Available settings tabs.
 enum SettingsTab: String, CaseIterable, Identifiable {
     case general  = "general"
+    case appearance = "appearance"
     case audio    = "audio"
     case storage  = "storage"
     
@@ -15,6 +16,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .general: return "General"
+        case .appearance: return "Appearance"
         case .audio:   return "Audio"
         case .storage: return "Folders"
         }
@@ -23,6 +25,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .general: return "gearshape"
+        case .appearance: return "paintbrush"
         case .audio:   return "speaker.wave.3"
         case .storage: return "folder"
         }
@@ -53,6 +56,8 @@ public struct SettingsView: View {
             switch selectedTab {
             case .general:
                 GeneralSettingsView(settings: settings)
+            case .appearance:
+                AppearanceSettingsView(settings: settings)
             case .audio:
                 AudioSettingsView(settings: settings)
             case .storage:
@@ -86,6 +91,31 @@ struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("General")
+    }
+}
+
+// MARK: - AppearanceSettingsView
+
+struct AppearanceSettingsView: View {
+    @ObservedObject var settings: AppSettings
+    
+    var body: some View {
+        Form {
+            Section {
+                Picker("Waveform Style", selection: $settings.waveformStyle) {
+                    ForEach(WaveformStyle.allCases, id: \.self) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+            } header: {
+                Text("Waveforms")
+            } footer: {
+                Text("Classic Black style provides a high-contrast, professional look.")
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Appearance")
     }
 }
 

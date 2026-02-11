@@ -1,4 +1,5 @@
 import AVFoundation
+import Accelerate
 import Foundation
 import os.log
 
@@ -135,13 +136,18 @@ public final class AudioLevelMeter {
 
             for channel in 0..<channelCount {
                 let samples = floatData[channel]
-                for i in 0..<frameLength {
-                    let sample = samples[i]
-                    sumOfSquares += sample * sample
-                    let absSample = abs(sample)
-                    if absSample > peak {
-                        peak = absSample
-                    }
+                let length = vDSP_Length(frameLength)
+
+                // RMS calculation: Sum of squares
+                var channelSumOfSquares: Float = 0
+                vDSP_svesq(samples, 1, &channelSumOfSquares, length)
+                sumOfSquares += channelSumOfSquares
+
+                // Peak calculation: Absolute maximum value
+                var channelMaxPeak: Float = 0
+                vDSP_maxmgv(samples, 1, &channelMaxPeak, length)
+                if channelMaxPeak > peak {
+                    peak = channelMaxPeak
                 }
             }
 
@@ -186,13 +192,18 @@ public final class AudioLevelMeter {
 
             for channel in 0..<channelCount {
                 let samples = floatData[channel]
-                for i in 0..<frameLength {
-                    let sample = samples[i]
-                    sumOfSquares += sample * sample
-                    let absSample = abs(sample)
-                    if absSample > peak {
-                        peak = absSample
-                    }
+                let length = vDSP_Length(frameLength)
+
+                // RMS calculation: Sum of squares
+                var channelSumOfSquares: Float = 0
+                vDSP_svesq(samples, 1, &channelSumOfSquares, length)
+                sumOfSquares += channelSumOfSquares
+
+                // Peak calculation: Absolute maximum value
+                var channelMaxPeak: Float = 0
+                vDSP_maxmgv(samples, 1, &channelMaxPeak, length)
+                if channelMaxPeak > peak {
+                    peak = channelMaxPeak
                 }
             }
 

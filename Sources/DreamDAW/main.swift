@@ -18,22 +18,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Application Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Try loading default template, otherwise create new default
-        if let defaultTemplate = ProjectFileManager.shared.loadDefaultProject() {
-            project = defaultTemplate
-        } else {
-            project = Project.createDefault()
+        Task {
+            // Try loading default template, otherwise create new default
+            if let defaultTemplate = await ProjectFileManager.shared.loadDefaultProject() {
+                self.project = defaultTemplate
+            } else {
+                self.project = Project.createDefault()
+            }
+
+            await MainActor.run {
+                // Create and show main window
+                self.mainWindowController = MainWindowController(project: self.project)
+                self.mainWindowController?.showWindow()
+
+                // Set up application menu
+                self.setupMainMenu()
+
+                // Ensure app is in foreground
+                NSApp.activate(ignoringOtherApps: true)
+            }
         }
-
-        // Create and show main window
-        mainWindowController = MainWindowController(project: project)
-        mainWindowController?.showWindow()
-
-        // Set up application menu
-        setupMainMenu()
-
-        // Ensure app is in foreground
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -146,22 +150,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Actions
 
     @objc private func newProject() {
-        // Try loading default template for new project
-        if let defaultTemplate = ProjectFileManager.shared.loadDefaultProject() {
-            project = defaultTemplate
-        } else {
-            project = Project.createDefault()
-        }
-        // Reuse existing window — replace content, preserve window frame
-        if let window = mainWindowController?.window {
-            let savedFrame = window.frame
-            let arrangementVC = ArrangementViewController(project: project)
-            window.contentViewController = arrangementVC
-            window.title = "Dream DAW — \(project.name)"
-            window.setFrame(savedFrame, display: true)
-        } else {
-            mainWindowController = MainWindowController(project: project)
-            mainWindowController?.showWindow()
+        Task {
+            // Try loading default template for new project
+            let newProject: Project
+            if let defaultTemplate = await ProjectFileManager.shared.loadDefaultProject() {
+                newProject = defaultTemplate
+            } else {
+                newProject = Project.createDefault()
+            }
+            
+            await MainActor.run {
+                self.project = newProject
+                // Reuse existing window — replace content, preserve window frame
+                if let window = self.mainWindowController?.window {
+                    let savedFrame = window.frame
+                    let arrangementVC = ArrangementViewController(project: self.project)
+                    window.contentViewController = arrangementVC
+                    window.title = "Dream DAW — \(self.project.name)"
+                    window.setFrame(savedFrame, display: true)
+                } else {
+                    self.mainWindowController = MainWindowController(project: self.project)
+                    self.mainWindowController?.showWindow()
+                }
+            }
         }
     }
 
@@ -182,13 +193,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func saveProject() {
         let fm = ProjectFileManager.shared
         if fm.projectFolderURL != nil {
-            do {
-                let url = try fm.save(project: project)
-                fm.addToRecentProjects(url)
-                rebuildRecentMenu()
-                mainWindowController?.window?.title = "Dream DAW — \(project.name) V\(fm.currentVersion)"
-            } catch {
-                saveProjectAs()
+            Task {
+                do {
+                    let url = try await fm.save(project: project)
+                    await MainActor.run {
+                        fm.addToRecentProjects(url)
+                        self.rebuildRecentMenu()
+                        self.mainWindowController?.window?.title = "Dream DAW — \(self.project.name) V\(fm.currentVersion)"
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.saveProjectAs()
+                    }
+                }
             }
         } else {
             saveProjectAs()
@@ -218,44 +235,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents")
         }
 
-        let response = panel.runModal()
-        guard response == .OK, let fileURL = panel.url else { return }
-
-        do {
-            let savedURL = try ProjectFileManager.shared.saveToFile(project: self.project, fileURL: fileURL)
-            let fm = ProjectFileManager.shared
-            fm.addToRecentProjects(savedURL)
-            rebuildRecentMenu()
-            self.mainWindowController?.window?.title = "\(self.project.name) V\(fm.currentVersion) — Dream DAW"
-        } catch {
-            let alert = NSAlert(error: error)
-            alert.runModal()
-        }
-        guard response == .OK, let fileURL = panel.url else { return }
-        
-        do {
-            let savedURL = try ProjectFileManager.shared.saveToFile(project: self.project, fileURL: fileURL)
-            let fm = ProjectFileManager.shared
-            fm.addToRecentProjects(savedURL)
-            rebuildRecentMenu()
-            self.mainWindowController?.window?.title = "\(self.project.name) V\(fm.currentVersion) — Dream DAW"
-        } catch {
-            let alert = NSAlert(error: error)
-            alert.runModal()
+        panel.begin { [weak self] response in
+            guard response == .OK, let fileURL = panel.url, let self = self else { return }
+            Task {
+                do {
+                    let savedURL = try await ProjectFileManager.shared.saveToFile(project: self.project, fileURL: fileURL)
+                    await MainActor.run {
+                        let fm = ProjectFileManager.shared
+                        fm.addToRecentProjects(savedURL)
+                        self.rebuildRecentMenu()
+                        self.mainWindowController?.window?.title = "\(self.project.name) V\(fm.currentVersion) — Dream DAW"
+                    }
+                } catch {
+                    await MainActor.run {
+                        let alert = NSAlert(error: error)
+                        alert.runModal()
+                    }
+                }
+            }
         }
     }
     
     @objc private func saveAsDefaultProject() {
-        do {
-            try ProjectFileManager.shared.saveAsDefaultProject(project)
-            let alert = NSAlert()
-            alert.messageText = "Default Project Saved"
-            alert.informativeText = "This project will now be used as the template for all new projects."
-            alert.alertStyle = .informational
-            alert.runModal()
-        } catch {
-            let alert = NSAlert(error: error)
-            alert.runModal()
+        Task {
+            do {
+                try await ProjectFileManager.shared.saveAsDefaultProject(project)
+                await MainActor.run {
+                    let alert = NSAlert()
+                    alert.messageText = "Default Project Saved"
+                    alert.informativeText = "This project will now be used as the template for all new projects."
+                    alert.alertStyle = .informational
+                    alert.runModal()
+                }
+            } catch {
+                await MainActor.run {
+                    let alert = NSAlert(error: error)
+                    alert.runModal()
+                }
+            }
         }
     }
 
@@ -312,26 +329,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Persistence
 
     private func loadProject(from url: URL) {
-        do {
-            let loadedProject = try ProjectFileManager.shared.open(fileURL: url)
-            project = loadedProject
-            let fm = ProjectFileManager.shared
-            fm.addToRecentProjects(url)
-            rebuildRecentMenu()
-            // Reuse existing window — replace content, preserve window frame
-            if let window = mainWindowController?.window {
-                let savedFrame = window.frame
-                let arrangementVC = ArrangementViewController(project: project)
-                window.contentViewController = arrangementVC
-                window.title = "Dream DAW — \(project.name) V\(fm.currentVersion)"
-                window.setFrame(savedFrame, display: true)
-            } else {
-                mainWindowController = MainWindowController(project: project)
-                mainWindowController?.showWindow()
+        Task {
+            do {
+                let loadedProject = try await ProjectFileManager.shared.open(fileURL: url)
+                await MainActor.run {
+                    self.project = loadedProject
+                    let fm = ProjectFileManager.shared
+                    fm.addToRecentProjects(url)
+                    self.rebuildRecentMenu()
+                    // Reuse existing window — replace content, preserve window frame
+                    if let window = self.mainWindowController?.window {
+                        let savedFrame = window.frame
+                        let arrangementVC = ArrangementViewController(project: self.project)
+                        window.contentViewController = arrangementVC
+                        window.title = "Dream DAW — \(self.project.name) V\(fm.currentVersion)"
+                        window.setFrame(savedFrame, display: true)
+                    } else {
+                        self.mainWindowController = MainWindowController(project: self.project)
+                        self.mainWindowController?.showWindow()
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    let alert = NSAlert(error: error)
+                    alert.runModal()
+                }
             }
-        } catch {
-            let alert = NSAlert(error: error)
-            alert.runModal()
         }
     }
 

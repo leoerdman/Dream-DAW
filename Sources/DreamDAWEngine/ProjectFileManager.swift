@@ -86,12 +86,16 @@ public final class ProjectFileManager {
     /// Save the project to its current location. If never saved, triggers save-as.
     /// Returns true if save succeeded.
     @discardableResult
-    public func save(project: Project) throws -> URL {
+    public func save(project: Project) async throws -> URL {
         if let folderURL = projectFolderURL {
             // Overwrite the current version file in place (standard Cmd+S behavior)
             let fileURL = makeFileURL(folder: folderURL, name: project.name, version: currentVersion)
-            try writeProject(project, to: fileURL)
-            project.fileURL = fileURL
+            try await writeProject(project, to: fileURL)
+            
+            // UI updates on MainActor
+            await MainActor.run {
+                project.fileURL = fileURL
+            }
             logger.info("Project saved (overwrite): \(fileURL.lastPathComponent) (V\(self.currentVersion))")
             return fileURL
         } else {
@@ -101,97 +105,115 @@ public final class ProjectFileManager {
     }
 
     /// Save the project to a specific file URL.
-    ///
-    /// **Directory detection logic:**
-    /// - If the file's parent directory is already a Dream DAW project directory
-    ///   (contains .ddpj files or the standard Samples/ folder), the file is saved
-    ///   directly there — no subdirectory is created.
-    /// - If the parent directory is NOT a project directory, a new project folder
-    ///   is created (named after the project) with the standard Ableton-style
-    ///   structure, and the file is saved inside it.
     @discardableResult
-    public func saveToFile(project: Project, fileURL: URL) throws -> URL {
+    public func saveToFile(project: Project, fileURL: URL) async throws -> URL {
         let parentDir = fileURL.deletingLastPathComponent()
         let filename = fileURL.deletingPathExtension().lastPathComponent
 
-        if isDreamDAWProjectDirectory(parentDir) {
-            // ━━━ Saving inside an existing project directory ━━━
-            // Just write the file directly — no new folders needed
-            projectFolderURL = parentDir
-            currentVersion = extractVersion(from: fileURL) ?? 1
+        // Calculate new state (Version, Name, URLs) on Main Thread first
+        let newVersion: Int
+        let newProjectFolderURL: URL
+        let newName: String
+        let needsNewFolderStructure: Bool
 
-            // Update the project name from the chosen filename (strip version suffix)
+        if isDreamDAWProjectDirectory(parentDir) {
+            // Saving inside an existing project directory
+            newProjectFolderURL = parentDir
+            newVersion = extractVersion(from: fileURL) ?? 1
+            
             let baseName = filename
                 .replacingOccurrences(of: " V\\d+$", with: "", options: .regularExpression)
                 .trimmingCharacters(in: .whitespaces)
-            if !baseName.isEmpty {
-                project.name = baseName
-            }
-
-            try writeProject(project, to: fileURL)
-            project.fileURL = fileURL
-
-            logger.info("Saved into existing project dir: \(fileURL.lastPathComponent)")
-            return fileURL
+            newName = !baseName.isEmpty ? baseName : project.name
+            needsNewFolderStructure = false
         } else {
-            // ━━━ Saving to a new location — create project folder structure ━━━
+            // Saving to a new location — create project folder structure
             let projectName = filename
                 .replacingOccurrences(of: " V\\d+$", with: "", options: .regularExpression)
                 .trimmingCharacters(in: .whitespaces)
-            let projectFolder = parentDir.appendingPathComponent(projectName)
+            newProjectFolderURL = parentDir.appendingPathComponent(projectName)
+            newVersion = 1
+            newName = projectName
+            needsNewFolderStructure = true
+        }
 
-            try FileManager.default.createDirectory(at: projectFolder, withIntermediateDirectories: true)
-
-            // Create standard sub-directories
-            let samplesFolder = projectFolder.appendingPathComponent("Samples")
+        // Apply changes to Project (Main Thread)
+        project.name = newName
+        
+        // Create folders if needed (Fast synchronous I/O, acceptable on main thread or detached)
+        if needsNewFolderStructure {
+            try FileManager.default.createDirectory(at: newProjectFolderURL, withIntermediateDirectories: true)
+            
+            let samplesFolder = newProjectFolderURL.appendingPathComponent("Samples")
             let importedFolder = samplesFolder.appendingPathComponent("Imported")
             let recordedFolder = samplesFolder.appendingPathComponent("Recorded")
-            let backupFolder = projectFolder.appendingPathComponent("Backup")
+            let backupFolder = newProjectFolderURL.appendingPathComponent("Backup")
 
             for dir in [samplesFolder, importedFolder, recordedFolder, backupFolder] {
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             }
-
-            // Copy audio samples into the project folder
+            
+            // Copy samples (might be slow, strictly should be async but keeping simple for now)
             try copyAudioSamples(project: project, to: importedFolder)
-
-            // Save the project file inside the new folder
-            currentVersion = 1
-            projectFolderURL = projectFolder
-
-            // Update the project name from the chosen filename
-            project.name = projectName
-
-            let destURL = makeFileURL(folder: projectFolder, name: projectName, version: currentVersion)
-            try writeProject(project, to: destURL)
-            project.fileURL = destURL
-
-            logger.info("Created project directory: \(projectFolder.lastPathComponent) → \(destURL.lastPathComponent)")
-            return destURL
         }
+
+        // Update Manager State
+        self.projectFolderURL = newProjectFolderURL
+        self.currentVersion = newVersion
+        
+        // Write File (Async)
+        // If it's a new structure, we use the constructed URL.
+        // If existing, we use the fileURL provided.
+        // Logic simplification: The fileURL passed in IS the destination file.
+        // Wait, for new structure `fileURL` from save panel might be `.../ProjectName.ddpj` but we move it to `.../ProjectName/ProjectName V1.ddpj`?
+        // The original logic:
+        // Case 1 (Existing): write to fileURL.
+        // Case 2 (New): write to `projectFolder/ProjectName V1.ddpj`.
+        
+        let targetFileURL: URL
+        if needsNewFolderStructure {
+             targetFileURL = makeFileURL(folder: newProjectFolderURL, name: newName, version: newVersion)
+        } else {
+             targetFileURL = fileURL
+        }
+
+        try await writeProject(project, to: targetFileURL)
+
+        // Final Update
+        await MainActor.run {
+            project.fileURL = targetFileURL
+        }
+
+        if needsNewFolderStructure {
+            logger.info("Created project directory: \(newProjectFolderURL.lastPathComponent) → \(targetFileURL.lastPathComponent)")
+        } else {
+            logger.info("Saved into existing project dir: \(targetFileURL.lastPathComponent)")
+        }
+        
+        return targetFileURL
     }
 
     // MARK: - Default Project Template
 
     /// Saves the current project state as the default template for new projects.
-    public func saveAsDefaultProject(_ project: Project) throws {
+    public func saveAsDefaultProject(_ project: Project) async throws {
         guard let url = defaultProjectURL else {
-            throw ProjectFileError.noProjectFolder // Generic error, though specialized one would be better
+            throw ProjectFileError.noProjectFolder
         }
         
         // Save to the specific default path
-        try writeProject(project, to: url)
+        try await writeProject(project, to: url)
         logger.info("Saved default project template to: \(url.path)")
     }
 
     /// Loads the default project template if it exists. Returns nil if not found.
-    public func loadDefaultProject() -> Project? {
+    public func loadDefaultProject() async -> Project? {
         guard let url = defaultProjectURL, FileManager.default.fileExists(atPath: url.path) else {
             return nil
         }
         
         do {
-            let project = try open(fileURL: url)
+            let project = try await open(fileURL: url)
             // Reset project ID and file URL so it's treated as a fresh "New Project"
             // We want a new copy, not to edit the template itself directly
             let newProject = Project(
@@ -250,27 +272,34 @@ public final class ProjectFileManager {
     // MARK: - Open
 
     /// Open a project from a .ddpj file.
-    public func open(fileURL: URL) throws -> Project {
-        let data = try Data(contentsOf: fileURL)
+    public func open(fileURL: URL) async throws -> Project {
+        // Read and Decompress on background thread
+        let project = try await Task.detached(priority: .userInitiated, operation: { [weak self] in
+            guard let self = self else { throw ProjectFileError.unknown }
+            
+            let data = try Data(contentsOf: fileURL)
 
-        // Try gzip decompression first, fall back to raw JSON
-        let jsonData: Data
-        if data.isGzipped {
-            jsonData = try data.gunzipped()
-        } else {
-            jsonData = data
+            // Try gzip decompression
+            let jsonData: Data
+            if data.isGzipped {
+                jsonData = try data.gunzipped()
+            } else {
+                jsonData = data
+            }
+
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let decodedProject = try decoder.decode(Project.self, from: jsonData)
+            return decodedProject
+        }).value
+
+        // Update MainActor state
+        await MainActor.run {
+            project.fileURL = fileURL
         }
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let project = try decoder.decode(Project.self, from: jsonData)
-        project.fileURL = fileURL
-
-        // Set the project folder context
-        projectFolderURL = fileURL.deletingLastPathComponent()
-
-        // Determine current version from filename
-        currentVersion = extractVersion(from: fileURL) ?? 1
+        
+        self.projectFolderURL = fileURL.deletingLastPathComponent()
+        self.currentVersion = extractVersion(from: fileURL) ?? 1
 
         logger.info("Opened project: \(project.name) (V\(self.currentVersion))")
         return project
@@ -296,7 +325,7 @@ public final class ProjectFileManager {
     // MARK: - Backup (auto-save)
 
     /// Create a backup copy of the current project state.
-    public func createBackup(project: Project) {
+    public func createBackup(project: Project) async {
         guard let folderURL = projectFolderURL else { return }
 
         let backupFolder = folderURL.appendingPathComponent("Backup")
@@ -307,7 +336,7 @@ public final class ProjectFileManager {
 
         do {
             try FileManager.default.createDirectory(at: backupFolder, withIntermediateDirectories: true)
-            try writeProject(project, to: backupFile)
+            try await writeProject(project, to: backupFile)
             logger.info("Backup created: \(backupFile.lastPathComponent)")
         } catch {
             logger.error("Backup failed: \(error.localizedDescription)")
@@ -320,15 +349,19 @@ public final class ProjectFileManager {
         folder.appendingPathComponent("\(name) V\(version).\(ProjectFileManager.fileExtension)")
     }
 
-    private func writeProject(_ project: Project, to url: URL) throws {
+    private func writeProject(_ project: Project, to url: URL) async throws {
+        // Encode on current actor (Main) to ensure thread safety for Project access
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         let jsonData = try encoder.encode(project)
 
-        // Gzip compress for smaller file size
-        let compressedData = try jsonData.gzipped()
-        try compressedData.write(to: url, options: .atomic)
+        // Write to disk on background thread
+        try await Task.detached(priority: .userInitiated) {
+            // Gzip compress for smaller file size
+            let compressedData = try jsonData.gzipped()
+            try compressedData.write(to: url, options: .atomic)
+        }.value
     }
 
     private func copyAudioSamples(project: Project, to importedFolder: URL) throws {
@@ -370,6 +403,7 @@ public enum ProjectFileError: LocalizedError {
     case noProjectFolder
     case fileNotFound(URL)
     case invalidFormat
+    case unknown
 
     public var errorDescription: String? {
         switch self {
@@ -379,6 +413,8 @@ public enum ProjectFileError: LocalizedError {
             return "Project file not found: \(url.lastPathComponent)"
         case .invalidFormat:
             return "Invalid project file format."
+        case .unknown:
+            return "An unknown error occurred."
         }
     }
 }

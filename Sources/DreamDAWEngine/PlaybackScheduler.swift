@@ -83,25 +83,24 @@ public final class PlaybackScheduler {
                 // We use a safe "infinity" (e.g. 1 hour) or just project end?
                 // Using project end is safer.
                 let end = project.totalDuration
-                hasContent = scheduleTrackRange(
+                _ = scheduleTrackRange(
                     track: track, player: player,
                     start: position, end: end,
                     bpm: bpm, sampleRate: sampleRate
                 )
+                hasContent = true // Linear playback always considers track as having content if we reach here
             } else {
                 // Gapless Loop Playback
-                var scheduledAnything = false
 
                 // 1. Pre-Roll (Current Pos -> Loop End)
                 // Even if we are AT loop start, this covers the first iteration seamlessly
                 if position.beats < loopEnd.beats {
-                    if scheduleTrackRange(
+                    _ = scheduleTrackRange(
                         track: track, player: player,
                         start: position, end: loopEnd,
                         bpm: bpm, sampleRate: sampleRate
-                    ) {
-                        scheduledAnything = true
-                    }
+                    )
+                    hasContent = true
                 }
 
                 // 2. Loop Body Iterations
@@ -114,18 +113,18 @@ public final class PlaybackScheduler {
 
                     logger.debug("Buffering \(iterationCount) loop iterations for track '\(track.name)'")
 
+                    var runningError: Double = 0
                     for _ in 0..<iterationCount {
-                        if scheduleTrackRange(
+                        runningError = scheduleTrackRange(
                             track: track, player: player,
                             start: loopStart, end: loopEnd,
-                            bpm: bpm, sampleRate: sampleRate
-                        ) {
-                            scheduledAnything = true
-                        }
+                            bpm: bpm, sampleRate: sampleRate,
+                            accumulatedError: runningError
+                        )
                     }
                 }
 
-                hasContent = scheduledAnything
+                hasContent = true
             }
 
             if hasContent {
@@ -145,16 +144,19 @@ public final class PlaybackScheduler {
     /// Schedules all clips within a specific time range [start, end) onto the player queue.
     /// Fills gaps with silence to maintain exact timing.
     /// Returns true if any content (sound or silence hole-filler) was scheduled to maintain timeline.
+    /// Returns the NEW accumulated error (seconds) to be passed to the next iteration.
+    @discardableResult
     private func scheduleTrackRange(
         track: Track, player: AVAudioPlayerNode,
         start: TimePosition, end: TimePosition,
-        bpm: Double, sampleRate: Double
-    ) -> Bool {
+        bpm: Double, sampleRate: Double,
+        accumulatedError: Double = 0
+    ) -> Double {
         let rangeStartBeats = start.beats
         let rangeEndBeats = end.beats
         let rangeDurationBeats = rangeEndBeats - rangeStartBeats
 
-        guard rangeDurationBeats > 0 else { return false }
+        guard rangeDurationBeats > 0 else { return accumulatedError }
 
         // Filter clips touching this range
         var clipsInRange: [(Any, Double, Double, Double)] = [] // (ClipObject, StartBeat, EndBeat, Duration)
@@ -243,22 +245,30 @@ public final class PlaybackScheduler {
 
         // 3. Fill final gap to end of range
         // This ensures the loop body is exactly the loop length
-        let remaining = rangeDurationSeconds - cursorSeconds
-        if remaining > 0.001 { // epsilon
-            scheduleSilence(player: player, duration: remaining, sampleRate: sampleRate)
+        let totalRemainingToFill = (rangeDurationSeconds - cursorSeconds) + accumulatedError
+        
+        var newError: Double = 0
+        if totalRemainingToFill > 0 {
+            let scheduledFrames = scheduleSilence(player: player, duration: totalRemainingToFill, sampleRate: sampleRate)
+            let scheduledSeconds = Double(scheduledFrames) / sampleRate
+            newError = totalRemainingToFill - scheduledSeconds
+        } else {
+            newError = accumulatedError
         }
 
-        return true // We scheduled a complete block representing the range
+        return newError
     }
 
     // MARK: - Low Level Helpers
 
-    private func scheduleSilence(player: AVAudioPlayerNode, duration: Double, sampleRate: Double) {
+    @discardableResult
+    private func scheduleSilence(player: AVAudioPlayerNode, duration: Double, sampleRate: Double) -> AVAudioFrameCount {
         let frameCount = AVAudioFrameCount(duration * sampleRate)
-        guard frameCount > 0 else { return }
+        guard frameCount > 0 else { return 0 }
         if let silence = createSilenceBuffer(frameCount: frameCount, sampleRate: sampleRate) {
             player.scheduleBuffer(silence)
         }
+        return frameCount
     }
 
     private func scheduleAudioFileSegment(
@@ -304,7 +314,6 @@ public final class PlaybackScheduler {
         let frameCount = AVAudioFrameCount(durationSeconds * sampleRate)
 
         guard startFrame < fullBuffer.frameLength else { return }
-        let actualCount = min(frameCount, AVAudioFrameCount(startFrame < AVAudioFramePosition(fullBuffer.frameLength) ? AVAudioFramePosition(fullBuffer.frameLength) - startFrame : 0))
 
         // Helper to get length safely
         let bufferLen = AVAudioFramePosition(fullBuffer.frameLength)

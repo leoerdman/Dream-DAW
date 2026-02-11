@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Combine
 import DreamDAWModels
 
 // MARK: - TrackHeaderView (Ableton Live Right-Side Style)
@@ -12,6 +13,8 @@ public final class TrackHeaderView: NSView {
     // MARK: - Properties
 
     public private(set) var track: Track
+    private var cancellables = Set<AnyCancellable>()
+    
     public var isSelected: Bool = false {
         didSet {
             updateSelectionState()
@@ -52,10 +55,23 @@ public final class TrackHeaderView: NSView {
         super.init(frame: .zero)
         setupUI()
         updateFromTrack()
+        setupSubscriptions()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setupSubscriptions() {
+        // Observe all relevant track properties
+        track.objectWillChange
+            .sink { [weak self] _ in
+                // Coalesce updates to Main thread
+                DispatchQueue.main.async {
+                    self?.updateFromTrack()
+                }
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Setup

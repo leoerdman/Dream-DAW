@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import Foundation
+import Combine
 import DreamDAWModels
 import DreamDAWEngine
 
@@ -14,8 +15,13 @@ public final class TimelineCanvasView: NSView {
     // MARK: - Properties
 
     public var project: Project? {
-        didSet { needsDisplay = true }
+        didSet {
+            setupSubscriptions()
+            needsDisplay = true
+        }
     }
+
+    private var cancellables = Set<AnyCancellable>()
 
     public var pixelsPerBeat: CGFloat = DreamTheme.defaultPixelsPerBeat {
         didSet { needsDisplay = true }
@@ -84,6 +90,62 @@ public final class TimelineCanvasView: NSView {
 
     /// Tracking area for mouseMoved events (cursor changes on hover).
     private var hoverTrackingArea: NSTrackingArea?
+
+    // MARK: - Reactive Subscriptions
+
+    private func setupSubscriptions() {
+        // Cancel any existing subscriptions
+        cancellables.removeAll()
+
+        guard let project = project else { return }
+
+        // 1. Project-level changes (Name, Loop, BPM, etc.)
+        project.objectWillChange
+            .sink { [weak self] _ in
+                self?.needsDisplay = true
+            }
+            .store(in: &cancellables)
+
+        // 2. Track list changes
+        // When the array reference changes, re-subscribe to individual tracks
+        project.$tracks
+            .sink { [weak self] tracks in
+                self?.subscribeToTracks(tracks)
+                self?.needsDisplay = true
+            }
+            .store(in: &cancellables)
+            
+        // Initial subscription
+        subscribeToTracks(project.tracks)
+    }
+
+    private func subscribeToTracks(_ tracks: [Track]) {
+        for track in tracks {
+            // Observe each track for volume, pan, mute, solo changes
+            track.objectWillChange
+                .sink { [weak self] _ in
+                    self?.needsDisplay = true
+                }
+                .store(in: &cancellables)
+        }
+    }
+
+    // MARK: - Initialization
+
+    public override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupUI()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupUI()
+    }
+
+    private func setupUI() {
+        wantsLayer = true
+        layer?.backgroundColor = DreamTheme.bgPrimary.cgColor
+    }
 
     private struct DragState {
         let trackID: UUID

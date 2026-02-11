@@ -1,3 +1,4 @@
+// Force Rebuild
 import AppKit
 import SwiftUI
 import Foundation
@@ -11,28 +12,8 @@ import os.log
 /// Layout: [ControlBar TOP] → [BrowserSidebar LEFT | Ruler+Canvas CENTER | TrackHeaders RIGHT] → [StatusBar BOTTOM]
 /// Manages synchronized scrolling and zoom state.
 public final class ArrangementViewController: NSViewController {
-    public var testProp: Int = 0
 
-    // MARK: - Initialization
 
-    public init(project: Project) {
-        self.project = project
-        self.audioEngine = AudioEngine()
-        self.transportController = TransportController()
-        self.waveformCache = WaveformCache()
-        self.trackMixer = TrackMixer(audioEngine: audioEngine)
-        self.playbackScheduler = PlaybackScheduler(audioEngine: audioEngine, trackMixer: trackMixer)
-
-        super.init(nibName: nil, bundle: nil)
-
-        // Sync transport with project
-        transportController.bpm = project.bpm
-        transportController.timeSignature = project.timeSignature
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
 
     // MARK: - Edit Actions (Menu & Keyboard Shortcuts)
 
@@ -700,7 +681,6 @@ public final class ArrangementViewController: NSViewController {
 
             // Sync loop toggle state (transport → ruler)
             if self.rulerView.isLooping != self.transportController.isLooping {
-            if self.rulerView.isLooping != self.transportController.isLooping {
                 self.rulerView.isLooping = self.transportController.isLooping
             }
             // Persist loop toggle state
@@ -1088,7 +1068,7 @@ public final class ArrangementViewController: NSViewController {
         case 1 where flags.contains(.command): // Cmd+S — save
             saveProject()
         case 31 where flags.contains(.command): // Cmd+O — open
-            openProject()
+            openProject(nil)
         default:
             super.keyDown(with: event)
         }
@@ -1235,6 +1215,13 @@ public final class ArrangementViewController: NSViewController {
         }
     }
 
+    private func dismissRenderDialog() {
+        guard isRenderDialogShown, let panel = renderPanel else { return }
+        isRenderDialogShown = false
+        panel.close()
+        view.window?.makeKeyAndOrderFront(nil)
+    }
+
 
 
     // MARK: - Project File Operations
@@ -1244,16 +1231,22 @@ public final class ArrangementViewController: NSViewController {
         let fm = ProjectFileManager.shared
 
         if fm.projectFolderURL != nil {
-            do {
-                let url = try fm.save(project: project)
-                updateWindowTitle()
-                print("[DreamDAW] Saved: \(url.lastPathComponent)")
-            } catch {
-                print("[DreamDAW] Save failed: \(error.localizedDescription)")
-                // Fall back to Save As if no folder set
-                if case ProjectFileError.noProjectFolder = error {
-                    saveProjectAs()
+            showLoadingOverlay(message: "Saving Project...")
+            Task {
+                do {
+                    let url = try await fm.save(project: project)
+                    updateWindowTitle()
+                    logger.info("Saved: \(url.lastPathComponent)")
+                } catch {
+                    logger.error("Save failed: \(error.localizedDescription)")
+                    if case ProjectFileError.noProjectFolder = error {
+                        saveProjectAs()
+                    } else {
+                        let alert = NSAlert(error: error)
+                        alert.runModal()
+                    }
                 }
+                hideLoadingOverlay()
             }
         } else {
             saveProjectAs()
@@ -1289,19 +1282,23 @@ public final class ArrangementViewController: NSViewController {
         let response = panel.runModal()
         guard response == .OK, let fileURL = panel.url else { return }
 
-        do {
-            let savedURL = try ProjectFileManager.shared.saveToFile(project: self.project, fileURL: fileURL)
-            self.updateWindowTitle()
-            self.logger.info("Saved as: \(savedURL.lastPathComponent)")
-        } catch {
-            let alert = NSAlert(error: error)
-            alert.runModal()
+        showLoadingOverlay(message: "Saving Project...")
+        Task {
+            do {
+                let savedURL = try await ProjectFileManager.shared.saveToFile(project: self.project, fileURL: fileURL)
+                self.updateWindowTitle()
+                self.logger.info("Saved as: \(savedURL.lastPathComponent)")
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.runModal()
+            }
+            self.hideLoadingOverlay()
         }
     }
 
-    /*
+
     /// Open a project file (Cmd+O).
-    private func openProject() {
+    @IBAction func openProject(_ sender: Any?) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -1318,53 +1315,49 @@ public final class ArrangementViewController: NSViewController {
 
             self.showLoadingOverlay(message: "Loading Project…")
 
-            DispatchQueue.global(qos: .userInitiated).async {
+            Task {
                 do {
-                    let openedProject = try ProjectFileManager.shared.open(fileURL: fileURL)
+                    let openedProject = try await ProjectFileManager.shared.open(fileURL: fileURL)
 
-                    DispatchQueue.main.async {
-                        // Update the current project in-place (don't resize window)
-                        self.project.name = openedProject.name
-                        self.project.bpm = openedProject.bpm
-                        self.project.timeSignature = openedProject.timeSignature
-                        self.project.sampleRate = openedProject.sampleRate
-                        self.project.tracks = openedProject.tracks
-                        self.project.masterTrack = openedProject.masterTrack
-                        self.project.loopStart = openedProject.loopStart
-                        self.project.loopEnd = openedProject.loopEnd
-                        self.project.fileURL = openedProject.fileURL
+                    // Update the current project in-place (don't resize window)
+                    self.project.name = openedProject.name
+                    self.project.bpm = openedProject.bpm
+                    self.project.timeSignature = openedProject.timeSignature
+                    self.project.sampleRate = openedProject.sampleRate
+                    self.project.tracks = openedProject.tracks
+                    self.project.masterTrack = openedProject.masterTrack
+                    self.project.loopStart = openedProject.loopStart
+                    self.project.loopEnd = openedProject.loopEnd
+                    self.project.fileURL = openedProject.fileURL
 
-                        // Reconfigure audio engine for the new tracks
-                        self.trackMixer.configureTracks(self.project.tracks)
-                        self.trackMixer.applyMasterSettings(self.project.masterTrack)
-                        self.installMeteringTaps()
-
-                        self.trackMixer.applyMasterSettings(self.project.masterTrack)
-                        self.installMeteringTaps()
-                        
-                        // FIX: Helper methods
-                        self.reloadTracks()
-                        self.configureProject()
-                        self.updateWindowTitle()
-                        
-                        self.hideLoadingOverlay()
-
-                        self.hideLoadingOverlay()
-                        self.logger.info("Opened project: \(openedProject.name)")
-                    }
+                    // Reconfigure audio engine for the new tracks
+                    self.trackMixer.configureTracks(self.project.tracks)
+                    self.trackMixer.applyMasterSettings(self.project.masterTrack)
+                    self.installMeteringTaps()
+                    
+                    // FIX: Helper methods
+                    self.reloadTracks()
+                    self.configureProject()
+                    self.updateWindowTitle()
+                    
+                    self.logger.info("Opened project: \(openedProject.name)")
                 } catch {
-                    DispatchQueue.main.async {
-                        self.hideLoadingOverlay()
-                        let alert = NSAlert(error: error)
-                        alert.runModal()
-                    }
+                    let alert = NSAlert(error: error)
+                    alert.runModal()
                 }
+                self.hideLoadingOverlay()
             }
         }
     }
 
     // MARK: - Helper Methods
     
+
+    func updateWindowTitle() {
+        let fm = ProjectFileManager.shared
+        let versionTag = fm.projectFolderURL != nil ? " V\(fm.currentVersion)" : ""
+        view.window?.title = "\(project.name)\(versionTag) — Dream DAW"
+    }
 
     func configureProject() {
         canvasView.project = project
@@ -1396,12 +1389,7 @@ public final class ArrangementViewController: NSViewController {
         showNotification(title: "Project Loaded", message: project.name)
     }
 
-    /// Update the window title to reflect the current project name and version.
-    func updateWindowTitle() {
-        let fm = ProjectFileManager.shared
-        let versionTag = fm.projectFolderURL != nil ? " V\(fm.currentVersion)" : ""
-        view.window?.title = "\(project.name)\(versionTag) — Dream DAW"
-    }
+
     
 
     
@@ -1451,3 +1439,4 @@ public final class ArrangementViewController: NSViewController {
 private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
+

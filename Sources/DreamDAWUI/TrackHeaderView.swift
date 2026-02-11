@@ -12,6 +12,11 @@ public final class TrackHeaderView: NSView {
     // MARK: - Properties
 
     public private(set) var track: Track
+    public var isSelected: Bool = false {
+        didSet {
+            updateSelectionState()
+        }
+    }
     private let trackIndex: Int
 
     /// Expose track ID for drag-and-drop hit testing
@@ -35,6 +40,9 @@ public final class TrackHeaderView: NSView {
 
     /// Callback specifically for solo changes (needs to propagate to TrackMixer for solo logic).
     public var onSoloChanged: (() -> Void)?
+    
+    /// Callback when header is clicked (for track selection).
+    public var onHeaderClicked: (() -> Void)?
 
     // MARK: - Initialization
 
@@ -205,7 +213,10 @@ public final class TrackHeaderView: NSView {
 
     private func updateFromTrack() {
         nameLabel.stringValue = track.name
+
         nameBackgroundView.layer?.backgroundColor = track.color.nsColor.cgColor
+        // Force refresh selection visual
+        updateSelectionState()
         trackTypeLabel.stringValue = track.trackType.displayName
 
         // Display instrument/effects info in routing label
@@ -326,6 +337,83 @@ public final class TrackHeaderView: NSView {
             nameLabel.alphaValue = 1.0
         }
     }
+    
+    private func updateSelectionState() {
+        if isSelected {
+            // Selected: brighter background, white border
+            layer?.backgroundColor = DreamTheme.bgTrackHeader.blended(withFraction: 0.1, of: .white)?.cgColor
+            layer?.borderWidth = 1.0
+            layer?.borderColor = NSColor.white.withAlphaComponent(0.4).cgColor
+        } else {
+            // Unselected: default background, no border
+            layer?.backgroundColor = DreamTheme.bgTrackHeader.cgColor
+            layer?.borderWidth = 0.0
+        }
+    }
+
+    // MARK: - Context Menu
+    
+    public override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu(title: "Track Options")
+        
+        let colorMenu = NSMenu(title: "Track Color")
+        for color in TrackColor.allCases {
+            let item = NSMenuItem(title: String(describing: color).capitalized, action: #selector(changeColor(_:)), keyEquivalent: "")
+            item.target = self
+            // Store color name in representedObject
+            item.representedObject = color
+            
+            // Show checkmark if current color
+            if track.color == color {
+                item.state = NSControl.StateValue.on
+            }
+            
+            // Add color swatch icon
+            let swatch = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
+                color.nsColor.setFill()
+                rect.fill()
+                return true
+            }
+            item.image = swatch
+            
+            colorMenu.addItem(item)
+        }
+        
+        let colorItem = NSMenuItem(title: "Color", action: nil, keyEquivalent: "")
+        colorItem.submenu = colorMenu
+        menu.addItem(colorItem)
+        
+        return menu
+    }
+    
+    @objc private func changeColor(_ sender: NSMenuItem) {
+        guard let color = sender.representedObject as? TrackColor else { return }
+        
+        // Update track color
+        track.color = color
+        
+        // Update all clips on this track to match
+        for i in 0..<track.clips.count {
+            track.clips[i].colorOverride = nil // Reset overrides if any
+        }
+        for i in 0..<track.midiClips.count {
+            track.midiClips[i].colorOverride = nil
+        }
+        
+        // Notify changes
+        onTrackChanged?(track)
+        updateFromTrack()
+    }
+    
+    // MARK: - Mouse Events
+    
+    public override func mouseDown(with event: NSEvent) {
+        // Left click selection
+        onHeaderClicked?()
+        
+        // Pass event up if not handled (though we just handled selection)
+        super.mouseDown(with: event)
+    }
 
     // MARK: - Actions
 
@@ -371,6 +459,9 @@ public final class TrackHeadersContainerView: NSView {
     /// Parameters: (trackID, nodeType, itemName)
     public var onBrowserItemDropped: ((UUID, String, String) -> Void)?
 
+    /// Callback when a specific header is clicked (for selection).
+    public var onHeaderClicked: ((UUID) -> Void)?
+    
     public override var isFlipped: Bool { true }
 
     // MARK: - Initialization
@@ -429,6 +520,9 @@ public final class TrackHeadersContainerView: NSView {
             }
             header.onSoloChanged = { [weak self] in
                 self?.onSoloChanged?()
+            }
+            header.onHeaderClicked = { [weak self] in
+                self?.onHeaderClicked?(track.id)
             }
             addSubview(header)
             headerViews.append(header)

@@ -39,216 +39,293 @@ public final class PlaybackScheduler {
 
     // MARK: - Scheduling
 
-    /// Schedule all clips for playback from a given position.
+    /// Schedule all clips for playback, with optional gapless looping support.
     ///
-    /// Strategy:
-    /// 1. Stop all players
-    /// 2. For each track, render the complete audio from `position` onward into a single buffer
-    /// 3. Schedule the buffer on each player (at nil time = immediate on play)
-    /// 4. Start all players simultaneously with a shared future time
-    public func schedulePlayback(project: Project, from position: TimePosition) {
+    /// - Parameters:
+    ///   - project: The project data.
+    ///   - position: Start position for playback.
+    ///   - looping: Whether loop mode is active.
+    ///   - loopStart: Loop start position (if looping).
+    ///   - loopEnd: Loop end position (if looping).
+    public func schedulePlayback(
+        project: Project,
+        from position: TimePosition,
+        looping: Bool = false,
+        loopStart: TimePosition = .zero,
+        loopEnd: TimePosition = .zero
+    ) {
         let bpm = project.bpm
         let sampleRate = audioEngine.sampleRate
 
-        logger.info("schedulePlayback from beat \(position.beats, format: .fixed(precision: 2)), bpm=\(bpm, format: .fixed(precision: 1)), sampleRate=\(sampleRate, format: .fixed(precision: 0)), engineRunning=\(self.audioEngine.isRunning)")
+        logger.info("schedulePlayback from \(position.beats), looping=\(looping) [\(loopStart.beats)-\(loopEnd.beats)]")
 
-        // Stop all players first
+        // Stop all players first (clears queue)
         trackMixer.stopAll()
 
         var playersToStart: [AVAudioPlayerNode] = []
 
         for track in project.tracks {
-            // Skip master track — it has no player node
             guard track.trackType != .master else { continue }
+            guard let player = trackMixer.playerNode(for: track.id) else { continue }
 
-            guard let player = trackMixer.playerNode(for: track.id) else {
-                logger.warning("No player node for track '\(track.name)'")
-                continue
-            }
-
-            // Stop this specific player and clear any scheduled buffers
             player.stop()
 
             var hasContent = false
 
-            if track.trackType == .audio {
-                hasContent = scheduleAudioClips(
+            // Logic:
+            // 1. If NOT looping, or position is past loop end: Schedule linearly to end.
+            // 2. If looping:
+            //    a. Schedule "Pre-Roll": position -> loopEnd
+            //    b. Schedule "Loop Body" (N times): loopStart -> loopEnd
+
+            if !looping || position.beats >= loopEnd.beats {
+                // Linear playback (no loop active or past loop)
+                // We use a safe "infinity" (e.g. 1 hour) or just project end?
+                // Using project end is safer.
+                let end = project.totalDuration
+                hasContent = scheduleTrackRange(
                     track: track, player: player,
-                    position: position, bpm: bpm, sampleRate: sampleRate
+                    start: position, end: end,
+                    bpm: bpm, sampleRate: sampleRate
                 )
-            } else if track.trackType == .midi {
-                hasContent = scheduleMidiClips(
-                    track: track, player: player,
-                    position: position, bpm: bpm, sampleRate: sampleRate
-                )
+            } else {
+                // Gapless Loop Playback
+                var scheduledAnything = false
+
+                // 1. Pre-Roll (Current Pos -> Loop End)
+                // Even if we are AT loop start, this covers the first iteration seamlessly
+                if position.beats < loopEnd.beats {
+                    if scheduleTrackRange(
+                        track: track, player: player,
+                        start: position, end: loopEnd,
+                        bpm: bpm, sampleRate: sampleRate
+                    ) {
+                        scheduledAnything = true
+                    }
+                }
+
+                // 2. Loop Body Iterations
+                // Calculate how many iterations to buffer (target ~3 minutes or max 32 iterations)
+                let loopDurationBeats = loopEnd.beats - loopStart.beats
+                if loopDurationBeats > 0 {
+                    let loopDurationSec = loopDurationBeats / bpm * 60.0
+                    let targetBufferSec = 180.0
+                    let iterationCount = min(32, max(2, Int(ceil(targetBufferSec / loopDurationSec))))
+
+                    logger.debug("Buffering \(iterationCount) loop iterations for track '\(track.name)'")
+
+                    for _ in 0..<iterationCount {
+                        if scheduleTrackRange(
+                            track: track, player: player,
+                            start: loopStart, end: loopEnd,
+                            bpm: bpm, sampleRate: sampleRate
+                        ) {
+                            scheduledAnything = true
+                        }
+                    }
+                }
+
+                hasContent = scheduledAnything
             }
 
             if hasContent {
                 playersToStart.append(player)
-                logger.debug("Track '\(track.name)' has content, will start player")
-            } else {
-                logger.debug("Track '\(track.name)' has no content at this position")
             }
         }
 
         // Start all players immediately
+        // (Since we used scheduleSegment/Buffer with at: nil, they are queued and ready)
         for player in playersToStart {
             player.play()
         }
-
-        logger.info("Started \(playersToStart.count) players")
     }
 
-    // MARK: - Audio Clip Scheduling
+    // MARK: - Range Scheduling (The Core "Stitcher")
 
-    /// Schedule audio clips on a player. Returns true if any content was scheduled.
-    private func scheduleAudioClips(
+    /// Schedules all clips within a specific time range [start, end) onto the player queue.
+    /// Fills gaps with silence to maintain exact timing.
+    /// Returns true if any content (sound or silence hole-filler) was scheduled to maintain timeline.
+    private func scheduleTrackRange(
         track: Track, player: AVAudioPlayerNode,
-        position: TimePosition, bpm: Double, sampleRate: Double
+        start: TimePosition, end: TimePosition,
+        bpm: Double, sampleRate: Double
     ) -> Bool {
-        let relevantClips = track.clips
-            .filter { $0.endPosition.beats > position.beats }
-            .sorted { $0.position.beats < $1.position.beats }
+        let rangeStartBeats = start.beats
+        let rangeEndBeats = end.beats
+        let rangeDurationBeats = rangeEndBeats - rangeStartBeats
 
-        guard !relevantClips.isEmpty else {
-            logger.debug("No relevant audio clips for track '\(track.name)'")
-            return false
+        guard rangeDurationBeats > 0 else { return false }
+
+        // Filter clips touching this range
+        var clipsInRange: [(Any, Double, Double, Double)] = [] // (ClipObject, StartBeat, EndBeat, Duration)
+
+        if track.trackType == .audio {
+            for clip in track.clips {
+                if clip.endPosition.beats > rangeStartBeats && clip.position.beats < rangeEndBeats {
+                    clipsInRange.append((clip, clip.position.beats, clip.endPosition.beats, clip.duration.beats))
+                }
+            }
+        } else if track.trackType == .midi {
+            for clip in track.midiClips {
+                if clip.endPosition.beats > rangeStartBeats && clip.position.beats < rangeEndBeats {
+                    clipsInRange.append((clip, clip.position.beats, clip.endPosition.beats, clip.duration.beats))
+                }
+            }
         }
 
-        var scheduled = false
+        // Sort by time
+        clipsInRange.sort { $0.1 < $1.1 }
 
-        for clip in relevantClips {
-            do {
-                let file = try loadAudioFile(url: clip.fileURL)
-                let fileFormat = file.processingFormat
+        // Cursor tracks the current "write head" in the player queue, relative to rangeStart (in seconds)
+        var cursorSeconds: Double = 0
+        let rangeDurationSeconds = rangeDurationBeats / bpm * 60.0
 
-                // Calculate timing
-                let clipStartInSeconds = clip.position.toSeconds(bpm: bpm)
-                let playheadInSeconds = position.toSeconds(bpm: bpm)
-                let trimOffsetInSeconds = clip.trimStartOffset.toSeconds(bpm: bpm)
+        for (clipObj, cStart, _, _) in clipsInRange {
+            // Convert clip timings to seconds relative to rangeStart
+            let clipStartAbsSeconds = cStart / bpm * 60.0
+            let rangeStartAbsSeconds = rangeStartBeats / bpm * 60.0
+            let relativeStartSeconds = clipStartAbsSeconds - rangeStartAbsSeconds
 
-                var fileStartSeconds = trimOffsetInSeconds
-                var delaySeconds: Double = 0
-
-                if playheadInSeconds > clipStartInSeconds {
-                    // Playhead is inside this clip — start from offset
-                    let intoClip = playheadInSeconds - clipStartInSeconds
-                    fileStartSeconds += intoClip
-                } else {
-                    // Clip starts after playhead — schedule with delay
-                    delaySeconds = clipStartInSeconds - playheadInSeconds
+            // 1. Fill gap before clip with silence
+            if relativeStartSeconds > cursorSeconds {
+                let gapDuration = relativeStartSeconds - cursorSeconds
+                if gapDuration > 0 {
+                    scheduleSilence(player: player, duration: gapDuration, sampleRate: sampleRate)
+                    cursorSeconds += gapDuration
                 }
+            }
 
-                let clipDurationSeconds = clip.duration.toSeconds(bpm: bpm)
-                let remainingDuration = clipDurationSeconds - (fileStartSeconds - trimOffsetInSeconds)
-                guard remainingDuration > 0 else { continue }
+            // 2. Schedule Clip Segment
+            // We need to determine ensuring we clip to the Range boundaries
+            // Clip might start before range (offset) or end after range (trim)
 
-                let startFrame = AVAudioFramePosition(fileStartSeconds * fileFormat.sampleRate)
-                let frameCount = AVAudioFrameCount(remainingDuration * fileFormat.sampleRate)
+            // Overlap calculations in BEATS first for precision
+            let clipStartBeats = cStart
+            let clipEndBeats = cStart + ((clipObj as? AudioClip)?.duration.beats ?? (clipObj as? MidiClip)?.duration.beats ?? 0)
 
-                // Clamp to file length
-                let availableFrames = file.length - startFrame
-                guard availableFrames > 0 else { continue }
-                let actualFrameCount = min(frameCount, AVAudioFrameCount(availableFrames))
+            let visibleStart = max(rangeStartBeats, clipStartBeats)
+            let visibleEnd = min(rangeEndBeats, clipEndBeats)
+            let visibleDuration = visibleEnd - visibleStart
 
-                if delaySeconds > 0 {
-                    // Schedule silence buffer first to act as time spacer
-                    let silenceFrames = AVAudioFrameCount(delaySeconds * sampleRate)
-                    if let silence = createSilenceBuffer(frameCount: silenceFrames, sampleRate: sampleRate) {
-                        player.scheduleBuffer(silence)
-                    }
-                }
+            guard visibleDuration > 0 else { continue } // Should not happen given filter
 
-                // Schedule the audio segment (at nil = immediately after any prior buffers)
-                player.scheduleSegment(
-                    file,
-                    startingFrame: startFrame,
-                    frameCount: actualFrameCount,
-                    at: nil
+            // Calculate file read offsets
+            let startOffsetBeats = visibleStart - clipStartBeats // How far into clip we start
+            // Add Clip's internal trimStartOffset if audio
+            let internalTrimBeats = (clipObj as? AudioClip)?.trimStartOffset.beats ?? 0
+
+            let totalStartOffsetBeats = startOffsetBeats + internalTrimBeats
+            let visibleDurationSeconds = visibleDuration / bpm * 60.0
+
+            if let audioClip = clipObj as? AudioClip {
+                scheduleAudioFileSegment(
+                    player: player,
+                    url: audioClip.fileURL,
+                    startOffsetSeconds: totalStartOffsetBeats / bpm * 60.0,
+                    durationSeconds: visibleDurationSeconds
                 )
-
-                scheduled = true
-                logger.debug("Scheduled audio clip '\(clip.name)' on '\(track.name)' — delay: \(delaySeconds)s, start: \(startFrame), frames: \(actualFrameCount)")
-
-            } catch {
-                logger.error("Failed to load audio file \(clip.fileURL.lastPathComponent): \(error.localizedDescription)")
+            } else if let midiClip = clipObj as? MidiClip {
+                // For MIDI, we render full clip then slice buffer?
+                // Optimization: Render function could take range?
+                // For now: Render full, then slice.
+                scheduleMidiBufferSegment(
+                    player: player,
+                    clip: midiClip,
+                    startOffsetSeconds: startOffsetBeats / bpm * 60.0, // Internal trim not relevant for MIDI usually
+                    durationSeconds: visibleDurationSeconds,
+                    bpm: bpm,
+                    sampleRate: sampleRate
+                )
             }
+
+            cursorSeconds += visibleDurationSeconds
         }
 
-        return scheduled
+        // 3. Fill final gap to end of range
+        // This ensures the loop body is exactly the loop length
+        let remaining = rangeDurationSeconds - cursorSeconds
+        if remaining > 0.001 { // epsilon
+            scheduleSilence(player: player, duration: remaining, sampleRate: sampleRate)
+        }
+
+        return true // We scheduled a complete block representing the range
     }
 
-    // MARK: - MIDI Clip Scheduling
+    // MARK: - Low Level Helpers
 
-    /// Schedule MIDI clips (rendered to audio buffers) on a player. Returns true if any content was scheduled.
-    private func scheduleMidiClips(
-        track: Track, player: AVAudioPlayerNode,
-        position: TimePosition, bpm: Double, sampleRate: Double
-    ) -> Bool {
-        let relevantClips = track.midiClips
-            .filter { $0.endPosition.beats > position.beats }
-            .sorted { $0.position.beats < $1.position.beats }
+    private func scheduleSilence(player: AVAudioPlayerNode, duration: Double, sampleRate: Double) {
+        let frameCount = AVAudioFrameCount(duration * sampleRate)
+        guard frameCount > 0 else { return }
+        if let silence = createSilenceBuffer(frameCount: frameCount, sampleRate: sampleRate) {
+            player.scheduleBuffer(silence)
+        }
+    }
 
-        guard !relevantClips.isEmpty else {
-            logger.debug("No relevant MIDI clips for track '\(track.name)'")
-            return false
+    private func scheduleAudioFileSegment(
+        player: AVAudioPlayerNode,
+        url: URL,
+        startOffsetSeconds: Double,
+        durationSeconds: Double
+    ) {
+        do {
+            // MUST create fresh file handle for thread safety / independent seeking
+            let file = try AVAudioFile(forReading: url)
+            let format = file.processingFormat
+            let startFrame = AVAudioFramePosition(startOffsetSeconds * format.sampleRate)
+            let frameCount = AVAudioFrameCount(durationSeconds * format.sampleRate)
+
+            // Clamp
+            let available = file.length - startFrame
+            guard available > 0 else { return }
+            let actualCount = min(frameCount, AVAudioFrameCount(available))
+
+            player.scheduleSegment(
+                file,
+                startingFrame: startFrame,
+                frameCount: actualCount,
+                at: nil // Queue at end
+            )
+        } catch {
+            logger.error("Failed to schedule audio segment: \(error)")
+        }
+    }
+
+    private func scheduleMidiBufferSegment(
+        player: AVAudioPlayerNode,
+        clip: MidiClip,
+        startOffsetSeconds: Double,
+        durationSeconds: Double,
+        bpm: Double,
+        sampleRate: Double
+    ) {
+        guard let fullBuffer = synth.renderClipToBuffer(clip: clip, bpm: bpm) else { return }
+
+        let startFrame = AVAudioFramePosition(startOffsetSeconds * sampleRate)
+        let frameCount = AVAudioFrameCount(durationSeconds * sampleRate)
+
+        guard startFrame < fullBuffer.frameLength else { return }
+        let actualCount = min(frameCount, AVAudioFrameCount(startFrame < AVAudioFramePosition(fullBuffer.frameLength) ? AVAudioFramePosition(fullBuffer.frameLength) - startFrame : 0))
+
+        // Helper to get length safely
+        let bufferLen = AVAudioFramePosition(fullBuffer.frameLength)
+        let safeCount = min(frameCount, AVAudioFrameCount(max(0, bufferLen - startFrame)))
+        guard safeCount > 0 else { return }
+
+        // Slice buffer
+        guard let subBuffer = AVAudioPCMBuffer(pcmFormat: fullBuffer.format, frameCapacity: safeCount) else { return }
+        subBuffer.frameLength = safeCount
+
+        for ch in 0..<Int(fullBuffer.format.channelCount) {
+            guard let src = fullBuffer.floatChannelData?[ch],
+                  let dst = subBuffer.floatChannelData?[ch] else { continue }
+            memcpy(dst, src.advanced(by: Int(startFrame)), Int(safeCount) * MemoryLayout<Float>.size)
         }
 
-        var scheduled = false
+        player.scheduleBuffer(subBuffer)
+    }
 
-        for clip in relevantClips {
-            guard let buffer = synth.renderClipToBuffer(clip: clip, bpm: bpm) else {
-                logger.warning("Failed to render MIDI clip '\(clip.name)' to buffer")
-                continue
-            }
-
-            let clipStartSeconds = clip.position.toSeconds(bpm: bpm)
-            let playheadSeconds = position.toSeconds(bpm: bpm)
-
-            var delaySeconds: Double = 0
-            var startFrame: AVAudioFramePosition = 0
-
-            if playheadSeconds > clipStartSeconds {
-                startFrame = AVAudioFramePosition((playheadSeconds - clipStartSeconds) * sampleRate)
-                if startFrame >= AVAudioFramePosition(buffer.frameLength) { continue }
-            } else {
-                delaySeconds = clipStartSeconds - playheadSeconds
-            }
-
-            let remainingFrames = AVAudioFrameCount(AVAudioFramePosition(buffer.frameLength) - startFrame)
-            guard remainingFrames > 0 else { continue }
-
-            if delaySeconds > 0 {
-                // Schedule silence buffer first to act as time spacer
-                let silenceFrames = AVAudioFrameCount(delaySeconds * sampleRate)
-                if let silence = createSilenceBuffer(frameCount: silenceFrames, sampleRate: sampleRate) {
-                    player.scheduleBuffer(silence)
-                }
-            }
-
-            // Schedule the rendered MIDI audio
-            if startFrame > 0 {
-                // Create a sub-buffer starting at the offset
-                let format = buffer.format
-                guard let subBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: remainingFrames) else { continue }
-                subBuffer.frameLength = remainingFrames
-
-                for ch in 0..<Int(format.channelCount) {
-                    guard let src = buffer.floatChannelData?[ch],
-                          let dst = subBuffer.floatChannelData?[ch] else { continue }
-                    memcpy(dst, src.advanced(by: Int(startFrame)), Int(remainingFrames) * MemoryLayout<Float>.size)
-                }
-
-                player.scheduleBuffer(subBuffer)
-            } else {
-                player.scheduleBuffer(buffer)
-            }
-
-            scheduled = true
-            logger.debug("Scheduled MIDI clip '\(clip.name)' on '\(track.name)' — delay: \(delaySeconds)s, frames: \(remainingFrames)")
-        }
-
-        return scheduled
+    private func frameLength(_ buffer: AVAudioPCMBuffer) -> AVAudioFramePosition {
+        return AVAudioFramePosition(buffer.frameLength)
     }
 
     /// Stop all playback and silence the synth.

@@ -36,6 +36,18 @@ public final class ProjectFileManager {
 
     /// Current version number within the project folder.
     public private(set) var currentVersion: Int = 1
+    
+    /// The URL for the user's default project template.
+    /// Stored in `~/Library/Application Support/DreamDAW/DefaultProject.ddpj`.
+    public var defaultProjectURL: URL? {
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
+        let dreamFolder = appSupport.appendingPathComponent("DreamDAW")
+        // Ensure folder exists
+        try? FileManager.default.createDirectory(at: dreamFolder, withIntermediateDirectories: true, attributes: nil)
+        return dreamFolder.appendingPathComponent("DefaultProject.ddpj")
+    }
+
+    // MARK: - Recent Projects
 
     // MARK: - Recent Projects
 
@@ -159,7 +171,49 @@ public final class ProjectFileManager {
         }
     }
 
+    // MARK: - Default Project Template
 
+    /// Saves the current project state as the default template for new projects.
+    public func saveAsDefaultProject(_ project: Project) throws {
+        guard let url = defaultProjectURL else {
+            throw ProjectFileError.noProjectFolder // Generic error, though specialized one would be better
+        }
+        
+        // Save to the specific default path
+        try writeProject(project, to: url)
+        logger.info("Saved default project template to: \(url.path)")
+    }
+
+    /// Loads the default project template if it exists. Returns nil if not found.
+    public func loadDefaultProject() -> Project? {
+        guard let url = defaultProjectURL, FileManager.default.fileExists(atPath: url.path) else {
+            return nil
+        }
+        
+        do {
+            let project = try open(fileURL: url)
+            // Reset project ID and file URL so it's treated as a fresh "New Project"
+            // We want a new copy, not to edit the template itself directly
+            let newProject = Project(
+                name: "New Project", // Reset name
+                bpm: project.bpm,
+                timeSignature: project.timeSignature,
+                sampleRate: project.sampleRate,
+                tracks: project.tracks // Copies tracks (structs/classes need to be careful with references)
+            )
+            // Copy other properties manually if not covered by init
+            newProject.isLooping = project.isLooping
+            newProject.loopStart = project.loopStart
+            newProject.loopEnd = project.loopEnd
+            newProject.masterTrack = project.masterTrack
+            
+            logger.info("Loaded default project template.")
+            return newProject
+        } catch {
+            logger.error("Failed to load default project: \(error.localizedDescription)")
+            return nil
+        }
+    }
 
     // MARK: - Directory Detection
 
@@ -249,7 +303,7 @@ public final class ProjectFileManager {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
         let timestamp = formatter.string(from: Date())
-        let backupFile = backupFolder.appendingPathComponent("\(project.name)_backup_\(timestamp).\(Self.fileExtension)")
+        let backupFile = backupFolder.appendingPathComponent("\(project.name)_backup_\(timestamp).\(ProjectFileManager.fileExtension)")
 
         do {
             try FileManager.default.createDirectory(at: backupFolder, withIntermediateDirectories: true)
@@ -263,7 +317,7 @@ public final class ProjectFileManager {
     // MARK: - Private Helpers
 
     private func makeFileURL(folder: URL, name: String, version: Int) -> URL {
-        folder.appendingPathComponent("\(name) V\(version).\(Self.fileExtension)")
+        folder.appendingPathComponent("\(name) V\(version).\(ProjectFileManager.fileExtension)")
     }
 
     private func writeProject(_ project: Project, to url: URL) throws {

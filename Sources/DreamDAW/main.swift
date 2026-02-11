@@ -18,8 +18,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Application Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Create default project
-        project = Project.createDefault()
+        // Try loading default template, otherwise create new default
+        if let defaultTemplate = ProjectFileManager.shared.loadDefaultProject() {
+            project = defaultTemplate
+        } else {
+            project = Project.createDefault()
+        }
 
         // Create and show main window
         mainWindowController = MainWindowController(project: project)
@@ -77,6 +81,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(withTitle: "Save", action: #selector(saveProject), keyEquivalent: "s")
         fileMenu.addItem(withTitle: "Save As...", action: #selector(saveProjectAs), keyEquivalent: "S")
+        fileMenu.addItem(NSMenuItem.separator())
+        fileMenu.addItem(withTitle: "Save as Default Project", action: #selector(saveAsDefaultProject), keyEquivalent: "")
         fileMenuItem.submenu = fileMenu
         mainMenu.addItem(fileMenuItem)
 
@@ -89,7 +95,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        editMenu.addItem(withTitle: "Delete", action: #selector(NSText.delete(_:)), keyEquivalent: "\u{8}")
+        editMenu.addItem(withTitle: "Delete", action: #selector(NSText.delete(_:)), keyEquivalent: "\u{8}") // Backspace
+        editMenu.addItem(withTitle: "Duplicate", action: #selector(ArrangementViewController.duplicate(_:)), keyEquivalent: "d")
+        editMenu.addItem(withTitle: "Split Region", action: #selector(ArrangementViewController.split(_:)), keyEquivalent: "e")
         editMenu.addItem(NSMenuItem.separator())
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editMenuItem.submenu = editMenu
@@ -138,7 +146,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Actions
 
     @objc private func newProject() {
-        project = Project.createDefault()
+        // Try loading default template for new project
+        if let defaultTemplate = ProjectFileManager.shared.loadDefaultProject() {
+            project = defaultTemplate
+        } else {
+            project = Project.createDefault()
+        }
         // Reuse existing window — replace content, preserve window frame
         if let window = mainWindowController?.window {
             let savedFrame = window.frame
@@ -214,6 +227,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             fm.addToRecentProjects(savedURL)
             rebuildRecentMenu()
             self.mainWindowController?.window?.title = "\(self.project.name) V\(fm.currentVersion) — Dream DAW"
+        } catch {
+            let alert = NSAlert(error: error)
+            alert.runModal()
+        }
+        guard response == .OK, let fileURL = panel.url else { return }
+        
+        do {
+            let savedURL = try ProjectFileManager.shared.saveToFile(project: self.project, fileURL: fileURL)
+            let fm = ProjectFileManager.shared
+            fm.addToRecentProjects(savedURL)
+            rebuildRecentMenu()
+            self.mainWindowController?.window?.title = "\(self.project.name) V\(fm.currentVersion) — Dream DAW"
+        } catch {
+            let alert = NSAlert(error: error)
+            alert.runModal()
+        }
+    }
+    
+    @objc private func saveAsDefaultProject() {
+        do {
+            try ProjectFileManager.shared.saveAsDefaultProject(project)
+            let alert = NSAlert()
+            alert.messageText = "Default Project Saved"
+            alert.informativeText = "This project will now be used as the template for all new projects."
+            alert.alertStyle = .informational
+            alert.runModal()
         } catch {
             let alert = NSAlert(error: error)
             alert.runModal()

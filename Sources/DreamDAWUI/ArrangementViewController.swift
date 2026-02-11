@@ -5,22 +5,72 @@ import DreamDAWModels
 import DreamDAWEngine
 import os.log
 
-// MARK: - FlippedView
-
-/// NSView subclass with flipped coordinate system (y=0 at top).
-/// Required because all layout math in layoutSubviews() uses top-down coordinates.
-private final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
-}
-
 // MARK: - ArrangementViewController
 
 /// Main view controller for the arrangement view — Ableton Live 11 layout.
 /// Layout: [ControlBar TOP] → [BrowserSidebar LEFT | Ruler+Canvas CENTER | TrackHeaders RIGHT] → [StatusBar BOTTOM]
 /// Manages synchronized scrolling and zoom state.
 public final class ArrangementViewController: NSViewController {
+    public var testProp: Int = 0
 
-    // MARK: - Properties
+    // MARK: - Initialization
+
+    public init(project: Project) {
+        self.project = project
+        self.audioEngine = AudioEngine()
+        self.transportController = TransportController()
+        self.waveformCache = WaveformCache()
+        self.trackMixer = TrackMixer(audioEngine: audioEngine)
+        self.playbackScheduler = PlaybackScheduler(audioEngine: audioEngine, trackMixer: trackMixer)
+
+        super.init(nibName: nil, bundle: nil)
+
+        // Sync transport with project
+        transportController.bpm = project.bpm
+        transportController.timeSignature = project.timeSignature
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: - Edit Actions (Menu & Keyboard Shortcuts)
+
+    @objc public func cut(_ sender: Any?) {
+        canvasView.copySelection()
+        canvasView.deleteSelection()
+    }
+
+    @objc public func copy(_ sender: Any?) {
+        canvasView.copySelection()
+    }
+
+    @objc public func paste(_ sender: Any?) {
+        canvasView.pasteClipsAtEditCursor()
+    }
+
+    @objc public func delete(_ sender: Any?) {
+        canvasView.deleteSelection()
+    }
+
+    @objc public override func selectAll(_ sender: Any?) {
+        canvasView.selectAllClips()
+    }
+
+    @objc public func duplicate(_ sender: Any?) {
+        canvasView.duplicateSelection()
+    }
+
+    @objc public func split(_ sender: Any?) {
+        canvasView.splitClipsAtEditCursor()
+    }
+
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        // Always enable for now, or add logic to check if clips are selected
+        return true
+    }
+
+    // MARK: - Public Properties
 
     public let project: Project
     public let audioEngine: AudioEngine
@@ -116,6 +166,26 @@ public final class ArrangementViewController: NSViewController {
         installGlobalKeyMonitor()
         startMeterTimer()
     }
+    
+    // MARK: - View Persistence
+    
+    private func restoreViewState() {
+        // Restore view state (Zoom & Scroll)
+        if let savedZoom = project.viewZoomScale {
+            self.pixelsPerBeat = CGFloat(savedZoom)
+            self.rulerView.pixelsPerBeat = CGFloat(savedZoom)
+            self.canvasView.pixelsPerBeat = CGFloat(savedZoom)
+            // Restore scroll if present
+            if let savedScrollBeats = project.viewScrollPosition {
+                 DispatchQueue.main.async {
+                     let scrollX = CGFloat(savedScrollBeats) * CGFloat(savedZoom)
+                     let point = NSPoint(x: scrollX, y: 0)
+                     self.canvasScrollView.contentView.scroll(to: point)
+                     self.rulerView.scroll(NSPoint(x: scrollX, y: 0))
+                 }
+            }
+        }
+    }
 
     deinit {
         if let monitor = keyEventMonitor {
@@ -190,14 +260,8 @@ public final class ArrangementViewController: NSViewController {
         view.addSubview(hostingView)
         self.transportHostingView = hostingView
 
-        // ===== LEFT: Browser Sidebar =====
-        browserSidebar.wantsLayer = true
-        view.addSubview(browserSidebar)
+        // Browser and Left Corner moved to end for Z-order (stay on top of canvas)
 
-        // ===== CENTER-TOP: Left corner (browser header area) =====
-        cornerViewLeft.wantsLayer = true
-        cornerViewLeft.layer?.backgroundColor = DreamTheme.bgHeader.cgColor
-        view.addSubview(cornerViewLeft)
 
         // ===== CENTER-TOP: Ruler =====
         rulerView.wantsLayer = true
@@ -214,6 +278,11 @@ public final class ArrangementViewController: NSViewController {
         canvasScrollView.hasVerticalScroller = true
         canvasScrollView.hasHorizontalScroller = true
         canvasScrollView.autohidesScrollers = false
+        
+        // Use custom clip view to valid hard-clamp scrolling (stop rubber-banding)
+        let clipView = ClampedClipView()
+        canvasScrollView.contentView = clipView
+        
         canvasScrollView.documentView = canvasView
         canvasScrollView.scrollerStyle = .overlay
         // Disable elastic bounce — no over-scrolling past content boundaries
@@ -229,6 +298,10 @@ public final class ArrangementViewController: NSViewController {
         headerScrollView.drawsBackground = false
         headerScrollView.hasVerticalScroller = false
         headerScrollView.hasHorizontalScroller = false
+        
+        let headerClipView = ClampedClipView()
+        headerScrollView.contentView = headerClipView
+        
         headerScrollView.documentView = trackHeaders
         // Match canvas: no elastic bounce
         headerScrollView.horizontalScrollElasticity = .none
@@ -272,6 +345,18 @@ public final class ArrangementViewController: NSViewController {
         masterLaneView.wantsLayer = true
         masterLaneView.layer?.backgroundColor = NSColor(white: 0.14, alpha: 1).cgColor  // Slightly lighter
         view.addSubview(masterLaneView)
+
+        // ===== LEFT: Browser Sidebar (On TOP of Canvas) =====
+        browserSidebar.wantsLayer = true
+        browserSidebar.layer?.backgroundColor = DreamTheme.bgBrowser.cgColor
+        browserSidebar.layer?.isOpaque = true
+        view.addSubview(browserSidebar)
+
+        // ===== CENTER-TOP: Left corner (On TOP of Canvas/Ruler) =====
+        cornerViewLeft.wantsLayer = true
+        cornerViewLeft.layer?.backgroundColor = DreamTheme.bgHeader.cgColor
+        cornerViewLeft.layer?.isOpaque = true
+        view.addSubview(cornerViewLeft)
     }
 
     // MARK: - Layout (Ableton Style)
@@ -615,7 +700,12 @@ public final class ArrangementViewController: NSViewController {
 
             // Sync loop toggle state (transport → ruler)
             if self.rulerView.isLooping != self.transportController.isLooping {
+            if self.rulerView.isLooping != self.transportController.isLooping {
                 self.rulerView.isLooping = self.transportController.isLooping
+            }
+            // Persist loop toggle state
+            if self.project.isLooping != self.transportController.isLooping {
+                self.project.isLooping = self.transportController.isLooping
             }
         }
 
@@ -624,11 +714,66 @@ public final class ArrangementViewController: NSViewController {
             self?.transportController.seek(to: position)
         }
 
+        // Sync view state to project on changes
+        canvasView.onZoomChanged = { [weak self] newPPB, newScrollX in
+            guard let self = self else { return }
+            self.pixelsPerBeat = newPPB
+            self.canvasView.pixelsPerBeat = newPPB
+            self.rulerView.pixelsPerBeat = newPPB
+            
+            // Persist zoom
+            self.project.viewZoomScale = Double(newPPB)
+            
+            self.layoutSubviews()
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: canvasScrollView.contentView,
+            queue: .main
+        ) { [weak self] _ in
+             guard let self = self else { return }
+             // Persist horizontal scroll position
+             let visibleRect = self.canvasScrollView.contentView.documentVisibleRect
+             let scrollX = visibleRect.origin.x
+             // Convert pixels to beats
+             let scrollBeats = Double(scrollX) / Double(self.pixelsPerBeat)
+             self.project.viewScrollPosition = scrollBeats
+        }
+
+        // Sync view state to project on changes
+        canvasView.onZoomChanged = { [weak self] newPPB, newScrollX in
+            guard let self = self else { return }
+            self.pixelsPerBeat = newPPB
+            self.canvasView.pixelsPerBeat = newPPB
+            self.rulerView.pixelsPerBeat = newPPB
+            
+            // Persist zoom
+            self.project.viewZoomScale = Double(newPPB)
+            
+            self.layoutSubviews()
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: canvasScrollView.contentView,
+            queue: .main
+        ) { [weak self] _ in
+             guard let self = self else { return }
+             // Persist horizontal scroll position
+             let visibleRect = self.canvasScrollView.contentView.documentVisibleRect
+             let scrollX = visibleRect.origin.x
+             // Convert pixels to beats
+             let scrollBeats = Double(scrollX) / Double(self.pixelsPerBeat)
+             self.project.viewScrollPosition = scrollBeats
+        }
+
         // ━━━━━ Loop Marker Wiring ━━━━━
 
         // Initialize ruler loop state from transport controller
-        rulerView.loopStart = transportController.loopStart
-        rulerView.loopEnd = transportController.loopEnd
+        if let loopStart = project.loopStart { transportController.loopStart = loopStart }
+        if let loopEnd = project.loopEnd { transportController.loopEnd = loopEnd }
+        transportController.isLooping = project.isLooping
         rulerView.isLooping = transportController.isLooping
 
         // Ruler loop marker dragged → update transport & project
@@ -690,7 +835,10 @@ public final class ArrangementViewController: NSViewController {
                 self.browserSidebar.stopPreview()
                 self.playbackScheduler.schedulePlayback(
                     project: self.project,
-                    from: self.transportController.playheadPosition
+                    from: self.transportController.playheadPosition,
+                    looping: self.transportController.isLooping,
+                    loopStart: self.transportController.loopStart,
+                    loopEnd: self.transportController.loopEnd
                 )
             case .paused, .stopped:
                 self.playbackScheduler.stopAll()
@@ -698,21 +846,16 @@ public final class ArrangementViewController: NSViewController {
         }
 
         // Loop wrap → stop current audio + re-schedule from loop start
+        // Loop wrap → do nothing for audio (handled by gapless queueing)
         transportController.onLoopWrap = { [weak self] in
-            guard let self = self else { return }
-            self.playbackScheduler.stopAll()
-            self.playbackScheduler.schedulePlayback(
-                project: self.project,
-                from: self.transportController.playheadPosition
-            )
+            // Visuals are handled by TransportController updates.
+            // Audio is pre-scheduled via queue, so we do NOT restart here.
+            NSLog("[ArrangementVC] Loop Wrapped (Gapless)")
         }
 
-        // Canvas → bottom panel: click track → show detail
+        // Canvas → bottom panel: click track → show detail & select track
         canvasView.onTrackClicked = { [weak self] trackID in
-            guard let self = self,
-                  let track = self.project.tracks.first(where: { $0.id == trackID }) else { return }
-            self.bottomPanel.showDetail(for: track)
-            self.layoutSubviews()
+            self?.selectTrack(trackID)
         }
 
         // Canvas → bottom panel: Shift+click MIDI clip → open piano roll
@@ -720,8 +863,26 @@ public final class ArrangementViewController: NSViewController {
             guard let self = self,
                   let track = self.project.tracks.first(where: { $0.id == trackID }),
                   let clip = track.midiClips.first(where: { $0.id == clipID }) else { return }
+            
+            // Ensure track is selected
+            self.selectTrack(trackID)
+            
             self.bottomPanel.showPianoRoll(track: track, clip: clip)
             self.layoutSubviews()
+        }
+        
+        // Canvas → clip selection → select track too
+        canvasView.onClipSelected = { [weak self] trackID, _ in
+            // If we select a clip, implicitly select the track (but don't necessarily toggle bottom panel unless needed)
+            // For now, let's enforce track selection on clip click
+            if self?.project.selectedTrackID != trackID {
+                self?.selectTrack(trackID)
+            }
+        }
+        
+        // Track Headers → Click → Select Track
+        trackHeaders.onHeaderClicked = { [weak self] trackID in
+            self?.selectTrack(trackID)
         }
 
         // Canvas → track: browser item dropped (instrument or effect)
@@ -869,28 +1030,7 @@ public final class ArrangementViewController: NSViewController {
 
     // MARK: - Configure
 
-    private func configureProject() {
-        canvasView.project = project
-        canvasView.pixelsPerBeat = pixelsPerBeat
-        canvasView.actionHistory = actionHistory
 
-        rulerView.pixelsPerBeat = pixelsPerBeat
-        rulerView.bpm = project.bpm
-        rulerView.timeSignature = project.timeSignature
-
-        // Sync loop state from project → transport & ruler
-        if let ls = project.loopStart {
-            transportController.loopStart = ls
-            rulerView.loopStart = ls
-        }
-        if let le = project.loopEnd {
-            transportController.loopEnd = le
-            rulerView.loopEnd = le
-        }
-
-        trackHeaders.configure(tracks: project.tracks)
-        configureMasterHeader()
-    }
 
     // MARK: - Public API
 
@@ -1095,11 +1235,7 @@ public final class ArrangementViewController: NSViewController {
         }
     }
 
-    private func dismissRenderDialog() {
-        isRenderDialogShown = false
-        renderPanel?.close()
-        renderPanel = nil
-    }
+
 
     // MARK: - Project File Operations
 
@@ -1163,6 +1299,7 @@ public final class ArrangementViewController: NSViewController {
         }
     }
 
+    /*
     /// Open a project file (Cmd+O).
     private func openProject() {
         let panel = NSOpenPanel()
@@ -1202,9 +1339,15 @@ public final class ArrangementViewController: NSViewController {
                         self.trackMixer.applyMasterSettings(self.project.masterTrack)
                         self.installMeteringTaps()
 
+                        self.trackMixer.applyMasterSettings(self.project.masterTrack)
+                        self.installMeteringTaps()
+                        
+                        // FIX: Helper methods
                         self.reloadTracks()
                         self.configureProject()
                         self.updateWindowTitle()
+                        
+                        self.hideLoadingOverlay()
 
                         self.hideLoadingOverlay()
                         self.logger.info("Opened project: \(openedProject.name)")
@@ -1220,10 +1363,91 @@ public final class ArrangementViewController: NSViewController {
         }
     }
 
+    // MARK: - Helper Methods
+    
+
+    func configureProject() {
+        canvasView.project = project
+        canvasView.pixelsPerBeat = pixelsPerBeat
+        canvasView.actionHistory = actionHistory
+
+        rulerView.pixelsPerBeat = pixelsPerBeat
+        rulerView.bpm = project.bpm
+        rulerView.timeSignature = project.timeSignature
+
+        // Sync loop state from project → transport & ruler
+        if let ls = project.loopStart {
+            transportController.loopStart = ls
+            rulerView.loopStart = ls
+        }
+        if let le = project.loopEnd {
+            transportController.loopEnd = le
+            rulerView.loopEnd = le
+        }
+
+        trackHeaders.configure(tracks: project.tracks)
+        configureMasterHeader()
+        
+        // Restore additional state
+        restoreViewState()
+        if let selectedID = project.selectedTrackID {
+            selectTrack(selectedID)
+        }
+        showNotification(title: "Project Loaded", message: project.name)
+    }
+
     /// Update the window title to reflect the current project name and version.
-    private func updateWindowTitle() {
+    func updateWindowTitle() {
         let fm = ProjectFileManager.shared
         let versionTag = fm.projectFolderURL != nil ? " V\(fm.currentVersion)" : ""
         view.window?.title = "\(project.name)\(versionTag) — Dream DAW"
     }
+    
+
+    
+
+    
+    // MARK: - Safe Selection Logic
+    
+    private func selectTrack(_ trackID: UUID) {
+        // 1. Update Project State
+        project.selectedTrackID = trackID
+        
+        // 2. Update Track Headers Visual State
+        for header in trackHeaders.headerViews {
+            header.isSelected = (header.trackID == trackID)
+        }
+        
+        // 3. Show Details in Bottom Panel
+        if let track = project.tracks.first(where: { $0.id == trackID }) {
+            bottomPanel.showDetail(for: track)
+            
+            // Ensure bottom panel is visible and layout is updated (unless it's hidden explicitly by user, but usually selection implies showing it)
+            if bottomPanel.isHidden {
+                // If the user selects a track, we generally want to show its details
+                 bottomPanel.mode = .detail(track)
+                 layoutSubviews()
+            } else if case .pianoRoll = bottomPanel.mode {
+                // If piano roll is open, maybe keep it open?
+                // But for now, let's switch to detail to show track controls
+                bottomPanel.mode = .detail(track)
+                layoutSubviews()
+            } else {
+                 bottomPanel.mode = .detail(track)
+                 layoutSubviews()
+            }
+        }
+    }
+
+    private func showNotification(title: String, message: String) {
+        logger.info("\(title): \(message)")
+    }
+}
+
+// MARK: - FlippedView
+
+/// NSView subclass with flipped coordinate system (y=0 at top).
+/// Required because all layout math in layoutSubviews() uses top-down coordinates.
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
 }

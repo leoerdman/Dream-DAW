@@ -32,6 +32,9 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
     /// Whether the clip is currently selected in the UI.
     public var isSelected: Bool
 
+    /// Optional specific color for this clip (overrides track color).
+    public var colorOverride: TrackColor?
+
     // MARK: - Initialization
 
     public init(
@@ -42,7 +45,8 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
         duration: TimePosition,
         trimStartOffset: TimePosition = .zero,
         gain: Float = 1.0,
-        isSelected: Bool = false
+        isSelected: Bool = false,
+        colorOverride: TrackColor? = nil
     ) {
         self.id = id
         self.name = name
@@ -52,6 +56,7 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
         self.trimStartOffset = trimStartOffset
         self.gain = gain
         self.isSelected = isSelected
+        self.colorOverride = colorOverride
     }
 
     // MARK: - Computed

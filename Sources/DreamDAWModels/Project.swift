@@ -39,6 +39,7 @@ public final class Project: ObservableObject, Identifiable, Codable {
     @Published public var tracks: [Track]
 
     /// Loop region (nil = loop disabled).
+    @Published public var isLooping: Bool
     @Published public var loopStart: TimePosition?
     @Published public var loopEnd: TimePosition?
 
@@ -47,6 +48,15 @@ public final class Project: ObservableObject, Identifiable, Codable {
 
     /// Project file URL (nil if unsaved).
     public var fileURL: URL?
+
+    /// View state persistence (Zoom level in pixels per beat)
+    public var viewZoomScale: Double?
+    
+    /// View state persistence (Horizontal scroll position in beats)
+    public var viewScrollPosition: Double?
+
+    /// Selected track ID (persisted)
+    public var selectedTrackID: UUID?
 
     // MARK: - Initialization
 
@@ -64,6 +74,7 @@ public final class Project: ObservableObject, Identifiable, Codable {
         self.timeSignature = timeSignature
         self.sampleRate = sampleRate
         self.tracks = tracks
+        self.isLooping = false
         self.masterTrack = Track(
             name: "Master",
             trackType: .master,
@@ -75,7 +86,8 @@ public final class Project: ObservableObject, Identifiable, Codable {
     // MARK: - Codable
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, bpm, timeSignature, sampleRate, tracks, loopStart, loopEnd, masterTrack
+        case id, name, bpm, timeSignature, sampleRate, tracks, isLooping, loopStart, loopEnd, masterTrack
+        case viewZoomScale, viewScrollPosition, selectedTrackID
     }
 
     public convenience init(from decoder: Decoder) throws {
@@ -88,11 +100,15 @@ public final class Project: ObservableObject, Identifiable, Codable {
             sampleRate: try container.decode(Double.self, forKey: .sampleRate),
             tracks: try container.decode([Track].self, forKey: .tracks)
         )
+        self.isLooping = try container.decodeIfPresent(Bool.self, forKey: .isLooping) ?? false
         self.loopStart = try container.decodeIfPresent(TimePosition.self, forKey: .loopStart)
         self.loopEnd = try container.decodeIfPresent(TimePosition.self, forKey: .loopEnd)
         if let master = try container.decodeIfPresent(Track.self, forKey: .masterTrack) {
             self.masterTrack = master
         }
+        self.viewZoomScale = try container.decodeIfPresent(Double.self, forKey: .viewZoomScale)
+        self.viewScrollPosition = try container.decodeIfPresent(Double.self, forKey: .viewScrollPosition)
+        self.selectedTrackID = try container.decodeIfPresent(UUID.self, forKey: .selectedTrackID)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -103,9 +119,13 @@ public final class Project: ObservableObject, Identifiable, Codable {
         try container.encode(timeSignature, forKey: .timeSignature)
         try container.encode(sampleRate, forKey: .sampleRate)
         try container.encode(tracks, forKey: .tracks)
+        try container.encode(isLooping, forKey: .isLooping)
         try container.encodeIfPresent(loopStart, forKey: .loopStart)
         try container.encodeIfPresent(loopEnd, forKey: .loopEnd)
         try container.encode(masterTrack, forKey: .masterTrack)
+        try container.encodeIfPresent(viewZoomScale, forKey: .viewZoomScale)
+        try container.encodeIfPresent(viewScrollPosition, forKey: .viewScrollPosition)
+        try container.encodeIfPresent(selectedTrackID, forKey: .selectedTrackID)
     }
 
     // MARK: - Factory

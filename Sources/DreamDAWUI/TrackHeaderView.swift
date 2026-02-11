@@ -414,7 +414,7 @@ public final class TrackHeadersContainerView: NSView {
 
     // MARK: - Public API
 
-    public func configure(tracks: [Track], masterTrack: Track? = nil) {
+    public func configure(tracks: [Track]) {
         // Remove existing
         headerViews.forEach { $0.removeFromSuperview() }
         headerViews.removeAll()
@@ -436,30 +436,7 @@ public final class TrackHeadersContainerView: NSView {
             yOffset += track.height
         }
 
-        // Master track header at the bottom (compact)
-        if let masterTrack = masterTrack {
-            // Thicker separator before master
-            let separator = NSView()
-            separator.wantsLayer = true
-            separator.layer?.backgroundColor = DreamTheme.divider.cgColor
-            separator.frame = CGRect(x: 0, y: yOffset, width: DreamTheme.trackHeaderWidth, height: 2)
-            addSubview(separator)
-            yOffset += 2
-
-            let masterHeader = TrackHeaderView(track: masterTrack, index: tracks.count)
-            masterHeader.frame = CGRect(x: 0, y: yOffset, width: DreamTheme.trackHeaderWidth, height: masterTrack.height)
-            masterHeader.onTrackChanged = { [weak self] track in
-                self?.onTrackChanged?(track)
-            }
-            masterHeader.onSoloChanged = { [weak self] in
-                self?.onSoloChanged?()
-            }
-            addSubview(masterHeader)
-            headerViews.append(masterHeader)
-            yOffset += masterTrack.height
-        }
-
-        // Update frame
+        // Update frame (only regular tracks — master is pinned separately)
         frame.size.height = yOffset
     }
 

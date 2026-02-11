@@ -37,6 +37,38 @@ public final class ProjectFileManager {
     /// Current version number within the project folder.
     public private(set) var currentVersion: Int = 1
 
+    // MARK: - Recent Projects
+
+    private static let recentProjectsKey = "com.dreamdaw.recentProjects"
+    private static let maxRecentProjects = 10
+
+    /// Returns the list of recently opened/saved project file URLs (most recent first).
+    public var recentProjectURLs: [URL] {
+        let paths = UserDefaults.standard.stringArray(forKey: Self.recentProjectsKey) ?? []
+        return paths.compactMap { URL(fileURLWithPath: $0) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    /// Record a project file URL as recently opened/saved.
+    public func addToRecentProjects(_ url: URL) {
+        var paths = UserDefaults.standard.stringArray(forKey: Self.recentProjectsKey) ?? []
+        let path = url.path
+        // Remove if already present (we'll re-insert at top)
+        paths.removeAll { $0 == path }
+        // Insert at beginning (most recent first)
+        paths.insert(path, at: 0)
+        // Keep only the last N entries
+        if paths.count > Self.maxRecentProjects {
+            paths = Array(paths.prefix(Self.maxRecentProjects))
+        }
+        UserDefaults.standard.set(paths, forKey: Self.recentProjectsKey)
+    }
+
+    /// Clear the recent projects list.
+    public func clearRecentProjects() {
+        UserDefaults.standard.removeObject(forKey: Self.recentProjectsKey)
+    }
+
     // MARK: - Save
 
     /// Save the project to its current location. If never saved, triggers save-as.
@@ -44,12 +76,11 @@ public final class ProjectFileManager {
     @discardableResult
     public func save(project: Project) throws -> URL {
         if let folderURL = projectFolderURL {
-            // Increment version and save
-            currentVersion += 1
+            // Overwrite the current version file in place (standard Cmd+S behavior)
             let fileURL = makeFileURL(folder: folderURL, name: project.name, version: currentVersion)
             try writeProject(project, to: fileURL)
             project.fileURL = fileURL
-            logger.info("Project saved: \(fileURL.lastPathComponent) (V\(self.currentVersion))")
+            logger.info("Project saved (overwrite): \(fileURL.lastPathComponent) (V\(self.currentVersion))")
             return fileURL
         } else {
             // First save — needs a location

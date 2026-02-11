@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Properties
 
     private var mainWindowController: MainWindowController?
+    private var recentMenu: NSMenu!
     private var project: Project!
 
     // MARK: - Application Lifecycle
@@ -65,6 +66,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fileMenu.addItem(withTitle: "New Project", action: #selector(newProject), keyEquivalent: "n")
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(withTitle: "Open...", action: #selector(openProject), keyEquivalent: "o")
+
+        // Open Recent submenu
+        let recentMenuItem = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
+        recentMenu = NSMenu(title: "Open Recent")
+        recentMenuItem.submenu = recentMenu
+        fileMenu.addItem(recentMenuItem)
+        rebuildRecentMenu()
+
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(withTitle: "Save", action: #selector(saveProject), keyEquivalent: "s")
         fileMenu.addItem(withTitle: "Save As...", action: #selector(saveProjectAs), keyEquivalent: "S")
@@ -161,7 +170,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fm = ProjectFileManager.shared
         if fm.projectFolderURL != nil {
             do {
-                _ = try fm.save(project: project)
+                let url = try fm.save(project: project)
+                fm.addToRecentProjects(url)
+                rebuildRecentMenu()
                 mainWindowController?.window?.title = "Dream DAW — \(project.name) V\(fm.currentVersion)"
             } catch {
                 saveProjectAs()
@@ -198,8 +209,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard response == .OK, let fileURL = panel.url else { return }
 
         do {
-            _ = try ProjectFileManager.shared.saveToFile(project: self.project, fileURL: fileURL)
-            // project.name is now updated by saveToFile
+            let savedURL = try ProjectFileManager.shared.saveToFile(project: self.project, fileURL: fileURL)
+            let fm = ProjectFileManager.shared
+            fm.addToRecentProjects(savedURL)
+            rebuildRecentMenu()
             self.mainWindowController?.window?.title = "\(self.project.name) V\(fm.currentVersion) — Dream DAW"
         } catch {
             let alert = NSAlert(error: error)
@@ -264,6 +277,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let loadedProject = try ProjectFileManager.shared.open(fileURL: url)
             project = loadedProject
             let fm = ProjectFileManager.shared
+            fm.addToRecentProjects(url)
+            rebuildRecentMenu()
             // Reuse existing window — replace content, preserve window frame
             if let window = mainWindowController?.window {
                 let savedFrame = window.frame
@@ -279,6 +294,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let alert = NSAlert(error: error)
             alert.runModal()
         }
+    }
+
+    // MARK: - Recent Projects Menu
+
+    private func rebuildRecentMenu() {
+        recentMenu.removeAllItems()
+        let recentURLs = ProjectFileManager.shared.recentProjectURLs
+
+        if recentURLs.isEmpty {
+            let emptyItem = NSMenuItem(title: "No Recent Projects", action: nil, keyEquivalent: "")
+            emptyItem.isEnabled = false
+            recentMenu.addItem(emptyItem)
+        } else {
+            for (index, url) in recentURLs.enumerated() {
+                let projectName = url.deletingPathExtension().lastPathComponent
+                let item = NSMenuItem(title: projectName, action: #selector(openRecentProject(_:)), keyEquivalent: "")
+                item.tag = index
+                item.representedObject = url
+                recentMenu.addItem(item)
+            }
+            recentMenu.addItem(NSMenuItem.separator())
+            recentMenu.addItem(withTitle: "Clear Recent", action: #selector(clearRecentProjects), keyEquivalent: "")
+        }
+    }
+
+    @objc private func openRecentProject(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        loadProject(from: url)
+    }
+
+    @objc private func clearRecentProjects() {
+        ProjectFileManager.shared.clearRecentProjects()
+        rebuildRecentMenu()
     }
 }
 

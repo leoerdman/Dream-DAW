@@ -55,6 +55,11 @@ public final class ArrangementViewController: NSViewController {
     private let bottomPanel = BottomPanelView()
     private let bottomPanelDivider = NSView()
 
+    // Pinned master track (always visible at bottom of track area)
+    private var masterHeaderView: TrackHeaderView?
+    private let masterLaneView = NSView()           // Canvas-width lane for master
+    private let masterSeparator = NSView()           // Divider above master lane
+
     // State
     private var pixelsPerBeat: CGFloat = DreamTheme.defaultPixelsPerBeat
     private var isBrowserVisible: Bool = true
@@ -258,6 +263,15 @@ public final class ArrangementViewController: NSViewController {
         bottomPanelDivider.wantsLayer = true
         bottomPanelDivider.layer?.backgroundColor = DreamTheme.divider.cgColor
         view.addSubview(bottomPanelDivider)
+
+        // ===== PINNED MASTER TRACK (bottom of track area) =====
+        masterSeparator.wantsLayer = true
+        masterSeparator.layer?.backgroundColor = DreamTheme.divider.cgColor
+        view.addSubview(masterSeparator)
+
+        masterLaneView.wantsLayer = true
+        masterLaneView.layer?.backgroundColor = NSColor(white: 0.14, alpha: 1).cgColor  // Slightly lighter
+        view.addSubview(masterLaneView)
     }
 
     // MARK: - Layout (Ableton Style)
@@ -335,6 +349,11 @@ public final class ArrangementViewController: NSViewController {
         let canvasEndX = bounds.width - headerW - 1
         let canvasWidth = canvasEndX - canvasStartX
 
+        // Master track height (pinned at bottom of content area)
+        let masterH: CGFloat = project.masterTrack.height
+        let masterSepH: CGFloat = 2
+        let masterRegionH: CGFloat = masterH + masterSepH
+
         // Ruler (top of content area, between browser and headers)
         rulerView.frame = CGRect(
             x: canvasStartX,
@@ -351,9 +370,9 @@ public final class ArrangementViewController: NSViewController {
             height: rulerH
         )
 
-        // Canvas scroll view (center)
+        // Canvas scroll view (center) — reduced by master region
         let canvasTop = contentTop + rulerH
-        let canvasAreaHeight = contentHeight - rulerH
+        let canvasAreaHeight = contentHeight - rulerH - masterRegionH
         canvasScrollView.frame = CGRect(
             x: canvasStartX,
             y: canvasTop,
@@ -361,7 +380,7 @@ public final class ArrangementViewController: NSViewController {
             height: canvasAreaHeight
         )
 
-        // Canvas document size
+        // Canvas document size — only regular tracks (not master)
         let totalTrackHeight = project.tracks.reduce(CGFloat(0)) { $0 + $1.height }
         let totalWidth = CGFloat(project.totalDuration.beats) * pixelsPerBeat
         canvasView.frame = NSRect(
@@ -378,12 +397,39 @@ public final class ArrangementViewController: NSViewController {
             height: contentHeight
         )
 
-        // Track headers scroll view (RIGHT)
+        // Track headers scroll view (RIGHT) — reduced by master region
         headerScrollView.frame = CGRect(
             x: canvasEndX + 1,
             y: canvasTop,
             width: headerW,
             height: canvasAreaHeight
+        )
+
+        // ===== Pinned Master Track (below scroll area, above bottom panel) =====
+        let masterTop = canvasTop + canvasAreaHeight
+
+        // Separator line
+        masterSeparator.frame = CGRect(
+            x: canvasStartX,
+            y: masterTop,
+            width: bounds.width - canvasStartX,
+            height: masterSepH
+        )
+
+        // Master lane background (center column)
+        masterLaneView.frame = CGRect(
+            x: canvasStartX,
+            y: masterTop + masterSepH,
+            width: canvasWidth,
+            height: masterH
+        )
+
+        // Master header (right column)
+        masterHeaderView?.frame = CGRect(
+            x: canvasEndX + 1,
+            y: masterTop + masterSepH,
+            width: headerW,
+            height: masterH
         )
 
         // Bottom panel
@@ -475,15 +521,14 @@ public final class ArrangementViewController: NSViewController {
     private func updateVUMeters() {
         for headerView in trackHeaders.headerViews {
             let trackID = headerView.trackID
-            let level: AudioLevelMeter.Level
-
-            if headerView.track.trackType == .master {
-                level = audioLevelMeter.masterLevelValue()
-            } else {
-                level = audioLevelMeter.level(for: trackID)
-            }
-
+            let level = audioLevelMeter.level(for: trackID)
             headerView.updateMeterLevel(rms: level.rms, peak: level.peak)
+        }
+
+        // Pinned master header VU meter
+        if let masterHeader = masterHeaderView {
+            let level = audioLevelMeter.masterLevelValue()
+            masterHeader.updateMeterLevel(rms: level.rms, peak: level.peak)
         }
     }
 
@@ -704,7 +749,6 @@ public final class ArrangementViewController: NSViewController {
 
             // Sync ruler scroll offset
             self.rulerView.scrollOffset = clampedX
-            self.canvasView.scrollOffset = CGPoint(x: clampedX, y: scrollView.contentView.bounds.origin.y)
         }
 
         // Bottom panel → project: note changes from piano roll
@@ -780,8 +824,34 @@ public final class ArrangementViewController: NSViewController {
         }
 
         // Refresh track headers to reflect the change
-        trackHeaders.configure(tracks: project.tracks, masterTrack: project.masterTrack)
+        trackHeaders.configure(tracks: project.tracks)
+        configureMasterHeader()
         canvasView.needsDisplay = true
+    }
+
+    // MARK: - Master Header Management
+
+    /// Create or update the pinned master track header.
+    private func configureMasterHeader() {
+        // Remove old master header
+        masterHeaderView?.removeFromSuperview()
+        masterHeaderView = nil
+
+        let masterTrack = project.masterTrack
+
+        let header = TrackHeaderView(track: masterTrack, index: project.tracks.count)
+        header.onTrackChanged = { [weak self] track in
+            self?.trackHeaders.onTrackChanged?(track)
+        }
+        header.onSoloChanged = { [weak self] in
+            self?.trackHeaders.onSoloChanged?()
+        }
+        // Slightly lighter background to distinguish master
+        header.wantsLayer = true
+        header.layer?.backgroundColor = NSColor(white: 0.14, alpha: 1).cgColor
+        view.addSubview(header)
+        masterHeaderView = header
+        layoutSubviews()
     }
 
     @objc private func canvasScrolled(_ notification: Notification) {
@@ -793,8 +863,8 @@ public final class ArrangementViewController: NSViewController {
         // Sync ruler horizontal position
         rulerView.scrollOffset = clipBounds.origin.x
 
-        // Pass scroll offset to canvas for drawing
-        canvasView.scrollOffset = CGPoint(x: clipBounds.origin.x, y: clipBounds.origin.y)
+        // Canvas draws in document coordinates — no need to pass scrollOffset.
+        // The NSScrollView handles viewport clipping automatically.
     }
 
     // MARK: - Configure
@@ -818,7 +888,8 @@ public final class ArrangementViewController: NSViewController {
             rulerView.loopEnd = le
         }
 
-        trackHeaders.configure(tracks: project.tracks, masterTrack: project.masterTrack)
+        trackHeaders.configure(tracks: project.tracks)
+        configureMasterHeader()
     }
 
     // MARK: - Public API
@@ -833,7 +904,8 @@ public final class ArrangementViewController: NSViewController {
 
     /// Reload track headers and canvas after tracks are added/removed.
     public func reloadTracks() {
-        trackHeaders.configure(tracks: project.tracks, masterTrack: project.masterTrack)
+        trackHeaders.configure(tracks: project.tracks)
+        configureMasterHeader()
         trackMixer.configureTracks(project.tracks)
         trackMixer.applyMasterSettings(project.masterTrack)
         canvasView.project = project

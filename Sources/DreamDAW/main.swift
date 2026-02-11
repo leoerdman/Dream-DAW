@@ -158,7 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fm = ProjectFileManager.shared
         if fm.projectFolderURL != nil {
             do {
-                let url = try fm.save(project: project)
+                _ = try fm.save(project: project)
                 mainWindowController?.window?.title = "Dream DAW — \(project.name) V\(fm.currentVersion)"
             } catch {
                 saveProjectAs()
@@ -180,7 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url, let self = self else { return }
             do {
-                let fileURL = try ProjectFileManager.shared.saveAs(project: self.project, to: url)
+                _ = try ProjectFileManager.shared.saveAs(project: self.project, to: url)
                 let fm = ProjectFileManager.shared
                 self.mainWindowController?.window?.title = "Dream DAW — \(self.project.name) V\(fm.currentVersion)"
             } catch {

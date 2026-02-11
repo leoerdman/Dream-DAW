@@ -44,7 +44,6 @@ public final class ArrangementViewController: NSViewController {
     private let browserToggleView = NSView() // Browser show/hide handle
     private let bottomPanel = BottomPanelView()
     private let bottomPanelDivider = NSView()
-    private var masterTrackHeader: TrackHeaderView?
 
     // State
     private var pixelsPerBeat: CGFloat = DreamTheme.defaultPixelsPerBeat
@@ -182,12 +181,6 @@ public final class ArrangementViewController: NSViewController {
         bottomPanelDivider.wantsLayer = true
         bottomPanelDivider.layer?.backgroundColor = DreamTheme.divider.cgColor
         view.addSubview(bottomPanelDivider)
-
-        // ===== BOTTOM: Master Track Header (pinned above bottom panel/status bar) =====
-        let masterHeader = TrackHeaderView(track: project.masterTrack, index: -1)
-        masterHeader.wantsLayer = true
-        view.addSubview(masterHeader)
-        self.masterTrackHeader = masterHeader
     }
 
     // MARK: - Layout (Ableton Style)
@@ -213,9 +206,19 @@ public final class ArrangementViewController: NSViewController {
         let browserW = isBrowserVisible ? DreamTheme.browserWidth : 0
         let bottomPanelH = bottomPanel.panelHeight
 
-        // Control bar (TOP, full width)
+        // Calculate title bar offset (fullSizeContentView pushes content behind title bar)
+        let titleBarH: CGFloat
+        if let window = view.window {
+            let contentLayoutRect = window.contentLayoutRect
+            let contentFrame = window.contentView?.frame ?? bounds
+            titleBarH = contentFrame.height - contentLayoutRect.height
+        } else {
+            titleBarH = 28  // Standard macOS title bar height fallback
+        }
+
+        // Control bar (TOP, below title bar, full width)
         transportHostingView?.frame = CGRect(
-            x: 0, y: 0,
+            x: 0, y: titleBarH,
             width: bounds.width,
             height: controlBarH
         )
@@ -228,10 +231,9 @@ public final class ArrangementViewController: NSViewController {
             height: statusBarH
         )
 
-        // Content area (between control bar, status bar, master header, and bottom panel)
-        let masterHeaderH: CGFloat = 40  // Master track row at the bottom
-        let contentTop = controlBarH
-        let contentHeight = bounds.height - controlBarH - statusBarH - bottomPanelH - masterHeaderH
+        // Content area (between control bar, status bar, and bottom panel)
+        let contentTop = titleBarH + controlBarH
+        let contentHeight = bounds.height - titleBarH - controlBarH - statusBarH - bottomPanelH
 
         // Browser sidebar (LEFT)
         browserSidebar.isHidden = !isBrowserVisible
@@ -332,22 +334,13 @@ public final class ArrangementViewController: NSViewController {
         // Track headers document size
         trackHeaders.frame.size.width = headerW
 
-        // Master track header (BOTTOM, full width, above bottom panel)
-        let masterY = contentTop + contentHeight  // right after the content area
-        masterTrackHeader?.frame = CGRect(
-            x: 0,
-            y: masterY,
-            width: bounds.width,
-            height: masterHeaderH
-        )
-
         // Mixer hosting view (when in mixer mode) — takes full content area
         if let mixerHosting = mixerHostingView {
             mixerHosting.frame = CGRect(
                 x: 0,
                 y: contentTop,
                 width: bounds.width,
-                height: contentHeight + masterHeaderH  // mixer view covers master area too
+                height: contentHeight
             )
         }
     }
@@ -574,7 +567,6 @@ public final class ArrangementViewController: NSViewController {
         browserSidebar.isHidden = true
         bottomPanel.isHidden = true
         bottomPanelDivider.isHidden = true
-        masterTrackHeader?.isHidden = true
 
         // Create and show mixer view
         let mixerView = MixerView(project: project) { [weak self] track in
@@ -604,7 +596,6 @@ public final class ArrangementViewController: NSViewController {
         browserSidebar.isHidden = !isBrowserVisible
         vertDividerLeft.isHidden = !isBrowserVisible
         bottomPanelDivider.isHidden = bottomPanel.panelHeight == 0
-        masterTrackHeader?.isHidden = false
 
         layoutSubviews()
     }

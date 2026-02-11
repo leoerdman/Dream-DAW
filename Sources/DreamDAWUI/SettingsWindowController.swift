@@ -96,13 +96,40 @@ struct StorageSettingsView: View {
                         .textFieldStyle(.roundedBorder)
                     
                     Button("Browse...") {
-                        selectFolder()
+                        selectFolder(for: \.userStoragePath)
                     }
                 }
             } header: {
                 Text("User Storage")
             } footer: {
-                Text("Projects and samples will be stored in this folder.")
+                Text("Projects will be stored in this folder.")
+                    .foregroundStyle(.secondary)
+            }
+            
+            Section {
+                HStack {
+                    TextField("Samples Folder", text: $settings.samplesPath)
+                        .textFieldStyle(.roundedBorder)
+                    
+                    Button("Browse...") {
+                        selectFolder(for: \.samplesPath)
+                    }
+                }
+                
+                if !settings.samplesPath.isEmpty {
+                    let fileCount = countAudioFiles(in: settings.samplesPath)
+                    HStack {
+                        Image(systemName: "waveform")
+                            .foregroundColor(.secondary)
+                        Text("\(fileCount) audio files found")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text("Samples Library")
+            } footer: {
+                Text("Audio samples from this folder will appear in the Browser sidebar for drag & drop.")
                     .foregroundStyle(.secondary)
             }
         }
@@ -110,7 +137,7 @@ struct StorageSettingsView: View {
         .navigationTitle("Folders")
     }
     
-    private func selectFolder() {
+    private func selectFolder(for keyPath: ReferenceWritableKeyPath<AppSettings, String>) {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -119,8 +146,26 @@ struct StorageSettingsView: View {
         panel.prompt = "Select Folder"
         
         if panel.runModal() == .OK, let url = panel.url {
-            settings.userStoragePath = url.path
+            settings[keyPath: keyPath] = url.path
         }
+    }
+    
+    private func countAudioFiles(in path: String) -> Int {
+        let url = URL(fileURLWithPath: path)
+        let audioExtensions = ["wav", "aiff", "aif", "mp3", "m4a", "flac", "ogg", "caf"]
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+        
+        var count = 0
+        for case let fileURL as URL in enumerator {
+            if audioExtensions.contains(fileURL.pathExtension.lowercased()) {
+                count += 1
+            }
+        }
+        return count
     }
 }
 

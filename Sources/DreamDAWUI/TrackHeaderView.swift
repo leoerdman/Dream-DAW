@@ -246,6 +246,7 @@ public final class TrackHeaderView: NSView {
 // MARK: - TrackHeadersContainerView
 
 /// Vertical stack of all track headers, positioned on the RIGHT side of the arrangement.
+/// Right-click context menu: Add Audio Track / Add MIDI Track / Delete Track.
 /// Synchronized with track lane scroll.
 public final class TrackHeadersContainerView: NSView {
 
@@ -253,9 +254,53 @@ public final class TrackHeadersContainerView: NSView {
 
     private var headerViews: [TrackHeaderView] = []
 
+    /// Callback when a track's properties change (solo, mute, volume).
     public var onTrackChanged: ((Track) -> Void)?
 
+    /// Callback to add a new track. Bool: isAudio (true = audio, false = MIDI).
+    public var onAddTrack: ((Bool) -> Void)?
+
+    /// Callback to delete a track by its UUID.
+    public var onDeleteTrack: ((UUID) -> Void)?
+
     public override var isFlipped: Bool { true }
+
+    // MARK: - Initialization
+
+    public override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupContextMenu()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: - Context Menu
+
+    private func setupContextMenu() {
+        let contextMenu = NSMenu(title: "Track Menu")
+
+        let addAudioItem = NSMenuItem(title: "Add Audio Track", action: #selector(contextAddAudioTrack), keyEquivalent: "")
+        addAudioItem.target = self
+        addAudioItem.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: nil)
+        contextMenu.addItem(addAudioItem)
+
+        let addMidiItem = NSMenuItem(title: "Add MIDI Track", action: #selector(contextAddMidiTrack), keyEquivalent: "")
+        addMidiItem.target = self
+        addMidiItem.image = NSImage(systemSymbolName: "pianokeys", accessibilityDescription: nil)
+        contextMenu.addItem(addMidiItem)
+
+        menu = contextMenu
+    }
+
+    @objc private func contextAddAudioTrack() {
+        onAddTrack?(true)
+    }
+
+    @objc private func contextAddMidiTrack() {
+        onAddTrack?(false)
+    }
 
     // MARK: - Public API
 
@@ -287,3 +332,4 @@ public final class TrackHeadersContainerView: NSView {
         setBoundsOrigin(NSPoint(x: 0, y: offset))
     }
 }
+

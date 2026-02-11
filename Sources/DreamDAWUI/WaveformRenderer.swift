@@ -6,12 +6,25 @@ import DreamDAWEngine
 // MARK: - WaveformRenderer
 
 /// High-performance Core Graphics waveform renderer.
-/// Draws peak envelope waveforms with gradient fills inside clip rectangles.
-public final class WaveformRenderer {
+/// Draws multi-band colored waveforms (Bass = warm, Mid = bright, High = shimmer)
+/// layered on top of each other inside clip rectangles.
+public final class WaveformRenderer: @unchecked Sendable {
 
     // MARK: - Properties
 
     private let waveformCache: WaveformCache
+
+    /// Callback to trigger canvas redraw when waveform data becomes available.
+    public var onWaveformReady: (() -> Void)?
+
+    // MARK: - Band Colors
+
+    /// Bass band color (warm low-end).
+    private static let bassColor = NSColor(red: 0.85, green: 0.25, blue: 0.15, alpha: 0.75)
+    /// Mid band color (body/presence).
+    private static let midColor = NSColor(red: 0.15, green: 0.75, blue: 0.35, alpha: 0.70)
+    /// High band color (air/shimmer).
+    private static let highColor = NSColor(red: 0.35, green: 0.65, blue: 0.95, alpha: 0.65)
 
     // MARK: - Initialization
 
@@ -21,16 +34,7 @@ public final class WaveformRenderer {
 
     // MARK: - Drawing
 
-    /// Draw waveform for a clip within the given rect.
-    ///
-    /// - Parameters:
-    ///   - ctx: Core Graphics context.
-    ///   - clip: The audio clip to draw waveform for.
-    ///   - rect: The rect where the waveform should be drawn (clip bounds on canvas).
-    ///   - color: Track color for the waveform fill.
-    ///   - pixelsPerBeat: Current zoom level.
-    ///   - bpm: Current BPM.
-    ///   - sampleRate: Audio sample rate.
+    /// Draw multi-band colored waveform for a clip within the given rect.
     public func drawWaveform(
         in ctx: CGContext,
         clip: AudioClip,
@@ -44,22 +48,45 @@ public final class WaveformRenderer {
         let secondsPerPixel = 1.0 / (pixelsPerBeat * (bpm / 60.0))
         let samplesPerPixel = max(1, Int(secondsPerPixel * sampleRate))
 
-        // Try to get cached waveform data
-        guard let waveformData = waveformCache.getCachedWaveform(for: clip.fileURL, samplesPerPixel: samplesPerPixel) else {
-            // Trigger async computation if not cached
-            waveformCache.getWaveform(for: clip.fileURL, samplesPerPixel: samplesPerPixel) { _ in
-                // Will redraw on next frame when data is available
-                DispatchQueue.main.async {
-                    // Trigger redisplay — the parent view should handle this
-                }
-            }
-
-            // Draw placeholder
-            drawPlaceholder(in: ctx, rect: rect, color: color)
+        // Try to get cached multi-band waveform data
+        if let multiBandData = waveformCache.getCachedMultiBandWaveform(for: clip.fileURL, samplesPerPixel: samplesPerPixel) {
+            drawMultiBandWaveform(ctx: ctx, data: multiBandData, clip: clip, rect: rect, bpm: bpm, sampleRate: sampleRate, samplesPerPixel: samplesPerPixel)
             return
         }
 
-        // Draw the waveform
+        // Check mono fallback
+        if let monoData = waveformCache.getCachedWaveform(for: clip.fileURL, samplesPerPixel: samplesPerPixel) {
+            drawMonoWaveform(ctx: ctx, data: monoData, clip: clip, rect: rect, color: color, bpm: bpm, sampleRate: sampleRate, samplesPerPixel: samplesPerPixel)
+        } else {
+            drawPlaceholder(in: ctx, rect: rect, color: color)
+        }
+
+        // Trigger async multi-band computation
+        waveformCache.getMultiBandWaveform(for: clip.fileURL, samplesPerPixel: samplesPerPixel) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.onWaveformReady?()
+            }
+        }
+
+        // Also trigger mono as interim fallback
+        waveformCache.getWaveform(for: clip.fileURL, samplesPerPixel: samplesPerPixel) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.onWaveformReady?()
+            }
+        }
+    }
+
+    // MARK: - Multi-Band Drawing
+
+    private func drawMultiBandWaveform(
+        ctx: CGContext,
+        data: MultiBandWaveformData,
+        clip: AudioClip,
+        rect: CGRect,
+        bpm: Double,
+        sampleRate: Double,
+        samplesPerPixel: Int
+    ) {
         let waveformRect = CGRect(
             x: rect.origin.x,
             y: rect.origin.y + DreamTheme.clipTitleHeight,
@@ -70,36 +97,141 @@ public final class WaveformRenderer {
         let midY = waveformRect.midY
         let halfHeight = waveformRect.height / 2.0
 
-        // Calculate which samples correspond to the visible portion
         let trimOffsetSamples = Int(clip.trimStartOffset.toSeconds(bpm: bpm) * sampleRate)
         let startIndex = trimOffsetSamples / samplesPerPixel
 
         ctx.saveGState()
         ctx.clip(to: waveformRect)
 
-        // Build the waveform path
+        let pixelCount = Int(rect.width)
+
+        // Draw bands back-to-front: Bass (largest), then Mid, then High on top
+        // This creates the layered frequency visualization
+
+        // 1. Bass band (warm red/orange) — drawn first, widest
+        drawBandPath(
+            ctx: ctx, peaks: data.lowPeaks, startIndex: startIndex,
+            pixelCount: pixelCount, midY: midY, halfHeight: halfHeight,
+            originX: waveformRect.origin.x, color: Self.bassColor, scale: 0.95
+        )
+
+        // 2. Mid band (green) — middle layer
+        drawBandPath(
+            ctx: ctx, peaks: data.midPeaks, startIndex: startIndex,
+            pixelCount: pixelCount, midY: midY, halfHeight: halfHeight,
+            originX: waveformRect.origin.x, color: Self.midColor, scale: 0.85
+        )
+
+        // 3. High band (blue/cyan) — top layer, thinnest
+        drawBandPath(
+            ctx: ctx, peaks: data.highPeaks, startIndex: startIndex,
+            pixelCount: pixelCount, midY: midY, halfHeight: halfHeight,
+            originX: waveformRect.origin.x, color: Self.highColor, scale: 0.70
+        )
+
+        // Thin center line
+        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.15).cgColor)
+        ctx.setLineWidth(0.5)
+        ctx.move(to: CGPoint(x: waveformRect.origin.x, y: midY))
+        ctx.addLine(to: CGPoint(x: waveformRect.maxX, y: midY))
+        ctx.strokePath()
+
+        ctx.restoreGState()
+    }
+
+    /// Draw a single band envelope path.
+    private func drawBandPath(
+        ctx: CGContext,
+        peaks: [Float],
+        startIndex: Int,
+        pixelCount: Int,
+        midY: CGFloat,
+        halfHeight: CGFloat,
+        originX: CGFloat,
+        color: NSColor,
+        scale: CGFloat
+    ) {
+        let path = CGMutablePath()
+
+        // Top half (positive)
+        path.move(to: CGPoint(x: originX, y: midY))
+
+        for px in 0..<pixelCount {
+            let sampleIndex = startIndex + px
+            guard sampleIndex < peaks.count else { break }
+
+            let peak = CGFloat(peaks[sampleIndex])
+            let x = originX + CGFloat(px)
+            let y = midY - peak * halfHeight * scale
+            path.addLine(to: CGPoint(x: x, y: y))
+        }
+
+        // Bottom half (mirror)
+        for px in stride(from: min(pixelCount - 1, peaks.count - startIndex - 1), through: 0, by: -1) {
+            let sampleIndex = startIndex + px
+            guard sampleIndex < peaks.count else { continue }
+
+            let peak = CGFloat(peaks[sampleIndex])
+            let x = originX + CGFloat(px)
+            let y = midY + peak * halfHeight * scale
+            path.addLine(to: CGPoint(x: x, y: y))
+        }
+
+        path.closeSubpath()
+
+        ctx.setFillColor(color.cgColor)
+        ctx.addPath(path)
+        ctx.fillPath()
+    }
+
+    // MARK: - Mono Fallback
+
+    private func drawMonoWaveform(
+        ctx: CGContext,
+        data: WaveformData,
+        clip: AudioClip,
+        rect: CGRect,
+        color: NSColor,
+        bpm: Double,
+        sampleRate: Double,
+        samplesPerPixel: Int
+    ) {
+        let waveformRect = CGRect(
+            x: rect.origin.x,
+            y: rect.origin.y + DreamTheme.clipTitleHeight,
+            width: rect.width,
+            height: rect.height - DreamTheme.clipTitleHeight
+        )
+
+        let midY = waveformRect.midY
+        let halfHeight = waveformRect.height / 2.0
+
+        let trimOffsetSamples = Int(clip.trimStartOffset.toSeconds(bpm: bpm) * sampleRate)
+        let startIndex = trimOffsetSamples / samplesPerPixel
+
+        ctx.saveGState()
+        ctx.clip(to: waveformRect)
+
         let path = CGMutablePath()
         let pixelCount = Int(rect.width)
 
-        // Top half (positive peaks)
         path.move(to: CGPoint(x: waveformRect.origin.x, y: midY))
 
         for px in 0..<pixelCount {
             let sampleIndex = startIndex + px
-            guard sampleIndex < waveformData.peaks.count else { break }
+            guard sampleIndex < data.peaks.count else { break }
 
-            let peak = CGFloat(waveformData.peaks[sampleIndex])
+            let peak = CGFloat(data.peaks[sampleIndex])
             let x = waveformRect.origin.x + CGFloat(px)
             let y = midY - peak * halfHeight * 0.9
             path.addLine(to: CGPoint(x: x, y: y))
         }
 
-        // Bottom half (mirror)
-        for px in stride(from: min(pixelCount - 1, waveformData.peaks.count - startIndex - 1), through: 0, by: -1) {
+        for px in stride(from: min(pixelCount - 1, data.peaks.count - startIndex - 1), through: 0, by: -1) {
             let sampleIndex = startIndex + px
-            guard sampleIndex < waveformData.peaks.count else { continue }
+            guard sampleIndex < data.peaks.count else { continue }
 
-            let peak = CGFloat(waveformData.peaks[sampleIndex])
+            let peak = CGFloat(data.peaks[sampleIndex])
             let x = waveformRect.origin.x + CGFloat(px)
             let y = midY + peak * halfHeight * 0.9
             path.addLine(to: CGPoint(x: x, y: y))
@@ -107,13 +239,11 @@ public final class WaveformRenderer {
 
         path.closeSubpath()
 
-        // Fill with gradient
         let fillColor = color.withAlphaComponent(0.55)
         ctx.setFillColor(fillColor.cgColor)
         ctx.addPath(path)
         ctx.fillPath()
 
-        // Thin center line
         ctx.setStrokeColor(color.withAlphaComponent(0.3).cgColor)
         ctx.setLineWidth(0.5)
         ctx.move(to: CGPoint(x: waveformRect.origin.x, y: midY))
@@ -122,6 +252,8 @@ public final class WaveformRenderer {
 
         ctx.restoreGState()
     }
+
+    // MARK: - Placeholder
 
     /// Draw a placeholder when waveform data is not yet available.
     private func drawPlaceholder(in ctx: CGContext, rect: CGRect, color: NSColor) {

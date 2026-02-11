@@ -128,9 +128,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func newProject() {
         project = Project.createDefault()
-        mainWindowController?.close()
-        mainWindowController = MainWindowController(project: project)
-        mainWindowController?.showWindow()
+        // Reuse existing window — replace content instead of creating new window
+        if let window = mainWindowController?.window {
+            let arrangementVC = ArrangementViewController(project: project)
+            window.contentViewController = arrangementVC
+            window.title = "Dream DAW — \(project.name)"
+        } else {
+            mainWindowController = MainWindowController(project: project)
+            mainWindowController?.showWindow()
+        }
     }
 
     @objc private func openProject() {
@@ -233,9 +239,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let loadedProject = try decoder.decode(Project.self, from: data)
             loadedProject.fileURL = url
             project = loadedProject
-            mainWindowController?.close()
-            mainWindowController = MainWindowController(project: project)
-            mainWindowController?.showWindow()
+            // Reuse existing window — replace content instead of creating new window
+            if let window = mainWindowController?.window {
+                let arrangementVC = ArrangementViewController(project: project)
+                window.contentViewController = arrangementVC
+                window.title = "Dream DAW — \(project.name)"
+            } else {
+                mainWindowController = MainWindowController(project: project)
+                mainWindowController?.showWindow()
+            }
         } catch {
             let alert = NSAlert(error: error)
             alert.runModal()

@@ -282,6 +282,13 @@ public final class ArrangementViewController: NSViewController {
         }
 
         trackMixer.configureTracks(project.tracks)
+
+        // Connect waveform renderer callback → canvas redraw
+        let renderer = WaveformRenderer(waveformCache: waveformCache)
+        renderer.onWaveformReady = { [weak self] in
+            self?.canvasView.needsDisplay = true
+        }
+        canvasView.waveformRenderer = renderer
     }
 
     // MARK: - Bindings
@@ -317,6 +324,28 @@ public final class ArrangementViewController: NSViewController {
             guard let self = self else { return }
             self.trackMixer.applyTrackSettings(track)
             self.canvasView.needsDisplay = true
+        }
+
+        // Right-click context menu: Add Audio / MIDI Track
+        trackHeaders.onAddTrack = { [weak self] isAudio in
+            guard let self = self else { return }
+            self.project.addTrack(type: isAudio ? .audio : .midi)
+            self.reloadTracks()
+        }
+
+        // Transport state → PlaybackScheduler
+        // Play → schedule all clips; Pause/Stop → stop all players
+        transportController.onStateChange = { [weak self] state in
+            guard let self = self else { return }
+            switch state {
+            case .playing:
+                self.playbackScheduler.schedulePlayback(
+                    project: self.project,
+                    from: self.transportController.playheadPosition
+                )
+            case .paused, .stopped:
+                self.playbackScheduler.stopAll()
+            }
         }
     }
 

@@ -1,11 +1,13 @@
 import AppKit
+import AVFoundation
 import SwiftUI
 import DreamDAWModels
 
 // MARK: - BrowserSidebarView
 
 /// Left sidebar mimicking Ableton Live's browser panel.
-/// Contains: Search, Collections, Library tree, Places.
+/// Shows Library sections + real sample files from configured samples folder.
+/// Users can drag audio files from the browser onto audio tracks.
 public final class BrowserSidebarView: NSView {
 
     // MARK: - Properties
@@ -15,9 +17,11 @@ public final class BrowserSidebarView: NSView {
     }
 
     private let searchField = NSSearchField()
-    private let scrollView = NSScrollView()
-    private let contentView = NSView()
-    private var sectionViews: [NSView] = []
+    private let outlineScrollView = NSScrollView()
+    private let outlineView = NSOutlineView()
+    private var rootItems: [BrowserNode] = []
+    private var samplesObserver: Any?
+    private var previewPlayer: AVAudioPlayer?
 
     public override var isFlipped: Bool { true }
 
@@ -26,10 +30,39 @@ public final class BrowserSidebarView: NSView {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupUI()
+        buildTree()
+        observeSamplesPath()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        previewPlayer?.stop()
+        if let obs = samplesObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+    }
+
+    // MARK: - Audio Preview
+
+    /// Play a preview of the selected audio file.
+    private func playPreview(url: URL) {
+        previewPlayer?.stop()
+        do {
+            previewPlayer = try AVAudioPlayer(contentsOf: url)
+            previewPlayer?.volume = 0.8
+            previewPlayer?.play()
+        } catch {
+            print("[Browser] Preview failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Stop any active preview playback.
+    private func stopPreview() {
+        previewPlayer?.stop()
+        previewPlayer = nil
     }
 
     // MARK: - Setup
@@ -39,183 +72,296 @@ public final class BrowserSidebarView: NSView {
         layer?.backgroundColor = DreamTheme.bgBrowser.cgColor
 
         // Search field
-        searchField.placeholderString = "Search (Cmd+F)"
+        searchField.placeholderString = "Search"
         searchField.font = DreamTheme.fontBody
         searchField.focusRingType = .none
         searchField.appearance = NSAppearance(named: .darkAqua)
-        searchField.translatesAutoresizingMaskIntoConstraints = false
+        searchField.target = self
+        searchField.action = #selector(searchChanged(_:))
         addSubview(searchField)
 
-        // Scroll view for content
-        scrollView.wantsLayer = true
-        scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.scrollerStyle = .overlay
-        scrollView.autohidesScrollers = true
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.documentView = contentView
-        contentView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(scrollView)
+        // Outline view — displays tree
+        outlineView.headerView = nil
+        outlineView.rowHeight = 22
+        outlineView.indentationPerLevel = 16
+        outlineView.style = .sourceList
+        outlineView.floatsGroupRows = false
+        outlineView.autoresizesSubviews = true
 
-        NSLayoutConstraint.activate([
-            searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-            searchField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
-            searchField.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-            searchField.heightAnchor.constraint(equalToConstant: 22),
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
+        column.isEditable = false
+        outlineView.addTableColumn(column)
+        outlineView.outlineTableColumn = column
 
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 6),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+        outlineView.dataSource = self
+        outlineView.delegate = self
 
-        buildSections()
+        // Register for drag source
+        outlineView.setDraggingSourceOperationMask(.copy, forLocal: false)
+
+        // Scroll view
+        outlineScrollView.wantsLayer = true
+        outlineScrollView.drawsBackground = false
+        outlineScrollView.hasVerticalScroller = true
+        outlineScrollView.hasHorizontalScroller = false
+        outlineScrollView.scrollerStyle = .overlay
+        outlineScrollView.autohidesScrollers = true
+        outlineScrollView.documentView = outlineView
+        addSubview(outlineScrollView)
     }
 
-    // MARK: - Sections
+    public override func layout() {
+        super.layout()
+        let searchHeight: CGFloat = 28
+        let padding: CGFloat = 6
+        searchField.frame = CGRect(x: padding, y: padding, width: bounds.width - padding * 2, height: searchHeight - padding)
+        outlineScrollView.frame = CGRect(x: 0, y: searchHeight, width: bounds.width, height: bounds.height - searchHeight)
+    }
 
-    private func buildSections() {
-        // Remove old sections
-        sectionViews.forEach { $0.removeFromSuperview() }
-        sectionViews.removeAll()
+    // MARK: - Tree Building
 
-        var yOffset: CGFloat = 0
+    private func buildTree() {
+        rootItems.removeAll()
 
         // Collections
-        yOffset = addSection(title: "Collections", items: [
-            BrowserItem(icon: "star.fill", label: "Favorites", iconColor: .systemYellow),
-            BrowserItem(icon: "circle.fill", label: "Yellow", iconColor: .systemYellow),
-        ], yOffset: yOffset)
+        let collections = BrowserNode(name: "Collections", icon: "star.fill", isGroup: true)
+        collections.children = [
+            BrowserNode(name: "Favorites", icon: "star.fill"),
+        ]
+        rootItems.append(collections)
 
         // Library
-        yOffset = addSection(title: "Library", items: [
-            BrowserItem(icon: "folder.fill", label: "All", iconColor: .systemGray),
-            BrowserItem(icon: "music.note", label: "Sounds", iconColor: .systemBlue),
-            BrowserItem(icon: "waveform", label: "Samples", iconColor: .systemGreen),
-            BrowserItem(icon: "drum.fill", label: "Drums", iconColor: .systemOrange),
-            BrowserItem(icon: "pianokeys", label: "Instruments", iconColor: .systemPurple),
-            BrowserItem(icon: "wand.and.stars", label: "Audio Effects", iconColor: .systemCyan),
-            BrowserItem(icon: "sparkles", label: "MIDI Effects", iconColor: .systemPink),
-            BrowserItem(icon: "slider.horizontal.3", label: "Modulators", iconColor: .systemTeal),
-            BrowserItem(icon: "puzzlepiece.fill", label: "Plug-Ins", iconColor: .systemIndigo),
-            BrowserItem(icon: "film", label: "Clips", iconColor: .systemMint),
-            BrowserItem(icon: "waveform.path", label: "Grooves", iconColor: .systemBrown),
-            BrowserItem(icon: "tuningfork", label: "Tunings", iconColor: .systemGray),
-            BrowserItem(icon: "doc.text", label: "Templates", iconColor: .systemGray),
-        ], yOffset: yOffset)
+        let library = BrowserNode(name: "Library", icon: "folder.fill", isGroup: true)
+        library.children = [
+            BrowserNode(name: "Sounds", icon: "music.note"),
+            BrowserNode(name: "Drums", icon: "drum.fill"),
+            BrowserNode(name: "Instruments", icon: "pianokeys"),
+            BrowserNode(name: "Audio Effects", icon: "wand.and.stars"),
+            BrowserNode(name: "MIDI Effects", icon: "sparkles"),
+            BrowserNode(name: "Plug-Ins", icon: "puzzlepiece.fill"),
+            BrowserNode(name: "Clips", icon: "film"),
+            BrowserNode(name: "Templates", icon: "doc.text"),
+        ]
+        rootItems.append(library)
 
         // Places
-        yOffset = addSection(title: "Places", items: [
-            BrowserItem(icon: "shippingbox.fill", label: "Packs", iconColor: .systemGray),
-            BrowserItem(icon: "person.crop.circle", label: "User Library", iconColor: .systemBlue),
-            BrowserItem(icon: "doc.fill", label: "Current Project", iconColor: .systemGreen),
-        ], yOffset: yOffset)
-
-        // Update content size
-        contentView.frame = CGRect(x: 0, y: 0, width: bounds.width, height: yOffset)
-    }
-
-    private func addSection(title: String, items: [BrowserItem], yOffset: CGFloat) -> CGFloat {
-        var y = yOffset
-
-        // Section title
-        let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-        titleLabel.textColor = DreamTheme.textMuted
-        titleLabel.frame = CGRect(x: 10, y: y, width: bounds.width - 20, height: 18)
-        contentView.addSubview(titleLabel)
-        sectionViews.append(titleLabel)
-        y += 20
-
-        // Items
-        for item in items {
-            let itemView = BrowserItemView(item: item)
-            itemView.frame = CGRect(x: 0, y: y, width: bounds.width, height: 22)
-            contentView.addSubview(itemView)
-            sectionViews.append(itemView)
-            y += 22
-        }
-
-        y += 8 // spacing between sections
-        return y
-    }
-}
-
-// MARK: - BrowserItem
-
-struct BrowserItem {
-    let icon: String
-    let label: String
-    let iconColor: NSColor
-}
-
-// MARK: - BrowserItemView
-
-/// Single row in the browser sidebar.
-final class BrowserItemView: NSView {
-
-    private let item: BrowserItem
-    private var isHovered = false
-    private var trackingArea: NSTrackingArea?
-
-    init(item: BrowserItem) {
-        self.item = item
-        super.init(frame: .zero)
-        wantsLayer = true
-        setupTracking()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var isFlipped: Bool { true }
-
-    override func draw(_ dirtyRect: NSRect) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-
-        // Hover state
-        if isHovered {
-            ctx.setFillColor(DreamTheme.bgBrowserItem.cgColor)
-            ctx.fill(bounds)
-        }
-
-        // Icon
-        let iconRect = CGRect(x: 14, y: 3, width: 14, height: 14)
-        if let symbolImage = NSImage(systemSymbolName: item.icon, accessibilityDescription: nil) {
-            let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
-            let configured = symbolImage.withSymbolConfiguration(config) ?? symbolImage
-            configured.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1.0)
-        }
-
-        // Label
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: DreamTheme.fontBrowser,
-            .foregroundColor: DreamTheme.textPrimary
+        let places = BrowserNode(name: "Places", icon: "externaldrive.fill", isGroup: true)
+        places.children = [
+            BrowserNode(name: "User Library", icon: "person.crop.circle"),
+            BrowserNode(name: "Current Project", icon: "doc.fill"),
         ]
-        let labelStr = NSAttributedString(string: item.label, attributes: attrs)
-        labelStr.draw(at: CGPoint(x: 34, y: 3))
+        rootItems.append(places)
+
+        // Samples (from user settings)
+        loadSamplesFolder()
+
+        outlineView.reloadData()
+
+        // Expand all groups
+        for item in rootItems {
+            outlineView.expandItem(item)
+        }
     }
 
-    private func setupTracking() {
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.activeInActiveApp, .mouseEnteredAndExited, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
+    private func loadSamplesFolder() {
+        let samplesPath = AppSettings.shared.samplesPath
+        guard !samplesPath.isEmpty else { return }
+
+        let samplesURL = URL(fileURLWithPath: samplesPath)
+        guard FileManager.default.fileExists(atPath: samplesPath) else { return }
+
+        let samplesNode = BrowserNode(name: "Samples", icon: "waveform", isGroup: true)
+        samplesNode.children = scanDirectory(url: samplesURL, depth: 0, maxDepth: 3)
+        rootItems.append(samplesNode)
     }
 
-    override func mouseEntered(with event: NSEvent) {
-        isHovered = true
-        needsDisplay = true
+    private func scanDirectory(url: URL, depth: Int, maxDepth: Int) -> [BrowserNode] {
+        guard depth < maxDepth else { return [] }
+
+        let audioExtensions = Set(["wav", "aiff", "aif", "mp3", "m4a", "flac", "ogg", "caf"])
+        var nodes: [BrowserNode] = []
+
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        // Sort: directories first, then files
+        let sorted = contents.sorted { a, b in
+            let aIsDir = (try? a.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            let bIsDir = (try? b.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            if aIsDir != bIsDir { return aIsDir }
+            return a.lastPathComponent.localizedCaseInsensitiveCompare(b.lastPathComponent) == .orderedAscending
+        }
+
+        for item in sorted {
+            let isDir = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+
+            if isDir {
+                let dirNode = BrowserNode(name: item.lastPathComponent, icon: "folder.fill", isGroup: true)
+                dirNode.children = scanDirectory(url: item, depth: depth + 1, maxDepth: maxDepth)
+                if !dirNode.children.isEmpty {
+                    nodes.append(dirNode)
+                }
+            } else if audioExtensions.contains(item.pathExtension.lowercased()) {
+                let fileNode = BrowserNode(name: item.lastPathComponent, icon: "waveform")
+                fileNode.fileURL = item
+                nodes.append(fileNode)
+            }
+        }
+        return nodes
     }
 
-    override func mouseExited(with event: NSEvent) {
-        isHovered = false
-        needsDisplay = true
+    // MARK: - Observe Samples Path Changes
+
+    private func observeSamplesPath() {
+        samplesObserver = NotificationCenter.default.addObserver(
+            forName: .samplesPathDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.buildTree()
+        }
+    }
+
+    // MARK: - Search
+
+    @objc private func searchChanged(_ sender: NSSearchField) {
+        // TODO: implement search filtering
+        outlineView.reloadData()
+    }
+}
+
+// MARK: - BrowserNode
+
+/// Tree node for the browser outline view.
+class BrowserNode: NSObject {
+    let name: String
+    let icon: String
+    let isGroup: Bool
+    var children: [BrowserNode] = []
+    var fileURL: URL?
+
+    init(name: String, icon: String, isGroup: Bool = false) {
+        self.name = name
+        self.icon = icon
+        self.isGroup = isGroup
+        super.init()
+    }
+}
+
+// MARK: - NSOutlineViewDataSource
+
+extension BrowserSidebarView: NSOutlineViewDataSource {
+
+    public func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
+        if item == nil { return rootItems.count }
+        if let node = item as? BrowserNode { return node.children.count }
+        return 0
+    }
+
+    public func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
+        if item == nil { return rootItems[index] }
+        if let node = item as? BrowserNode { return node.children[index] }
+        return ""
+    }
+
+    public func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
+        if let node = item as? BrowserNode { return node.isGroup && !node.children.isEmpty }
+        return false
+    }
+
+    // MARK: - Drag Source (provide file URL for audio files)
+
+    public func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
+        guard let node = item as? BrowserNode,
+              let fileURL = node.fileURL else { return nil }
+        return fileURL as NSURL
+    }
+}
+
+// MARK: - NSOutlineViewDelegate
+
+extension BrowserSidebarView: NSOutlineViewDelegate {
+
+    public func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
+        guard let node = item as? BrowserNode else { return nil }
+
+        let cellID = NSUserInterfaceItemIdentifier("BrowserCell")
+        let cellView: NSTableCellView
+
+        if let reused = outlineView.makeView(withIdentifier: cellID, owner: self) as? NSTableCellView {
+            cellView = reused
+        } else {
+            cellView = NSTableCellView()
+            cellView.identifier = cellID
+
+            let imageView = NSImageView()
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            cellView.addSubview(imageView)
+            cellView.imageView = imageView
+
+            let textField = NSTextField(labelWithString: "")
+            textField.translatesAutoresizingMaskIntoConstraints = false
+            textField.lineBreakMode = .byTruncatingTail
+            cellView.addSubview(textField)
+            cellView.textField = textField
+
+            NSLayoutConstraint.activate([
+                imageView.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 2),
+                imageView.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
+                imageView.widthAnchor.constraint(equalToConstant: 14),
+                imageView.heightAnchor.constraint(equalToConstant: 14),
+
+                textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 6),
+                textField.trailingAnchor.constraint(equalTo: cellView.trailingAnchor, constant: -4),
+                textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
+            ])
+        }
+
+        // Configure cell
+        if node.isGroup {
+            cellView.textField?.stringValue = node.name.uppercased()
+            cellView.textField?.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+            cellView.textField?.textColor = DreamTheme.textMuted
+        } else {
+            cellView.textField?.stringValue = node.name
+            cellView.textField?.font = DreamTheme.fontBrowser
+            cellView.textField?.textColor = DreamTheme.textPrimary
+        }
+
+        if let symbolImage = NSImage(systemSymbolName: node.icon, accessibilityDescription: nil) {
+            let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
+            cellView.imageView?.image = symbolImage.withSymbolConfiguration(config)
+            cellView.imageView?.contentTintColor = node.isGroup ? DreamTheme.textMuted : DreamTheme.textSecondary
+        }
+
+        return cellView
+    }
+
+    public func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {
+        false // We handle group styling manually
+    }
+
+    public func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
+        if let node = item as? BrowserNode {
+            return !node.isGroup // Only leaf items are selectable
+        }
+        return false
+    }
+
+    /// Play preview when a file is selected (clicked) in the browser.
+    public func outlineViewSelectionDidChange(_ notification: Notification) {
+        let row = outlineView.selectedRow
+        guard row >= 0,
+              let node = outlineView.item(atRow: row) as? BrowserNode else {
+            stopPreview()
+            return
+        }
+
+        if let fileURL = node.fileURL {
+            playPreview(url: fileURL)
+        } else {
+            stopPreview()
+        }
     }
 }

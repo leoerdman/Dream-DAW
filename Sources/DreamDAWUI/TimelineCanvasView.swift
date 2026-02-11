@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Foundation
 import DreamDAWModels
 import DreamDAWEngine
@@ -555,11 +556,22 @@ public final class TimelineCanvasView: NSView {
 
         var beatPosition = beat
         for url in urls {
+            // Compute real clip duration from audio file
+            let clipDuration: TimePosition
+            if let audioFile = try? AVAudioFile(forReading: url) {
+                let fileDurationSeconds = Double(audioFile.length) / audioFile.processingFormat.sampleRate
+                let fileDurationBeats = fileDurationSeconds * (project.bpm / 60.0)
+                clipDuration = TimePosition(beats: fileDurationBeats)
+            } else {
+                // Fallback: 4 bars
+                clipDuration = TimePosition(bars: 4, beatsPerBar: project.timeSignature.beatsPerBar)
+            }
+
             let clip = AudioClip(
                 name: url.deletingPathExtension().lastPathComponent,
                 fileURL: url,
                 position: TimePosition(beats: beatPosition),
-                duration: TimePosition(bars: 4, beatsPerBar: project.timeSignature.beatsPerBar)
+                duration: clipDuration
             )
             track.clips.append(clip)
             beatPosition += clip.duration.beats

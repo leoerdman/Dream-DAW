@@ -32,15 +32,15 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
 
         super.init(window: window)
 
-        // Set delegate for double-click fullscreen
+        // Set delegate
         window.delegate = self
 
         // Set up content
         let arrangementVC = ArrangementViewController(project: project)
         window.contentViewController = arrangementVC
         
-        // Monitor double-click on title bar to toggle fullscreen
-        // This works regardless of macOS system preference
+        // Monitor double-click on title bar → zoom (maximize with Dock/menu bar visible)
+        // NOT fullscreen — fullscreen is only via the green button.
         NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak window] event in
             guard let window = window,
                   event.clickCount == 2 else { return event }
@@ -51,7 +51,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
             let titleBarMinY = contentFrame.maxY
             
             if locationInWindow.y >= titleBarMinY {
-                window.toggleFullScreen(nil)
+                window.zoom(nil)
                 return nil // consume the event
             }
             return event
@@ -74,35 +74,35 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: - NSWindowDelegate
 
-    /// Double-click on title bar toggles fullscreen.
     public func window(_ window: NSWindow, shouldPopUpDocumentPathMenu menu: NSMenu) -> Bool {
         false
     }
-
-    /// This enables double-click on title bar to zoom/fullscreen
-    /// macOS uses the system preference for this by default, but we ensure
-    /// the zoom behavior is fullscreen toggle.
-    public func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool {
-        window.toggleFullScreen(nil)
-        return false // We handle it ourselves via fullscreen
-    }
-    
-    // MARK: - App Icon
     
     private func loadAppIcon() {
-        // Load the app icon from the bundled resources
-        let iconPath = Bundle.main.executableURL?
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/DreamDAW/AppIcon.png")
+        // Try multiple search strategies for the icon
+        var searchPaths: [String] = []
         
-        // Try multiple paths for the icon
-        let paths = [
-            iconPath?.path,
-            Bundle.main.path(forResource: "AppIcon", ofType: "png"),
-        ].compactMap { $0 }
+        // 1. SPM resource bundle
+        if let bundlePath = Bundle.main.path(forResource: "AppIcon", ofType: "png") {
+            searchPaths.append(bundlePath)
+        }
         
-        for path in paths {
+        // 2. Relative to executable (SPM .build directory structure)
+        if let execDir = Bundle.main.executableURL?.deletingLastPathComponent() {
+            // Walk up from .build/debug/ to project root
+            var dir = execDir
+            for _ in 0..<6 {
+                let candidate = dir.appendingPathComponent("Sources/DreamDAW/AppIcon.png")
+                searchPaths.append(candidate.path)
+                dir = dir.deletingLastPathComponent()
+            }
+        }
+        
+        // 3. Current working directory
+        let cwd = FileManager.default.currentDirectoryPath
+        searchPaths.append("\(cwd)/Sources/DreamDAW/AppIcon.png")
+        
+        for path in searchPaths {
             if let icon = NSImage(contentsOfFile: path) {
                 NSApp.applicationIconImage = icon
                 return
@@ -110,3 +110,4 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 }
+

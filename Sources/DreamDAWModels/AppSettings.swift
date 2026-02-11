@@ -38,6 +38,7 @@ public final class AppSettings: ObservableObject {
     private enum Keys {
         static let language = "dreamdaw.settings.language"
         static let userStoragePath = "dreamdaw.settings.userStoragePath"
+        static let samplesPath = "dreamdaw.settings.samplesPath"
     }
     
     // MARK: - General
@@ -58,6 +59,14 @@ public final class AppSettings: ObservableObject {
         }
     }
     
+    /// User sample library folder path.
+    @Published public var samplesPath: String {
+        didSet {
+            defaults.set(samplesPath, forKey: Keys.samplesPath)
+            NotificationCenter.default.post(name: .samplesPathDidChange, object: nil)
+        }
+    }
+    
     // MARK: - Initialization
     
     private init() {
@@ -75,5 +84,13 @@ public final class AppSettings: ObservableObject {
             let musicDir = FileManager.default.urls(for: .musicDirectory, in: .userDomainMask).first
             self.userStoragePath = musicDir?.appendingPathComponent("Dream DAW").path ?? "~/Music/Dream DAW"
         }
+        
+        self.samplesPath = defaults.string(forKey: Keys.samplesPath) ?? ""
     }
+}
+
+// MARK: - Notification Names
+
+public extension Notification.Name {
+    static let samplesPathDidChange = Notification.Name("dreamdaw.samplesPathDidChange")
 }

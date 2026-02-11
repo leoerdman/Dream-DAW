@@ -41,6 +41,17 @@ public final class ArrangementViewController: NSViewController {
     private var pixelsPerBeat: CGFloat = DreamTheme.defaultPixelsPerBeat
     private var isBrowserVisible: Bool = true
 
+    /// Current view mode: arrangement (timeline) or mixer.
+    private enum ViewMode {
+        case arrangement
+        case mixer
+    }
+    private var viewMode: ViewMode = .arrangement
+    private var mixerHostingView: NSHostingView<MixerView>?
+
+    /// Whether the render dialog is currently shown.
+    private var isRenderDialogShown: Bool = false
+
     // MARK: - Initialization
 
     public init(project: Project) {
@@ -304,6 +315,16 @@ public final class ArrangementViewController: NSViewController {
 
         // Track headers document size
         trackHeaders.frame.size.width = headerW
+
+        // Mixer hosting view (when in mixer mode)
+        if let mixerHosting = mixerHostingView {
+            mixerHosting.frame = CGRect(
+                x: canvasStartX,
+                y: canvasTop,
+                width: bounds.width - canvasStartX,
+                height: canvasAreaHeight
+            )
+        }
     }
 
     // MARK: - Audio Engine
@@ -484,10 +505,103 @@ public final class ArrangementViewController: NSViewController {
             setZoom(pixelsPerBeat / 1.3)
         case 11 where flags.contains(.command) && flags.contains(.option): // Cmd+Opt+B toggle browser
             toggleBrowser()
+        case 48: // Tab — toggle arrangement/mixer view
+            toggleMixerView()
+        case 15 where flags.contains(.command) && flags.contains(.shift): // Cmd+Shift+R — render
+            showRenderDialog()
         default:
             super.keyDown(with: event)
         }
     }
 
     public override var acceptsFirstResponder: Bool { true }
+
+    // MARK: - Mixer View Toggle
+
+    private func toggleMixerView() {
+        switch viewMode {
+        case .arrangement:
+            viewMode = .mixer
+            showMixerView()
+        case .mixer:
+            viewMode = .arrangement
+            hideMixerView()
+        }
+    }
+
+    private func showMixerView() {
+        // Hide arrangement-specific views
+        canvasScrollView.isHidden = true
+        trackHeaders.isHidden = true
+        rulerView.isHidden = true
+        vertDividerRight.isHidden = true
+
+        // Create and show mixer view
+        let mixerView = MixerView(project: project) { [weak self] track in
+            self?.trackMixer.applyTrackSettings(track)
+            self?.trackMixer.applySoloLogic(self?.project.tracks ?? [])
+            self?.trackMixer.applyMasterSettings(self?.project.masterTrack ?? track)
+        }
+
+        let hostingView = NSHostingView(rootView: mixerView)
+        hostingView.frame = canvasScrollView.frame
+        view.addSubview(hostingView)
+        self.mixerHostingView = hostingView
+
+        layoutSubviews()
+    }
+
+    private func hideMixerView() {
+        mixerHostingView?.removeFromSuperview()
+        mixerHostingView = nil
+
+        // Show arrangement views
+        canvasScrollView.isHidden = false
+        trackHeaders.isHidden = false
+        rulerView.isHidden = false
+
+        layoutSubviews()
+    }
+
+    // MARK: - Render Dialog
+
+    private func showRenderDialog() {
+        guard !isRenderDialogShown else { return }
+        isRenderDialogShown = true
+
+        let renderView = RenderDialogView(project: project) { [weak self] in
+            self?.dismissRenderDialog()
+        }
+
+        let hostingView = NSHostingView(rootView: renderView)
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 420),
+            styleMask: [.titled, .closable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = "Render to Audio"
+        panel.contentView = hostingView
+        panel.appearance = NSAppearance(named: .darkAqua)
+        panel.center()
+        panel.isReleasedWhenClosed = false
+        panel.makeKeyAndOrderFront(nil)
+
+        // Track panel close
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            self?.isRenderDialogShown = false
+        }
+    }
+
+    private func dismissRenderDialog() {
+        isRenderDialogShown = false
+        // Close the panel — find by title
+        for window in NSApp.windows where window.title == "Render to Audio" {
+            window.close()
+        }
+    }
 }

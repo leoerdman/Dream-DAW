@@ -18,7 +18,7 @@ public final class PlaybackScheduler {
     private let logger = Logger(subsystem: "com.dreamdaw", category: "PlaybackScheduler")
 
     /// Cache of loaded audio files to avoid re-reading.
-    private var audioFileCache: [URL: AVAudioFile] = [:]
+
 
     // MARK: - Initialization
 
@@ -197,20 +197,20 @@ public final class PlaybackScheduler {
 
     // MARK: - Audio File Loading
 
-    private func loadAudioFile(url: URL) throws -> AVAudioFile {
-        if let cached = audioFileCache[url] {
-            // Reset frame position for re-use
-            cached.framePosition = 0
-            return cached
-        }
+    /// Known-valid audio file URLs (avoids re-checking filesystem).
+    private var validFileURLs: Set<URL> = []
 
+    /// Create a fresh AVAudioFile handle for each scheduling call.
+    /// AVAudioFile is NOT safe to share across concurrent scheduleSegment calls
+    /// because its internal `framePosition` is mutable state.
+    private func loadAudioFile(url: URL) throws -> AVAudioFile {
         let file = try AVAudioFile(forReading: url)
-        audioFileCache[url] = file
+        validFileURLs.insert(url)
         return file
     }
 
-    /// Clear the audio file cache.
+    /// Clear the valid-URL cache.
     public func clearCache() {
-        audioFileCache.removeAll()
+        validFileURLs.removeAll()
     }
 }

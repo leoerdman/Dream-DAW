@@ -39,6 +39,7 @@ public final class AppSettings: ObservableObject {
         static let language = "dreamdaw.settings.language"
         static let userStoragePath = "dreamdaw.settings.userStoragePath"
         static let samplesPath = "dreamdaw.settings.samplesPath"
+        static let audioOutputDeviceUID = "dreamdaw.settings.audioOutputDeviceUID"
     }
     
     // MARK: - General
@@ -66,6 +67,15 @@ public final class AppSettings: ObservableObject {
             NotificationCenter.default.post(name: .samplesPathDidChange, object: nil)
         }
     }
+
+    // MARK: - Audio
+
+    /// Selected audio output device UID.
+    @Published public var audioOutputDeviceUID: String? {
+        didSet {
+            defaults.set(audioOutputDeviceUID, forKey: Keys.audioOutputDeviceUID)
+        }
+    }
     
     // MARK: - Initialization
     
@@ -86,6 +96,7 @@ public final class AppSettings: ObservableObject {
         }
         
         self.samplesPath = defaults.string(forKey: Keys.samplesPath) ?? ""
+        self.audioOutputDeviceUID = defaults.string(forKey: Keys.audioOutputDeviceUID)
     }
 }
 

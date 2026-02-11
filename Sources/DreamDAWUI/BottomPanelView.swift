@@ -10,6 +10,9 @@ import DreamDAWModels
 /// - Shift+click MIDI clip → Piano Roll tab
 public final class BottomPanelView: NSView {
 
+    // Use flipped coordinate system (y=0 at top) for correct layout
+    public override var isFlipped: Bool { true }
+
     // MARK: - Mode
 
     public enum PanelMode {

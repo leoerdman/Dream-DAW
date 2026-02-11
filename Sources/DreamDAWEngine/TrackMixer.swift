@@ -6,7 +6,7 @@ import os.log
 // MARK: - TrackMixer
 
 /// Manages per-track mixer nodes within the audio engine graph.
-/// Each track gets its own AVAudioMixerNode for independent volume/pan/mute control.
+/// Signal chain per track: AVAudioPlayerNode → ParametricEQ → AVAudioMixerNode → masterMixer.
 public final class TrackMixer {
 
     // MARK: - Properties
@@ -20,6 +20,9 @@ public final class TrackMixer {
     /// Map from Track ID to its player node (for clip playback).
     private var trackPlayerNodes: [UUID: AVAudioPlayerNode] = [:]
 
+    /// Map from Track ID to its EQ processor.
+    private var trackEQNodes: [UUID: ParametricEQ] = [:]
+
     // MARK: - Initialization
 
     public init(audioEngine: AudioEngine) {
@@ -28,11 +31,18 @@ public final class TrackMixer {
 
     // MARK: - Track Setup
 
-    /// Set up mixer and player nodes for a set of tracks.
+    /// Set up mixer, EQ, and player nodes for a set of tracks.
+    /// Signal chain: player → EQ → mixer → masterMixer
     public func configureTracks(_ tracks: [Track]) {
         // Remove nodes for tracks that no longer exist
         let currentIDs = Set(tracks.map(\.id))
         for (id, node) in trackMixerNodes where !currentIDs.contains(id) {
+            // Disconnect and detach EQ
+            if let eq = trackEQNodes.removeValue(forKey: id) {
+                audioEngine.disconnectNodeOutput(eq.eqNode)
+                audioEngine.detach(eq.eqNode)
+            }
+
             audioEngine.disconnectNodeOutput(node)
             audioEngine.detach(node)
             trackMixerNodes.removeValue(forKey: id)
@@ -49,21 +59,29 @@ public final class TrackMixer {
             if trackMixerNodes[track.id] == nil {
                 let mixer = AVAudioMixerNode()
                 let player = AVAudioPlayerNode()
+                let eq = ParametricEQ()
 
                 audioEngine.attach(mixer)
                 audioEngine.attach(player)
+                audioEngine.attach(eq.eqNode)
 
-                audioEngine.connect(player, to: mixer, format: nil)
+                // Signal chain: player → EQ → mixer → masterMixer
+                audioEngine.connect(player, to: eq.eqNode, format: nil)
+                audioEngine.connect(eq.eqNode, to: mixer, format: nil)
                 audioEngine.connect(mixer, to: audioEngine.masterMixer, format: nil)
 
                 trackMixerNodes[track.id] = mixer
                 trackPlayerNodes[track.id] = player
+                trackEQNodes[track.id] = eq
 
-                logger.info("Created mixer chain for track: \(track.name)")
+                logger.info("Created mixer chain (with EQ) for track: \(track.name)")
             }
 
             // Apply current track settings
             applyTrackSettings(track)
+
+            // Apply EQ config if track has EQ effect
+            applyEQConfig(track)
         }
     }
 
@@ -73,6 +91,21 @@ public final class TrackMixer {
 
         mixer.outputVolume = track.effectiveVolume
         mixer.pan = track.pan
+    }
+
+    /// Apply EQ configuration from track's effects list.
+    public func applyEQConfig(_ track: Track) {
+        guard let eq = trackEQNodes[track.id] else { return }
+
+        // Find the EQ effect in track's effects chain
+        if let eqConfig = track.effects.first(where: { $0.effectType == .eq }), eqConfig.isEnabled {
+            eq.applyConfig(eqConfig.eqBands)
+        } else {
+            // Bypass all bands if no EQ or disabled
+            for i in 0..<ParametricEQ.bandCount {
+                eq.setBandEnabled(i, enabled: false)
+            }
+        }
     }
 
     /// Handle solo logic: when any track is soloed, mute all non-soloed tracks.
@@ -101,6 +134,11 @@ public final class TrackMixer {
         trackMixerNodes[trackID]
     }
 
+    /// Get the EQ processor for a given track.
+    public func eqProcessor(for trackID: UUID) -> ParametricEQ? {
+        trackEQNodes[trackID]
+    }
+
     /// Stop all player nodes.
     public func stopAll() {
         for (_, player) in trackPlayerNodes {
@@ -118,6 +156,10 @@ public final class TrackMixer {
     /// Remove all track nodes from the engine.
     public func removeAll() {
         stopAll()
+        for (_, eq) in trackEQNodes {
+            audioEngine.disconnectNodeOutput(eq.eqNode)
+            audioEngine.detach(eq.eqNode)
+        }
         for (_, mixer) in trackMixerNodes {
             audioEngine.disconnectNodeOutput(mixer)
             audioEngine.detach(mixer)
@@ -128,6 +170,8 @@ public final class TrackMixer {
         }
         trackMixerNodes.removeAll()
         trackPlayerNodes.removeAll()
+        trackEQNodes.removeAll()
         logger.info("All track mixer nodes removed")
     }
 }
+

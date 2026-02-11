@@ -178,7 +178,7 @@ public final class BrowserSidebarView: NSView {
         guard FileManager.default.fileExists(atPath: samplesPath) else { return }
 
         let samplesNode = BrowserNode(name: "Samples", icon: "waveform", isGroup: true)
-        samplesNode.children = scanDirectory(url: samplesURL, depth: 0, maxDepth: 3)
+        samplesNode.children = scanDirectory(url: samplesURL, depth: 0, maxDepth: 8)
         rootItems.append(samplesNode)
     }
 

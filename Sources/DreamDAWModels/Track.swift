@@ -98,6 +98,8 @@ public final class Track: ObservableObject, Identifiable, Codable {
     @Published public var height: CGFloat     // Track lane height in points
     @Published public var clips: [AudioClip]
     @Published public var midiClips: [MidiClip]
+    @Published public var effects: [AudioEffectConfig]
+    @Published public var instrument: InstrumentConfig?
 
     // MARK: - Initialization
 
@@ -113,7 +115,9 @@ public final class Track: ObservableObject, Identifiable, Codable {
         isArmed: Bool = false,
         height: CGFloat = 80,
         clips: [AudioClip] = [],
-        midiClips: [MidiClip] = []
+        midiClips: [MidiClip] = [],
+        effects: [AudioEffectConfig] = [],
+        instrument: InstrumentConfig? = nil
     ) {
         self.id = id
         self.name = name
@@ -127,12 +131,14 @@ public final class Track: ObservableObject, Identifiable, Codable {
         self.height = height
         self.clips = clips
         self.midiClips = midiClips
+        self.effects = effects
+        self.instrument = instrument
     }
 
     // MARK: - Codable
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, trackType, color, volume, pan, isMuted, isSoloed, isArmed, height, clips, midiClips
+        case id, name, trackType, color, volume, pan, isMuted, isSoloed, isArmed, height, clips, midiClips, effects, instrument
     }
 
     public convenience init(from decoder: Decoder) throws {
@@ -149,7 +155,9 @@ public final class Track: ObservableObject, Identifiable, Codable {
             isArmed: try container.decode(Bool.self, forKey: .isArmed),
             height: try container.decode(CGFloat.self, forKey: .height),
             clips: try container.decodeIfPresent([AudioClip].self, forKey: .clips) ?? [],
-            midiClips: try container.decodeIfPresent([MidiClip].self, forKey: .midiClips) ?? []
+            midiClips: try container.decodeIfPresent([MidiClip].self, forKey: .midiClips) ?? [],
+            effects: try container.decodeIfPresent([AudioEffectConfig].self, forKey: .effects) ?? [],
+            instrument: try container.decodeIfPresent(InstrumentConfig.self, forKey: .instrument)
         )
     }
 
@@ -167,6 +175,8 @@ public final class Track: ObservableObject, Identifiable, Codable {
         try container.encode(height, forKey: .height)
         try container.encode(clips, forKey: .clips)
         try container.encode(midiClips, forKey: .midiClips)
+        try container.encode(effects, forKey: .effects)
+        try container.encodeIfPresent(instrument, forKey: .instrument)
     }
 
     // MARK: - Computed

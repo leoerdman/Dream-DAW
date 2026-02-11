@@ -356,10 +356,10 @@ public final class TrackHeaderView: NSView {
     
     private func updateSelectionState() {
         if isSelected {
-            // Selected: brighter background, white border
+            // Selected: brighter background, WHITE border (Ableton style)
             layer?.backgroundColor = DreamTheme.bgTrackHeader.blended(withFraction: 0.1, of: .white)?.cgColor
-            layer?.borderWidth = 1.0
-            layer?.borderColor = NSColor.white.withAlphaComponent(0.4).cgColor
+            layer?.borderWidth = 2.0
+            layer?.borderColor = NSColor.white.cgColor
         } else {
             // Unselected: default background, no border
             layer?.backgroundColor = DreamTheme.bgTrackHeader.cgColor
@@ -398,6 +398,13 @@ public final class TrackHeaderView: NSView {
         let colorItem = NSMenuItem(title: "Color", action: nil, keyEquivalent: "")
         colorItem.submenu = colorMenu
         menu.addItem(colorItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        let deleteItem = NSMenuItem(title: "Delete Track", action: #selector(deleteTrack), keyEquivalent: "")
+        deleteItem.target = self
+        deleteItem.image = NSImage(systemSymbolName: "trash", accessibilityDescription: nil)
+        menu.addItem(deleteItem)
         
         return menu
     }
@@ -445,6 +452,13 @@ public final class TrackHeaderView: NSView {
         updateButtonStates()
         updateVolumeFill()
         onTrackChanged?(track)
+    }
+    
+    @objc private func deleteTrack() {
+        // Find container and trigger deletion
+        if let container = superview as? TrackHeadersContainerView {
+            container.onDeleteTrack?(track.id)
+        }
     }
 }
 

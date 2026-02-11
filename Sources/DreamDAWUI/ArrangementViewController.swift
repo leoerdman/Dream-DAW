@@ -31,7 +31,11 @@ public final class ArrangementViewController: NSViewController {
     }
 
     @objc public func delete(_ sender: Any?) {
-        canvasView.deleteSelection()
+        if canvasView.hasSelection {
+            canvasView.deleteSelection()
+        } else if let selectedID = project.selectedTrackID {
+            deleteTrack(id: selectedID)
+        }
     }
 
     @objc public override func selectAll(_ sender: Any?) {
@@ -186,7 +190,13 @@ public final class ArrangementViewController: NSViewController {
             guard event.window === self.view.window else { return event }
 
             switch event.keyCode {
-            case 49: // Space — always toggle play/pause
+            case 49: // Space — toggle play/pause from edit cursor
+                if !self.transportController.isPlaying {
+                    // Start from edit cursor if one is set
+                    if let cursor = self.canvasView.editCursor {
+                        self.transportController.seek(to: cursor.position)
+                    }
+                }
                 self.transportController.togglePlayPause()
                 return nil // consume the event (no bonk)
 
@@ -673,6 +683,19 @@ public final class ArrangementViewController: NSViewController {
             self?.transportController.seek(to: position)
         }
 
+        trackHeaders.onAddTrack = { [weak self] isAudio in
+            self?.project.addTrack(type: isAudio ? .audio : .midi)
+            self?.reloadTracks()
+        }
+
+        trackHeaders.onDeleteTrack = { [weak self] trackID in
+            self?.deleteTrack(id: trackID)
+        }
+
+        trackHeaders.onHeaderClicked = { [weak self] trackID in
+            self?.selectTrack(trackID)
+        }
+
         // Transport position updates → canvas and ruler
         transportController.onPlayheadUpdate = { [weak self] position in
             guard let self = self else { return }
@@ -692,33 +715,6 @@ public final class ArrangementViewController: NSViewController {
         // Ruler click → set playhead
         rulerView.onClickPosition = { [weak self] position in
             self?.transportController.seek(to: position)
-        }
-
-        // Sync view state to project on changes
-        canvasView.onZoomChanged = { [weak self] newPPB, newScrollX in
-            guard let self = self else { return }
-            self.pixelsPerBeat = newPPB
-            self.canvasView.pixelsPerBeat = newPPB
-            self.rulerView.pixelsPerBeat = newPPB
-            
-            // Persist zoom
-            self.project.viewZoomScale = Double(newPPB)
-            
-            self.layoutSubviews()
-        }
-        
-        NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification,
-            object: canvasScrollView.contentView,
-            queue: .main
-        ) { [weak self] _ in
-             guard let self = self else { return }
-             // Persist horizontal scroll position
-             let visibleRect = self.canvasScrollView.contentView.documentVisibleRect
-             let scrollX = visibleRect.origin.x
-             // Convert pixels to beats
-             let scrollBeats = Double(scrollX) / Double(self.pixelsPerBeat)
-             self.project.viewScrollPosition = scrollBeats
         }
 
         // Sync view state to project on changes
@@ -1425,6 +1421,32 @@ public final class ArrangementViewController: NSViewController {
                  layoutSubviews()
             }
         }
+    }
+
+    private func deleteTrack(id: UUID) {
+        // Prevent deleting Master track
+        guard id != project.masterTrack.id else { return }
+        
+        // Find track
+        guard let index = project.tracks.firstIndex(where: { $0.id == id }) else { return }
+        let track = project.tracks[index]
+        
+        // 1. Stop audio for this track
+        trackMixer.stopPlayer(for: id)
+        
+        // 2. Remove from project
+        project.tracks.remove(at: index)
+        
+        // 3. Update selection if necessary
+        if project.selectedTrackID == id {
+            project.selectedTrackID = nil
+            bottomPanel.mode = .hidden
+            layoutSubviews()
+        }
+        
+        // 4. Reload UI
+        reloadTracks()
+        logger.info("Deleted track: \(track.name)")
     }
 
     private func showNotification(title: String, message: String) {

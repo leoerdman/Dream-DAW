@@ -274,9 +274,7 @@ public final class ProjectFileManager {
     /// Open a project from a .ddpj file.
     public func open(fileURL: URL) async throws -> Project {
         // Read and Decompress on background thread
-        let project = try await Task.detached(priority: .userInitiated, operation: { [weak self] in
-            guard let self = self else { throw ProjectFileError.unknown }
-            
+        let project = try await Task.detached(priority: .userInitiated, operation: {
             let data = try Data(contentsOf: fileURL)
 
             // Try gzip decompression

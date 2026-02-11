@@ -1,37 +1,19 @@
+Another instance of SwiftPM (PID: 21621) is already running using '/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/.build', waiting until that process has finished execution...[0/1] Planning build
 Building for debugging...
-[0/10] Write sources
-[4/10] Copying AppIcon.png
-[5/10] Write DreamDAW-entitlement.plist
-[6/10] Write swift-version--58304C5D6DBC2206.txt
-[8/18] Compiling DreamDAWModels Project.swift
-[9/18] Compiling DreamDAWModels AudioEffect.swift
-[10/18] Compiling DreamDAWModels Track.swift
-[11/18] Compiling DreamDAWModels AppSettings.swift
-[12/18] Compiling DreamDAWModels TimePosition.swift
-[13/18] Emitting module DreamDAWModels
-[14/18] Compiling DreamDAWModels MidiClip.swift
-[15/18] Compiling DreamDAWModels AudioClip.swift
-[16/31] Compiling DreamDAWEngine UndoManager.swift
-[17/31] Compiling DreamDAWEngine TransportController.swift
-[18/31] Compiling DreamDAWEngine TrackMixer.swift
-[19/31] Compiling DreamDAWEngine RenderEngine.swift
-[20/31] Compiling DreamDAWEngine SimpleSynthInstrument.swift
-[21/31] Compiling DreamDAWEngine PlaybackScheduler.swift
-[22/31] Compiling DreamDAWEngine ProjectFileManager.swift
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWEngine/ProjectFileManager.swift:278:23: warning: value 'self' was defined but never used; consider replacing with boolean test [#no-usage]
-276 |         // Read and Decompress on background thread
-277 |         let project = try await Task.detached(priority: .userInitiated, operation: { [weak self] in
-278 |             guard let self = self else { throw ProjectFileError.unknown }
-    |                       `- warning: value 'self' was defined but never used; consider replacing with boolean test [#no-usage]
-279 |             
-280 |             let data = try Data(contentsOf: fileURL)
-[23/31] Compiling DreamDAWEngine SamplerInstrument.swift
-[24/31] Emitting module DreamDAWEngine
-[25/31] Compiling DreamDAWEngine ParametricEQ.swift
-[26/31] Compiling DreamDAWEngine AudioLevelMeter.swift
-[27/31] Compiling DreamDAWEngine WaveformCache.swift
-[28/31] Compiling DreamDAWEngine AudioEngine.swift
-[29/52] Compiling DreamDAWUI TransportBarView.swift
+[0/5] Write sources
+[2/5] Write swift-version--58304C5D6DBC2206.txt
+[4/7] Emitting module DreamDAWEngine
+[5/7] Compiling DreamDAWEngine TransportController.swift
+[6/13] Compiling DreamDAWUI StatusBarView.swift
+[7/13] Compiling DreamDAWUI ArrangementViewController.swift
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/ArrangementViewController.swift:826:50: warning: variable 'self' was written to, but never read
+ 824 |         // Loop wrap → stop current audio + re-schedule from loop start
+ 825 |         // Loop wrap → do nothing for audio (handled by gapless queueing)
+ 826 |         transportController.onLoopWrap = { [weak self] in
+     |                                                  `- warning: variable 'self' was written to, but never read
+ 827 |             // Visuals are handled by TransportController updates.
+ 828 |             // Audio is pre-scheduled via queue, so we do NOT restart here.
+[8/13] Compiling DreamDAWUI TransportBarView.swift
 /Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TransportBarView.swift:76:10: warning: 'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead. [#DeprecatedDeclaration]
  74 |             alignment: .bottom
  75 |         )
@@ -41,201 +23,12 @@ Building for debugging...
  78 |         }
 
 [#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
-[30/53] Compiling DreamDAWUI WaveformRenderer.swift
-[31/53] Compiling DreamDAWUI StatusBarView.swift
-[32/53] Compiling DreamDAWUI MainWindowController.swift
-[33/53] Compiling DreamDAWUI MiniEQCurveView.swift
-[34/53] Compiling DreamDAWUI SignalMeterView.swift
-[35/53] Compiling DreamDAWUI TrackHeaderView.swift
-[36/53] Compiling DreamDAWUI TimelineRulerView.swift
-[37/53] Compiling DreamDAWUI MixerView.swift
-[38/53] Compiling DreamDAWUI PianoRollView.swift
-[39/53] Compiling DreamDAWUI BrowserSidebarView.swift
-[40/53] Compiling DreamDAWUI ClampedClipView.swift
-[41/53] Compiling DreamDAWUI RenderDialogView.swift
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/SettingsWindowController.swift:249:92: warning: forming 'UnsafeMutableRawPointer' to a variable of type 'CFString'; this is likely incorrect because 'CFString' may contain an object reference.
-247 |             var nameRef: CFString = "" as CFString
-248 |             var nameSize = UInt32(MemoryLayout<CFString>.size)
-249 |             status = AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &nameRef)
-    |                                                                                            `- warning: forming 'UnsafeMutableRawPointer' to a variable of type 'CFString'; this is likely incorrect because 'CFString' may contain an object reference.
-250 |             let name = status == noErr ? nameRef as String : "Unknown Device"
-251 |             
-
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/SettingsWindowController.swift:261:90: warning: forming 'UnsafeMutableRawPointer' to a variable of type 'CFString'; this is likely incorrect because 'CFString' may contain an object reference.
-259 |             var uidRef: CFString = "" as CFString
-260 |             var uidSize = UInt32(MemoryLayout<CFString>.size)
-261 |             status = AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, &uidRef)
-    |                                                                                          `- warning: forming 'UnsafeMutableRawPointer' to a variable of type 'CFString'; this is likely incorrect because 'CFString' may contain an object reference.
-262 |             let uid = status == noErr ? uidRef as String : ""
-263 |             
-
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/SettingsWindowController.swift:311:93: warning: forming 'UnsafeMutableRawPointer' to a variable of type 'CFString'; this is likely incorrect because 'CFString' may contain an object reference.
-309 |         var uidSize = UInt32(MemoryLayout<CFString>.size)
-310 |         
-311 |         let uidStatus = AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, &uidRef)
-    |                                                                                             `- warning: forming 'UnsafeMutableRawPointer' to a variable of type 'CFString'; this is likely incorrect because 'CFString' may contain an object reference.
-312 |         return uidStatus == noErr ? uidRef as String : nil
-313 |     }
-
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/SettingsWindowController.swift:387:97: warning: forming 'UnsafeMutableRawPointer' to a variable of type 'CFString'; this is likely incorrect because 'CFString' may contain an object reference.
-385 |             var uidRef: CFString = "" as CFString
-386 |             var uidSize = UInt32(MemoryLayout<CFString>.size)
-387 |             let uidStatus = AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, &uidRef)
-    |                                                                                                 `- warning: forming 'UnsafeMutableRawPointer' to a variable of type 'CFString'; this is likely incorrect because 'CFString' may contain an object reference.
-388 |             
-389 |             if uidStatus == noErr, (uidRef as String) == uid {
-[42/53] Compiling DreamDAWUI SettingsWindowController.swift
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/SettingsWindowController.swift:249:92: warning: forming 'UnsafeMutableRawPointer' to a variable of type 'CFString'; this is likely incorrect because 'CFString' may contain an object reference.
-247 |             var nameRef: CFString = "" as CFString
-248 |             var nameSize = UInt32(MemoryLayout<CFString>.size)
-249 |             status = AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &nameRef)
-    |                                                                                            `- warning: forming 'UnsafeMutableRawPointer' to a variable of type 'CFString'; this is likely incorrect because 'CFString' may contain an object reference.
-250 |             let name = status == noErr ? nameRef as String : "Unknown Device"
-251 |             
-
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/SettingsWindowController.swift:261:90: warning: forming 'UnsafeMutableRawPointer' to a variable of type 'CFString'; this is likely incorrect because 'CFString' may contain an object reference.
-259 |             var uidRef: CFString = "" as CFString
-260 |             var uidSize = UInt32(MemoryLayout<CFString>.size)
-261 |             status = AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, &uidRef)
-    |                                                                                          `- warning: forming 'UnsafeMutableRawPointer' to a variable of type 'CFString'; this is likely incorrect because 'CFString' may contain an object reference.
-262 |             let uid = status == noErr ? uidRef as String : ""
-263 |             
-
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/SettingsWindowController.swift:311:93: warning: forming 'UnsafeMutableRawPointer' to a variable of type 'CFString'; this is likely incorrect because 'CFString' may contain an object reference.
-309 |         var uidSize = UInt32(MemoryLayout<CFString>.size)
-310 |         
-311 |         let uidStatus = AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, &uidRef)
-    |                                                                                             `- warning: forming 'UnsafeMutableRawPointer' to a variable of type 'CFString'; this is likely incorrect because 'CFString' may contain an object reference.
-312 |         return uidStatus == noErr ? uidRef as String : nil
-313 |     }
-
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/SettingsWindowController.swift:387:97: warning: forming 'UnsafeMutableRawPointer' to a variable of type 'CFString'; this is likely incorrect because 'CFString' may contain an object reference.
-385 |             var uidRef: CFString = "" as CFString
-386 |             var uidSize = UInt32(MemoryLayout<CFString>.size)
-387 |             let uidStatus = AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, &uidRef)
-    |                                                                                                 `- warning: forming 'UnsafeMutableRawPointer' to a variable of type 'CFString'; this is likely incorrect because 'CFString' may contain an object reference.
-388 |             
-389 |             if uidStatus == noErr, (uidRef as String) == uid {
-[43/53] Emitting module DreamDAWUI
-[44/53] Compiling DreamDAWUI TimelineCanvasView.swift
-[45/53] Compiling DreamDAWUI EditCursor.swift
-[46/53] Compiling DreamDAWUI KnobView.swift
-[47/53] Compiling DreamDAWUI ArrangementViewController.swift
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/ArrangementViewController.swift:830:50: warning: variable 'self' was written to, but never read
- 828 |         // Loop wrap → stop current audio + re-schedule from loop start
- 829 |         // Loop wrap → do nothing for audio (handled by gapless queueing)
- 830 |         transportController.onLoopWrap = { [weak self] in
-     |                                                  `- warning: variable 'self' was written to, but never read
- 831 |             // Visuals are handled by TransportController updates.
- 832 |             // Audio is pre-scheduled via queue, so we do NOT restart here.
-[48/53] Compiling DreamDAWUI BottomPanelView.swift
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/ArrangementViewController.swift:830:50: warning: variable 'self' was written to, but never read
- 828 |         // Loop wrap → stop current audio + re-schedule from loop start
- 829 |         // Loop wrap → do nothing for audio (handled by gapless queueing)
- 830 |         transportController.onLoopWrap = { [weak self] in
-     |                                                  `- warning: variable 'self' was written to, but never read
- 831 |             // Visuals are handled by TransportController updates.
- 832 |             // Audio is pre-scheduled via queue, so we do NOT restart here.
-[49/53] Compiling DreamDAWUI DragForwardingScrollView.swift
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:23:39: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-21 | 
-22 |     public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-23 |         if let docView = documentView as? NSDraggingDestination {
-   |                                       `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-24 |             return docView.draggingEntered?(sender) ?? []
-25 |         }
-
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:30:39: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-28 | 
-29 |     public override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-30 |         if let docView = documentView as? NSDraggingDestination {
-   |                                       `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-31 |             return docView.draggingUpdated?(sender) ?? draggingEntered(sender)
-32 |         }
-
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:37:60: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-35 | 
-36 |     public override func draggingExited(_ sender: NSDraggingInfo?) {
-37 |         if let sender = sender, let docView = documentView as? NSDraggingDestination {
-   |                                                            `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-38 |             docView.draggingExited?(sender)
-39 |         }
-
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:43:39: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-41 | 
-42 |     public override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-43 |         if let docView = documentView as? NSDraggingDestination {
-   |                                       `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-44 |             return docView.prepareForDragOperation?(sender) ?? true
-45 |         }
-
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:50:39: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-48 | 
-49 |     public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-50 |         if let docView = documentView as? NSDraggingDestination {
-   |                                       `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-51 |             return docView.performDragOperation?(sender) ?? false
-52 |         }
-
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:57:60: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-55 | 
-56 |     public override func concludeDragOperation(_ sender: NSDraggingInfo?) {
-57 |         if let sender = sender, let docView = documentView as? NSDraggingDestination {
-   |                                                            `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-58 |             docView.concludeDragOperation?(sender)
-59 |         }
-[50/53] Compiling DreamDAWUI DreamTheme.swift
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:23:39: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-21 | 
-22 |     public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-23 |         if let docView = documentView as? NSDraggingDestination {
-   |                                       `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-24 |             return docView.draggingEntered?(sender) ?? []
-25 |         }
-
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:30:39: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-28 | 
-29 |     public override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-30 |         if let docView = documentView as? NSDraggingDestination {
-   |                                       `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-31 |             return docView.draggingUpdated?(sender) ?? draggingEntered(sender)
-32 |         }
-
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:37:60: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-35 | 
-36 |     public override func draggingExited(_ sender: NSDraggingInfo?) {
-37 |         if let sender = sender, let docView = documentView as? NSDraggingDestination {
-   |                                                            `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-38 |             docView.draggingExited?(sender)
-39 |         }
-
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:43:39: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-41 | 
-42 |     public override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-43 |         if let docView = documentView as? NSDraggingDestination {
-   |                                       `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-44 |             return docView.prepareForDragOperation?(sender) ?? true
-45 |         }
-
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:50:39: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-48 | 
-49 |     public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-50 |         if let docView = documentView as? NSDraggingDestination {
-   |                                       `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-51 |             return docView.performDragOperation?(sender) ?? false
-52 |         }
-
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:57:60: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-55 | 
-56 |     public override func concludeDragOperation(_ sender: NSDraggingInfo?) {
-57 |         if let sender = sender, let docView = documentView as? NSDraggingDestination {
-   |                                                            `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
-58 |             docView.concludeDragOperation?(sender)
-59 |         }
-[51/56] Compiling DreamDAW main.swift
-[52/56] Compiling DreamDAW resource_bundle_accessor.swift
-[53/56] Emitting module DreamDAW
-[53/56] Write Objects.LinkFileList
-[54/56] Linking DreamDAW
-[55/56] Applying DreamDAW
-Build complete! (17.78s)
+[9/13] Compiling DreamDAWUI MainWindowController.swift
+[10/13] Compiling DreamDAWUI TimelineCanvasView.swift
+[11/13] Emitting module DreamDAWUI
+[12/15] Compiling DreamDAW main.swift
+[13/15] Emitting module DreamDAW
+[13/16] Write Objects.LinkFileList
+[14/16] Linking DreamDAW
+[15/16] Applying DreamDAW
+Build complete! (3.43s)

@@ -33,6 +33,10 @@ public final class TransportController: ObservableObject {
     @Published public var loopStart: TimePosition = .zero
     @Published public var loopEnd: TimePosition = TimePosition(bars: 4)
 
+    /// Whether the transport is currently in the playing state.
+    public var isPlaying: Bool { state == .playing }
+
+
     /// Callback invoked on each display frame with current playhead position.
     public var onPlayheadUpdate: ((TimePosition) -> Void)?
 
@@ -89,7 +93,7 @@ public final class TransportController: ObservableObject {
     public func stop() {
         state = .stopped
         stopDisplayLink()
-        playheadPosition = .zero
+        // Do not reset playheadPosition to .zero — let it stay where it stopped.
         logger.info("Transport: STOP")
         onStateChange?(state)
     }

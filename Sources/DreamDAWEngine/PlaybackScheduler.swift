@@ -183,64 +183,70 @@ public final class PlaybackScheduler {
         let rangeDurationSeconds = rangeDurationBeats / bpm * 60.0
 
         for (clipObj, cStart, _, _) in clipsInRange {
+            // 1. Handle Overlaps & Gaps before clip
+            // If the clip starts BEFORE current cursor, we MUST truncate the previous clip in the scheduler.
+            // However, since we schedule sequentially to the player node, we just ensure silence/offsets are correct.
+            
             // Convert clip timings to seconds relative to rangeStart
             let clipStartAbsSeconds = cStart / bpm * 60.0
             let rangeStartAbsSeconds = rangeStartBeats / bpm * 60.0
-            let relativeStartSeconds = clipStartAbsSeconds - rangeStartAbsSeconds
+            let relativeStartSeconds = max(0, clipStartAbsSeconds - rangeStartAbsSeconds)
 
-            // 1. Fill gap before clip with silence
             if relativeStartSeconds > cursorSeconds {
+                // There is a gap: Fill with silence
                 let gapDuration = relativeStartSeconds - cursorSeconds
-                if gapDuration > 0 {
-                    scheduleSilence(player: player, duration: gapDuration, sampleRate: sampleRate)
-                    cursorSeconds += gapDuration
-                }
+                scheduleSilence(player: player, duration: gapDuration, sampleRate: sampleRate)
+                cursorSeconds += gapDuration
+            } else if relativeStartSeconds < cursorSeconds {
+                // CRITICAL FIX: The next clip starts BEFORE the previous one (or the silence) finished.
+                // We cannot "un-schedule" from AVAudioPlayerNode easily once queued,
+                // but we CAN catch this earlier by ensuring our cursor never goes backwards
+                // and we only schedule what fits.
             }
 
             // 2. Schedule Clip Segment
-            // We need to determine ensuring we clip to the Range boundaries
-            // Clip might start before range (offset) or end after range (trim)
-
-            // Overlap calculations in BEATS first for precision
+            // Determine active region of clip within this [start, end] range.
             let clipStartBeats = cStart
             let clipEndBeats = cStart + ((clipObj as? AudioClip)?.duration.beats ?? (clipObj as? MidiClip)?.duration.beats ?? 0)
 
-            let visibleStart = max(rangeStartBeats, clipStartBeats)
-            let visibleEnd = min(rangeEndBeats, clipEndBeats)
-            let visibleDuration = visibleEnd - visibleStart
-
-            guard visibleDuration > 0 else { continue } // Should not happen given filter
-
-            // Calculate file read offsets
-            let startOffsetBeats = visibleStart - clipStartBeats // How far into clip we start
-            // Add Clip's internal trimStartOffset if audio
-            let internalTrimBeats = (clipObj as? AudioClip)?.trimStartOffset.beats ?? 0
-
-            let totalStartOffsetBeats = startOffsetBeats + internalTrimBeats
-            let visibleDurationSeconds = visibleDuration / bpm * 60.0
-
-            if let audioClip = clipObj as? AudioClip {
-                scheduleAudioFileSegment(
-                    player: player,
-                    url: audioClip.fileURL,
-                    startOffsetSeconds: totalStartOffsetBeats / bpm * 60.0,
-                    durationSeconds: visibleDurationSeconds
-                )
-            } else if let midiClip = clipObj as? MidiClip {
-                // For MIDI, we render full clip then slice buffer?
-                // Optimization: Render function could take range?
-                // For now: Render full, then slice.
-                scheduleMidiBufferSegment(
-                    player: player,
-                    clip: midiClip,
-                    startOffsetSeconds: startOffsetBeats / bpm * 60.0, // Internal trim not relevant for MIDI usually
-                    durationSeconds: visibleDurationSeconds,
-                    bpm: bpm,
-                    sampleRate: sampleRate
-                )
+            // Look ahead to next clip to truncate this one (Last Clip Wins)
+            var effectiveEndBeats = min(rangeEndBeats, clipEndBeats)
+            let nextIndex = clipsInRange.firstIndex(where: { $0.1 > cStart })
+            if let nextIdx = nextIndex {
+                let nextStartBeats = clipsInRange[nextIdx].1
+                effectiveEndBeats = min(effectiveEndBeats, nextStartBeats)
             }
 
-            cursorSeconds += visibleDurationSeconds
+            let visibleStart = max(rangeStartBeats, clipStartBeats)
+            let visibleEnd = effectiveEndBeats
+            let visibleDuration = visibleEnd - visibleStart
+
+            if visibleDuration > 0 {
+                // Calculate file read offsets
+                let startOffsetBeats = visibleStart - clipStartBeats // How far into clip we start
+                let internalTrimBeats = (clipObj as? AudioClip)?.trimStartOffset.beats ?? 0
+                let totalStartOffsetBeats = startOffsetBeats + internalTrimBeats
+                let visibleDurationSeconds = visibleDuration / bpm * 60.0
+
+                if let audioClip = clipObj as? AudioClip {
+                    scheduleAudioFileSegment(
+                        player: player,
+                        url: audioClip.fileURL,
+                        startOffsetSeconds: totalStartOffsetBeats / bpm * 60.0,
+                        durationSeconds: visibleDurationSeconds
+                    )
+                } else if let midiClip = clipObj as? MidiClip {
+                    scheduleMidiBufferSegment(
+                        player: player,
+                        clip: midiClip,
+                        startOffsetSeconds: startOffsetBeats / bpm * 60.0,
+                        durationSeconds: visibleDurationSeconds,
+                        bpm: bpm,
+                        sampleRate: sampleRate
+                    )
+                }
+                cursorSeconds += visibleDurationSeconds
+            }
         }
 
         // 3. Fill final gap to end of range

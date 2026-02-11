@@ -159,6 +159,11 @@ public final class TrackMixer {
         }
     }
 
+    /// Stop playback for a specific track.
+    public func stopPlayer(for trackID: UUID) {
+        trackPlayerNodes[trackID]?.stop()
+    }
+
     /// Apply master track volume/pan to the engine's master mixer node.
     public func applyMasterSettings(_ masterTrack: Track) {
         let masterMixer = audioEngine.masterMixer

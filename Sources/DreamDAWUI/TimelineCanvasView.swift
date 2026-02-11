@@ -72,15 +72,16 @@ public final class TimelineCanvasView: NSView {
     /// The editing cursor (blue line).
     public var editCursor: EditCursor? {
         didSet {
-            // Reset blink phase on move
-            isCursorVisible = true
+            // Reset animation phase on move
             needsDisplay = true
         }
     }
 
-    /// Timer for cursor blinking.
-    private var cursorBlinkTimer: Timer?
+    /// Layer for the smooth pulsing edit cursor.
+    private let cursorLayer = CALayer()
+    private let cursorHandleLayer = CAShapeLayer()
     private var isCursorVisible: Bool = true
+
 
     /// Whether we're dragging the playhead (click on ruler/empty space logic can vary).
 
@@ -145,7 +146,42 @@ public final class TimelineCanvasView: NSView {
     private func setupUI() {
         wantsLayer = true
         layer?.backgroundColor = DreamTheme.bgPrimary.cgColor
+        
+        // Setup Cursor Layers
+        cursorLayer.zPosition = 100
+        cursorLayer.backgroundColor = NSColor.white.cgColor
+        layer?.addSublayer(cursorLayer)
+        
+        cursorHandleLayer.zPosition = 101
+        cursorHandleLayer.fillColor = NSColor.white.cgColor
+        layer?.addSublayer(cursorHandleLayer)
+        
+        setupCursorAnimation()
     }
+    
+    private func setupCursorAnimation() {
+        let pulse = CABasicAnimation(keyPath: "backgroundColor")
+        pulse.fromValue = NSColor.white.cgColor
+        // Using a soft cyan for "light blue" Ableton look
+        pulse.toValue = NSColor.systemCyan.withAlphaComponent(0.6).cgColor
+        pulse.duration = 1.0  // Slower, smoother pulse
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        pulse.timingFunction = CAMediaTimingFunction(name: CAMediaTimingFunctionName.easeInEaseOut)
+        cursorLayer.add(pulse, forKey: "pulse")
+        
+        // Also animate the handle color in sync
+        let handlePulse = CABasicAnimation(keyPath: "fillColor")
+        handlePulse.fromValue = NSColor.white.cgColor
+        handlePulse.toValue = NSColor.systemCyan.withAlphaComponent(0.6).cgColor
+        handlePulse.duration = 1.0
+        handlePulse.autoreverses = true
+        handlePulse.repeatCount = .infinity
+        handlePulse.timingFunction = CAMediaTimingFunction(name: CAMediaTimingFunctionName.easeInEaseOut)
+        cursorHandleLayer.add(handlePulse, forKey: "pulse")
+    }
+
+
 
     private struct DragState {
         let trackID: UUID
@@ -190,36 +226,32 @@ public final class TimelineCanvasView: NSView {
         // Clips on top of grid
         drawClips(ctx: ctx, project: project)
         drawMidiClips(ctx: ctx, project: project)
-        drawClips(ctx: ctx, project: project)
         drawMidiClips(ctx: ctx, project: project)
-        drawEditCursor(ctx: ctx, project: project)
+        updateCursorLayer(project: project)
+        drawPlayhead(ctx: ctx)
         drawPlayhead(ctx: ctx)
     }
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil {
-            // Start blinking
-            cursorBlinkTimer?.invalidate()
-            cursorBlinkTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-                guard let self = self else { return }
-                self.isCursorVisible.toggle()
-                self.needsDisplay = true
-            }
-        } else {
-            cursorBlinkTimer?.invalidate()
-            cursorBlinkTimer = nil
-        }
+        // Animations automatically resume/pause with window visibility in CALayer
     }
-
-    private func drawEditCursor(ctx: CGContext, project: Project) {
-        guard let cursor = editCursor, isCursorVisible else { return }
-
+    
+    private func updateCursorLayer(project: Project) {
+        guard let cursor = editCursor else {
+            cursorLayer.isHidden = true
+            cursorHandleLayer.isHidden = true
+            return
+        }
+        
+        cursorLayer.isHidden = false
+        cursorHandleLayer.isHidden = false
+        
         // Find track Y position
         var yOffset: CGFloat = 0
         var trackHeight: CGFloat = 0
         var found = false
-
+        
         for track in project.tracks {
             if track.id == cursor.trackID {
                 trackHeight = track.height
@@ -228,26 +260,30 @@ public final class TimelineCanvasView: NSView {
             }
             yOffset += track.height
         }
-        guard found else { return }
-
+        
+        guard found else {
+            cursorLayer.isHidden = true
+            cursorHandleLayer.isHidden = true
+            return
+        }
+        
         let x = CGFloat(cursor.position.beats) * pixelsPerBeat
-
-        // Draw blue line (vertical strip on track)
-        ctx.setStrokeColor(NSColor.systemBlue.cgColor) // Ableton blue
-        ctx.setLineWidth(1.5)
-        ctx.move(to: CGPoint(x: x, y: yOffset))
-        ctx.addLine(to: CGPoint(x: x, y: yOffset + trackHeight))
-        ctx.strokePath()
-
-        // Draw triangle handle at top
-        ctx.setFillColor(NSColor.systemBlue.cgColor)
-        ctx.beginPath()
-        ctx.move(to: CGPoint(x: x - 4, y: yOffset))
-        ctx.addLine(to: CGPoint(x: x + 4, y: yOffset))
-        ctx.addLine(to: CGPoint(x: x, y: yOffset + 5))
-        ctx.closePath()
-        ctx.fillPath()
+        
+        // Update frames (use CATransaction to disable implicit animations for position/bounds)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cursorLayer.frame = CGRect(x: x - 0.75, y: yOffset, width: 1.5, height: trackHeight)
+        
+        // Triangle Handle
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: x - 4, y: yOffset))
+        path.addLine(to: CGPoint(x: x + 4, y: yOffset))
+        path.addLine(to: CGPoint(x: x, y: yOffset + 5))
+        path.closeSubpath()
+        cursorHandleLayer.path = path
+        CATransaction.commit()
     }
+
 
     // MARK: - Grid Lines
 
@@ -1153,6 +1189,12 @@ public final class TimelineCanvasView: NSView {
         }
     }
 
+    /// Returns true if any clip is currently selected on the canvas.
+    public var hasSelection: Bool {
+        guard let project = project else { return false }
+        return project.tracks.contains { $0.clips.contains(where: \.isSelected) || $0.midiClips.contains(where: \.isSelected) }
+    }
+    
     // MARK: - Editing Operations (Public API for Controller)
 
     /// Delete all selected clips across all tracks.

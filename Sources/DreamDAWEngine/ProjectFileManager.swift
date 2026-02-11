@@ -57,36 +57,105 @@ public final class ProjectFileManager {
         }
     }
 
-    /// Save the project to a new location (save-as).
-    /// Creates the Ableton-style folder structure.
+    /// Save the project to a specific file URL.
+    ///
+    /// **Directory detection logic:**
+    /// - If the file's parent directory is already a Dream DAW project directory
+    ///   (contains .ddpj files or the standard Samples/ folder), the file is saved
+    ///   directly there — no subdirectory is created.
+    /// - If the parent directory is NOT a project directory, a new project folder
+    ///   is created (named after the project) with the standard Ableton-style
+    ///   structure, and the file is saved inside it.
+    @discardableResult
+    public func saveToFile(project: Project, fileURL: URL) throws -> URL {
+        let parentDir = fileURL.deletingLastPathComponent()
+        let filename = fileURL.deletingPathExtension().lastPathComponent
+
+        if isDreamDAWProjectDirectory(parentDir) {
+            // ━━━ Saving inside an existing project directory ━━━
+            // Just write the file directly — no new folders needed
+            projectFolderURL = parentDir
+            currentVersion = extractVersion(from: fileURL) ?? 1
+
+            try writeProject(project, to: fileURL)
+            project.fileURL = fileURL
+
+            logger.info("Saved into existing project dir: \(fileURL.lastPathComponent)")
+            return fileURL
+        } else {
+            // ━━━ Saving to a new location — create project folder structure ━━━
+            let projectName = filename
+                .replacingOccurrences(of: " V\\d+$", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespaces)
+            let projectFolder = parentDir.appendingPathComponent(projectName)
+
+            try FileManager.default.createDirectory(at: projectFolder, withIntermediateDirectories: true)
+
+            // Create standard sub-directories
+            let samplesFolder = projectFolder.appendingPathComponent("Samples")
+            let importedFolder = samplesFolder.appendingPathComponent("Imported")
+            let recordedFolder = samplesFolder.appendingPathComponent("Recorded")
+            let backupFolder = projectFolder.appendingPathComponent("Backup")
+
+            for dir in [samplesFolder, importedFolder, recordedFolder, backupFolder] {
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            }
+
+            // Copy audio samples into the project folder
+            try copyAudioSamples(project: project, to: importedFolder)
+
+            // Save the project file inside the new folder
+            currentVersion = 1
+            projectFolderURL = projectFolder
+            let destURL = makeFileURL(folder: projectFolder, name: projectName, version: currentVersion)
+            try writeProject(project, to: destURL)
+            project.fileURL = destURL
+
+            logger.info("Created project directory: \(projectFolder.lastPathComponent) → \(destURL.lastPathComponent)")
+            return destURL
+        }
+    }
+
+    /// **DEPRECATED** — Use `saveToFile(project:fileURL:)` instead.
+    /// Kept for backward compatibility.
     @discardableResult
     public func saveAs(project: Project, to folderURL: URL) throws -> URL {
-        // Create the project folder
-        let projectFolder = folderURL.appendingPathComponent(project.name)
-        try FileManager.default.createDirectory(at: projectFolder, withIntermediateDirectories: true)
+        // Create a default filename and delegate to the new method
+        let filename = "\(project.name) V1.\(Self.fileExtension)"
+        let fileURL = folderURL.appendingPathComponent(filename)
+        return try saveToFile(project: project, fileURL: fileURL)
+    }
 
-        // Create sub-directories
-        let samplesFolder = projectFolder.appendingPathComponent("Samples")
-        let importedFolder = samplesFolder.appendingPathComponent("Imported")
-        let recordedFolder = samplesFolder.appendingPathComponent("Recorded")
-        let backupFolder = projectFolder.appendingPathComponent("Backup")
+    // MARK: - Directory Detection
 
-        for dir in [samplesFolder, importedFolder, recordedFolder, backupFolder] {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    /// Determine if a directory is a Dream DAW project directory.
+    ///
+    /// A directory is considered a project directory if:
+    /// 1. It contains at least one `.ddpj` file, OR
+    /// 2. It contains a `Samples/` subdirectory (standard project structure)
+    private func isDreamDAWProjectDirectory(_ url: URL) -> Bool {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else {
+            return false
         }
 
-        // Copy audio samples into project folder
-        try copyAudioSamples(project: project, to: importedFolder)
+        // Check for Samples/ subdirectory (definitive project marker)
+        let samplesDir = url.appendingPathComponent("Samples")
+        if fm.fileExists(atPath: samplesDir.path, isDirectory: &isDir), isDir.boolValue {
+            return true
+        }
 
-        // Save project file as V1
-        currentVersion = 1
-        projectFolderURL = projectFolder
-        let fileURL = makeFileURL(folder: projectFolder, name: project.name, version: currentVersion)
-        try writeProject(project, to: fileURL)
-        project.fileURL = fileURL
+        // Check for existing .ddpj files
+        if let contents = try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: .skipsHiddenFiles) {
+            for file in contents {
+                if file.pathExtension == Self.fileExtension {
+                    return true
+                }
+            }
+        }
 
-        logger.info("Project saved as: \(projectFolder.lastPathComponent)")
-        return fileURL
+        return false
     }
 
     // MARK: - Open

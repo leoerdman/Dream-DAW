@@ -64,7 +64,11 @@ public final class WaveformCache: @unchecked Sendable {
     private let processingQueue = DispatchQueue(label: "com.dreamdaw.waveform", qos: .userInitiated, attributes: .concurrent)
     private var cache: [CacheKey: WaveformData] = [:]
     private var multiBandCache: [CacheKey: MultiBandWaveformData] = [:]
-    private let lock = NSLock()
+    private var unfairLock = os_unfair_lock()
+
+    /// LRU access order — most recently used keys at the END.
+    private var cacheAccessOrder: [CacheKey] = []
+    private var multiBandAccessOrder: [CacheKey] = []
 
     /// Maximum number of cached entries per type.
     private let maxCacheSize = 128
@@ -84,13 +88,14 @@ public final class WaveformCache: @unchecked Sendable {
     ) {
         let key = CacheKey(url: url, samplesPerPixel: samplesPerPixel)
 
-        lock.lock()
+        os_unfair_lock_lock(&unfairLock)
         if let cached = cache[key] {
-            lock.unlock()
+            touchKey(key, in: &cacheAccessOrder)
+            os_unfair_lock_unlock(&unfairLock)
             completion(cached)
             return
         }
-        lock.unlock()
+        os_unfair_lock_unlock(&unfairLock)
 
         processingQueue.async { [weak self] in
             guard let self = self else { return }
@@ -99,12 +104,11 @@ public final class WaveformCache: @unchecked Sendable {
                 let file = try AVAudioFile(forReading: url)
                 let data = try self.computeWaveform(file: file, samplesPerPixel: samplesPerPixel)
 
-                self.lock.lock()
-                if self.cache.count >= self.maxCacheSize {
-                    self.cache.removeAll()
-                }
+                self.os_unfair_lock_lock(&self.unfairLock)
+                self.evictIfNeeded(cache: &self.cache, order: &self.cacheAccessOrder)
                 self.cache[key] = data
-                self.lock.unlock()
+                self.cacheAccessOrder.append(key)
+                self.os_unfair_lock_unlock(&self.unfairLock)
 
                 completion(data)
             } catch {
@@ -117,8 +121,9 @@ public final class WaveformCache: @unchecked Sendable {
     /// Synchronously get cached waveform data (returns nil if not cached).
     public func getCachedWaveform(for url: URL, samplesPerPixel: Int) -> WaveformData? {
         let key = CacheKey(url: url, samplesPerPixel: samplesPerPixel)
-        lock.lock()
-        defer { lock.unlock() }
+        os_unfair_lock_lock(&unfairLock)
+        defer { os_unfair_lock_unlock(&unfairLock) }
+        if cache[key] != nil { touchKey(key, in: &cacheAccessOrder) }
         return cache[key]
     }
 
@@ -132,13 +137,14 @@ public final class WaveformCache: @unchecked Sendable {
     ) {
         let key = CacheKey(url: url, samplesPerPixel: samplesPerPixel)
 
-        lock.lock()
+        os_unfair_lock_lock(&unfairLock)
         if let cached = multiBandCache[key] {
-            lock.unlock()
+            touchKey(key, in: &multiBandAccessOrder)
+            os_unfair_lock_unlock(&unfairLock)
             completion(cached)
             return
         }
-        lock.unlock()
+        os_unfair_lock_unlock(&unfairLock)
 
         processingQueue.async { [weak self] in
             guard let self = self else { return }
@@ -147,12 +153,11 @@ public final class WaveformCache: @unchecked Sendable {
                 let file = try AVAudioFile(forReading: url)
                 let data = try self.computeMultiBandWaveform(file: file, samplesPerPixel: samplesPerPixel)
 
-                self.lock.lock()
-                if self.multiBandCache.count >= self.maxCacheSize {
-                    self.multiBandCache.removeAll()
-                }
+                self.os_unfair_lock_lock(&self.unfairLock)
+                self.evictIfNeeded(cache: &self.multiBandCache, order: &self.multiBandAccessOrder)
                 self.multiBandCache[key] = data
-                self.lock.unlock()
+                self.multiBandAccessOrder.append(key)
+                self.os_unfair_lock_unlock(&self.unfairLock)
 
                 completion(data)
             } catch {
@@ -165,17 +170,48 @@ public final class WaveformCache: @unchecked Sendable {
     /// Synchronously get cached multi-band waveform data.
     public func getCachedMultiBandWaveform(for url: URL, samplesPerPixel: Int) -> MultiBandWaveformData? {
         let key = CacheKey(url: url, samplesPerPixel: samplesPerPixel)
-        lock.lock()
-        defer { lock.unlock() }
+        os_unfair_lock_lock(&unfairLock)
+        defer { os_unfair_lock_unlock(&unfairLock) }
+        if multiBandCache[key] != nil { touchKey(key, in: &multiBandAccessOrder) }
         return multiBandCache[key]
     }
 
     /// Clear all cached waveform data.
     public func clearCache() {
-        lock.lock()
-        defer { lock.unlock() }
+        os_unfair_lock_lock(&unfairLock)
+        defer { os_unfair_lock_unlock(&unfairLock) }
         cache.removeAll()
         multiBandCache.removeAll()
+        cacheAccessOrder.removeAll()
+        multiBandAccessOrder.removeAll()
+    }
+
+    // MARK: - LRU Helpers
+
+    /// Move a key to the end of the access order (most recently used).
+    private func touchKey(_ key: CacheKey, in order: inout [CacheKey]) {
+        if let idx = order.firstIndex(of: key) {
+            order.remove(at: idx)
+        }
+        order.append(key)
+    }
+
+    /// Evict least-recently-used entries until cache is under maxCacheSize.
+    private func evictIfNeeded<V>(cache: inout [CacheKey: V], order: inout [CacheKey]) {
+        while cache.count >= maxCacheSize, let oldest = order.first {
+            cache.removeValue(forKey: oldest)
+            order.removeFirst()
+        }
+    }
+
+    /// Wrapper to call os_unfair_lock_lock on the instance property.
+    private func os_unfair_lock_lock(_ lock: inout os_unfair_lock_s) {
+        withUnsafeMutablePointer(to: &lock) { Darwin.os_unfair_lock_lock($0) }
+    }
+
+    /// Wrapper to call os_unfair_lock_unlock on the instance property.
+    private func os_unfair_lock_unlock(_ lock: inout os_unfair_lock_s) {
+        withUnsafeMutablePointer(to: &lock) { Darwin.os_unfair_lock_unlock($0) }
     }
 
     // MARK: - Computation — Mono

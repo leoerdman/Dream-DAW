@@ -251,8 +251,7 @@ case "${1:-run}" in
         create_bundle
         sign_app
         refresh_icon
-        echo ""
-        print_success "Build complete! App at: ${APP_BUNDLE}"
+        launch_app
         ;;
     run)
         build_swift
@@ -262,11 +261,24 @@ case "${1:-run}" in
         refresh_icon
         launch_app
         ;;
+    build-only)
+        build_swift
+        create_icon
+        create_bundle
+        sign_app
+        refresh_icon
+        echo ""
+        print_success "Build complete! App at: ${APP_BUNDLE}"
+        ;;
     clean)
         clean
         ;;
     *)
-        echo "Usage: $0 [build|run|clean]"
+        echo "Usage: $0 [build|run|build-only|clean]"
+        echo "  build      — Build, install, and restart app (default)"
+        echo "  run        — Same as build"
+        echo "  build-only — Build and install without launching"
+        echo "  clean      — Clean build artifacts"
         exit 1
         ;;
 esac

@@ -50,6 +50,9 @@ public final class TimelineCanvasView: NSView {
     /// Parameters: (trackID, nodeType, itemName)
     public var onBrowserItemDropped: ((UUID, String, String) -> Void)?
 
+    /// Reference to the application's undo/redo history for recording actions.
+    public weak var actionHistory: ActionHistory?
+
     /// Currently dragged clip info for move operations.
     private var dragState: DragState?
 
@@ -76,8 +79,11 @@ public final class TimelineCanvasView: NSView {
         ctx.setFillColor(DreamTheme.bgPrimary.cgColor)
         ctx.fill(bounds)
 
-        drawGridLines(ctx: ctx, project: project)
+        // Track lane backgrounds first (opaque fills)
         drawTrackLanes(ctx: ctx, project: project)
+        // Grid lines ON TOP of lanes so they are visible
+        drawGridLines(ctx: ctx, project: project)
+        // Clips on top of grid
         drawClips(ctx: ctx, project: project)
         drawMidiClips(ctx: ctx, project: project)
         drawPlayhead(ctx: ctx)
@@ -370,6 +376,9 @@ public final class TimelineCanvasView: NSView {
     // MARK: - Mouse Interaction
 
     public override func mouseDown(with event: NSEvent) {
+        // Resign any text field first responder (e.g. browser search bar)
+        window?.makeFirstResponder(nil)
+
         guard let project = project else { return }
 
         let location = convert(event.locationInWindow, from: nil)
@@ -488,6 +497,9 @@ public final class TimelineCanvasView: NSView {
                             duration: TimePosition(beats: Double(beatsPerBar))  // 1 bar
                         )
                         track.midiClips.append(newClip)
+                        // Record undo action for the clip creation
+                        let action = AddMidiClipAction(trackID: track.id, clip: newClip)
+                        actionHistory?.record(action)
                         needsDisplay = true
                     }
                 }
@@ -534,6 +546,140 @@ public final class TimelineCanvasView: NSView {
 
     public override func mouseUp(with event: NSEvent) {
         isDraggingPlayhead = false
+
+        // On clip drag end: handle overlap trimming + undo recording
+        if let drag = dragState, let project = project {
+            for track in project.tracks where track.id == drag.trackID {
+                if drag.isMidi {
+                    if let movedIdx = track.midiClips.firstIndex(where: { $0.id == drag.clipID }) {
+                        let movedClip = track.midiClips[movedIdx]
+                        let movedStart = movedClip.position.beats
+                        let movedEnd = movedClip.endPosition.beats
+
+                        // Record undo action for the move
+                        let oldPos = TimePosition(beats: drag.originalClipBeat)
+                        let newPos = movedClip.position
+                        if oldPos != newPos {
+                            let action = MoveMidiClipAction(
+                                trackID: drag.trackID,
+                                clipID: drag.clipID,
+                                oldPosition: oldPos,
+                                newPosition: newPos
+                            )
+                            actionHistory?.record(action)
+                        }
+
+                        // Trim or remove clips that the moved clip now overlaps
+                        var indicesToRemove: [Int] = []
+                        for i in (0..<track.midiClips.count) where i != movedIdx {
+                            let other = track.midiClips[i]
+                            let otherStart = other.position.beats
+                            let otherEnd = other.endPosition.beats
+
+                            // No overlap?
+                            if otherEnd <= movedStart || otherStart >= movedEnd { continue }
+
+                            // Fully covered → remove
+                            if otherStart >= movedStart && otherEnd <= movedEnd {
+                                indicesToRemove.append(i)
+                                continue
+                            }
+
+                            // Trim right side — moved clip overlaps the beginning of other
+                            if movedStart <= otherStart && movedEnd > otherStart && movedEnd < otherEnd {
+                                let newStart = movedEnd
+                                let newDuration = otherEnd - newStart
+                                track.midiClips[i].position = TimePosition(beats: newStart)
+                                track.midiClips[i].duration = TimePosition(beats: newDuration)
+                                continue
+                            }
+
+                            // Trim left side — moved clip overlaps the end of other
+                            if movedStart > otherStart && movedStart < otherEnd && movedEnd >= otherEnd {
+                                let newDuration = movedStart - otherStart
+                                track.midiClips[i].duration = TimePosition(beats: newDuration)
+                                continue
+                            }
+
+                            // Moved clip is inside other clip → split: keep left part, remove right overlap
+                            if movedStart > otherStart && movedEnd < otherEnd {
+                                // Trim to left portion only
+                                track.midiClips[i].duration = TimePosition(beats: movedStart - otherStart)
+                                continue
+                            }
+                        }
+
+                        // Remove fully covered clips (in reverse to keep indices valid)
+                        for i in indicesToRemove.sorted().reversed() {
+                            track.midiClips.remove(at: i)
+                        }
+                    }
+                } else {
+                    if let movedIdx = track.clips.firstIndex(where: { $0.id == drag.clipID }) {
+                        let movedClip = track.clips[movedIdx]
+                        let movedStart = movedClip.position.beats
+                        let movedEnd = movedClip.endPosition.beats
+
+                        // Record undo action for the move
+                        let oldPos = TimePosition(beats: drag.originalClipBeat)
+                        let newPos = movedClip.position
+                        if oldPos != newPos {
+                            let action = MoveAudioClipAction(
+                                trackID: drag.trackID,
+                                clipID: drag.clipID,
+                                oldPosition: oldPos,
+                                newPosition: newPos
+                            )
+                            actionHistory?.record(action)
+                        }
+
+                        // Trim or remove clips that the moved clip now overlaps
+                        var indicesToRemove: [Int] = []
+                        for i in (0..<track.clips.count) where i != movedIdx {
+                            let other = track.clips[i]
+                            let otherStart = other.position.beats
+                            let otherEnd = other.endPosition.beats
+
+                            // No overlap?
+                            if otherEnd <= movedStart || otherStart >= movedEnd { continue }
+
+                            // Fully covered → remove
+                            if otherStart >= movedStart && otherEnd <= movedEnd {
+                                indicesToRemove.append(i)
+                                continue
+                            }
+
+                            // Trim right side
+                            if movedStart <= otherStart && movedEnd > otherStart && movedEnd < otherEnd {
+                                let newStart = movedEnd
+                                let newDuration = otherEnd - newStart
+                                track.clips[i].position = TimePosition(beats: newStart)
+                                track.clips[i].duration = TimePosition(beats: newDuration)
+                                continue
+                            }
+
+                            // Trim left side
+                            if movedStart > otherStart && movedStart < otherEnd && movedEnd >= otherEnd {
+                                let newDuration = movedStart - otherStart
+                                track.clips[i].duration = TimePosition(beats: newDuration)
+                                continue
+                            }
+
+                            // Split: moved clip inside other → keep left portion
+                            if movedStart > otherStart && movedEnd < otherEnd {
+                                track.clips[i].duration = TimePosition(beats: movedStart - otherStart)
+                                continue
+                            }
+                        }
+
+                        for i in indicesToRemove.sorted().reversed() {
+                            track.clips.remove(at: i)
+                        }
+                    }
+                }
+            }
+            needsDisplay = true
+        }
         dragState = nil
     }
 

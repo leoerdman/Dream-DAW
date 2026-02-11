@@ -11,9 +11,12 @@ public struct TransportBarView: View {
     @ObservedObject var transportController: TransportController
     @ObservedObject var project: Project
 
+    @State private var bpmText: String = ""
+    
     public init(transportController: TransportController, project: Project) {
         self.transportController = transportController
         self.project = project
+        self._bpmText = State(initialValue: String(format: "%.2f", project.bpm))
     }
 
     public var body: some View {
@@ -51,6 +54,9 @@ public struct TransportBarView: View {
                 .foregroundColor(Color(nsColor: DreamTheme.divider)),
             alignment: .bottom
         )
+        .onChange(of: project.bpm) { newBpm in
+            bpmText = String(format: "%.2f", newBpm)
+        }
     }
     
     // MARK: - Left Section (Tempo)
@@ -60,13 +66,21 @@ public struct TransportBarView: View {
             // Tap tempo
             ControlBarButton(label: "Tap", action: {})
             
-            // BPM
-            HStack(spacing: 2) {
-                Text(String(format: "%.2f", project.bpm))
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(Color(nsColor: DreamTheme.textPrimary))
-            }
-            .padding(.horizontal, 6)
+            // BPM — editable field
+            TextField("BPM", text: $bpmText, onCommit: {
+                commitBpm()
+            })
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .foregroundColor(Color(nsColor: DreamTheme.textPrimary))
+            .textFieldStyle(.plain)
+            .frame(width: 52)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color(nsColor: DreamTheme.bgSurface).opacity(0.5))
+            )
+            .multilineTextAlignment(.center)
             
             // Time signature
             HStack(spacing: 1) {
@@ -91,6 +105,17 @@ public struct TransportBarView: View {
                 .padding(.horizontal, 6)
         }
         .padding(.leading, 8)
+    }
+    
+    /// Validate and apply the edited BPM value.
+    private func commitBpm() {
+        guard let value = Double(bpmText), value >= 20, value <= 999 else {
+            // Revert to current value if invalid
+            bpmText = String(format: "%.2f", project.bpm)
+            return
+        }
+        project.bpm = value
+        transportController.bpm = value
     }
     
     // MARK: - Center Section (Transport Controls)

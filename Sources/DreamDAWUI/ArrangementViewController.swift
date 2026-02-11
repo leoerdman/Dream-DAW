@@ -3,6 +3,7 @@ import SwiftUI
 import Foundation
 import DreamDAWModels
 import DreamDAWEngine
+import os.log
 
 // MARK: - FlippedView
 
@@ -28,6 +29,7 @@ public final class ArrangementViewController: NSViewController {
     public let playbackScheduler: PlaybackScheduler
     public let waveformCache: WaveformCache
     public let audioLevelMeter = AudioLevelMeter()
+    public let actionHistory = ActionHistory()
 
     // VU meter update timer
     private var meterTimer: Timer?
@@ -510,7 +512,7 @@ public final class ArrangementViewController: NSViewController {
             self?.transportController.seek(to: position)
         }
 
-        // Track changes → mixer
+        // Track changes → mixer (mute/volume/pan)
         trackHeaders.onTrackChanged = { [weak self] track in
             guard let self = self else { return }
             if track.trackType == .master {
@@ -521,10 +523,23 @@ public final class ArrangementViewController: NSViewController {
             self.canvasView.needsDisplay = true
         }
 
+        // Solo state changes → apply solo logic across all tracks
+        trackHeaders.onSoloChanged = { [weak self] in
+            guard let self = self else { return }
+            self.trackMixer.applySoloLogic(self.project.tracks)
+        }
+
         // Right-click context menu: Add Audio / MIDI Track
         trackHeaders.onAddTrack = { [weak self] isAudio in
             guard let self = self else { return }
-            self.project.addTrack(type: isAudio ? .audio : .midi)
+            let trackType: TrackType = isAudio ? .audio : .midi
+            let track = Track(
+                name: "\(isAudio ? "Audio" : "MIDI") \(self.project.tracks.count + 1)",
+                trackType: trackType,
+                color: TrackColor.forIndex(self.project.tracks.count)
+            )
+            let action = AddTrackAction(track: track)
+            self.actionHistory.perform(action, on: self.project)
             self.reloadTracks()
         }
 
@@ -648,6 +663,7 @@ public final class ArrangementViewController: NSViewController {
     private func configureProject() {
         canvasView.project = project
         canvasView.pixelsPerBeat = pixelsPerBeat
+        canvasView.actionHistory = actionHistory
 
         rulerView.pixelsPerBeat = pixelsPerBeat
         rulerView.bpm = project.bpm
@@ -694,6 +710,10 @@ public final class ArrangementViewController: NSViewController {
             setZoom(pixelsPerBeat * 1.3)
         case 27 where flags.contains(.command): // Cmd+-  zoom out
             setZoom(pixelsPerBeat / 1.3)
+        case 6 where flags.contains(.command) && flags.contains(.shift): // Cmd+Shift+Z — redo
+            performRedo()
+        case 6 where flags.contains(.command): // Cmd+Z — undo
+            performUndo()
         case 11 where flags.contains(.command) && flags.contains(.option): // Cmd+Opt+B toggle browser
             toggleBrowser()
         case 48 where flags.contains(.shift): // Shift+Tab — toggle bottom panel (detail/clip view)
@@ -714,6 +734,34 @@ public final class ArrangementViewController: NSViewController {
     }
 
     public override var acceptsFirstResponder: Bool { true }
+
+    // MARK: - Undo/Redo
+
+    /// Perform undo — called from keyDown or Edit menu responder chain.
+    private func performUndo() {
+        guard actionHistory.canUndo else { return }
+        actionHistory.undo(on: project)
+        reloadTracks()
+        logger.info("Undo performed")
+    }
+
+    /// Perform redo — called from keyDown or Edit menu responder chain.
+    private func performRedo() {
+        guard actionHistory.canRedo else { return }
+        actionHistory.redo(on: project)
+        reloadTracks()
+        logger.info("Redo performed")
+    }
+
+    /// Responder chain target for Edit > Undo menu item.
+    @objc public func undo(_ sender: Any?) {
+        performUndo()
+    }
+
+    /// Responder chain target for Edit > Redo menu item.
+    @objc public func redo(_ sender: Any?) {
+        performRedo()
+    }
 
     // MARK: - Mixer View Toggle
 
@@ -857,28 +905,29 @@ public final class ArrangementViewController: NSViewController {
     }
 
     /// Save the current project to a new location (Cmd+Shift+S).
+    /// Opens a full Finder-style NSSavePanel for filename and location.
     private func saveProjectAs() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "\(project.name) V1"
+        panel.allowedContentTypes = [.init(filenameExtension: ProjectFileManager.fileExtension) ?? .data]
         panel.canCreateDirectories = true
-        panel.prompt = "Save Project Here"
-        panel.message = "Choose a folder to save the project \"\(project.name)\""
+        panel.title = "Save Project"
+        panel.prompt = "Save"
+        panel.message = "Choose where to save \"\(project.name)\". If saved outside a project folder, a new folder will be created automatically."
         panel.appearance = NSAppearance(named: .darkAqua)
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents")
 
-        panel.beginSheetModal(for: view.window!) { [weak self] response in
-            guard response == .OK,
-                  let folderURL = panel.url,
-                  let self = self else { return }
+        // Use runModal() for a full-size standalone Finder window
+        let response = panel.runModal()
+        guard response == .OK, let fileURL = panel.url else { return }
 
-            do {
-                let url = try ProjectFileManager.shared.saveAs(project: self.project, to: folderURL)
-                self.updateWindowTitle()
-                print("[DreamDAW] Saved as: \(url.lastPathComponent)")
-            } catch {
-                let alert = NSAlert(error: error)
-                alert.runModal()
-            }
+        do {
+            let savedURL = try ProjectFileManager.shared.saveToFile(project: self.project, fileURL: fileURL)
+            self.updateWindowTitle()
+            self.logger.info("Saved as: \(savedURL.lastPathComponent)")
+        } catch {
+            let alert = NSAlert(error: error)
+            alert.runModal()
         }
     }
 

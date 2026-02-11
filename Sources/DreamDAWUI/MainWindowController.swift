@@ -69,6 +69,8 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     public func showWindow() {
         window?.makeKeyAndOrderFront(nil)
+        // Maximize to fill the visible screen area (menu bar + Dock stay visible)
+        window?.zoom(nil)
         window?.makeFirstResponder(window?.contentViewController)
     }
 

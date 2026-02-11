@@ -74,8 +74,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Edit Menu
         let editMenuItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
-        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
-        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(withTitle: "Undo", action: #selector(ArrangementViewController.undo(_:)), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: #selector(ArrangementViewController.redo(_:)), keyEquivalent: "Z")
         editMenu.addItem(NSMenuItem.separator())
         editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
@@ -129,11 +129,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func newProject() {
         project = Project.createDefault()
-        // Reuse existing window — replace content instead of creating new window
+        // Reuse existing window — replace content, preserve window frame
         if let window = mainWindowController?.window {
+            let savedFrame = window.frame
             let arrangementVC = ArrangementViewController(project: project)
             window.contentViewController = arrangementVC
             window.title = "Dream DAW — \(project.name)"
+            window.setFrame(savedFrame, display: true)
         } else {
             mainWindowController = MainWindowController(project: project)
             mainWindowController?.showWindow()
@@ -169,24 +171,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func saveProjectAs() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "\(project.name) V1"
+        panel.allowedContentTypes = [.init(filenameExtension: ProjectFileManager.fileExtension) ?? .data]
         panel.canCreateDirectories = true
-        panel.prompt = "Save Project Here"
-        panel.message = "Choose a folder to save \"\(project.name)\""
+        panel.title = "Save Project"
+        panel.prompt = "Save"
+        panel.message = "Choose where to save \"\(project.name)\". If saved outside a project folder, a new folder will be created automatically."
         panel.appearance = NSAppearance(named: .darkAqua)
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents")
 
-        panel.begin { [weak self] response in
-            guard response == .OK, let url = panel.url, let self = self else { return }
-            do {
-                _ = try ProjectFileManager.shared.saveAs(project: self.project, to: url)
-                let fm = ProjectFileManager.shared
-                self.mainWindowController?.window?.title = "Dream DAW — \(self.project.name) V\(fm.currentVersion)"
-            } catch {
-                let alert = NSAlert(error: error)
-                alert.runModal()
-            }
+        // Use runModal() for a full-size standalone Finder window
+        let response = panel.runModal()
+        guard response == .OK, let fileURL = panel.url else { return }
+
+        do {
+            _ = try ProjectFileManager.shared.saveToFile(project: self.project, fileURL: fileURL)
+            let fm = ProjectFileManager.shared
+            self.mainWindowController?.window?.title = "Dream DAW — \(self.project.name) V\(fm.currentVersion)"
+        } catch {
+            let alert = NSAlert(error: error)
+            alert.runModal()
         }
     }
 
@@ -243,11 +248,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let loadedProject = try ProjectFileManager.shared.open(fileURL: url)
             project = loadedProject
             let fm = ProjectFileManager.shared
-            // Reuse existing window — replace content instead of creating new window
+            // Reuse existing window — replace content, preserve window frame
             if let window = mainWindowController?.window {
+                let savedFrame = window.frame
                 let arrangementVC = ArrangementViewController(project: project)
                 window.contentViewController = arrangementVC
                 window.title = "Dream DAW — \(project.name) V\(fm.currentVersion)"
+                window.setFrame(savedFrame, display: true)
             } else {
                 mainWindowController = MainWindowController(project: project)
                 mainWindowController?.showWindow()

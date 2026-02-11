@@ -107,10 +107,12 @@ public final class TransportController: ObservableObject {
         if wasPlaying {
             playbackStartBeat = position.beats
             playbackStartTime = CFAbsoluteTimeGetCurrent()
+            // Re-trigger playback scheduling from the new position
+            onStateChange?(.playing)
         }
 
         onPlayheadUpdate?(playheadPosition)
-        logger.info("Transport: SEEK to beat \(position.beats)")
+        logger.info("Transport: SEEK to beat \(position.beats)\(wasPlaying ? " (re-scheduled)" : "")")
     }
 
     // MARK: - Display Link

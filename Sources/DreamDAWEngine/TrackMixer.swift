@@ -14,6 +14,15 @@ public final class TrackMixer {
     private let audioEngine: AudioEngine
     private let logger = Logger(subsystem: "com.dreamdaw", category: "TrackMixer")
 
+    /// Standard stereo format used for all node connections.
+    /// Ensures consistent format negotiation across the entire graph.
+    private var standardFormat: AVAudioFormat {
+        // Use the engine's actual hardware output format (typically stereo 44.1/48kHz)
+        let engineFormat = audioEngine.outputFormat
+        // Create a standard float format at the engine's sample rate
+        return AVAudioFormat(standardFormatWithSampleRate: engineFormat.sampleRate, channels: 2)!
+    }
+
     /// Map from Track ID to its mixer node.
     private var trackMixerNodes: [UUID: AVAudioMixerNode] = [:]
 
@@ -34,6 +43,9 @@ public final class TrackMixer {
     /// Set up mixer, EQ, and player nodes for a set of tracks.
     /// Signal chain: player → EQ → mixer → masterMixer
     public func configureTracks(_ tracks: [Track]) {
+        let format = standardFormat
+        logger.info("Configuring tracks with format: \(format.sampleRate)Hz, \(format.channelCount)ch")
+
         // Remove nodes for tracks that no longer exist
         let currentIDs = Set(tracks.map(\.id))
         for (id, node) in trackMixerNodes where !currentIDs.contains(id) {
@@ -54,8 +66,8 @@ public final class TrackMixer {
             }
         }
 
-        // Create nodes for new tracks
-        for track in tracks {
+        // Create nodes for new tracks (skip master — it has no player)
+        for track in tracks where track.trackType != .master {
             if trackMixerNodes[track.id] == nil {
                 let mixer = AVAudioMixerNode()
                 let player = AVAudioPlayerNode()
@@ -66,15 +78,16 @@ public final class TrackMixer {
                 audioEngine.attach(eq.eqNode)
 
                 // Signal chain: player → EQ → mixer → masterMixer
-                audioEngine.connect(player, to: eq.eqNode, format: nil)
-                audioEngine.connect(eq.eqNode, to: mixer, format: nil)
-                audioEngine.connect(mixer, to: audioEngine.masterMixer, format: nil)
+                // CRITICAL: Use explicit format to prevent 0-channel negotiation
+                audioEngine.connect(player, to: eq.eqNode, format: format)
+                audioEngine.connect(eq.eqNode, to: mixer, format: format)
+                audioEngine.connect(mixer, to: audioEngine.masterMixer, format: format)
 
                 trackMixerNodes[track.id] = mixer
                 trackPlayerNodes[track.id] = player
                 trackEQNodes[track.id] = eq
 
-                logger.info("Created mixer chain (with EQ) for track: \(track.name)")
+                logger.info("Created mixer chain for track: \(track.name) [format: \(format)]")
             }
 
             // Apply current track settings

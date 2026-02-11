@@ -43,8 +43,8 @@ public enum DreamTheme {
 
     public static let divider       = NSColor(red: 0.18, green: 0.18, blue: 0.18, alpha: 1.0)
     public static let dividerLight  = NSColor(red: 0.25, green: 0.25, blue: 0.25, alpha: 1.0)
-    public static let gridLine      = NSColor(red: 0.16, green: 0.16, blue: 0.16, alpha: 1.0)
-    public static let gridLineMajor = NSColor(red: 0.22, green: 0.22, blue: 0.22, alpha: 1.0)
+    public static let gridLine      = NSColor(red: 0.25, green: 0.25, blue: 0.25, alpha: 1.0)  // visible beat lines
+    public static let gridLineMajor = NSColor(red: 0.35, green: 0.35, blue: 0.35, alpha: 1.0)  // prominent bar lines
     public static let playhead      = NSColor(red: 0.85, green: 0.85, blue: 0.85, alpha: 1.0)   // White playhead like Ableton
     public static let muteButton    = NSColor(red: 0.85, green: 0.65, blue: 0.20, alpha: 1.0)   // Yellow mute
     public static let soloButton    = NSColor(red: 0.20, green: 0.65, blue: 0.85, alpha: 1.0)   // Blue solo

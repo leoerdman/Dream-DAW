@@ -77,11 +77,20 @@ public final class BrowserSidebarView: NSView {
         wantsLayer = true
         layer?.backgroundColor = DreamTheme.bgBrowser.cgColor
 
-        // Search field
+        // Search field — styled to match DAW dark theme
         searchField.placeholderString = "Search"
         searchField.font = DreamTheme.fontBody
         searchField.focusRingType = .none
         searchField.appearance = NSAppearance(named: .darkAqua)
+        searchField.wantsLayer = true
+        searchField.layer?.cornerRadius = 4
+        searchField.layer?.backgroundColor = DreamTheme.bgSecondary.cgColor
+        searchField.layer?.borderWidth = 1
+        searchField.layer?.borderColor = DreamTheme.divider.cgColor
+        searchField.textColor = DreamTheme.textPrimary
+        searchField.drawsBackground = true
+        searchField.backgroundColor = DreamTheme.bgSecondary
+        searchField.bezelStyle = .roundedBezel
         searchField.target = self
         searchField.action = #selector(searchChanged(_:))
         addSubview(searchField)

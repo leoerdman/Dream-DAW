@@ -8,7 +8,7 @@ import DreamDAWModels
 /// or the Piano Roll editor for MIDI clips.
 /// - Click track/clip → Detail tab
 /// - Shift+click MIDI clip → Piano Roll tab
-public final class BottomPanelView: NSView, NSDraggingDestination {
+public final class BottomPanelView: NSView {
 
     // Use flipped coordinate system (y=0 at top) for correct layout
     public override var isFlipped: Bool { true }
@@ -154,7 +154,9 @@ public final class BottomPanelView: NSView, NSDraggingDestination {
             isHidden = false
             detailContentView.isHidden = false
             pianoScrollView.isHidden = true
-            titleLabel.stringValue = "\(track.name) — Effects Chain"
+            titleLabel.stringValue = track.trackType == .midi
+                ? "\(track.name) — Instrument & Effects Chain"
+                : "\(track.name) — Effects Chain"
             updateDetailContent(track: track)
 
         case .pianoRoll(let track, let clip):
@@ -174,8 +176,63 @@ public final class BottomPanelView: NSView, NSDraggingDestination {
         // Clear existing detail subviews
         detailContentView.subviews.forEach { $0.removeFromSuperview() }
 
-        if track.effects.isEmpty {
-            // Placeholder: no effects assigned
+        var xOff: CGFloat = 12
+        let slotHeight: CGFloat = 48
+        let slotWidth: CGFloat = 120
+        let slotSpacing: CGFloat = 8
+
+        // --- Instrument slot (MIDI tracks only) ---
+        if track.trackType == .midi {
+            let instView = NSView(frame: CGRect(x: xOff, y: 8, width: slotWidth, height: slotHeight))
+            instView.wantsLayer = true
+            instView.layer?.cornerRadius = 6
+
+            if let instrument = track.instrument {
+                // Instrument assigned → orange/amber background
+                instView.layer?.backgroundColor = NSColor(red: 0.85, green: 0.55, blue: 0.1, alpha: 0.85).cgColor
+                instView.layer?.borderWidth = 0
+
+                let instIcon = NSTextField(labelWithString: "♪")
+                instIcon.font = NSFont.systemFont(ofSize: 14)
+                instIcon.textColor = NSColor.white
+                instIcon.frame = CGRect(x: 6, y: 26, width: 20, height: 18)
+                instView.addSubview(instIcon)
+
+                let instLabel = NSTextField(labelWithString: instrument.instrumentType.displayName)
+                instLabel.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+                instLabel.textColor = NSColor.white
+                instLabel.lineBreakMode = NSLineBreakMode.byTruncatingTail
+                instLabel.frame = CGRect(x: 6, y: 4, width: slotWidth - 12, height: 22)
+                instView.addSubview(instLabel)
+            } else {
+                // No instrument → empty slot with dashed border
+                instView.layer?.backgroundColor = NSColor(white: 0.14, alpha: 1).cgColor
+                instView.layer?.borderWidth = 1
+                instView.layer?.borderColor = NSColor(white: 0.3, alpha: 0.6).cgColor
+
+                let placeholder = NSTextField(labelWithString: "∅ Instrument")
+                placeholder.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+                placeholder.textColor = DreamTheme.textMuted
+                placeholder.alignment = .center
+                placeholder.frame = CGRect(x: 0, y: 14, width: slotWidth, height: 18)
+                instView.addSubview(placeholder)
+            }
+
+            detailContentView.addSubview(instView)
+            xOff += slotWidth + slotSpacing
+
+            // Arrow connector between instrument and effects
+            let arrow = NSTextField(labelWithString: "→")
+            arrow.font = NSFont.systemFont(ofSize: 16, weight: .light)
+            arrow.textColor = DreamTheme.textMuted
+            arrow.frame = CGRect(x: xOff, y: 8 + slotHeight / 2 - 10, width: 20, height: 20)
+            detailContentView.addSubview(arrow)
+            xOff += 24
+        }
+
+        // --- Effects chain ---
+        if track.effects.isEmpty && track.trackType == .audio {
+            // Audio track with no effects — show placeholder centered
             let label = NSTextField(labelWithString: "Drop effects and plugins here…")
             label.font = NSFont.systemFont(ofSize: 12)
             label.textColor = DreamTheme.textMuted
@@ -188,23 +245,49 @@ public final class BottomPanelView: NSView, NSDraggingDestination {
             )
             label.autoresizingMask = [.width, .minYMargin, .maxYMargin]
             detailContentView.addSubview(label)
+        } else if track.effects.isEmpty && track.trackType == .midi {
+            // MIDI track with instrument but no effects — show "add effects" hint
+            let label = NSTextField(labelWithString: "← Drop effects here")
+            label.font = NSFont.systemFont(ofSize: 11)
+            label.textColor = DreamTheme.textMuted
+            label.frame = CGRect(x: xOff, y: 8 + slotHeight / 2 - 10, width: 140, height: 20)
+            detailContentView.addSubview(label)
         } else {
-            // Show actual effects chain
-            var yOff: CGFloat = 8
+            // Show effects chain as horizontal slots
             for (index, effect) in track.effects.enumerated() {
-                let effectView = NSView(frame: CGRect(x: 8, y: yOff, width: detailContentView.bounds.width - 16, height: 28))
+                let effectView = NSView(frame: CGRect(x: xOff, y: 8, width: slotWidth, height: slotHeight))
                 effectView.wantsLayer = true
                 effectView.layer?.backgroundColor = NSColor(white: 0.18, alpha: 1).cgColor
-                effectView.layer?.cornerRadius = 4
+                effectView.layer?.cornerRadius = 6
+                effectView.layer?.borderWidth = 1
+                effectView.layer?.borderColor = NSColor(white: 0.25, alpha: 1).cgColor
 
-                let nameLabel = NSTextField(labelWithString: "\(index + 1). \(effect.effectType.displayName)")
-                nameLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+                // Effect number badge
+                let badge = NSTextField(labelWithString: "FX\(index + 1)")
+                badge.font = NSFont.systemFont(ofSize: 8, weight: .bold)
+                badge.textColor = DreamTheme.accentGreen
+                badge.frame = CGRect(x: 6, y: 30, width: 40, height: 14)
+                effectView.addSubview(badge)
+
+                let nameLabel = NSTextField(labelWithString: effect.effectType.displayName)
+                nameLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium)
                 nameLabel.textColor = DreamTheme.textPrimary
-                nameLabel.frame = CGRect(x: 8, y: 4, width: effectView.bounds.width - 16, height: 20)
+                nameLabel.lineBreakMode = .byTruncatingTail
+                nameLabel.frame = CGRect(x: 6, y: 4, width: slotWidth - 12, height: 22)
                 effectView.addSubview(nameLabel)
 
                 detailContentView.addSubview(effectView)
-                yOff += 34
+                xOff += slotWidth + slotSpacing
+
+                // Arrow between effects
+                if index < track.effects.count - 1 {
+                    let arrow = NSTextField(labelWithString: "→")
+                    arrow.font = NSFont.systemFont(ofSize: 16, weight: .light)
+                    arrow.textColor = DreamTheme.textMuted
+                    arrow.frame = CGRect(x: xOff, y: 8 + slotHeight / 2 - 10, width: 20, height: 20)
+                    detailContentView.addSubview(arrow)
+                    xOff += 24
+                }
             }
         }
     }
@@ -237,7 +320,7 @@ public final class BottomPanelView: NSView, NSDraggingDestination {
 
         if let data = sender.draggingPasteboard.data(forType: .browserItem),
            let payload = String(data: data, encoding: .utf8) {
-            let parts = payload.split(separator: "|", maxSplits: 1)
+            let parts = payload.split(separator: ":", maxSplits: 1)
             if parts.count == 2 {
                 let nodeType = String(parts[0])
                 if nodeType == "audioEffect" {
@@ -253,7 +336,7 @@ public final class BottomPanelView: NSView, NSDraggingDestination {
               let data = sender.draggingPasteboard.data(forType: .browserItem),
               let payload = String(data: data, encoding: .utf8) else { return false }
 
-        let parts = payload.split(separator: "|", maxSplits: 1)
+        let parts = payload.split(separator: ":", maxSplits: 1)
         guard parts.count == 2 else { return false }
 
         let nodeType = String(parts[0])

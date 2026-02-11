@@ -116,8 +116,9 @@ final class ProjectTests: XCTestCase {
 
     func testDefaultProject() {
         let project = Project.createDefault()
-        XCTAssertEqual(project.tracks.count, 1)
-        XCTAssertEqual(project.tracks.first?.trackType, .midi)
+        XCTAssertEqual(project.tracks.count, 2, "Default project should have 1 MIDI + 1 Audio track")
+        XCTAssertEqual(project.tracks[0].trackType, .midi, "First track should be MIDI")
+        XCTAssertEqual(project.tracks[1].trackType, .audio, "Second track should be Audio")
         XCTAssertEqual(project.bpm, 120.0)
         XCTAssertEqual(project.timeSignature.numerator, 4)
         XCTAssertEqual(project.timeSignature.denominator, 4)

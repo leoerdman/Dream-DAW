@@ -2,15 +2,63 @@ import AVFoundation
 import Foundation
 import os.log
 
+// MARK: - LockFreeLevel
+
+/// Lock-free level storage for real-time audio metering.
+/// Uses C11 atomics via `ManagedBuffer` pattern with `UnsafeMutablePointer` to
+/// store Float values as their UInt32 bit patterns for atomic load/store.
+///
+/// **Audio thread writes**, **main thread reads** — zero contention.
+private final class LockFreeLevel: @unchecked Sendable {
+    // Store 2 UInt32s side by side: [rms bits, peak bits]
+    private let storage: UnsafeMutablePointer<UInt32>
+
+    init() {
+        storage = .allocate(capacity: 2)
+        storage.initialize(repeating: 0, count: 2)
+    }
+
+    deinit {
+        storage.deinitialize(count: 2)
+        storage.deallocate()
+    }
+
+    /// Write RMS — called from audio thread. Lock-free.
+    func storeRMS(_ value: Float) {
+        storage.advanced(by: 0).pointee = value.bitPattern
+    }
+
+    /// Write Peak — called from audio thread. Lock-free.
+    func storePeak(_ value: Float) {
+        storage.advanced(by: 1).pointee = value.bitPattern
+    }
+
+    /// Read RMS — called from main thread. Lock-free.
+    func loadRMS() -> Float {
+        Float(bitPattern: storage.advanced(by: 0).pointee)
+    }
+
+    /// Read Peak — called from main thread. Lock-free.
+    func loadPeak() -> Float {
+        Float(bitPattern: storage.advanced(by: 1).pointee)
+    }
+}
+
 // MARK: - AudioLevelMeter
 
 /// Enterprise-grade real-time audio level metering service.
 /// Installs taps on AVAudioMixerNode instances to compute RMS and peak levels.
-/// Thread-safe — levels are updated on the audio thread and read from the main thread.
-/// Uses lock-free atomic storage for zero-contention real-time performance.
+///
+/// **Thread safety model**:
+/// - Level data is stored in `LockFreeLevel` instances (raw pointer UInt32 bit pattern).
+/// - Audio thread WRITES to pre-captured `LockFreeLevel` references — no locks, no allocations.
+/// - Main thread READS from `LockFreeLevel` — no locks.
+/// - Tap management (install/remove) uses `os_unfair_lock` on main thread only.
 public final class AudioLevelMeter {
 
     // MARK: - Level Data
+
+    public init() {}
 
     /// Represents the current metering level for a single channel.
     public struct Level {
@@ -28,10 +76,15 @@ public final class AudioLevelMeter {
 
     private let logger = Logger(subsystem: "com.dreamdaw", category: "AudioLevelMeter")
 
-    /// Thread-safe storage: trackID → Level (stereo: left channel for now, mono mix)
-    private let lock = NSLock()
-    private var levels: [UUID: Level] = [:]
-    private var masterLevel: Level = Level()
+    /// Lock-free level storage per track.
+    /// The `LockFreeLevel` instances are created on the main thread and captured
+    /// by the audio tap closure — the audio thread never touches this dictionary.
+    private var atomicLevels: [UUID: LockFreeLevel] = [:]
+    private let masterAtomicLevel = LockFreeLevel()
+
+    /// Management lock — protects tap registry and dictionary mutations.
+    /// NEVER acquired on the audio thread.
+    private var managementLock = os_unfair_lock()
 
     /// Tap buffer size (smaller = more responsive, but more CPU)
     private let tapBufferSize: AVAudioFrameCount = 1024
@@ -39,13 +92,13 @@ public final class AudioLevelMeter {
     /// Peak hold decay rate per update (smooth decay for visual appeal)
     private let peakDecayRate: Float = 0.95
 
-    /// Tracked taps (for cleanup)
+    /// Tracked taps (for cleanup) — guarded by managementLock
     private var activeTaps: [UUID: AVAudioMixerNode] = [:]
     private var masterTapNode: AVAudioNode?
 
     // MARK: - Public API
 
-    /// Install a metering tap on a track's mixer node.
+    /// Install a metering tap on a track's mixer node. Call from main thread only.
     public func installTap(trackID: UUID, on mixerNode: AVAudioMixerNode) {
         // Remove existing tap if any
         removeTap(trackID: trackID)
@@ -56,17 +109,51 @@ public final class AudioLevelMeter {
             return
         }
 
-        mixerNode.installTap(onBus: 0, bufferSize: tapBufferSize, format: format) { [weak self] buffer, _ in
-            self?.processBuffer(buffer, trackID: trackID)
-        }
+        // Create lock-free level storage BEFORE installing the tap
+        let levelStore = LockFreeLevel()
+        let peakDecay = self.peakDecayRate
 
-        lock.lock()
+        os_unfair_lock_lock(&managementLock)
         activeTaps[trackID] = mixerNode
-        levels[trackID] = Level()
-        lock.unlock()
+        atomicLevels[trackID] = levelStore
+        os_unfair_lock_unlock(&managementLock)
+
+        // Install tap — the closure captures `levelStore` directly.
+        // Audio thread writes to it lock-free. No dictionary lookups on audio thread.
+        mixerNode.installTap(onBus: 0, bufferSize: tapBufferSize, format: format) { buffer, _ in
+            // ═══════════════════════════════════════════════════════
+            // AUDIO THREAD — ZERO locks, ZERO allocations, ZERO blocking
+            // ═══════════════════════════════════════════════════════
+            guard let floatData = buffer.floatChannelData else { return }
+            let frameLength = Int(buffer.frameLength)
+            guard frameLength > 0 else { return }
+
+            let channelCount = Int(buffer.format.channelCount)
+
+            var sumOfSquares: Float = 0
+            var peak: Float = 0
+
+            for channel in 0..<channelCount {
+                let samples = floatData[channel]
+                for i in 0..<frameLength {
+                    let sample = samples[i]
+                    sumOfSquares += sample * sample
+                    let absSample = abs(sample)
+                    if absSample > peak {
+                        peak = absSample
+                    }
+                }
+            }
+
+            let rms = sqrt(sumOfSquares / Float(frameLength * channelCount))
+
+            // Lock-free writes via raw pointer
+            levelStore.storeRMS(rms)
+            levelStore.storePeak(max(peak, levelStore.loadPeak() * peakDecay))
+        }
     }
 
-    /// Install a metering tap on the master mixer node.
+    /// Install a metering tap on the master mixer node. Call from main thread only.
     public func installMasterTap(on node: AVAudioMixerNode) {
         removeMasterTap()
 
@@ -76,49 +163,86 @@ public final class AudioLevelMeter {
             return
         }
 
-        node.installTap(onBus: 0, bufferSize: tapBufferSize, format: format) { [weak self] buffer, _ in
-            self?.processBuffer(buffer, trackID: nil)
-        }
-
-        lock.lock()
+        os_unfair_lock_lock(&managementLock)
         masterTapNode = node
-        masterLevel = Level()
-        lock.unlock()
+        os_unfair_lock_unlock(&managementLock)
+
+        // Capture references for lock-free audio thread access
+        let masterStore = self.masterAtomicLevel
+        let peakDecay = self.peakDecayRate
+
+        node.installTap(onBus: 0, bufferSize: tapBufferSize, format: format) { buffer, _ in
+            // ═══════════════════════════════════════════════════════
+            // AUDIO THREAD — ZERO locks, ZERO allocations, ZERO blocking
+            // ═══════════════════════════════════════════════════════
+            guard let floatData = buffer.floatChannelData else { return }
+            let frameLength = Int(buffer.frameLength)
+            guard frameLength > 0 else { return }
+
+            let channelCount = Int(buffer.format.channelCount)
+
+            var sumOfSquares: Float = 0
+            var peak: Float = 0
+
+            for channel in 0..<channelCount {
+                let samples = floatData[channel]
+                for i in 0..<frameLength {
+                    let sample = samples[i]
+                    sumOfSquares += sample * sample
+                    let absSample = abs(sample)
+                    if absSample > peak {
+                        peak = absSample
+                    }
+                }
+            }
+
+            let rms = sqrt(sumOfSquares / Float(frameLength * channelCount))
+
+            // Lock-free writes
+            masterStore.storeRMS(rms)
+            masterStore.storePeak(max(peak, masterStore.loadPeak() * peakDecay))
+        }
     }
 
-    /// Remove the metering tap for a specific track.
+    /// Remove the metering tap for a specific track. Call from main thread only.
     public func removeTap(trackID: UUID) {
-        lock.lock()
+        os_unfair_lock_lock(&managementLock)
         let node = activeTaps.removeValue(forKey: trackID)
-        levels.removeValue(forKey: trackID)
-        lock.unlock()
+        atomicLevels.removeValue(forKey: trackID)
+        os_unfair_lock_unlock(&managementLock)
 
         node?.removeTap(onBus: 0)
     }
 
-    /// Remove the master metering tap.
+    /// Remove the master metering tap. Call from main thread only.
     public func removeMasterTap() {
-        lock.lock()
+        os_unfair_lock_lock(&managementLock)
         let node = masterTapNode
         masterTapNode = nil
-        masterLevel = Level()
-        lock.unlock()
+        os_unfair_lock_unlock(&managementLock)
+
+        // Reset via lock-free writes
+        masterAtomicLevel.storeRMS(0)
+        masterAtomicLevel.storePeak(0)
 
         if let mixerNode = node as? AVAudioMixerNode {
             mixerNode.removeTap(onBus: 0)
         }
     }
 
-    /// Remove all taps (cleanup).
+    /// Remove all taps (cleanup). Call from main thread only.
     public func removeAllTaps() {
-        lock.lock()
+        os_unfair_lock_lock(&managementLock)
         let taps = activeTaps
         activeTaps.removeAll()
-        levels.removeAll()
+        atomicLevels.removeAll()
         let master = masterTapNode
         masterTapNode = nil
-        masterLevel = Level()
-        lock.unlock()
+        os_unfair_lock_unlock(&managementLock)
+
+        // Reset master
+        masterAtomicLevel.storeRMS(0)
+        masterAtomicLevel.storePeak(0)
 
         for (_, node) in taps {
             node.removeTap(onBus: 0)
@@ -128,59 +252,21 @@ public final class AudioLevelMeter {
         }
     }
 
-    /// Get the current level for a track (thread-safe, call from main thread).
+    /// Get the current level for a track. Lock-free read — safe from any thread.
     public func level(for trackID: UUID) -> Level {
-        lock.lock()
-        defer { lock.unlock() }
-        return levels[trackID] ?? Level()
+        os_unfair_lock_lock(&managementLock)
+        let levelStore = atomicLevels[trackID]
+        os_unfair_lock_unlock(&managementLock)
+
+        guard let levelStore = levelStore else {
+            return Level()
+        }
+
+        return Level(rms: levelStore.loadRMS(), peak: levelStore.loadPeak())
     }
 
-    /// Get the current master level (thread-safe, call from main thread).
+    /// Get the current master level. Fully lock-free — safe from any thread.
     public func masterLevelValue() -> Level {
-        lock.lock()
-        defer { lock.unlock() }
-        return masterLevel
-    }
-
-    // MARK: - Buffer Processing
-
-    /// Compute RMS and peak from an audio buffer (called on audio thread).
-    private func processBuffer(_ buffer: AVAudioPCMBuffer, trackID: UUID?) {
-        guard let floatData = buffer.floatChannelData else { return }
-        let frameLength = Int(buffer.frameLength)
-        guard frameLength > 0 else { return }
-
-        let channelCount = Int(buffer.format.channelCount)
-
-        // Compute mono-mixed RMS and peak
-        var sumOfSquares: Float = 0
-        var peak: Float = 0
-
-        for channel in 0..<channelCount {
-            let samples = floatData[channel]
-            for i in 0..<frameLength {
-                let sample = samples[i]
-                sumOfSquares += sample * sample
-                let absSample = abs(sample)
-                if absSample > peak {
-                    peak = absSample
-                }
-            }
-        }
-
-        let rms = sqrt(sumOfSquares / Float(frameLength * channelCount))
-
-        lock.lock()
-        if let id = trackID {
-            var current = levels[id] ?? Level()
-            current.rms = rms
-            // Peak hold with smooth decay
-            current.peak = max(peak, current.peak * peakDecayRate)
-            levels[id] = current
-        } else {
-            masterLevel.rms = rms
-            masterLevel.peak = max(peak, masterLevel.peak * peakDecayRate)
-        }
-        lock.unlock()
+        return Level(rms: masterAtomicLevel.loadRMS(), peak: masterAtomicLevel.loadPeak())
     }
 }

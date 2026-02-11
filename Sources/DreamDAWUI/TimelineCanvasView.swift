@@ -46,6 +46,10 @@ public final class TimelineCanvasView: NSView {
     /// Callback when a MIDI clip is Shift+clicked (open piano roll).
     public var onMidiClipShiftClicked: ((UUID, UUID) -> Void)?  // (trackID, midiClipID)
 
+    /// Callback when a browser item (instrument/effect) is dropped on a track.
+    /// Parameters: (trackID, nodeType, itemName)
+    public var onBrowserItemDropped: ((UUID, String, String) -> Void)?
+
     /// Currently dragged clip info for move operations.
     private var dragState: DragState?
 
@@ -550,11 +554,20 @@ public final class TimelineCanvasView: NSView {
     // MARK: - Drag & Drop
 
     public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        if sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [
+        let pb = sender.draggingPasteboard
+
+        // Accept audio file URLs
+        if pb.canReadObject(forClasses: [NSURL.self], options: [
             .urlReadingContentsConformToTypes: ["public.audio"]
         ]) {
             return .copy
         }
+
+        // Accept browser items (instruments, effects)
+        if pb.string(forType: .browserItem) != nil {
+            return .copy
+        }
+
         return []
     }
 
@@ -562,19 +575,11 @@ public final class TimelineCanvasView: NSView {
         guard let project = project else { return false }
 
         let pasteboard = sender.draggingPasteboard
-        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [
-            .urlReadingContentsConformToTypes: ["public.audio"]
-        ]) as? [URL] else {
-            return false
-        }
-
         let location = convert(sender.draggingLocation, from: nil)
-        let beat = max(0, Double(location.x + scrollOffset.x) / Double(pixelsPerBeat))
 
         // Determine target track index from Y position
         var yOffset: CGFloat = -scrollOffset.y
         var targetTrackIndex = 0
-
         for (index, track) in project.tracks.enumerated() {
             if location.y >= yOffset && location.y < yOffset + track.height {
                 targetTrackIndex = index
@@ -582,13 +587,30 @@ public final class TimelineCanvasView: NSView {
             }
             yOffset += track.height
         }
-
-        // Add clips to the target track (only audio tracks accept audio files)
         guard targetTrackIndex < project.tracks.count else { return false }
         let track = project.tracks[targetTrackIndex]
-        
+
+        // CASE 1: Browser item drop (instruments, effects)
+        if let payload = pasteboard.string(forType: .browserItem) {
+            let parts = payload.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2 else { return false }
+            let nodeType = String(parts[0])
+            let itemName = String(parts[1])
+            onBrowserItemDropped?(track.id, nodeType, itemName)
+            needsDisplay = true
+            return true
+        }
+
+        // CASE 2: Audio file URL drop
+        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingContentsConformToTypes: ["public.audio"]
+        ]) as? [URL] else {
+            return false
+        }
+
         guard track.trackType == .audio else { return false }
 
+        let beat = max(0, Double(location.x + scrollOffset.x) / Double(pixelsPerBeat))
         var beatPosition = beat
         for url in urls {
             // Compute real clip duration from audio file

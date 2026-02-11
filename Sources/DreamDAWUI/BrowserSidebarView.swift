@@ -3,6 +3,12 @@ import AVFoundation
 import SwiftUI
 import DreamDAWModels
 
+// MARK: - Custom Pasteboard Type for browser items (instruments, effects)
+
+extension NSPasteboard.PasteboardType {
+    static let browserItem = NSPasteboard.PasteboardType("com.dreamdaw.browser-item")
+}
+
 // MARK: - BrowserSidebarView
 
 /// Left sidebar mimicking Ableton Live's browser panel.
@@ -136,28 +142,28 @@ public final class BrowserSidebarView: NSView {
         // Instruments sub-category with built-in synths
         let instruments = BrowserNode(name: "Instruments", icon: "pianokeys", isGroup: true)
         instruments.children = [
-            BrowserNode(name: "Simple Sine Synth", icon: "waveform.path"),
-            BrowserNode(name: "Sampler", icon: "waveform.badge.plus"),
+            BrowserNode(name: "Simple Sine Synth", icon: "waveform.path", nodeType: .instrument),
+            BrowserNode(name: "Sampler", icon: "waveform.badge.plus", nodeType: .instrument),
         ]
 
         // Audio Effects
         let audioEffects = BrowserNode(name: "Audio Effects", icon: "wand.and.stars", isGroup: true)
         audioEffects.children = [
-            BrowserNode(name: "EQ Eight", icon: "slider.horizontal.3"),
-            BrowserNode(name: "Compressor", icon: "gauge.with.dots.needle.33percent"),
-            BrowserNode(name: "Delay", icon: "clock.arrow.2.circlepath"),
-            BrowserNode(name: "Reverb", icon: "waveform.path.ecg"),
-            BrowserNode(name: "Chorus-Ensemble", icon: "waveform.path.badge.plus"),
-            BrowserNode(name: "Utility", icon: "wrench"),
+            BrowserNode(name: "EQ Eight", icon: "slider.horizontal.3", nodeType: .audioEffect),
+            BrowserNode(name: "Compressor", icon: "gauge.with.dots.needle.33percent", nodeType: .audioEffect),
+            BrowserNode(name: "Delay", icon: "clock.arrow.2.circlepath", nodeType: .audioEffect),
+            BrowserNode(name: "Reverb", icon: "waveform.path.ecg", nodeType: .audioEffect),
+            BrowserNode(name: "Chorus-Ensemble", icon: "waveform.path.badge.plus", nodeType: .audioEffect),
+            BrowserNode(name: "Utility", icon: "wrench", nodeType: .audioEffect),
         ]
 
         // MIDI Effects
         let midiEffects = BrowserNode(name: "MIDI Effects", icon: "sparkles", isGroup: true)
         midiEffects.children = [
-            BrowserNode(name: "Arpeggiator", icon: "arrow.up.right"),
-            BrowserNode(name: "Chord", icon: "music.note.list"),
-            BrowserNode(name: "Note Length", icon: "ruler"),
-            BrowserNode(name: "Scale", icon: "tuningfork"),
+            BrowserNode(name: "Arpeggiator", icon: "arrow.up.right", nodeType: .midiEffect),
+            BrowserNode(name: "Chord", icon: "music.note.list", nodeType: .midiEffect),
+            BrowserNode(name: "Note Length", icon: "ruler", nodeType: .midiEffect),
+            BrowserNode(name: "Scale", icon: "tuningfork", nodeType: .midiEffect),
         ]
 
         // Plug-Ins (AU / VST)
@@ -267,18 +273,29 @@ public final class BrowserSidebarView: NSView {
 
 // MARK: - BrowserNode
 
+/// Type classification for browser items.
+enum BrowserNodeType: String {
+    case generic      // Non-draggable items (folders, groups, labels)
+    case instrument   // Synths, samplers → drag onto MIDI tracks
+    case audioEffect  // EQ, Compressor, etc. → drag onto any track
+    case midiEffect   // Arpeggiator, etc. → drag onto MIDI tracks
+    case audioFile    // .wav, .aif, .mp3 → drag onto audio tracks
+}
+
 /// Tree node for the browser outline view.
 class BrowserNode: NSObject {
     let name: String
     let icon: String
     let isGroup: Bool
+    let nodeType: BrowserNodeType
     var children: [BrowserNode] = []
     var fileURL: URL?
 
-    init(name: String, icon: String, isGroup: Bool = false) {
+    init(name: String, icon: String, isGroup: Bool = false, nodeType: BrowserNodeType = .generic) {
         self.name = name
         self.icon = icon
         self.isGroup = isGroup
+        self.nodeType = nodeType
         super.init()
     }
 }
@@ -304,12 +321,26 @@ extension BrowserSidebarView: NSOutlineViewDataSource {
         return false
     }
 
-    // MARK: - Drag Source (provide file URL for audio files)
+    // MARK: - Drag Source (provide file URL for audio files, custom type for instruments/effects)
 
     public func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
-        guard let node = item as? BrowserNode,
-              let fileURL = node.fileURL else { return nil }
-        return fileURL as NSURL
+        guard let node = item as? BrowserNode else { return nil }
+
+        // Audio files → drag as file URL
+        if let fileURL = node.fileURL {
+            return fileURL as NSURL
+        }
+
+        // Instruments / Effects → drag as custom pasteboard item
+        if node.nodeType != .generic {
+            let pasteboardItem = NSPasteboardItem()
+            // Encode as "type:name" — e.g. "instrument:Simple Sine Synth"
+            let payload = "\(node.nodeType.rawValue):\(node.name)"
+            pasteboardItem.setString(payload, forType: .browserItem)
+            return pasteboardItem
+        }
+
+        return nil  // Groups and generic nodes are not draggable
     }
 }
 
@@ -360,13 +391,13 @@ extension BrowserSidebarView: NSOutlineViewDelegate {
         } else {
             cellView.textField?.stringValue = node.name
             cellView.textField?.font = DreamTheme.fontBrowser
-            cellView.textField?.textColor = DreamTheme.textPrimary
+            cellView.textField?.textColor = DreamTheme.textPrimary  // Bright white for visibility
         }
 
         if let symbolImage = NSImage(systemSymbolName: node.icon, accessibilityDescription: nil) {
             let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
             cellView.imageView?.image = symbolImage.withSymbolConfiguration(config)
-            cellView.imageView?.contentTintColor = node.isGroup ? DreamTheme.textMuted : DreamTheme.textSecondary
+            cellView.imageView?.contentTintColor = node.isGroup ? DreamTheme.textMuted : DreamTheme.textPrimary  // Bright icons for items
         }
 
         return cellView

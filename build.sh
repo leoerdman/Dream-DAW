@@ -216,8 +216,6 @@ sign_app() {
 refresh_icon() {
     print_step "Refreshing icon cache..."
     touch "${APP_BUNDLE}"
-    # Kill Dock only if needed (icon changed)
-    /usr/bin/killall Dock 2>/dev/null || true
     print_success "Icon cache refreshed"
 }
 

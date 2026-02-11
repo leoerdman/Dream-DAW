@@ -8,7 +8,7 @@ import DreamDAWModels
 /// or the Piano Roll editor for MIDI clips.
 /// - Click track/clip → Detail tab
 /// - Shift+click MIDI clip → Piano Roll tab
-public final class BottomPanelView: NSView {
+public final class BottomPanelView: NSView, NSDraggingDestination {
 
     // Use flipped coordinate system (y=0 at top) for correct layout
     public override var isFlipped: Bool { true }
@@ -41,6 +41,10 @@ public final class BottomPanelView: NSView {
     /// Callback when MIDI notes are modified in the piano roll.
     public var onNotesChanged: ((Track, MidiClip) -> Void)?
 
+    /// Callback when an effect is dropped on the effects chain panel.
+    /// Parameters: trackID, nodeType ("audioEffect"), itemName
+    public var onEffectDropped: ((UUID, String, String) -> Void)?
+
     // Sub-views
     private let headerBar = NSView()
     private let titleLabel = NSTextField(labelWithString: "")
@@ -54,6 +58,7 @@ public final class BottomPanelView: NSView {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupUI()
+        registerForDraggedTypes([.browserItem])
     }
 
     required init?(coder: NSCoder) {
@@ -169,19 +174,39 @@ public final class BottomPanelView: NSView {
         // Clear existing detail subviews
         detailContentView.subviews.forEach { $0.removeFromSuperview() }
 
-        // Placeholder: show track info
-        let label = NSTextField(labelWithString: "Drop effects and plugins here…")
-        label.font = NSFont.systemFont(ofSize: 12)
-        label.textColor = DreamTheme.textMuted
-        label.alignment = .center
-        label.frame = CGRect(
-            x: 0,
-            y: detailContentView.bounds.height / 2 - 10,
-            width: detailContentView.bounds.width,
-            height: 20
-        )
-        label.autoresizingMask = [.width, .minYMargin, .maxYMargin]
-        detailContentView.addSubview(label)
+        if track.effects.isEmpty {
+            // Placeholder: no effects assigned
+            let label = NSTextField(labelWithString: "Drop effects and plugins here…")
+            label.font = NSFont.systemFont(ofSize: 12)
+            label.textColor = DreamTheme.textMuted
+            label.alignment = .center
+            label.frame = CGRect(
+                x: 0,
+                y: detailContentView.bounds.height / 2 - 10,
+                width: detailContentView.bounds.width,
+                height: 20
+            )
+            label.autoresizingMask = [.width, .minYMargin, .maxYMargin]
+            detailContentView.addSubview(label)
+        } else {
+            // Show actual effects chain
+            var yOff: CGFloat = 8
+            for (index, effect) in track.effects.enumerated() {
+                let effectView = NSView(frame: CGRect(x: 8, y: yOff, width: detailContentView.bounds.width - 16, height: 28))
+                effectView.wantsLayer = true
+                effectView.layer?.backgroundColor = NSColor(white: 0.18, alpha: 1).cgColor
+                effectView.layer?.cornerRadius = 4
+
+                let nameLabel = NSTextField(labelWithString: "\(index + 1). \(effect.effectType.displayName)")
+                nameLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+                nameLabel.textColor = DreamTheme.textPrimary
+                nameLabel.frame = CGRect(x: 8, y: 4, width: effectView.bounds.width - 16, height: 20)
+                effectView.addSubview(nameLabel)
+
+                detailContentView.addSubview(effectView)
+                yOff += 34
+            }
+        }
     }
 
     // MARK: - Public API
@@ -203,5 +228,40 @@ public final class BottomPanelView: NSView {
 
     @objc private func closePanel() {
         hidePanel()
+    }
+
+    // MARK: - Drag and Drop (Effects)
+
+    public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard case .detail = mode else { return [] }
+
+        if let data = sender.draggingPasteboard.data(forType: .browserItem),
+           let payload = String(data: data, encoding: .utf8) {
+            let parts = payload.split(separator: "|", maxSplits: 1)
+            if parts.count == 2 {
+                let nodeType = String(parts[0])
+                if nodeType == "audioEffect" {
+                    return .copy
+                }
+            }
+        }
+        return []
+    }
+
+    public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard case .detail(let track) = mode,
+              let data = sender.draggingPasteboard.data(forType: .browserItem),
+              let payload = String(data: data, encoding: .utf8) else { return false }
+
+        let parts = payload.split(separator: "|", maxSplits: 1)
+        guard parts.count == 2 else { return false }
+
+        let nodeType = String(parts[0])
+        let itemName = String(parts[1])
+
+        guard nodeType == "audioEffect" else { return false }
+
+        onEffectDropped?(track.id, nodeType, itemName)
+        return true
     }
 }

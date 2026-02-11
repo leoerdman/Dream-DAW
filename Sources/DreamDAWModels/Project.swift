@@ -110,7 +110,7 @@ public final class Project: ObservableObject, Identifiable, Codable {
 
     // MARK: - Factory
 
-    /// Create a default project with a single MIDI track.
+    /// Create a default project with one MIDI track and one Audio track.
     public static func createDefault() -> Project {
         let project = Project(name: "New Project", bpm: 120.0)
         project.tracks = [
@@ -118,6 +118,11 @@ public final class Project: ObservableObject, Identifiable, Codable {
                 name: "MIDI 1",
                 trackType: .midi,
                 color: TrackColor.forIndex(0)
+            ),
+            Track(
+                name: "Audio 1",
+                trackType: .audio,
+                color: TrackColor.forIndex(1)
             )
         ]
         return project

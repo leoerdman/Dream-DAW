@@ -14,6 +14,9 @@ public final class TrackHeaderView: NSView {
     private let track: Track
     private let trackIndex: Int
 
+    /// Expose track ID for drag-and-drop hit testing
+    public var trackID: UUID { track.id }
+
     // UI Components
     private let nameBackgroundView = NSView()
     private let nameLabel = NSTextField(labelWithString: "")
@@ -22,8 +25,11 @@ public final class TrackHeaderView: NSView {
     private let soloButton = NSButton()
     private let muteIndicator = NSView()
     private let trackNumberLabel = NSTextField(labelWithString: "")
-    private let volumeBar = NSView()         // Mini volume bar
-    private let volumeBarFill = NSView()     // Filled portion
+    private let vuMeterBarL = NSView()       // Left channel VU meter background
+    private let vuMeterFillL = NSView()      // Left channel filled portion
+    private let vuMeterBarR = NSView()       // Right channel VU meter background
+    private let vuMeterFillR = NSView()      // Right channel filled portion
+    private let peakIndicator = NSView()     // Peak clip indicator
 
     /// Callback when track settings change.
     public var onTrackChanged: ((Track) -> Void)?
@@ -91,19 +97,38 @@ public final class TrackHeaderView: NSView {
         soloButton.translatesAutoresizingMaskIntoConstraints = false
         addSubview(soloButton)
 
-        // Mini volume bar background
-        volumeBar.wantsLayer = true
-        volumeBar.layer?.backgroundColor = NSColor(white: 0.15, alpha: 1).cgColor
-        volumeBar.layer?.cornerRadius = 1
-        volumeBar.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(volumeBar)
+        // Vertical VU meter — left channel
+        vuMeterBarL.wantsLayer = true
+        vuMeterBarL.layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
+        vuMeterBarL.layer?.cornerRadius = 1
+        vuMeterBarL.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(vuMeterBarL)
 
-        // Volume fill
-        volumeBarFill.wantsLayer = true
-        volumeBarFill.layer?.backgroundColor = DreamTheme.accentGreen.withAlphaComponent(0.6).cgColor
-        volumeBarFill.layer?.cornerRadius = 1
-        volumeBarFill.translatesAutoresizingMaskIntoConstraints = false
-        volumeBar.addSubview(volumeBarFill)
+        vuMeterFillL.wantsLayer = true
+        vuMeterFillL.layer?.backgroundColor = DreamTheme.accentGreen.cgColor
+        vuMeterFillL.layer?.cornerRadius = 1
+        vuMeterFillL.translatesAutoresizingMaskIntoConstraints = false
+        vuMeterBarL.addSubview(vuMeterFillL)
+
+        // Vertical VU meter — right channel
+        vuMeterBarR.wantsLayer = true
+        vuMeterBarR.layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
+        vuMeterBarR.layer?.cornerRadius = 1
+        vuMeterBarR.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(vuMeterBarR)
+
+        vuMeterFillR.wantsLayer = true
+        vuMeterFillR.layer?.backgroundColor = DreamTheme.accentGreen.cgColor
+        vuMeterFillR.layer?.cornerRadius = 1
+        vuMeterFillR.translatesAutoresizingMaskIntoConstraints = false
+        vuMeterBarR.addSubview(vuMeterFillR)
+
+        // Peak clip indicator (red dot at top)
+        peakIndicator.wantsLayer = true
+        peakIndicator.layer?.backgroundColor = NSColor(red: 0.3, green: 0.3, blue: 0.3, alpha: 1).cgColor
+        peakIndicator.layer?.cornerRadius = 2
+        peakIndicator.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(peakIndicator)
 
         // Track number
         trackNumberLabel.font = DreamTheme.fontMonoSmall
@@ -149,21 +174,28 @@ public final class TrackHeaderView: NSView {
             routingLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 6),
 
             // Solo button
-            soloButton.trailingAnchor.constraint(equalTo: volumeBar.leadingAnchor, constant: -4),
+            soloButton.trailingAnchor.constraint(equalTo: vuMeterBarL.leadingAnchor, constant: -4),
             soloButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             soloButton.widthAnchor.constraint(equalToConstant: 16),
             soloButton.heightAnchor.constraint(equalToConstant: 14),
 
-            // Volume bar
-            volumeBar.trailingAnchor.constraint(equalTo: trackNumberLabel.leadingAnchor, constant: -6),
-            volumeBar.centerYAnchor.constraint(equalTo: centerYAnchor),
-            volumeBar.widthAnchor.constraint(equalToConstant: 40),
-            volumeBar.heightAnchor.constraint(equalToConstant: 6),
+            // VU meter left channel (vertical bar, near right edge)
+            vuMeterBarL.trailingAnchor.constraint(equalTo: vuMeterBarR.leadingAnchor, constant: -2),
+            vuMeterBarL.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            vuMeterBarL.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            vuMeterBarL.widthAnchor.constraint(equalToConstant: 4),
 
-            // Volume fill (left-aligned within bar, width set dynamically)
-            volumeBarFill.leadingAnchor.constraint(equalTo: volumeBar.leadingAnchor),
-            volumeBarFill.topAnchor.constraint(equalTo: volumeBar.topAnchor),
-            volumeBarFill.bottomAnchor.constraint(equalTo: volumeBar.bottomAnchor),
+            // VU meter right channel
+            vuMeterBarR.trailingAnchor.constraint(equalTo: trackNumberLabel.leadingAnchor, constant: -4),
+            vuMeterBarR.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            vuMeterBarR.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            vuMeterBarR.widthAnchor.constraint(equalToConstant: 4),
+
+            // Peak indicator (above the VU meters)
+            peakIndicator.centerXAnchor.constraint(equalTo: vuMeterBarL.trailingAnchor, constant: 1),
+            peakIndicator.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            peakIndicator.widthAnchor.constraint(equalToConstant: 10),
+            peakIndicator.heightAnchor.constraint(equalToConstant: 4),
 
             // Track number (far right)
             trackNumberLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
@@ -187,26 +219,100 @@ public final class TrackHeaderView: NSView {
         nameLabel.stringValue = track.name
         nameBackgroundView.layer?.backgroundColor = track.color.nsColor.cgColor
         trackTypeLabel.stringValue = track.trackType.displayName
-        routingLabel.stringValue = "Main ▾"
+
+        // Display instrument/effects info in routing label
+        if track.trackType == .midi {
+            if let instrument = track.instrument {
+                routingLabel.stringValue = instrument.instrumentType.displayName
+                routingLabel.textColor = DreamTheme.accentGreen
+            } else {
+                routingLabel.stringValue = "No Instrument"
+                routingLabel.textColor = DreamTheme.textMuted
+            }
+        } else if track.trackType == .audio {
+            if track.effects.isEmpty {
+                routingLabel.stringValue = "Main ▾"
+                routingLabel.textColor = DreamTheme.textSecondary
+            } else {
+                routingLabel.stringValue = "FX: \(track.effects.count) ▾"
+                routingLabel.textColor = DreamTheme.accentGreen
+            }
+        } else {
+            routingLabel.stringValue = "Master"
+            routingLabel.textColor = DreamTheme.textSecondary
+        }
+
         trackNumberLabel.stringValue = "\(trackIndex + 1)"
         updateButtonStates()
         updateVolumeFill()
     }
 
     private func updateVolumeFill() {
-        let barWidth = volumeBar.bounds.width
-        let fillWidth = barWidth * CGFloat(track.volume)
-        volumeBarFill.frame = CGRect(
-            x: 0, y: 0,
-            width: fillWidth,
-            height: volumeBar.bounds.height
+        // Volume fill is now handled by real-time VU meter updates
+        // This method only handles the muted visual state
+        let fillColor = track.isMuted
+            ? NSColor(white: 0.2, alpha: 0.5)
+            : DreamTheme.accentGreen
+        vuMeterFillL.layer?.backgroundColor = fillColor.cgColor
+        vuMeterFillR.layer?.backgroundColor = fillColor.cgColor
+    }
+
+    /// Update VU meter levels from AudioLevelMeter (called on display link timer).
+    /// `rms` is the RMS level in linear scale (0.0 ... 1.0+), `peak` is peak.
+    public func updateMeterLevel(rms: Float, peak: Float) {
+        guard !track.isMuted else {
+            // Muted: show gray empty bars
+            vuMeterFillL.frame = CGRect(x: 0, y: vuMeterBarL.bounds.height, width: vuMeterBarL.bounds.width, height: 0)
+            vuMeterFillR.frame = CGRect(x: 0, y: vuMeterBarR.bounds.height, width: vuMeterBarR.bounds.width, height: 0)
+            peakIndicator.layer?.backgroundColor = NSColor(white: 0.3, alpha: 1).cgColor
+            return
+        }
+
+        // Convert linear RMS to visual height (dB scale with floor at -60dB)
+        let minDB: Float = -60
+        let rmsDB = max(minDB, 20 * log10(max(rms, 1e-8)))
+        let normalizedLevel = CGFloat((rmsDB - minDB) / (0 - minDB))  // 0..1 for -60..0 dB
+
+        let barHeight = vuMeterBarL.bounds.height
+        let fillHeight = max(0, min(barHeight, barHeight * normalizedLevel))
+
+        // Fill from bottom up (in flipped view, bottom = maxY)
+        vuMeterFillL.frame = CGRect(
+            x: 0,
+            y: barHeight - fillHeight,
+            width: vuMeterBarL.bounds.width,
+            height: fillHeight
+        )
+        vuMeterFillR.frame = CGRect(
+            x: 0,
+            y: barHeight - fillHeight,
+            width: vuMeterBarR.bounds.width,
+            height: fillHeight
         )
 
-        // Gray out if muted
-        let fillColor = track.isMuted
-            ? NSColor(white: 0.3, alpha: 0.5)
-            : DreamTheme.accentGreen.withAlphaComponent(0.6)
-        volumeBarFill.layer?.backgroundColor = fillColor.cgColor
+        // Color based on level: green < -6dB, yellow -6..0dB, red > 0dB
+        let meterColor: NSColor
+        if rmsDB > 0 {
+            meterColor = NSColor(red: 1.0, green: 0.2, blue: 0.2, alpha: 1)  // Red: clipping
+        } else if rmsDB > -6 {
+            meterColor = NSColor(red: 1.0, green: 0.8, blue: 0.1, alpha: 1)  // Yellow: hot
+        } else if rmsDB > minDB + 3 {
+            meterColor = DreamTheme.accentGreen  // Green: normal
+        } else {
+            meterColor = NSColor(white: 0.3, alpha: 1)  // Gray: near-silence
+        }
+        vuMeterFillL.layer?.backgroundColor = meterColor.cgColor
+        vuMeterFillR.layer?.backgroundColor = meterColor.cgColor
+
+        // Peak indicator: red if peak > 0dB
+        let peakDB = 20 * log10(max(peak, 1e-8))
+        if peakDB > 0 {
+            peakIndicator.layer?.backgroundColor = NSColor(red: 1.0, green: 0.15, blue: 0.15, alpha: 1).cgColor
+        } else if peakDB > -6 {
+            peakIndicator.layer?.backgroundColor = NSColor(red: 1.0, green: 0.8, blue: 0.1, alpha: 1).cgColor
+        } else {
+            peakIndicator.layer?.backgroundColor = NSColor(white: 0.3, alpha: 1).cgColor
+        }
     }
 
     private func updateButtonStates() {
@@ -252,7 +358,7 @@ public final class TrackHeadersContainerView: NSView {
 
     // MARK: - Properties
 
-    private var headerViews: [TrackHeaderView] = []
+    public private(set) var headerViews: [TrackHeaderView] = []
 
     /// Callback when a track's properties change (solo, mute, volume).
     public var onTrackChanged: ((Track) -> Void)?
@@ -263,6 +369,10 @@ public final class TrackHeadersContainerView: NSView {
     /// Callback to delete a track by its UUID.
     public var onDeleteTrack: ((UUID) -> Void)?
 
+    /// Callback when a browser item (instrument/effect) is dropped on a track header.
+    /// Parameters: (trackID, nodeType, itemName)
+    public var onBrowserItemDropped: ((UUID, String, String) -> Void)?
+
     public override var isFlipped: Bool { true }
 
     // MARK: - Initialization
@@ -270,6 +380,8 @@ public final class TrackHeadersContainerView: NSView {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupContextMenu()
+        // Register for drag-and-drop of browser items (instruments/effects)
+        registerForDraggedTypes([.browserItem, .fileURL])
     }
 
     required init?(coder: NSCoder) {
@@ -350,6 +462,45 @@ public final class TrackHeadersContainerView: NSView {
     /// Scroll to match the timeline vertical scroll position.
     public func setVerticalOffset(_ offset: CGFloat) {
         setBoundsOrigin(NSPoint(x: 0, y: offset))
+    }
+
+    // MARK: - Drag & Drop (Accept instruments/effects on track headers)
+
+    public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if sender.draggingPasteboard.string(forType: .browserItem) != nil {
+            return .copy
+        }
+        return []
+    }
+
+    public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let payload = sender.draggingPasteboard.string(forType: .browserItem) else {
+            return false
+        }
+
+        let parts = payload.split(separator: ":", maxSplits: 1)
+        guard parts.count == 2 else { return false }
+        let nodeType = String(parts[0])
+        let itemName = String(parts[1])
+
+        // Determine which track header was dropped onto
+        let location = convert(sender.draggingLocation, from: nil)
+
+        for headerView in headerViews {
+            if headerView.frame.contains(location) {
+                let trackID = headerView.trackID
+                onBrowserItemDropped?(trackID, nodeType, itemName)
+                return true
+            }
+        }
+
+        // Fallback: use the first track if drop is in the container
+        if let first = headerViews.first {
+            onBrowserItemDropped?(first.trackID, nodeType, itemName)
+            return true
+        }
+
+        return false
     }
 }
 

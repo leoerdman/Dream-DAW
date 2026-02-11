@@ -27,13 +27,21 @@ public final class ArrangementViewController: NSViewController {
     public let trackMixer: TrackMixer
     public let playbackScheduler: PlaybackScheduler
     public let waveformCache: WaveformCache
+    public let audioLevelMeter = AudioLevelMeter()
+
+    // VU meter update timer
+    private var meterTimer: Timer?
+
+    // Loading overlay
+    private var loadingOverlay: NSView?
+    private let logger = Logger(subsystem: "com.dreamdaw", category: "ArrangementVC")
 
     // UI Components
     private let rulerView = TimelineRulerView()
     private let trackHeaders = TrackHeadersContainerView()
     private let canvasView = TimelineCanvasView()
     private let canvasScrollView = NSScrollView()
-    private let headerScrollView = NSScrollView()
+    private let headerScrollView = DragForwardingScrollView()
     private let browserSidebar = BrowserSidebarView()
     private var transportHostingView: NSHostingView<TransportBarView>?
     private var statusBarHostingView: NSHostingView<StatusBarView>?
@@ -95,6 +103,7 @@ public final class ArrangementViewController: NSViewController {
         setupAudioEngine()
         setupBindings()
         configureProject()
+        startMeterTimer()
     }
 
     public override func viewDidLayout() {
@@ -143,8 +152,8 @@ public final class ArrangementViewController: NSViewController {
         canvasScrollView.scrollerStyle = .overlay
         view.addSubview(canvasScrollView)
 
-        // Register for drag and drop
-        canvasView.registerForDraggedTypes([.fileURL])
+        // Register for drag and drop (audio files + browser items like instruments/effects)
+        canvasView.registerForDraggedTypes([.fileURL, .browserItem])
 
         // ===== RIGHT: Track Headers Scroll View =====
         headerScrollView.wantsLayer = true
@@ -351,7 +360,7 @@ public final class ArrangementViewController: NSViewController {
         do {
             try audioEngine.start()
         } catch {
-            print("[DreamDAW] Audio engine failed to start: \(error)")
+            logger.error("Audio engine failed to start: \(error)")
         }
 
         trackMixer.configureTracks(project.tracks)
@@ -359,12 +368,118 @@ public final class ArrangementViewController: NSViewController {
         // Apply master track volume/pan to the engine master mixer
         trackMixer.applyMasterSettings(project.masterTrack)
 
+        // Install metering taps on all track mixer nodes
+        installMeteringTaps()
+
         // Connect waveform renderer callback → canvas redraw
         let renderer = WaveformRenderer(waveformCache: waveformCache)
         renderer.onWaveformReady = { [weak self] in
             self?.canvasView.needsDisplay = true
         }
         canvasView.waveformRenderer = renderer
+    }
+
+    /// Install audio level meter taps on all track mixer nodes and the master mixer.
+    private func installMeteringTaps() {
+        audioLevelMeter.removeAllTaps()
+
+        for track in project.tracks {
+            if let mixerNode = trackMixer.mixerNode(for: track.id) {
+                audioLevelMeter.installTap(trackID: track.id, on: mixerNode)
+            }
+        }
+
+        audioLevelMeter.installMasterTap(on: audioEngine.masterMixer)
+        logger.info("Installed metering taps on \(self.project.tracks.count) tracks + master")
+    }
+
+    // MARK: - VU Meter Timer
+
+    /// Start a repeating timer that pushes audio levels to the track header VU meters.
+    private func startMeterTimer() {
+        meterTimer?.invalidate()
+        meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            self?.updateVUMeters()
+        }
+    }
+
+    /// Push current audio levels from AudioLevelMeter to each track header's VU meter.
+    private func updateVUMeters() {
+        for headerView in trackHeaders.headerViews {
+            let trackID = headerView.trackID
+            let level: AudioLevelMeter.Level
+
+            if headerView.track.trackType == .master {
+                level = audioLevelMeter.masterLevelValue()
+            } else {
+                level = audioLevelMeter.level(for: trackID)
+            }
+
+            headerView.updateMeterLevel(rms: level.rms, peak: level.peak)
+        }
+    }
+
+    /// Cleanup on dealloc.
+    deinit {
+        meterTimer?.invalidate()
+        audioLevelMeter.removeAllTaps()
+    }
+
+    // MARK: - Loading Overlay
+
+    /// Show a centered loading overlay with spinner and message.
+    private func showLoadingOverlay(message: String = "Loading Project…") {
+        guard loadingOverlay == nil else { return }
+
+        let overlay = NSView(frame: view.bounds)
+        overlay.wantsLayer = true
+        overlay.layer?.backgroundColor = NSColor(white: 0, alpha: 0.6).cgColor
+        overlay.autoresizingMask = [.width, .height]
+
+        // Center container (pill-shaped background)
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 70))
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor(white: 0.15, alpha: 1).cgColor
+        container.layer?.cornerRadius = 12
+        container.translatesAutoresizingMaskIntoConstraints = false
+        overlay.addSubview(container)
+
+        // Spinner
+        let spinner = NSProgressIndicator()
+        spinner.style = .spinning
+        spinner.controlSize = .small
+        spinner.startAnimation(nil)
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(spinner)
+
+        // Label
+        let label = NSTextField(labelWithString: message)
+        label.font = NSFont.systemFont(ofSize: 13, weight: .medium)
+        label.textColor = .white
+        label.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(label)
+
+        NSLayoutConstraint.activate([
+            container.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+            container.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
+            container.widthAnchor.constraint(equalToConstant: 240),
+            container.heightAnchor.constraint(equalToConstant: 70),
+
+            spinner.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            spinner.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+
+            label.leadingAnchor.constraint(equalTo: spinner.trailingAnchor, constant: 12),
+            label.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+        ])
+
+        view.addSubview(overlay)
+        loadingOverlay = overlay
+    }
+
+    /// Dismiss the loading overlay.
+    private func hideLoadingOverlay() {
+        loadingOverlay?.removeFromSuperview()
+        loadingOverlay = nil
     }
 
     // MARK: - Bindings
@@ -413,6 +528,11 @@ public final class ArrangementViewController: NSViewController {
             self.reloadTracks()
         }
 
+        // Track headers: browser item dropped (instrument or effect)
+        trackHeaders.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName in
+            self?.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName)
+        }
+
         // Transport state → PlaybackScheduler
         // Play → stop browser preview + schedule all clips; Pause/Stop → stop all players
         transportController.onStateChange = { [weak self] state in
@@ -446,6 +566,11 @@ public final class ArrangementViewController: NSViewController {
             self.layoutSubviews()
         }
 
+        // Canvas → track: browser item dropped (instrument or effect)
+        canvasView.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName in
+            self?.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName)
+        }
+
         // Bottom panel → project: note changes from piano roll
         bottomPanel.onNotesChanged = { [weak self] track, updatedClip in
             guard let self = self,
@@ -455,6 +580,54 @@ public final class ArrangementViewController: NSViewController {
             self.project.tracks[trackIndex].midiClips[clipIndex] = updatedClip
             self.canvasView.needsDisplay = true
         }
+
+        // Bottom panel → project: effect dropped on effects chain
+        bottomPanel.onEffectDropped = { [weak self] trackID, nodeType, itemName in
+            guard let self = self else { return }
+            self.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName)
+            // Refresh the bottom panel to show the newly added effect
+            if let track = self.project.tracks.first(where: { $0.id == trackID }) {
+                self.bottomPanel.showDetail(for: track)
+            }
+        }
+    }
+
+    // MARK: - Browser Item Drop Handler (shared by canvas + track headers)
+
+    /// Handles a browser item drop (instrument, audioEffect, midiEffect) on a track.
+    private func handleBrowserItemDrop(trackID: UUID, nodeType: String, itemName: String) {
+        guard let track = project.tracks.first(where: { $0.id == trackID }) else { return }
+
+        switch nodeType {
+        case "instrument":
+            // Only MIDI tracks accept instruments
+            guard track.trackType == .midi else { return }
+            let instrumentType: InstrumentType
+            switch itemName {
+            case "Simple Sine Synth": instrumentType = .sineSynth
+            case "Sampler":          instrumentType = .sampler
+            default: return
+            }
+            track.instrument = InstrumentConfig(instrumentType: instrumentType)
+
+        case "audioEffect":
+            // Any track accepts audio effects
+            let effect = AudioEffectConfig(effectType: .eq)
+            track.effects.append(effect)
+
+        case "midiEffect":
+            // Only MIDI tracks accept MIDI effects (future implementation)
+            guard track.trackType == .midi else { return }
+            // TODO: Implement MIDI effect types when available
+            break
+
+        default:
+            break
+        }
+
+        // Refresh track headers to reflect the change
+        trackHeaders.configure(tracks: project.tracks, masterTrack: project.masterTrack)
+        canvasView.needsDisplay = true
     }
 
     @objc private func canvasScrolled(_ notification: Notification) {
@@ -725,28 +898,43 @@ public final class ArrangementViewController: NSViewController {
                   let fileURL = panel.url,
                   let self = self else { return }
 
-            do {
-                let openedProject = try ProjectFileManager.shared.open(fileURL: fileURL)
+            self.showLoadingOverlay(message: "Loading Project…")
 
-                // Update the current project in-place
-                self.project.name = openedProject.name
-                self.project.bpm = openedProject.bpm
-                self.project.timeSignature = openedProject.timeSignature
-                self.project.sampleRate = openedProject.sampleRate
-                self.project.tracks = openedProject.tracks
-                self.project.masterTrack = openedProject.masterTrack
-                self.project.loopStart = openedProject.loopStart
-                self.project.loopEnd = openedProject.loopEnd
-                self.project.fileURL = openedProject.fileURL
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let openedProject = try ProjectFileManager.shared.open(fileURL: fileURL)
 
-                self.reloadTracks()
-                self.configureProject()
-                self.updateWindowTitle()
+                    DispatchQueue.main.async {
+                        // Update the current project in-place (don't resize window)
+                        self.project.name = openedProject.name
+                        self.project.bpm = openedProject.bpm
+                        self.project.timeSignature = openedProject.timeSignature
+                        self.project.sampleRate = openedProject.sampleRate
+                        self.project.tracks = openedProject.tracks
+                        self.project.masterTrack = openedProject.masterTrack
+                        self.project.loopStart = openedProject.loopStart
+                        self.project.loopEnd = openedProject.loopEnd
+                        self.project.fileURL = openedProject.fileURL
 
-                print("[DreamDAW] Opened: \(openedProject.name)")
-            } catch {
-                let alert = NSAlert(error: error)
-                alert.runModal()
+                        // Reconfigure audio engine for the new tracks
+                        self.trackMixer.configureTracks(self.project.tracks)
+                        self.trackMixer.applyMasterSettings(self.project.masterTrack)
+                        self.installMeteringTaps()
+
+                        self.reloadTracks()
+                        self.configureProject()
+                        self.updateWindowTitle()
+
+                        self.hideLoadingOverlay()
+                        self.logger.info("Opened project: \(openedProject.name)")
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        self.hideLoadingOverlay()
+                        let alert = NSAlert(error: error)
+                        alert.runModal()
+                    }
+                }
             }
         }
     }

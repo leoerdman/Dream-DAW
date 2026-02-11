@@ -22,7 +22,8 @@ public final class BrowserSidebarView: NSView {
         didSet { needsLayout = true }
     }
 
-    private let searchField = NSSearchField()
+    private let searchField = NSTextField()
+    private let searchIcon = NSImageView()
     private let outlineScrollView = NSScrollView()
     private let outlineView = NSOutlineView()
     private var rootItems: [BrowserNode] = []
@@ -77,28 +78,31 @@ public final class BrowserSidebarView: NSView {
         wantsLayer = true
         layer?.backgroundColor = DreamTheme.bgBrowser.cgColor
 
-        // Search field — styled to match DAW dark theme
+        // Search icon — small magnifying glass
+        if let mag = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Search") {
+            let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
+            searchIcon.image = mag.withSymbolConfiguration(config)
+        }
+        searchIcon.contentTintColor = DreamTheme.textMuted
+        addSubview(searchIcon)
+
+        // Search field — completely flat, same bg as panel, no bezel
         searchField.placeholderString = "Search"
-        searchField.font = DreamTheme.fontBody
+        searchField.font = NSFont.systemFont(ofSize: 11, weight: .regular)
         searchField.focusRingType = .none
-        searchField.appearance = NSAppearance(named: .darkAqua)
-        searchField.wantsLayer = true
-        searchField.layer?.cornerRadius = 4
-        searchField.layer?.backgroundColor = DreamTheme.bgSecondary.cgColor
-        searchField.layer?.borderWidth = 1
-        searchField.layer?.borderColor = DreamTheme.divider.cgColor
+        searchField.isBordered = false
+        searchField.isBezeled = false
+        searchField.drawsBackground = false  // Transparent — panel bg shows through
         searchField.textColor = DreamTheme.textPrimary
-        searchField.drawsBackground = true
-        searchField.backgroundColor = DreamTheme.bgSecondary
-        searchField.bezelStyle = .roundedBezel
+        searchField.appearance = NSAppearance(named: .darkAqua)
         searchField.target = self
         searchField.action = #selector(searchChanged(_:))
         addSubview(searchField)
 
-        // Outline view — displays tree
+        // Outline view — Ableton-style compact tree
         outlineView.headerView = nil
-        outlineView.rowHeight = 22
-        outlineView.indentationPerLevel = 16
+        outlineView.rowHeight = 20  // Compact density matching Ableton
+        outlineView.indentationPerLevel = 14  // Slightly tighter indentation
         outlineView.style = .sourceList
         outlineView.floatsGroupRows = false
         outlineView.autoresizesSubviews = true
@@ -127,10 +131,34 @@ public final class BrowserSidebarView: NSView {
 
     public override func layout() {
         super.layout()
-        let searchHeight: CGFloat = 28
-        let padding: CGFloat = 6
-        searchField.frame = CGRect(x: padding, y: padding, width: bounds.width - padding * 2, height: searchHeight - padding)
-        outlineScrollView.frame = CGRect(x: 0, y: searchHeight, width: bounds.width, height: bounds.height - searchHeight)
+        let searchAreaH: CGFloat = 28
+        let hPad: CGFloat = 8
+        let topPad: CGFloat = 5
+        let iconSize: CGFloat = 14
+
+        // Magnifying glass icon
+        searchIcon.frame = CGRect(
+            x: hPad,
+            y: topPad + (searchAreaH - iconSize) / 2 - topPad,
+            width: iconSize,
+            height: iconSize
+        )
+
+        // Text field after icon
+        let fieldX = hPad + iconSize + 4
+        searchField.frame = CGRect(
+            x: fieldX,
+            y: topPad,
+            width: bounds.width - fieldX - hPad,
+            height: searchAreaH - topPad * 2
+        )
+
+        outlineScrollView.frame = CGRect(
+            x: 0,
+            y: searchAreaH,
+            width: bounds.width,
+            height: bounds.height - searchAreaH
+        )
     }
 
     // MARK: - Tree Building
@@ -274,7 +302,7 @@ public final class BrowserSidebarView: NSView {
 
     // MARK: - Search
 
-    @objc private func searchChanged(_ sender: NSSearchField) {
+    @objc private func searchChanged(_ sender: NSTextField) {
         // TODO: implement search filtering
         outlineView.reloadData()
     }
@@ -392,24 +420,50 @@ extension BrowserSidebarView: NSOutlineViewDelegate {
             ])
         }
 
-        // Configure cell
+        // Configure cell — Ableton-style visual hierarchy
         if node.isGroup {
-            cellView.textField?.stringValue = node.name.uppercased()
+            // Section headers: mixed-case, muted accent color (like Ableton's golden section labels)
+            cellView.textField?.stringValue = node.name
             cellView.textField?.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-            cellView.textField?.textColor = DreamTheme.textMuted
+            cellView.textField?.textColor = NSColor(red: 0.55, green: 0.50, blue: 0.40, alpha: 1.0)  // Warm muted gold
         } else {
             cellView.textField?.stringValue = node.name
-            cellView.textField?.font = DreamTheme.fontBrowser
-            cellView.textField?.textColor = DreamTheme.textPrimary  // Bright white for visibility
+            cellView.textField?.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+            cellView.textField?.textColor = DreamTheme.textPrimary
         }
 
+        // Icons with section-aware coloring (Ableton uses colored icons per category)
         if let symbolImage = NSImage(systemSymbolName: node.icon, accessibilityDescription: nil) {
-            let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
+            let iconSize: CGFloat = node.isGroup ? 9 : 10
+            let config = NSImage.SymbolConfiguration(pointSize: iconSize, weight: .medium)
             cellView.imageView?.image = symbolImage.withSymbolConfiguration(config)
-            cellView.imageView?.contentTintColor = node.isGroup ? DreamTheme.textMuted : DreamTheme.textPrimary  // Bright icons for items
+            cellView.imageView?.contentTintColor = iconTint(for: node)
         }
 
         return cellView
+    }
+
+    /// Returns the appropriate icon tint color for a browser node,
+    /// matching Ableton's per-section icon coloring.
+    private func iconTint(for node: BrowserNode) -> NSColor {
+        if node.isGroup {
+            return NSColor(red: 0.50, green: 0.45, blue: 0.37, alpha: 1.0)  // Warm muted gold for headers
+        }
+
+        switch node.nodeType {
+        case .instrument:
+            return NSColor(red: 0.95, green: 0.75, blue: 0.25, alpha: 1.0)  // Gold — instruments
+        case .audioEffect:
+            return NSColor(red: 0.35, green: 0.70, blue: 0.90, alpha: 1.0)  // Blue — audio effects
+        case .midiEffect:
+            return NSColor(red: 0.65, green: 0.50, blue: 0.90, alpha: 1.0)  // Purple — MIDI effects
+        case .audioFile:
+            return DreamTheme.textSecondary
+        case .generic:
+            // Special icon coloring for specific items
+            if node.name == "Favorites" { return NSColor(red: 0.95, green: 0.78, blue: 0.20, alpha: 1.0) }  // Yellow star
+            return DreamTheme.textSecondary
+        }
     }
 
     public func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {

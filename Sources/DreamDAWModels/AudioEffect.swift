@@ -5,16 +5,31 @@ import Foundation
 /// Built-in audio effect types.
 public enum AudioEffectType: String, Codable, CaseIterable, Sendable {
     case eq = "eq"
+    case utility = "utility"
+    case compressor = "compressor"
+    case delay = "delay"
+    case reverb = "reverb"
+    case chorus = "chorus"
 
     public var displayName: String {
         switch self {
         case .eq: return "EQ Eight"
+        case .utility: return "Utility"
+        case .compressor: return "Compressor"
+        case .delay: return "Delay"
+        case .reverb: return "Reverb"
+        case .chorus: return "Chorus-Ensemble"
         }
     }
 
     public var icon: String {
         switch self {
         case .eq: return "slider.horizontal.3"
+        case .utility: return "wrench"
+        case .compressor: return "waveform.path.ecg"
+        case .delay: return "clock.arrow.2.circlepath"
+        case .reverb: return "waveform.badge.magnifyingglass"
+        case .chorus: return "waveform.path"
         }
     }
 }
@@ -75,17 +90,20 @@ public final class AudioEffectConfig: ObservableObject, Identifiable, Codable {
     @Published public var effectType: AudioEffectType
     @Published public var isEnabled: Bool
     @Published public var eqBands: [EQBandConfig]
+    @Published public var gainDB: Float   // For Utility: -60...+6 dB (default 0.0)
 
     public init(
         id: UUID = UUID(),
         effectType: AudioEffectType = .eq,
         isEnabled: Bool = true,
-        eqBands: [EQBandConfig] = AudioEffectConfig.defaultEQBands()
+        eqBands: [EQBandConfig] = AudioEffectConfig.defaultEQBands(),
+        gainDB: Float = 0.0
     ) {
         self.id = id
         self.effectType = effectType
         self.isEnabled = isEnabled
         self.eqBands = eqBands
+        self.gainDB = gainDB
     }
 
     /// Default 8-band EQ configuration matching Ableton EQ Eight frequencies.
@@ -114,7 +132,7 @@ public final class AudioEffectConfig: ObservableObject, Identifiable, Codable {
     // MARK: - Codable
 
     private enum CodingKeys: String, CodingKey {
-        case id, effectType, isEnabled, eqBands
+        case id, effectType, isEnabled, eqBands, gainDB
     }
 
     public convenience init(from decoder: Decoder) throws {
@@ -124,7 +142,8 @@ public final class AudioEffectConfig: ObservableObject, Identifiable, Codable {
             effectType: try container.decode(AudioEffectType.self, forKey: .effectType),
             isEnabled: try container.decode(Bool.self, forKey: .isEnabled),
             eqBands: try container.decodeIfPresent([EQBandConfig].self, forKey: .eqBands)
-                ?? AudioEffectConfig.defaultEQBands()
+                ?? AudioEffectConfig.defaultEQBands(),
+            gainDB: try container.decodeIfPresent(Float.self, forKey: .gainDB) ?? 0.0
         )
     }
 
@@ -134,6 +153,7 @@ public final class AudioEffectConfig: ObservableObject, Identifiable, Codable {
         try container.encode(effectType, forKey: .effectType)
         try container.encode(isEnabled, forKey: .isEnabled)
         try container.encode(eqBands, forKey: .eqBands)
+        try container.encode(gainDB, forKey: .gainDB)
     }
 }
 

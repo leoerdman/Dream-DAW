@@ -679,8 +679,18 @@ public final class ArrangementViewController: NSViewController {
             track.instrument = InstrumentConfig(instrumentType: instrumentType)
 
         case "audioEffect":
-            // Any track accepts audio effects
-            let effect = AudioEffectConfig(effectType: .eq)
+            // Any track accepts audio effects — map browser name to effect type
+            let effectType: AudioEffectType
+            switch itemName {
+            case "EQ Eight":          effectType = .eq
+            case "Utility":           effectType = .utility
+            case "Compressor":        effectType = .compressor
+            case "Delay":             effectType = .delay
+            case "Reverb":            effectType = .reverb
+            case "Chorus-Ensemble":   effectType = .chorus
+            default:                  effectType = .eq
+            }
+            let effect = AudioEffectConfig(effectType: effectType)
             track.effects.append(effect)
 
         case "midiEffect":

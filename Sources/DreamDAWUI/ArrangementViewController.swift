@@ -847,6 +847,11 @@ public final class ArrangementViewController: NSViewController {
             self.layoutSubviews()
         }
         
+        // Canvas → audio engine: clips modified (move/resize/delete) → hot-reload if playing
+        canvasView.onClipsModified = { [weak self] in
+            self?.refreshAudio()
+        }
+
         // Canvas → clip selection → select track too
         canvasView.onClipSelected = { [weak self] trackID, _ in
             // If we select a clip, implicitly select the track (but don't necessarily toggle bottom panel unless needed)
@@ -896,6 +901,9 @@ public final class ArrangementViewController: NSViewController {
             else { return }
             self.project.tracks[trackIndex].midiClips[clipIndex] = updatedClip
             self.canvasView.needsDisplay = true
+            
+            // Hot-reload if playing
+            self.refreshAudio()
         }
 
         // Bottom panel → project: effect dropped on effects chain
@@ -1447,6 +1455,25 @@ public final class ArrangementViewController: NSViewController {
         // 4. Reload UI
         reloadTracks()
         logger.info("Deleted track: \(track.name)")
+        
+        // Refresh audio context
+        refreshAudio()
+    }
+
+    /// Flushes and re-schedules audio playback from the current position.
+    /// Used for "hot-reloading" edits (moving, resizing, deleting clips) during playback.
+    private func refreshAudio() {
+        guard transportController.isPlaying else { return }
+        
+        logger.info("Hot-reloading playback from beat \(self.transportController.playheadPosition.beats)")
+        
+        playbackScheduler.schedulePlayback(
+            project: project,
+            from: transportController.playheadPosition,
+            looping: transportController.isLooping,
+            loopStart: transportController.loopStart,
+            loopEnd: transportController.loopEnd
+        )
     }
 
     private func showNotification(title: String, message: String) {

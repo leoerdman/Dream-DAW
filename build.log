@@ -1,11 +1,14 @@
-Another instance of SwiftPM (PID: 21621) is already running using '/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/.build', waiting until that process has finished execution...[0/1] Planning build
+[0/1] Planning build
 Building for debugging...
 [0/5] Write sources
 [2/5] Write swift-version--58304C5D6DBC2206.txt
-[4/7] Emitting module DreamDAWEngine
-[5/7] Compiling DreamDAWEngine TransportController.swift
-[6/13] Compiling DreamDAWUI StatusBarView.swift
-[7/13] Compiling DreamDAWUI ArrangementViewController.swift
+[4/9] Compiling DreamDAWEngine ProjectFileManager.swift
+[5/9] Compiling DreamDAWEngine TransportController.swift
+[6/9] Emitting module DreamDAWEngine
+[7/9] Compiling DreamDAWEngine PlaybackScheduler.swift
+[8/12] Compiling DreamDAWUI TimelineCanvasView.swift
+[9/12] Emitting module DreamDAWUI
+[10/12] Compiling DreamDAWUI ArrangementViewController.swift
 /Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/ArrangementViewController.swift:826:50: warning: variable 'self' was written to, but never read
  824 |         // Loop wrap → stop current audio + re-schedule from loop start
  825 |         // Loop wrap → do nothing for audio (handled by gapless queueing)
@@ -13,22 +16,10 @@ Building for debugging...
      |                                                  `- warning: variable 'self' was written to, but never read
  827 |             // Visuals are handled by TransportController updates.
  828 |             // Audio is pre-scheduled via queue, so we do NOT restart here.
-[8/13] Compiling DreamDAWUI TransportBarView.swift
-/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TransportBarView.swift:76:10: warning: 'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead. [#DeprecatedDeclaration]
- 74 |             alignment: .bottom
- 75 |         )
- 76 |         .onChange(of: project.bpm) { newBpm in
-    |          `- warning: 'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead. [#DeprecatedDeclaration]
- 77 |             bpmText = String(format: "%.2f", newBpm)
- 78 |         }
-
-[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
-[9/13] Compiling DreamDAWUI MainWindowController.swift
-[10/13] Compiling DreamDAWUI TimelineCanvasView.swift
-[11/13] Emitting module DreamDAWUI
-[12/15] Compiling DreamDAW main.swift
-[13/15] Emitting module DreamDAW
+[11/13] Compiling DreamDAWUI MainWindowController.swift
+[12/15] Emitting module DreamDAW
+[13/15] Compiling DreamDAW main.swift
 [13/16] Write Objects.LinkFileList
 [14/16] Linking DreamDAW
 [15/16] Applying DreamDAW
-Build complete! (3.43s)
+Build complete! (7.17s)

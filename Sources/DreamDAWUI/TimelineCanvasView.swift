@@ -60,6 +60,10 @@ public final class TimelineCanvasView: NSView {
     /// Host must update ruler and layout to keep everything in sync.
     public var onZoomChanged: ((CGFloat, CGFloat) -> Void)?
 
+    /// Callback when clips are modified (moved, resized, deleted, or added).
+    /// Host should refresh playback if currently running.
+    public var onClipsModified: (() -> Void)?
+
     /// Reference to the application's undo/redo history for recording actions.
     public weak var actionHistory: ActionHistory?
 
@@ -1162,7 +1166,14 @@ public final class TimelineCanvasView: NSView {
             }
             needsDisplay = true
         }
+        
+        // Trigger modification callback if we were dragging or resizing
+        if dragState != nil || resizeState != nil {
+            onClipsModified?()
+        }
+        
         dragState = nil
+        resizeState = nil
     }
 
     // MARK: - Keyboard Shortcuts
@@ -1214,7 +1225,10 @@ public final class TimelineCanvasView: NSView {
                 didDelete = true
             }
         }
-        if didDelete { needsDisplay = true }
+        if didDelete {
+            needsDisplay = true
+            onClipsModified?()
+        }
     }
 
     /// Split all clips that span the current edit cursor position.
@@ -1307,7 +1321,10 @@ public final class TimelineCanvasView: NSView {
             }
             track.midiClips.append(contentsOf: newMidiClips)
         }
-        if didSplit { needsDisplay = true }
+        if didSplit {
+            needsDisplay = true
+            onClipsModified?()
+        }
     }
 
     /// Copy all selected clips to the clipboard.

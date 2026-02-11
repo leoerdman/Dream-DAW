@@ -108,6 +108,13 @@ public final class TrackMixer {
         }
     }
 
+    /// Apply master track volume/pan to the engine's master mixer node.
+    public func applyMasterSettings(_ masterTrack: Track) {
+        let masterMixer = audioEngine.masterMixer
+        masterMixer.outputVolume = masterTrack.isMuted ? 0.0 : masterTrack.volume
+        masterMixer.pan = masterTrack.pan
+    }
+
     /// Remove all track nodes from the engine.
     public func removeAll() {
         stopAll()

@@ -58,20 +58,23 @@ public enum TrackColor: Int, Codable, CaseIterable, Sendable {
 
 /// Defines the type of content a track holds.
 public enum TrackType: String, Codable, CaseIterable, Sendable {
-    case audio = "audio"
-    case midi  = "midi"
+    case audio  = "audio"
+    case midi   = "midi"
+    case master = "master"
     
     public var displayName: String {
         switch self {
-        case .audio: return "Audio"
-        case .midi:  return "MIDI"
+        case .audio:  return "Audio"
+        case .midi:   return "MIDI"
+        case .master: return "Master"
         }
     }
     
     public var icon: String {
         switch self {
-        case .audio: return "waveform"
-        case .midi:  return "pianokeys"
+        case .audio:  return "waveform"
+        case .midi:   return "pianokeys"
+        case .master: return "speaker.wave.3.fill"
         }
     }
 }

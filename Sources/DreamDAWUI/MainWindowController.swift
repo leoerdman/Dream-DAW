@@ -20,7 +20,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         let window = NSWindow(contentRect: windowRect, styleMask: styleMask, backing: .buffered, defer: false)
 
-        window.title = "Dream DAW — \(project.name)"
+        window.title = "Dream DAW"
         window.minSize = NSSize(width: 900, height: 600)
         window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = DreamTheme.bgPrimary

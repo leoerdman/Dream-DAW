@@ -42,6 +42,9 @@ public final class Project: ObservableObject, Identifiable, Codable {
     @Published public var loopStart: TimePosition?
     @Published public var loopEnd: TimePosition?
 
+    /// Master track — always present, controls master output volume/pan.
+    @Published public var masterTrack: Track
+
     /// Project file URL (nil if unsaved).
     public var fileURL: URL?
 
@@ -61,12 +64,18 @@ public final class Project: ObservableObject, Identifiable, Codable {
         self.timeSignature = timeSignature
         self.sampleRate = sampleRate
         self.tracks = tracks
+        self.masterTrack = Track(
+            name: "Master",
+            trackType: .master,
+            color: .slate,
+            height: 40
+        )
     }
 
     // MARK: - Codable
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, bpm, timeSignature, sampleRate, tracks, loopStart, loopEnd
+        case id, name, bpm, timeSignature, sampleRate, tracks, loopStart, loopEnd, masterTrack
     }
 
     public convenience init(from decoder: Decoder) throws {
@@ -81,6 +90,9 @@ public final class Project: ObservableObject, Identifiable, Codable {
         )
         self.loopStart = try container.decodeIfPresent(TimePosition.self, forKey: .loopStart)
         self.loopEnd = try container.decodeIfPresent(TimePosition.self, forKey: .loopEnd)
+        if let master = try container.decodeIfPresent(Track.self, forKey: .masterTrack) {
+            self.masterTrack = master
+        }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -93,6 +105,7 @@ public final class Project: ObservableObject, Identifiable, Codable {
         try container.encode(tracks, forKey: .tracks)
         try container.encodeIfPresent(loopStart, forKey: .loopStart)
         try container.encodeIfPresent(loopEnd, forKey: .loopEnd)
+        try container.encode(masterTrack, forKey: .masterTrack)
     }
 
     // MARK: - Factory

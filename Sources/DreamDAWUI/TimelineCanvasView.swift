@@ -40,8 +40,17 @@ public final class TimelineCanvasView: NSView {
     /// Callback when a MIDI clip is double-clicked to open piano roll.
     public var onMidiClipDoubleClicked: ((UUID, UUID) -> Void)?  // (trackID, midiClipID)
 
+    /// Callback when a track is clicked (for detail panel).
+    public var onTrackClicked: ((UUID) -> Void)?
+
+    /// Callback when a MIDI clip is Shift+clicked (open piano roll).
+    public var onMidiClipShiftClicked: ((UUID, UUID) -> Void)?  // (trackID, midiClipID)
+
     /// Currently dragged clip info for move operations.
     private var dragState: DragState?
+
+    /// Whether we're dragging the playhead (click on empty space).
+    private var isDraggingPlayhead: Bool = false
 
     private struct DragState {
         let trackID: UUID
@@ -397,6 +406,11 @@ public final class TimelineCanvasView: NSView {
                 let clipRect = CGRect(x: clipX, y: yOffset + 2, width: clipWidth, height: track.height - 4)
 
                 if clipRect.contains(location) {
+                    // Shift+click on MIDI clip → open piano roll
+                    if event.modifierFlags.contains(.shift) {
+                        onMidiClipShiftClicked?(track.id, midiClip.id)
+                        return
+                    }
                     dragState = DragState(
                         trackID: track.id,
                         clipID: midiClip.id,
@@ -411,9 +425,21 @@ public final class TimelineCanvasView: NSView {
             yOffset += track.height
         }
 
-        // No clip clicked — set playhead position
+        // No clip clicked — start playhead drag + show track detail
         let snappedBeat = max(0, beat)
+        isDraggingPlayhead = true
         onClickPosition?(TimePosition(beats: snappedBeat))
+
+        // If click landed in a track lane, show its detail panel
+        var trackYOffset: CGFloat = -scrollOffset.y
+        for track in project.tracks {
+            let laneRect = CGRect(x: 0, y: trackYOffset, width: bounds.width, height: track.height)
+            if laneRect.contains(location) {
+                onTrackClicked?(track.id)
+                break
+            }
+            trackYOffset += track.height
+        }
     }
     
     /// Handle double-click: create MIDI clip on empty space of MIDI track,
@@ -468,9 +494,17 @@ public final class TimelineCanvasView: NSView {
     }
 
     public override func mouseDragged(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+
+        // Playhead drag mode — continuously move playhead with mouse
+        if isDraggingPlayhead {
+            let beat = max(0, Double(location.x + scrollOffset.x) / Double(pixelsPerBeat))
+            onClickPosition?(TimePosition(beats: beat))
+            return
+        }
+
         guard let dragState = dragState, let project = project else { return }
 
-        let location = convert(event.locationInWindow, from: nil)
         let deltaX = location.x - dragState.startMousePosition.x
         let deltaBeat = Double(deltaX) / Double(pixelsPerBeat)
         let newBeat = max(0, dragState.originalClipBeat + deltaBeat)
@@ -495,6 +529,7 @@ public final class TimelineCanvasView: NSView {
     }
 
     public override func mouseUp(with event: NSEvent) {
+        isDraggingPlayhead = false
         dragState = nil
     }
 

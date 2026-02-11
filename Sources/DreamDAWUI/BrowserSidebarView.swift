@@ -60,7 +60,7 @@ public final class BrowserSidebarView: NSView {
     }
 
     /// Stop any active preview playback.
-    private func stopPreview() {
+    public func stopPreview() {
         previewPlayer?.stop()
         previewPlayer = nil
     }
@@ -132,10 +132,17 @@ public final class BrowserSidebarView: NSView {
 
         // Library
         let library = BrowserNode(name: "Library", icon: "folder.fill", isGroup: true)
+
+        // Instruments sub-category with built-in synths
+        let instruments = BrowserNode(name: "Instruments", icon: "pianokeys", isGroup: true)
+        instruments.children = [
+            BrowserNode(name: "Simple Sine Synth", icon: "waveform.path"),
+        ]
+
         library.children = [
             BrowserNode(name: "Sounds", icon: "music.note"),
             BrowserNode(name: "Drums", icon: "drum.fill"),
-            BrowserNode(name: "Instruments", icon: "pianokeys"),
+            instruments,
             BrowserNode(name: "Audio Effects", icon: "wand.and.stars"),
             BrowserNode(name: "MIDI Effects", icon: "sparkles"),
             BrowserNode(name: "Plug-Ins", icon: "puzzlepiece.fill"),

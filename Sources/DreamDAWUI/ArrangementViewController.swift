@@ -34,6 +34,8 @@ public final class ArrangementViewController: NSViewController {
     private let vertDividerLeft = NSView()  // Between browser and canvas
     private let vertDividerRight = NSView() // Between canvas and track headers
     private let browserToggleView = NSView() // Browser show/hide handle
+    private let bottomPanel = BottomPanelView()
+    private let bottomPanelDivider = NSView()
 
     // State
     private var pixelsPerBeat: CGFloat = DreamTheme.defaultPixelsPerBeat
@@ -151,6 +153,15 @@ public final class ArrangementViewController: NSViewController {
         vertDividerRight.wantsLayer = true
         vertDividerRight.layer?.backgroundColor = DreamTheme.divider.cgColor
         view.addSubview(vertDividerRight)
+
+        // ===== BOTTOM: Bottom Panel (Piano Roll / Track Detail) =====
+        bottomPanel.isHidden = true
+        view.addSubview(bottomPanel)
+
+        // Horizontal divider above bottom panel
+        bottomPanelDivider.wantsLayer = true
+        bottomPanelDivider.layer?.backgroundColor = DreamTheme.divider.cgColor
+        view.addSubview(bottomPanelDivider)
     }
 
     // MARK: - Layout (Ableton Style)
@@ -174,6 +185,7 @@ public final class ArrangementViewController: NSViewController {
         let statusBarH = DreamTheme.statusBarHeight
         let headerW = DreamTheme.trackHeaderWidth
         let browserW = isBrowserVisible ? DreamTheme.browserWidth : 0
+        let bottomPanelH = bottomPanel.panelHeight
 
         // Control bar (TOP, full width)
         transportHostingView?.frame = CGRect(
@@ -190,9 +202,9 @@ public final class ArrangementViewController: NSViewController {
             height: statusBarH
         )
 
-        // Content area (between control bar and status bar)
+        // Content area (between control bar, status bar, and bottom panel)
         let contentTop = controlBarH
-        let contentHeight = bounds.height - controlBarH - statusBarH
+        let contentHeight = bounds.height - controlBarH - statusBarH - bottomPanelH
 
         // Browser sidebar (LEFT)
         browserSidebar.isHidden = !isBrowserVisible
@@ -268,6 +280,28 @@ public final class ArrangementViewController: NSViewController {
             height: canvasAreaHeight
         )
 
+        // Bottom panel
+        if bottomPanelH > 0 {
+            bottomPanel.isHidden = false
+            bottomPanel.frame = CGRect(
+                x: 0,
+                y: bounds.height - statusBarH - bottomPanelH,
+                width: bounds.width,
+                height: bottomPanelH
+            )
+            // Divider above bottom panel
+            bottomPanelDivider.isHidden = false
+            bottomPanelDivider.frame = CGRect(
+                x: 0,
+                y: bounds.height - statusBarH - bottomPanelH - 1,
+                width: bounds.width,
+                height: 1
+            )
+        } else {
+            bottomPanel.isHidden = true
+            bottomPanelDivider.isHidden = true
+        }
+
         // Track headers document size
         trackHeaders.frame.size.width = headerW
     }
@@ -282,6 +316,9 @@ public final class ArrangementViewController: NSViewController {
         }
 
         trackMixer.configureTracks(project.tracks)
+
+        // Apply master track volume/pan to the engine master mixer
+        trackMixer.applyMasterSettings(project.masterTrack)
 
         // Connect waveform renderer callback → canvas redraw
         let renderer = WaveformRenderer(waveformCache: waveformCache)
@@ -322,7 +359,11 @@ public final class ArrangementViewController: NSViewController {
         // Track changes → mixer
         trackHeaders.onTrackChanged = { [weak self] track in
             guard let self = self else { return }
-            self.trackMixer.applyTrackSettings(track)
+            if track.trackType == .master {
+                self.trackMixer.applyMasterSettings(track)
+            } else {
+                self.trackMixer.applyTrackSettings(track)
+            }
             self.canvasView.needsDisplay = true
         }
 
@@ -334,11 +375,12 @@ public final class ArrangementViewController: NSViewController {
         }
 
         // Transport state → PlaybackScheduler
-        // Play → schedule all clips; Pause/Stop → stop all players
+        // Play → stop browser preview + schedule all clips; Pause/Stop → stop all players
         transportController.onStateChange = { [weak self] state in
             guard let self = self else { return }
             switch state {
             case .playing:
+                self.browserSidebar.stopPreview()
                 self.playbackScheduler.schedulePlayback(
                     project: self.project,
                     from: self.transportController.playheadPosition
@@ -346,6 +388,33 @@ public final class ArrangementViewController: NSViewController {
             case .paused, .stopped:
                 self.playbackScheduler.stopAll()
             }
+        }
+
+        // Canvas → bottom panel: click track → show detail
+        canvasView.onTrackClicked = { [weak self] trackID in
+            guard let self = self,
+                  let track = self.project.tracks.first(where: { $0.id == trackID }) else { return }
+            self.bottomPanel.showDetail(for: track)
+            self.layoutSubviews()
+        }
+
+        // Canvas → bottom panel: Shift+click MIDI clip → open piano roll
+        canvasView.onMidiClipShiftClicked = { [weak self] trackID, clipID in
+            guard let self = self,
+                  let track = self.project.tracks.first(where: { $0.id == trackID }),
+                  let clip = track.midiClips.first(where: { $0.id == clipID }) else { return }
+            self.bottomPanel.showPianoRoll(track: track, clip: clip)
+            self.layoutSubviews()
+        }
+
+        // Bottom panel → project: note changes from piano roll
+        bottomPanel.onNotesChanged = { [weak self] track, updatedClip in
+            guard let self = self,
+                  let trackIndex = self.project.tracks.firstIndex(where: { $0.id == track.id }),
+                  let clipIndex = self.project.tracks[trackIndex].midiClips.firstIndex(where: { $0.id == updatedClip.id })
+            else { return }
+            self.project.tracks[trackIndex].midiClips[clipIndex] = updatedClip
+            self.canvasView.needsDisplay = true
         }
     }
 
@@ -372,7 +441,7 @@ public final class ArrangementViewController: NSViewController {
         rulerView.bpm = project.bpm
         rulerView.timeSignature = project.timeSignature
 
-        trackHeaders.configure(tracks: project.tracks)
+        trackHeaders.configure(tracks: project.tracks, masterTrack: project.masterTrack)
     }
 
     // MARK: - Public API
@@ -387,8 +456,9 @@ public final class ArrangementViewController: NSViewController {
 
     /// Reload track headers and canvas after tracks are added/removed.
     public func reloadTracks() {
-        trackHeaders.configure(tracks: project.tracks)
+        trackHeaders.configure(tracks: project.tracks, masterTrack: project.masterTrack)
         trackMixer.configureTracks(project.tracks)
+        trackMixer.applyMasterSettings(project.masterTrack)
         canvasView.project = project
         canvasView.needsDisplay = true
         layoutSubviews()

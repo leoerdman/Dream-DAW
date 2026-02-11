@@ -2,9 +2,11 @@ import AppKit
 import Foundation
 import DreamDAWModels
 
-// MARK: - TrackHeaderView
+// MARK: - TrackHeaderView (Ableton Live Right-Side Style)
 
-/// Renders a single track's header panel with name, color, volume, pan, and mute/solo buttons.
+/// Renders a single track header in the Ableton Live style.
+/// Layout: [ColoredName] [Routing▾] [S] [Volume] [Pan] [#]
+/// Track name is displayed on a colored background strip matching the track color.
 public final class TrackHeaderView: NSView {
 
     // MARK: - Properties
@@ -13,12 +15,15 @@ public final class TrackHeaderView: NSView {
     private let trackIndex: Int
 
     // UI Components
-    private let colorStripe = NSView()
+    private let nameBackgroundView = NSView()
     private let nameLabel = NSTextField(labelWithString: "")
-    private let volumeSlider = NSSlider()
-    private let panSlider = NSSlider()
-    private let muteButton = NSButton()
+    private let trackTypeLabel = NSTextField(labelWithString: "")
+    private let routingLabel = NSTextField(labelWithString: "")
     private let soloButton = NSButton()
+    private let muteIndicator = NSView()
+    private let trackNumberLabel = NSTextField(labelWithString: "")
+    private let volumeBar = NSView()         // Mini volume bar
+    private let volumeBarFill = NSView()     // Filled portion
 
     /// Callback when track settings change.
     public var onTrackChanged: ((Track) -> Void)?
@@ -41,61 +46,74 @@ public final class TrackHeaderView: NSView {
 
     private func setupUI() {
         wantsLayer = true
-        layer?.backgroundColor = DreamTheme.bgSecondary.cgColor
+        layer?.backgroundColor = DreamTheme.bgTrackHeader.cgColor
 
-        // Color stripe (left edge)
-        colorStripe.wantsLayer = true
-        colorStripe.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(colorStripe)
+        // Track name background (colored strip like Ableton)
+        nameBackgroundView.wantsLayer = true
+        nameBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(nameBackgroundView)
 
         // Track name
         nameLabel.font = DreamTheme.fontBodyBold
-        nameLabel.textColor = DreamTheme.textPrimary
+        nameLabel.textColor = DreamTheme.textOnColor
         nameLabel.backgroundColor = .clear
         nameLabel.isBezeled = false
         nameLabel.isEditable = false
+        nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(nameLabel)
 
-        // Volume slider
-        volumeSlider.minValue = 0
-        volumeSlider.maxValue = 1
-        volumeSlider.isContinuous = true
-        volumeSlider.target = self
-        volumeSlider.action = #selector(volumeChanged)
-        volumeSlider.translatesAutoresizingMaskIntoConstraints = false
-        volumeSlider.controlSize = .small
-        addSubview(volumeSlider)
+        // Track type label (Audio/MIDI routing)
+        trackTypeLabel.font = DreamTheme.fontSmall
+        trackTypeLabel.textColor = DreamTheme.textSecondary
+        trackTypeLabel.backgroundColor = .clear
+        trackTypeLabel.isBezeled = false
+        trackTypeLabel.isEditable = false
+        trackTypeLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(trackTypeLabel)
 
-        // Pan slider
-        panSlider.minValue = -1
-        panSlider.maxValue = 1
-        panSlider.isContinuous = true
-        panSlider.target = self
-        panSlider.action = #selector(panChanged)
-        panSlider.translatesAutoresizingMaskIntoConstraints = false
-        panSlider.controlSize = .small
-        addSubview(panSlider)
+        // Routing label ("Main ▾")
+        routingLabel.font = DreamTheme.fontSmall
+        routingLabel.textColor = DreamTheme.textSecondary
+        routingLabel.backgroundColor = .clear
+        routingLabel.isBezeled = false
+        routingLabel.isEditable = false
+        routingLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(routingLabel)
 
-        // Mute button
-        muteButton.title = "M"
-        muteButton.font = DreamTheme.fontSmall
-        muteButton.isBordered = false
-        muteButton.wantsLayer = true
-        muteButton.target = self
-        muteButton.action = #selector(muteToggled)
-        muteButton.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(muteButton)
-
-        // Solo button
+        // Solo button (S)
         soloButton.title = "S"
-        soloButton.font = DreamTheme.fontSmall
+        soloButton.font = NSFont.systemFont(ofSize: 8, weight: .bold)
         soloButton.isBordered = false
         soloButton.wantsLayer = true
         soloButton.target = self
         soloButton.action = #selector(soloToggled)
         soloButton.translatesAutoresizingMaskIntoConstraints = false
         addSubview(soloButton)
+
+        // Mini volume bar background
+        volumeBar.wantsLayer = true
+        volumeBar.layer?.backgroundColor = NSColor(white: 0.15, alpha: 1).cgColor
+        volumeBar.layer?.cornerRadius = 1
+        volumeBar.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(volumeBar)
+
+        // Volume fill
+        volumeBarFill.wantsLayer = true
+        volumeBarFill.layer?.backgroundColor = DreamTheme.accentGreen.withAlphaComponent(0.6).cgColor
+        volumeBarFill.layer?.cornerRadius = 1
+        volumeBarFill.translatesAutoresizingMaskIntoConstraints = false
+        volumeBar.addSubview(volumeBarFill)
+
+        // Track number
+        trackNumberLabel.font = DreamTheme.fontMonoSmall
+        trackNumberLabel.textColor = DreamTheme.textMuted
+        trackNumberLabel.alignment = .right
+        trackNumberLabel.backgroundColor = .clear
+        trackNumberLabel.isBezeled = false
+        trackNumberLabel.isEditable = false
+        trackNumberLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(trackNumberLabel)
 
         // Bottom divider
         let divider = NSView()
@@ -104,39 +122,53 @@ public final class TrackHeaderView: NSView {
         divider.translatesAutoresizingMaskIntoConstraints = false
         addSubview(divider)
 
+        // Mute click target (entire name area)
+        let clickGesture = NSClickGestureRecognizer(target: self, action: #selector(nameAreaClicked))
+        clickGesture.numberOfClicksRequired = 2
+        nameBackgroundView.addGestureRecognizer(clickGesture)
+
         // Layout
         NSLayoutConstraint.activate([
-            // Color stripe
-            colorStripe.leadingAnchor.constraint(equalTo: leadingAnchor),
-            colorStripe.topAnchor.constraint(equalTo: topAnchor),
-            colorStripe.bottomAnchor.constraint(equalTo: bottomAnchor),
-            colorStripe.widthAnchor.constraint(equalToConstant: 4),
+            // Name background (colored strip) — left portion
+            nameBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            nameBackgroundView.topAnchor.constraint(equalTo: topAnchor),
+            nameBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            nameBackgroundView.widthAnchor.constraint(equalToConstant: 72),
 
-            // Name
-            nameLabel.leadingAnchor.constraint(equalTo: colorStripe.trailingAnchor, constant: 8),
-            nameLabel.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-            nameLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            // Name label inside colored strip
+            nameLabel.leadingAnchor.constraint(equalTo: nameBackgroundView.leadingAnchor, constant: 4),
+            nameLabel.trailingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor, constant: -2),
+            nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -6),
 
-            // Mute/Solo buttons
-            muteButton.leadingAnchor.constraint(equalTo: colorStripe.trailingAnchor, constant: 8),
-            muteButton.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 4),
-            muteButton.widthAnchor.constraint(equalToConstant: 22),
-            muteButton.heightAnchor.constraint(equalToConstant: 18),
+            // Track type under name
+            trackTypeLabel.leadingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor, constant: 4),
+            trackTypeLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -6),
 
-            soloButton.leadingAnchor.constraint(equalTo: muteButton.trailingAnchor, constant: 4),
-            soloButton.topAnchor.constraint(equalTo: muteButton.topAnchor),
-            soloButton.widthAnchor.constraint(equalToConstant: 22),
-            soloButton.heightAnchor.constraint(equalToConstant: 18),
+            // Routing label
+            routingLabel.leadingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor, constant: 4),
+            routingLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 6),
 
-            // Volume slider
-            volumeSlider.leadingAnchor.constraint(equalTo: colorStripe.trailingAnchor, constant: 8),
-            volumeSlider.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            volumeSlider.topAnchor.constraint(equalTo: muteButton.bottomAnchor, constant: 4),
+            // Solo button
+            soloButton.trailingAnchor.constraint(equalTo: volumeBar.leadingAnchor, constant: -4),
+            soloButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            soloButton.widthAnchor.constraint(equalToConstant: 16),
+            soloButton.heightAnchor.constraint(equalToConstant: 14),
 
-            // Pan slider
-            panSlider.leadingAnchor.constraint(equalTo: colorStripe.trailingAnchor, constant: 8),
-            panSlider.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            panSlider.topAnchor.constraint(equalTo: volumeSlider.bottomAnchor, constant: 2),
+            // Volume bar
+            volumeBar.trailingAnchor.constraint(equalTo: trackNumberLabel.leadingAnchor, constant: -6),
+            volumeBar.centerYAnchor.constraint(equalTo: centerYAnchor),
+            volumeBar.widthAnchor.constraint(equalToConstant: 40),
+            volumeBar.heightAnchor.constraint(equalToConstant: 6),
+
+            // Volume fill (left-aligned within bar, width set dynamically)
+            volumeBarFill.leadingAnchor.constraint(equalTo: volumeBar.leadingAnchor),
+            volumeBarFill.topAnchor.constraint(equalTo: volumeBar.topAnchor),
+            volumeBarFill.bottomAnchor.constraint(equalTo: volumeBar.bottomAnchor),
+
+            // Track number (far right)
+            trackNumberLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            trackNumberLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            trackNumberLabel.widthAnchor.constraint(equalToConstant: 24),
 
             // Bottom divider
             divider.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -146,58 +178,75 @@ public final class TrackHeaderView: NSView {
         ])
     }
 
+    public override func layout() {
+        super.layout()
+        updateVolumeFill()
+    }
+
     private func updateFromTrack() {
         nameLabel.stringValue = track.name
-        colorStripe.layer?.backgroundColor = track.color.nsColor.cgColor
-        volumeSlider.doubleValue = Double(track.volume)
-        panSlider.doubleValue = Double(track.pan)
+        nameBackgroundView.layer?.backgroundColor = track.color.nsColor.cgColor
+        trackTypeLabel.stringValue = track.trackType.displayName
+        routingLabel.stringValue = "Main ▾"
+        trackNumberLabel.stringValue = "\(trackIndex + 1)"
         updateButtonStates()
+        updateVolumeFill()
+    }
+
+    private func updateVolumeFill() {
+        let barWidth = volumeBar.bounds.width
+        let fillWidth = barWidth * CGFloat(track.volume)
+        volumeBarFill.frame = CGRect(
+            x: 0, y: 0,
+            width: fillWidth,
+            height: volumeBar.bounds.height
+        )
+
+        // Gray out if muted
+        let fillColor = track.isMuted
+            ? NSColor(white: 0.3, alpha: 0.5)
+            : DreamTheme.accentGreen.withAlphaComponent(0.6)
+        volumeBarFill.layer?.backgroundColor = fillColor.cgColor
     }
 
     private func updateButtonStates() {
-        let muteColor = track.isMuted ? DreamTheme.muteButton : DreamTheme.textMuted
-        muteButton.contentTintColor = muteColor
-        muteButton.layer?.backgroundColor = track.isMuted
-            ? DreamTheme.muteButton.withAlphaComponent(0.2).cgColor
-            : NSColor.clear.cgColor
-        muteButton.layer?.cornerRadius = 3
-
         let soloColor = track.isSoloed ? DreamTheme.soloButton : DreamTheme.textMuted
         soloButton.contentTintColor = soloColor
         soloButton.layer?.backgroundColor = track.isSoloed
             ? DreamTheme.soloButton.withAlphaComponent(0.2).cgColor
             : NSColor.clear.cgColor
-        soloButton.layer?.cornerRadius = 3
+        soloButton.layer?.cornerRadius = 2
+
+        // Mute state shown via dimmed name
+        if track.isMuted {
+            nameBackgroundView.alphaValue = 0.4
+            nameLabel.alphaValue = 0.4
+        } else {
+            nameBackgroundView.alphaValue = 1.0
+            nameLabel.alphaValue = 1.0
+        }
     }
 
     // MARK: - Actions
-
-    @objc private func volumeChanged() {
-        track.volume = Float(volumeSlider.doubleValue)
-        onTrackChanged?(track)
-    }
-
-    @objc private func panChanged() {
-        track.pan = Float(panSlider.doubleValue)
-        onTrackChanged?(track)
-    }
-
-    @objc private func muteToggled() {
-        track.isMuted.toggle()
-        updateButtonStates()
-        onTrackChanged?(track)
-    }
 
     @objc private func soloToggled() {
         track.isSoloed.toggle()
         updateButtonStates()
         onTrackChanged?(track)
     }
+
+    @objc private func nameAreaClicked() {
+        track.isMuted.toggle()
+        updateButtonStates()
+        updateVolumeFill()
+        onTrackChanged?(track)
+    }
 }
 
 // MARK: - TrackHeadersContainerView
 
-/// Vertical stack of all track headers, synchronized with track lane scroll.
+/// Vertical stack of all track headers, positioned on the RIGHT side of the arrangement.
+/// Synchronized with track lane scroll.
 public final class TrackHeadersContainerView: NSView {
 
     // MARK: - Properties
@@ -235,7 +284,6 @@ public final class TrackHeadersContainerView: NSView {
 
     /// Scroll to match the timeline vertical scroll position.
     public func setVerticalOffset(_ offset: CGFloat) {
-        // We adjust our bounds origin to simulate scrolling
         setBoundsOrigin(NSPoint(x: 0, y: offset))
     }
 }

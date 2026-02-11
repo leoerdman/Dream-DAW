@@ -27,6 +27,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .visible
         window.isMovableByWindowBackground = false
+        window.collectionBehavior = [.fullScreenPrimary]
         window.center()
 
         super.init(window: window)
@@ -37,6 +38,24 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         // Set up content
         let arrangementVC = ArrangementViewController(project: project)
         window.contentViewController = arrangementVC
+        
+        // Monitor double-click on title bar to toggle fullscreen
+        // This works regardless of macOS system preference
+        NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak window] event in
+            guard let window = window,
+                  event.clickCount == 2 else { return event }
+            
+            // Check if click is in the title bar area (above content view)
+            let locationInWindow = event.locationInWindow
+            let contentFrame = window.contentLayoutRect
+            let titleBarMinY = contentFrame.maxY
+            
+            if locationInWindow.y >= titleBarMinY {
+                window.toggleFullScreen(nil)
+                return nil // consume the event
+            }
+            return event
+        }
         
         // Load app icon
         loadAppIcon()

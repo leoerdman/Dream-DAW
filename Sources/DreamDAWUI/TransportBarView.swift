@@ -2,10 +2,10 @@ import SwiftUI
 import DreamDAWModels
 import DreamDAWEngine
 
-// MARK: - TransportBarView
+// MARK: - TransportBarView (Ableton-Style Top Control Bar)
 
-/// SwiftUI transport bar with play/stop controls, BPM, and position display.
-/// Hosted inside the main AppKit window.
+/// Compact top control bar matching Ableton Live 11 layout.
+/// Layout: [Tap | BPM | TimeSig | Quantize] | [◀ Play ▶ Stop ● Rec] | [Position Counter] | [Loop] | [Key] [MIDI] [CPU]
 public struct TransportBarView: View {
 
     @ObservedObject var transportController: TransportController
@@ -18,119 +18,196 @@ public struct TransportBarView: View {
 
     public var body: some View {
         HStack(spacing: 0) {
-            // Left: Transport controls
-            HStack(spacing: 12) {
-                // Stop button
-                TransportButton(
-                    icon: "stop.fill",
-                    isActive: transportController.state == .stopped,
-                    activeColor: .white,
-                    action: { transportController.stop() }
-                )
-
-                // Play/Pause button
-                TransportButton(
-                    icon: transportController.state == .playing ? "pause.fill" : "play.fill",
-                    isActive: transportController.state == .playing,
-                    activeColor: Color(nsColor: DreamTheme.accent),
-                    action: { transportController.togglePlayPause() }
-                )
-
-                // Loop toggle
-                TransportButton(
-                    icon: "repeat",
-                    isActive: transportController.isLooping,
-                    activeColor: Color(nsColor: DreamTheme.accentSecondary),
-                    action: { transportController.isLooping.toggle() }
-                )
-            }
-            .padding(.horizontal, 16)
-
-            Divider()
-                .frame(height: 24)
-                .background(Color(nsColor: DreamTheme.divider))
-
-            // Center: Position display
-            HStack(spacing: 20) {
-                // Bars:Beats:Ticks display
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("POSITION")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(Color(nsColor: DreamTheme.textMuted))
-                    Text(transportController.playheadPosition.displayString(
-                        beatsPerBar: transportController.timeSignature.beatsPerBar
-                    ))
-                    .font(.system(size: 18, weight: .semibold, design: .monospaced))
-                    .foregroundColor(Color(nsColor: DreamTheme.textPrimary))
-                }
-
-                // Time display
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("TIME")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(Color(nsColor: DreamTheme.textMuted))
-                    Text(transportController.playheadPosition.timeDisplayString(bpm: transportController.bpm))
-                        .font(.system(size: 18, weight: .semibold, design: .monospaced))
-                        .foregroundColor(Color(nsColor: DreamTheme.textPrimary))
-                }
-            }
-            .padding(.horizontal, 20)
-
-            Divider()
-                .frame(height: 24)
-                .background(Color(nsColor: DreamTheme.divider))
-
-            // Right: BPM and Time Signature
-            HStack(spacing: 20) {
-                // BPM
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("BPM")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(Color(nsColor: DreamTheme.textMuted))
-                    Text(String(format: "%.1f", project.bpm))
-                        .font(.system(size: 18, weight: .semibold, design: .monospaced))
-                        .foregroundColor(Color(nsColor: DreamTheme.accent))
-                }
-
-                // Time signature
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("TIME SIG")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(Color(nsColor: DreamTheme.textMuted))
-                    Text(project.timeSignature.displayString)
-                        .font(.system(size: 18, weight: .semibold, design: .monospaced))
-                        .foregroundColor(Color(nsColor: DreamTheme.textPrimary))
-                }
-            }
-            .padding(.horizontal, 16)
-
+            // Left section: Tempo & Time
+            leftSection
+            
+            thinDivider
+            
+            // Center: Transport controls
+            centerSection
+            
+            thinDivider
+            
+            // Position display
+            positionSection
+            
+            thinDivider
+            
+            // Loop toggle
+            loopSection
+            
             Spacer()
-
-            // CPU/Load indicator placeholder
-            HStack(spacing: 6) {
-                Image(systemName: "cpu")
-                    .font(.system(size: 10))
-                    .foregroundColor(Color(nsColor: DreamTheme.textMuted))
-                Text("0%")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundColor(Color(nsColor: DreamTheme.textMuted))
-            }
-            .padding(.trailing, 16)
+            
+            thinDivider
+            
+            // Right: Key, MIDI, CPU
+            rightSection
         }
-        .frame(height: DreamTheme.transportBarHeight)
+        .frame(height: DreamTheme.controlBarHeight)
         .background(Color(nsColor: DreamTheme.bgTransport))
         .overlay(
             Rectangle()
                 .frame(height: 1)
                 .foregroundColor(Color(nsColor: DreamTheme.divider)),
-            alignment: .top
+            alignment: .bottom
         )
+    }
+    
+    // MARK: - Left Section (Tempo)
+    
+    private var leftSection: some View {
+        HStack(spacing: 2) {
+            // Tap tempo
+            ControlBarButton(label: "Tap", action: {})
+            
+            // BPM
+            HStack(spacing: 2) {
+                Text(String(format: "%.2f", project.bpm))
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(Color(nsColor: DreamTheme.textPrimary))
+            }
+            .padding(.horizontal, 6)
+            
+            // Time signature
+            HStack(spacing: 1) {
+                Text("\(project.timeSignature.numerator)")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(Color(nsColor: DreamTheme.textPrimary))
+                Text("/")
+                    .font(.system(size: 9, weight: .regular))
+                    .foregroundColor(Color(nsColor: DreamTheme.textMuted))
+                Text("\(project.timeSignature.denominator)")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(Color(nsColor: DreamTheme.textPrimary))
+            }
+            .padding(.horizontal, 4)
+            
+            thinDivider
+            
+            // Quantize selector
+            Text("1/4")
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(Color(nsColor: DreamTheme.textSecondary))
+                .padding(.horizontal, 6)
+        }
+        .padding(.leading, 8)
+    }
+    
+    // MARK: - Center Section (Transport Controls)
+    
+    private var centerSection: some View {
+        HStack(spacing: 1) {
+            // Play button
+            AbletonTransportBtn(
+                icon: "play.fill",
+                isActive: transportController.state == .playing,
+                activeColor: Color(nsColor: DreamTheme.accentGreen),
+                action: { transportController.togglePlayPause() }
+            )
+            
+            // Stop button
+            AbletonTransportBtn(
+                icon: "stop.fill",
+                isActive: transportController.state == .stopped,
+                activeColor: Color(nsColor: DreamTheme.textPrimary),
+                action: { transportController.stop() }
+            )
+            
+            // Record button
+            AbletonTransportBtn(
+                icon: "circle.fill",
+                isActive: false,
+                activeColor: Color(nsColor: DreamTheme.armButton),
+                action: {}
+            )
+        }
+        .padding(.horizontal, 6)
+    }
+    
+    // MARK: - Position Display
+    
+    private var positionSection: some View {
+        HStack(spacing: 8) {
+            // Bars.Beats.Ticks
+            Text(transportController.playheadPosition.displayString(
+                beatsPerBar: transportController.timeSignature.beatsPerBar
+            ))
+            .font(.system(size: 14, weight: .semibold, design: .monospaced))
+            .foregroundColor(Color(nsColor: DreamTheme.accent))
+            .frame(minWidth: 90, alignment: .trailing)
+        }
+        .padding(.horizontal, 10)
+    }
+    
+    // MARK: - Loop Section
+    
+    private var loopSection: some View {
+        HStack(spacing: 4) {
+            Button(action: { transportController.isLooping.toggle() }) {
+                Image(systemName: "repeat")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(
+                        transportController.isLooping
+                            ? Color(nsColor: DreamTheme.accentSecondary)
+                            : Color(nsColor: DreamTheme.textMuted)
+                    )
+                    .frame(width: 22, height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(transportController.isLooping
+                                  ? Color(nsColor: DreamTheme.accentSecondary).opacity(0.15)
+                                  : Color.clear)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 6)
+    }
+    
+    // MARK: - Right Section (Indicators)
+    
+    private var rightSection: some View {
+        HStack(spacing: 8) {
+            // Key indicator
+            Text("Key")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(Color(nsColor: DreamTheme.textMuted))
+            
+            // MIDI indicator
+            HStack(spacing: 2) {
+                Text("MIDI")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(Color(nsColor: DreamTheme.midiIndicator))
+            }
+            
+            thinDivider
+            
+            // CPU meter
+            HStack(spacing: 3) {
+                Image(systemName: "cpu")
+                    .font(.system(size: 9))
+                    .foregroundColor(Color(nsColor: DreamTheme.textMuted))
+                Text("0%")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(Color(nsColor: DreamTheme.textMuted))
+            }
+        }
+        .padding(.horizontal, 8)
+    }
+    
+    // MARK: - Helpers
+    
+    private var thinDivider: some View {
+        Rectangle()
+            .fill(Color(nsColor: DreamTheme.divider))
+            .frame(width: 1, height: 20)
     }
 }
 
-// MARK: - TransportButton
+// MARK: - AbletonTransportBtn
 
-struct TransportButton: View {
+/// Minimal flat transport button matching Ableton style.
+struct AbletonTransportBtn: View {
     let icon: String
     let isActive: Bool
     let activeColor: Color
@@ -139,21 +216,36 @@ struct TransportButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(isActive ? activeColor : Color(nsColor: DreamTheme.textSecondary))
-                .frame(width: 28, height: 28)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(isActive ? activeColor : Color(nsColor: DreamTheme.textMuted))
+                .frame(width: 24, height: 24)
                 .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(isActive ? activeColor.opacity(0.15) : Color.clear)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(isActive ? activeColor.opacity(0.12) : Color.clear)
                 )
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
-            if hovering {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
+    }
+}
+
+// MARK: - ControlBarButton
+
+struct ControlBarButton: View {
+    let label: String
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(Color(nsColor: DreamTheme.textSecondary))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color(nsColor: DreamTheme.bgSurface).opacity(0.5))
+                )
         }
+        .buttonStyle(.plain)
     }
 }

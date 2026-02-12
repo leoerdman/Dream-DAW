@@ -105,7 +105,7 @@ public final class ArrangementViewController: NSViewController {
 
     // Pinned master track
     private var masterHeaderView: TrackHeaderView?
-    private let masterLaneView = NSView()           // Canvas-width lane for master
+    private let masterLaneView = MasterLaneView()    // Subclassed for grid + clicks
     private let masterSeparator = NSView()           // Divider above master lane
 
     // State
@@ -392,7 +392,7 @@ public final class ArrangementViewController: NSViewController {
         view.addSubview(masterSeparator)
 
         masterLaneView.wantsLayer = true
-        masterLaneView.layer?.backgroundColor = NSColor(white: 0.14, alpha: 1).cgColor  // Slightly lighter
+        masterLaneView.layer?.backgroundColor = DreamTheme.bgSecondary.cgColor
         view.addSubview(masterLaneView)
 
         // ===== LEFT: Browser Sidebar (On TOP of Canvas) =====
@@ -516,8 +516,9 @@ public final class ArrangementViewController: NSViewController {
             height: canvasAreaHeight
         )
 
-        // Canvas document size — only regular tracks (not master)
-        let totalTrackHeight = project.tracks.reduce(CGFloat(0)) { $0 + $1.height }
+        // Canvas document size — only regular tracks (respect folding)
+        let visibleTracks = project.allVisibleTracks.filter { $0.trackType != .master }
+        let totalTrackHeight = visibleTracks.reduce(CGFloat(0)) { $0 + $1.height }
         let totalWidth = CGFloat(project.totalDuration.beats) * pixelsPerBeat
         canvasView.frame = NSRect(
             x: 0, y: 0,
@@ -539,6 +540,28 @@ public final class ArrangementViewController: NSViewController {
             y: canvasTop,
             width: headerW,
             height: canvasAreaHeight
+        )
+
+        // ===== Master Track Layout (Pinned) =====
+        masterSeparator.frame = CGRect(
+            x: canvasStartX,
+            y: contentTop + contentHeight - masterRegionH,
+            width: bounds.width - canvasStartX,
+            height: masterSepH
+        )
+        
+        masterLaneView.frame = CGRect(
+            x: canvasStartX,
+            y: contentTop + contentHeight - masterH,
+            width: canvasWidth,
+            height: masterH
+        )
+        
+        masterHeaderView?.frame = CGRect(
+            x: canvasEndX + 1,
+            y: contentTop + contentHeight - masterH,
+            width: headerW,
+            height: masterH
         )
 
 
@@ -735,18 +758,9 @@ public final class ArrangementViewController: NSViewController {
         canvasView.onClickPosition = { [weak self] position in
             self?.transportController.seek(to: position)
         }
-
-        trackHeaders.onAddTrack = { [weak self] isAudio in
-            self?.orchestrator.addTrack(type: isAudio ? .audio : .midi)
-            self?.reloadTracks()
-        }
-
-        trackHeaders.onDeleteTrack = { [weak self] trackID in
-            self?.deleteTrack(id: trackID)
-        }
-
-        trackHeaders.onHeaderClicked = { [weak self] trackID in
-            self?.selectTrack(trackID)
+        masterLaneView.onTrackClicked = { [weak self] in
+            guard let self = self else { return }
+            self.selectTrack(self.project.masterTrack.id)
         }
 
         // Transport position updates → canvas and ruler
@@ -837,7 +851,7 @@ public final class ArrangementViewController: NSViewController {
         }
 
         // Right-click context menu: Add Audio / MIDI Track
-        trackHeaders.onAddTrack = { [weak self] isAudio in
+        trackHeaders.onAddTrack = { [weak self] (isAudio: Bool) in
             guard let self = self else { return }
             self.addTrack(isAudio: isAudio)
         }
@@ -921,8 +935,8 @@ public final class ArrangementViewController: NSViewController {
         }
         
         // Track Headers → Click → Select Track
-        trackHeaders.onHeaderClicked = { [weak self] trackID in
-            self?.selectTrack(trackID)
+        trackHeaders.onHeaderClicked = { [weak self] trackID, isShift in
+            self?.handleTrackSelection(trackID, isShift: isShift)
         }
 
         // Canvas → track: browser item dropped (instrument or effect)
@@ -1015,16 +1029,24 @@ public final class ArrangementViewController: NSViewController {
         project.isDirty = true
 
         switch nodeType {
-        case "instrument":
+        case "instrument", "vst2", "vst3":
             // Only MIDI tracks accept instruments
             guard track.trackType == .midi else { return }
-            let instrumentType: InstrumentType
-            switch itemName {
-            case "Simple Sine Synth": instrumentType = .sineSynth
-            case "Sampler":          instrumentType = .sampler
-            default: return
+            
+            if nodeType == "vst2" || nodeType == "vst3" {
+                let type: InstrumentType = (nodeType == "vst2") ? .vst2 : .vst3
+                let config = InstrumentConfig(instrumentType: type)
+                config.pluginIdentifier = itemName // Path
+                track.instrument = config
+            } else {
+                let instrumentType: InstrumentType
+                switch itemName {
+                case "Simple Sine Synth": instrumentType = .sineSynth
+                case "Sampler":          instrumentType = .sampler
+                default: return
+                }
+                track.instrument = InstrumentConfig(instrumentType: instrumentType)
             }
-            track.instrument = InstrumentConfig(instrumentType: instrumentType)
 
         case "audioEffect":
             // Any track accepts audio effects — map browser name to effect type
@@ -1039,6 +1061,13 @@ public final class ArrangementViewController: NSViewController {
             default:                  effectType = .eq
             }
             let effect = AudioEffectConfig(effectType: effectType)
+            track.effects.append(effect)
+
+        case "vst2", "vst3":
+            // External plugins
+            let type: AudioEffectType = (nodeType == "vst2") ? .vst2 : .vst3
+            let effect = AudioEffectConfig(effectType: type)
+            effect.pluginIdentifier = itemName // For VSTs, itemName is the path
             track.effects.append(effect)
 
         case "midiEffect":
@@ -1080,6 +1109,9 @@ public final class ArrangementViewController: NSViewController {
         // Sync ruler horizontal position
         rulerView.scrollOffset = clipBounds.origin.x
 
+        // Sync master lane horizontal grid position
+        masterLaneView.scrollOffset = clipBounds.origin.x
+
         // Canvas draws in document coordinates — no need to pass scrollOffset.
         // The NSScrollView handles viewport clipping automatically.
     }
@@ -1095,18 +1127,24 @@ public final class ArrangementViewController: NSViewController {
         pixelsPerBeat = min(DreamTheme.maxPixelsPerBeat, max(DreamTheme.minPixelsPerBeat, ppb))
         rulerView.pixelsPerBeat = pixelsPerBeat
         canvasView.pixelsPerBeat = pixelsPerBeat
+        masterLaneView.pixelsPerBeat = pixelsPerBeat
         layoutSubviews()
     }
 
     /// Reload track headers and canvas after tracks are added/removed.
-    /// Reload track headers and canvas after tracks are added/removed.
     @objc public func reloadTracks() {
-        trackHeaders.configure(tracks: project.tracks)
+        // Only show regular tracks in the scrollable header area (folded logic respected)
+        let visibleTracks = project.allVisibleTracks.filter { $0.trackType != .master }
+        trackHeaders.configure(tracks: visibleTracks)
         
-        // Update master header
+        // Update master header (Pinned at bottom)
         masterHeaderView?.removeFromSuperview()
         let mh = TrackHeaderView(track: project.masterTrack, index: project.tracks.count)
         mh.onTrackChanged = { [weak self] track in self?.refreshAudio() }
+        mh.onHeaderClicked = { [weak self] trackID, isShift in
+            guard let self = self else { return }
+            self.handleTrackSelection(trackID, isShift: isShift)
+        }
         masterHeaderView = mh
         view.addSubview(mh)
         
@@ -1118,6 +1156,8 @@ public final class ArrangementViewController: NSViewController {
     public func updateTrackLayout() {
         trackHeaders.updateLayoutInPlace()
         canvasView.needsDisplay = true // Redraw lanes
+        masterLaneView.pixelsPerBeat = pixelsPerBeat // Sync master grid zoom
+        masterLaneView.timeSignature = project.timeSignature // Sync grid lines
         layoutSubviews() // Re-position vertical dividers and master
     }
     
@@ -1126,8 +1166,20 @@ public final class ArrangementViewController: NSViewController {
         masterHeaderView?.removeFromSuperview()
         let mh = TrackHeaderView(track: project.masterTrack, index: project.tracks.count)
         mh.onTrackChanged = { [weak self] track in self?.refreshAudio() }
+        mh.onHeaderClicked = { [weak self] trackID, isShift in
+            guard let self = self else { return }
+            self.handleTrackSelection(trackID, isShift: isShift)
+        }
         masterHeaderView = mh
         view.addSubview(mh)
+        
+        masterLaneView.onEditCursorChanged = { [weak self] position in
+            guard let self = self else { return }
+            self.canvasView.editCursor = EditCursor(trackID: self.project.masterTrack.id, position: position)
+            // Also select the track
+            self.selectTrack(self.project.masterTrack.id)
+        }
+        
         view.needsLayout = true
     }
 
@@ -1434,7 +1486,7 @@ public final class ArrangementViewController: NSViewController {
 
         // Pre-fill filename with current project name
         let currentVersion = fm.projectFolderURL != nil ? fm.currentVersion : 1
-        panel.nameFieldStringValue = "\(project.name) V\(currentVersion)"
+        panel.nameFieldStringValue = project.name
         panel.allowedContentTypes = [.init(filenameExtension: ProjectFileManager.fileExtension) ?? .data]
         panel.canCreateDirectories = true
         panel.title = "Save Project"
@@ -1538,15 +1590,16 @@ public final class ArrangementViewController: NSViewController {
         rulerView.timeSignature = project.timeSignature
 
         // Sync loop state from project → transport & ruler
-        if let ls = project.loopStart {
+        if let ls = project.loopStart, let le = project.loopEnd {
             transportController.loopStart = ls
             rulerView.loopStart = ls
-        }
-        if let le = project.loopEnd {
             transportController.loopEnd = le
             rulerView.loopEnd = le
         }
-
+        
+        masterLaneView.timeSignature = project.timeSignature
+        masterLaneView.pixelsPerBeat = pixelsPerBeat
+        
         trackHeaders.configure(tracks: project.tracks)
         configureMasterHeader()
         
@@ -1624,32 +1677,53 @@ public final class ArrangementViewController: NSViewController {
     // MARK: - Safe Selection Logic
     
     private func selectTrack(_ trackID: UUID) {
+        handleTrackSelection(trackID, isShift: false)
+    }
+
+    private func handleTrackSelection(_ trackID: UUID, isShift: Bool) {
         // 1. Update Project State
-        project.selectedTrackID = trackID
-        
-        // 2. Update Track Headers Visual State
-        for header in trackHeaders.headerViews {
-            header.isSelected = (header.trackID == trackID)
+        if isShift {
+            // Toggle: if already selected → deselect, otherwise → add
+            if project.selectedTrackIDs.contains(trackID) {
+                project.selectedTrackIDs.remove(trackID)
+                // If the removed track was the primary, pick another (or nil)
+                if project.primarySelectedTrackID == trackID {
+                    project.primarySelectedTrackID = project.selectedTrackIDs.first
+                }
+            } else {
+                project.selectedTrackIDs.insert(trackID)
+                project.primarySelectedTrackID = trackID
+            }
+        } else {
+            // Normal click: single-select
+            project.selectedTrackIDs = [trackID]
+            project.primarySelectedTrackID = trackID
         }
         
-        // 3. Show Details in Bottom Panel
-        if let track = project.tracks.first(where: { $0.id == trackID }) {
+        // 2. Update Headers Visual State
+        for header in trackHeaders.headerViews {
+            header.isSelected = project.selectedTrackIDs.contains(header.trackID)
+        }
+        if let masterHeader = masterHeaderView {
+            masterHeader.isSelected = project.selectedTrackIDs.contains(masterHeader.trackID)
+        }
+        masterLaneView.isSelected = project.selectedTrackIDs.contains(project.masterTrack.id)
+        
+        // 3. Show Details in Bottom Panel for the primary (most recently clicked) track
+        guard let primaryID = project.primarySelectedTrackID else {
+            bottomPanel.mode = .hidden
+            layoutSubviews()
+            return
+        }
+        
+        let track = (primaryID == project.masterTrack.id)
+            ? project.masterTrack
+            : project.tracks.first(where: { $0.id == primaryID })
+        
+        if let track = track {
             bottomPanel.showDetail(for: track)
-            
-            // Ensure bottom panel is visible and layout is updated (unless it's hidden explicitly by user, but usually selection implies showing it)
-            if bottomPanel.isHidden {
-                // If the user selects a track, we generally want to show its details
-                 bottomPanel.mode = .detail(track)
-                 layoutSubviews()
-            } else if case .pianoRoll = bottomPanel.mode {
-                // If piano roll is open, maybe keep it open?
-                // But for now, let's switch to detail to show track controls
-                bottomPanel.mode = .detail(track)
-                layoutSubviews()
-            } else {
-                 bottomPanel.mode = .detail(track)
-                 layoutSubviews()
-            }
+            bottomPanel.mode = .detail(track)
+            layoutSubviews()
         }
     }
 
@@ -1663,8 +1737,12 @@ public final class ArrangementViewController: NSViewController {
         // Track-specific cleanup
         trackMixer.stopPlayer(for: id)
         
-        if project.selectedTrackID == id {
-            project.selectedTrackID = nil
+        // Clean up selection state (multi-selection aware)
+        project.selectedTrackIDs.remove(id)
+        if project.primarySelectedTrackID == id {
+            project.primarySelectedTrackID = project.selectedTrackIDs.first
+        }
+        if project.selectedTrackIDs.isEmpty {
             bottomPanel.mode = .hidden
             layoutSubviews()
         }
@@ -1761,3 +1839,76 @@ private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
+// MARK: - Specialized Views for Arrangement
+
+/// A pinned background lane for the Master track that stays synced with the horizontal grid.
+internal class MasterLaneView: NSView {
+    var onTrackClicked: (() -> Void)?
+    var onEditCursorChanged: ((TimePosition) -> Void)?
+    var isSelected: Bool = false { didSet { needsDisplay = true } }
+    
+    var scrollOffset: CGFloat = 0 {
+        didSet {
+            gridLayer.scrollOffset = scrollOffset
+        }
+    }
+    
+    var pixelsPerBeat: CGFloat = DreamTheme.defaultPixelsPerBeat {
+        didSet {
+            gridLayer.pixelsPerBeat = pixelsPerBeat
+        }
+    }
+    
+    var timeSignature: TimeSignature = TimeSignature() {
+        didSet {
+            gridLayer.timeSignature = timeSignature
+        }
+    }
+    
+    private let gridLayer = GridLayer()
+    
+    override init(frame: NSRect = .zero) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.backgroundColor = DreamTheme.bgSecondary.cgColor
+        
+        gridLayer.actions = ["position": NSNull(), "bounds": NSNull()]
+        gridLayer.pixelsPerBeat = self.pixelsPerBeat
+        gridLayer.timeSignature = self.timeSignature
+        layer?.addSublayer(gridLayer)
+        
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil))
+    }
+    
+    required init?(coder: NSCoder) { fatalError() }
+    
+    override func layout() {
+        super.layout()
+        gridLayer.frame = bounds
+        gridLayer.setNeedsDisplay()
+    }
+    
+    override func draw(_ dirtyRect: NSRect) {
+        if isSelected {
+            let path = NSBezierPath(rect: bounds)
+            NSColor.systemBlue.withAlphaComponent(0.15).set()
+            path.fill()
+        }
+    }
+    
+    override func mouseDown(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        let rawBeat = (location.x + scrollOffset) / pixelsPerBeat
+        
+        // Use snapping logic similar to TimelineCanvasView
+        let snapInterval: Double = pixelsPerBeat > 40 ? 0.25 : 1.0
+        let clickBeat = (Double(rawBeat) / snapInterval).rounded() * snapInterval
+        
+        onEditCursorChanged?(TimePosition(beats: max(0, clickBeat)))
+        onTrackClicked?()
+    }
+    
+    override func mouseMoved(with event: NSEvent) {
+        NSCursor.crosshair.set()
+    }
+}

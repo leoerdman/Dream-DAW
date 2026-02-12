@@ -22,16 +22,23 @@ public final class SamplerView: NSView {
     private let waveformView = WaveformView()
     private let sidebar = NSView()
     private let mainContent = NSView()
-    private let parameterBar = NSView()
-    private let lowerSection = NSView()
+    private let tabSectionsContainer = NSView()
+    private let editTabContent = NSView()
+    private let controlTabContent = NSView()
+    
+    // Tabs
+    private enum SamplerTab { case edit, control }
+    private var activeTab: SamplerTab = .edit
     
     // Controls
+    // Callback buttons
     private var modeButtons: [NSButton] = []
-    private let volumeKnob = DAWKnob(label: "Volume")
-    private let startControl = DAWNumberControl(label: "Start", unit: "%")
-    private let endControl = DAWNumberControl(label: "End", unit: "%")
-    private let loopControl = DAWNumberControl(label: "Loop", unit: "%")
-    private let fadeControl = DAWNumberControl(label: "Fade", unit: "%")
+    
+    private let volumeKnob = DAWKnob(label: "VOL")
+    private let startControl = DAWNumberControl(label: "START", unit: "%")
+    private let endControl = DAWNumberControl(label: "END", unit: "%")
+    private let loopControl = DAWNumberControl(label: "LOOP", unit: "%")
+    private let fadeControl = DAWNumberControl(label: "FADE", unit: "%")
     
     // ADSR Knobs
     private let attackKnob = DAWKnob(label: "Attack")
@@ -40,7 +47,7 @@ public final class SamplerView: NSView {
     private let releaseKnob = DAWKnob(label: "Release")
     
     // Filter
-    private let filterToggle = NSButton(checkboxWithTitle: "Filter", target: nil, action: nil)
+    private var filterToggle: NSButton!
     private let cutoffKnob = DAWKnob(label: "Freq")
     private let resKnob = DAWKnob(label: "Res")
     // Callbacks
@@ -53,6 +60,9 @@ public final class SamplerView: NSView {
         self.config = config
         self.track = track
         super.init(frame: .zero)
+        let fToggle = NSButton(checkboxWithTitle: "", target: self, action: #selector(filterToggled))
+        self.filterToggle = fToggle
+        
         setupUI()
         updateUI()
         registerForDraggedTypes([.fileURL, .browserItem])
@@ -68,137 +78,25 @@ public final class SamplerView: NSView {
         wantsLayer = true
         setupGradients()
         
-        // --- Sidebar ---
-        sidebar.wantsLayer = true
-        sidebar.layer?.backgroundColor = NSColor(white: 0.12, alpha: 1.0).cgColor
+        // Add top-level subviews
         addSubview(sidebar)
-        
-        setupSidebar()
-        
-        // --- Main Content ---
         addSubview(mainContent)
         
-        // Waveform
-        mainContent.addSubview(waveformView)
+        // --- Tab Content Area ---
+        mainContent.addSubview(tabSectionsContainer)
+        tabSectionsContainer.addSubview(editTabContent)
+        tabSectionsContainer.addSubview(controlTabContent)
         
-        // Parameter Bar (Gain, Start, etc.)
-        parameterBar.wantsLayer = true
-        parameterBar.layer?.backgroundColor = NSColor(white: 0.18, alpha: 1.0).cgColor
-        mainContent.addSubview(parameterBar)
-        setupParameterBar()
+        setupEditTab()
+        setupControlTab()
+        setupCallbacks()
+        updateTabVisibility()
         
-        // Lower Section (Filter, LFO, Env)
-        lowerSection.wantsLayer = true
-        lowerSection.layer?.backgroundColor = NSColor(white: 0.22, alpha: 1.0).cgColor
-        mainContent.addSubview(lowerSection)
-        setupLowerSection()
-        
+        setupSidebar()
         setupConstraints()
     }
-    
-    private func setupGradients() {
-        wantsLayer = true
-        let grad = CAGradientLayer()
-        grad.colors = [
-            NSColor(white: 0.2, alpha: 1.0).cgColor,
-            NSColor(white: 0.15, alpha: 1.0).cgColor
-        ]
-        grad.frame = bounds
-        grad.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        layer?.addSublayer(grad)
-    }
-    
-    private func setupConstraints() {
-        sidebar.translatesAutoresizingMaskIntoConstraints = false
-        mainContent.translatesAutoresizingMaskIntoConstraints = false
-        waveformView.translatesAutoresizingMaskIntoConstraints = false
-        parameterBar.translatesAutoresizingMaskIntoConstraints = false
-        lowerSection.translatesAutoresizingMaskIntoConstraints = false
-        
-        NSLayoutConstraint.activate([
-            sidebar.topAnchor.constraint(equalTo: topAnchor),
-            sidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
-            sidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
-            sidebar.widthAnchor.constraint(equalToConstant: 44),
-            
-            mainContent.topAnchor.constraint(equalTo: topAnchor),
-            mainContent.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
-            mainContent.trailingAnchor.constraint(equalTo: trailingAnchor),
-            mainContent.bottomAnchor.constraint(equalTo: bottomAnchor),
-            
-            waveformView.topAnchor.constraint(equalTo: mainContent.topAnchor),
-            waveformView.leadingAnchor.constraint(equalTo: mainContent.leadingAnchor),
-            waveformView.trailingAnchor.constraint(equalTo: mainContent.trailingAnchor),
-            waveformView.heightAnchor.constraint(equalToConstant: 80),
-            
-            parameterBar.topAnchor.constraint(equalTo: waveformView.bottomAnchor),
-            parameterBar.leadingAnchor.constraint(equalTo: mainContent.leadingAnchor),
-            parameterBar.trailingAnchor.constraint(equalTo: mainContent.trailingAnchor),
-            parameterBar.heightAnchor.constraint(equalToConstant: 32),
-            
-            lowerSection.topAnchor.constraint(equalTo: parameterBar.bottomAnchor),
-            lowerSection.leadingAnchor.constraint(equalTo: mainContent.leadingAnchor),
-            lowerSection.trailingAnchor.constraint(equalTo: mainContent.trailingAnchor),
-            lowerSection.bottomAnchor.constraint(equalTo: mainContent.bottomAnchor)
-        ])
-    }
-    
-    private func setupSidebar() {
-        let sidebarStack = NSStackView()
-        sidebarStack.orientation = .vertical
-        sidebarStack.spacing = 4
-        sidebarStack.edgeInsets = NSEdgeInsets(top: 8, left: 2, bottom: 8, right: 2)
-        sidebarStack.alignment = .centerX
-        sidebar.addSubview(sidebarStack)
-        
-        sidebarStack.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            sidebarStack.topAnchor.constraint(equalTo: sidebar.topAnchor),
-            sidebarStack.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),
-            sidebarStack.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor)
-        ])
-        
-        let modes = ["Classic", "1-Shot", "Slice"]
-        for mode in modes {
-            let btn = NSButton(title: mode, target: self, action: #selector(modeSelected(_:)))
-            btn.bezelStyle = .recessed
-            btn.setButtonType(.pushOnPushOff)
-            btn.controlSize = .small
-            btn.font = NSFont.systemFont(ofSize: 9, weight: .medium)
-            
-            btn.translatesAutoresizingMaskIntoConstraints = false
-            btn.heightAnchor.constraint(equalToConstant: 32).isActive = true
-            btn.widthAnchor.constraint(equalToConstant: 36).isActive = true
-            
-            sidebarStack.addArrangedSubview(btn)
-            modeButtons.append(btn)
-        }
-    }
-    
-    private func setupParameterBar() {
-        let parameterStack = NSStackView()
-        parameterStack.orientation = .horizontal
-        parameterStack.spacing = 8
-        parameterStack.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
-        parameterStack.alignment = .centerY
-        parameterBar.addSubview(parameterStack)
-        
-        parameterStack.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            parameterStack.topAnchor.constraint(equalTo: parameterBar.topAnchor),
-            parameterStack.bottomAnchor.constraint(equalTo: parameterBar.bottomAnchor),
-            parameterStack.leadingAnchor.constraint(equalTo: parameterBar.leadingAnchor),
-            parameterStack.trailingAnchor.constraint(equalTo: parameterBar.trailingAnchor)
-        ])
-        
-        let controls = [startControl, endControl, loopControl, fadeControl]
-        for ctrl in controls {
-            parameterStack.addArrangedSubview(ctrl)
-            ctrl.translatesAutoresizingMaskIntoConstraints = false
-            ctrl.widthAnchor.constraint(equalToConstant: 65).isActive = true
-            ctrl.heightAnchor.constraint(equalToConstant: 24).isActive = true
-        }
-        
+
+    private func setupCallbacks() {
         startControl.onValueChanged = { [weak self] val in 
             self?.config.startPercent = val
             self?.onParameterChanged?()
@@ -215,85 +113,6 @@ public final class SamplerView: NSView {
             self?.config.fadePercent = val
             self?.onParameterChanged?()
         }
-    }
-    
-    private func setupLowerSection() {
-        let mainStack = NSStackView()
-        mainStack.orientation = .horizontal
-        mainStack.spacing = 15 // Reduced from 20
-        mainStack.edgeInsets = NSEdgeInsets(top: 2, left: 10, bottom: 2, right: 10) // Tighter
-        mainStack.alignment = .centerY
-        lowerSection.addSubview(mainStack)
-        
-        mainStack.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            mainStack.topAnchor.constraint(equalTo: lowerSection.topAnchor),
-            mainStack.bottomAnchor.constraint(equalTo: lowerSection.bottomAnchor),
-            mainStack.leadingAnchor.constraint(equalTo: lowerSection.leadingAnchor),
-            mainStack.trailingAnchor.constraint(equalTo: lowerSection.trailingAnchor)
-        ])
-        
-        // Filter Group
-        let filterSection = NSStackView()
-        filterSection.orientation = .vertical
-        filterSection.spacing = 8
-        filterSection.alignment = .centerX
-        
-        let filterHeader = NSTextField(labelWithString: "FILTER")
-        filterHeader.font = NSFont.systemFont(ofSize: 9, weight: .bold)
-        filterHeader.textColor = NSColor(white: 0.5, alpha: 1.0)
-        filterSection.addArrangedSubview(filterHeader)
-        
-        let filterControls = NSStackView()
-        filterControls.spacing = 12
-        filterControls.alignment = .centerY
-        filterControls.addArrangedSubview(filterToggle)
-        filterControls.addArrangedSubview(cutoffKnob)
-        filterControls.addArrangedSubview(resKnob)
-        filterSection.addArrangedSubview(filterControls)
-        
-        mainStack.addArrangedSubview(filterSection)
-        
-        // Divider
-        mainStack.addArrangedSubview(makeDivider())
-        
-        // Envelope Group
-        let envStack = NSStackView()
-        envStack.orientation = .vertical
-        envStack.spacing = 2
-        envStack.alignment = .centerX
-        
-        let envLabel = NSTextField(labelWithString: "ENVELOPES")
-        envLabel.font = NSFont.systemFont(ofSize: 8, weight: .bold)
-        envLabel.textColor = NSColor(white: 0.6, alpha: 1.0)
-        envStack.addArrangedSubview(envLabel)
-        
-        let knobStack = NSStackView()
-        knobStack.spacing = 10
-        knobStack.addArrangedSubview(attackKnob)
-        knobStack.addArrangedSubview(decayKnob)
-        knobStack.addArrangedSubview(sustainKnob)
-        knobStack.addArrangedSubview(releaseKnob)
-        envStack.addArrangedSubview(knobStack)
-        
-        mainStack.addArrangedSubview(envStack)
-
-        // Divider
-        mainStack.addArrangedSubview(makeDivider())
-
-        // Volume Group
-        let volSection = NSStackView()
-        volSection.orientation = .vertical
-        volSection.spacing = 8
-        volSection.alignment = .centerX
-        
-        let volHeader = NSTextField(labelWithString: "GLOBAL")
-        volHeader.font = NSFont.systemFont(ofSize: 9, weight: .bold)
-        volHeader.textColor = NSColor(white: 0.5, alpha: 1.0)
-        volSection.addArrangedSubview(volHeader)
-        
-        volSection.addArrangedSubview(volumeKnob)
-        mainStack.addArrangedSubview(volSection)
         
         attackKnob.onValueChanged = { [weak self] v in 
             self?.config.attack = v
@@ -311,10 +130,242 @@ public final class SamplerView: NSView {
             self?.config.release = v
             self?.onParameterChanged?()
         }
+        
+        cutoffKnob.onValueChanged = { [weak self] v in
+            self?.config.filterCutoff = v
+            self?.onParameterChanged?()
+        }
+        resKnob.onValueChanged = { [weak self] v in
+            self?.config.filterResonance = v
+            self?.onParameterChanged?()
+        }
+        
         volumeKnob.onValueChanged = { [weak self] v in
             self?.config.gain = Float(v * 2.0)
             self?.onParameterChanged?()
         }
+        
+        filterToggle.target = self
+        filterToggle.action = #selector(filterToggled)
+    }
+
+    @objc private func filterToggled() {
+        config.filterEnabled = (filterToggle.state == .on)
+        onParameterChanged?()
+    }
+    
+    private func setupGradients() {
+        wantsLayer = true
+        let grad = CAGradientLayer()
+        grad.colors = [
+            NSColor(white: 0.2, alpha: 1.0).cgColor,
+            NSColor(white: 0.15, alpha: 1.0).cgColor
+        ]
+        grad.frame = bounds
+        grad.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        layer?.addSublayer(grad)
+    }
+    
+    private func setupConstraints() {
+        sidebar.translatesAutoresizingMaskIntoConstraints = false
+        mainContent.translatesAutoresizingMaskIntoConstraints = false
+        tabSectionsContainer.translatesAutoresizingMaskIntoConstraints = false
+        editTabContent.translatesAutoresizingMaskIntoConstraints = false
+        controlTabContent.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            sidebar.topAnchor.constraint(equalTo: topAnchor),
+            sidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            sidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
+            sidebar.widthAnchor.constraint(equalToConstant: 72),
+            
+            mainContent.topAnchor.constraint(equalTo: topAnchor),
+            mainContent.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
+            mainContent.trailingAnchor.constraint(equalTo: trailingAnchor),
+            mainContent.bottomAnchor.constraint(equalTo: bottomAnchor),
+            
+            tabSectionsContainer.topAnchor.constraint(equalTo: mainContent.topAnchor),
+            tabSectionsContainer.leadingAnchor.constraint(equalTo: mainContent.leadingAnchor),
+            tabSectionsContainer.trailingAnchor.constraint(equalTo: mainContent.trailingAnchor),
+            tabSectionsContainer.bottomAnchor.constraint(equalTo: mainContent.bottomAnchor),
+            
+            editTabContent.topAnchor.constraint(equalTo: tabSectionsContainer.topAnchor),
+            editTabContent.leadingAnchor.constraint(equalTo: tabSectionsContainer.leadingAnchor),
+            editTabContent.trailingAnchor.constraint(equalTo: tabSectionsContainer.trailingAnchor),
+            editTabContent.bottomAnchor.constraint(equalTo: tabSectionsContainer.bottomAnchor),
+            
+            controlTabContent.topAnchor.constraint(equalTo: tabSectionsContainer.topAnchor),
+            controlTabContent.leadingAnchor.constraint(equalTo: tabSectionsContainer.leadingAnchor),
+            controlTabContent.trailingAnchor.constraint(equalTo: tabSectionsContainer.trailingAnchor),
+            controlTabContent.bottomAnchor.constraint(equalTo: tabSectionsContainer.bottomAnchor)
+        ])
+    }
+    
+    private func setupSidebar() {
+        let sidebarStack = NSStackView()
+        sidebarStack.orientation = .vertical
+        sidebarStack.spacing = 8
+        sidebarStack.edgeInsets = NSEdgeInsets(top: 10, left: 6, bottom: 10, right: 6)
+        sidebarStack.alignment = .centerX
+        sidebar.addSubview(sidebarStack)
+        
+        sidebarStack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            sidebarStack.topAnchor.constraint(equalTo: sidebar.topAnchor),
+            sidebarStack.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),
+            sidebarStack.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor)
+        ])
+        
+        // --- Modes ---
+        let modes = SamplerMode.allCases
+        for mode in modes {
+            let btn = createSidebarButton(title: mode.displayName, action: #selector(modeSelected(_:)))
+            btn.tag = modes.firstIndex(of: mode) ?? 0
+            sidebarStack.addArrangedSubview(btn)
+            modeButtons.append(btn)
+        }
+        
+        // Initial state
+        updateModeButtons()
+    }
+    
+    private func updateModeButtons() {
+        let currentMode = config.samplerMode
+        let modes = SamplerMode.allCases
+        for (i, btn) in modeButtons.enumerated() {
+            btn.state = (modes[i] == currentMode) ? .on : .off
+        }
+    }
+
+    private func createSidebarButton(title: String, action: Selector) -> NSButton {
+        let btn = NSButton(title: title, target: self, action: action)
+        btn.bezelStyle = .recessed
+        btn.setButtonType(.pushOnPushOff)
+        btn.controlSize = .small
+        btn.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        btn.heightAnchor.constraint(equalToConstant: 32).isActive = true
+        btn.widthAnchor.constraint(equalToConstant: 60).isActive = true
+        return btn
+    }
+
+    public func setCurrentTab(_ index: Int) {
+        // 0 = Edit, 1 = Control
+        activeTab = (index == 1) ? .control : .edit
+        updateTabVisibility()
+    }
+
+    private func updateTabVisibility() {
+        editTabContent.isHidden = (activeTab != .edit)
+        controlTabContent.isHidden = (activeTab != .control)
+    }
+
+    private func setupEditTab() {
+        // Massive Waveform + Main Params
+        editTabContent.addSubview(waveformView)
+        
+        let pBar = NSView()
+        pBar.wantsLayer = true
+        pBar.layer?.backgroundColor = NSColor(white: 0.1, alpha: 0.5).cgColor
+        pBar.layer?.cornerRadius = 4
+        editTabContent.addSubview(pBar)
+        
+        waveformView.translatesAutoresizingMaskIntoConstraints = false
+        pBar.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            waveformView.topAnchor.constraint(equalTo: editTabContent.topAnchor, constant: 4),
+            waveformView.leadingAnchor.constraint(equalTo: editTabContent.leadingAnchor, constant: 4),
+            waveformView.trailingAnchor.constraint(equalTo: editTabContent.trailingAnchor, constant: -4),
+            waveformView.bottomAnchor.constraint(equalTo: editTabContent.bottomAnchor, constant: -44),
+            
+            pBar.bottomAnchor.constraint(equalTo: editTabContent.bottomAnchor, constant: -4),
+            pBar.leadingAnchor.constraint(equalTo: editTabContent.leadingAnchor, constant: 4),
+            pBar.heightAnchor.constraint(equalToConstant: 34)
+        ])
+        
+        // Add controls to pBar
+        let parameterStack = NSStackView()
+        parameterStack.orientation = .horizontal
+        parameterStack.spacing = 8
+        parameterStack.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
+        parameterStack.alignment = .centerY
+        pBar.addSubview(parameterStack)
+        
+        parameterStack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            parameterStack.topAnchor.constraint(equalTo: pBar.topAnchor),
+            parameterStack.bottomAnchor.constraint(equalTo: pBar.bottomAnchor),
+            parameterStack.leadingAnchor.constraint(equalTo: pBar.leadingAnchor),
+            parameterStack.trailingAnchor.constraint(equalTo: pBar.trailingAnchor)
+        ])
+        
+        let controls = [startControl, endControl, loopControl, fadeControl]
+        for ctrl in controls {
+            parameterStack.addArrangedSubview(ctrl)
+            ctrl.translatesAutoresizingMaskIntoConstraints = false
+            ctrl.widthAnchor.constraint(equalToConstant: 72).isActive = true
+        }
+        
+        // Volume Knob (Pinned Bottom Right)
+        editTabContent.addSubview(volumeKnob)
+        volumeKnob.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            volumeKnob.trailingAnchor.constraint(equalTo: editTabContent.trailingAnchor, constant: -12),
+            volumeKnob.bottomAnchor.constraint(equalTo: editTabContent.bottomAnchor, constant: -2),
+            volumeKnob.widthAnchor.constraint(equalToConstant: 44),
+            volumeKnob.heightAnchor.constraint(equalToConstant: 50)
+        ])
+    }
+
+    private func setupControlTab() {
+        // Envelopes, Filter, Modulation
+        let mainStack = NSStackView()
+        mainStack.orientation = .horizontal
+        mainStack.spacing = 30
+        mainStack.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
+        mainStack.alignment = .centerY
+        controlTabContent.addSubview(mainStack)
+        
+        mainStack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            mainStack.centerXAnchor.constraint(equalTo: controlTabContent.centerXAnchor),
+            mainStack.centerYAnchor.constraint(equalTo: controlTabContent.centerYAnchor)
+        ])
+        
+        // ENV
+        let envStack = createGroup(title: "AMPLITUDE ENVELOPE", items: [attackKnob, decayKnob, sustainKnob, releaseKnob])
+        mainStack.addArrangedSubview(envStack)
+        
+        mainStack.addArrangedSubview(makeDivider())
+        
+        // FILTER
+        let filterControls = NSStackView()
+        filterControls.spacing = 15
+        filterControls.addArrangedSubview(filterToggle)
+        filterControls.addArrangedSubview(cutoffKnob)
+        filterControls.addArrangedSubview(resKnob)
+        let filterStack = createGroup(title: "FILTER", items: [filterControls])
+        mainStack.addArrangedSubview(filterStack)
+    }
+
+    private func createGroup(title: String, items: [NSView]) -> NSStackView {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 12
+        stack.alignment = .centerX
+        
+        let label = NSTextField(labelWithString: title)
+        label.font = NSFont.systemFont(ofSize: 8, weight: .bold)
+        label.textColor = NSColor(white: 0.5, alpha: 1.0)
+        stack.addArrangedSubview(label)
+        
+        let subStack = NSStackView()
+        subStack.spacing = 10
+        items.forEach { subStack.addArrangedSubview($0) }
+        stack.addArrangedSubview(subStack)
+        
+        return stack
     }
 
     private func makeDivider() -> NSView {
@@ -348,11 +399,20 @@ public final class SamplerView: NSView {
         
         cutoffKnob.value = config.filterCutoff
         resKnob.value = config.filterResonance
+        filterToggle.state = config.filterEnabled ? .on : .off
         volumeKnob.value = Double(config.gain / 2.0)
+        
+        updateModeButtons()
     }
 
     @objc private func modeSelected(_ sender: NSButton) {
-        // Toggle behavior logic
+        let modes = SamplerMode.allCases
+        guard sender.tag < modes.count else { return }
+        
+        let newMode = modes[sender.tag]
+        config.samplerMode = newMode
+        updateModeButtons()
+        onParameterChanged?()
     }
     
     // MARK: - Drag and Drop
@@ -408,17 +468,8 @@ public final class SamplerView: NSView {
     
     public override func layout() {
         super.layout()
-        gradientLayer?.frame = bounds
-        sidebar.frame = NSRect(x: 0, y: 0, width: 44, height: bounds.height)
-        mainContent.frame = NSRect(x: 44, y: 0, width: bounds.width - 44, height: bounds.height)
-        
-        let barH: CGFloat = 28
-        let lowerH: CGFloat = bounds.height * 0.45
-        let waveH = bounds.height - barH - lowerH
-        
-        waveformView.frame = NSRect(x: 0, y: barH + lowerH, width: mainContent.bounds.width, height: waveH)
-        parameterBar.frame = NSRect(x: 0, y: lowerH, width: mainContent.bounds.width, height: barH)
-        lowerSection.frame = NSRect(x: 0, y: 0, width: mainContent.bounds.width, height: lowerH)
+        // WaveformView needs a frame for its CGPath generation
+        // but we manage the main layout via constraints.
     }
 }
 
@@ -432,20 +483,29 @@ class WaveformView: NSView {
         Task.detached(priority: .userInitiated) {
             do {
                 let file = try AVAudioFile(forReading: url)
-                let format = file.processingFormat
                 let frameCount = AVAudioFrameCount(file.length)
-                guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return }
+                guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: frameCount) else { return }
                 try file.read(into: buffer)
                 
                 await MainActor.run {
                     self.buffer = buffer
-                    self.path = self.generateWaveformPath(from: buffer, size: self.bounds.size)
-                    self.needsDisplay = true
+                    self.updatePath()
                 }
             } catch {
                 print("Failed to load sampler waveform: \(error)")
             }
         }
+    }
+    
+    override func layout() {
+        super.layout()
+        updatePath()
+    }
+    
+    private func updatePath() {
+        guard let buffer = buffer else { return }
+        self.path = generateWaveformPath(from: buffer, size: bounds.size)
+        self.needsDisplay = true
     }
     
     private func generateWaveformPath(from buffer: AVAudioPCMBuffer, size: CGSize) -> CGPath? {
@@ -545,34 +605,43 @@ class DAWKnob: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         
-        let center = CGPoint(x: bounds.midX, y: bounds.maxY - 18)
-        let radius: CGFloat = 10
+        let center = CGPoint(x: bounds.midX, y: bounds.midY + 4)
+        let radius: CGFloat = 12
+        
+        // Glow Effect
+        ctx.setShadow(offset: .zero, blur: 5, color: NSColor.systemBlue.withAlphaComponent(0.3).cgColor)
         
         // Title
+        let pStyle = NSMutableParagraphStyle()
+        pStyle.alignment = .center
         let attr: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 7, weight: .bold),
-            .foregroundColor: NSColor(white: 0.6, alpha: 1.0)
+            .font: NSFont.systemFont(ofSize: 8, weight: .bold),
+            .foregroundColor: NSColor(white: 0.7, alpha: 1.0),
+            .paragraphStyle: pStyle
         ]
-        let str = NSAttributedString(string: label, attributes: attr)
-        str.draw(at: CGPoint(x: center.x - str.size().width/2, y: bounds.minY + 4))
+        let str = NSAttributedString(string: label.uppercased(), attributes: attr)
+        str.draw(in: CGRect(x: 0, y: 2, width: bounds.width, height: 12))
         
         // Track
-        ctx.setStrokeColor(NSColor(white: 0.1, alpha: 1.0).cgColor)
-        ctx.setLineWidth(3.0)
-        ctx.addArc(center: center, radius: radius, startAngle: 0.75 * .pi, endAngle: 2.25 * .pi, clockwise: false)
+        ctx.setStrokeColor(NSColor(white: 0.08, alpha: 1.0).cgColor)
+        ctx.setLineWidth(4.0)
+        ctx.setLineCap(.round)
+        ctx.addArc(center: center, radius: radius, startAngle: 0.8 * .pi, endAngle: 2.2 * .pi, clockwise: false)
         ctx.strokePath()
         
-        // Active
-        ctx.setStrokeColor(NSColor(red: 0.1, green: 0.7, blue: 0.9, alpha: 1.0).cgColor)
-        let endAngle = 0.75 * .pi + (value * 1.5 * .pi)
-        ctx.addArc(center: center, radius: radius, startAngle: 0.75 * .pi, endAngle: endAngle, clockwise: false)
+        // Active (Gradient/Glass)
+        let endAngle = 0.8 * .pi + (value * 1.4 * .pi)
+        ctx.setStrokeColor(NSColor.systemBlue.cgColor)
+        ctx.addArc(center: center, radius: radius, startAngle: 0.8 * .pi, endAngle: endAngle, clockwise: false)
         ctx.strokePath()
         
-        // Knob dot
-        let dotX = center.x + cos(endAngle) * (radius - 4)
-        let dotY = center.y + sin(endAngle) * (radius - 4)
-        ctx.setFillColor(NSColor.white.cgColor)
-        ctx.fillEllipse(in: CGRect(x: dotX - 1.5, y: dotY - 1.5, width: 3, height: 3))
+        // Indicator Line
+        ctx.setStrokeColor(NSColor.white.cgColor)
+        ctx.setLineWidth(2.0)
+        ctx.move(to: center)
+        let tip = CGPoint(x: center.x + cos(endAngle) * radius, y: center.y + sin(endAngle) * radius)
+        ctx.addLine(to: tip)
+        ctx.strokePath()
     }
     
     override func mouseDown(with event: NSEvent) {
@@ -623,28 +692,36 @@ class DAWNumberControl: NSView {
         ctx.setFillColor(NSColor(white: 0.1, alpha: 1.0).cgColor)
         ctx.fill(bounds)
         
-        // Robust attribute creation (avoiding nil insertion crashes)
-        let font = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
-        let lFont = NSFont.systemFont(ofSize: 7, weight: .medium)
+        // --- Robust Attribute Creation ---
+        // We use explicit NSObjects and check for nil to avoid SIGABRT bridged-dictionary crashes
+        let fontValue: NSFont = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
+        let lFontValue: NSFont = NSFont.systemFont(ofSize: 7, weight: .medium)
+        let colorValue: NSColor = NSColor(red: 0.1, green: 0.8, blue: 0.9, alpha: 1.0)
+        let lColorValue: NSColor = NSColor(white: 0.5, alpha: 1.0)
+
+        let attr = [
+            NSAttributedString.Key.font: fontValue,
+            NSAttributedString.Key.foregroundColor: colorValue
+        ] as [NSAttributedString.Key: Any]
         
-        let attr: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: NSColor(red: 0.1, green: 0.8, blue: 0.9, alpha: 1.0)
-        ]
+        let lAttr = [
+            NSAttributedString.Key.font: lFontValue,
+            NSAttributedString.Key.foregroundColor: lColorValue
+        ] as [NSAttributedString.Key: Any]
         
-        let lAttr: [NSAttributedString.Key: Any] = [
-            .font: lFont,
-            .foregroundColor: NSColor(white: 0.5, alpha: 1.0)
-        ]
+        // --- Render Value ---
+        let valStrRaw = String(format: "%.1f", value) + " " + unit
+        let str = NSAttributedString(string: valStrRaw, attributes: attr)
+        let strSize = str.size()
+        str.draw(at: CGPoint(x: 4, y: (bounds.height - strSize.height)/2))
         
-        // Text
-        let valStr = String(format: "%.1f", value) + " " + unit
-        let str = NSAttributedString(string: valStr, attributes: attr)
-        str.draw(at: CGPoint(x: 4, y: (bounds.height - str.size().height)/2))
-        
-        // Label
-        let lStr = NSAttributedString(string: label.uppercased(), attributes: lAttr)
-        lStr.draw(at: CGPoint(x: bounds.width - lStr.size().width - 4, y: (bounds.height - lStr.size().height)/2))
+        // --- Render Label ---
+        let labelText = label.uppercased()
+        if !labelText.isEmpty {
+            let lStr = NSAttributedString(string: labelText, attributes: lAttr)
+            let lSize = lStr.size()
+            lStr.draw(at: CGPoint(x: bounds.width - lSize.width - 4, y: (bounds.height - lSize.height)/2))
+        }
     }
     
     override func mouseDown(with event: NSEvent) {

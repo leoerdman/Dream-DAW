@@ -55,8 +55,29 @@ public final class Project: ObservableObject, Identifiable, Codable {
     /// View state persistence (Horizontal scroll position in beats)
     public var viewScrollPosition: Double?
 
-    /// Selected track ID (persisted)
-    public var selectedTrackID: UUID?
+    /// Multi-selection: set of all currently selected track IDs.
+    /// This is runtime-only UI state — NOT persisted to the project file.
+    public var selectedTrackIDs: Set<UUID> = []
+    
+    /// The most recently clicked/selected track (deterministic, unlike Set.first).
+    /// Used by bottom panel, clip selection, etc.
+    public var primarySelectedTrackID: UUID?
+    
+    /// Backward compatibility alias. Uses `primarySelectedTrackID` for reads,
+    /// sets single-selection for writes.
+    public var selectedTrackID: UUID? {
+        get { primarySelectedTrackID }
+        set {
+            if let val = newValue {
+                selectedTrackIDs = [val]
+                primarySelectedTrackID = val
+            } else {
+                selectedTrackIDs = []
+                primarySelectedTrackID = nil
+            }
+        }
+    }
+
     /// Whether the project has unsaved changes.
     @Published public var isDirty: Bool = false
 
@@ -89,7 +110,7 @@ public final class Project: ObservableObject, Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, bpm, timeSignature, sampleRate, tracks, isLooping, loopStart, loopEnd, masterTrack
-        case viewZoomScale, viewScrollPosition, selectedTrackID
+        case viewZoomScale, viewScrollPosition
     }
 
     public convenience init(from decoder: Decoder) throws {
@@ -110,7 +131,6 @@ public final class Project: ObservableObject, Identifiable, Codable {
         }
         self.viewZoomScale = try container.decodeIfPresent(Double.self, forKey: .viewZoomScale)
         self.viewScrollPosition = try container.decodeIfPresent(Double.self, forKey: .viewScrollPosition)
-        self.selectedTrackID = try container.decodeIfPresent(UUID.self, forKey: .selectedTrackID)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -127,7 +147,6 @@ public final class Project: ObservableObject, Identifiable, Codable {
         try container.encode(masterTrack, forKey: .masterTrack)
         try container.encodeIfPresent(viewZoomScale, forKey: .viewZoomScale)
         try container.encodeIfPresent(viewScrollPosition, forKey: .viewScrollPosition)
-        try container.encodeIfPresent(selectedTrackID, forKey: .selectedTrackID)
     }
 
     // MARK: - Factory
@@ -246,7 +265,25 @@ public final class Project: ObservableObject, Identifiable, Codable {
     }
     
     /// Returns all tracks that should be visible in the arrangement (including Master).
+    /// Respects the `isExpanded` state of parent group tracks.
     public var allVisibleTracks: [Track] {
-        return tracks + [masterTrack]
+        let trackMap = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+        
+        let filteredTracks = tracks.filter { track in
+            var currentParentID = track.parentTrackID
+            while let parentID = currentParentID {
+                if let parent = trackMap[parentID] {
+                    if !parent.isExpanded {
+                        return false
+                    }
+                    currentParentID = parent.parentTrackID
+                } else {
+                    break
+                }
+            }
+            return true
+        }
+        
+        return filteredTracks + [masterTrack]
     }
 }

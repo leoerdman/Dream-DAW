@@ -481,52 +481,24 @@ public final class BottomPanelView: NSView {
 
     // MARK: - Effect Slot Builder
 
-    /// Creates an Ableton-style effect slot view.
     private func makeEffectSlot(effect: AudioEffectConfig, index: Int, track: Track, frame: CGRect) -> NSView {
-        let slot = NSView(frame: frame)
-        slot.wantsLayer = true
-        slot.layer?.cornerRadius = 4
-        slot.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1).cgColor
-        slot.layer?.borderWidth = 1
-        slot.layer?.borderColor = NSColor(white: 0.22, alpha: 1).cgColor
-
-        // ── Colored header bar (effect type color) ──
-        let headerH: CGFloat = 18
-        let headerBar = NSView(frame: CGRect(x: 0, y: 0, width: frame.width, height: headerH))
-        headerBar.wantsLayer = true
-        headerBar.layer?.cornerRadius = 4
-        headerBar.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-        headerBar.layer?.backgroundColor = effectHeaderColor(for: effect.effectType).cgColor
-        slot.addSubview(headerBar)
-
-        // Effect name in header
-        let nameLabel = NSTextField(labelWithString: effect.effectType.displayName)
-        nameLabel.font = NSFont.systemFont(ofSize: 9, weight: .semibold)
-        nameLabel.textColor = .white
-        nameLabel.lineBreakMode = .byTruncatingTail
-        nameLabel.frame = CGRect(x: 4, y: 1, width: frame.width - 20, height: 16)
-        headerBar.addSubview(nameLabel)
-
-        // Power indicator (enabled/disabled)
-        let powerDot = NSView(frame: CGRect(x: frame.width - 12, y: 5, width: 6, height: 6))
-        powerDot.wantsLayer = true
-        powerDot.layer?.cornerRadius = 3
-        powerDot.layer?.backgroundColor = effect.isEnabled
-            ? NSColor(red: 0.3, green: 0.9, blue: 0.4, alpha: 1).cgColor
-            : NSColor(white: 0.4, alpha: 1).cgColor
-        headerBar.addSubview(powerDot)
+        let slot = PluginSlotView(title: effect.effectType.displayName, frame: frame)
+        slot.isEnabled = effect.isEnabled
+        slot.onToggle = { [weak effect, weak self] newState in
+            effect?.isEnabled = newState
+            self?.onEffectParameterChanged?(track.id)
+        }
 
         // ── Plugin-specific content ──
-        let contentY = headerH + 2
-        let contentH = frame.height - headerH - 4
-
-        switch effect.effectType {
+        let contentH = frame.height - 18 - 4
+        let contentWrap = NSView(frame: CGRect(x: 0, y: 0, width: frame.width, height: contentH))
+            switch effect.effectType {
         case .utility:
             // Gain knob centered
             let knobSize: CGFloat = min(contentH - 8, 50)
             let knob = KnobView(frame: CGRect(
                 x: (frame.width - knobSize) / 2,
-                y: contentY + (contentH - knobSize - 14) / 2,
+                y: (contentH - knobSize - 14) / 2,
                 width: knobSize,
                 height: knobSize + 14
             ))
@@ -538,115 +510,114 @@ public final class BottomPanelView: NSView {
             knob.arcColor = NSColor(red: 0.95, green: 0.75, blue: 0.25, alpha: 1.0)
             knob.onValueChanged = { [weak effect, weak self] newValue in
                 effect?.gainDB = newValue
-                // Notify the audio engine to re-apply track settings
                 self?.onEffectParameterChanged?(track.id)
             }
-            slot.addSubview(knob)
+            contentWrap.addSubview(knob)
 
             // "Gain" label
             let gainLabel = NSTextField(labelWithString: "Gain")
             gainLabel.font = NSFont.systemFont(ofSize: 8, weight: .medium)
             gainLabel.textColor = NSColor(white: 0.5, alpha: 1)
             gainLabel.alignment = .center
-            gainLabel.frame = CGRect(x: 0, y: contentY + 2, width: frame.width, height: 10)
-            slot.addSubview(gainLabel)
+            gainLabel.frame = CGRect(x: 0, y: 2, width: frame.width, height: 10)
+            contentWrap.addSubview(gainLabel)
 
         case .eq:
             // Mini EQ curve visualization
-            let curveView = MiniEQCurveView(frame: CGRect(x: 4, y: contentY + 4, width: frame.width - 8, height: contentH - 8))
+            let curveView = MiniEQCurveView(frame: CGRect(x: 4, y: 4, width: frame.width - 8, height: contentH - 8))
             curveView.bands = effect.eqBands
-            slot.addSubview(curveView)
+            contentWrap.addSubview(curveView)
 
         case .compressor:
             // Threshold Knob
             let tKnob = makeKnob(
-                x: 10, y: contentY + 10, size: 40, 
+                x: 10, y: 10, size: 40, 
                 value: effect.threshold, min: -40, max: 0, def: -20, suffix: " dB", label: "Thr",
                 color: .orange
             ) { [weak effect, weak self] v in
                 effect?.threshold = v
                 self?.onEffectParameterChanged?(track.id)
             }
-            slot.addSubview(tKnob)
+            contentWrap.addSubview(tKnob)
             
             // Ratio Knob
             let rKnob = makeKnob(
-                x: 60, y: contentY + 10, size: 40, 
+                x: 60, y: 10, size: 40, 
                 value: effect.ratio, min: 1, max: 20, def: 2, suffix: ":1", label: "Ratio",
                 color: .orange
             ) { [weak effect, weak self] v in
                 effect?.ratio = v
                 self?.onEffectParameterChanged?(track.id)
             }
-            slot.addSubview(rKnob)
+            contentWrap.addSubview(rKnob)
             
             // Attack Knob
             let aKnob = makeKnob(
-                x: 110, y: contentY + 10, size: 40, 
+                x: 110, y: 10, size: 40, 
                 value: effect.attack * 1000, min: 0.1, max: 100, def: 3, suffix: " ms", label: "Att",
                 color: .orange
             ) { [weak effect, weak self] v in
                 effect?.attack = v / 1000.0
                 self?.onEffectParameterChanged?(track.id)
             }
-            slot.addSubview(aKnob)
+            contentWrap.addSubview(aKnob)
 
         case .delay:
             // Time Knob
             let dKnob = makeKnob(
-                x: 10, y: contentY + 10, size: 40, 
+                x: 10, y: 10, size: 40, 
                 value: Float(effect.delayTime * 1000), min: 1, max: 1000, def: 250, suffix: " ms", label: "Time",
                 color: .green
             ) { [weak effect, weak self] v in
                 effect?.delayTime = Double(v) / 1000.0
                 self?.onEffectParameterChanged?(track.id)
             }
-            slot.addSubview(dKnob)
+            contentWrap.addSubview(dKnob)
             
             // Feedback Knob
             let fKnob = makeKnob(
-                x: 60, y: contentY + 10, size: 40, 
+                x: 60, y: 10, size: 40, 
                 value: effect.feedback, min: 0, max: 100, def: 30, suffix: "%", label: "Fbk",
                 color: .green
             ) { [weak effect, weak self] v in
                 effect?.feedback = v
                 self?.onEffectParameterChanged?(track.id)
             }
-            slot.addSubview(fKnob)
+            contentWrap.addSubview(fKnob)
             
             // Mix Knob
             let mKnob = makeKnob(
-                x: 110, y: contentY + 10, size: 40, 
+                x: 110, y: 10, size: 40, 
                 value: effect.wetDryMix, min: 0, max: 100, def: 20, suffix: "%", label: "Mix",
                 color: .green
             ) { [weak effect, weak self] v in
                 effect?.wetDryMix = v
                 self?.onEffectParameterChanged?(track.id)
             }
-            slot.addSubview(mKnob)
+            contentWrap.addSubview(mKnob)
 
         case .reverb:
             // Preset Popup (simplified as a knob for index for now)
             let pKnob = makeKnob(
-                x: 15, y: contentY + 10, size: 40, 
+                x: 15, y: 10, size: 40, 
                 value: Float(effect.reverbPreset), min: 0, max: 5, def: 0, suffix: " Pst", label: "Type",
                 color: .purple
             ) { [weak effect, weak self] v in
                 effect?.reverbPreset = Int(v)
                 self?.onEffectParameterChanged?(track.id)
             }
-            slot.addSubview(pKnob)
+            contentWrap.addSubview(pKnob)
             
             // Mix Knob
             let rmKnob = makeKnob(
-                x: 65, y: contentY + 10, size: 40, 
+                x: 65, y: 10, size: 40, 
                 value: effect.reverbMix, min: 0, max: 100, def: 30, suffix: "%", label: "Mix",
                 color: .purple
             ) { [weak effect, weak self] v in
                 effect?.reverbMix = v
                 self?.onEffectParameterChanged?(track.id)
             }
-            slot.addSubview(rmKnob)
+            contentWrap.addSubview(rmKnob)
 
         default:
             // Generic effect — show type icon and "No Controls" placeholder
@@ -655,23 +626,24 @@ public final class BottomPanelView: NSView {
                 let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
                 let iconView = NSImageView(frame: CGRect(
                     x: (frame.width - iconSize) / 2,
-                    y: contentY + (contentH - iconSize) / 2 - 6,
+                    y: (contentH - iconSize) / 2 - 6,
                     width: iconSize,
                     height: iconSize
                 ))
                 iconView.image = symbolImage.withSymbolConfiguration(config)
                 iconView.contentTintColor = NSColor(white: 0.5, alpha: 1)
-                slot.addSubview(iconView)
+                contentWrap.addSubview(iconView)
             }
 
             let typeLabel = NSTextField(labelWithString: effect.effectType.displayName)
             typeLabel.font = NSFont.systemFont(ofSize: 8, weight: .regular)
             typeLabel.textColor = NSColor(white: 0.4, alpha: 1)
             typeLabel.alignment = .center
-            typeLabel.frame = CGRect(x: 0, y: contentY + contentH - 14, width: frame.width, height: 12)
-            slot.addSubview(typeLabel)
+            typeLabel.frame = CGRect(x: 0, y: contentH - 14, width: frame.width, height: 12)
+            contentWrap.addSubview(typeLabel)
         }
 
+        slot.addPluginContent(contentWrap)
         return slot
     }
 
@@ -680,59 +652,77 @@ public final class BottomPanelView: NSView {
         let slot = NSView(frame: frame)
         slot.wantsLayer = true
         slot.layer?.cornerRadius = 4
-
-        let headerH: CGFloat = 18
-
         if let instrument = track.instrument {
             if instrument.instrumentType == .sampler {
-                let samplerView = SamplerView(config: instrument, track: track)
-                samplerView.frame = frame
-                samplerView.onSampleURLChanged = { [weak self, weak instrument] newURL in
+                let samplerBody = SamplerView(config: instrument, track: track)
+                samplerBody.onSampleURLChanged = { [weak self, weak instrument] newURL in
                     guard let self = self, let instrument = instrument else { return }
                     let oldURL = instrument.sampleURL
                     self.onSamplerSampleChanged?(track.id, oldURL, newURL) 
                 }
-                samplerView.onParameterChanged = { [weak self] in
+                samplerBody.onParameterChanged = { [weak self] in
                     guard let self = self else { return }
                     self.onInstrumentParameterChanged?(track.id)
                 }
-                return samplerView
+                
+                let slot = PluginSlotView(title: "Sampler", frame: frame)
+                slot.isEnabled = instrument.isEnabled
+                slot.onToggle = { [weak instrument, weak self] newState in
+                    instrument?.isEnabled = newState
+                    self?.onInstrumentParameterChanged?(track.id)
+                }
+                
+                // Add Edit/Ctrl Tabs to Header
+                let editTab = NSButton(title: "Edit", target: self, action: #selector(samplerTabTriggered(_:)))
+                let ctrlTab = NSButton(title: "Ctrl", target: self, action: #selector(samplerTabTriggered(_:)))
+                [editTab, ctrlTab].forEach { btn in
+                    btn.bezelStyle = .recessed
+                    btn.setButtonType(.pushOnPushOff)
+                    btn.controlSize = .mini
+                    btn.font = NSFont.systemFont(ofSize: 8, weight: .bold)
+                    slot.extraHeaderStack.addArrangedSubview(btn)
+                }
+                editTab.state = .on
+                editTab.tag = 0
+                ctrlTab.tag = 1
+                
+                // Associated Body reference for callback
+                objc_setAssociatedObject(slot, "samplerBody", samplerBody, .OBJC_ASSOCIATION_RETAIN)
+                
+                slot.addPluginContent(samplerBody)
+                return slot
             }
 
             // Default instrument slot for other types
-            slot.layer?.backgroundColor = NSColor(red: 0.14, green: 0.12, blue: 0.10, alpha: 1).cgColor
-            slot.layer?.borderWidth = 1
-            slot.layer?.borderColor = NSColor(red: 0.85, green: 0.55, blue: 0.1, alpha: 0.5).cgColor
-
-            let header = NSView(frame: CGRect(x: 0, y: 0, width: frame.width, height: headerH))
-            header.wantsLayer = true
-            header.layer?.cornerRadius = 4
-            header.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-            header.layer?.backgroundColor = NSColor(red: 0.85, green: 0.55, blue: 0.1, alpha: 0.85).cgColor
-            slot.addSubview(header)
-
-            let nameLabel = NSTextField(labelWithString: instrument.instrumentType.displayName)
-            nameLabel.font = NSFont.systemFont(ofSize: 9, weight: .semibold)
-            nameLabel.textColor = .white
-            nameLabel.lineBreakMode = .byTruncatingTail
-            nameLabel.frame = CGRect(x: 4, y: 1, width: frame.width - 8, height: 16)
-            header.addSubview(nameLabel)
+            let slot = PluginSlotView(title: instrument.instrumentType.displayName, frame: frame)
+            slot.isEnabled = instrument.isEnabled
+            slot.onToggle = { [weak instrument, weak self] newState in
+                instrument?.isEnabled = newState
+                self?.onInstrumentParameterChanged?(track.id)
+            }
 
             let iconSize: CGFloat = 20
             if let symbolImage = NSImage(systemSymbolName: instrument.instrumentType.icon, accessibilityDescription: nil) {
                 let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
                 let iconView = NSImageView(frame: CGRect(
                     x: (frame.width - iconSize) / 2,
-                    y: headerH + (frame.height - headerH - iconSize) / 2,
+                    y: (frame.height - 18 - iconSize) / 2,
                     width: iconSize,
                     height: iconSize
                 ))
                 iconView.image = symbolImage.withSymbolConfiguration(config)
                 iconView.contentTintColor = NSColor(red: 0.95, green: 0.70, blue: 0.25, alpha: 1)
-                slot.addSubview(iconView)
+                
+                let wrap = NSView(frame: CGRect(x: 0, y: 0, width: frame.width, height: frame.height - 18))
+                wrap.addSubview(iconView)
+                slot.addPluginContent(wrap)
             }
+            return slot
         } else {
             // Enterprise "Add Instrument" Placeholder
+            let slot = NSView(frame: frame)
+            slot.wantsLayer = true
+            slot.layer?.cornerRadius = 4
             slot.layer?.backgroundColor = NSColor(white: 0.1, alpha: 0.4).cgColor
             
             // Dashed border (layer-backed for performance)
@@ -803,7 +793,24 @@ public final class BottomPanelView: NSView {
         return knob
     }
 
-    /// Returns the header color for an effect type.
+    @objc private func samplerTabTriggered(_ sender: NSButton) {
+        // sender -> extraHeaderStack -> headerView -> PluginSlotView
+        guard let slot = sender.superview?.superview?.superview as? PluginSlotView,
+              let samplerBody = objc_getAssociatedObject(slot, "samplerBody") as? SamplerView else { return }
+        
+        // Mutually exclusive tabs
+        if let stack = sender.superview as? NSStackView {
+            for view in stack.arrangedSubviews {
+                if let btn = view as? NSButton {
+                    btn.state = (btn == sender) ? .on : .off
+                }
+            }
+        }
+        
+        samplerBody.setCurrentTab(sender.tag)
+    }
+
+    /// Returns a header color for effect types.
     private func effectHeaderColor(for type: AudioEffectType) -> NSColor {
         switch type {
         case .eq:         return NSColor(red: 0.35, green: 0.55, blue: 0.85, alpha: 1.0)  // Blue
@@ -812,6 +819,7 @@ public final class BottomPanelView: NSView {
         case .delay:      return NSColor(red: 0.40, green: 0.65, blue: 0.45, alpha: 1.0)  // Green
         case .reverb:     return NSColor(red: 0.55, green: 0.40, blue: 0.75, alpha: 1.0)  // Purple
         case .chorus:     return NSColor(red: 0.65, green: 0.50, blue: 0.30, alpha: 1.0)  // Gold-brown
+        case .vst2, .vst3: return NSColor(red: 0.20, green: 0.60, blue: 0.40, alpha: 1.0) // Teal for VST
         }
     }
 
@@ -839,51 +847,5 @@ public final class BottomPanelView: NSView {
 
     @objc private func closePanel() {
         hidePanel()
-    }
-
-    // MARK: - Drag and Drop (Effects)
-
-    public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard case .detail = mode else { return [] }
-
-        if let data = sender.draggingPasteboard.data(forType: .browserItem),
-           let payload = String(data: data, encoding: .utf8) {
-            let parts = payload.split(separator: ":", maxSplits: 1)
-            if parts.count == 2 {
-                let nodeType = String(parts[0])
-                if nodeType == "audioEffect" || nodeType == "instrument" {
-                    NSCursor.dragCopy.set() // Force plus cursor
-                    return .copy
-                }
-            }
-        }
-        return []
-    }
-
-    public override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        return draggingEntered(sender)
-    }
-
-    public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard case .detail(let track) = mode,
-              let data = sender.draggingPasteboard.data(forType: .browserItem),
-              let payload = String(data: data, encoding: .utf8) else { return false }
-
-        let parts = payload.split(separator: ":", maxSplits: 1)
-        guard parts.count == 2 else { return false }
-
-        let nodeType = String(parts[0])
-        let itemName = String(parts[1])
-
-        if nodeType == "audioEffect" {
-            onEffectDropped?(track.id, nodeType, itemName)
-            return true
-        } else if nodeType == "instrument" && track.trackType == TrackType.midi {
-            // Re-use logic for instruments dropped on panel
-            onBrowserItemDropped?(track.id, nodeType, itemName)
-            return true
-        }
-
-        return false
     }
 }

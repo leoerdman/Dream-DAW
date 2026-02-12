@@ -108,7 +108,7 @@ public final class TimelineCanvasView: NSView {
         }
 
         var lineY: CGFloat = 0
-        let tracks = project.tracks
+        let tracks = project.allVisibleTracks
         for i in 0..<min(index, tracks.count) {
             lineY += tracks[i].height
         }
@@ -141,7 +141,7 @@ public final class TimelineCanvasView: NSView {
         // Determine tracks covered
         var tracksInRange: [Int] = []
         var yOffset: CGFloat = 0
-        let visibleTracks = project.allVisibleTracks
+        let visibleTracks = project.allVisibleTracks.filter { $0.trackType != .master }
         for (index, track) in visibleTracks.enumerated() {
             let trackRect = CGRect(x: 0, y: yOffset, width: bounds.width, height: track.height)
             if rect.intersects(trackRect) {
@@ -380,7 +380,7 @@ public final class TimelineCanvasView: NSView {
             .store(in: &cancellables)
             
         // Initial subscription
-        subscribeToTracks(project.tracks)
+        subscribeToTracks(project.allVisibleTracks.filter { $0.trackType != .master })
     }
 
     private func subscribeToTracks(_ tracks: [Track]) {
@@ -529,7 +529,7 @@ public final class TimelineCanvasView: NSView {
 
     private func updateLaneLayers(project: Project) {
         laneContainerLayer.frame = self.bounds
-        laneContainerLayer.tracks = project.allVisibleTracks
+        laneContainerLayer.tracks = project.allVisibleTracks.filter { $0.trackType != .master }
         laneContainerLayer.setNeedsDisplay()
     }
 
@@ -556,7 +556,7 @@ public final class TimelineCanvasView: NSView {
         let minBeat = Double(vr.minX) / Double(pixelsPerBeat)
         let maxBeat = minBeat + visibleBeatsRange
         
-        let visibleTracks = project.allVisibleTracks
+        let visibleTracks = project.allVisibleTracks.filter { $0.trackType != .master }
         let queryRect = QuadRect(minX: minBeat - 4.0, maxX: maxBeat + 4.0, 
                                  minY: 0, maxY: Double(visibleTracks.count))
         
@@ -842,7 +842,7 @@ public final class TimelineCanvasView: NSView {
         let beat = Double(location.x) / Double(pixelsPerBeat)
         
         var currentY: CGFloat = 0
-        for (i, t) in project.tracks.enumerated() {
+        for (i, t) in project.allVisibleTracks.enumerated() {
             if location.y >= currentY && location.y < currentY + t.height {
                 let query = QuadRect(minX: beat - 0.001, maxX: beat + 0.001, minY: Double(i), maxY: Double(i+1))
                 if let candidates = quadTree?.query(range: query) {
@@ -864,7 +864,7 @@ public final class TimelineCanvasView: NSView {
 
     /// Deselect all clips across all tracks.
     private func deselectAllClips(in project: Project) {
-        for track in project.tracks {
+        for track in project.allVisibleTracks {
             for i in track.clips.indices { track.clips[i].isSelected = false }
             for i in track.midiClips.indices { track.midiClips[i].isSelected = false }
         }
@@ -872,7 +872,7 @@ public final class TimelineCanvasView: NSView {
 
     /// Select a specific clip by ID.
     private func selectClip(id: UUID, isMidi: Bool, in project: Project) {
-        for track in project.tracks {
+        for track in project.allVisibleTracks {
             if isMidi {
                 if let idx = track.midiClips.firstIndex(where: { $0.id == id }) {
                     track.midiClips[idx].isSelected = true
@@ -907,7 +907,7 @@ public final class TimelineCanvasView: NSView {
         // Find track under mouse
         var yOffset: CGFloat = 0
         var clickedTrackID: UUID?
-        for track in project.tracks {
+        for track in project.allVisibleTracks {
             if location.y >= yOffset && location.y < yOffset + track.height {
                 clickedTrackID = track.id
                 break
@@ -965,7 +965,7 @@ public final class TimelineCanvasView: NSView {
             let clipWidth = CGFloat(clipDur) * pixelsPerBeat
             
             var targetY: CGFloat = 0
-            for t in project.tracks {
+            for t in project.allVisibleTracks {
                 if t.id == track.id { break }
                 targetY += t.height
             }
@@ -1042,9 +1042,9 @@ public final class TimelineCanvasView: NSView {
         
         // Mode 1: Update Edit Cursor to the clicked location
         let snappedPos = TimePosition(beats: max(0, clickBeat))
-        editCursor = EditCursor(trackID: clickedTrackID ?? project.tracks.first?.id ?? UUID(), position: snappedPos)
+        editCursor = EditCursor(trackID: clickedTrackID ?? project.allVisibleTracks.first?.id ?? UUID(), position: snappedPos)
         
-        onTrackClicked?(clickedTrackID ?? project.tracks.first?.id ?? UUID())
+        onTrackClicked?(clickedTrackID ?? project.allVisibleTracks.first?.id ?? UUID())
         updateArrangementLayers()
         // redraw
     }
@@ -1110,7 +1110,7 @@ public final class TimelineCanvasView: NSView {
     private func handleDoubleClick(at location: NSPoint, beat: Double, project: Project) {
         var yOffset: CGFloat = 0
         
-        for track in project.tracks {
+        for track in project.allVisibleTracks {
             let laneRect = CGRect(x: 0, y: yOffset, width: bounds.width, height: track.height)
             
             if laneRect.contains(location) {
@@ -1198,7 +1198,7 @@ public final class TimelineCanvasView: NSView {
             
             var trackIndicesInRange: [Int] = []
             
-            for (idx, track) in project.tracks.enumerated() {
+            for (idx, track) in project.allVisibleTracks.enumerated() {
                 let trackTop = yOffset
                 let trackBottom = yOffset + track.height
                 
@@ -1243,7 +1243,7 @@ public final class TimelineCanvasView: NSView {
             let deltaBeat = Double(deltaX) / Double(pixelsPerBeat)
             let minDuration: Double = 1.0  // Minimum 1 beat
 
-            for track in project.tracks where track.id == resize.trackID {
+            for track in project.allVisibleTracks where track.id == resize.trackID {
                 switch resize.edge {
                 case .left:
                     // Dragging left edge: move start, keep end fixed
@@ -1324,7 +1324,7 @@ public final class TimelineCanvasView: NSView {
         // Find target track under mouse
         var currentY: CGFloat = 0
         var targetTrackID: UUID?
-        for track in project.tracks {
+        for track in project.allVisibleTracks {
             if location.y >= currentY && location.y < currentY + track.height {
                 targetTrackID = track.id
                 break
@@ -1347,7 +1347,7 @@ public final class TimelineCanvasView: NSView {
             }
 
             // Update position on the current track (snapped)
-            for track in project.tracks where track.id == targetID {
+            for track in project.allVisibleTracks where track.id == targetID {
                 if drag.isMidi {
                     if let idx = track.midiClips.firstIndex(where: { $0.id == drag.clipID }) {
                         track.midiClips[idx].position = TimePosition(beats: snappedBeat)
@@ -1385,7 +1385,7 @@ public final class TimelineCanvasView: NSView {
 
         // ──── Finalize Resize ────
         if let resize = resizeState, let project = project {
-            let track = project.tracks.first(where: { $0.id == resize.trackID })
+            let track = project.allVisibleTracks.first(where: { $0.id == resize.trackID })
             let clip = resize.isMidi ? 
                 track?.midiClips.first(where: { $0.id == resize.clipID }) as Any? :
                 track?.clips.first(where: { $0.id == resize.clipID }) as Any?
@@ -1425,7 +1425,7 @@ public final class TimelineCanvasView: NSView {
 
         // ──── Clip move drag end ────
         if let drag = dragState, let project = project {
-            let track = project.tracks.first(where: { $0.id == drag.trackID })
+            let track = project.allVisibleTracks.first(where: { $0.id == drag.trackID })
             let clip = drag.isMidi ? 
                 track?.midiClips.first(where: { $0.id == drag.clipID }) as Any? :
                 track?.clips.first(where: { $0.id == drag.clipID }) as Any?
@@ -1480,7 +1480,7 @@ public final class TimelineCanvasView: NSView {
         var minBeat = Double.greatestFiniteMagnitude
         var found = false
         
-        for track in project.tracks {
+        for track in project.allVisibleTracks {
             for clip in track.clips where clip.isSelected {
                 minBeat = min(minBeat, clip.position.beats)
                 found = true
@@ -1497,7 +1497,7 @@ public final class TimelineCanvasView: NSView {
     /// Returns true if any clip is currently selected on the canvas.
     public var hasSelection: Bool {
         guard let project = project else { return false }
-        return project.tracks.contains { $0.clips.contains(where: \.isSelected) || $0.midiClips.contains(where: \.isSelected) }
+        return project.allVisibleTracks.contains { $0.clips.contains(where: \.isSelected) || $0.midiClips.contains(where: \.isSelected) }
     }
     
     // MARK: - Editing Operations (Public API for Controller)
@@ -1506,7 +1506,7 @@ public final class TimelineCanvasView: NSView {
     public func deleteSelection() {
         guard let project = project else { return }
         var didDelete = false
-        for track in project.tracks {
+        for track in project.allVisibleTracks {
             let audioToRemove = track.clips.filter { $0.isSelected }
             let midiToRemove = track.midiClips.filter { $0.isSelected }
 
@@ -1540,7 +1540,7 @@ public final class TimelineCanvasView: NSView {
 
         var didSplit = false
 
-        for track in project.tracks {
+        for track in project.allVisibleTracks {
             // Only affect the track with the cursor? Or all tracks?
             // User said "strip on selected track". Implicitly focused editing.
             // Let's restrict split to the cursor track if no specific selection exists?
@@ -1625,7 +1625,7 @@ public final class TimelineCanvasView: NSView {
     public func copySelection() {
         guard let project = project else { return }
         Self.clipboard.removeAll()
-        for track in project.tracks {
+        for track in project.allVisibleTracks {
             for clip in track.clips where clip.isSelected {
                 Self.clipboard.append(ClipboardItem(item: .audio(clip), trackID: track.id))
             }
@@ -1655,7 +1655,7 @@ public final class TimelineCanvasView: NSView {
 
         for item in Self.clipboard {
             // Find the target track
-            guard let track = project.tracks.first(where: { $0.id == item.trackID }) else { continue }
+            guard let track = project.allVisibleTracks.first(where: { $0.id == item.trackID }) else { continue }
 
             switch item.item {
             case .audio(let original):
@@ -1688,7 +1688,7 @@ public final class TimelineCanvasView: NSView {
     /// Select all clips across all tracks.
     public func selectAllClips() {
         guard let project = project else { return }
-        for track in project.tracks {
+        for track in project.allVisibleTracks {
             for i in track.clips.indices { track.clips[i].isSelected = true }
             for i in track.midiClips.indices { track.midiClips[i].isSelected = true }
         }
@@ -1711,7 +1711,7 @@ public final class TimelineCanvasView: NSView {
         // User's request concerning Duplicate might be simpler: "I can duplicate...".
         // I will implement standard behavior for Duplicate.
 
-        for track in project.tracks {
+        for track in project.allVisibleTracks {
             var newAudio: [AudioClip] = []
             var newMidi: [MidiClip] = []
 
@@ -1845,15 +1845,15 @@ public final class TimelineCanvasView: NSView {
         // Determine target track index from Y position
         var yOffset: CGFloat = 0
         var targetTrackIndex = 0
-        for (index, track) in project.tracks.enumerated() {
+        for (index, track) in project.allVisibleTracks.enumerated() {
             if location.y >= yOffset && location.y < yOffset + track.height {
                 targetTrackIndex = index
                 break
             }
             yOffset += track.height
         }
-        guard targetTrackIndex < project.tracks.count else { return false }
-        let track = project.tracks[targetTrackIndex]
+        guard targetTrackIndex < project.allVisibleTracks.count else { return false }
+        let track = project.allVisibleTracks[targetTrackIndex]
 
 
         // CASE 1: Browser item drop (instruments, effects)
@@ -1913,8 +1913,9 @@ public final class TimelineCanvasView: NSView {
 }
 
 internal class GridLayer: CALayer {
-    var pixelsPerBeat: CGFloat = 1.0
-    var timeSignature: TimeSignature = TimeSignature()
+    var pixelsPerBeat: CGFloat = 1.0 { didSet { if oldValue != pixelsPerBeat { setNeedsDisplay() } } }
+    var scrollOffset: CGFloat = 0 { didSet { if oldValue != scrollOffset { setNeedsDisplay() } } }
+    var timeSignature: TimeSignature = TimeSignature() { didSet { if oldValue != timeSignature { setNeedsDisplay() } } }
     
     override init() {
         super.init()
@@ -1931,15 +1932,21 @@ internal class GridLayer: CALayer {
     override func draw(in ctx: CGContext) {
         let beatsPerBar = timeSignature.beatsPerBar
         let vr = self.bounds
-        let visibleStartBeat = Double(vr.origin.x) / Double(pixelsPerBeat)
-        let visibleEndBeat = Double(vr.maxX) / Double(pixelsPerBeat)
+        
+        // If scrollOffset is used (pinned view), we calculate visible beats based on it.
+        // If scrollOffset is 0, we use bounds (document view).
+        let startX = scrollOffset > 0 ? scrollOffset : vr.origin.x
+        let endX = scrollOffset > 0 ? (scrollOffset + vr.width) : vr.maxX
+        
+        let visibleStartBeat = Double(startX) / Double(pixelsPerBeat)
+        let visibleEndBeat = Double(endX) / Double(pixelsPerBeat)
 
         let startBar = max(0, Int(floor(visibleStartBeat / Double(beatsPerBar))))
         let endBar = Int(ceil(visibleEndBeat / Double(beatsPerBar))) + 1
 
         for bar in startBar...endBar {
             let barBeat = Double(bar * beatsPerBar)
-            let x = CGFloat(barBeat) * pixelsPerBeat
+            let x = CGFloat(barBeat) * pixelsPerBeat - scrollOffset
 
             ctx.setStrokeColor(DreamTheme.gridLineMajor.cgColor)
             ctx.setLineWidth(1)

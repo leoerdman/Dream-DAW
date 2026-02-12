@@ -10,6 +10,8 @@ public enum AudioEffectType: String, Codable, CaseIterable, Sendable {
     case delay = "delay"
     case reverb = "reverb"
     case chorus = "chorus"
+    case vst2 = "vst2"
+    case vst3 = "vst3"
 
     public var displayName: String {
         switch self {
@@ -19,6 +21,8 @@ public enum AudioEffectType: String, Codable, CaseIterable, Sendable {
         case .delay: return "Delay"
         case .reverb: return "Reverb"
         case .chorus: return "Chorus-Ensemble"
+        case .vst2: return "VST2 Plug-In"
+        case .vst3: return "VST3 Plug-In"
         }
     }
 
@@ -30,6 +34,8 @@ public enum AudioEffectType: String, Codable, CaseIterable, Sendable {
         case .delay: return "clock.arrow.2.circlepath"
         case .reverb: return "waveform.badge.magnifyingglass"
         case .chorus: return "waveform.path"
+        case .vst2: return "puzzlepiece.extension.fill"
+        case .vst3: return "puzzlepiece.fill"
         }
     }
 }
@@ -106,6 +112,9 @@ public final class AudioEffectConfig: ObservableObject, Identifiable, Codable {
     // Reverb
     @Published public var reverbPreset: Int = 0     // Factory Preset Index
     @Published public var reverbMix: Float = 30.0   // %
+    
+    // External Plugins (VST)
+    @Published public var pluginIdentifier: String? // Path or ID for VST2/VST3
 
     public init(
         id: UUID = UUID(),
@@ -119,6 +128,7 @@ public final class AudioEffectConfig: ObservableObject, Identifiable, Codable {
         self.isEnabled = isEnabled
         self.eqBands = eqBands
         self.gainDB = gainDB
+        self.pluginIdentifier = nil
     }
 
     /// Default 8-band EQ configuration matching Ableton EQ Eight frequencies.
@@ -151,6 +161,7 @@ public final class AudioEffectConfig: ObservableObject, Identifiable, Codable {
         case threshold, ratio, attack, release
         case delayTime, feedback, wetDryMix
         case reverbPreset, reverbMix
+        case pluginIdentifier
     }
 
     public convenience init(from decoder: Decoder) throws {
@@ -172,6 +183,7 @@ public final class AudioEffectConfig: ObservableObject, Identifiable, Codable {
         wetDryMix = try container.decodeIfPresent(Float.self, forKey: .wetDryMix) ?? 20.0
         reverbPreset = try container.decodeIfPresent(Int.self, forKey: .reverbPreset) ?? 0
         reverbMix = try container.decodeIfPresent(Float.self, forKey: .reverbMix) ?? 30.0
+        pluginIdentifier = try container.decodeIfPresent(String.self, forKey: .pluginIdentifier)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -190,6 +202,7 @@ public final class AudioEffectConfig: ObservableObject, Identifiable, Codable {
         try container.encode(wetDryMix, forKey: .wetDryMix)
         try container.encode(reverbPreset, forKey: .reverbPreset)
         try container.encode(reverbMix, forKey: .reverbMix)
+        try container.encodeIfPresent(pluginIdentifier, forKey: .pluginIdentifier)
     }
 }
 
@@ -199,18 +212,24 @@ public final class AudioEffectConfig: ObservableObject, Identifiable, Codable {
 public enum InstrumentType: String, Codable, CaseIterable, Sendable {
     case sineSynth = "sineSynth"
     case sampler   = "sampler"
-
-    public var displayName: String {
-        switch self {
-        case .sineSynth: return "Simple Sine Synth"
-        case .sampler:   return "Sampler"
-        }
-    }
+    case vst2      = "vst2"
+    case vst3      = "vst3"
 
     public var icon: String {
         switch self {
         case .sineSynth: return "waveform.path"
         case .sampler:   return "waveform.badge.plus"
+        case .vst2:      return "puzzlepiece.extension.fill"
+        case .vst3:      return "puzzlepiece.fill"
+        }
+    }
+    
+    public var displayName: String {
+        switch self {
+        case .sineSynth: return "Simple Sine Synth"
+        case .sampler:   return "Sampler"
+        case .vst2:      return "VST2 Instrument"
+        case .vst3:      return "VST3 Instrument"
         }
     }
 }
@@ -219,13 +238,15 @@ public enum InstrumentType: String, Codable, CaseIterable, Sendable {
 
 /// Sampler playback mode.
 public enum SamplerMode: String, Codable, CaseIterable, Sendable {
+    case classic = "classic"
     case oneShot = "oneShot"
-    case loop    = "loop"
+    case slice   = "slice"
 
     public var displayName: String {
         switch self {
-        case .oneShot: return "One-Shot"
-        case .loop:    return "Loop"
+        case .classic: return "Classic"
+        case .oneShot: return "1-Shot"
+        case .slice:   return "Slice"
         }
     }
 }
@@ -254,6 +275,7 @@ public final class InstrumentConfig: ObservableObject, Identifiable, Codable {
     @Published public var release: Double          // Seconds
     
     // Filter
+    @Published public var filterEnabled: Bool      // On/Off
     @Published public var filterType: Int          // 0=LowPass, 1=HighPass, etc.
     @Published public var filterCutoff: Double     // 20 ... 22000 Hz
     @Published public var filterResonance: Double  // 0.0 ... 1.0
@@ -262,6 +284,9 @@ public final class InstrumentConfig: ObservableObject, Identifiable, Codable {
     @Published public var lfoRate: Double          // Hz
     @Published public var lfoAmount: Double        // 0.0 ... 1.0
     @Published public var lfoType: Int             // 0=Sine, 1=Triangle, etc.
+    
+    // External Plugins (VSTi)
+    @Published public var pluginIdentifier: String? // Path or ID for VST2/VST3 instrument
 
     public init(
         id: UUID = UUID(),
@@ -278,9 +303,10 @@ public final class InstrumentConfig: ObservableObject, Identifiable, Codable {
         decay: Double = 0.6,
         sustain: Double = 1.0,
         release: Double = 0.05,
+        filterEnabled: Bool = false,
         filterType: Int = 0,
-        filterCutoff: Double = 22000.0,
-        filterResonance: Double = 0.0,
+        filterCutoff: Double = 1000.0,
+        filterResonance: Double = 0.2,
         lfoRate: Double = 1.0,
         lfoAmount: Double = 0.0,
         lfoType: Int = 0
@@ -299,12 +325,14 @@ public final class InstrumentConfig: ObservableObject, Identifiable, Codable {
         self.decay = decay
         self.sustain = sustain
         self.release = release
+        self.filterEnabled = filterEnabled
         self.filterType = filterType
         self.filterCutoff = filterCutoff
         self.filterResonance = filterResonance
         self.lfoRate = lfoRate
         self.lfoAmount = lfoAmount
         self.lfoType = lfoType
+        self.pluginIdentifier = nil
     }
 
     // MARK: - Codable
@@ -313,8 +341,9 @@ public final class InstrumentConfig: ObservableObject, Identifiable, Codable {
         case id, instrumentType, isEnabled, sampleURL, samplerMode
         case gain, startPercent, endPercent, loopPercent, fadePercent
         case attack, decay, sustain, release
-        case filterType, filterCutoff, filterResonance
+        case filterEnabled, filterType, filterCutoff, filterResonance
         case lfoRate, lfoAmount, lfoType
+        case pluginIdentifier
     }
 
     public convenience init(from decoder: Decoder) throws {
@@ -334,13 +363,15 @@ public final class InstrumentConfig: ObservableObject, Identifiable, Codable {
             decay: try container.decodeIfPresent(Double.self, forKey: .decay) ?? 0.6,
             sustain: try container.decodeIfPresent(Double.self, forKey: .sustain) ?? 1.0,
             release: try container.decodeIfPresent(Double.self, forKey: .release) ?? 0.05,
+            filterEnabled: try container.decodeIfPresent(Bool.self, forKey: .filterEnabled) ?? false,
             filterType: try container.decodeIfPresent(Int.self, forKey: .filterType) ?? 0,
-            filterCutoff: try container.decodeIfPresent(Double.self, forKey: .filterCutoff) ?? 22000.0,
-            filterResonance: try container.decodeIfPresent(Double.self, forKey: .filterResonance) ?? 0.0,
+            filterCutoff: try container.decodeIfPresent(Double.self, forKey: .filterCutoff) ?? 1000.0,
+            filterResonance: try container.decodeIfPresent(Double.self, forKey: .filterResonance) ?? 0.2,
             lfoRate: try container.decodeIfPresent(Double.self, forKey: .lfoRate) ?? 1.0,
             lfoAmount: try container.decodeIfPresent(Double.self, forKey: .lfoAmount) ?? 0.0,
             lfoType: try container.decodeIfPresent(Int.self, forKey: .lfoType) ?? 0
         )
+        pluginIdentifier = try container.decodeIfPresent(String.self, forKey: .pluginIdentifier)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -359,11 +390,13 @@ public final class InstrumentConfig: ObservableObject, Identifiable, Codable {
         try container.encode(decay, forKey: .decay)
         try container.encode(sustain, forKey: .sustain)
         try container.encode(release, forKey: .release)
+        try container.encode(filterEnabled, forKey: .filterEnabled)
         try container.encode(filterType, forKey: .filterType)
         try container.encode(filterCutoff, forKey: .filterCutoff)
         try container.encode(filterResonance, forKey: .filterResonance)
         try container.encode(lfoRate, forKey: .lfoRate)
         try container.encode(lfoAmount, forKey: .lfoAmount)
         try container.encode(lfoType, forKey: .lfoType)
+        try container.encodeIfPresent(pluginIdentifier, forKey: .pluginIdentifier)
     }
 }

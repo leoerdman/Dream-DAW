@@ -35,6 +35,7 @@ public final class TrackHeaderView: NSView {
     private let trackTypeLabel = NSTextField(labelWithString: "")
     private let routingLabel = NSTextField(labelWithString: "")
     private let soloButton = NSButton()
+    private let collapseButton = NSButton()
     private let enableButton = NSButton()     // Track enable/disable (shows track number)
     private let vuMeterBarL = NSView()       // Left channel VU meter background
     private let vuMeterFillL = NSView()      // Left channel filled portion
@@ -48,8 +49,13 @@ public final class TrackHeaderView: NSView {
     /// Callback specifically for solo changes (needs to propagate to TrackMixer for solo logic).
     public var onSoloChanged: (() -> Void)?
     
-    /// Callback when header is clicked (for track selection).
-    public var onHeaderClicked: (() -> Void)?
+    /// Callback when header is clicked (for track selection). Bool: isShiftPressed
+    public var onHeaderClicked: ((UUID, Bool) -> Void)?
+    public var onExpansionChanged: (() -> Void)?
+    
+    /// Closure to resolve a track by UUID (for routing label display).
+    /// Injected by the container to avoid fragile responder-chain traversal.
+    public var trackResolver: ((UUID) -> Track?)?
 
     // MARK: - Initialization
 
@@ -128,6 +134,15 @@ public final class TrackHeaderView: NSView {
         soloButton.translatesAutoresizingMaskIntoConstraints = false
         addSubview(soloButton)
 
+        // Collapse button (for group tracks)
+        collapseButton.bezelStyle = .disclosure
+        collapseButton.setButtonType(.pushOnPushOff)
+        collapseButton.imagePosition = .imageOnly
+        collapseButton.target = self
+        collapseButton.action = #selector(toggleCollapse)
+        collapseButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(collapseButton)
+
         // Vertical VU meter — left channel
         vuMeterBarL.wantsLayer = true
         vuMeterBarL.layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
@@ -201,6 +216,12 @@ public final class TrackHeaderView: NSView {
             soloButton.widthAnchor.constraint(equalToConstant: 20),
             soloButton.heightAnchor.constraint(equalToConstant: 18),
 
+            // Collapse button (for group tracks)
+            collapseButton.trailingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor, constant: -4),
+            collapseButton.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor),
+            collapseButton.widthAnchor.constraint(equalToConstant: 16),
+            collapseButton.heightAnchor.constraint(equalToConstant: 16),
+
             // Enable button (On/Off — shows track number)
             enableButton.trailingAnchor.constraint(equalTo: vuMeterBarL.leadingAnchor, constant: -4),
             enableButton.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -255,29 +276,27 @@ public final class TrackHeaderView: NSView {
         updateSelectionState()
         trackTypeLabel.stringValue = track.trackType.displayName
 
-        // Display instrument/effects info in routing label
-        if track.trackType == .midi {
-            if let instrument = track.instrument {
-                routingLabel.stringValue = instrument.instrumentType.displayName
-                routingLabel.textColor = DreamTheme.accentGreen
-            } else {
-                routingLabel.stringValue = "No Instrument"
-                routingLabel.textColor = DreamTheme.textMuted
-            }
-        } else if track.trackType == .audio {
-            routingLabel.stringValue = "Main ▾"
-            routingLabel.textColor = DreamTheme.textSecondary
-        } else if track.trackType == .group {
-            routingLabel.stringValue = "Group ▾"
-            routingLabel.textColor = DreamTheme.accentSecondary
-        } else {
-            routingLabel.stringValue = "Master ▾"
-            routingLabel.textColor = DreamTheme.textSecondary
-        }
+        // Display Routing Destination info in routing label
+        // (Instead of instrument name, as requested by Enterprise requirement)
+        updateRoutingLabel()
 
         enableButton.title = "\(trackIndex + 1)"
         updateButtonStates()
         updateVolumeFill()
+        updateCollapseButtonState()
+    }
+
+    private func updateRoutingLabel() {
+        guard let destID = track.outputDestinationID,
+              let resolver = trackResolver,
+              let destTrack = resolver(destID) else {
+            // Default to Master
+            routingLabel.stringValue = "Master ▾"
+            routingLabel.textColor = DreamTheme.textSecondary
+            return
+        }
+        routingLabel.stringValue = "\(destTrack.name) ▾"
+        routingLabel.textColor = DreamTheme.accentSecondary
     }
 
     private func updateVolumeFill() {
@@ -390,6 +409,17 @@ public final class TrackHeaderView: NSView {
             enableButton.layer?.backgroundColor = DreamTheme.accentGreen.withAlphaComponent(0.8).cgColor
             nameBackgroundView.alphaValue = 1.0
             nameLabel.alphaValue = 1.0
+        }
+    }
+
+    private func updateCollapseButtonState() {
+        collapseButton.state = track.isExpanded ? .on : .off
+        collapseButton.isHidden = track.trackType != .group
+        // Set image based on state
+        if track.isExpanded {
+            collapseButton.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Collapse Group")
+        } else {
+            collapseButton.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Expand Group")
         }
     }
     
@@ -529,7 +559,8 @@ public final class TrackHeaderView: NSView {
         }
         
         // 2. Otherwise: Handle Selection and Reordering
-        onHeaderClicked?()
+        let isShift = event.modifierFlags.contains(.shift)
+        onHeaderClicked?(track.id, isShift)
         
         let pbItem = NSPasteboardItem()
         pbItem.setString(track.id.uuidString, forType: .trackID)
@@ -578,6 +609,13 @@ public final class TrackHeaderView: NSView {
         updateButtonStates()
         updateVolumeFill()
         onTrackChanged?(track)
+    }
+
+    @objc private func toggleCollapse() {
+        track.isExpanded.toggle()
+        updateCollapseButtonState()
+        onTrackChanged?(track) // Notify that track properties changed
+        onExpansionChanged?() // Notify specifically about expansion change
     }
     
     @objc private func renameTrack() {
@@ -670,8 +708,14 @@ public final class TrackHeadersContainerView: NSView {
     /// Parameters: (trackID, nodeType, itemName)
     public var onBrowserItemDropped: ((UUID, String, String) -> Void)?
 
-    /// Callback when a specific header is clicked (for selection).
-    public var onHeaderClicked: ((UUID) -> Void)?
+    /// Callback when a specific header is clicked (for selection). Bool: isShiftPressed
+    public var onHeaderClicked: ((UUID, Bool) -> Void)?
+
+    /// Callback when a track's expansion state changes.
+    public var onExpansionChanged: (() -> Void)?
+    
+    /// Injected closure for resolving tracks by UUID (passed to each header for routing display).
+    public var trackResolver: ((UUID) -> Track?)?
     
     public override var isFlipped: Bool { true }
 
@@ -754,9 +798,13 @@ public final class TrackHeadersContainerView: NSView {
             header.onSoloChanged = { [weak self] in
                 self?.onSoloChanged?()
             }
-            header.onHeaderClicked = { [weak self] in
-                self?.onHeaderClicked?(track.id)
+            header.onHeaderClicked = { [weak self] trackID, isShift in
+                self?.onHeaderClicked?(trackID, isShift)
             }
+            header.onExpansionChanged = { [weak self] in
+                self?.onExpansionChanged?()
+            }
+            header.trackResolver = trackResolver
             addSubview(header)
             headerViews.append(header)
 

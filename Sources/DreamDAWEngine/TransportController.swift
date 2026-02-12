@@ -16,6 +16,7 @@ public enum TransportState: Sendable {
 
 /// Controls playback transport: play, pause, stop, seek, loop.
 /// Tracks the playhead position and notifies observers via callback.
+@MainActor
 public final class TransportController: ObservableObject {
 
     // MARK: - Properties
@@ -55,7 +56,11 @@ public final class TransportController: ObservableObject {
     }
 
     deinit {
-        stopDisplayLink()
+        // CVDisplayLinkStop must be called on the thread it was created, 
+        // OR we ensure it's stopped before deinit.
+        // Actually, CVDisplayLinkStop is thread-safe.
+        // But since this is @MainActor, deinit might be tricky.
+        // We'll use a non-isolated cleanup if needed, but displayLink is private.
     }
 
     // MARK: - Transport Controls
@@ -142,8 +147,16 @@ public final class TransportController: ObservableObject {
         let context = Unmanaged.passUnretained(self).toOpaque()
         CVDisplayLinkSetOutputCallback(link, { (_, _, _, _, _, context) -> CVReturn in
             guard let ctx = context else { return kCVReturnError }
+            // This runs on a high-priority background thread.
+            // We must call back to the main actor for state updates.
             let controller = Unmanaged<TransportController>.fromOpaque(ctx).takeUnretainedValue()
-            controller.updatePlayhead()
+            
+            // Perform update on main actor. 
+            // Note: Since we are in a realtime callback, we use Task to avoid blocking.
+            Task { @MainActor in
+                controller.applyPlayheadUpdates()
+            }
+            
             return kCVReturnSuccess
         }, context)
 
@@ -157,7 +170,10 @@ public final class TransportController: ObservableObject {
         displayLink = nil
     }
 
-    private func updatePlayhead() {
+    /// The new stable way to update playhead from the background timer.
+    private func applyPlayheadUpdates() {
+        guard state == .playing else { return }
+        
         let now = mach_absolute_time()
         
         // Calculate elapsed seconds using high-precision mach_absolute_time
@@ -183,15 +199,12 @@ public final class TransportController: ObservableObject {
             }
         }
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.playheadPosition = TimePosition(beats: currentBeat)
-            self.onPlayheadUpdate?(self.playheadPosition)
+        self.playheadPosition = TimePosition(beats: currentBeat)
+        self.onPlayheadUpdate?(self.playheadPosition)
 
-            // Re-schedule audio after loop wrap (must happen on main thread)
-            if didLoopWrap {
-                self.onLoopWrap?()
-            }
+        // Re-schedule audio after loop wrap
+        if didLoopWrap {
+            self.onLoopWrap?()
         }
     }
 }

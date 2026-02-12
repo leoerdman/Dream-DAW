@@ -128,7 +128,7 @@ public final class AudioEngine: @unchecked Sendable {
         defer { os_unfair_lock_unlock(&lock) }
 
         engine.reset()
-        logger.info("AudioEngine reset")
+        logger.info("AudioEngine: [ENGINE] RESET (All paths cleared)")
     }
 
     // MARK: - Node Management

@@ -91,11 +91,14 @@ public final class TrackMixer {
         // Setup instrument if applicable (even for Master if user wants generators there)
         if track.trackType == .midi || track.instrument != nil {
             setupInstrumentNode(track: track, format: format)
+            logger.info("TrackMixer: [SIGNAL] Setup instrument node for track \(track.name) (ID: \(track.id))")
         }
         
         trackInputMixers[track.id] = inputMixer
         trackMixerNodes[track.id] = outputMixer
         trackPlayerNodes[track.id] = player
+        
+        logger.info("TrackMixer: [SIGNAL] Created node set for track \(track.name)")
     }
     
     private func setupInstrumentNode(track: Track, format: AVAudioFormat) {
@@ -111,6 +114,13 @@ public final class TrackMixer {
             let sampler = SamplerInstrument()
             sourceNode = sampler.createSourceNode()
             trackSamplers[track.id] = sampler
+        case .vst2, .vst3:
+            // PluginWrapper logic will handle this
+            let synth = SimpleSynthInstrument(sampleRate: format.sampleRate) // Placeholder
+            sourceNode = synth.createSourceNode()
+        @unknown default:
+            let synth = SimpleSynthInstrument(sampleRate: format.sampleRate)
+            sourceNode = synth.createSourceNode()
         }
         
         audioEngine.attach(sourceNode)
@@ -216,6 +226,7 @@ public final class TrackMixer {
         if track.trackType == .master {
             // Master always goes to the hardware mainMixerNode
             audioEngine.connect(outputMixer, to: audioEngine.avAudioEngine.mainMixerNode, format: format)
+            logger.info("TrackMixer: [SIGNAL] \(track.name) -> HARDWARE OUTPUT")
             return
         }
         
@@ -223,9 +234,12 @@ public final class TrackMixer {
            !hasCircularRouting(startTrack: track.id, destTrack: destID, allTracks: allTracks),
            let destMixer = trackInputMixers[destID] {
             audioEngine.connect(outputMixer, to: destMixer, format: format)
+            let destName = allTracks.first(where: { $0.id == destID })?.name ?? "Unknown"
+            logger.info("TrackMixer: [SIGNAL] \(track.name) -> ROUTED TO \(destName)")
         } else {
             // Default to Master
             audioEngine.connect(outputMixer, to: audioEngine.masterMixer, format: format)
+            logger.info("TrackMixer: [SIGNAL] \(track.name) -> ROUTED TO MASTER")
         }
     }
 
@@ -291,6 +305,11 @@ public final class TrackMixer {
         case .utility, .chorus:
             // Custom native nodes or simplified standard nodes
             return AVAudioMixerNode() // Spacer for now
+        case .vst2, .vst3:
+            // Placeholder: eventually this will return a PluginWrapper node
+            return AVAudioMixerNode()
+        @unknown default:
+            return AVAudioMixerNode()
         }
     }
 
@@ -387,6 +406,11 @@ public final class TrackMixer {
         case .chorus:
             // Placeholder for chorus
             break
+        case .vst2, .vst3:
+            // Placeholder: logic for syncing VST parameters
+            break
+        @unknown default:
+            break
         }
     }
 
@@ -422,6 +446,7 @@ public final class TrackMixer {
                 sampler.endPercent = config.endPercent
                 sampler.mode = config.samplerMode
                 sampler.fadePercent = config.fadePercent
+                sampler.filterEnabled = config.filterEnabled
                 sampler.filterCutoff = config.filterCutoff
                 sampler.filterResonance = config.filterResonance
                 

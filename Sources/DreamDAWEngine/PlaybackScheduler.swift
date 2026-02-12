@@ -94,7 +94,8 @@ public final class PlaybackScheduler {
                     start: position, end: end,
                     bpm: bpm, sampleRate: sampleRate
                 )
-                hasContent = true // Linear playback always considers track as having content if we reach here
+                logger.debug("PlaybackScheduler: [SIGNAL] Scheduled linear track '\(track.name)' to beat \(end.beats)")
+                hasContent = true 
             } else {
                 // Gapless Loop Playback
 

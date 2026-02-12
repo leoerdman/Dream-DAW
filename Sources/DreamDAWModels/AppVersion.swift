@@ -2,8 +2,8 @@ import Foundation
 
 /// Central source of truth for the application version.
 public struct AppVersion {
-    public static let current = "1.2.11"
-    public static let buildNumber = "2026.02.12.12"
+    public static let current = "1.2.50"
+    public static let buildNumber = "2026.02.12.51"
     
     public static var fullVersionString: String {
         return "\(current) (\(buildNumber))"

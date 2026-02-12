@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import SwiftUI
 import DreamDAWModels
+import DreamDAWEngine
 
 // MARK: - Custom Pasteboard Type for browser items (instruments, effects)
 
@@ -30,6 +31,7 @@ public final class BrowserSidebarView: NSView {
     private var rootItems: [BrowserNode] = []
     private var filteredItems: [BrowserNode] = []
     private var samplesObserver: Any?
+    private var vstObserver: Any?
     private var previewPlayer: AVAudioPlayer?
     private var searchQuery: String = ""
 
@@ -41,7 +43,7 @@ public final class BrowserSidebarView: NSView {
         super.init(frame: frameRect)
         setupUI()
         buildTree()
-        observeSamplesPath()
+        observeSettings()
     }
 
     required init?(coder: NSCoder) {
@@ -51,6 +53,9 @@ public final class BrowserSidebarView: NSView {
     deinit {
         previewPlayer?.stop()
         if let obs = samplesObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        if let obs = vstObserver {
             NotificationCenter.default.removeObserver(obs)
         }
     }
@@ -217,9 +222,14 @@ public final class BrowserSidebarView: NSView {
 
         // Plug-Ins (AU / VST)
         let plugIns = BrowserNode(name: "Plug-Ins", icon: "puzzlepiece.fill", isGroup: true)
-        plugIns.children = [
-            BrowserNode(name: "Audio Units", icon: "cpu"),
-        ]
+        
+        // AU - placeholder for now
+        let audioUnits = BrowserNode(name: "Audio Units", icon: "cpu")
+        
+        // VSTs from PluginManager
+        let vsts = loadPlugins()
+        
+        plugIns.children = [audioUnits] + vsts
 
         library.children = [
             BrowserNode(name: "Sounds", icon: "music.note"),
@@ -265,6 +275,24 @@ public final class BrowserSidebarView: NSView {
         rootItems.append(samplesNode)
     }
 
+    private func loadPlugins() -> [BrowserNode] {
+        let plugins = PluginManager.shared.availablePlugins
+        var nodes: [BrowserNode] = []
+        
+        for plugin in plugins {
+            let nType: BrowserNodeType = (plugin.type == .vst2) ? .vst2 : .vst3
+            let node = BrowserNode(
+                name: plugin.name, 
+                icon: (nType == .vst2) ? "puzzlepiece.extension.fill" : "puzzlepiece.fill",
+                nodeType: nType
+            )
+            node.fileURL = URL(fileURLWithPath: plugin.path)
+            nodes.append(node)
+        }
+        
+        return nodes
+    }
+
     private func scanDirectory(url: URL, depth: Int, maxDepth: Int) -> [BrowserNode] {
         guard depth < maxDepth else { return [] }
 
@@ -303,11 +331,17 @@ public final class BrowserSidebarView: NSView {
         return nodes
     }
 
-    // MARK: - Observe Samples Path Changes
+    // MARK: - Observe Settings Changes
 
-    private func observeSamplesPath() {
+    private func observeSettings() {
         samplesObserver = NotificationCenter.default.addObserver(
             forName: .samplesPathDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.buildTree()
+        }
+        
+        vstObserver = NotificationCenter.default.addObserver(
+            forName: .vstPathsDidChange, object: nil, queue: .main
         ) { [weak self] _ in
             self?.buildTree()
         }
@@ -358,6 +392,8 @@ enum BrowserNodeType: String {
     case audioEffect  // EQ, Compressor, etc. → drag onto any track
     case midiEffect   // Arpeggiator, etc. → drag onto MIDI tracks
     case audioFile    // .wav, .aif, .mp3 → drag onto audio tracks
+    case vst2         // External VST2 plugin
+    case vst3         // External VST3 plugin
 }
 
 /// Tree node for the browser outline view.
@@ -424,15 +460,24 @@ extension BrowserSidebarView: NSOutlineViewDataSource {
         guard let node = item as? BrowserNode else { return nil }
 
         // Audio files → drag as file URL
-        if let fileURL = node.fileURL {
+        if let fileURL = node.fileURL, node.nodeType == .audioFile {
             return fileURL as NSURL
         }
 
         // Instruments / Effects → drag as custom pasteboard item
         if node.nodeType != .generic {
             let pasteboardItem = NSPasteboardItem()
-            // Encode as "type:name" — e.g. "instrument:Simple Sine Synth"
-            let payload = "\(node.nodeType.rawValue):\(node.name)"
+            
+            // For external plugins, we use the path as the payload to ensure we can load them
+            let payloadValue: String
+            if (node.nodeType == .vst2 || node.nodeType == .vst3), let path = node.fileURL?.path {
+                payloadValue = path
+            } else {
+                payloadValue = node.name
+            }
+            
+            // Encode as "type:payload" — e.g. "instrument:Simple Sine Synth" or "vst3:/Path/To/Plugin.vst3"
+            let payload = "\(node.nodeType.rawValue):\(payloadValue)"
             pasteboardItem.setString(payload, forType: .browserItem)
             return pasteboardItem
         }
@@ -519,6 +564,8 @@ extension BrowserSidebarView: NSOutlineViewDelegate {
             return NSColor(red: 0.65, green: 0.50, blue: 0.90, alpha: 1.0)  // Purple — MIDI effects
         case .audioFile:
             return DreamTheme.textSecondary
+        case .vst2, .vst3:
+            return NSColor(red: 0.20, green: 0.85, blue: 0.55, alpha: 1.0)  // Mint green — VSTs
         case .generic:
             // Special icon coloring for specific items
             if node.name == "Favorites" { return NSColor(red: 0.95, green: 0.78, blue: 0.20, alpha: 1.0) }  // Yellow star

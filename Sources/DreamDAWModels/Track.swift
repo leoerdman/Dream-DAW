@@ -112,6 +112,9 @@ public final class Track: ObservableObject, Identifiable, Codable {
     
     /// Grouping: IDs of tracks contained within this group (if trackType is .group).
     @Published public var childTrackIDs: [UUID] = []
+    
+    /// Grouping: Whether the group is expanded (showing children) or collapsed.
+    @Published public var isExpanded: Bool = true
 
     // MARK: - Initialization
 
@@ -148,13 +151,14 @@ public final class Track: ObservableObject, Identifiable, Codable {
         self.parentTrackID = nil
         self.outputDestinationID = nil
         self.childTrackIDs = []
+        self.isExpanded = true
     }
 
     // MARK: - Codable
 
     private enum CodingKeys: String, CodingKey {
         case id, name, trackType, color, volume, pan, isMuted, isSoloed, isArmed, height, clips, midiClips, effects, instrument
-        case parentTrackID, outputDestinationID, childTrackIDs
+        case parentTrackID, outputDestinationID, childTrackIDs, isExpanded
     }
 
     public convenience init(from decoder: Decoder) throws {
@@ -178,6 +182,7 @@ public final class Track: ObservableObject, Identifiable, Codable {
         self.parentTrackID = try container.decodeIfPresent(UUID.self, forKey: .parentTrackID)
         self.outputDestinationID = try container.decodeIfPresent(UUID.self, forKey: .outputDestinationID)
         self.childTrackIDs = try container.decodeIfPresent([UUID].self, forKey: .childTrackIDs) ?? []
+        self.isExpanded = try container.decodeIfPresent(Bool.self, forKey: .isExpanded) ?? true
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -199,6 +204,7 @@ public final class Track: ObservableObject, Identifiable, Codable {
         try container.encodeIfPresent(parentTrackID, forKey: .parentTrackID)
         try container.encodeIfPresent(outputDestinationID, forKey: .outputDestinationID)
         try container.encode(childTrackIDs, forKey: .childTrackIDs)
+        try container.encode(isExpanded, forKey: .isExpanded)
     }
 
     // MARK: - Computed

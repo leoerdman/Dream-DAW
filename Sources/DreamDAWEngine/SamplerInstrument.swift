@@ -64,6 +64,7 @@ public final class SamplerInstrument {
     public var startPercent: Double = 0.0
     public var endPercent: Double = 100.0
     public var fadePercent: Double = 0.0
+    public var filterEnabled: Bool = false
     public var filterCutoff: Double = 22000.0
     public var filterResonance: Double = 0.0
 
@@ -112,11 +113,16 @@ public final class SamplerInstrument {
             velocity: Float(velocity) / 127.0,
             currentFrame: startFrame
         ))
+        logger.debug("Sampler: [MIDI] Note ON pitch:\(pitch) velocity:\(velocity)")
     }
     
     public func noteOff(pitch: Int) {
         os_unfair_lock_lock(&voiceLock)
         defer { os_unfair_lock_unlock(&voiceLock) }
+        
+        // In 1-Shot mode, notes typically play to the end regardless of Note Off,
+        // unless a very short fade/envelope is desired.
+        if mode == .oneShot { return }
         
         for i in 0..<activeVoices.count {
             if activeVoices[i].pitch == pitch && !activeVoices[i].isReleasing {
@@ -157,6 +163,7 @@ public final class SamplerInstrument {
             let endF = (self.endPercent / 100.0) * sampleFrames
             
             // Filter coefficients (Pre-calculated for the block)
+            let filterEnabled = self.filterEnabled
             let cutoff = max(20.0, min(self.filterCutoff, sr * 0.49))
             let resonance = max(0.0, min(self.filterResonance, 0.99))
             let g = Float(tan(Double.pi * cutoff / sr))
@@ -241,33 +248,34 @@ public final class SamplerInstrument {
                     
                     let finalGain = vGain * ramp
                     
-                    // --- Filter Application (SVF Lowpass) ---
-                    // Left Channel
-                    let v3L = interpL - voice.ic2eq_L
-                    let v1L = a1 * voice.ic1eq_L + a2 * v3L
-                    let v2L = voice.ic2eq_L + a2 * voice.ic1eq_L + a3 * v3L
-                    voice.ic1eq_L = 2.0 * v1L - voice.ic1eq_L
-                    voice.ic2eq_L = 2.0 * v2L - voice.ic2eq_L
-                    let filteredL = v2L
-                    
-                    mixL += filteredL * finalGain
+                    if filterEnabled {
+                        let v3L = interpL - voice.ic2eq_L
+                        let v1L = a1 * voice.ic1eq_L + a2 * v3L
+                        let v2L = voice.ic2eq_L + a2 * voice.ic1eq_L + a3 * v3L
+                        voice.ic1eq_L = 2.0 * v1L - voice.ic1eq_L
+                        voice.ic2eq_L = 2.0 * v2L - voice.ic2eq_L
+                        mixL += v2L * finalGain
+                    } else {
+                        mixL += interpL * finalGain
+                    }
                     
                     if sampleBuffer.format.channelCount > 1 {
                         let s0_R = sampleBuffer.floatChannelData?[1][idx0] ?? 0
                         let s1_R = sampleBuffer.floatChannelData?[1][idx1] ?? 0
                         let interpR = s0_R * (1.0 - frac) + s1_R * frac
                         
-                        // Right Channel
-                        let v3R = interpR - voice.ic2eq_R
-                        let v1R = a1 * voice.ic1eq_R + a2 * v3R
-                        let v2R = voice.ic2eq_R + a2 * voice.ic1eq_R + a3 * v3R
-                        voice.ic1eq_R = 2.0 * v1R - voice.ic1eq_R
-                        voice.ic2eq_R = 2.0 * v2R - voice.ic2eq_R
-                        let filteredR = v2R
-                        
-                        mixR += filteredR * finalGain
+                        if filterEnabled {
+                            let v3R = interpR - voice.ic2eq_R
+                            let v1R = a1 * voice.ic1eq_R + a2 * v3R
+                            let v2R = voice.ic2eq_R + a2 * voice.ic1eq_R + a3 * v3R
+                            voice.ic1eq_R = 2.0 * v1R - voice.ic1eq_R
+                            voice.ic2eq_R = 2.0 * v2R - voice.ic2eq_R
+                            mixR += v2R * finalGain
+                        } else {
+                            mixR += interpR * finalGain
+                        }
                     } else {
-                        mixR += filteredL * finalGain
+                        mixR = mixL // Mono-to-stereo
                     }
                     
                     // Advance pos
@@ -275,7 +283,8 @@ public final class SamplerInstrument {
                     
                     // Bounds / Mode handling
                     if currentVoices[i].currentFrame >= endF {
-                        if mode == .loop {
+                        if mode == .classic { // Classic mode usually loops if 'Loop' is on, but here we'll assume it loops if Loop is active in config (TBD)
+                            // For now, treat 'Classic' as sustaining/looping and '1-Shot' as non-looping.
                             currentVoices[i].currentFrame = startF + (currentVoices[i].currentFrame - endF)
                         } else {
                             currentVoices.remove(at: i)
@@ -364,8 +373,8 @@ public final class SamplerInstrument {
             case .oneShot:
                 // Play full sample (mapped to start/end)
                 maxOutputFrames = outputFramesForSample
-            case .loop:
-                // Loop for note duration
+            case .classic, .slice:
+                // Loop for note duration (or play once if loop is off - simple implementation for now)
                 maxOutputFrames = Int(noteDurationSeconds * outputSampleRate)
             }
 
@@ -403,7 +412,7 @@ public final class SamplerInstrument {
                 var sourcePos = startFrameOffset + (Double(outputOffset) * pitchRatio)
 
                 // Handle looping
-                if mode == .loop {
+                if mode == .classic {
                     let loopRange = effectiveSampleFrames
                     let relativePos = (Double(outputOffset) * pitchRatio).truncatingRemainder(dividingBy: loopRange)
                     sourcePos = startFrameOffset + relativePos
@@ -417,6 +426,20 @@ public final class SamplerInstrument {
                 let idx0 = Int(srcIdx) % Int(sampleFrames)
                 let idx1 = (Int(srcIdx) + 1) % Int(sampleFrames)
 
+                // Filter coefficients (Pre-calculated for the note)
+                let filterEnabled = config.filterEnabled
+                let cutoff = max(20.0, min(config.filterCutoff, outputSampleRate * 0.49))
+                let resonance = max(0.0, min(config.filterResonance, 0.99))
+                let g = Float(tan(Double.pi * cutoff / outputSampleRate))
+                let k = Float(2.0 * (1.0 - resonance))
+                let a1_f = 1.0 / (1.0 + g * (g + k))
+                let a2_f = g * a1_f
+                let a3_f = g * a2_f
+                
+                // Filter state (reset for each note)
+                var ic1eq_L: Float = 0, ic2eq_L: Float = 0
+                var ic1eq_R: Float = 0, ic2eq_R: Float = 0
+
                 for ch in 0..<Int(sampleFormat.channelCount) {
                     guard let srcData = sampleBuffer.floatChannelData?[ch],
                           let dstData = outputBuffer.floatChannelData?[ch] else { continue }
@@ -424,9 +447,28 @@ public final class SamplerInstrument {
                     let s0 = srcData[idx0]
                     let s1 = srcData[idx1]
                     let interpolated = s0 * (1.0 - frac) + s1 * frac
-                    let sample = interpolated * velocity * config.gain * Float(env)
+                    let rawSample = interpolated * velocity * config.gain * Float(env)
+                    
+                    var finalSample = rawSample
+                    if filterEnabled {
+                        if ch == 0 {
+                            let v3 = rawSample - ic2eq_L
+                            let v1 = a1_f * ic1eq_L + a2_f * v3
+                            let v2 = ic2eq_L + a2_f * ic1eq_L + a3_f * v3
+                            ic1eq_L = 2.0 * v1 - ic1eq_L
+                            ic2eq_L = 2.0 * v2 - ic2eq_L
+                            finalSample = v2
+                        } else {
+                            let v3 = rawSample - ic2eq_R
+                            let v1 = a1_f * ic1eq_R + a2_f * v3
+                            let v2 = ic2eq_R + a2_f * ic1eq_R + a3_f * v3
+                            ic1eq_R = 2.0 * v1 - ic1eq_R
+                            ic2eq_R = 2.0 * v2 - ic2eq_R
+                            finalSample = v2
+                        }
+                    }
 
-                    dstData[outputFrame] += sample
+                    dstData[outputFrame] += finalSample
                 }
             }
         }

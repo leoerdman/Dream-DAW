@@ -1,5 +1,6 @@
 import SwiftUI
 import DreamDAWModels
+import DreamDAWEngine
 import CoreAudio
 
 // MARK: - SettingsTab
@@ -530,24 +531,38 @@ struct StorageSettingsView: View {
     var body: some View {
         Form {
             Section {
-                HStack {
-                    TextField("Storage Path", text: $settings.userStoragePath)
-                        .textFieldStyle(.roundedBorder)
-                    
-                    Button("Browse...") {
-                        selectFolder(for: \.userStoragePath)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        TextField("User Folder", text: $settings.userFolderPath)
+                            .textFieldStyle(.roundedBorder)
+                        
+                        Button("Browse...") {
+                            selectFolder(for: \.userFolderPath)
+                        }
                     }
+                    
+                    Text("This is the main folder for your projects, settings, and cache.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+                
+                // Subfolder Status
+                VStack(alignment: .leading, spacing: 4) {
+                    FolderStatusRow(name: "User Info", path: settings.userInfoURL.path)
+                    FolderStatusRow(name: "User Cache", path: settings.userCacheURL.path)
+                }
+                .padding(.top, 4)
+                
             } header: {
-                Text("User Storage")
+                Text("Main User Directory")
             } footer: {
-                Text("Projects will be stored in this folder.")
+                Text("Changing this folder will migrate your settings and cache to the new location.")
                     .foregroundStyle(.secondary)
             }
             
             Section {
                 HStack {
-                    TextField("Samples Folder", text: $settings.samplesPath)
+                    TextField("Samples Library", text: $settings.samplesPath)
                         .textFieldStyle(.roundedBorder)
                     
                     Button("Browse...") {
@@ -560,7 +575,7 @@ struct StorageSettingsView: View {
                     HStack {
                         Image(systemName: "waveform")
                             .foregroundColor(.secondary)
-                        Text("\(fileCount) audio files found")
+                        Text("\(fileCount) audio files indexed")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -568,8 +583,55 @@ struct StorageSettingsView: View {
             } header: {
                 Text("Samples Library")
             } footer: {
-                Text("Audio samples from this folder will appear in the Browser sidebar for drag & drop.")
+                Text("Samples from this folder appear in the sidebar for quick drag & drop.")
                     .foregroundStyle(.secondary)
+            }
+            
+            Section {
+                // VST2
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        TextField("VST2 Folders", text: $settings.vst2Path)
+                            .textFieldStyle(.roundedBorder)
+                        
+                        Button("Browse...") {
+                            selectFolder(for: \.vst2Path)
+                        }
+                    }
+                }
+                
+                // VST3
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        TextField("VST3 Folders", text: $settings.vst3Path)
+                            .textFieldStyle(.roundedBorder)
+                        
+                        Button("Browse...") {
+                            selectFolder(for: \.vst3Path)
+                        }
+                    }
+                }
+            } header: {
+                Text("Plug-In Sources")
+            } footer: {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Dream DAW will scan these folders for VST2 (.vst) and VST3 (.vst3) plugins.")
+                    
+                    Button {
+                        PluginManager.shared.scanAll(forceRescan: true)
+                    } label: {
+                        Label("Rescan Plugins", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .foregroundStyle(.secondary)
+            }
+            
+            Section {
+                Button("Reveal User Folder in Finder") {
+                    NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: settings.userFolderPath)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .formStyle(.grouped)
@@ -590,20 +652,44 @@ struct StorageSettingsView: View {
     
     private func countAudioFiles(in path: String) -> Int {
         let url = URL(fileURLWithPath: path)
-        let audioExtensions = ["wav", "aiff", "aif", "mp3", "m4a", "flac", "ogg", "caf"]
+        let audioExtensions = ["wav", "aiff", "aif", "mp3", "m4a", "flac"]
         guard let enumerator = FileManager.default.enumerator(
             at: url,
             includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else { return 0 }
         
         var count = 0
         for case let fileURL as URL in enumerator {
             if audioExtensions.contains(fileURL.pathExtension.lowercased()) {
                 count += 1
+                if count > 1000 { return 1000 } // Cap for UI performance
             }
         }
         return count
+    }
+}
+
+private struct FolderStatusRow: View {
+    let name: String
+    let path: String
+    
+    var body: some View {
+        HStack {
+            Image(systemName: "folder.fill")
+                .foregroundColor(.accentColor)
+                .font(.caption)
+            Text(name)
+                .font(.caption)
+            Spacer()
+            Text(FileManager.default.fileExists(atPath: path) ? "Active" : "Pending")
+                .font(.caption2)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(FileManager.default.fileExists(atPath: path) ? Color.green.opacity(0.2) : Color.orange.opacity(0.2))
+                .foregroundColor(FileManager.default.fileExists(atPath: path) ? .green : .orange)
+                .cornerRadius(4)
+        }
     }
 }
 

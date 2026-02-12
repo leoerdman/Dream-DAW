@@ -38,13 +38,10 @@ public final class ProjectFileManager {
     public private(set) var currentVersion: Int = 1
     
     /// The URL for the user's default project template.
-    /// Stored in `~/Library/Application Support/DreamDAW/DefaultProject.ddpj`.
+    /// Stored in `[User Folder]/User Info/DefaultProject.ddpj`.
     public var defaultProjectURL: URL? {
-        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
-        let dreamFolder = appSupport.appendingPathComponent("DreamDAW")
-        // Ensure folder exists
-        try? FileManager.default.createDirectory(at: dreamFolder, withIntermediateDirectories: true, attributes: nil)
-        return dreamFolder.appendingPathComponent("DefaultProject.ddpj")
+        let userInfo = AppSettings.shared.userInfoURL
+        return userInfo.appendingPathComponent("DefaultProject.ddpj")
     }
 
     /// Resets the manager state for a fresh project.
@@ -249,10 +246,6 @@ public final class ProjectFileManager {
     // MARK: - Directory Detection
 
     /// Determine if a directory is a Dream DAW project directory.
-    ///
-    /// A directory is considered a project directory if:
-    /// 1. It contains at least one `.ddpj` file, OR
-    /// 2. It contains a `Samples/` subdirectory (standard project structure)
     private func isDreamDAWProjectDirectory(_ url: URL) -> Bool {
         let fm = FileManager.default
         var isDir: ObjCBool = false
@@ -260,19 +253,15 @@ public final class ProjectFileManager {
             return false
         }
 
-        // Check for Samples/ subdirectory (definitive project marker)
+        // We consider it a project directory if it contains any .ddpj file
+        // OR it's a standard structure with a Samples/ subfolder.
         let samplesDir = url.appendingPathComponent("Samples")
         if fm.fileExists(atPath: samplesDir.path, isDirectory: &isDir), isDir.boolValue {
             return true
         }
 
-        // Check for existing .ddpj files
         if let contents = try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: .skipsHiddenFiles) {
-            for file in contents {
-                if file.pathExtension == Self.fileExtension {
-                    return true
-                }
-            }
+            return contents.contains { $0.pathExtension == Self.fileExtension }
         }
 
         return false
@@ -353,7 +342,9 @@ public final class ProjectFileManager {
     // MARK: - Private Helpers
 
     private func makeFileURL(folder: URL, name: String, version: Int) -> URL {
-        folder.appendingPathComponent("\(name) V\(version).\(ProjectFileManager.fileExtension)")
+        // Professional requirement: Overwrite the active file without appending version clusters.
+        // We keep the version parameter for backward compatibility if needed, but default to name-only.
+        return folder.appendingPathComponent("\(name).\(ProjectFileManager.fileExtension)")
     }
 
     private func writeProject(_ project: Project, to url: URL) async throws {
@@ -372,8 +363,6 @@ public final class ProjectFileManager {
     }
 
     private func copyAudioSamples(project: Project, to importedFolder: URL) throws {
-        let fm = FileManager.default
-
         for track in project.tracks {
             // 1. Copy AudioClip samples
             for clip in track.clips {

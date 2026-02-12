@@ -249,6 +249,9 @@ public final class RenderEngine {
                         midiBuffer = sampler.renderClipToBuffer(clip: clip, bpm: bpm, config: instrConfig)
                     case .sineSynth:
                         midiBuffer = synth.renderClipToBuffer(clip: clip, bpm: bpm)
+                    case .vst2, .vst3:
+                        // Real-time VST rendering not yet implemented in offline render
+                        midiBuffer = nil 
                     }
                 } else {
                     // Default to sine synth

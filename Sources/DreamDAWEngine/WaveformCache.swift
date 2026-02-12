@@ -2,6 +2,7 @@ import AVFoundation
 import Accelerate
 import Foundation
 import os.log
+import DreamDAWModels
 
 // MARK: - WaveformData
 
@@ -75,7 +76,80 @@ public final class WaveformCache: @unchecked Sendable {
 
     // MARK: - Initialization
 
-    public init() {}
+    public init() {
+        // Run cleanup on background to avoid blocking init
+        processingQueue.async { [weak self] in
+            self?.cleanupOldDiskCache()
+        }
+    }
+
+    // MARK: - Disk Persistence
+
+    private func diskURL(for key: CacheKey) -> URL {
+        let filename = "\(key.url.lastPathComponent)_\(key.samplesPerPixel).waveform"
+        return AppSettings.shared.userCacheURL.appendingPathComponent(filename)
+    }
+
+    private func saveToDisk(_ data: WaveformData, key: CacheKey) {
+        let url = diskURL(for: key)
+        let encoder = JSONEncoder()
+        do {
+            let encoded = try encoder.encode(DiskWaveform(data: data))
+            try encoded.write(to: url, options: .atomic)
+        } catch {
+            logger.error("Failed to save waveform to disk: \(error.localizedDescription)")
+        }
+    }
+
+    private func loadFromDisk(key: CacheKey) -> WaveformData? {
+        let url = diskURL(for: key)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        
+        let decoder = JSONDecoder()
+        do {
+            let data = try Data(contentsOf: url)
+            let decoded = try decoder.decode(DiskWaveform.self, from: data)
+            return decoded.toWaveformData()
+        } catch {
+            logger.error("Failed to load waveform from disk: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func cleanupOldDiskCache() {
+        // Simple cleanup for demo: remove files older than 7 days
+        let cacheURL = AppSettings.shared.userCacheURL
+        let resourceKeys: [URLResourceKey] = [.contentModificationDateKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(at: cacheURL, includingPropertiesForKeys: resourceKeys) else { return }
+        
+        let now = Date()
+        for file in files {
+            if let values = try? file.resourceValues(forKeys: Set(resourceKeys)),
+               let date = values.contentModificationDate,
+               now.timeIntervalSince(date) > 7 * 24 * 3600 {
+                try? FileManager.default.removeItem(at: file)
+            }
+        }
+    }
+
+    // Helper for Codable Disk Storage
+    private struct DiskWaveform: Codable {
+        let peaks: [Float]
+        let rmsValues: [Float]
+        let samplesPerPixel: Int
+        let totalSamples: Int64
+
+        init(data: WaveformData) {
+            self.peaks = data.peaks
+            self.rmsValues = data.rmsValues
+            self.samplesPerPixel = data.samplesPerPixel
+            self.totalSamples = data.totalSamples
+        }
+
+        func toWaveformData() -> WaveformData {
+            WaveformData(peaks: peaks, rmsValues: rmsValues, samplesPerPixel: samplesPerPixel, totalSamples: totalSamples)
+        }
+    }
 
     // MARK: - Public API — Mono
 
@@ -100,6 +174,16 @@ public final class WaveformCache: @unchecked Sendable {
         processingQueue.async { [weak self] in
             guard let self = self else { return }
 
+            // 1. Try Load from Disk
+            if let diskData = self.loadFromDisk(key: key) {
+                self.os_unfair_lock_lock(&self.unfairLock)
+                self.cache[key] = diskData
+                self.cacheAccessOrder.append(key)
+                self.os_unfair_lock_unlock(&self.unfairLock)
+                completion(diskData)
+                return
+            }
+
             do {
                 let file = try AVAudioFile(forReading: url)
                 let data = try self.computeWaveform(file: file, samplesPerPixel: samplesPerPixel)
@@ -109,6 +193,9 @@ public final class WaveformCache: @unchecked Sendable {
                 self.cache[key] = data
                 self.cacheAccessOrder.append(key)
                 self.os_unfair_lock_unlock(&self.unfairLock)
+
+                // Save to Disk
+                self.saveToDisk(data, key: key)
 
                 completion(data)
             } catch {

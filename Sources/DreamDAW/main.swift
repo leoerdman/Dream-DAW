@@ -7,6 +7,7 @@ import DreamDAWEngine
 
 /// Application delegate for Dream DAW.
 /// Manages the application lifecycle and main window.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Properties
@@ -24,6 +25,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.splashController?.showWindow(nil)
         
         Task {
+            // 0. Initialize User Folder Structure (on background task)
+            UserConfigurationService.shared.validateStructure()
+            
             // 2. Perform loading tasks
             self.splashController?.updateStatus("Loading Plugins...")
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s dramatic flair
@@ -55,12 +59,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s dramatic flair
 
             await MainActor.run {
+                NSLog("[AppDelegate] Creating MainWindowController...")
                 // 3. Create main window (hidden initially)
                 self.mainWindowController = MainWindowController(project: self.project)
                 
+                NSLog("[AppDelegate] Setting up main menu...")
                 // 4. Set up application menu
                 self.setupMainMenu()
 
+                NSLog("[AppDelegate] Dismissing splash screen...")
                 // 5. Dismiss splash and show main window
                 self.splashController?.dismiss {
                     self.mainWindowController?.showWindow()
@@ -475,15 +482,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 // MARK: - App Entry Point
 
-let app = NSApplication.shared
+MainActor.assumeIsolated {
+    let app = NSApplication.shared
 
-// CRITICAL: Without this, a CLI-launched app has no Dock icon and windows stay hidden.
-app.setActivationPolicy(.regular)
+    // CRITICAL: Without this, a CLI-launched app has no Dock icon and windows stay hidden.
+    app.setActivationPolicy(.regular)
 
-let delegate = AppDelegate()
-app.delegate = delegate
+    let delegate = AppDelegate()
+    app.delegate = delegate
 
-// Activate and bring to front
-app.activate(ignoringOtherApps: true)
+    // Activate and bring to front
+    app.activate(ignoringOtherApps: true)
 
-app.run()
+    app.run()
+}

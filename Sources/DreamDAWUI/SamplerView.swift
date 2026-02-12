@@ -27,7 +27,7 @@ public final class SamplerView: NSView {
     
     // Controls
     private var modeButtons: [NSButton] = []
-    private let gainControl = DAWNumberControl(label: "Gain", unit: "dB")
+    private let volumeKnob = DAWKnob(label: "Volume")
     private let startControl = DAWNumberControl(label: "Start", unit: "%")
     private let endControl = DAWNumberControl(label: "End", unit: "%")
     private let loopControl = DAWNumberControl(label: "Loop", unit: "%")
@@ -144,7 +144,7 @@ public final class SamplerView: NSView {
             parameterStack.trailingAnchor.constraint(equalTo: parameterBar.trailingAnchor)
         ])
         
-        let controls = [gainControl, startControl, endControl, loopControl, fadeControl]
+        let controls = [startControl, endControl, loopControl, fadeControl]
         for ctrl in controls {
             parameterStack.addArrangedSubview(ctrl)
             ctrl.translatesAutoresizingMaskIntoConstraints = false
@@ -152,10 +152,6 @@ public final class SamplerView: NSView {
             ctrl.heightAnchor.constraint(equalToConstant: 24).isActive = true
         }
         
-        gainControl.onValueChanged = { [weak self] val in 
-            self?.config.gain = Float(val)
-            self?.onParameterChanged?()
-        }
         startControl.onValueChanged = { [weak self] val in 
             self?.config.startPercent = val
             self?.onParameterChanged?()
@@ -191,22 +187,23 @@ public final class SamplerView: NSView {
         ])
         
         // Filter Group
+        let filterContainer = NSView()
         let filterStack = NSStackView()
         filterStack.spacing = 8
         filterStack.alignment = .centerY
         filterStack.addArrangedSubview(filterToggle)
         filterStack.addArrangedSubview(cutoffKnob)
         filterStack.addArrangedSubview(resKnob)
-        mainStack.addArrangedSubview(filterStack)
+        filterContainer.addSubview(filterStack)
+        filterStack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            filterStack.centerXAnchor.constraint(equalTo: filterContainer.centerXAnchor),
+            filterStack.centerYAnchor.constraint(equalTo: filterContainer.centerYAnchor)
+        ])
+        mainStack.addArrangedSubview(filterContainer)
         
         // Divider
-        let divider = NSView()
-        divider.wantsLayer = true
-        divider.layer?.backgroundColor = NSColor(white: 0.3, alpha: 1.0).cgColor
-        divider.translatesAutoresizingMaskIntoConstraints = false
-        divider.widthAnchor.constraint(equalToConstant: 1).isActive = true
-        divider.heightAnchor.constraint(equalToConstant: 40).isActive = true
-        mainStack.addArrangedSubview(divider)
+        mainStack.addArrangedSubview(makeDivider())
         
         // Envelope Group
         let envStack = NSStackView()
@@ -220,7 +217,7 @@ public final class SamplerView: NSView {
         envStack.addArrangedSubview(envLabel)
         
         let knobStack = NSStackView()
-        knobStack.spacing = 8
+        knobStack.spacing = 10
         knobStack.addArrangedSubview(attackKnob)
         knobStack.addArrangedSubview(decayKnob)
         knobStack.addArrangedSubview(sustainKnob)
@@ -228,6 +225,17 @@ public final class SamplerView: NSView {
         envStack.addArrangedSubview(knobStack)
         
         mainStack.addArrangedSubview(envStack)
+
+        // Divider
+        mainStack.addArrangedSubview(makeDivider())
+
+        // Volume Section
+        let volStack = NSStackView()
+        volStack.orientation = .vertical
+        volStack.spacing = 4
+        volStack.alignment = .centerX
+        volStack.addArrangedSubview(volumeKnob)
+        mainStack.addArrangedSubview(volStack)
         
         attackKnob.onValueChanged = { [weak self] v in 
             self?.config.attack = v
@@ -245,6 +253,20 @@ public final class SamplerView: NSView {
             self?.config.release = v
             self?.onParameterChanged?()
         }
+        volumeKnob.onValueChanged = { [weak self] v in
+            self?.config.gain = Float(v * 2.0)
+            self?.onParameterChanged?()
+        }
+    }
+
+    private func makeDivider() -> NSView {
+        let divider = NSView()
+        divider.wantsLayer = true
+        divider.layer?.backgroundColor = NSColor(white: 0.3, alpha: 0.5).cgColor
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        divider.widthAnchor.constraint(equalToConstant: 1).isActive = true
+        divider.heightAnchor.constraint(equalToConstant: 45).isActive = true
+        return divider
     }
 
     private func setupConstraints() {
@@ -289,7 +311,6 @@ public final class SamplerView: NSView {
         }
         
         // Sync controls
-        gainControl.value = Double(config.gain)
         startControl.value = config.startPercent
         endControl.value = config.endPercent
         loopControl.value = config.loopPercent
@@ -302,6 +323,7 @@ public final class SamplerView: NSView {
         
         cutoffKnob.value = config.filterCutoff
         resKnob.value = config.filterResonance
+        volumeKnob.value = Double(config.gain / 2.0)
     }
 
     @objc private func modeSelected(_ sender: NSButton) {
@@ -462,7 +484,7 @@ class WaveformView: NSView {
 }
 
 class DAWKnob: NSView {
-    var label: String = ""
+    var label: String = "" { didSet { needsDisplay = true } }
     var value: Double = 0.5 { didSet { needsDisplay = true } }
     var onValueChanged: ((Double) -> Void)?
     
@@ -478,16 +500,16 @@ class DAWKnob: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         
-        let center = CGPoint(x: bounds.midX, y: bounds.maxY - 20)
-        let radius: CGFloat = 12
+        let center = CGPoint(x: bounds.midX, y: bounds.maxY - 18)
+        let radius: CGFloat = 10
         
         // Title
         let attr: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 8, weight: .semibold),
+            .font: NSFont.systemFont(ofSize: 7, weight: .bold),
             .foregroundColor: NSColor(white: 0.6, alpha: 1.0)
         ]
         let str = NSAttributedString(string: label, attributes: attr)
-        str.draw(at: CGPoint(x: center.x - str.size().width/2, y: bounds.minY + 2))
+        str.draw(at: CGPoint(x: center.x - str.size().width/2, y: bounds.minY + 4))
         
         // Track
         ctx.setStrokeColor(NSColor(white: 0.1, alpha: 1.0).cgColor)

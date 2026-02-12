@@ -601,6 +601,9 @@ public final class TrackHeadersContainerView: NSView {
     /// Callback to add a new track. Bool: isAudio (true = audio, false = MIDI).
     public var onAddTrack: ((Bool) -> Void)?
 
+    /// Callback for reorder drag updates (target index). Used for synchronization with the timeline.
+    public var onReorderDragUpdate: ((Int?) -> Void)?
+
     /// Callback to delete a track by its UUID.
     public var onDeleteTrack: ((UUID) -> Void)?
 
@@ -613,6 +616,10 @@ public final class TrackHeadersContainerView: NSView {
     
     public override var isFlipped: Bool { true }
 
+    // Visual drop indicator (cyan line)
+    private let dropIndicatorLayer = CALayer()
+    private var currentInsertionIndex: Int?
+
     // MARK: - Initialization
 
     public override init(frame frameRect: NSRect) {
@@ -620,6 +627,24 @@ public final class TrackHeadersContainerView: NSView {
         setupContextMenu()
         // Register for drag-and-drop
         registerForDraggedTypes([.browserItem, .fileURL, .trackID])
+        setupDropIndicator()
+    }
+
+    private func setupDropIndicator() {
+        dropIndicatorLayer.backgroundColor = NSColor.systemCyan.cgColor
+        dropIndicatorLayer.isHidden = true
+        dropIndicatorLayer.zPosition = 1000 // Always on top
+        layer?.addSublayer(dropIndicatorLayer)
+
+        // Pulsing animation
+        let pulse = CABasicAnimation(keyPath: "opacity")
+        pulse.fromValue = 0.4
+        pulse.toValue = 1.0
+        pulse.duration = 0.6
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        dropIndicatorLayer.add(pulse, forKey: "pulse")
     }
 
     required init?(coder: NSCoder) {
@@ -703,6 +728,7 @@ public final class TrackHeadersContainerView: NSView {
     public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         let pb = sender.draggingPasteboard
         if pb.string(forType: .trackID) != nil {
+            dropIndicatorLayer.isHidden = false
             return .move
         }
         if pb.string(forType: .browserItem) != nil {
@@ -711,24 +737,70 @@ public final class TrackHeadersContainerView: NSView {
         return []
     }
 
-    public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+    public override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         let pb = sender.draggingPasteboard
+        let location = convert(sender.draggingLocation, from: nil)
         
-        // 1. Handle Track Reordering
-        if let trackIDString = pb.string(forType: .trackID), let draggedID = UUID(uuidString: trackIDString) {
-            let location = convert(sender.draggingLocation, from: nil)
-            
-            // Find target index
+        if pb.string(forType: .trackID) != nil {
+            // Calculate insertion index
             var targetIndex = headerViews.count
+            var lineY: CGFloat = frame.height // Default to bottom
+            
+            var currentY: CGFloat = 0
             for (index, header) in headerViews.enumerated() {
-                if location.y < header.frame.midY {
+                // If we are in the top half of a track, we insert before it
+                if location.y < currentY + header.frame.height / 2 {
                     targetIndex = index
+                    lineY = currentY
                     break
+                }
+                currentY += header.frame.height
+                
+                // If we are in the bottom half of the last track
+                if index == headerViews.count - 1 {
+                    lineY = currentY
                 }
             }
             
+            // Highlight the insertion point
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            dropIndicatorLayer.frame = CGRect(x: 0, y: lineY - 1, width: bounds.width, height: 2)
+            dropIndicatorLayer.isHidden = false
+            CATransaction.commit()
+            
+            if currentInsertionIndex != targetIndex {
+                currentInsertionIndex = targetIndex
+                onReorderDragUpdate?(targetIndex)
+            }
+            
+            return .move
+        }
+        
+        return .copy
+    }
+
+    public override func draggingExited(_ sender: NSDraggingInfo?) {
+        dropIndicatorLayer.isHidden = true
+        currentInsertionIndex = nil
+        onReorderDragUpdate?(nil)
+    }
+
+    public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let pb = sender.draggingPasteboard
+        
+        // Hide indicator immediately
+        dropIndicatorLayer.isHidden = true
+        let finalIndex = currentInsertionIndex
+        currentInsertionIndex = nil
+        onReorderDragUpdate?(nil)
+
+        // 1. Handle Track Reordering
+        if let trackIDString = pb.string(forType: .trackID), let draggedID = UUID(uuidString: trackIDString) {
+            
             // Perform move if valid
-            if let sourceIndex = headerViews.firstIndex(where: { $0.trackID == draggedID }) {
+            if let targetIndex = finalIndex,
+               let sourceIndex = headerViews.firstIndex(where: { $0.trackID == draggedID }) {
                 if sourceIndex != targetIndex && sourceIndex != targetIndex - 1 {
                     // Trigger reorder in parent
                     if let arrangement = nextResponder as? ArrangementViewController {

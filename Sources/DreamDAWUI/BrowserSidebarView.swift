@@ -315,6 +315,18 @@ public final class BrowserSidebarView: NSView {
 
     // MARK: - Search
 
+    /// Focus the search field, selecting all text. If already focused, clear it.
+    public func focusSearch() {
+        if window?.firstResponder == searchField.currentEditor() {
+            searchField.stringValue = ""
+            searchQuery = ""
+            updateFilteredItems()
+        }
+        
+        window?.makeFirstResponder(searchField)
+        searchField.currentEditor()?.selectAll(nil)
+    }
+
     @objc private func searchChanged(_ sender: NSTextField) {
         self.searchQuery = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         updateFilteredItems()

@@ -350,12 +350,30 @@ public final class TrackMixer {
         // High Cut = Filter out highs = Low Pass
     }
 
-    /// Apply volume, pan, and mute settings to a track's mixer node.
+    /// Apply volume, pan, and instrument settings to a track's signal chain.
     public func applyTrackSettings(_ track: Track) {
         guard let mixer = trackMixerNodes[track.id] else { return }
 
         mixer.outputVolume = track.effectiveVolume
         mixer.pan = track.pan
+
+        // Sync instrument parameters in real-time
+        if let config = track.instrument {
+            if let sampler = trackSamplers[track.id] {
+                sampler.gain = config.gain
+                sampler.attack = config.attack
+                sampler.decay = config.decay
+                sampler.sustain = config.sustain
+                sampler.release = config.release
+                sampler.startPercent = config.startPercent
+                sampler.endPercent = config.endPercent
+                sampler.mode = config.samplerMode
+                
+                // Note: Sample URL loading is handled during clip render or explicit change
+            } else if let synth = trackSynths[track.id] {
+                synth.amplitude = config.gain * 0.3 // Scaled
+            }
+        }
     }
 
     /// Get the player node for a given track.

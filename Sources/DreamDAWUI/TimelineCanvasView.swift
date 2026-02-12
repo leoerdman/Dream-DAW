@@ -65,6 +65,42 @@ public final class TimelineCanvasView: NSView {
         playheadLayer.backgroundColor = NSColor.systemRed.cgColor
         
         setupCursorAnimation()
+        setupDropIndicator()
+    }
+
+    private func setupDropIndicator() {
+        dropIndicatorLayer.backgroundColor = NSColor.systemCyan.cgColor
+        dropIndicatorLayer.isHidden = true
+        dropIndicatorLayer.zPosition = 2000 // Above clips
+        self.layer?.addSublayer(dropIndicatorLayer)
+
+        // Pulsing animation matching header
+        let pulse = CABasicAnimation(keyPath: "opacity")
+        pulse.fromValue = 0.4
+        pulse.toValue = 1.0
+        pulse.duration = 0.6
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        dropIndicatorLayer.add(pulse, forKey: "pulse")
+    }
+
+    private func updateInsertionLine() {
+        guard let project = project, let index = insertionIndex else {
+            dropIndicatorLayer.isHidden = true
+            return
+        }
+
+        var lineY: CGFloat = 0
+        for i in 0..<min(index, project.tracks.count) {
+            lineY += project.tracks[i].height
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        dropIndicatorLayer.frame = CGRect(x: 0, y: lineY - 1, width: bounds.width, height: 2)
+        dropIndicatorLayer.isHidden = false
+        CATransaction.commit()
     }
 
     
@@ -224,6 +260,14 @@ public final class TimelineCanvasView: NSView {
     /// Ghost layer for drag-and-drop preview
     private let ghostClipLayer = CALayer()
     private var ghostAudioClip: AudioClip?
+
+    // Visual drop indicator (cyan line)
+    private let dropIndicatorLayer = CALayer()
+    public var insertionIndex: Int? {
+        didSet {
+            updateInsertionLine()
+        }
+    }
 
 
     /// Whether we're dragging the playhead (click on ruler/empty space logic can vary).

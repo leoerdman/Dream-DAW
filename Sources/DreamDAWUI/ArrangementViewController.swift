@@ -50,8 +50,14 @@ public final class ArrangementViewController: NSViewController {
         canvasView.splitClipsAtEditCursor()
     }
 
+    @objc public func find(_ sender: Any?) {
+        browserSidebar.focusSearch()
+    }
+
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        // Always enable for now, or add logic to check if clips are selected
+        if menuItem.action == #selector(find(_:)) {
+            return true
+        }
         return true
     }
 
@@ -865,6 +871,11 @@ public final class ArrangementViewController: NSViewController {
         // Track headers: browser item dropped (instrument or effect)
         trackHeaders.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName in
             self?.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName)
+        }
+
+        // Track reordering synchronization
+        trackHeaders.onReorderDragUpdate = { [weak self] index in
+            self?.canvasView.insertionIndex = index
         }
 
         // Transport state → PlaybackScheduler

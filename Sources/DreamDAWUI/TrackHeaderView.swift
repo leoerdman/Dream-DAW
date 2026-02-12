@@ -193,7 +193,7 @@ public final class TrackHeaderView: NSView {
         divider.translatesAutoresizingMaskIntoConstraints = false
         addSubview(divider)
 
-        // Vertical VU meter — left channel
+        // VU Meters setup
         vuMeterBarL.wantsLayer = true
         vuMeterBarL.layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
         vuMeterBarL.layer?.cornerRadius = 1
@@ -206,7 +206,6 @@ public final class TrackHeaderView: NSView {
         vuMeterFillL.translatesAutoresizingMaskIntoConstraints = false
         vuMeterBarL.addSubview(vuMeterFillL)
 
-        // Vertical VU meter — right channel
         vuMeterBarR.wantsLayer = true
         vuMeterBarR.layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
         vuMeterBarR.layer?.cornerRadius = 1
@@ -229,66 +228,55 @@ public final class TrackHeaderView: NSView {
         enableButton.layer?.cornerRadius = 3
         enableButton.target = self
         enableButton.action = #selector(enableToggled)
+        enableButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(enableButton)
         NSLayoutConstraint.activate([
             groupIndicatorContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
             groupIndicatorContainer.topAnchor.constraint(equalTo: topAnchor),
             groupIndicatorContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
-            // Width is managed dynamically in updateRoutingLabel() via constraints or frame
-
-            // Name background (colored strip) — always starts at 0 for color continuity
+            
             nameBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
             nameBackgroundView.topAnchor.constraint(equalTo: topAnchor),
             nameBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            nameBackgroundView.widthAnchor.constraint(equalToConstant: 120), // Increased standard width
+            nameBackgroundView.widthAnchor.constraint(equalToConstant: 120),
 
-            // Name label inside colored strip
-            nameLabel.leadingAnchor.constraint(equalTo: nameBackgroundView.leadingAnchor, constant: 4),
             nameLabel.trailingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor, constant: -2),
             nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -6),
 
-            // Track type under name
             trackTypeLabel.leadingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor, constant: 4),
             trackTypeLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -6),
 
-            // Routing label
             routingLabel.leadingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor, constant: 4),
             routingLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 6),
 
-            // Solo button
             soloButton.trailingAnchor.constraint(equalTo: enableButton.leadingAnchor, constant: -2),
             soloButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             soloButton.widthAnchor.constraint(equalToConstant: 20),
             soloButton.heightAnchor.constraint(equalToConstant: 18),
 
-            // Collapse button (for group tracks - visible on name plate)
             collapseButton.trailingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor, constant: -4),
             collapseButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             collapseButton.widthAnchor.constraint(equalToConstant: 12),
             collapseButton.heightAnchor.constraint(equalToConstant: 12),
 
-            // Enable button (On/Off — shows track number)
             enableButton.trailingAnchor.constraint(equalTo: vuMeterBarL.leadingAnchor, constant: -4),
             enableButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             enableButton.widthAnchor.constraint(equalToConstant: 22),
             enableButton.heightAnchor.constraint(equalToConstant: 18),
 
-            // VU meter left channel (vertical bar, near right edge)
             vuMeterBarL.trailingAnchor.constraint(equalTo: vuMeterBarR.leadingAnchor, constant: -2),
             vuMeterBarL.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             vuMeterBarL.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             vuMeterBarL.widthAnchor.constraint(equalToConstant: 4),
 
-            // VU meter right channel (outmost)
             vuMeterBarR.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             vuMeterBarR.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             vuMeterBarR.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             vuMeterBarR.widthAnchor.constraint(equalToConstant: 4),
-        ])
 
-            // Bottom divider
             divider.trailingAnchor.constraint(equalTo: trailingAnchor),
             divider.bottomAnchor.constraint(equalTo: bottomAnchor),
-            divider.heightAnchor.constraint(equalToConstant: 1),
+            divider.heightAnchor.constraint(equalToConstant: 1)
         ])
         
         // Save dynamic constraints
@@ -357,9 +345,15 @@ public final class TrackHeaderView: NSView {
         if let resolver = trackResolver {
             var parents: [Track] = []
             var curr = track.parentTrackID
+            var visited = Set<UUID>()
             while let pID = curr, let p = resolver(pID) {
+                if visited.contains(pID) {
+                    break
+                }
+                visited.insert(pID)
                 parents.insert(p, at: 0)
                 curr = p.parentTrackID
+                if parents.count > 20 { break }
             }
             
             for (i, parent) in parents.enumerated() {
@@ -958,28 +952,86 @@ public final class TrackHeadersContainerView: NSView {
     // MARK: - Public API
 
     public func configure(tracks: [Track]) {
-        // Remove existing
-        headerViews.forEach { $0.removeFromSuperview() }
-        headerViews.removeAll()
+        // DISABLE implicit animations (fly-in/out) during layout updates
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
 
         // ABLETON STYLE: Calculate max depth and indentation
         // We need a helper to resolve depths within this local list
+        NSLog("[TrackHeaders] configure: creating trackMap...")
         let trackMap = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+        NSLog("[TrackHeaders] configure: trackMap created.")
         func getDepth(for tID: UUID?) -> Int {
             var d = 0
             var curr = tID
+            var visited = Set<UUID>()
             while let pID = curr, let p = trackMap[pID] {
+                if visited.contains(pID) {
+                    break
+                }
+                visited.insert(pID)
                 d += 1
                 curr = p.parentTrackID
+                if d > 20 { 
+                    NSLog("[TrackHeaders] ERROR: Depth exceeded 20, breaking.")
+                    break 
+                }
             }
             return d
         }
         
+        NSLog("[TrackHeaders] configure: calculating maxD...")
         var maxD = 0
         for t in tracks {
+            NSLog("[TrackHeaders] configure: getting depth for \(t.name)")
             let d = getDepth(for: t.parentTrackID)
             if d > maxD { maxD = d }
         }
+        NSLog("[TrackHeaders] configure: maxD = \(maxD)")
+
+        NSLog("[TrackHeaders] configure: checking currentIDs...")
+        let currentIDs = headerViews.map { $0.trackID }
+        let newIDs = tracks.map { $0.id }
+        
+        NSLog("[TrackHeaders] configure: currentIDs vs newIDs check...")
+        if currentIDs == newIDs {
+            // Reuse existing views! Just update layout/depth properties.
+            var yOffset: CGFloat = 0
+            for (index, header) in headerViews.enumerated() {
+                let track = tracks[index]
+                
+                // Determine if this track is the last visible member of its group.
+                var isLastInGroup = false
+                if let currentParent = track.parentTrackID {
+                    if index + 1 < tracks.count {
+                        let nextTrack = tracks[index + 1]
+                        if nextTrack.parentTrackID != currentParent {
+                            isLastInGroup = true
+                        }
+                    } else {
+                        isLastInGroup = true
+                    }
+                }
+                
+                // Update frame width based on depth
+                let baseWidth = DreamTheme.trackHeaderWidth
+                let dynamicWidth = baseWidth + CGFloat(maxD * 8)
+                header.frame = CGRect(x: 0, y: yOffset, width: dynamicWidth, height: track.height)
+                
+                // Update depth configuration
+                let trackDepth = getDepth(for: track.parentTrackID)
+                header.configure(maxDepth: maxD, depth: trackDepth, isLastInGroup: isLastInGroup)
+                
+                yOffset += track.height
+            }
+            frame.size.height = yOffset
+            return
+        }
+
+        // existing logic: full rebuild
+        headerViews.forEach { $0.removeFromSuperview() }
+        headerViews.removeAll()
         
         var yOffset: CGFloat = 0
         for (index, track) in tracks.enumerated() {
@@ -1012,12 +1064,7 @@ public final class TrackHeadersContainerView: NSView {
             addSubview(header)
             
             
-            // Restore selection state
-            if let window = self.window, let vc = window.contentViewController as? ArrangementViewController {
-                 header.isSelected = vc.project.selectedTrackIDs.contains(track.id)
-            } else if let project = (superview?.superview?.superview?.nextResponder as? ArrangementViewController)?.project {
-                 header.isSelected = project.selectedTrackIDs.contains(track.id)
-            }
+            // selection state restored later in arrangement view controller lifecycle
 
             header.onTrackChanged = { [weak self] track in
                 self?.onTrackChanged?(track)
@@ -1057,8 +1104,7 @@ public final class TrackHeadersContainerView: NSView {
 
         // Update frame (only regular tracks — master is pinned separately)
         frame.size.height = yOffset
-    }
-    
+    }    
     /// Update existing header frames without recreation.
     public func updateLayoutInPlace() {
         var yOffset: CGFloat = 0

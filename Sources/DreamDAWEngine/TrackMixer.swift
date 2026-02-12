@@ -9,7 +9,8 @@ import os.log
 
 /// Manages per-track mixer nodes within the audio engine graph.
 /// Signal chain per track: AVAudioPlayerNode → ParametricEQ → AVAudioMixerNode → masterMixer.
-public final class TrackMixer {
+/// Signal chain per track: AVAudioPlayerNode → ParametricEQ → AVAudioMixerNode → masterMixer.
+public final class TrackMixer: @unchecked Sendable {
 
     // MARK: - Properties
 
@@ -557,6 +558,11 @@ public final class TrackMixer {
         @unknown default:
             break
         }
+    }
+
+    /// Report MIDI activity from PlaybackScheduler directly to the level meter.
+    public func reportMidiActivity(trackID: UUID, velocity: Int) {
+        audioLevelMeter.reportMidiActivity(trackID: trackID, velocity: velocity)
     }
 
     private func mapFilterType(_ type: EQFilterType) -> AVAudioUnitEQFilterType {

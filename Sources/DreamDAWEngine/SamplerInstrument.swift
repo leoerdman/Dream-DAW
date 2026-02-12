@@ -6,6 +6,12 @@ import os.log
 
 // MARK: - SamplerInstrument
 
+/// MIDI activity event for visual indicators.
+public struct MidiActivityEvent: Sendable {
+    public let frameOffset: AVAudioFramePosition
+    public let velocity: Int
+}
+
 /// MIDI instrument that plays an audio sample triggered by MIDI notes.
 public final class SamplerInstrument {
 
@@ -356,10 +362,10 @@ public final class SamplerInstrument {
 
     // MARK: - Offline Rendering
 
-    public func renderClipToBuffer(clip: MidiClip, bpm: Double, config: InstrumentConfig) -> AVAudioPCMBuffer? {
+    public func renderClipToBuffer(clip: MidiClip, bpm: Double, config: InstrumentConfig) -> (AVAudioPCMBuffer?, [MidiActivityEvent]) {
         guard let head = headBuffer, let sampleFormat = sampleFormat else {
             logger.warning("No sample loaded for sampler rendering")
-            return nil
+            return (nil, [])
         }
         
         // Update local state from config
@@ -369,7 +375,7 @@ public final class SamplerInstrument {
         let clipDurationSeconds = clip.duration.toSeconds(bpm: bpm)
         let totalOutputFrames = AVAudioFrameCount(clipDurationSeconds * outputSampleRate)
 
-        guard totalOutputFrames > 0 else { return nil }
+        guard totalOutputFrames > 0 else { return (nil, []) }
 
         let outputFormat = AVAudioFormat(
             standardFormatWithSampleRate: outputSampleRate,
@@ -377,7 +383,7 @@ public final class SamplerInstrument {
         )!
 
         guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: totalOutputFrames) else {
-            return nil
+            return (nil, [])
         }
         outputBuffer.frameLength = totalOutputFrames
 
@@ -387,6 +393,13 @@ public final class SamplerInstrument {
             memset(data, 0, Int(totalOutputFrames) * MemoryLayout<Float>.size)
         }
 
+        var activityEvents: [MidiActivityEvent] = []
+        
+        // ─── LOCAL TILE CACHE ───
+        // We cache tiles locally for the duration of this track/clip render to avoid disk thrashery.
+        var cachedTile: AVAudioPCMBuffer?
+        var cachedTileStart: Int64 = -1
+
         // Render each note
         for note in clip.notes {
             let noteStartSeconds = note.position.toSeconds(bpm: bpm)
@@ -394,6 +407,9 @@ public final class SamplerInstrument {
 
             let startFrame = AVAudioFramePosition(noteStartSeconds * outputSampleRate)
             guard startFrame < AVAudioFramePosition(totalOutputFrames) else { continue }
+
+            // Add activity event for visual blinks
+            activityEvents.append(MidiActivityEvent(frameOffset: startFrame, velocity: note.velocity))
 
             // ─── Offset / Length Calculation ───
             let totalFileFrames = Double(self.totalFrames)
@@ -454,10 +470,22 @@ public final class SamplerInstrument {
                         s0 = head.floatChannelData?[ch][srcIdx] ?? 0
                         s1 = head.floatChannelData?[ch][srcIdx + 1] ?? 0
                     } else if let url = sampleURL {
-                        // Offline render tile load
-                        if let tile = TileEngine.shared.loadTile(url: url, startFrame: Int64(sourcePos), count: 2) {
-                            s0 = tile.floatChannelData?[ch][0] ?? 0
-                            s1 = tile.floatChannelData?[ch][1] ?? 0
+                        // ─── ENTERPRISE TILE CACHING ───
+                        // Check if our local cache covers this frame
+                        let posLong = Int64(sourcePos)
+                        if cachedTile == nil || posLong < cachedTileStart || posLong >= (cachedTileStart + Int64(cachedTile!.frameLength) - 1) {
+                            // Hit disk for a large chunk (8192 frames) to reduce frequency of I/O calls
+                            let loadCount: AVAudioFrameCount = 8192
+                            if let newTile = TileEngine.shared.loadTile(url: url, startFrame: posLong, count: loadCount) {
+                                cachedTile = newTile
+                                cachedTileStart = posLong
+                            }
+                        }
+                        
+                        if let tile = cachedTile, posLong >= cachedTileStart && (posLong - cachedTileStart) < Int64(tile.frameLength) - 1 {
+                            let relIdx = Int(posLong - cachedTileStart)
+                            s0 = tile.floatChannelData?[ch][relIdx] ?? 0
+                            s1 = tile.floatChannelData?[ch][relIdx + 1] ?? 0
                         }
                     }
 
@@ -482,6 +510,6 @@ public final class SamplerInstrument {
                 }
             }
         }
-        return outputBuffer
+        return (outputBuffer, activityEvents)
     }
 }

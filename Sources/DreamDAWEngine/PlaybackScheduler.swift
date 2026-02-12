@@ -20,6 +20,13 @@ public final class PlaybackScheduler {
     /// Key: Clip ID (UUID)
     private var midiBufferCache: [UUID: AVAudioPCMBuffer] = [:]
     
+    /// Cache for MIDI activity events to support visual indicators.
+    /// Key: Clip ID (UUID)
+    private var midiActivityCache: [UUID: [MidiActivityEvent]] = [:]
+    
+    /// Last reported playhead position (beats) to prevent double-triggers.
+    private var lastWatcherBeats: Double = -1
+    
     /// Dedicated background queue for scheduling logic to avoid UI freezes.
     private let schedulingQueue = DispatchQueue(label: "com.dreamdaw.scheduling", qos: .userInitiated)
 
@@ -251,8 +258,10 @@ public final class PlaybackScheduler {
             midiBuffer = cached
         } else {
             // Offline render MIDI to PCM for gapless scheduling
-            midiBuffer = sampler.renderClipToBuffer(clip: clip, bpm: bpm, config: track.instrument ?? InstrumentConfig())
-            midiBufferCache[clip.id] = midiBuffer
+            let (buffer, events) = sampler.renderClipToBuffer(clip: clip, bpm: bpm, config: track.instrument ?? InstrumentConfig())
+            midiBuffer = buffer
+            midiBufferCache[clip.id] = buffer
+            midiActivityCache[clip.id] = events
         }
 
         guard let buffer = midiBuffer else { return }
@@ -296,5 +305,46 @@ public final class PlaybackScheduler {
     
     public func stopAll() {
         trackMixer.stopAll()
+        lastWatcherBeats = -1
+    }
+
+    /// Watcher called from UI timer to report MIDI blinks synchronized with playhead.
+    public func updateMidiIndicators(project: Project, playheadBeats: Double) {
+        let bpm = project.bpm
+        
+        // Use a small lookback window to catch events between timer ticks
+        let startBeats = lastWatcherBeats < 0 ? playheadBeats : lastWatcherBeats
+        let endBeats = playheadBeats
+        
+        guard endBeats >= startBeats else {
+            lastWatcherBeats = endBeats
+            return
+        }
+
+        for track in project.tracks where track.trackType == .midi {
+            for clip in track.midiClips {
+                // If the clip is within the range we're checking
+                if clip.endPosition.beats > startBeats && clip.position.beats < endBeats {
+                    if let events = midiActivityCache[clip.id] {
+                        let clipStartSec = clip.position.toSeconds(bpm: bpm)
+                        let windowStartSec = startBeats / bpm * 60.0
+                        let windowEndSec = endBeats / bpm * 60.0
+                        
+                        let sampleRate = audioEngine.sampleRate
+                        
+                        for event in events {
+                            let eventAbsSec = clipStartSec + (Double(event.frameOffset) / sampleRate)
+                            
+                            if eventAbsSec >= windowStartSec && eventAbsSec < windowEndSec {
+                                // Enterprise: Forward activity to the mixer/meter system
+                                trackMixer.reportMidiActivity(trackID: track.id, velocity: event.velocity)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        lastWatcherBeats = playheadBeats
     }
 }

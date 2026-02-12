@@ -123,8 +123,9 @@ public final class MetalTimelineRenderer {
         in layer: CAMetalLayer
     ) {
         guard let drawable = layer.nextDrawable() else {
-            print("Metal: Error - layer.nextDrawable() is NIL")
-            return
+            // This is completely normal during resize/initialization when the layer isn't fully ready.
+            // Silently return instead of spamming logs.
+            return 
         }
         guard let pipelineState = pipelineState else {
             print("Metal: Error - pipelineState is NIL")

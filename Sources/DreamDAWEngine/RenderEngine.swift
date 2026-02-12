@@ -246,7 +246,7 @@ public final class RenderEngine {
                             try? sampler.loadSample(url: sampleURL)
                             sampler.mode = instrConfig.samplerMode
                         }
-                        midiBuffer = sampler.renderClipToBuffer(clip: clip, bpm: bpm, config: instrConfig)
+                        (midiBuffer, _) = sampler.renderClipToBuffer(clip: clip, bpm: bpm, config: instrConfig)
                     case .sineSynth:
                         midiBuffer = synth.renderClipToBuffer(clip: clip, bpm: bpm)
                     case .vst2, .vst3:

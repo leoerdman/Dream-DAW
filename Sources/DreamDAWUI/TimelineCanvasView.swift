@@ -23,6 +23,7 @@ public final class TimelineCanvasView: NSView {
     }
 
     private func setup() {
+        NSLog("[TimelineCanvasView] setup start")
         self.wantsLayer = true
         self.layer?.backgroundColor = DreamTheme.bgPrimary.cgColor
         
@@ -87,6 +88,7 @@ public final class TimelineCanvasView: NSView {
         
         setupCursorAnimation()
         setupDropIndicator()
+        NSLog("[TimelineCanvasView] setup complete")
     }
 
     public override func viewDidMoveToSuperview() {
@@ -404,6 +406,7 @@ public final class TimelineCanvasView: NSView {
     // MARK: - Reactive Subscriptions
 
     private func setupSubscriptions() {
+        NSLog("[TimelineCanvasView] setupSubscriptions start")
         // Cancel any existing subscriptions
         cancellables.removeAll()
 
@@ -570,6 +573,7 @@ public final class TimelineCanvasView: NSView {
     }
 
     public func updateArrangementLayers(fullRedraw: Bool = true) {
+        NSLog("[TimelineCanvasView] updateArrangementLayers start (fullRedraw: \(fullRedraw))")
         guard let project = project else { return }
         
         CATransaction.begin()
@@ -607,15 +611,17 @@ public final class TimelineCanvasView: NSView {
         
         if let renderer = metalTimelineRenderer {
             if renderer.waveformCache == nil {
-                renderer.waveformCache = (self as TimelineCanvasView).waveformRenderer?.waveformCache
+                renderer.waveformCache = self.waveformRenderer?.waveformCache
             }
-            
+
+            NSLog("[TimelineCanvasView] calling renderer.render()...")
             renderer.render(
                 project: project,
                 visibleRect: visibleRect,
                 pixelsPerBeat: pixelsPerBeat,
                 in: metalArrangementLayer
             )
+            NSLog("[TimelineCanvasView] renderer.render() finished.")
         }
         
         // Cursor and Playhead
@@ -1064,9 +1070,20 @@ public final class TimelineCanvasView: NSView {
 
     /// Deselect all clips across all tracks.
     private func deselectAllClips(in project: Project) {
+        var changed = false
         for track in project.allVisibleTracks {
-            for i in track.clips.indices { track.clips[i].isSelected = false }
-            for i in track.midiClips.indices { track.midiClips[i].isSelected = false }
+            for i in track.clips.indices {
+                if track.clips[i].isSelected {
+                    track.clips[i].isSelected = false
+                    changed = true
+                }
+            }
+            for i in track.midiClips.indices {
+                if track.midiClips[i].isSelected {
+                    track.midiClips[i].isSelected = false
+                    changed = true
+                }
+            }
         }
     }
 
@@ -1076,13 +1093,13 @@ public final class TimelineCanvasView: NSView {
             if isMidi {
                 if let idx = track.midiClips.firstIndex(where: { $0.id == id }) {
                     track.midiClips[idx].isSelected = true
-                    updateArrangementLayers()
+                    // Redraw happens via the caller
                     return
                 }
             } else {
                 if let idx = track.clips.firstIndex(where: { $0.id == id }) {
                     track.clips[idx].isSelected = true
-                    updateArrangementLayers()
+                    // Redraw happens via the caller
                     return
                 }
             }

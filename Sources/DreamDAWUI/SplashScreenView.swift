@@ -31,10 +31,16 @@ public final class SplashScreenView: NSView {
         layer?.addSublayer(gradientLayer)
         
         // Logo
-        logoImageView.image = NSImage(named: "AppIcon")
+        if let icon = loadAppIcon() {
+            logoImageView.image = icon
+        } else {
+            // Fallback if truly lost
+            logoImageView.image = NSImage(size: NSSize(width: 180, height: 180))
+            logoImageView.layer?.backgroundColor = NSColor.black.cgColor
+        }
+
         logoImageView.imageScaling = .scaleProportionallyUpOrDown
         logoImageView.wantsLayer = true
-        logoImageView.layer?.backgroundColor = NSColor.black.cgColor // Avoid any white bleed
         logoImageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(logoImageView)
         
@@ -100,5 +106,37 @@ public final class SplashScreenView: NSView {
         DispatchQueue.main.async {
             self.statusLabel.stringValue = status
         }
+    }
+    
+    private func loadAppIcon() -> NSImage? {
+        // Try multiple search strategies for the icon
+        var searchPaths: [String] = []
+        
+        // 1. SPM resource bundle
+        if let bundlePath = Bundle.main.path(forResource: "AppIcon", ofType: "png") {
+            searchPaths.append(bundlePath)
+        }
+        
+        // 2. Relative to executable (SPM .build directory structure)
+        if let execDir = Bundle.main.executableURL?.deletingLastPathComponent() {
+            // Walk up from .build/debug/ to project root
+            var dir = execDir
+            for _ in 0..<6 {
+                let candidate = dir.appendingPathComponent("Sources/DreamDAW/AppIcon.png")
+                searchPaths.append(candidate.path)
+                dir = dir.deletingLastPathComponent()
+            }
+        }
+        
+        // 3. Current working directory
+        let cwd = FileManager.default.currentDirectoryPath
+        searchPaths.append("\(cwd)/Sources/DreamDAW/AppIcon.png")
+        
+        for path in searchPaths {
+            if let icon = NSImage(contentsOfFile: path) {
+                return icon
+            }
+        }
+        return NSImage(named: "AppIcon")
     }
 }

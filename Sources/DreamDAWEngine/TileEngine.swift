@@ -42,29 +42,37 @@ public final class TileEngine {
     /// Thread Safety: CALL ONLY FROM BACKGROUND LOADER THREAD.
     public func loadTile(url: URL, startFrame: AVAudioFramePosition, count: AVAudioFrameCount) -> AVAudioPCMBuffer? {
         do {
-            let file = try getFile(for: url)
-            let format = file.processingFormat
+            // Enterprise: We must lock during the seek + read operation to prevent 
+            // concurrent threads from corrupting the internal file pointer.
+            lock.lock()
+            let file = try getFileInternal(for: url)
             
             // Safety clamp
             let actualStart = max(0, min(startFrame, file.length - 1))
             let actualCount = min(count, AVAudioFrameCount(file.length - actualStart))
             
-            guard actualCount > 0 else { return nil }
-            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: actualCount) else { return nil }
+            guard actualCount > 0 else { 
+                lock.unlock()
+                return nil 
+            }
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: actualCount) else { 
+                lock.unlock()
+                return nil 
+            }
             
             file.framePosition = actualStart
             try file.read(into: buffer, frameCount: actualCount)
+            lock.unlock()
+            
             return buffer
         } catch {
+            lock.unlock()
             logger.error("D-Stream: Tile load failed for \(url.lastPathComponent) at \(startFrame): \(error.localizedDescription)")
             return nil
         }
     }
     
-    private func getFile(for url: URL) throws -> AVAudioFile {
-        lock.lock()
-        defer { lock.unlock() }
-        
+    private func getFileInternal(for url: URL) throws -> AVAudioFile {
         if let existing = activeFiles[url] {
             return existing
         }
@@ -72,6 +80,12 @@ public final class TileEngine {
         let file = try AVAudioFile(forReading: url)
         activeFiles[url] = file
         return file
+    }
+
+    private func getFile(for url: URL) throws -> AVAudioFile {
+        lock.lock()
+        defer { lock.unlock() }
+        return try getFileInternal(for: url)
     }
     
     public func purgeCache() {

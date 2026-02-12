@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var splashController: SplashScreenController?
     private var mainWindowController: MainWindowController?
+    private var sharedEngine: SharedEngine?
     private var recentMenu: NSMenu!
     private var project: Project!
 
@@ -26,13 +27,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         
         Task {
             // 0. Initialize User Folder Structure (on background task)
+            NSLog("[AppDelegate] Validating user structure...")
             UserConfigurationService.shared.validateStructure()
+            NSLog("[AppDelegate] User structure validated.")
             
             // 2. Perform loading tasks
             self.splashController?.updateStatus("Loading Plugins...")
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s dramatic flair
             
             self.splashController?.updateStatus("Loading Default Template...")
+            NSLog("[AppDelegate] Determining startup behavior...")
             
             // RESPECT STARTUP BEHAVIOR
             let settings = AppSettings.shared
@@ -41,14 +45,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if settings.startupBehavior == .lastProject,
                let lastProjectURL = ProjectFileManager.shared.recentProjectURLs.first {
                 self.splashController?.updateStatus("Restoring Last Project...")
+                NSLog("[AppDelegate] Restoring last project from: \(lastProjectURL.path)")
                 projectToLoad = try? await ProjectFileManager.shared.open(fileURL: lastProjectURL)
+                NSLog("[AppDelegate] Restoration finished. Success: \(projectToLoad != nil)")
             }
             
             // Fallback to default template or new project
             if projectToLoad == nil {
+                NSLog("[AppDelegate] Loading default project template...")
                 if let defaultTemplate = await ProjectFileManager.shared.loadDefaultProject() {
                     projectToLoad = defaultTemplate
+                    NSLog("[AppDelegate] Default template loaded.")
                 } else {
+                    NSLog("[AppDelegate] No template found. Creating clean project.")
                     projectToLoad = Project.createDefault()
                 }
             }
@@ -56,12 +65,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.project = projectToLoad
             
             self.splashController?.updateStatus("Initializing Audio Engine...")
-            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s dramatic flair
+            NSLog("[AppDelegate] Calling SharedEngine.createAsync()...")
+            let engine = await SharedEngine.createAsync()
+            self.sharedEngine = engine
+            NSLog("[AppDelegate] Audio engine initialized.")
 
             await MainActor.run {
                 NSLog("[AppDelegate] Creating MainWindowController...")
                 // 3. Create main window (hidden initially)
-                self.mainWindowController = MainWindowController(project: self.project)
+                self.mainWindowController = MainWindowController(project: self.project, sharedEngine: engine)
                 
                 NSLog("[AppDelegate] Setting up main menu...")
                 // 4. Set up application menu
@@ -230,8 +242,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 
                 if let mwc = self.mainWindowController {
                     mwc.updateProject(newProject)
-                } else {
-                    self.mainWindowController = MainWindowController(project: newProject)
+                } else if let engine = self.sharedEngine {
+                    self.mainWindowController = MainWindowController(project: newProject, sharedEngine: engine)
                     self.mainWindowController?.showWindow()
                 }
             }
@@ -431,8 +443,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     
                     if let mwc = self.mainWindowController {
                         mwc.updateProject(loadedProject)
-                    } else {
-                        self.mainWindowController = MainWindowController(project: self.project)
+                    } else if let engine = self.sharedEngine {
+                        self.mainWindowController = MainWindowController(project: self.project, sharedEngine: engine)
                         self.mainWindowController?.showWindow()
                     }
                 }

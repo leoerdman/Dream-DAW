@@ -147,13 +147,10 @@ public final class TransportController: ObservableObject {
         let context = Unmanaged.passUnretained(self).toOpaque()
         CVDisplayLinkSetOutputCallback(link, { (_, _, _, _, _, context) -> CVReturn in
             guard let ctx = context else { return kCVReturnError }
-            // This runs on a high-priority background thread.
-            // We must call back to the main actor for state updates.
             let controller = Unmanaged<TransportController>.fromOpaque(ctx).takeUnretainedValue()
             
-            // Perform update on main actor. 
-            // Note: Since we are in a realtime callback, we use Task to avoid blocking.
-            Task { @MainActor in
+            // Ultra-lightweight MainActor jump
+            DispatchQueue.main.async {
                 controller.applyPlayheadUpdates()
             }
             
@@ -174,10 +171,21 @@ public final class TransportController: ObservableObject {
     private func applyPlayheadUpdates() {
         guard state == .playing else { return }
         
+        // GENIUS FIX: If we are waiting for a new scheduling start time, 
+        // DON'T update from the old reference! This prevents the "jump-forward-and-back" bug.
         let now = mach_absolute_time()
         
+        // If now is way before start time, it means we have a fresh start pending
+        // but the display link is already running.
+        if now < playbackStartHostTime {
+            // Stay at the seeked position until hardware starts
+            self.playheadPosition = TimePosition(beats: playbackStartBeat)
+            self.onPlayheadUpdate?(self.playheadPosition)
+            return
+        }
+
         // Calculate elapsed seconds using high-precision mach_absolute_time
-        let elapsedTicks = now > playbackStartHostTime ? now - playbackStartHostTime : 0
+        let elapsedTicks = now - playbackStartHostTime
         let elapsedNano = (elapsedTicks * UInt64(timebaseInfo.numer)) / UInt64(timebaseInfo.denom)
         let elapsedSeconds = Double(elapsedNano) / 1_000_000_000.0
         

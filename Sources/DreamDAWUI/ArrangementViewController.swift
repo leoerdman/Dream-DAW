@@ -65,12 +65,14 @@ public final class ArrangementViewController: NSViewController {
     // MARK: - Public Properties
 
     public var project: Project
-    public let audioEngine: AudioEngine
-    public let transportController: TransportController
-    public let trackMixer: TrackMixer
-    public let playbackScheduler: PlaybackScheduler
-    public let waveformCache: WaveformCache
-    public let audioLevelMeter = AudioLevelMeter()
+    public let sharedEngine: SharedEngine
+    
+    public var audioEngine: AudioEngine { sharedEngine.audioEngine }
+    public var transportController: TransportController { sharedEngine.transportController }
+    public var trackMixer: TrackMixer { sharedEngine.trackMixer }
+    public var playbackScheduler: PlaybackScheduler { sharedEngine.playbackScheduler }
+    public var waveformCache: WaveformCache { sharedEngine.waveformCache }
+    public var audioLevelMeter: AudioLevelMeter { sharedEngine.audioLevelMeter }
     public let actionHistory = ActionHistory()
     public var orchestrator: ArrangementOrchestrator
     private let stressTestService = StressTestService()
@@ -154,24 +156,22 @@ public final class ArrangementViewController: NSViewController {
     /// Weak reference to the render dialog panel (avoids fragile title-based lookup).
     private weak var renderPanel: NSPanel?
 
+    // Interaction & Stability Guards
+    private var isScheduling = false
+    private var lastScheduleTime: Date = Date.distantPast
+
     // MARK: - Initialization
 
-    public init(project: Project) {
+    public init(project: Project, sharedEngine: SharedEngine) {
+        NSLog("[ArrangementVC] init start")
         self.project = project
-        self.audioEngine = AudioEngine()
-        self.transportController = TransportController()
-        self.waveformCache = WaveformCache()
-        self.trackMixer = TrackMixer(audioEngine: audioEngine, audioLevelMeter: audioLevelMeter)
-        self.playbackScheduler = PlaybackScheduler(audioEngine: audioEngine, trackMixer: trackMixer)
+        self.sharedEngine = sharedEngine
+        NSLog("[ArrangementVC] Initializing orchestrator...")
         self.orchestrator = ArrangementOrchestrator(project: project, actionHistory: actionHistory)
+        NSLog("[ArrangementVC] Orchestrator initialized.")
         
         super.init(nibName: nil, bundle: nil)
-        
-        setupBindings()
-
-        // Sync transport with project
-        transportController.bpm = project.bpm
-        transportController.timeSignature = project.timeSignature
+        NSLog("[ArrangementVC] init complete")
     }
 
     // MARK: - Actions
@@ -196,12 +196,30 @@ public final class ArrangementViewController: NSViewController {
 
     public override func viewDidLoad() {
         super.viewDidLoad()
+        NSLog("[ArrangementVC] viewDidLoad start")
+        
+        NSLog("[ArrangementVC] calling setupUI()...")
         setupUI()
+        NSLog("[ArrangementVC] setupUI() finished.")
+        
+        NSLog("[ArrangementVC] calling setupAudioEngine()...")
         setupAudioEngine()
-        setupBindings()
+        NSLog("[ArrangementVC] setupAudioEngine() finished.")
+        
+        // configureProject calls setupBindings internally
+        NSLog("[ArrangementVC] calling configureProject()...")
         configureProject()
+        NSLog("[ArrangementVC] configureProject() finished.")
+        
+        NSLog("[ArrangementVC] calling installGlobalKeyMonitor()...")
         installGlobalKeyMonitor()
+        NSLog("[ArrangementVC] installGlobalKeyMonitor() finished.")
+        
+        NSLog("[ArrangementVC] calling startMeterTimer()...")
         startMeterTimer()
+        NSLog("[ArrangementVC] startMeterTimer() finished.")
+        
+        NSLog("[ArrangementVC] viewDidLoad finished.")
     }
     
     // MARK: - View Persistence
@@ -299,6 +317,7 @@ public final class ArrangementViewController: NSViewController {
     // MARK: - Setup
 
     private func setupUI() {
+        NSLog("[ArrangementVC] setupUI: Setting up Transport Bar...")
         // ===== TOP: Control Bar (Transport) =====
         let transportView = TransportBarView(
             transportController: transportController,
@@ -308,41 +327,42 @@ public final class ArrangementViewController: NSViewController {
         hostingView.wantsLayer = true
         view.addSubview(hostingView)
         self.transportHostingView = hostingView
-
-        // Browser and Left Corner moved to end for Z-order (stay on top of canvas)
-
+        NSLog("[ArrangementVC] setupUI: Transport Bar added.")
 
         // ===== CENTER-TOP: Ruler =====
+        NSLog("[ArrangementVC] setupUI: Setting up Ruler...")
         rulerView.wantsLayer = true
         view.addSubview(rulerView)
+        NSLog("[ArrangementVC] setupUI: Ruler added.")
 
-        // ===== CENTER-TOP RIGHT: Corner (above track headers) =====
+        // ===== CENTER-TOP RIGHT: Corner =====
         cornerViewRight.wantsLayer = true
         cornerViewRight.layer?.backgroundColor = DreamTheme.bgHeader.cgColor
         view.addSubview(cornerViewRight)
 
         // ===== CENTER: Canvas Scroll View =====
+        NSLog("[ArrangementVC] setupUI: Setting up Canvas Scroll View...")
         canvasScrollView.wantsLayer = true
         canvasScrollView.drawsBackground = false
         canvasScrollView.hasVerticalScroller = true
         canvasScrollView.hasHorizontalScroller = true
         canvasScrollView.autohidesScrollers = false
         
-        // Use custom clip view to valid hard-clamp scrolling (stop rubber-banding)
         let clipView = ClampedClipView()
         canvasScrollView.contentView = clipView
         
         canvasScrollView.documentView = canvasView
         canvasScrollView.scrollerStyle = .overlay
-        // Disable elastic bounce — no over-scrolling past content boundaries
         canvasScrollView.horizontalScrollElasticity = .none
         canvasScrollView.verticalScrollElasticity = .none
         view.addSubview(canvasScrollView)
+        NSLog("[ArrangementVC] setupUI: Canvas Scroll View added.")
 
-        // Register for drag and drop (audio files + browser items like instruments/effects)
+        // Register for drag and drop
         canvasView.registerForDraggedTypes([.fileURL, .browserItem])
 
         // ===== RIGHT: Track Headers Scroll View =====
+        NSLog("[ArrangementVC] setupUI: Setting up Track Headers...")
         headerScrollView.wantsLayer = true
         headerScrollView.drawsBackground = false
         headerScrollView.hasVerticalScroller = false
@@ -352,12 +372,13 @@ public final class ArrangementViewController: NSViewController {
         headerScrollView.contentView = headerClipView
         
         headerScrollView.documentView = trackHeaders
-        // Match canvas: no elastic bounce
         headerScrollView.horizontalScrollElasticity = .none
         headerScrollView.verticalScrollElasticity = .none
         view.addSubview(headerScrollView)
+        NSLog("[ArrangementVC] setupUI: Track Headers added.")
 
         // ===== BOTTOM: Status Bar =====
+        NSLog("[ArrangementVC] setupUI: Setting up Status Bar...")
         let statusView = StatusBarView(
             transportController: transportController,
             project: project
@@ -366,6 +387,7 @@ public final class ArrangementViewController: NSViewController {
         statusHosting.wantsLayer = true
         view.addSubview(statusHosting)
         self.statusBarHostingView = statusHosting
+        NSLog("[ArrangementVC] setupUI: Status Bar added.")
 
         // ===== Dividers =====
         vertDividerLeft.wantsLayer = true
@@ -376,17 +398,20 @@ public final class ArrangementViewController: NSViewController {
         vertDividerRight.layer?.backgroundColor = DreamTheme.divider.cgColor
         view.addSubview(vertDividerRight)
 
-        // ===== BOTTOM: Bottom Panel (Piano Roll / Track Detail) =====
+        // ===== BOTTOM: Bottom Panel =====
+        NSLog("[ArrangementVC] setupUI: Setting up Bottom Panel...")
         bottomPanel.isHidden = true
         bottomPanel.audioLevelMeter = audioLevelMeter
         view.addSubview(bottomPanel)
+        NSLog("[ArrangementVC] setupUI: Bottom Panel added.")
 
         // Horizontal divider above bottom panel
         bottomPanelDivider.wantsLayer = true
         bottomPanelDivider.layer?.backgroundColor = DreamTheme.divider.cgColor
         view.addSubview(bottomPanelDivider)
 
-        // ===== PINNED MASTER TRACK (bottom of track area) =====
+        // ===== PINNED MASTER TRACK =====
+        NSLog("[ArrangementVC] setupUI: Setting up Master Track Lane...")
         masterSeparator.wantsLayer = true
         masterSeparator.layer?.backgroundColor = DreamTheme.divider.cgColor
         view.addSubview(masterSeparator)
@@ -394,18 +419,22 @@ public final class ArrangementViewController: NSViewController {
         masterLaneView.wantsLayer = true
         masterLaneView.layer?.backgroundColor = DreamTheme.bgSecondary.cgColor
         view.addSubview(masterLaneView)
+        NSLog("[ArrangementVC] setupUI: Master Track Lane added.")
 
-        // ===== LEFT: Browser Sidebar (On TOP of Canvas) =====
+        // ===== LEFT: Browser Sidebar =====
+        NSLog("[ArrangementVC] setupUI: Setting up Browser Sidebar...")
         browserSidebar.wantsLayer = true
         browserSidebar.layer?.backgroundColor = DreamTheme.bgBrowser.cgColor
         browserSidebar.layer?.isOpaque = true
         view.addSubview(browserSidebar)
+        NSLog("[ArrangementVC] setupUI: Browser Sidebar added.")
 
-        // ===== CENTER-TOP: Left corner (On TOP of Canvas/Ruler) =====
+        // ===== CENTER-TOP: Left corner =====
         cornerViewLeft.wantsLayer = true
         cornerViewLeft.layer?.backgroundColor = DreamTheme.bgHeader.cgColor
         cornerViewLeft.layer?.isOpaque = true
         view.addSubview(cornerViewLeft)
+        NSLog("[ArrangementVC] setupUI complete")
     }
 
 
@@ -608,14 +637,32 @@ public final class ArrangementViewController: NSViewController {
     // MARK: - Audio Engine
     
     private func setupAudioEngine() {
-        // 1. Configure all track nodes first (while engine is stopped/idle)
-        trackMixer.configureTracks(project.tracks)
+        showLoadingOverlay(message: "Initializing Audio Engine...")
         
-        // 2. Start the engine
-        do {
-            try audioEngine.start()
-        } catch {
-            logger.error("Audio engine failed to start: \(error.localizedDescription)")
+        // Capture dependencies locally to avoid 'self' isolation issues in detached task
+        let mixer = self.trackMixer
+        let engine = self.audioEngine
+        let tracks = self.project.tracks
+        
+        // ENTERPRISE ASYNC INIT: Don't block the main thread with heavy audio I/O
+        Task.detached(priority: .userInitiated) {
+            // Use local captures instead of self.xxx
+            mixer.configureTracks(tracks)
+            
+            // 2. Start the engine
+            do {
+                try engine.start()
+                await MainActor.run { [weak self] in
+                    self?.hideLoadingOverlay()
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    self?.logger.error("Audio engine failed to start: \(error.localizedDescription)")
+                    self?.hideLoadingOverlay()
+                    let alert = NSAlert(error: error)
+                    alert.runModal()
+                }
+            }
         }
 
         // Handle hardware configuration changes
@@ -675,6 +722,11 @@ public final class ArrangementViewController: NSViewController {
 
     /// Push current audio levels from AudioLevelMeter to each track header's VU meter.
     private func updateVUMeters() {
+        // MIDI Indicators Sync (Arrangement Activity)
+        if transportController.isPlaying {
+            playbackScheduler.updateMidiIndicators(project: project, playheadBeats: transportController.playheadPosition.beats)
+        }
+
         for headerView in trackHeaders.headerViews {
             let trackID = headerView.trackID
             let level = audioLevelMeter.level(for: trackID)
@@ -903,24 +955,37 @@ public final class ArrangementViewController: NSViewController {
         // Play → stop browser preview + schedule all clips; Pause/Stop → stop all players
         transportController.onStateChange = { [weak self] state in
             guard let self = self else { return }
+            
+            // GENIUS INTERACTION GUARD
+            // If the user clicks 20 times, we only process the last one if we are already busy,
+            // or throttle to 100ms between attempts.
+            let now = Date()
+            if state == .playing && now.timeIntervalSince(self.lastScheduleTime) < 0.1 {
+                return
+            }
+            self.lastScheduleTime = now
+
             NSLog("[ArrangementVC] Transport state changed to: %@", "\(state)")
             switch state {
             case .playing:
+                self.isScheduling = true
                 self.browserSidebar.stopPreview()
                 
-                // ENTERPRISE ASYNC STREAMING: No UI lockup on playback start
                 self.playbackScheduler.schedulePlaybackAsync(
                     project: self.project,
                     from: self.transportController.playheadPosition,
                     looping: self.transportController.isLooping,
                     loopStart: self.transportController.loopStart,
                     loopEnd: self.transportController.loopEnd
-                ) { startTime in
+                ) { [weak self] startTime in
+                    guard let self = self else { return }
+                    self.isScheduling = false
                     // Start transport in sync with engine
                     self.transportController.start(at: startTime, notify: false)
                 }
                 
             case .paused, .stopped:
+                self.isScheduling = false
                 self.playbackScheduler.stopAll()
             }
         }
@@ -928,9 +993,13 @@ public final class ArrangementViewController: NSViewController {
         // Loop wrap → stop current audio + re-schedule from loop start
         // Loop wrap → do nothing for audio (handled by gapless queueing)
         transportController.onLoopWrap = { [weak self] in
+            guard let self = self else { return }
             // Visuals are handled by TransportController updates.
             // Audio is pre-scheduled via queue, so we do NOT restart here.
-            NSLog("[ArrangementVC] Loop Wrapped (Gapless)")
+            // We capture self just to ensure this closure is bound to the view controller's lifetime,
+            // or we could just remove [weak self] if we truly do nothing involving self.
+            // But let's log it for debugging to use 'self'
+            self.logger.debug("Transport Loop Wrap")
         }
 
         // Canvas → bottom panel: click track → show detail & select track
@@ -1111,6 +1180,7 @@ public final class ArrangementViewController: NSViewController {
                 self.trackMixer.syncEffectParameters(for: track)
             }
         }
+        NSLog("[ArrangementVC] setupBindings: Basic bindings set.")
     }
 
     // MARK: - Browser Item Drop Handler (shared by canvas + track headers)
@@ -1196,7 +1266,17 @@ public final class ArrangementViewController: NSViewController {
         // REBUILD AUDIO CHAIN IMMEDIATELY
         if let updatedTrack = project.tracks.first(where: { $0.id == trackID }) {
             trackMixer.rebuildEffectChain(for: updatedTrack)
-            setBottomPanelModeAnimated(.detail(updatedTrack))
+            
+            // Check if we are already showing details for this track
+            let newMode = BottomPanelView.PanelMode.detail(updatedTrack)
+            if bottomPanel.mode == newMode {
+                // Just refresh content in place — NO ANIMATION needed
+                bottomPanel.refresh()
+                // Ensure layout triggers if content size changed
+                bottomPanel.needsLayout = true
+            } else {
+                setBottomPanelModeAnimated(newMode)
+            }
             
             // If playing, hot-reload to apply instrument/effect changes to queued buffers
             if transportController.isPlaying {
@@ -1249,13 +1329,20 @@ public final class ArrangementViewController: NSViewController {
 
     /// Reload track headers and canvas after tracks are added/removed.
     @objc public func reloadTracks() {
+        NSLog("[ArrangementVC] reloadTracks start")
         // Only show regular tracks in the scrollable header area (folded logic respected)
         let visibleTracks = project.allVisibleTracks.filter { $0.trackType != .master }
         trackHeaders.trackResolver = { [weak self] id in self?.project.tracks.first { $0.id == id } }
         trackHeaders.routingDestinationProvider = { [weak self] in self?.project.tracks ?? [] }
+        
+        NSLog("[ArrangementVC] reloadTracks: calling trackHeaders.configure()...")
         trackHeaders.configure(tracks: visibleTracks)
+        NSLog("[ArrangementVC] reloadTracks: trackHeaders.configure() finished.")
         
         // Update master header (Pinned at bottom)
+        // Disable implicit animations to prevent "fly-in" glitch on reload
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         masterHeaderView?.removeFromSuperview()
         let mh = TrackHeaderView(track: project.masterTrack, index: project.tracks.count)
         mh.onTrackChanged = { [weak self] track in self?.refreshAudio() }
@@ -1265,12 +1352,17 @@ public final class ArrangementViewController: NSViewController {
         }
         masterHeaderView = mh
         view.addSubview(mh)
+        CATransaction.commit()
         
-        // OPTIMIZATION: Only notify canvas of project if it's a structural change
-        // canvasView.project setter is expensive (QuadTree rebuild).
-        // Since project instance is usually the same, we just need to refresh UI.
+        NSLog("[ArrangementVC] reloadTracks: calling canvasView.updateArrangementLayers()...")
         canvasView.updateArrangementLayers() 
+        NSLog("[ArrangementVC] reloadTracks: canvasView.updateArrangementLayers() finished.")
+        
+        NSLog("[ArrangementVC] reloadTracks: calling updateTrackLayout()...")
         updateTrackLayout()
+        NSLog("[ArrangementVC] reloadTracks: updateTrackLayout() finished.")
+        
+        NSLog("[ArrangementVC] reloadTracks finished.")
     }
     
     /// Precision layout update for in-place resizing (no recreation)
@@ -1710,15 +1802,42 @@ public final class ArrangementViewController: NSViewController {
 
 
     func configureProject() {
+        NSLog("[ArrangementVC] configureProject start")
+        
+        NSLog("[ArrangementVC] configureProject: calling setupBindings()...")
         setupBindings() // Re-bind to the new project
+        NSLog("[ArrangementVC] configureProject: setupBindings() finished.")
+        
+        // Sync transport with project
+        transportController.bpm = project.bpm
+        transportController.timeSignature = project.timeSignature
+        
         canvasView.project = project
+        // rulerView.project = project // This line was in the provided snippet but not in the original code.
+                                    // Keeping it commented out to avoid introducing new state without context.
+        
+        // Initial Zoom & Tracks
         canvasView.pixelsPerBeat = pixelsPerBeat
-        canvasView.orchestrator = orchestrator
-
         rulerView.pixelsPerBeat = pixelsPerBeat
-        rulerView.bpm = project.bpm
-        rulerView.timeSignature = project.timeSignature
-
+        
+        // Ensure browser has initial content
+        // browserSidebar.refresh() // This line was in the provided snippet but not in the original code.
+                                  // Keeping it commented out to avoid introducing new state without context.
+        
+        NSLog("[ArrangementVC] configureProject: calling reloadTracks()...")
+        reloadTracks()
+        NSLog("[ArrangementVC] configureProject: reloadTracks() finished.")
+        
+        NSLog("[ArrangementVC] configureProject: calling restoreViewState()...")
+        restoreViewState()
+        NSLog("[ArrangementVC] configureProject: restoreViewState() finished.")
+        
+        // Status log
+        NSLog("[ArrangementVC] configureProject: Project Loaded: \(project.name)")
+        showNotification(title: "Project Loaded", message: project.name)
+        
+        NSLog("[ArrangementVC] configureProject finished.")
+        
         // Sync loop state from project → transport & ruler
         if let ls = project.loopStart, let le = project.loopEnd {
             transportController.loopStart = ls

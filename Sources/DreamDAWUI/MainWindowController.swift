@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import DreamDAWModels
+import DreamDAWEngine
 
 // MARK: - MainWindowController
 
@@ -11,25 +12,29 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - Properties
 
     private var project: Project
+    public let sharedEngine: SharedEngine
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Initialization
 
-    public init(project: Project) {
+    public init(project: Project, sharedEngine: SharedEngine) {
+        NSLog("[MainWindowController] init start")
         self.project = project
-        // ... (window setup)
-        super.init(window: nil) // We create a window below
+        self.sharedEngine = sharedEngine
+        super.init(window: nil)
         
+        NSLog("[MainWindowController] calling setupWindow()...")
         setupWindow()
+        NSLog("[MainWindowController] setupWindow() finished.")
         
-        // Monitor double-click on title bar → zoom
         setupTitleBarDoubleClickHandler()
+        NSLog("[MainWindowController] title bar handler set.")
         
-        // Load app icon
         loadAppIcon()
+        NSLog("[MainWindowController] app icon loaded.")
         
-        // Observe dirty state
         setupProjectSubscription()
+        NSLog("[MainWindowController] project subscription set.")
     }
     
     private func setupWindow() {
@@ -50,8 +55,10 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         self.window = window
         window.delegate = self
         
-        let arrangementVC = ArrangementViewController(project: project)
+        NSLog("[MainWindowController] Setting contentViewController (ArrangementViewController)...")
+        let arrangementVC = ArrangementViewController(project: project, sharedEngine: sharedEngine)
         window.contentViewController = arrangementVC
+        NSLog("[MainWindowController] contentViewController set.")
     }
 
     /// Swaps the project instance and re-binds observers.
@@ -60,7 +67,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         
         // Update content view
         if let window = self.window {
-            let arrangementVC = ArrangementViewController(project: newProject)
+            let arrangementVC = ArrangementViewController(project: newProject, sharedEngine: sharedEngine)
             window.contentViewController = arrangementVC
         }
         

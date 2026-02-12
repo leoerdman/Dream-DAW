@@ -36,7 +36,16 @@ public final class BottomPanelView: NSView {
     // MARK: - Properties
 
     public var mode: PanelMode = .hidden {
-        didSet { updateContent() }
+        didSet { 
+            // Fix: Prevent redundant redraws/animations if mode hasn't changed
+            guard oldValue != mode else { return }
+            updateContent() 
+        }
+    }
+    
+    /// Explicitly refresh content (e.g. after adding an effect to the same track).
+    public func refresh() {
+        updateContent()
     }
 
     /// Default collapsed height for the panel.

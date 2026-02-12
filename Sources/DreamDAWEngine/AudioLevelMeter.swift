@@ -92,7 +92,9 @@ private final class LockFreeFFT: @unchecked Sendable {
 /// - Audio thread WRITES to pre-captured `LockFreeLevel` references — no locks, no allocations.
 /// - Main thread READS from `LockFreeLevel` — no locks.
 /// - Tap management (install/remove) uses `os_unfair_lock` on main thread only.
-public final class AudioLevelMeter {
+/// - Main thread READS from `LockFreeLevel` — no locks.
+/// - Tap management (install/remove) uses `os_unfair_lock` on main thread only.
+public final class AudioLevelMeter: @unchecked Sendable {
 
     // MARK: - Level Data
 

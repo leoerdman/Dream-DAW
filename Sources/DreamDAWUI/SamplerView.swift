@@ -161,8 +161,8 @@ public final class SamplerView: NSView {
     private func setupLowerSection() {
         let mainStack = NSStackView()
         mainStack.orientation = .horizontal
-        mainStack.spacing = 20
-        mainStack.edgeInsets = NSEdgeInsets(top: 4, left: 12, bottom: 4, right: 12)
+        mainStack.spacing = 15 // Reduced from 20
+        mainStack.edgeInsets = NSEdgeInsets(top: 2, left: 10, bottom: 2, right: 10) // Tighter
         mainStack.alignment = .centerY
         lowerSection.addSubview(mainStack)
         
@@ -240,12 +240,12 @@ public final class SamplerView: NSView {
             waveformView.leadingAnchor.constraint(equalTo: mainContent.leadingAnchor),
             waveformView.trailingAnchor.constraint(equalTo: mainContent.trailingAnchor),
             waveformView.topAnchor.constraint(equalTo: mainContent.topAnchor),
-            waveformView.heightAnchor.constraint(equalToConstant: 80),
+            waveformView.heightAnchor.constraint(equalToConstant: 60), // Reduced from 80
             
             parameterBar.leadingAnchor.constraint(equalTo: mainContent.leadingAnchor),
             parameterBar.trailingAnchor.constraint(equalTo: mainContent.trailingAnchor),
             parameterBar.topAnchor.constraint(equalTo: waveformView.bottomAnchor),
-            parameterBar.heightAnchor.constraint(equalToConstant: 32),
+            parameterBar.heightAnchor.constraint(equalToConstant: 24), // Reduced from 32
             
             lowerSection.leadingAnchor.constraint(equalTo: mainContent.leadingAnchor),
             lowerSection.trailingAnchor.constraint(equalTo: mainContent.trailingAnchor),
@@ -360,7 +360,9 @@ class WaveformView: NSView {
     private func generateWaveformPath(from buffer: AVAudioPCMBuffer, size: CGSize) -> CGPath? {
         guard let data = buffer.floatChannelData?[0] else { return nil }
         let frameCount = Int(buffer.frameLength)
-        let samplesPerPoint = max(1, frameCount / Int(size.width))
+        let width = Int(size.width)
+        guard width > 0 else { return nil }
+        let samplesPerPoint = max(1, frameCount / width)
         
         let path = CGMutablePath()
         let midY = size.height / 2

@@ -40,6 +40,21 @@ public enum WaveformStyle: String, Codable, CaseIterable, Sendable {
     }
 }
 
+// MARK: - StartupBehavior
+
+/// Behavior when the application starts.
+public enum StartupBehavior: String, Codable, CaseIterable, Sendable {
+    case newProject  = "newProject"
+    case lastProject = "lastProject"
+    
+    public var displayName: String {
+        switch self {
+        case .newProject:  return "New Project"
+        case .lastProject: return "Last Opened Project"
+        }
+    }
+}
+
 // MARK: - AppSettings
 
 /// Persistent application settings stored in UserDefaults.
@@ -56,6 +71,7 @@ public final class AppSettings: ObservableObject {
         static let samplesPath = "dreamdaw.settings.samplesPath"
         static let audioOutputDeviceUID = "dreamdaw.settings.audioOutputDeviceUID"
         static let waveformStyle = "dreamdaw.settings.waveformStyle"
+        static let startupBehavior = "dreamdaw.settings.startupBehavior"
     }
     
     // MARK: - General
@@ -72,6 +88,13 @@ public final class AppSettings: ObservableObject {
         didSet {
             defaults.set(waveformStyle.rawValue, forKey: Keys.waveformStyle)
             NotificationCenter.default.post(name: .waveformStyleDidChange, object: nil)
+        }
+    }
+    
+    /// Behavior when application starts.
+    @Published public var startupBehavior: StartupBehavior {
+        didSet {
+            defaults.set(startupBehavior.rawValue, forKey: Keys.startupBehavior)
         }
     }
     
@@ -128,6 +151,13 @@ public final class AppSettings: ObservableObject {
         
         self.samplesPath = defaults.string(forKey: Keys.samplesPath) ?? ""
         self.audioOutputDeviceUID = defaults.string(forKey: Keys.audioOutputDeviceUID)
+        
+        if let startupRaw = defaults.string(forKey: Keys.startupBehavior),
+           let behavior = StartupBehavior(rawValue: startupRaw) {
+            self.startupBehavior = behavior
+        } else {
+            self.startupBehavior = .newProject
+        }
     }
 }
 

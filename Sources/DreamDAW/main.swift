@@ -29,11 +29,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s dramatic flair
             
             self.splashController?.updateStatus("Loading Default Template...")
-            if let defaultTemplate = await ProjectFileManager.shared.loadDefaultProject() {
-                self.project = defaultTemplate
-            } else {
-                self.project = Project.createDefault()
+            
+            // RESPECT STARTUP BEHAVIOR
+            let settings = AppSettings.shared
+            var projectToLoad: Project?
+            
+            if settings.startupBehavior == .lastProject,
+               let lastProjectURL = ProjectFileManager.shared.recentProjectURLs.first {
+                self.splashController?.updateStatus("Restoring Last Project...")
+                projectToLoad = try? await ProjectFileManager.shared.open(fileURL: lastProjectURL)
             }
+            
+            // Fallback to default template or new project
+            if projectToLoad == nil {
+                if let defaultTemplate = await ProjectFileManager.shared.loadDefaultProject() {
+                    projectToLoad = defaultTemplate
+                } else {
+                    projectToLoad = Project.createDefault()
+                }
+            }
+            
+            self.project = projectToLoad
             
             self.splashController?.updateStatus("Initializing Audio Engine...")
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s dramatic flair

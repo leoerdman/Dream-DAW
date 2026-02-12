@@ -5,8 +5,9 @@ public final class SplashScreenController: NSWindowController {
     private let splashView = SplashScreenView()
     
     public init() {
+        let size: CGFloat = 450
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 400),
+            contentRect: NSRect(x: 0, y: 0, width: size, height: size),
             styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -17,12 +18,11 @@ public final class SplashScreenController: NSWindowController {
         window.hasShadow = true
         window.level = .floating
         
-        // Mathematical centering (not visual center which is slightly higher)
+        // FOOLPROOF MATHEMATICAL CENTERING
         if let screen = NSScreen.main {
             let screenFrame = screen.frame
-            let windowFrame = window.frame
-            let x = (screenFrame.width - windowFrame.width) / 2 + screenFrame.minX
-            let y = (screenFrame.height - windowFrame.height) / 2 + screenFrame.minY
+            let x = (screenFrame.width - size) / 2 + screenFrame.minX
+            let y = (screenFrame.height - size) / 2 + screenFrame.minY
             window.setFrameOrigin(NSPoint(x: x, y: y))
         }
         
@@ -30,10 +30,11 @@ public final class SplashScreenController: NSWindowController {
         
         window.contentView = splashView
         
-        // Add a subtle professional border
+        // Add a premium professional border
         window.contentView?.wantsLayer = true
-        window.contentView?.layer?.borderColor = NSColor.white.withAlphaComponent(0.1).cgColor
+        window.contentView?.layer?.borderColor = NSColor.white.withAlphaComponent(0.15).cgColor
         window.contentView?.layer?.borderWidth = 1.0
+        window.contentView?.layer?.cornerRadius = 0 // Keep it perfectly square per user request
     }
     
     required init?(coder: NSCoder) {

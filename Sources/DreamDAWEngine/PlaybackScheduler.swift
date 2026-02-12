@@ -345,18 +345,38 @@ public final class PlaybackScheduler {
         bpm: Double,
         sampleRate: Double
     ) {
-        // Fetch the track's specific synth
-        guard let synth = trackMixer.getInstrument(for: track.id) else {
-            logger.warning("No synth found for MIDI track: \(track.name)")
+        // Fetch the track's specific instrument
+        let bpm = bpm
+        let sampleRate = sampleRate
+        let midiBuffer: AVAudioPCMBuffer?
+        
+        if let synth = trackMixer.getSynth(for: track.id) {
+            if let config = track.instrument {
+                synth.amplitude = config.gain * 0.3
+            }
+            midiBuffer = synth.renderClipToBuffer(clip: clip, bpm: bpm)
+        } else if let sampler = trackMixer.getSampler(for: track.id) {
+            if let config = track.instrument {
+                sampler.gain = config.gain
+                sampler.attack = config.attack
+                sampler.decay = config.decay
+                sampler.sustain = config.sustain
+                sampler.release = config.release
+                sampler.startPercent = config.startPercent
+                sampler.endPercent = config.endPercent
+                sampler.mode = config.samplerMode
+                
+                if let url = config.sampleURL {
+                    try? sampler.loadSample(url: url)
+                }
+            }
+            midiBuffer = sampler.renderClipToBuffer(clip: clip, bpm: bpm, config: track.instrument ?? InstrumentConfig())
+        } else {
+            logger.warning("No instrument found for MIDI track: \(track.name)")
             return
         }
-        
-        // Ensure its rendering state matches the track's current config (for amplitude, etc.)
-        if let config = track.instrument {
-            synth.amplitude = config.gain * 0.3 // Enterprise mix scaling
-        }
 
-        guard let fullBuffer = synth.renderClipToBuffer(clip: clip, bpm: bpm) else { return }
+        guard let fullBuffer = midiBuffer else { return }
 
         let startFrame = AVAudioFramePosition(startOffsetSeconds * sampleRate)
         let frameCount = AVAudioFrameCount(durationSeconds * sampleRate)

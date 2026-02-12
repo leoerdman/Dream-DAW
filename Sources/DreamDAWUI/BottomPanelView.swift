@@ -462,7 +462,7 @@ public final class BottomPanelView: NSView {
     private func instrumentSlotWidth(for type: InstrumentType?) -> CGFloat {
         guard let type = type else { return 100 }
         switch type {
-        case .sampler: return 450 // Wide sampler view
+        case .sampler: return 500 // Wide sampler view
         default:       return 100
         }
     }

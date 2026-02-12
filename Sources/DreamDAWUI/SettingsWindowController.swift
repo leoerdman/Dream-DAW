@@ -65,6 +65,7 @@ public struct SettingsView: View {
             }
         }
         .frame(width: 650, height: 450)
+        .toolbar(removing: .sidebarToggle) // Remove the sidebar toggle button per user request
     }
 }
 
@@ -86,6 +87,20 @@ struct GeneralSettingsView: View {
                 Text("Language")
             } footer: {
                 Text("Changes will be applied after restart.")
+                    .foregroundStyle(.secondary)
+            }
+            
+            Section {
+                Picker("Application Startup", selection: $settings.startupBehavior) {
+                    ForEach(StartupBehavior.allCases, id: \.self) { behavior in
+                        Text(behavior.displayName).tag(behavior)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+            } header: {
+                Text("Startup")
+            } footer: {
+                Text("Choose what happens when you open Dream DAW.")
                     .foregroundStyle(.secondary)
             }
         }

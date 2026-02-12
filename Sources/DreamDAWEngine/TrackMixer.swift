@@ -38,7 +38,10 @@ public final class TrackMixer {
     private var trackEffectChains: [UUID: [AVAudioNode]] = [:]
 
     /// Map from Track ID to its instrument instance (for MIDI tracks).
-    private var trackInstruments: [UUID: SimpleSynthInstrument] = [:]
+    private var trackSynths: [UUID: SimpleSynthInstrument] = [:]
+    
+    /// Map from Track ID to its sampler instance.
+    private var trackSamplers: [UUID: SamplerInstrument] = [:]
     
     /// Map from Track ID to its instrument source node (attached to engine).
     private var trackInstrumentNodes: [UUID: AVAudioNode] = [:]
@@ -82,13 +85,24 @@ public final class TrackMixer {
         audioEngine.attach(outputMixer)
         audioEngine.attach(player)
         
-        // MIDI Tracks: Setup synth
+        // MIDI Tracks: Setup synth or sampler
         if track.trackType == .midi {
-            let synth = SimpleSynthInstrument(sampleRate: format.sampleRate)
-            let synthNode = synth.createSourceNode()
-            audioEngine.attach(synthNode)
-            trackInstruments[track.id] = synth
-            trackInstrumentNodes[track.id] = synthNode
+            let instrType = track.instrument?.instrumentType ?? .sineSynth
+            let sourceNode: AVAudioNode
+            
+            switch instrType {
+            case .sineSynth:
+                let synth = SimpleSynthInstrument(sampleRate: format.sampleRate)
+                sourceNode = synth.createSourceNode()
+                trackSynths[track.id] = synth
+            case .sampler:
+                let sampler = SamplerInstrument()
+                sourceNode = sampler.createSourceNode()
+                trackSamplers[track.id] = sampler
+            }
+            
+            audioEngine.attach(sourceNode)
+            trackInstrumentNodes[track.id] = sourceNode
         }
         
         // Initial simple connection: outputMixer -> master
@@ -181,8 +195,22 @@ public final class TrackMixer {
         applyTrackSettings(track)
         syncEffectParameters(for: track)
         
-        if let synth = trackInstruments[track.id], let config = track.instrument {
-            synth.amplitude = config.gain * 0.3 // Scaled for internal mix
+        let instGain = track.instrument?.gain ?? 1.0
+        if let synth = trackSynths[track.id] {
+            synth.amplitude = instGain * 0.3 // Scaled for internal mix
+        } else if let sampler = trackSamplers[track.id], let config = track.instrument {
+            sampler.gain = instGain
+            sampler.attack = config.attack
+            sampler.decay = config.decay
+            sampler.sustain = config.sustain
+            sampler.release = config.release
+            sampler.startPercent = config.startPercent
+            sampler.endPercent = config.endPercent
+            sampler.mode = config.samplerMode
+            
+            if let sampleURL = config.sampleURL {
+                try? sampler.loadSample(url: sampleURL)
+            }
         }
         
         logger.info("Rebuilt signal chain for track '\(track.name)' (Player + Synth -> inputMixer -> \(newChain.count) effects -> outputMixer)")
@@ -213,8 +241,22 @@ public final class TrackMixer {
         }
     }
 
-    public func getInstrument(for trackID: UUID) -> SimpleSynthInstrument? {
-        return trackInstruments[trackID]
+    public func noteOn(trackID: UUID, pitch: Int, velocity: Int) {
+        trackSynths[trackID]?.noteOn(pitch: pitch, velocity: velocity)
+        trackSamplers[trackID]?.noteOn(pitch: pitch, velocity: velocity)
+    }
+    
+    public func noteOff(trackID: UUID, pitch: Int) {
+        trackSynths[trackID]?.noteOff(pitch: pitch)
+        trackSamplers[trackID]?.noteOff(pitch: pitch)
+    }
+
+    public func getSynth(for trackID: UUID) -> SimpleSynthInstrument? {
+        return trackSynths[trackID]
+    }
+    
+    public func getSampler(for trackID: UUID) -> SamplerInstrument? {
+        return trackSamplers[trackID]
     }
     
     /// Syncs parameters for all effects in a track's chain.
@@ -347,8 +389,11 @@ public final class TrackMixer {
         for (_, player) in trackPlayerNodes {
             player.stop()
         }
-        for (_, synth) in trackInstruments {
+        for (_, synth) in trackSynths {
             synth.allNotesOff()
+        }
+        for (_, sampler) in trackSamplers {
+            sampler.allNotesOff()
         }
         trackMixerNodes.values.forEach { $0.reset() }
         logger.info("TrackMixer: All playback and instruments stopped.")

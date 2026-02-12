@@ -263,15 +263,15 @@ public final class TimelineCanvasView: NSView {
         let im = NSImage(size: size, flipped: false) { rect in
             NSColor.white.setStroke()
             let p = NSBezierPath()
-            p.lineWidth = 2
-            p.move(to: NSPoint(x: 12, y: 2))
-            p.line(to: NSPoint(x: 4, y: 2))
-            p.line(to: NSPoint(x: 4, y: 14))
-            p.line(to: NSPoint(x: 12, y: 14))
+            p.lineWidth = 1.2
+            p.move(to: NSPoint(x: 10, y: 3))
+            p.line(to: NSPoint(x: 6, y: 3))
+            p.line(to: NSPoint(x: 6, y: 13))
+            p.line(to: NSPoint(x: 10, y: 13))
             p.stroke()
             return true
         }
-        return NSCursor(image: im, hotSpot: NSPoint(x: 4, y: 8))
+        return NSCursor(image: im, hotSpot: NSPoint(x: 6, y: 8))
     }()
     
     private lazy var rightBracketCursor: NSCursor = {
@@ -279,15 +279,15 @@ public final class TimelineCanvasView: NSView {
         let im = NSImage(size: size, flipped: false) { rect in
             NSColor.white.setStroke()
             let p = NSBezierPath()
-            p.lineWidth = 2
-            p.move(to: NSPoint(x: 4, y: 2))
-            p.line(to: NSPoint(x: 12, y: 2))
-            p.line(to: NSPoint(x: 12, y: 14))
-            p.line(to: NSPoint(x: 4, y: 14))
+            p.lineWidth = 1.2
+            p.move(to: NSPoint(x: 6, y: 3))
+            p.line(to: NSPoint(x: 10, y: 3))
+            p.line(to: NSPoint(x: 10, y: 13))
+            p.line(to: NSPoint(x: 6, y: 13))
             p.stroke()
             return true
         }
-        return NSCursor(image: im, hotSpot: NSPoint(x: 12, y: 8))
+        return NSCursor(image: im, hotSpot: NSPoint(x: 10, y: 8))
     }()
 
     /// Tracking area for mouseMoved events (cursor changes on hover).
@@ -694,9 +694,15 @@ public final class TimelineCanvasView: NSView {
     }
 
     public override func keyDown(with event: NSEvent) {
+        let modifierFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let isCommand = modifierFlags.contains(.command)
+        let isShift = modifierFlags.contains(.shift)
+
         switch event.keyCode {
         case 51, 117:  // Backspace (51), Forward Delete (117)
             deleteSelection()
+        case 46: // 'M'
+            super.keyDown(with: event)
         default:
             super.keyDown(with: event)
         }
@@ -885,6 +891,9 @@ public final class TimelineCanvasView: NSView {
             )
             // Visual feedback: Use custom bracket cursors
             if edgeHit.edge == .left { leftBracketCursor.set() } else { rightBracketCursor.set() }
+            
+            // DUAL-ACTION: Set playhead even when hitting an edge for resizing
+            editCursor = initialEditCursor
             
             if !event.modifierFlags.contains(.shift) {
                 deselectAllClips(in: project)
@@ -1772,7 +1781,7 @@ public final class TimelineCanvasView: NSView {
             let nodeType = String(parts[0])
             let itemName = String(parts[1])
             onBrowserItemDropped?(track.id, nodeType, itemName)
-            updateArrangementLayers()
+            self.updateArrangementLayers()
             return true
         }
 
@@ -1816,7 +1825,7 @@ public final class TimelineCanvasView: NSView {
             beatPosition += clip.duration.beats
         }
 
-        updateArrangementLayers()
+        self.updateArrangementLayers()
         return true
     }
 }

@@ -43,29 +43,33 @@ public struct SettingsView: View {
     public init() {}
     
     public var body: some View {
-        NavigationSplitView {
+        HStack(spacing: 0) {
             // Sidebar
             List(SettingsTab.allCases, selection: $selectedTab) { tab in
                 Label(tab.label, systemImage: tab.icon)
                     .tag(tab)
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 220)
-        } detail: {
+            .frame(width: 180)
+            
             // Detail panel
-            switch selectedTab {
-            case .general:
-                GeneralSettingsView(settings: settings)
-            case .appearance:
-                AppearanceSettingsView(settings: settings)
-            case .audio:
-                AudioSettingsView(settings: settings)
-            case .storage:
-                StorageSettingsView(settings: settings)
+            Group {
+                switch selectedTab {
+                case .general:
+                    GeneralSettingsView(settings: settings)
+                case .appearance:
+                    AppearanceSettingsView(settings: settings)
+                case .audio:
+                    AudioSettingsView(settings: settings)
+                case .storage:
+                    StorageSettingsView(settings: settings)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(NSColor.windowBackgroundColor))
         }
         .frame(width: 650, height: 450)
-        .toolbar(removing: .sidebarToggle) // Remove the sidebar toggle button per user request
+        .toolbar(.hidden, for: .windowToolbar) // Radically hide the window toolbar to ensure sidebar toggle and separators are gone
     }
 }
 
@@ -105,7 +109,6 @@ struct GeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("General")
     }
 }
 
@@ -130,7 +133,6 @@ struct AppearanceSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Appearance")
     }
 }
 
@@ -201,7 +203,6 @@ struct AudioSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Audio")
         .onAppear {
             loadAudioDevices()
         }
@@ -491,7 +492,6 @@ struct StorageSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Folders")
     }
     
     private func selectFolder(for keyPath: ReferenceWritableKeyPath<AppSettings, String>) {

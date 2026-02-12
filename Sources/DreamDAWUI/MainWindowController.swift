@@ -67,17 +67,20 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     }
     
     private func setupProjectSubscription() {
-        project.$isDirty
+        // Observe both dirty state and project name changes
+        Publishers.CombineLatest(project.$isDirty, project.$name)
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
+            .sink { [weak self] _, _ in
                 self?.updateWindowTitle()
             }
             .store(in: &cancellables)
     }
     
     private func updateWindowTitle() {
+        // Use the filename (e.g. "Dream V5") if available, otherwise project.name
+        let displayName = project.fileURL?.deletingPathExtension().lastPathComponent ?? project.name
         let dirtyIndicator = project.isDirty ? "*" : ""
-        window?.title = "Dream DAW – \(project.name)\(dirtyIndicator)"
+        window?.title = "Dream DAW – \(displayName)\(dirtyIndicator)"
     }
 
     required init?(coder: NSCoder) {

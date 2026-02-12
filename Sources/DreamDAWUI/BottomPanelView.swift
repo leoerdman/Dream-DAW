@@ -59,7 +59,13 @@ public final class BottomPanelView: NSView {
 
     /// Callback when an effect parameter is changed (e.g. Utility gain knob).
     /// Parameter: trackID
+    /// Callback when an effect parameter is changed (e.g. Utility gain knob).
+    /// Parameter: trackID
     public var onEffectParameterChanged: ((UUID) -> Void)?
+
+    /// Callback when an instrument parameter is changed (e.g. Sampler ADSR).
+    /// Parameter: trackID
+    public var onInstrumentParameterChanged: ((UUID) -> Void)?
 
     /// Callback when a sample is changed in the Sampler instrument.
     /// Parameters: trackID, oldURL, newURL
@@ -236,6 +242,7 @@ public final class BottomPanelView: NSView {
             pianoScrollView.isHidden = true
 
         case .detail(let track):
+            detailContentView.isHidden = false
             detailScrollView.isHidden = false
             pianoScrollView.isHidden = true
             titleLabel.stringValue = track.trackType == .midi
@@ -693,6 +700,10 @@ public final class BottomPanelView: NSView {
                     // Capture current URL as oldURL before the change is recorded
                     let oldURL = instrument.sampleURL
                     self.onSamplerSampleChanged?(track.id, oldURL, newURL) 
+                }
+                samplerView.onParameterChanged = { [weak self] in
+                    guard let self = self else { return }
+                    self.onInstrumentParameterChanged?(track.id)
                 }
                 return samplerView
             }

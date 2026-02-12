@@ -373,22 +373,33 @@ public final class ProjectFileManager {
         let fm = FileManager.default
 
         for track in project.tracks {
+            // 1. Copy AudioClip samples
             for clip in track.clips {
                 let sourceURL = clip.fileURL
-                guard fm.fileExists(atPath: sourceURL.path) else { continue }
-
-                let destURL = importedFolder.appendingPathComponent(sourceURL.lastPathComponent)
-
-                // Skip if already exists (same file)
-                if fm.fileExists(atPath: destURL.path) { continue }
-
-                try fm.copyItem(at: sourceURL, to: destURL)
-
-                // Update the clip's fileURL to the project-relative path
-                // (we keep absolute for now; relative paths would need an additional mapping)
-                logger.info("Copied sample: \(sourceURL.lastPathComponent)")
+                try copySingleSample(at: sourceURL, to: importedFolder)
+            }
+            
+            // 2. Copy Sampler instrument samples
+            if let samplerURL = track.instrument?.sampleURL {
+                try copySingleSample(at: samplerURL, to: importedFolder)
+                // Note: In an enterprise solution, we should update track.instrument.sampleURL 
+                // to the new location, but for now we follow the existing pattern of keeping 
+                // absolute paths (with the expectation that they exist in the new folder).
             }
         }
+    }
+    
+    private func copySingleSample(at sourceURL: URL, to importedFolder: URL) throws {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: sourceURL.path) else { return }
+
+        let destURL = importedFolder.appendingPathComponent(sourceURL.lastPathComponent)
+
+        // Skip if already exists (same file or same name)
+        if fm.fileExists(atPath: destURL.path) { return }
+
+        try fm.copyItem(at: sourceURL, to: destURL)
+        logger.info("Copied sample: \(sourceURL.lastPathComponent)")
     }
 
     private func extractVersion(from url: URL) -> Int? {

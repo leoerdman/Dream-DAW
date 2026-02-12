@@ -978,6 +978,20 @@ public final class ArrangementViewController: NSViewController {
             guard let self = self else { return }
             let action = ChangeSamplerSampleAction(trackID: trackID, oldURL: oldURL, newURL: newURL)
             self.actionHistory.perform(action, on: self.project)
+            
+            // Sync engine immediately
+            if let track = self.project.tracks.first(where: { $0.id == trackID }) {
+                self.trackMixer.applyTrackSettings(track)
+            }
+        }
+        
+        // Bottom panel → project: instrument parameter changed (e.g. Sampler ADSR)
+        bottomPanel.onInstrumentParameterChanged = { [weak self] trackID in
+            guard let self = self else { return }
+            self.project.isDirty = true
+            if let track = self.project.tracks.first(where: { $0.id == trackID }) {
+                self.trackMixer.applyTrackSettings(track)
+            }
         }
 
         // Bottom panel → project: effect dropped on effects chain
@@ -993,6 +1007,7 @@ public final class ArrangementViewController: NSViewController {
         // Bottom panel → audio engine: effect parameter changed (e.g. Utility gain knob)
         bottomPanel.onEffectParameterChanged = { [weak self] trackID in
             guard let self = self else { return }
+            self.project.isDirty = true
             if let track = self.project.tracks.first(where: { $0.id == trackID }) {
                 self.trackMixer.applyTrackSettings(track)
                 self.trackMixer.syncEffectParameters(for: track)
@@ -1005,6 +1020,7 @@ public final class ArrangementViewController: NSViewController {
     /// Handles a browser item drop (instrument, audioEffect, midiEffect) on a track.
     private func handleBrowserItemDrop(trackID: UUID, nodeType: String, itemName: String) {
         guard let track = project.tracks.first(where: { $0.id == trackID }) else { return }
+        project.isDirty = true
 
         switch nodeType {
         case "instrument":

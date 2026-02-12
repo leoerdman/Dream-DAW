@@ -43,8 +43,9 @@ public final class SamplerView: NSView {
     private let filterToggle = NSButton(checkboxWithTitle: "Filter", target: nil, action: nil)
     private let cutoffKnob = DAWKnob(label: "Freq")
     private let resKnob = DAWKnob(label: "Res")
-    // Callback when sample is changed via drag-and-drop
+    // Callbacks
     public var onSampleURLChanged: ((URL) -> Void)?
+    public var onParameterChanged: (() -> Void)?
 
     // MARK: - Initialization
 
@@ -151,11 +152,26 @@ public final class SamplerView: NSView {
             ctrl.heightAnchor.constraint(equalToConstant: 24).isActive = true
         }
         
-        gainControl.onValueChanged = { [weak self] val in self?.config.gain = Float(val) }
-        startControl.onValueChanged = { [weak self] val in self?.config.startPercent = val }
-        endControl.onValueChanged = { [weak self] val in self?.config.endPercent = val }
-        loopControl.onValueChanged = { [weak self] val in self?.config.loopPercent = val }
-        fadeControl.onValueChanged = { [weak self] val in self?.config.fadePercent = val }
+        gainControl.onValueChanged = { [weak self] val in 
+            self?.config.gain = Float(val)
+            self?.onParameterChanged?()
+        }
+        startControl.onValueChanged = { [weak self] val in 
+            self?.config.startPercent = val
+            self?.onParameterChanged?()
+        }
+        endControl.onValueChanged = { [weak self] val in 
+            self?.config.endPercent = val
+            self?.onParameterChanged?()
+        }
+        loopControl.onValueChanged = { [weak self] val in 
+            self?.config.loopPercent = val
+            self?.onParameterChanged?()
+        }
+        fadeControl.onValueChanged = { [weak self] val in 
+            self?.config.fadePercent = val
+            self?.onParameterChanged?()
+        }
     }
     
     private func setupLowerSection() {
@@ -213,10 +229,22 @@ public final class SamplerView: NSView {
         
         mainStack.addArrangedSubview(envStack)
         
-        attackKnob.onValueChanged = { [weak self] v in self?.config.attack = v }
-        decayKnob.onValueChanged = { [weak self] v in self?.config.decay = v }
-        sustainKnob.onValueChanged = { [weak self] v in self?.config.sustain = v }
-        releaseKnob.onValueChanged = { [weak self] v in self?.config.release = v }
+        attackKnob.onValueChanged = { [weak self] v in 
+            self?.config.attack = v
+            self?.onParameterChanged?()
+        }
+        decayKnob.onValueChanged = { [weak self] v in 
+            self?.config.decay = v
+            self?.onParameterChanged?()
+        }
+        sustainKnob.onValueChanged = { [weak self] v in 
+            self?.config.sustain = v
+            self?.onParameterChanged?()
+        }
+        releaseKnob.onValueChanged = { [weak self] v in 
+            self?.config.release = v
+            self?.onParameterChanged?()
+        }
     }
 
     private func setupConstraints() {

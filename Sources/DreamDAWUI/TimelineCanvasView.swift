@@ -186,8 +186,10 @@ public final class TimelineCanvasView: NSView {
 
     public var pixelsPerBeat: CGFloat = DreamTheme.defaultPixelsPerBeat {
         didSet { 
-            rebuildQuadTree() // Rebuild when zoom changes as track layout might shift
-            updateArrangementLayers()
+            if oldValue != pixelsPerBeat {
+                rebuildQuadTree() // Rebuild when zoom changes as track layout might shift
+                updateArrangementLayers()
+            }
         }
     }
 
@@ -196,7 +198,7 @@ public final class TimelineCanvasView: NSView {
     public var scrollOffset: CGPoint = .zero
 
     public var playheadPosition: TimePosition = .zero {
-        didSet { updatePlayheadLayer(project: project) }
+        didSet { updateCursorAndPlayheadOnly() }
     }
 
     public var waveformRenderer: WaveformRenderer?
@@ -251,7 +253,7 @@ public final class TimelineCanvasView: NSView {
     /// The editing cursor (blue line).
     public var editCursor: EditCursor? {
         didSet {
-            updateArrangementLayers()
+            updateCursorAndPlayheadOnly()
         }
     }
 
@@ -512,12 +514,25 @@ public final class TimelineCanvasView: NSView {
         updateGridLayer(project: project)
         updateLaneLayers(project: project)
         updateClipLayers(project: project)
+        
+        // Use surgical updates for these as they change frequently
         updateCursorLayer(project: project)
         updatePlayheadLayer(project: project)
         
         selectionRectLayer.frame = self.bounds // Ensure marquee layer covers whole area
         updateMarqueeLayer(project: project)
         
+        CATransaction.commit()
+    }
+
+    /// Optimized path for frequent playhead/cursor movement.
+    /// Does NOT rebuild clips or lanes.
+    public func updateCursorAndPlayheadOnly() {
+        guard let project = project else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        updateCursorLayer(project: project)
+        updatePlayheadLayer(project: project)
         CATransaction.commit()
     }
 
@@ -1054,7 +1069,7 @@ public final class TimelineCanvasView: NSView {
         editCursor = EditCursor(trackID: clickedTrackID ?? project.allVisibleTracks.first?.id ?? UUID(), position: snappedPos)
         
         onTrackClicked?(clickedTrackID ?? project.allVisibleTracks.first?.id ?? UUID())
-        updateArrangementLayers()
+        updateCursorAndPlayheadOnly()
         // redraw
     }
     

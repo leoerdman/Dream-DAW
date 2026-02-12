@@ -31,6 +31,13 @@ public final class PlaybackScheduler {
     /// Cache for rendered MIDI clips to PCM buffers.
     /// Key: Clip ID (UUID)
     private var midiBufferCache: [UUID: AVAudioPCMBuffer] = [:]
+    
+    /// Dedicated background queue for scheduling logic to avoid UI freezes.
+    private let schedulingQueue = DispatchQueue(label: "com.dreamdaw.scheduling", qos: .userInitiated)
+    
+    /// Thread-safe reference to the current scheduled end time in beats.
+    private var scheduledUpToBeat: Double = 0
+    private let lock = NSLock()
 
     // MARK: - Initialization
 
@@ -41,10 +48,40 @@ public final class PlaybackScheduler {
 
     // MARK: - Scheduling
 
-    /// Schedule all clips for playback, with optional gapless looping support.
-    /// Returns the exact synchronization time when playback is intended to start.
+    /// Schedule clips for playback asynchronously.
+    /// - Parameters:
+    ///   - completion: Called on main thread when the INITIAL chunk (T-Zero) is ready.
+    public func schedulePlaybackAsync(
+        project: Project,
+        from position: TimePosition,
+        looping: Bool = false,
+        loopStart: TimePosition = .zero,
+        loopEnd: TimePosition = .zero,
+        completion: @escaping (AVAudioTime) -> Void
+    ) {
+        // Reset lookahead state
+        lock.lock()
+        scheduledUpToBeat = position.beats
+        lock.unlock()
+        
+        schedulingQueue.async { [weak self] in
+            guard let self = self else { return }
+            let startTime = self.schedulePlayback(
+                project: project,
+                from: position,
+                looping: looping,
+                loopStart: loopStart,
+                loopEnd: loopEnd
+            )
+            DispatchQueue.main.async {
+                completion(startTime)
+            }
+        }
+    }
+
+    /// Internal synchronous scheduling logic.
     @discardableResult
-    public func schedulePlayback(
+    private func schedulePlayback(
         project: Project,
         from position: TimePosition,
         looping: Bool = false,
@@ -94,24 +131,35 @@ public final class PlaybackScheduler {
             // ... (scheduling logic)
             if !looping || position.beats >= loopEnd.beats {
                 let end = project.totalDuration
-                _ = scheduleTrackRange(track: track, player: player, start: position, end: end, bpm: bpm, sampleRate: sampleRate)
-                hasContent = true 
+                // STREAMING OPTIMIZATION: Only schedule next 10 seconds (lookahead)
+                let lookaheadSeconds = 10.0
+                let lookaheadBeats = (lookaheadSeconds * bpm) / 60.0
+                let segmentEnd = min(end, position.beats + lookaheadBeats)
+                
+                _ = scheduleTrackRange(track: track, player: player, start: position, end: TimePosition(beats: segmentEnd), bpm: bpm, sampleRate: sampleRate)
+                
+                lock.lock()
+                scheduledUpToBeat = segmentEnd
+                lock.unlock()
             } else {
+                // For loops, we keep the existing multi-iteration logic for now to ensure gapless stability,
+                // but we could also stream this if the loop is very long.
                 if position.beats < loopEnd.beats {
                     _ = scheduleTrackRange(track: track, player: player, start: position, end: loopEnd, bpm: bpm, sampleRate: sampleRate)
-                    hasContent = true
                 }
                 let loopDurationBeats = loopEnd.beats - loopStart.beats
                 if loopDurationBeats > 0 {
                     let loopDurationSec = loopDurationBeats / bpm * 60.0
-                    let targetBufferSec = 300.0
-                    let iterationCount = min(512, max(2, Int(ceil(targetBufferSec / loopDurationSec))))
+                    let targetBufferSec = 60.0 // Reduced from 300s to improve responsiveness
+                    let iterationCount = min(64, max(2, Int(ceil(targetBufferSec / loopDurationSec))))
                     var runningError: Double = 0
                     for _ in 0..<iterationCount {
                         runningError = scheduleTrackRange(track: track, player: player, start: loopStart, end: loopEnd, bpm: bpm, sampleRate: sampleRate, accumulatedError: runningError)
                     }
                 }
-                hasContent = true
+                lock.lock()
+                scheduledUpToBeat = loopEnd.beats // Conceptually covered by pre-scheduling loops
+                lock.unlock()
             }
 
             if hasContent {
@@ -120,6 +168,59 @@ public final class PlaybackScheduler {
         }
         
         return baseStartTime
+    }
+
+    /// Refills the playback buffers for a project that is currently playing.
+    /// - Parameters:
+    ///   - currentBeat: The current high-precision position of the playhead.
+    public func refill(project: Project, currentBeat: Double) {
+        lock.lock()
+        let upTo = scheduledUpToBeat
+        lock.unlock()
+        
+        // Only refill if we are running low (less than 3 seconds remaining)
+        let bpm = project.bpm
+        let remainingBeats = upTo - currentBeat
+        let remainingSeconds = (remainingBeats * 60.0) / bpm
+        
+        guard remainingSeconds < 3.0 else { return }
+        
+        // Don't refill if already at end
+        guard upTo < project.totalDuration else { return }
+        
+        schedulingQueue.async { [weak self] in
+            guard let self = self else { return }
+            self.lock.lock()
+            let startBeat = self.scheduledUpToBeat
+            self.lock.unlock()
+            
+            let lookaheadSeconds = 10.0
+            let lookaheadBeats = (lookaheadSeconds * bpm) / 60.0
+            let nextEnd = min(project.totalDuration, startBeat + lookaheadBeats)
+            
+            guard nextEnd > startBeat else { return }
+            
+            let sampleRate = self.audioEngine.sampleRate
+            
+            for track in project.tracks {
+                guard track.trackType != .master else { continue }
+                guard let player = self.trackMixer.playerNode(for: track.id) else { continue }
+                
+                self.scheduleTrackRange(
+                    track: track,
+                    player: player,
+                    start: TimePosition(beats: startBeat),
+                    end: TimePosition(beats: nextEnd),
+                    bpm: bpm,
+                    sampleRate: sampleRate
+                )
+            }
+            
+            self.lock.lock()
+            self.scheduledUpToBeat = nextEnd
+            self.lock.unlock()
+            self.logger.debug("[Streaming] Refilled up to beat \(nextEnd)")
+        }
     }
 
     // MARK: - Range Scheduling (The Core "Stitcher")

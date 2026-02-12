@@ -390,7 +390,9 @@ public final class TrackMixer {
                 componentFlagsMask: 0
             )
             // Note: AVAudioUnitEffect is the correct subclass for effects with component descriptions
-            return AVAudioUnitEffect(audioComponentDescription: desc)
+            let comp = AVAudioUnitEffect(audioComponentDescription: desc)
+            PluginHost.shared.registerInstance(effect.id, unit: comp)
+            return comp
         case .delay:
             let delay = AVAudioUnitDelay()
             PluginHost.shared.registerInstance(effect.id, unit: delay)
@@ -401,7 +403,10 @@ public final class TrackMixer {
             return reverb
         case .utility, .chorus:
             // Custom native nodes or simplified standard nodes
-            return AVAudioMixerNode() // Spacer for now
+            let utility = AVAudioMixerNode() 
+            // Registering mixer just in case, though it usually has 0 latency.
+            // Note: Mixer is not AVAudioUnit, so we might need a workaround or check in PluginHost.
+            return utility
         case .vst2, .vst3:
             // VST nodes are instantiated asynchronously in rebuildEffectChain
             return nil
@@ -634,6 +639,7 @@ public final class TrackMixer {
         for (_, sampler) in trackSamplers {
             sampler.allNotesOff()
         }
+        trackPDCNodes.values.forEach { $0.reset() }
         trackMixerNodes.values.forEach { $0.reset() }
         logger.info("TrackMixer: All playback and instruments stopped.")
     }
@@ -669,6 +675,7 @@ public final class TrackMixer {
             
             if pdcNode.delayTime != safeDelay {
                 pdcNode.delayTime = safeDelay
+                pdcNode.reset() // Flush buffer to apply new delay instantly without interpolation
                 logger.debug("[PDC] Applied \(Int(safeDelay * 1000))ms compensation to track \(trackID)")
             }
         }

@@ -178,14 +178,17 @@ public final class TrackHeaderView: NSView {
 
         // Group Indicator UI
         groupIndicatorBG.wantsLayer = true
+        groupIndicatorBG.isHidden = true
         groupIndicatorBG.translatesAutoresizingMaskIntoConstraints = false
         addSubview(groupIndicatorBG)
         
         groupIndicatorLine.wantsLayer = true
+        groupIndicatorLine.isHidden = true
         groupIndicatorLine.translatesAutoresizingMaskIntoConstraints = false
         addSubview(groupIndicatorLine)
         
         groupDividerLine.wantsLayer = true
+        groupDividerLine.isHidden = true
         groupDividerLine.layer?.backgroundColor = DreamTheme.bgPrimary.cgColor // Dark divider color
         groupDividerLine.translatesAutoresizingMaskIntoConstraints = false
         addSubview(groupDividerLine)
@@ -351,19 +354,8 @@ public final class TrackHeaderView: NSView {
     }
 
     private func updateRoutingLabel() {
-        guard let destID = track.outputDestinationID,
-              let resolver = trackResolver,
-              let destTrack = resolver(destID) else {
-            // Default to Master
-            routingLabel.stringValue = "Master ▾"
-            routingLabel.textColor = DreamTheme.textSecondary
-            return
-        }
-        routingLabel.stringValue = "\(destTrack.name) ▾"
-        routingLabel.textColor = DreamTheme.accentSecondary
-        
-        // Update Group Indicators
-        // User feedback: "Hide divider line and indicator for group tracks themselves"
+        // 1. Update Group Indicators FIRST (User feedback: "Hide divider line and indicator for group tracks themselves")
+        // Logic must run regardless of routing state to ensure indicators are hidden for top-level tracks.
         let isGroupHeader = track.trackType == .group
         
         if let parentID = track.parentTrackID, let resolver = trackResolver, let parent = resolver(parentID), !isGroupHeader {
@@ -377,6 +369,18 @@ public final class TrackHeaderView: NSView {
             groupIndicatorLine.isHidden = true
             groupDividerLine.isHidden = true
         }
+
+        // 2. Update routing text
+        guard let destID = track.outputDestinationID,
+              let resolver = trackResolver,
+              let destTrack = resolver(destID) else {
+            // Default to Master
+            routingLabel.stringValue = "Master ▾"
+            routingLabel.textColor = DreamTheme.textSecondary
+            return
+        }
+        routingLabel.stringValue = "\(destTrack.name) ▾"
+        routingLabel.textColor = DreamTheme.accentSecondary
     }
 
     private func updateVolumeFill() {
@@ -752,6 +756,11 @@ public final class TrackHeaderView: NSView {
         window?.makeFirstResponder(nameLabel)
     }
     
+    /// Trigger a visual refresh of all track-dependent UI (routing, indicators).
+    public func refreshDependentUI() {
+        updateRoutingLabel()
+    }
+    
     @objc private func contextGroupTracks() {
         onGroupTracks?()
     }
@@ -935,6 +944,18 @@ public final class TrackHeadersContainerView: NSView {
         for (index, track) in tracks.enumerated() {
             let header = TrackHeaderView(track: track, index: index)
             header.frame = CGRect(x: 0, y: yOffset, width: DreamTheme.trackHeaderWidth, height: track.height)
+            
+            // Inject resolvers BEFORE initial update
+            header.trackResolver = trackResolver
+            header.routingDestinationProvider = routingDestinationProvider
+            
+            // Restore selection state
+            if let project = (superview?.superview?.superview?.nextResponder as? ArrangementViewController)?.project {
+                 header.isSelected = project.selectedTrackIDs.contains(track.id)
+            } else if let window = self.window, let vc = window.contentViewController as? ArrangementViewController {
+                 header.isSelected = vc.project.selectedTrackIDs.contains(track.id)
+            }
+
             header.onTrackChanged = { [weak self] track in
                 self?.onTrackChanged?(track)
             }
@@ -962,8 +983,10 @@ public final class TrackHeadersContainerView: NSView {
             header.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName, fileURL in
                 self?.onBrowserItemDropped?(trackID, nodeType, itemName, fileURL)
             }
-            header.trackResolver = trackResolver
-            header.routingDestinationProvider = routingDestinationProvider
+            
+            // Trigger refresh after setting resolvers
+            header.refreshDependentUI()
+            
             addSubview(header)
             headerViews.append(header)
 

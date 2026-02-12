@@ -31,16 +31,17 @@ public final class PDCEngine {
     private func calculateLocalTrackLatency(track: Track) -> Double {
         var total: Double = 0
         
-        // Instrument latency
-        if let instr = track.instrument, (instr.instrumentType == .vst2 || instr.instrumentType == .vst3) {
+        // 1. Instrument latency
+        if let _ = track.instrument {
+            // Query PluginHost for BOTH VST and Native instruments
             total += PluginHost.shared.getLatency(for: track.id)
         }
         
-        // Effects chain latency
+        // 2. Effects chain latency
         for effect in track.effects where effect.isEnabled {
-            if effect.effectType == .vst2 || effect.effectType == .vst3 {
-                total += PluginHost.shared.getLatency(for: effect.id)
-            }
+            // Query PluginHost for every effect ID
+            // TrackMixer.createNode now registers EQ, Delay, Reverb, and VSTs
+            total += PluginHost.shared.getLatency(for: effect.id)
         }
         
         return total

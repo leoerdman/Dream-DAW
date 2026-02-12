@@ -903,15 +903,18 @@ public final class ArrangementViewController: NSViewController {
             switch state {
             case .playing:
                 self.browserSidebar.stopPreview()
-                let startTime = self.playbackScheduler.schedulePlayback(
+                
+                // ENTERPRISE ASYNC STREAMING: No UI lockup on playback start
+                self.playbackScheduler.schedulePlaybackAsync(
                     project: self.project,
                     from: self.transportController.playheadPosition,
                     looping: self.transportController.isLooping,
                     loopStart: self.transportController.loopStart,
                     loopEnd: self.transportController.loopEnd
-                )
-                // Sync the high-precision transport with the actual engine start time
-                self.transportController.start(at: startTime, notify: false)
+                ) { startTime in
+                    // Start transport in sync with engine
+                    self.transportController.start(at: startTime, notify: false)
+                }
                 
             case .paused, .stopped:
                 self.playbackScheduler.stopAll()
@@ -1259,7 +1262,10 @@ public final class ArrangementViewController: NSViewController {
         masterHeaderView = mh
         view.addSubview(mh)
         
-        canvasView.project = project // This rebuilds the quad tree and updates layers
+        // OPTIMIZATION: Only notify canvas of project if it's a structural change
+        // canvasView.project setter is expensive (QuadTree rebuild).
+        // Since project instance is usually the same, we just need to refresh UI.
+        canvasView.updateArrangementLayers() 
         updateTrackLayout()
     }
     
@@ -1831,8 +1837,10 @@ public final class ArrangementViewController: NSViewController {
         
         // 3. Show Details in Bottom Panel for the primary (most recently clicked) track
         guard let primaryID = project.primarySelectedTrackID else {
-            bottomPanel.mode = .hidden
-            layoutSubviews()
+            if bottomPanel.mode != .hidden {
+                bottomPanel.mode = .hidden
+                layoutSubviews()
+            }
             return
         }
         
@@ -1841,9 +1849,15 @@ public final class ArrangementViewController: NSViewController {
             : project.tracks.first(where: { $0.id == primaryID })
         
         if let track = track {
-            bottomPanel.showDetail(for: track)
-            bottomPanel.mode = .detail(track)
-            layoutSubviews()
+            // Only update mode and layout if it actually changed
+            if case .detail(let currentTrack) = bottomPanel.mode, currentTrack.id == track.id {
+                // If same track, just update the detail (might be effects chain update)
+                bottomPanel.showDetail(for: track)
+            } else {
+                bottomPanel.showDetail(for: track)
+                bottomPanel.mode = .detail(track)
+                layoutSubviews()
+            }
         }
     }
 

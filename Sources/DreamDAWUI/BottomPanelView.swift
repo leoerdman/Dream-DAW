@@ -58,8 +58,6 @@ public final class BottomPanelView: NSView {
 
     /// Callback when an effect parameter is changed (e.g. Utility gain knob).
     /// Parameter: trackID
-    /// Callback when an effect parameter is changed (e.g. Utility gain knob).
-    /// Parameter: trackID
     public var onEffectParameterChanged: ((UUID) -> Void)?
     /// Callback when an instrument parameter is changed (e.g. Sampler ADSR).
     /// Parameter: trackID
@@ -437,7 +435,6 @@ public final class BottomPanelView: NSView {
     }
 
     /// Stop the meter animation timer (when panel hides).
-    /// Stop the meter animation timer (when panel hides).
     private func stopMeterTimer() {
         meterTimer?.invalidate()
         meterTimer = nil
@@ -455,11 +452,12 @@ public final class BottomPanelView: NSView {
         let preLevel = meter.level(for: trackID, point: .preEffects)
         let postLevel = meter.level(for: trackID, point: .postEffects)
         let midiActivity = meter.midiLevel(for: trackID)
+        let isMidiTrack = (currentTrackType == .midi)
 
         for (index, chainMeter) in chainMeters.enumerated() {
             if index == 0 {
                 // Input meter 
-                if currentTrackType == .midi {
+                if isMidiTrack {
                     // Show MIDI activity for MIDI tracks
                     chainMeter.level = midiActivity
                 } else {

@@ -1,0 +1,34 @@
+warning: 'dream daw': found 1 file(s) which are unhandled; explicitly declare them as resources or exclude from the target
+    /Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/WaveformShaders.metal
+[0/1] Planning build
+Building for debugging...
+[0/5] Write sources
+[2/5] Write swift-version--58304C5D6DBC2206.txt
+[4/7] Compiling DreamDAWModels AppVersion.swift
+[5/7] Emitting module DreamDAWModels
+[6/9] Emitting module DreamDAWEngine
+[7/9] Compiling DreamDAWEngine PlaybackScheduler.swift
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWEngine/PlaybackScheduler.swift:130:17: warning: variable 'hasContent' was never mutated; consider changing to 'let' constant
+128 |             player.stop()
+129 | 
+130 |             var hasContent = false
+    |                 `- warning: variable 'hasContent' was never mutated; consider changing to 'let' constant
+131 |             // ... (scheduling logic)
+132 |             if !looping || position.beats >= loopEnd.beats {
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWEngine/PlaybackScheduler.swift:189:20: error: binary operator '<' cannot be applied to operands of type 'Double' and 'TimePosition'
+187 |         
+188 |         // Don't refill if already at end
+189 |         guard upTo < project.totalDuration else { return }
+    |                    |- error: binary operator '<' cannot be applied to operands of type 'Double' and 'TimePosition'
+    |                    `- note: overloads for '<' exist with these partially matching parameter lists: (TimePosition, TimePosition)
+190 |         
+191 |         schedulingQueue.async { [weak self] in
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWEngine/PlaybackScheduler.swift:434:27: warning: value 'pluginUnit' was defined but never used; consider replacing with boolean test [#no-usage]
+432 |                 }
+433 |                 midiBuffer = sampler.renderClipToBuffer(clip: clip, bpm: bpm, config: track.instrument ?? InstrumentConfig())
+434 |             } else if let pluginUnit = PluginHost.shared.getInstance(track.id) {
+    |                           `- warning: value 'pluginUnit' was defined but never used; consider replacing with boolean test [#no-usage]
+435 |                 // ENTERPRISE: Support VST instruments for immediate MIDI playback
+436 |                 // For now, we reuse the synth bridge to guarantee sound while the VST engine stabilizes

@@ -31,7 +31,10 @@ let package = Package(
         .target(
             name: "DreamDAWUI",
             dependencies: ["DreamDAWModels", "DreamDAWEngine"],
-            path: "Sources/DreamDAWUI"
+            path: "Sources/DreamDAWUI",
+            resources: [
+                .process("WaveformShaders.metal")
+            ]
         ),
 
         // MARK: - Main Application

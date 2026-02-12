@@ -1895,13 +1895,17 @@ public final class ArrangementViewController: NSViewController {
         
         logger.info("Hot-reloading playback from beat \(self.transportController.playheadPosition.beats)")
         
-        playbackScheduler.schedulePlayback(
+        // ASYNC RELOAD: Ensure hot-edits don't stutter the UI
+        playbackScheduler.schedulePlaybackAsync(
             project: project,
             from: transportController.playheadPosition,
             looping: transportController.isLooping,
             loopStart: transportController.loopStart,
             loopEnd: transportController.loopEnd
-        )
+        ) { _ in
+            // Re-syncing transport state if needed, though usually automatic via onPlayheadUpdate
+            self.logger.debug("Hot-reload scheduling complete.")
+        }
     }
 
     private func showNotification(title: String, message: String) {

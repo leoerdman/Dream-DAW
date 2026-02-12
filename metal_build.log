@@ -1,0 +1,6 @@
+Another instance of SwiftPM (PID: 14829) is already running using '/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/.build', waiting until that process has finished execution...warning: 'dream daw': found 1 file(s) which are unhandled; explicitly declare them as resources or exclude from the target
+    /Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/WaveformShaders.metal
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build complete! (0.13s)

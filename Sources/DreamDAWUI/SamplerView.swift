@@ -666,17 +666,42 @@ class DAWKnob: NSView {
 }
 
 class DAWNumberControl: NSView {
-    var label: String = ""
-    var unit: String = ""
-    var value: Double = 0.0 { didSet { needsDisplay = true } }
+    var label: String = "" { didSet { updateDisplay() } }
+    var unit: String = "" { didSet { updateDisplay() } }
+    var value: Double = 0.0 { didSet { updateDisplay() } }
     var onValueChanged: ((Double) -> Void)?
     
     private var lastMouseY: CGFloat = 0
+    
+    // --- Enterprise Caching & Direct CoreText Rendering ---
+    private static let valueAttributes: [NSAttributedString.Key: Any] = {
+        let font = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
+        let color = NSColor(red: 0.1, green: 0.8, blue: 0.9, alpha: 1.0)
+        return [
+            .font: font,
+            .foregroundColor: color
+        ]
+    }()
+    
+    private static let labelAttributes: [NSAttributedString.Key: Any] = {
+        let font = NSFont.systemFont(ofSize: 7, weight: .medium)
+        let color = NSColor(white: 0.5, alpha: 1.0)
+        return [
+            .font: font,
+            .foregroundColor: color
+        ]
+    }()
+    
+    private var valueLine: CTLine?
+    private var labelLine: CTLine?
+    private var valueSize: CGSize = .zero
+    private var labelSize: CGSize = .zero
 
     init(label: String, unit: String) {
         self.label = label
         self.unit = unit
         super.init(frame: NSRect(x: 0, y: 0, width: 80, height: 26))
+        updateDisplay()
     }
     
     public override var intrinsicContentSize: NSSize {
@@ -685,43 +710,57 @@ class DAWNumberControl: NSView {
     
     required init?(coder: NSCoder) { fatalError() }
     
+    private func updateDisplay() {
+        // Pre-calculate CoreText lines outside of draw() for zero-allocation rendering
+        let valStrRaw = String(format: "%.1f", value) + " " + unit
+        let vAttrStr = NSAttributedString(string: valStrRaw, attributes: Self.valueAttributes)
+        valueLine = CTLineCreateWithAttributedString(vAttrStr)
+        valueSize = vAttrStr.size()
+        
+        let labelText = label.uppercased()
+        if !labelText.isEmpty {
+            let lAttrStr = NSAttributedString(string: labelText, attributes: Self.labelAttributes)
+            labelLine = CTLineCreateWithAttributedString(lAttrStr)
+            labelSize = lAttrStr.size()
+        } else {
+            labelLine = nil
+            labelSize = .zero
+        }
+        
+        needsDisplay = true
+    }
+    
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         
-        // Background
+        // 1. Background (Minimal Opaque Fill)
         ctx.setFillColor(NSColor(white: 0.1, alpha: 1.0).cgColor)
         ctx.fill(bounds)
         
-        // --- Robust Attribute Creation ---
-        // We use explicit NSObjects and check for nil to avoid SIGABRT bridged-dictionary crashes
-        let fontValue: NSFont = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
-        let lFontValue: NSFont = NSFont.systemFont(ofSize: 7, weight: .medium)
-        let colorValue: NSColor = NSColor(red: 0.1, green: 0.8, blue: 0.9, alpha: 1.0)
-        let lColorValue: NSColor = NSColor(white: 0.5, alpha: 1.0)
-
-        let attr = [
-            NSAttributedString.Key.font: fontValue,
-            NSAttributedString.Key.foregroundColor: colorValue
-        ] as [NSAttributedString.Key: Any]
+        // 2. Direct CoreText Drawing (Bypasses high-level AppKit overhead)
+        ctx.saveGState()
         
-        let lAttr = [
-            NSAttributedString.Key.font: lFontValue,
-            NSAttributedString.Key.foregroundColor: lColorValue
-        ] as [NSAttributedString.Key: Any]
+        // Flip context for CoreText (Standard Mac coordinates flip)
+        // Note: In an NSView's drawRect, the context is already flipped to match the view's coordinates.
+        // However, CoreText expects y-up.
         
-        // --- Render Value ---
-        let valStrRaw = String(format: "%.1f", value) + " " + unit
-        let str = NSAttributedString(string: valStrRaw, attributes: attr)
-        let strSize = str.size()
-        str.draw(at: CGPoint(x: 4, y: (bounds.height - strSize.height)/2))
-        
-        // --- Render Label ---
-        let labelText = label.uppercased()
-        if !labelText.isEmpty {
-            let lStr = NSAttributedString(string: labelText, attributes: lAttr)
-            let lSize = lStr.size()
-            lStr.draw(at: CGPoint(x: bounds.width - lSize.width - 4, y: (bounds.height - lSize.height)/2))
+        // Draw Value
+        if let vLine = valueLine {
+            let x: CGFloat = 4
+            let y: CGFloat = (bounds.height - valueSize.height) / 2 + 1 // +1 for baseline adjustment
+            ctx.textPosition = CGPoint(x: x, y: y)
+            CTLineDraw(vLine, ctx)
         }
+        
+        // Draw Label
+        if let lLine = labelLine {
+            let x: CGFloat = bounds.width - labelSize.width - 4
+            let y: CGFloat = (bounds.height - labelSize.height) / 2 + 1
+            ctx.textPosition = CGPoint(x: x, y: y)
+            CTLineDraw(lLine, ctx)
+        }
+        
+        ctx.restoreGState()
     }
     
     override func mouseDown(with event: NSEvent) {

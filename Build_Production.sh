@@ -192,6 +192,14 @@ create_bundle() {
         cp "${BUILD_DIR}/AppIcon.icns" "${RESOURCES_BUNDLE_DIR}/AppIcon.icns"
     fi
 
+    # [NEW] Copy SwiftPM Resource Bundles
+    print_step "Copying SwiftPM Resource Bundles..."
+    # Search recursively in the build dir for bundles, prioritizing the current architecture/platform
+    find "${BUILD_DIR}" -name "*.bundle" -type d | grep "/release/" | while read bundle; do
+        print_step "  -> Copying $(basename "$bundle")..."
+        cp -R "$bundle" "${RESOURCES_BUNDLE_DIR}/"
+    done
+
     # Create Info.plist
     cat > "${CONTENTS_DIR}/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>

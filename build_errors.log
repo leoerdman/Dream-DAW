@@ -1,0 +1,58 @@
+warning: 'dream daw': found 1 file(s) which are unhandled; explicitly declare them as resources or exclude from the target
+    /Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/WaveformShaders.metal
+[0/1] Planning build
+Building for debugging...
+[0/5] Write sources
+[2/5] Write swift-version--58304C5D6DBC2206.txt
+[4/7] Emitting module DreamDAWModels
+[5/7] Compiling DreamDAWModels AppVersion.swift
+[6/9] Emitting module DreamDAWEngine
+[7/9] Compiling DreamDAWEngine PlaybackScheduler.swift
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWEngine/PlaybackScheduler.swift:137:34: error: no exact matches in call to global function 'min'
+135 |                 let lookaheadSeconds = 10.0
+136 |                 let lookaheadBeats = (lookaheadSeconds * bpm) / 60.0
+137 |                 let segmentEnd = min(end, position.beats + lookaheadBeats)
+    |                                  `- error: no exact matches in call to global function 'min'
+138 |                 
+139 |                 _ = scheduleTrackRange(track: track, player: player, start: position, end: TimePosition(beats: segmentEnd), bpm: bpm, sampleRate: sampleRate)
+
+Swift.min:1:24: note: candidate expects value of type 'TimePosition' for parameter #2 (got 'Double')
+1 | @inlinable public func min<T>(_ x: T, _ y: T) -> T where T : Comparable
+  |                        `- note: candidate expects value of type 'TimePosition' for parameter #2 (got 'Double')
+
+simd.min:1:13: note: candidate expects value of type 'SIMD2<Double>' for parameter #1 (got 'TimePosition')
+1 | public func min(_ vector: SIMD2<Double>, _ scalar: Double) -> SIMD2<Double>
+  |             `- note: candidate expects value of type 'SIMD2<Double>' for parameter #1 (got 'TimePosition')
+
+simd.min:1:13: note: candidate expects value of type 'SIMD3<Double>' for parameter #1 (got 'TimePosition')
+1 | public func min(_ vector: SIMD3<Double>, _ scalar: Double) -> SIMD3<Double>
+  |             `- note: candidate expects value of type 'SIMD3<Double>' for parameter #1 (got 'TimePosition')
+
+simd.min:1:13: note: candidate expects value of type 'SIMD4<Double>' for parameter #1 (got 'TimePosition')
+1 | public func min(_ vector: SIMD4<Double>, _ scalar: Double) -> SIMD4<Double>
+  |             `- note: candidate expects value of type 'SIMD4<Double>' for parameter #1 (got 'TimePosition')
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWEngine/PlaybackScheduler.swift:189:20: error: binary operator '<' cannot be applied to operands of type 'Double' and 'TimePosition'
+187 |         
+188 |         // Don't refill if already at end
+189 |         guard upTo < project.totalDuration else { return }
+    |                    |- error: binary operator '<' cannot be applied to operands of type 'Double' and 'TimePosition'
+    |                    `- note: overloads for '<' exist with these partially matching parameter lists: (TimePosition, TimePosition)
+190 |         
+191 |         schedulingQueue.async { [weak self] in
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWEngine/PlaybackScheduler.swift:200:49: error: cannot convert value of type 'TimePosition' to specified type 'Double'
+198 |             let lookaheadSeconds: Double = 10.0
+199 |             let lookaheadBeats: Double = (lookaheadSeconds * bpm) / 60.0
+200 |             let totalDuration: Double = project.totalDuration
+    |                                                 `- error: cannot convert value of type 'TimePosition' to specified type 'Double'
+201 |             let nextEnd: Double = min(totalDuration, startBeat + lookaheadBeats)
+202 |             
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWEngine/PlaybackScheduler.swift:434:27: warning: value 'pluginUnit' was defined but never used; consider replacing with boolean test [#no-usage]
+432 |                 }
+433 |                 midiBuffer = sampler.renderClipToBuffer(clip: clip, bpm: bpm, config: track.instrument ?? InstrumentConfig())
+434 |             } else if let pluginUnit = PluginHost.shared.getInstance(track.id) {
+    |                           `- warning: value 'pluginUnit' was defined but never used; consider replacing with boolean test [#no-usage]
+435 |                 // ENTERPRISE: Support VST instruments for immediate MIDI playback
+436 |                 // For now, we reuse the synth bridge to guarantee sound while the VST engine stabilizes

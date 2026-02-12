@@ -42,11 +42,21 @@ public final class TrackHeaderView: NSView {
     private let vuMeterBarR = NSView()       // Right channel VU meter background
     private let vuMeterFillR = NSView()      // Right channel filled portion
     private let peakIndicator = NSView()     // Peak clip indicator
+    private let divider = NSView()           // Bottom divider
     
     // Group UI components
     private let groupIndicatorBG = NSView()   // Indentation background
     private let groupIndicatorLine = NSView() // Thin vertical line (solid color block)
     private let groupDividerLine = NSView()   // Thin divider between indicator and track content
+    private var dividerLeadingConstraint: NSLayoutConstraint?
+    private var nameLeadingConstraint: NSLayoutConstraint?
+    
+    /// Grouping: Whether this track is the last visible member of its group (used for closing separator).
+    public var isLastInGroup: Bool = false {
+        didSet {
+            updateRoutingLabel() // Triggers UI refresh for indicators/dividers
+        }
+    }
 
     /// Callback when track settings change.
     public var onTrackChanged: ((Track) -> Void)?
@@ -176,7 +186,13 @@ public final class TrackHeaderView: NSView {
         collapseButton.translatesAutoresizingMaskIntoConstraints = false
         addSubview(collapseButton)
 
-        // Group Indicator UI
+        // Bottom divider (Added FIRST for z-order: indicators sit on top)
+        divider.wantsLayer = true
+        divider.layer?.backgroundColor = DreamTheme.divider.cgColor
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(divider)
+
+        // Group Indicator UI (Added AFTER divider to cover it)
         groupIndicatorBG.wantsLayer = true
         groupIndicatorBG.isHidden = true
         groupIndicatorBG.translatesAutoresizingMaskIntoConstraints = false
@@ -232,13 +248,6 @@ public final class TrackHeaderView: NSView {
         enableButton.translatesAutoresizingMaskIntoConstraints = false
         addSubview(enableButton)
 
-        // Bottom divider
-        let divider = NSView()
-        divider.wantsLayer = true
-        divider.layer?.backgroundColor = DreamTheme.divider.cgColor
-        divider.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(divider)
-
         // Layout
         NSLayoutConstraint.activate([
             // Group Indicators
@@ -259,7 +268,6 @@ public final class TrackHeaderView: NSView {
             groupDividerLine.widthAnchor.constraint(equalToConstant: 1),
 
             // Name background (colored strip) — left portion
-            nameBackgroundView.leadingAnchor.constraint(equalTo: track.parentTrackID != nil ? groupDividerLine.trailingAnchor : leadingAnchor),
             nameBackgroundView.topAnchor.constraint(equalTo: topAnchor),
             nameBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
             nameBackgroundView.widthAnchor.constraint(equalToConstant: 80),
@@ -308,11 +316,17 @@ public final class TrackHeaderView: NSView {
             vuMeterBarR.widthAnchor.constraint(equalToConstant: 4),
 
             // Bottom divider
-            divider.leadingAnchor.constraint(equalTo: leadingAnchor),
             divider.trailingAnchor.constraint(equalTo: trailingAnchor),
             divider.bottomAnchor.constraint(equalTo: bottomAnchor),
             divider.heightAnchor.constraint(equalToConstant: 1),
         ])
+        
+        // Save dynamic constraints
+        nameLeadingConstraint = nameBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor)
+        nameLeadingConstraint?.isActive = true
+        
+        dividerLeadingConstraint = divider.leadingAnchor.constraint(equalTo: leadingAnchor)
+        dividerLeadingConstraint?.isActive = true
     }
 
     public override func layout() {
@@ -358,16 +372,49 @@ public final class TrackHeaderView: NSView {
         // Logic must run regardless of routing state to ensure indicators are hidden for top-level tracks.
         let isGroupHeader = track.trackType == .group
         
-        if let parentID = track.parentTrackID, let resolver = trackResolver, let parent = resolver(parentID), !isGroupHeader {
+        // ENTERPRISE IMPROVEMENT: Determine "Indentation Mode" for the "Connected" look
+        // 1. Group Headers: Show indicator with OWN color, no indentation for name.
+        // 2. Group Children: Show indicator with PARENT color, indent name.
+        // 3. Regular Tracks: Hide indicator, no indentation.
+        
+        if let parentID = track.parentTrackID, let resolver = trackResolver, let parent = resolver(parentID) {
+            // It's a member of a group
             groupIndicatorBG.isHidden = false
             groupIndicatorLine.isHidden = false
             groupDividerLine.isHidden = false
             groupIndicatorBG.layer?.backgroundColor = parent.color.nsColor.withAlphaComponent(0.15).cgColor
             groupIndicatorLine.layer?.backgroundColor = parent.color.nsColor.cgColor
+            
+            // Indent name content
+            nameLeadingConstraint?.constant = 11 // (10 width + 1 divider)
+            
+            // PROFESSIONAL LOGIC: 
+            // 1. If it's the LAST track in group -> Full width divider to close the container.
+            // 2. Otherwise -> Shortened divider to maintain the connected flow.
+            dividerLeadingConstraint?.constant = isLastInGroup ? 0 : 11
+            divider.isHidden = false
+        } else if isGroupHeader {
+            // It's a group header track
+            groupIndicatorBG.isHidden = false
+            groupIndicatorLine.isHidden = false
+            groupDividerLine.isHidden = false
+            groupIndicatorBG.layer?.backgroundColor = track.color.nsColor.withAlphaComponent(0.15).cgColor
+            groupIndicatorLine.layer?.backgroundColor = track.color.nsColor.cgColor
+            
+            // Group header name is indented to match vertical strip
+            nameLeadingConstraint?.constant = 11
+            
+            // ENTERPRISE REQUEST: Group headers do NOT have a horizontal divider line at bottom
+            // This allows them to flow seamlessly into the first child track.
+            divider.isHidden = true
         } else {
+            // Top-level regular track
             groupIndicatorBG.isHidden = true
             groupIndicatorLine.isHidden = true
             groupDividerLine.isHidden = true
+            nameLeadingConstraint?.constant = 0
+            dividerLeadingConstraint?.constant = 0
+            divider.isHidden = false
         }
 
         // 2. Update routing text
@@ -945,15 +992,34 @@ public final class TrackHeadersContainerView: NSView {
             let header = TrackHeaderView(track: track, index: index)
             header.frame = CGRect(x: 0, y: yOffset, width: DreamTheme.trackHeaderWidth, height: track.height)
             
-            // Inject resolvers BEFORE initial update
+            // PROFESSIONAL GROUPING LOGIC: Determine if this track is the last visible member of its group.
+            // This is used to "close" the group container with a full-width divider.
+            var isLastInGroup = false
+            if let currentParent = track.parentTrackID {
+                if index + 1 < tracks.count {
+                    let nextTrack = tracks[index + 1]
+                    if nextTrack.parentTrackID != currentParent {
+                        isLastInGroup = true
+                    }
+                } else {
+                    isLastInGroup = true
+                }
+            }
+            
+            // Inject resolvers and state
             header.trackResolver = trackResolver
             header.routingDestinationProvider = routingDestinationProvider
+            header.isLastInGroup = isLastInGroup
+            
+            // Important: Add to superview BEFORE initial UI refresh
+            addSubview(header)
+            
             
             // Restore selection state
-            if let project = (superview?.superview?.superview?.nextResponder as? ArrangementViewController)?.project {
-                 header.isSelected = project.selectedTrackIDs.contains(track.id)
-            } else if let window = self.window, let vc = window.contentViewController as? ArrangementViewController {
+            if let window = self.window, let vc = window.contentViewController as? ArrangementViewController {
                  header.isSelected = vc.project.selectedTrackIDs.contains(track.id)
+            } else if let project = (superview?.superview?.superview?.nextResponder as? ArrangementViewController)?.project {
+                 header.isSelected = project.selectedTrackIDs.contains(track.id)
             }
 
             header.onTrackChanged = { [weak self] track in
@@ -984,10 +1050,9 @@ public final class TrackHeadersContainerView: NSView {
                 self?.onBrowserItemDropped?(trackID, nodeType, itemName, fileURL)
             }
             
-            // Trigger refresh after setting resolvers
+            // Trigger refresh after setting all properties and adding to superview
             header.refreshDependentUI()
             
-            addSubview(header)
             headerViews.append(header)
 
             yOffset += track.height

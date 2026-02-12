@@ -43,7 +43,15 @@ public final class TimelineCanvasView: NSView {
         
         self.layer?.addSublayer(laneContainerLayer)
         self.layer?.addSublayer(gridLayer)
-        self.layer?.addSublayer(clipContainerLayer)
+        
+        // METAL INTEGRATION: Unified arrangement layer
+        metalArrangementLayer.actions = noActions
+        metalArrangementLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        metalArrangementLayer.opacity = 0.95
+        metalArrangementLayer.isOpaque = false
+        self.layer?.addSublayer(metalArrangementLayer)
+        
+        self.layer?.addSublayer(clipContainerLayer) // Kept for legacy interaction/fallback, but hidden for perf
         self.layer?.addSublayer(cursorLayer)
         self.layer?.addSublayer(cursorHandleLayer)
         self.layer?.addSublayer(playheadLayer)
@@ -282,6 +290,10 @@ public final class TimelineCanvasView: NSView {
     private let ghostClipLayer = CALayer()
     private var ghostAudioClip: AudioClip?
 
+    // Metal Rendering Engine
+    private let metalTimelineRenderer = MetalTimelineRenderer()
+    private let metalArrangementLayer = CAMetalLayer()
+
     // Visual drop indicator (cyan line)
     private let dropIndicatorLayer = CALayer()
     public var insertionIndex: Int? {
@@ -358,6 +370,7 @@ public final class TimelineCanvasView: NSView {
 
         // 1. Project-level changes (Name, Loop, BPM, etc.)
         project.objectWillChange
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.rebuildQuadTree()
                 self?.updateArrangementLayers()
@@ -367,6 +380,7 @@ public final class TimelineCanvasView: NSView {
         // 2. Track list changes
         // When the array reference changes, re-subscribe to individual tracks
         project.$tracks
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] tracks in
                 self?.subscribeToTracks(tracks)
                 self?.rebuildQuadTree()
@@ -376,6 +390,7 @@ public final class TimelineCanvasView: NSView {
             
         // 3. Master track changes
         project.masterTrack.objectWillChange
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.rebuildQuadTree()
                 self?.updateArrangementLayers()
@@ -390,6 +405,7 @@ public final class TimelineCanvasView: NSView {
         for track in tracks {
             // Observe each track for volume, pan, mute, solo changes
             track.objectWillChange
+                .receive(on: DispatchQueue.main)
                 .sink { [weak self] _ in
                     self?.rebuildQuadTree() // In case tracks moved/resized
                     self?.updateArrangementLayers()
@@ -513,7 +529,22 @@ public final class TimelineCanvasView: NSView {
         
         updateGridLayer(project: project)
         updateLaneLayers(project: project)
-        updateClipLayers(project: project)
+        
+        // GPU BATCH RENDERING:
+        // Match the Metal layer to the visible viewport for efficiency and correct coordinate mapping.
+        clipContainerLayer.isHidden = true
+        
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        metalArrangementLayer.frame = visibleRect
+        CATransaction.commit()
+        
+        metalTimelineRenderer?.render(
+            project: project,
+            visibleRect: visibleRect,
+            pixelsPerBeat: pixelsPerBeat,
+            in: metalArrangementLayer
+        )
         
         // Use surgical updates for these as they change frequently
         updateCursorLayer(project: project)

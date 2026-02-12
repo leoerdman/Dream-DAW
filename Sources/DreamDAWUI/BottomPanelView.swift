@@ -427,6 +427,7 @@ public final class BottomPanelView: NSView {
     }
 
     /// Stop the meter animation timer (when panel hides).
+    /// Stop the meter animation timer (when panel hides).
     private func stopMeterTimer() {
         meterTimer?.invalidate()
         meterTimer = nil
@@ -441,31 +442,22 @@ public final class BottomPanelView: NSView {
             return
         }
 
-        let trackLevel = meter.level(for: trackID)
+        let preLevel = meter.level(for: trackID, point: .preEffects)
+        let postLevel = meter.level(for: trackID, point: .postEffects)
 
-        // All meters in the chain show the track's overall output level.
-        // In a real multi-point metering system each node would have its own tap,
-        // but AVAudioEngine provides per-mixer-node taps, and each track has one
-        // mixer node. The same level is distributed to all meters, which is
-        // accurate since effects are in-line (series, not parallel).
-        //
-        // Input meter gets a slightly boosted reading (raw RMS before mixing)
-        // and output meter gets the post-mix reading.
         for (index, chainMeter) in chainMeters.enumerated() {
             if index == 0 {
-                // Input meter — show raw RMS
-                chainMeter.level = trackLevel.rms * 1.4
+                // Input meter — show Pre-FX RMS
+                chainMeter.level = preLevel.rms
             } else if index == chainMeters.count - 1 {
-                // Output meter — show post-mix peak-weighted level
-                chainMeter.level = (trackLevel.rms + trackLevel.peak) * 0.5
+                // Output meter — show Post-FX RMS
+                chainMeter.level = postLevel.rms
             } else {
-                // Inter-stage meters — show RMS
-                chainMeter.level = trackLevel.rms * 1.2
+                // For inter-stage meters (visual only), show Post-FX 
+                chainMeter.level = postLevel.rms
             }
         }
     }
-
-    /// Returns the slot width for an instrument type.
     private func instrumentSlotWidth(for type: InstrumentType?) -> CGFloat {
         guard let type = type else { return 100 }
         switch type {
@@ -858,12 +850,17 @@ public final class BottomPanelView: NSView {
             let parts = payload.split(separator: ":", maxSplits: 1)
             if parts.count == 2 {
                 let nodeType = String(parts[0])
-                if nodeType == "audioEffect" {
+                if nodeType == "audioEffect" || nodeType == "instrument" {
+                    NSCursor.dragCopy.set() // Force plus cursor
                     return .copy
                 }
             }
         }
         return []
+    }
+
+    public override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        return draggingEntered(sender)
     }
 
     public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
@@ -877,9 +874,17 @@ public final class BottomPanelView: NSView {
         let nodeType = String(parts[0])
         let itemName = String(parts[1])
 
-        guard nodeType == "audioEffect" else { return false }
+        if nodeType == "audioEffect" {
+            onEffectDropped?(track.id, nodeType, itemName)
+            return true
+        } else if nodeType == "instrument" && track.trackType == .midi {
+            // Re-use logic for instruments dropped on header
+            if let container = superview?.superview?.superview as? TrackHeadersContainerView {
+                container.onBrowserItemDropped?(track.id, nodeType, itemName)
+                return true
+            }
+        }
 
-        onEffectDropped?(track.id, nodeType, itemName)
-        return true
+        return false
     }
 }

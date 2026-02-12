@@ -158,7 +158,7 @@ public final class ArrangementViewController: NSViewController {
         self.audioEngine = AudioEngine()
         self.transportController = TransportController()
         self.waveformCache = WaveformCache()
-        self.trackMixer = TrackMixer(audioEngine: audioEngine)
+        self.trackMixer = TrackMixer(audioEngine: audioEngine, audioLevelMeter: audioLevelMeter)
         self.playbackScheduler = PlaybackScheduler(audioEngine: audioEngine, trackMixer: trackMixer)
         self.orchestrator = ArrangementOrchestrator(project: project, actionHistory: actionHistory)
 
@@ -877,6 +877,10 @@ public final class ArrangementViewController: NSViewController {
         trackHeaders.onReorderDragUpdate = { [weak self] index in
             self?.canvasView.insertionIndex = index
         }
+        
+        trackHeaders.onMoveTrack = { [weak self] fromIndex, toIndex in
+            self?.moveTrack(from: fromIndex, to: toIndex)
+        }
 
         // Transport state → PlaybackScheduler
         // Play → stop browser preview + schedule all clips; Pause/Stop → stop all players
@@ -1209,6 +1213,8 @@ public final class ArrangementViewController: NSViewController {
             performanceBenchmark.runBenchmarks()
         case 11 where flags.contains(.command): // Cmd+B — toggle browser sidebar
             toggleBrowser()
+        case 3 where flags.contains(.command): // Cmd+F — focus search
+            find(nil)
         case 35 where flags.contains(.command) && flags.contains(.option): // Cmd+Opt+P — Plugin Audit
             runPluginAudit()
         case 48 where flags.contains(.shift): // Shift+Tab — toggle bottom panel (detail/clip view)

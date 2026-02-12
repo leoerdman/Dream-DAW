@@ -14,6 +14,7 @@ public final class TrackMixer {
     // MARK: - Properties
 
     private let audioEngine: AudioEngine
+    private let audioLevelMeter: AudioLevelMeter
     private let logger = Logger(subsystem: "com.dreamdaw", category: "TrackMixer")
 
     /// Standard stereo format used for all node connections.
@@ -48,8 +49,9 @@ public final class TrackMixer {
 
     // MARK: - Initialization
 
-    public init(audioEngine: AudioEngine) {
+    public init(audioEngine: AudioEngine, audioLevelMeter: AudioLevelMeter) {
         self.audioEngine = audioEngine
+        self.audioLevelMeter = audioLevelMeter
     }
 
     // MARK: - Track Setup
@@ -129,11 +131,13 @@ public final class TrackMixer {
         
         if let inputMixer = trackInputMixers.removeValue(forKey: id) {
             audioEngine.disconnectNodeOutput(inputMixer)
+            audioLevelMeter.removeTap(trackID: id, point: .preEffects)
             audioEngine.detach(inputMixer)
         }
 
         if let mixer = trackMixerNodes.removeValue(forKey: id) {
             audioEngine.disconnectNodeOutput(mixer)
+            audioLevelMeter.removeTap(trackID: id, point: .postEffects)
             audioEngine.detach(mixer)
         }
     }

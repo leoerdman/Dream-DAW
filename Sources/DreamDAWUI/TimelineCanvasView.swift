@@ -68,6 +68,15 @@ public final class TimelineCanvasView: NSView {
         setupDropIndicator()
     }
 
+    /// Refresh the UI instantly — redraws all layers and marks the view as dirty.
+    public func refreshUI() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        updateArrangementLayers()
+        CATransaction.commit()
+        needsDisplay = true
+    }
+
     private func setupDropIndicator() {
         dropIndicatorLayer.backgroundColor = NSColor.systemCyan.cgColor
         dropIndicatorLayer.isHidden = true
@@ -1357,7 +1366,7 @@ public final class TimelineCanvasView: NSView {
 
             NSCursor.arrow.set()
             resizeState = nil
-            updateArrangementLayers()
+            refreshUI()
             onClipsModified?()
             return
         }
@@ -1389,7 +1398,7 @@ public final class TimelineCanvasView: NSView {
 
             NSCursor.arrow.set()
             dragState = nil
-            updateArrangementLayers()
+            refreshUI()
             onClipsModified?()
             return
         }
@@ -1459,7 +1468,7 @@ public final class TimelineCanvasView: NSView {
             }
         }
         if didDelete {
-            updateArrangementLayers()
+            refreshUI()
             onClipsModified?()
         }
     }
@@ -1621,7 +1630,7 @@ public final class TimelineCanvasView: NSView {
                 track.midiClips.append(pasted)
             }
         }
-        updateArrangementLayers()
+        refreshUI()
     }
 
     /// Select all clips across all tracks.
@@ -1685,7 +1694,7 @@ public final class TimelineCanvasView: NSView {
             track.clips.append(contentsOf: newAudio)
             track.midiClips.append(contentsOf: newMidi)
         }
-        updateArrangementLayers()
+        refreshUI()
     }
 
     // MARK: - Scroll & Zoom

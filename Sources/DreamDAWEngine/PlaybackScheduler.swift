@@ -114,8 +114,8 @@ public final class PlaybackScheduler {
                 let loopDurationBeats = loopEnd.beats - loopStart.beats
                 if loopDurationBeats > 0 {
                     let loopDurationSec = loopDurationBeats / bpm * 60.0
-                    let targetBufferSec = 10.0
-                    let iterationCount = min(32, max(2, Int(ceil(targetBufferSec / loopDurationSec))))
+                    let targetBufferSec = 300.0 // Buffering ~5 minutes worth (Enterprise stability)
+                    let iterationCount = min(512, max(2, Int(ceil(targetBufferSec / loopDurationSec))))
 
                     logger.debug("Buffering \(iterationCount) loop iterations for track '\(track.name)'")
 

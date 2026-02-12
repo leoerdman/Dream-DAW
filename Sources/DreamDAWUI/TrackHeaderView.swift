@@ -419,6 +419,11 @@ public final class TrackHeaderView: NSView {
         colorItem.submenu = colorMenu
         menu.addItem(colorItem)
         
+        let renameItem = NSMenuItem(title: "Rename Track", action: #selector(renameTrack), keyEquivalent: "")
+        renameItem.target = self
+        renameItem.image = NSImage(systemSymbolName: "pencil", accessibilityDescription: nil)
+        menu.addItem(renameItem)
+
         menu.addItem(NSMenuItem.separator())
         
         let deleteItem = NSMenuItem(title: "Delete Track", action: #selector(deleteTrack), keyEquivalent: "")
@@ -540,6 +545,10 @@ public final class TrackHeaderView: NSView {
         onTrackChanged?(track)
     }
     
+    @objc private func renameTrack() {
+        startRenaming()
+    }
+    
     @objc private func deleteTrack() {
         // Find container and trigger deletion
         if let container = superview as? TrackHeadersContainerView {
@@ -603,6 +612,9 @@ public final class TrackHeadersContainerView: NSView {
 
     /// Callback for reorder drag updates (target index). Used for synchronization with the timeline.
     public var onReorderDragUpdate: ((Int?) -> Void)?
+
+    /// Callback when reorder is completed. Parameters: (fromIndex, toIndex)
+    public var onMoveTrack: ((Int, Int) -> Void)?
 
     /// Callback to delete a track by its UUID.
     public var onDeleteTrack: ((UUID) -> Void)?
@@ -797,16 +809,12 @@ public final class TrackHeadersContainerView: NSView {
 
         // 1. Handle Track Reordering
         if let trackIDString = pb.string(forType: .trackID), let draggedID = UUID(uuidString: trackIDString) {
-            
             // Perform move if valid
             if let targetIndex = finalIndex,
                let sourceIndex = headerViews.firstIndex(where: { $0.trackID == draggedID }) {
                 if sourceIndex != targetIndex && sourceIndex != targetIndex - 1 {
-                    // Trigger reorder in parent
-                    if let arrangement = nextResponder as? ArrangementViewController {
-                        arrangement.moveTrack(from: sourceIndex, to: targetIndex)
-                        return true
-                    }
+                    onMoveTrack?(sourceIndex, targetIndex)
+                    return true
                 }
             }
             return false
@@ -816,7 +824,6 @@ public final class TrackHeadersContainerView: NSView {
         guard let payload = pb.string(forType: .browserItem) else {
             return false
         }
-        // ... rest of item drop logic ...
 
         let parts = payload.split(separator: ":", maxSplits: 1)
         guard parts.count == 2 else { return false }

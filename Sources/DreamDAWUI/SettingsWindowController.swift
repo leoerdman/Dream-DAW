@@ -10,6 +10,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     case appearance = "appearance"
     case audio    = "audio"
     case storage  = "storage"
+    case about    = "about"
     
     var id: String { rawValue }
     
@@ -19,6 +20,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .appearance: return "Appearance"
         case .audio:   return "Audio"
         case .storage: return "Folders"
+        case .about:   return "About"
         }
     }
     
@@ -28,6 +30,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .appearance: return "paintbrush"
         case .audio:   return "speaker.wave.3"
         case .storage: return "folder"
+        case .about:   return "info.circle"
         }
     }
 }
@@ -63,6 +66,8 @@ public struct SettingsView: View {
                     AudioSettingsView(settings: settings)
                 case .storage:
                     StorageSettingsView(settings: settings)
+                case .about:
+                    AboutSettingsView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -109,6 +114,82 @@ struct GeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+// MARK: - AboutSettingsView
+
+struct AboutSettingsView: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Header
+                HStack(spacing: 16) {
+                    Image(nsImage: NSImage(named: "AppIcon") ?? NSImage())
+                        .resizable()
+                        .frame(width: 64, height: 64)
+                        .cornerRadius(12)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Dream DAW")
+                            .font(.title).bold()
+                        Text(AppVersion.fullVersionString)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.bottom, 10)
+                
+                Divider()
+                
+                Text("Version History")
+                    .font(.headline)
+                
+                ForEach(AppVersion.history, id: \.version) { entry in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(entry.version)
+                                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                .foregroundColor(DreamTheme.accentSwiftUI)
+                            Spacer()
+                            Text(entry.date)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(entry.changes, id: \.self) { change in
+                                HStack(alignment: .top, spacing: 6) {
+                                    Text("•").foregroundColor(DreamTheme.accentSwiftUI)
+                                    Text(change)
+                                        .font(.system(size: 11))
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    
+                    if entry.version != AppVersion.history.last?.version {
+                        Divider().opacity(0.3)
+                    }
+                }
+                
+                Spacer(minLength: 20)
+                
+                Text("© 2026 Dream DAW Team. All rights reserved.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .padding(24)
+        }
+    }
+}
+
+// SwiftUI Color Extension for DreamTheme
+extension DreamTheme {
+    static var accentSwiftUI: Color {
+        Color(nsColor: DreamTheme.accent)
     }
 }
 

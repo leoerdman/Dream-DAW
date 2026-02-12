@@ -65,7 +65,6 @@ public final class TransportController: ObservableObject {
     public func start(at startTime: AVAudioTime? = nil, notify: Bool = true) {
         let hostTimeAtStart = startTime?.hostTime ?? mach_absolute_time()
         
-        let oldState = state
         switch state {
         case .stopped, .paused:
             playbackStartBeat = playheadPosition.beats

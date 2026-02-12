@@ -5,7 +5,7 @@ public final class SplashScreenView: NSView {
     
     private let logoImageView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "DREAM DAW")
-    private let versionLabel = NSTextField(labelWithString: "v1.0.0 Alpha") // We'll eventually pull this from Bundle
+    private let versionLabel = NSTextField(labelWithString: AppVersion.current)
     private let statusLabel = NSTextField(labelWithString: "Initializing Audio Engine...")
     
     public override init(frame frameRect: NSRect) {

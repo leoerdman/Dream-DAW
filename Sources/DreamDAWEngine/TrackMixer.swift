@@ -25,9 +25,12 @@ public final class TrackMixer {
         return AVAudioFormat(standardFormatWithSampleRate: engineFormat.sampleRate, channels: 2)!
     }
 
-    /// Map from Track ID to its mixer node.
-    private var trackMixerNodes: [UUID: AVAudioMixerNode] = [:]
+    /// Map from Track ID to its input mixer node (mixes player and real-time synth).
+    private var trackInputMixers: [UUID: AVAudioMixerNode] = [:]
 
+    /// Map from Track ID to its output mixer node (post-effects, final gain/pan).
+    private var trackMixerNodes: [UUID: AVAudioMixerNode] = [:]
+    
     /// Map from Track ID to its player node (for clip playback).
     private var trackPlayerNodes: [UUID: AVAudioPlayerNode] = [:]
 
@@ -71,10 +74,12 @@ public final class TrackMixer {
     }
 
     private func setupTrackNodes(track: Track, format: AVAudioFormat) {
-        let mixer = AVAudioMixerNode()
+        let inputMixer = AVAudioMixerNode()
+        let outputMixer = AVAudioMixerNode()
         let player = AVAudioPlayerNode()
 
-        audioEngine.attach(mixer)
+        audioEngine.attach(inputMixer)
+        audioEngine.attach(outputMixer)
         audioEngine.attach(player)
         
         // MIDI Tracks: Setup synth
@@ -86,11 +91,11 @@ public final class TrackMixer {
             trackInstrumentNodes[track.id] = synthNode
         }
         
-        // Initial simple connection: mixer -> master
-        // (Chain stitching happens in rebuildEffectChain)
-        audioEngine.connect(mixer, to: audioEngine.masterMixer, format: format)
+        // Initial simple connection: outputMixer -> master
+        audioEngine.connect(outputMixer, to: audioEngine.masterMixer, format: format)
         
-        trackMixerNodes[track.id] = mixer
+        trackInputMixers[track.id] = inputMixer
+        trackMixerNodes[track.id] = outputMixer
         trackPlayerNodes[track.id] = player
     }
 
@@ -108,21 +113,27 @@ public final class TrackMixer {
             }
         }
         
+        if let inputMixer = trackInputMixers.removeValue(forKey: id) {
+            audioEngine.disconnectNodeOutput(inputMixer)
+            audioEngine.detach(inputMixer)
+        }
+
         if let mixer = trackMixerNodes.removeValue(forKey: id) {
             audioEngine.disconnectNodeOutput(mixer)
             audioEngine.detach(mixer)
         }
     }
 
-    /// Rebuilds the audio graph for a specific track based on its current effects and instrument.
     public func rebuildEffectChain(for track: Track, format: AVAudioFormat? = nil) {
-        guard let player = trackPlayerNodes[track.id],
-              let mixer = trackMixerNodes[track.id] else { return }
+        guard let inputMixer = trackInputMixers[track.id],
+              let outputMixer = trackMixerNodes[track.id],
+              let player = trackPlayerNodes[track.id] else { return }
         
         let fmt = format ?? standardFormat
         
         // 1. Disconnect current components
         audioEngine.disconnectNodeOutput(player)
+        audioEngine.disconnectNodeOutput(inputMixer)
         if let synthNode = trackInstrumentNodes[track.id] {
             audioEngine.disconnectNodeOutput(synthNode)
         }
@@ -145,16 +156,16 @@ public final class TrackMixer {
         trackEffectChains[track.id] = newChain
         
         // 3. Stitch the chain:
-        // [Player + Synth] -> [Node1 -> Node2 -> ...] -> Mixer
-        // Note: For MIDI, the Player plays RENDERED audio, while Synth is for realtime/UI.
-        // We connect both to the first effect in the chain.
+        // [Player (Bus 0) + Synth (Bus 1)] -> inputMixer -> [Effects] -> outputMixer
         
-        let firstEffect = newChain.first ?? mixer
-        
-        audioEngine.connect(player, to: firstEffect, format: fmt)
+        // Connect player (bus 0) and synth (bus 1) to the INPUT mixer
+        audioEngine.avAudioEngine.connect(player, to: inputMixer, fromBus: 0, toBus: 0, format: fmt)
         if let synthNode = trackInstrumentNodes[track.id] {
-            audioEngine.connect(synthNode, to: firstEffect, format: fmt)
+            audioEngine.avAudioEngine.connect(synthNode, to: inputMixer, fromBus: 0, toBus: 1, format: fmt)
         }
+        
+        let firstEffect = newChain.first ?? outputMixer
+        audioEngine.connect(inputMixer, to: firstEffect, format: fmt)
         
         var lastNode: AVAudioNode = firstEffect
         if !newChain.isEmpty {
@@ -163,7 +174,7 @@ public final class TrackMixer {
                 audioEngine.connect(lastNode, to: node, format: fmt)
                 lastNode = node
             }
-            audioEngine.connect(lastNode, to: mixer, format: fmt)
+            audioEngine.connect(lastNode, to: outputMixer, format: fmt)
         }
         
         // 4. Update settings
@@ -174,7 +185,7 @@ public final class TrackMixer {
             synth.amplitude = config.gain * 0.3 // Scaled for internal mix
         }
         
-        logger.info("Rebuilt effect chain for track '\(track.name)' with \(newChain.count) effects. Instrument active: \(self.trackInstrumentNodes[track.id] != nil)")
+        logger.info("Rebuilt signal chain for track '\(track.name)' (Player + Synth -> inputMixer -> \(newChain.count) effects -> outputMixer)")
     }
 
     private func createNode(for effect: AudioEffectConfig) -> AVAudioNode? {

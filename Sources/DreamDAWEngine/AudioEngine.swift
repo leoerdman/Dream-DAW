@@ -75,13 +75,28 @@ public final class AudioEngine: @unchecked Sendable {
         os_unfair_lock_lock(&lock)
         defer { os_unfair_lock_unlock(&lock) }
 
-        guard !isRunning else { return }
+        guard !isRunning else { 
+            logger.info("AudioEngine: start() called but already running.")
+            return 
+        }
 
-        // Ensure we are in a clean state
+        logger.info("AudioEngine: Preparing to start...")
+        
+        // Safety: Ensure masterMixer is connected to mainMixerNode.
+        // Even if connected in init, some state changes can break the connection.
+        let format = engine.mainMixerNode.outputFormat(forBus: 0)
+        engine.connect(masterMixer, to: engine.mainMixerNode, format: format)
+        
         engine.prepare()
-        try engine.start()
-        isRunning = true
-        logger.info("AudioEngine started — sample rate: \(self.sampleRate) Hz")
+        
+        do {
+            try engine.start()
+            isRunning = true
+            logger.info("AudioEngine: STARTED successfully — sample rate: \(self.sampleRate) Hz")
+        } catch {
+            logger.error("AudioEngine: FAILED to start: \(error.localizedDescription)")
+            throw error
+        }
     }
 
     /// Stop the audio engine.

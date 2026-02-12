@@ -58,8 +58,12 @@ public final class PlaybackScheduler {
         logger.info(">>> schedulePlayback START from beat \(position.beats), looping=\(looping)")
 
         if !audioEngine.isRunning {
-            logger.warning(">>> AudioEngine not running. Attempting emergency start.")
-            try? audioEngine.start()
+            logger.warning("[Scheduler] AudioEngine not running. Attempting emergency start.")
+            do {
+                try audioEngine.start()
+            } catch {
+                logger.error("[Scheduler] Emergency start failed: \(error.localizedDescription)")
+            }
         }
 
         // Stop all players first (clears queue)
@@ -137,8 +141,8 @@ public final class PlaybackScheduler {
 
         // 3. Start all players at a synchronized future time
         // Calculate a small "future" time to allow the engine to buffer the first segments.
-        // We use a safe delay of ~100ms.
-        let delaySeconds = 0.1
+        // We use a safe delay of ~200ms for enterprise stability.
+        let delaySeconds = 0.2
         let renderTime = audioEngine.avAudioEngine.outputNode.lastRenderTime ?? AVAudioTime(hostTime: mach_absolute_time())
         
         // Convert seconds to host time units reliably
@@ -150,13 +154,16 @@ public final class PlaybackScheduler {
         let startTime = AVAudioTime(hostTime: renderTime.hostTime + delayInHostTicks)
 
         if playersToStart.isEmpty {
-            logger.warning(">>> No players to start (no content found in tracks).")
+            logger.warning("[Scheduler] No players to start (no content found in tracks).")
         } else {
-            logger.info(">>> Starting \(playersToStart.count) players at hostTime \(startTime.hostTime) (delay: \(delaySeconds)s)")
+            logger.info("[Scheduler] Starting \(playersToStart.count) players at hostTime \(startTime.hostTime) (delay: \(delaySeconds)s, hostTimeNow: \(renderTime.hostTime))")
         }
 
         for player in playersToStart {
             player.play(at: startTime)
+            if !player.isPlaying {
+                logger.error("[Scheduler] Player node failed to start playing!")
+            }
         }
     }
 
@@ -323,8 +330,9 @@ public final class PlaybackScheduler {
                 frameCount: actualCount,
                 at: nil // Queue at end
             )
+            logger.info("[Scheduler] Scheduled Audio Segment: \(url.lastPathComponent) (startFrame: \(startFrame), count: \(actualCount))")
         } catch {
-            logger.error("Failed to schedule audio segment: \(error)")
+            logger.error("[Scheduler] Failed to schedule audio segment: \(error.localizedDescription)")
         }
     }
 

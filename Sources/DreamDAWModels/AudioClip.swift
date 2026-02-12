@@ -35,6 +35,9 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
     /// Optional specific color for this clip (overrides track color).
     public var colorOverride: TrackColor?
 
+    /// Total duration of the source audio file in seconds.
+    public var sourceDurationSeconds: Double
+
     // MARK: - Initialization
 
     public init(
@@ -43,6 +46,7 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
         fileURL: URL,
         position: TimePosition,
         duration: TimePosition,
+        sourceDurationSeconds: Double = 0,
         trimStartOffset: TimePosition = .zero,
         gain: Float = 1.0,
         isSelected: Bool = false,
@@ -53,6 +57,7 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
         self.fileURL = fileURL
         self.position = position
         self.duration = duration
+        self.sourceDurationSeconds = sourceDurationSeconds
         self.trimStartOffset = trimStartOffset
         self.gain = gain
         self.isSelected = isSelected

@@ -255,7 +255,7 @@ public final class TimelineCanvasView: NSView {
 
 
     /// Edge hit-test threshold in pixels.
-    private let edgeHitZone: CGFloat = 10 // Increased for better accessibility
+    private let edgeHitZone: CGFloat = 12 // Further increased for better DAW feel
     
     /// Professional bracket cursors for trimming
     private lazy var leftBracketCursor: NSCursor = {
@@ -644,6 +644,16 @@ public final class TimelineCanvasView: NSView {
 
     // MARK: - Legacy Drawing Logic (Removed)
     // Note: All rendering is now managed by GridLayer, LaneLayer, AudioClipLayer, and MidiClipLayer subclasses.
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let area = hoverTrackingArea {
+            removeTrackingArea(area)
+        }
+        let area = NSTrackingArea(rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
 
     public override var acceptsFirstResponder: Bool { true }
 
@@ -1139,10 +1149,26 @@ public final class TimelineCanvasView: NSView {
                         }
                     } else {
                         if let idx = track.clips.firstIndex(where: { $0.id == resize.clipID }) {
-                            // Adjust trimStartOffset for audio clips (reveals earlier audio)
+                            // Professional DAW Trimming (Left Edge):
+                            // 1. Audio samples must remain pinned to their timeline time.
+                            // 2. Cannot reveal samples before the file start (trimStartOffset >= 0).
+                            
+                            let deltaBeat = round(deltaBeat) // Snap trim to bars
+                            let newStart = max(0, resize.originalPosition + deltaBeat)
                             let positionDelta = newStart - resize.originalPosition
-                            let newTrim = max(0, track.clips[idx].trimStartOffset.beats + positionDelta)
-                            track.clips[idx].position = TimePosition(beats: newStart)
+                            
+                            // Constraint: We can only pull LEFT (decreasing trim) if we HAVE trim available.
+                            // Constraint: We can only pull RIGHT (increasing trim) as long as we don't exceed duration.
+                            let newTrim = max(0, resize.originalTrim + positionDelta)
+                            
+                            // If we hit the file start limit (newTrim = 0), we must clamp newStart
+                            let actualPositionDelta = newTrim - resize.originalTrim
+                            let clampedNewStart = resize.originalPosition + actualPositionDelta
+                            let newDuration = (resize.originalPosition + resize.originalDuration) - clampedNewStart
+                            
+                            guard newDuration >= minDuration else { break }
+                            
+                            track.clips[idx].position = TimePosition(beats: clampedNewStart)
                             track.clips[idx].duration = TimePosition(beats: newDuration)
                             track.clips[idx].trimStartOffset = TimePosition(beats: newTrim)
                         }
@@ -1159,7 +1185,16 @@ public final class TimelineCanvasView: NSView {
                         }
                     } else {
                         if let idx = track.clips.firstIndex(where: { $0.id == resize.clipID }) {
-                            track.clips[idx].duration = TimePosition(beats: newDuration)
+                            // Professional DAW Trimming (Right Edge):
+                            // Cannot extend beyond the original audio file's duration.
+                            let bpm = project.bpm
+                            let sourceDurationBeats = (track.clips[idx].sourceDurationSeconds / 60.0) * bpm
+                            let maxDuration = sourceDurationBeats - track.clips[idx].trimStartOffset.beats
+                            
+                            let requestedDuration = round(resize.originalDuration + deltaBeat)
+                            let clampedDuration = max(minDuration, min(maxDuration, requestedDuration))
+                            
+                            track.clips[idx].duration = TimePosition(beats: clampedDuration)
                         }
                     }
                 }
@@ -1720,7 +1755,8 @@ public final class TimelineCanvasView: NSView {
                 name: url.deletingPathExtension().lastPathComponent,
                 fileURL: url,
                 position: TimePosition(beats: beatPosition),
-                duration: clipDuration
+                duration: clipDuration,
+                sourceDurationSeconds: durationSeconds
             )
             track.clips.append(clip)
             beatPosition += clip.duration.beats

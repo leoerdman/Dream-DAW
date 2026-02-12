@@ -594,27 +594,28 @@ public final class ArrangementViewController: NSViewController {
     // MARK: - Audio Engine
     
     private func setupAudioEngine() {
+        // 1. Configure all track nodes first (while engine is stopped/idle)
+        trackMixer.configureTracks(project.tracks)
+        
+        // 2. Start the engine
         do {
             try audioEngine.start()
         } catch {
-            logger.error("Audio engine failed to start: \(error)")
+            logger.error("Audio engine failed to start: \(error.localizedDescription)")
         }
 
-        trackMixer.configureTracks(project.tracks)
-
-        // Handle hardware configuration changes (e.g. headphone plug/unplug)
+        // Handle hardware configuration changes
         audioEngine.onConfigurationChange = { [weak self] in
             guard let self = self else { return }
             self.logger.info("Handling engine configuration change...")
             self.trackMixer.configureTracks(self.project.tracks)
             
-            // If we were playing, we need to restart the engine and reschedule
             if self.transportController.isPlaying {
                 do {
                     try self.audioEngine.start()
                     self.refreshAudio()
                 } catch {
-                    self.logger.error("Failed to restart engine after config change: \(error)")
+                    self.logger.error("Failed to restart engine: \(error.localizedDescription)")
                 }
             }
         }

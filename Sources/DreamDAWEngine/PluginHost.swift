@@ -109,4 +109,12 @@ public final class PluginHost {
     public func removeInstance(_ id: UUID) {
         instances.removeValue(forKey: id)
     }
+
+    /// Safe accessor for the lock-free MIDI block.
+    /// Call this BEFORE starting playback to avoid ObjC runtime locks on the audio thread.
+    public func getScheduleMIDIBlock(for id: UUID) -> AUScheduleMIDIEventBlock? {
+        guard let instance = instances[id] else { return nil }
+        let block: AUScheduleMIDIEventBlock? = instance.auAudioUnit.scheduleMIDIEventBlock
+        return block
+    }
 }

@@ -59,10 +59,7 @@ public final class TimelineCanvasView: NSView {
         playheadLayer.backgroundColor = NSColor.systemRed.cgColor
         selectionRectLayer.zPosition = 1000
         
-        self.layer?.addSublayer(laneContainerLayer)
-        self.layer?.addSublayer(gridLayer)
-        
-        // METAL INTEGRATION: Unified arrangement layer
+        // Ensure Metal layer is managed by us but attached to viewport later
         metalArrangementLayer.actions = noActions
         metalArrangementLayer.device = metalTimelineRenderer?.device
         metalArrangementLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
@@ -71,11 +68,13 @@ public final class TimelineCanvasView: NSView {
         // DO NOT add to self.layer yet — we'll add it to the ClipView (superview) for jitter-free scrolling
         
         setupSubscriptions()
+        self.layer?.addSublayer(laneContainerLayer)
+        self.layer?.addSublayer(gridLayer)
         self.layer?.addSublayer(clipContainerLayer)
         self.layer?.addSublayer(cursorLayer)
         self.layer?.addSublayer(cursorHandleLayer)
         self.layer?.addSublayer(playheadLayer)
-        self.layer?.addSublayer(titleContainerLayer)
+        // titleContainerLayer moved to viewport-relative (in updateArrangementLayers)
         self.layer?.addSublayer(selectionRectLayer)
         
         // Ghost Preview Setup
@@ -572,11 +571,17 @@ public final class TimelineCanvasView: NSView {
         updateArrangementLayers()
     }
 
-    public func updateArrangementLayers(fullRedraw: Bool = true) {
-        NSLog("[TimelineCanvasView] updateArrangementLayers start (fullRedraw: \(fullRedraw))")
+    public func updateArrangementLayers(fullRedraw: Bool = true, visibleRectOverride: CGRect? = nil, pixelsPerBeatOverride: CGFloat? = nil) {
+        // NSLog("[TimelineCanvasView] updateArrangementLayers start (fullRedraw: \(fullRedraw))")
         guard let project = project else { return }
         
+        // Use overrides if provided (for smooth zooming), otherwise use current state
+        let currentPPB = pixelsPerBeatOverride ?? pixelsPerBeat
+        // Use override rect if provided, otherwise standard visibleRect
+        let currentVisibleRect = visibleRectOverride ?? visibleRect
+        
         CATransaction.begin()
+        // ...
         CATransaction.setDisableActions(true)
         
         if fullRedraw {
@@ -598,8 +603,16 @@ public final class TimelineCanvasView: NSView {
         // The frame should be the bounds of the ClipView (the viewport)
         if let clipView = self.superview {
             metalArrangementLayer.frame = clipView.bounds
+            
+            // JITTER FIX: Attach titleContainerLayer to viewport as well to sync heavily with Metal
+            if titleContainerLayer.superlayer != clipView.layer {
+                clipView.layer?.addSublayer(titleContainerLayer)
+                titleContainerLayer.zPosition = 5 // Above Metal (2) and clips (3)
+            }
+            titleContainerLayer.frame = clipView.bounds
         } else {
-            metalArrangementLayer.frame = visibleRect
+            metalArrangementLayer.frame = currentVisibleRect
+            titleContainerLayer.frame = currentVisibleRect
         }
         
         let scale = self.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
@@ -617,27 +630,27 @@ public final class TimelineCanvasView: NSView {
             NSLog("[TimelineCanvasView] calling renderer.render()...")
             renderer.render(
                 project: project,
-                visibleRect: visibleRect,
-                pixelsPerBeat: pixelsPerBeat,
+                visibleRect: currentVisibleRect,
+                pixelsPerBeat: currentPPB,
                 in: metalArrangementLayer
             )
             NSLog("[TimelineCanvasView] renderer.render() finished.")
         }
         
         // Cursor and Playhead
-        updateCursorLayer(project: project)
-        updatePlayheadLayer(project: project)
+        updateCursorLayer(project: project, pixelsPerBeatOverride: currentPPB)
+        updatePlayheadLayer(project: project, pixelsPerBeatOverride: currentPPB)
         
         selectionRectLayer.frame = self.bounds // Ensure marquee layer covers whole area
-        updateMarqueeLayer(project: project)
+        updateMarqueeLayer(project: project, pixelsPerBeatOverride: currentPPB)
         
         // --- CLIP TITLES (Optimized Pass) ---
-        updateClipTitles(project: project)
+        updateClipTitles(project: project, visibleRectOverride: currentVisibleRect, pixelsPerBeatOverride: currentPPB)
         
         CATransaction.commit()
     }
     
-    private func updateClipTitles(project: Project) {
+    private func updateClipTitles(project: Project, visibleRectOverride: CGRect? = nil, pixelsPerBeatOverride: CGFloat? = nil) {
         // Simple but effective: Remove all old titles and add only visible ones.
         // For Enterprise production, we would use a reuse pool, but for 50-100 clips this is fine.
         titleContainerLayer.sublayers?.forEach { $0.removeFromSuperlayer() }
@@ -646,31 +659,44 @@ public final class TimelineCanvasView: NSView {
             let trackY = self.yOffsetForTrack(id: track.id, in: project)
             
             // Audio Clips
+            let targetVisibleRect = visibleRectOverride ?? visibleRect
+            let ppb = pixelsPerBeatOverride ?? pixelsPerBeat
+            
             for clip in track.clips {
-                let clipRect = CGRect(
-                    x: CGFloat(clip.position.beats) * pixelsPerBeat,
-                    y: trackY + 2,
-                    width: CGFloat(clip.duration.beats) * pixelsPerBeat,
+                let clipX = CGFloat(clip.position.beats) * ppb
+                let clipWidth = CGFloat(clip.duration.beats) * ppb
+                
+                // Culling with safety margin
+                if clipX + clipWidth < targetVisibleRect.minX || clipX > targetVisibleRect.maxX { continue }
+                
+                // Viewport-Relative Calculation (Matches Metal)
+                let relativeX = clipX - targetVisibleRect.minX
+                let relativeRect = CGRect(
+                    x: relativeX,
+                    y: (trackY + 2) - targetVisibleRect.minY, // Relative Y for viewport-fixed layer
+                    width: clipWidth,
                     height: 20
                 )
                 
-                if visibleRect.intersects(clipRect) {
-                    addTitleLayer(name: clip.name, frame: clipRect, backgroundColor: track.color.nsColor)
-                }
+                addTitleLayer(name: clip.name, frame: relativeRect, backgroundColor: track.color.nsColor)
             }
             
             // MIDI Clips
             for clip in track.midiClips {
-                let clipRect = CGRect(
-                    x: CGFloat(clip.position.beats) * pixelsPerBeat,
-                    y: trackY + 2,
-                    width: CGFloat(clip.duration.beats) * pixelsPerBeat,
+                let clipX = CGFloat(clip.position.beats) * ppb
+                let clipWidth = CGFloat(clip.duration.beats) * ppb
+                
+                if clipX + clipWidth < targetVisibleRect.minX || clipX > targetVisibleRect.maxX { continue }
+                
+                let relativeX = clipX - targetVisibleRect.minX
+                let relativeRect = CGRect(
+                    x: relativeX,
+                    y: (trackY + 2) - targetVisibleRect.minY,
+                    width: clipWidth,
                     height: 20
                 )
                 
-                if visibleRect.intersects(clipRect) {
-                    addTitleLayer(name: clip.name, frame: clipRect, backgroundColor: track.color.nsColor)
-                }
+                addTitleLayer(name: clip.name, frame: relativeRect, backgroundColor: track.color.nsColor)
             }
         }
     }
@@ -678,16 +704,17 @@ public final class TimelineCanvasView: NSView {
     private func addTitleLayer(name: String, frame: CGRect, backgroundColor: NSColor) {
         let textLayer = CATextLayer()
         textLayer.string = name
-        textLayer.fontSize = 11
-        textLayer.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        textLayer.fontSize = 12 // Slightly larger
+        textLayer.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         
-        // DYNAMIC CONTRAST LOGIC
-        // Calculate relative luminance: 0.2126*R + 0.7152*G + 0.0722*B
+        // DYNAMIC CONTRAST LOGIC (Fixed for Yellow/Light clips)
+        // 0.2126*R + 0.7152*G + 0.0722*B
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         backgroundColor.getRed(&r, green: &g, blue: &b, alpha: &a)
         let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
         
-        textLayer.foregroundColor = luminance > 0.6 ? NSColor.black.cgColor : NSColor.white.cgColor
+        // Threshold lowered to 0.5 to catch Yellow (0.92) and light colors
+        textLayer.foregroundColor = luminance > 0.5 ? NSColor.black.cgColor : NSColor.white.cgColor
         textLayer.backgroundColor = NSColor.clear.cgColor
         textLayer.frame = frame.insetBy(dx: 5, dy: 2)
         textLayer.contentsScale = window?.backingScaleFactor ?? 2.0
@@ -716,9 +743,9 @@ public final class TimelineCanvasView: NSView {
         CATransaction.commit()
     }
 
-    private func updateGridLayer(project: Project) {
+    private func updateGridLayer(project: Project, pixelsPerBeatOverride: CGFloat? = nil) {
         gridLayer.frame = self.bounds
-        gridLayer.pixelsPerBeat = pixelsPerBeat
+        gridLayer.pixelsPerBeat = pixelsPerBeatOverride ?? pixelsPerBeat
         gridLayer.timeSignature = project.timeSignature
         gridLayer.setNeedsDisplay()
     }
@@ -729,9 +756,10 @@ public final class TimelineCanvasView: NSView {
         laneContainerLayer.setNeedsDisplay()
     }
 
-    private func updatePlayheadLayer(project: Project?) {
+    private func updatePlayheadLayer(project: Project?, pixelsPerBeatOverride: CGFloat? = nil) {
         guard let _ = project else { return }
-        let x = CGFloat(playheadPosition.beats) * pixelsPerBeat
+        let ppb = pixelsPerBeatOverride ?? pixelsPerBeat
+        let x = CGFloat(playheadPosition.beats) * ppb
         
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -794,7 +822,7 @@ public final class TimelineCanvasView: NSView {
                 if layer.track?.volume != track.volume || abs(layer.pixelsPerBeat - pixelsPerBeat) > 0.01 || hasMoved || hasResized || clip.isSelected != layer.clip?.isSelected {
                     layer.clip = clip
                     layer.track = track
-                    layer.pixelsPerBeat = pixelsPerBeat
+                    layer.pixelsPerBeat = pixelsPerBeatOverride ?? pixelsPerBeat
                     layer.bpm = project.bpm
                     layer.sampleRate = project.sampleRate
                     layer.waveformRenderer = waveformRenderer
@@ -849,7 +877,7 @@ public final class TimelineCanvasView: NSView {
         // Animations automatically resume/pause with window visibility in CALayer
     }
     
-    private func updateCursorLayer(project: Project) {
+    private func updateCursorLayer(project: Project, pixelsPerBeatOverride: CGFloat? = nil) {
         guard let cursor = editCursor else {
             cursorLayer.isHidden = true
             cursorHandleLayer.isHidden = true
@@ -880,7 +908,8 @@ public final class TimelineCanvasView: NSView {
             return
         }
         
-        let x = CGFloat(cursor.position.beats) * pixelsPerBeat
+        let ppb = pixelsPerBeatOverride ?? pixelsPerBeat
+        let x = CGFloat(cursor.position.beats) * ppb
         
         // Update frames (use CATransaction to disable implicit animations for position/bounds)
         CATransaction.begin()
@@ -1263,7 +1292,7 @@ public final class TimelineCanvasView: NSView {
         // redraw
     }
     
-    private func updateMarqueeLayer(project: Project) {
+    private func updateMarqueeLayer(project: Project, pixelsPerBeatOverride: CGFloat? = nil) {
         guard let state = marqueeState, let timeRange = state.timeRange, !state.trackIndices.isEmpty else {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -1272,8 +1301,9 @@ public final class TimelineCanvasView: NSView {
             return
         }
         
-        let startX = CGFloat(timeRange.lowerBound) * pixelsPerBeat
-        let endX = CGFloat(timeRange.upperBound) * pixelsPerBeat
+        let ppb = pixelsPerBeatOverride ?? pixelsPerBeat
+        let startX = CGFloat(timeRange.lowerBound) * ppb
+        let endX = CGFloat(timeRange.upperBound) * ppb
         let width = endX - startX
         
         // Hide if width is negligible to avoid "two lines" on simple click
@@ -2011,8 +2041,16 @@ public final class TimelineCanvasView: NSView {
 
             // Calculate new scroll X to keep the same beat at the same screen position
             let newScrollX = (mouseBeat * newPPB) - mouseScreenX
-
-            // Route through host so ruler stays in sync
+            
+            // JITTER FIX: Render immediately with PREDICTED scroll position and PPB
+            // This prevents "oscillation" where Metal renders with new scale but old scroll
+            let currentScrollY = self.enclosingScrollView?.contentView.bounds.origin.y ?? 0
+            let projectedRect = CGRect(x: newScrollX, y: currentScrollY, width: self.enclosingScrollView?.contentView.bounds.width ?? self.bounds.width, height: self.enclosingScrollView?.contentView.bounds.height ?? self.bounds.height)
+            
+            // Force granular update with explicit overrides
+            updateArrangementLayers(fullRedraw: false, visibleRectOverride: projectedRect, pixelsPerBeatOverride: newPPB)
+            
+            // Route through host so ruler stays in sync (eventually consistent)
             onZoomChanged?(newPPB, newScrollX)
         } else {
             // Pass to parent for normal scrolling
@@ -2337,9 +2375,16 @@ internal class AudioClipLayer: CALayer {
 
         // Clip name text
         let clipName = clip.name
+        
+        // Dynamic Contrast
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        track.color.nsColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        let textColor = luminance > 0.5 ? NSColor.black : NSColor.white
+        
         let attrs: [NSAttributedString.Key: Any] = [
             .font: DreamTheme.fontSmall,
-            .foregroundColor: DreamTheme.textPrimary
+            .foregroundColor: textColor
         ]
         let attrString = NSAttributedString(string: clipName, attributes: attrs)
         let textRect = CGRect(x: 4, y: 2, width: rect.width - 8, height: DreamTheme.clipTitleHeight)
@@ -2427,9 +2472,16 @@ internal class MidiClipLayer: CALayer {
 
         // Clip name
         let clipName = "♪ \(clip.name)"
+        
+        // Dynamic Contrast
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        let textColor = luminance > 0.5 ? NSColor.black : NSColor.white
+
         let attrs: [NSAttributedString.Key: Any] = [
             .font: DreamTheme.fontSmall,
-            .foregroundColor: DreamTheme.textPrimary
+            .foregroundColor: textColor
         ]
         let attrString = NSAttributedString(string: clipName, attributes: attrs)
         let textRect = CGRect(x: 4, y: 2, width: rect.width - 8, height: DreamTheme.clipTitleHeight)

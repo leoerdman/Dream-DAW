@@ -210,22 +210,48 @@ public final class RenderEngine {
                                       vDSP_Length(outputFrameCount))
                         }
                     } else {
-                        // Standard Path: Resampling needed (Nearest Neighbor for now)
+                        // Standard Path: Resampling needed (Linear Interpolation)
+                        // TODO: [PHASE 9 DSP] Replace Linear Interpolation with vDSP_vgenp (Polyphase Sinc Interpolation) for mastering-grade anti-aliasing.
+                        
+                        guard let floatChannelData = fileBuffer.floatChannelData,
+                              let dstFloatChannelData = masterBuffer.floatChannelData else { continue }
+                        
+                        let leftChannel = floatChannelData[0]
+                        let rightChannel = floatChannelData[Int(fileFormat.channelCount > 1 ? 1 : 0)] // Mono safety
+                        
+                        let dstLeft = dstFloatChannelData[0]
+                        let dstRight = dstFloatChannelData[Int(channelCount > 1 ? 1 : 0)]
+                        
                         for outOffset in 0..<outputFrameCount {
                             let outFrame = outputStartFrame + outOffset
                             guard outFrame >= 0, outFrame < totalFrames else { continue }
 
+                            // Fractal Math
                             let srcPos = Double(sourceStartFrame) + Double(outOffset) * ratio
-                            let srcIdx = Int(srcPos)
-                            guard srcIdx >= 0, srcIdx < Int(fileFrames) else { continue }
-
-                            for ch in 0..<Int(channelCount) {
-                                let srcCh = min(ch, Int(fileFormat.channelCount) - 1)
-                                guard let srcData = fileBuffer.floatChannelData?[srcCh],
-                                      let dstData = masterBuffer.floatChannelData?[ch] else { continue }
-
-                                let panGain = Self.equalPowerPanGain(pan: trackPan, channel: ch)
-                                dstData[outFrame] += srcData[srcIdx] * trackVolume * panGain
+                            let idx = Int(srcPos)
+                            let frac = Float(srcPos - Double(idx))
+                            
+                            // Bounds Check
+                            if idx >= Int(fileFrames) { continue }
+                            let nextIdx = min(idx + 1, Int(fileFrames) - 1)
+                            
+                            // Left Channel
+                            let leftSample1 = leftChannel[idx]
+                            let leftSample2 = leftChannel[nextIdx]
+                            let interpolatedLeft = leftSample1 + frac * (leftSample2 - leftSample1)
+                            
+                            // Right Channel
+                            let rightSample1 = rightChannel[idx]
+                            let rightSample2 = rightChannel[nextIdx]
+                            let interpolatedRight = rightSample1 + frac * (rightSample2 - rightSample1)
+                            
+                            // Mix
+                            let panGainL = Self.equalPowerPanGain(pan: trackPan, channel: 0)
+                            let panGainR = Self.equalPowerPanGain(pan: trackPan, channel: 1)
+                            
+                            dstLeft[outFrame] += interpolatedLeft * trackVolume * panGainL
+                            if channelCount > 1 {
+                                dstRight[outFrame] += interpolatedRight * trackVolume * panGainR
                             }
                         }
                     }
@@ -246,7 +272,8 @@ public final class RenderEngine {
                             try? sampler.loadSample(url: sampleURL)
                             sampler.mode = instrConfig.samplerMode
                         }
-                        (midiBuffer, _) = sampler.renderClipToBuffer(clip: clip, bpm: bpm, config: instrConfig)
+                        let result = sampler.renderClipToBuffer(clip: clip, bpm: bpm, config: instrConfig)
+                        midiBuffer = result.0
                     case .sineSynth:
                         midiBuffer = synth.renderClipToBuffer(clip: clip, bpm: bpm)
                     case .vst2, .vst3:
@@ -283,21 +310,48 @@ public final class RenderEngine {
                                   vDSP_Length(bufferFrames))
                     }
                 } else {
-                    // Standard Path: Resampling needed
+                    // Standard Path: Resampling needed (Strict Linear Interpolation)
+                    // TODO: [PHASE 9 DSP] Replace Linear Interpolation with vDSP_vgenp (Polyphase Sinc Interpolation) for mastering-grade anti-aliasing.
+                    
+                    guard let floatChannelData = buffer.floatChannelData,
+                          let dstFloatChannelData = masterBuffer.floatChannelData else { continue }
+                    
+                    let leftChannel = floatChannelData[0]
+                    let rightChannel = floatChannelData[Int(buffer.format.channelCount > 1 ? 1 : 0)] // Mono safety
+                    
+                    let dstLeft = dstFloatChannelData[0]
+                    let dstRight = dstFloatChannelData[Int(channelCount > 1 ? 1 : 0)]
+                    
                     for outOffset in 0..<Int(Double(bufferFrames) / ratio) {
                         let outFrame = outputStartFrame + outOffset
                         guard outFrame >= 0, outFrame < totalFrames else { continue }
 
-                        let srcIdx = Int(Double(outOffset) * ratio)
-                        guard srcIdx >= 0, srcIdx < bufferFrames else { continue }
-
-                        for ch in 0..<Int(channelCount) {
-                            let srcCh = min(ch, Int(buffer.format.channelCount) - 1)
-                            guard let srcData = buffer.floatChannelData?[srcCh],
-                                  let dstData = masterBuffer.floatChannelData?[ch] else { continue }
-
-                            let panGain = Self.equalPowerPanGain(pan: trackPan, channel: ch)
-                            dstData[outFrame] += srcData[srcIdx] * trackVolume * panGain
+                        // Fractal Math
+                        let srcPos = Double(outOffset) * ratio
+                        let idx = Int(srcPos)
+                        let frac = Float(srcPos - Double(idx))
+                        
+                        // Bounds Check
+                        if idx >= bufferFrames { continue }
+                        let nextIdx = min(idx + 1, bufferFrames - 1)
+                        
+                        // Left Channel
+                        let leftSample1 = leftChannel[idx]
+                        let leftSample2 = leftChannel[nextIdx]
+                        let interpolatedLeft = leftSample1 + frac * (leftSample2 - leftSample1)
+                        
+                        // Right Channel
+                        let rightSample1 = rightChannel[idx]
+                        let rightSample2 = rightChannel[nextIdx]
+                        let interpolatedRight = rightSample1 + frac * (rightSample2 - rightSample1)
+                        
+                        // Mix
+                        let panGainL = Self.equalPowerPanGain(pan: trackPan, channel: 0)
+                        let panGainR = Self.equalPowerPanGain(pan: trackPan, channel: 1)
+                        
+                        dstLeft[outFrame] += interpolatedLeft * trackVolume * panGainL
+                        if channelCount > 1 {
+                            dstRight[outFrame] += interpolatedRight * trackVolume * panGainR
                         }
                     }
                 }

@@ -13,6 +13,9 @@ let package = Package(
         .library(name: "DreamDAWEngine", targets: ["DreamDAWEngine"]),
         .library(name: "DreamDAWUI", targets: ["DreamDAWUI"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-atomics.git", .upToNextMajor(from: "1.2.0"))
+    ],
     targets: [
         // MARK: - Models (Pure data, no framework dependencies)
         .target(
@@ -23,7 +26,10 @@ let package = Package(
         // MARK: - Audio Engine (AVAudioEngine wrapper)
         .target(
             name: "DreamDAWEngine",
-            dependencies: ["DreamDAWModels"],
+            dependencies: [
+                "DreamDAWModels",
+                .product(name: "Atomics", package: "swift-atomics")
+            ],
             path: "Sources/DreamDAWEngine"
         ),
 

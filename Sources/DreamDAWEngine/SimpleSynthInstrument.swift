@@ -21,7 +21,7 @@ public final class SimpleSynthInstrument {
     private var voices: [Int: Double] = [:]
     
     /// Lock-Free command queue for real-time thread
-    private let commandQueue = SPSCRingBuffer<AudioCommand>(requestedCapacity: 64)
+    private let commandQueue = SPSCRingBuffer<AudioCommand>(capacity: 64)
 
     /// Master amplitude (0.0 ... 1.0).
     /// Accessed only via command queue in real-time.

@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import Accelerate
 import DreamDAWModels
 import os.log
 
@@ -16,12 +17,21 @@ public final class SimpleSynthInstrument {
     private let logger = Logger(subsystem: "com.dreamdaw", category: "SimpleSynth")
 
     /// Active voices: pitch → phase accumulator
+    /// Active voices: pitch → phase accumulator
     private var voices: [Int: Double] = [:]
-    /// os_unfair_lock — safe for audio real-time thread (no priority inversion).
-    private var voiceLock = os_unfair_lock_s()
+    
+    /// Lock-Free command queue for real-time thread
+    private let commandQueue = SPSCRingBuffer<AudioCommand>(requestedCapacity: 64)
 
     /// Master amplitude (0.0 ... 1.0).
-    public var amplitude: Float = 0.3
+    /// Accessed only via command queue in real-time.
+    private var internalAmplitude: Float = 0.3
+    private var _lastAmplitude: Float = 0.3
+
+    public var amplitude: Float {
+        get { internalAmplitude }
+        set { _ = commandQueue.push(.parameterChange(id: "amplitude", value: newValue)) }
+    }
 
     /// ADSR envelope (simplified — instant attack, sustain, instant release).
     private var activeNotes: Set<Int> = []
@@ -36,31 +46,17 @@ public final class SimpleSynthInstrument {
 
     /// Start playing a note.
     public func noteOn(pitch: Int, velocity: Int = 100) {
-        os_unfair_lock_lock(&voiceLock)
-        defer { os_unfair_lock_unlock(&voiceLock) }
-
-        activeNotes.insert(pitch)
-        if voices[pitch] == nil {
-            voices[pitch] = 0.0
-        }
+        _ = commandQueue.push(.noteOn(pitch: pitch, velocity: velocity))
     }
 
     /// Stop playing a note.
     public func noteOff(pitch: Int) {
-        os_unfair_lock_lock(&voiceLock)
-        defer { os_unfair_lock_unlock(&voiceLock) }
-
-        activeNotes.remove(pitch)
-        voices.removeValue(forKey: pitch)
+        _ = commandQueue.push(.noteOff(pitch: pitch))
     }
 
     /// Stop all notes immediately.
     public func allNotesOff() {
-        os_unfair_lock_lock(&voiceLock)
-        defer { os_unfair_lock_unlock(&voiceLock) }
-
-        activeNotes.removeAll()
-        voices.removeAll()
+        _ = commandQueue.push(.allNotesOff)
     }
 
     // MARK: - Audio Source Node
@@ -76,51 +72,76 @@ public final class SimpleSynthInstrument {
         )!) { [weak self] _, _, frameCount, audioBufferList -> OSStatus in
             guard let self = self else { return noErr }
 
+            // 1. PROCESS COMMANDS (LOCK-FREE)
+            while let command = self.commandQueue.pop() {
+                switch command {
+                case .noteOn(let pitch, _):
+                    self.activeNotes.insert(pitch)
+                    if self.voices[pitch] == nil {
+                        self.voices[pitch] = 0.0
+                    }
+                case .noteOff(let pitch):
+                    self.activeNotes.remove(pitch)
+                    self.voices.removeValue(forKey: pitch)
+                case .allNotesOff:
+                    self.activeNotes.removeAll()
+                    self.voices.removeAll()
+                case .parameterChange(let id, let value):
+                    if id == "amplitude" {
+                        self.internalAmplitude = value
+                    }
+                case .automationUpdate:
+                    break // TODO: Sample-accurate automation
+                }
+            }
+
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            let amplitude = self.amplitude
+            let targetAmplitude = self.internalAmplitude
+            let outFrames = Int(frameCount)
 
-            os_unfair_lock_lock(&self.voiceLock)
-            let currentVoices = self.voices
-            let currentActive = self.activeNotes
-            os_unfair_lock_unlock(&self.voiceLock)
+            // Smoothing Logic
+            let ampStep = (targetAmplitude - self._lastAmplitude) / Float(outFrames)
 
-            // Fill buffers
-            for frame in 0..<Int(frameCount) {
+            // 2. MIX VOICES
+            var accum = [Float](repeating: 0, count: outFrames)
+
+            for frame in 0..<outFrames {
+                // Interpolate amplitude per sample
+                let currentAmp = self._lastAmplitude + ampStep * Float(frame)
                 var sample: Float = 0.0
 
-                for pitch in currentActive {
-                    guard let phase = currentVoices[pitch] else { continue }
+                for pitch in self.activeNotes {
+                    guard let phase = self.voices[pitch] else { continue }
                     let frequency = Self.midiNoteToFrequency(pitch)
                     let increment = frequency / sr
                     let currentPhase = phase + Double(frame) * increment
 
-                    sample += sinf(Float(currentPhase * 2.0 * .pi)) * amplitude
+                    sample += sinf(Float(currentPhase * 2.0 * .pi))
                 }
-
-                // Clamp to prevent clipping
-                sample = max(-1.0, min(1.0, sample))
-
-                // Write to all channels
-                for buffer in ablPointer {
-                    let ptr = buffer.mData!.assumingMemoryBound(to: Float.self)
-                    ptr[frame] = sample
-                }
+                accum[frame] = sample * currentAmp
             }
 
-            // Update phase accumulators
-            os_unfair_lock_lock(&self.voiceLock)
-            for pitch in currentActive {
+            // 3. WRITE TO OUTPUT
+            for buffer in ablPointer {
+                let ptr = buffer.mData!.assumingMemoryBound(to: Float.self)
+                // Copy accum to buffer (we already applied amplitude in the loop for sample-accuracy)
+                memcpy(ptr, accum, outFrames * MemoryLayout<Float>.size)
+            }
+
+            // Sync back state
+            self._lastAmplitude = targetAmplitude
+
+            // 4. UPDATE PHASE ACCUMULATORS
+            for pitch in self.activeNotes {
                 guard let phase = self.voices[pitch] else { continue }
                 let frequency = Self.midiNoteToFrequency(pitch)
                 let increment = frequency / sr
                 self.voices[pitch] = phase + Double(frameCount) * increment
 
-                // Keep phase in reasonable range to avoid floating-point issues
                 if self.voices[pitch]! > 1_000_000 {
                     self.voices[pitch]! = self.voices[pitch]!.truncatingRemainder(dividingBy: 1.0)
                 }
             }
-            os_unfair_lock_unlock(&self.voiceLock)
 
             return noErr
         }

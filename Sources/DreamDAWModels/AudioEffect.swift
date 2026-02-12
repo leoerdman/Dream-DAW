@@ -66,6 +66,32 @@ public struct EQBandConfig: Codable, Identifiable, Sendable {
         self.isEnabled = isEnabled
         self.filterType = filterType
     }
+
+    // MARK: - Codable (Migration support)
+
+    private enum CodingKeys: String, CodingKey {
+        case id, frequency, gain, bandwidth, isEnabled, filterType
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        frequency = try container.decodeIfPresent(Float.self, forKey: .frequency) ?? 1000.0
+        gain = try container.decodeIfPresent(Float.self, forKey: .gain) ?? 0.0
+        bandwidth = try container.decodeIfPresent(Float.self, forKey: .bandwidth) ?? 1.0
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        filterType = try container.decodeIfPresent(EQFilterType.self, forKey: .filterType) ?? .parametric
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(frequency, forKey: .frequency)
+        try container.encode(gain, forKey: .gain)
+        try container.encode(bandwidth, forKey: .bandwidth)
+        try container.encode(isEnabled, forKey: .isEnabled)
+        try container.encode(filterType, forKey: .filterType)
+    }
 }
 
 // MARK: - EQFilterType
@@ -175,9 +201,9 @@ public final class AudioEffectConfig: ObservableObject, Identifiable, Codable {
     public convenience init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
-            id: try container.decode(UUID.self, forKey: .id),
-            effectType: try container.decode(AudioEffectType.self, forKey: .effectType),
-            isEnabled: try container.decode(Bool.self, forKey: .isEnabled),
+            id: try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID(),
+            effectType: try container.decodeIfPresent(AudioEffectType.self, forKey: .effectType) ?? .eq,
+            isEnabled: try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true,
             eqBands: try container.decodeIfPresent([EQBandConfig].self, forKey: .eqBands)
                 ?? AudioEffectConfig.defaultEQBands(),
             gainDB: try container.decodeIfPresent(Float.self, forKey: .gainDB) ?? 0.0
@@ -365,9 +391,9 @@ public final class InstrumentConfig: ObservableObject, Identifiable, Codable {
     public convenience init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
-            id: try container.decode(UUID.self, forKey: .id),
-            instrumentType: try container.decode(InstrumentType.self, forKey: .instrumentType),
-            isEnabled: try container.decode(Bool.self, forKey: .isEnabled),
+            id: try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID(),
+            instrumentType: try container.decodeIfPresent(InstrumentType.self, forKey: .instrumentType) ?? .sineSynth,
+            isEnabled: try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true,
             sampleURL: try container.decodeIfPresent(URL.self, forKey: .sampleURL),
             samplerMode: try container.decodeIfPresent(SamplerMode.self, forKey: .samplerMode) ?? .oneShot,
             gain: try container.decodeIfPresent(Float.self, forKey: .gain) ?? 1.0,

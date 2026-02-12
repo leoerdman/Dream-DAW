@@ -257,7 +257,6 @@ public final class ProjectFileManager {
         let project = try await Task.detached(priority: .userInitiated, operation: {
             let data = try Data(contentsOf: fileURL)
 
-            // Try gzip decompression
             let jsonData: Data
             if data.isGzipped {
                 jsonData = try data.gunzipped()
@@ -267,8 +266,8 @@ public final class ProjectFileManager {
 
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            let decodedProject = try decoder.decode(Project.self, from: jsonData)
-            return decodedProject
+            
+            return try decoder.decode(Project.self, from: jsonData)
         }).value
 
         // Update MainActor state
@@ -436,7 +435,10 @@ extension Data {
         // Skip gzip header (10 bytes minimum)
         let compressedData = self.dropFirst(10)
         let sourceSize = compressedData.count
-        let destinationBufferSize = sourceSize * 10 // generous decompression buffer
+        
+        // Use a much larger buffer for decompression (16MB max for project files)
+        // Migration Fix: Pretty-printed JSON can have very high expansion ratios.
+        let destinationBufferSize = Swift.max(sourceSize * 32, 1024 * 1024 * 16) 
         let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: destinationBufferSize)
         defer { destinationBuffer.deallocate() }
 
@@ -452,7 +454,15 @@ extension Data {
             )
         }
 
-        guard decompressedSize > 0 else { return self }
+        guard decompressedSize > 0 else {
+            print("❌ GZIP Decompression failed (decompressedSize = 0)")
+            throw ProjectFileError.invalidFormat
+        }
+        
+        if decompressedSize == destinationBufferSize {
+            print("⚠️ GZIP Decompression might be TRUNCATED (buffer limit reached)")
+        }
+        
         return Data(bytes: destinationBuffer, count: decompressedSize)
     }
 }

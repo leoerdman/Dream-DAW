@@ -754,6 +754,14 @@ public final class ArrangementViewController: NSViewController {
         )
         canvasScrollView.contentView.postsBoundsChangedNotifications = true
 
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(headerScrolled(_:)),
+            name: NSView.boundsDidChangeNotification,
+            object: headerScrollView.contentView
+        )
+        headerScrollView.contentView.postsBoundsChangedNotifications = true
+
         // Sync horizontal scroll with ruler
         canvasView.onClickPosition = { [weak self] position in
             self?.transportController.seek(to: position)
@@ -848,6 +856,16 @@ public final class ArrangementViewController: NSViewController {
         // Track headers: browser item dropped (instrument or effect)
         trackHeaders.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName, fileURL in
             self?.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName, fileURL: fileURL)
+        }
+        
+        trackHeaders.onOutputChanged = { [weak self] trackID, newDestID in
+            guard let self = self else { return }
+            self.logger.info("Track \(trackID) output changed to \(String(describing: newDestID))")
+            // Sync engine immediately
+            if let track = self.project.allVisibleTracks.first(where: { $0.id == trackID }) {
+                self.trackMixer.applyTrackSettings(track)
+            }
+            self.project.isDirty = true
         }
         
         trackHeaders.onGroupTracks = { [weak self] in
@@ -983,6 +1001,8 @@ public final class ArrangementViewController: NSViewController {
             self.project.viewScrollPosition = Double(clampedX) / Double(newPPB)
         }
 
+        bottomPanel.audioLevelMeter = trackMixer.audioLevelMeter
+
         // Bottom panel → project: note changes from piano roll
         bottomPanel.onNotesChanged = { [weak self] track, updatedClip in
             guard let self = self,
@@ -1020,27 +1040,47 @@ public final class ArrangementViewController: NSViewController {
         bottomPanel.onPluginEyeClicked = { [weak self] trackID, effect, instrument in
             guard let self = self else { return }
             
-            // Try to get the instance ID:
-            // Instruments are registered under trackID in TrackMixer.setupInstrumentNode
-            // Effects are registered under effect.id in TrackMixer.rebuildEffectChain
             let instanceID = instrument != nil ? trackID : (effect?.id ?? trackID)
             
             guard let unit = PluginHost.shared.getInstance(instanceID) else {
-                self.logger.warning("No plugin instance found for eye click on track \(trackID)")
+                self.logger.warning("ArrangementVC: No plugin instance found for eye click. InstanceID: \(instanceID). (instrument: \(instrument != nil), effect: \(effect != nil))")
                 return
             }
             
+            self.logger.info("ArrangementVC: Eye clicked for \(unit.name). Requesting editor...")
+            
             PluginHost.shared.requestEditor(for: unit) { [weak self] viewController in
                 guard let self = self, let vc = viewController else { 
-                    self?.logger.error("Failed to get view controller for plugin: \(unit.name)")
+                    self?.logger.error("ArrangementVC: Failed to get view controller for plugin: \(unit.name)")
                     return 
                 }
                 
-                // Professional floating window for the plugin GUI
+                self.logger.info("ArrangementVC: Editor received for \(unit.name). Creating window...")
+                
+                // Professional integrated window for the plugin GUI
                 let window = NSWindow(contentViewController: vc)
                 window.title = "Plugin: \(unit.name)"
-                window.styleMask = [.titled, .closable, .utilityWindow, .hudWindow]
+                
+                // Simplify styleMask to ensure visibility for now, but keep utility look
+                window.styleMask = [.titled, .closable, .utilityWindow]
+                window.level = .floating
                 window.isReleasedWhenClosed = false
+                window.hidesOnDeactivate = false
+                
+                // CRITICAL: Attach as a CHILD window to the main DAW window
+                if let mainWindow = self.view.window {
+                    mainWindow.addChildWindow(window, ordered: .above)
+                    
+                    // Position relative to main window center if it's the first open
+                    let mainFrame = mainWindow.frame
+                    let windowSize = window.frame.size
+                    let targetPoint = NSPoint(
+                        x: mainFrame.midX - windowSize.width / 2,
+                        y: mainFrame.midY - windowSize.height / 2
+                    )
+                    window.setFrameOrigin(targetPoint)
+                }
+                
                 window.makeKeyAndOrderFront(nil)
             }
         }
@@ -1133,6 +1173,8 @@ public final class ArrangementViewController: NSViewController {
         }
 
         // Refresh track headers to reflect the change
+        trackHeaders.trackResolver = { [weak self] id in self?.project.allVisibleTracks.first { $0.id == id } }
+        trackHeaders.routingDestinationProvider = { [weak self] in self?.project.allVisibleTracks ?? [] }
         trackHeaders.configure(tracks: project.tracks)
         configureMasterHeader()
         canvasView.needsDisplay = true
@@ -1156,16 +1198,27 @@ public final class ArrangementViewController: NSViewController {
         let clipBounds = canvasScrollView.contentView.bounds
 
         // Sync track headers vertical position
-        trackHeaders.setVerticalOffset(clipBounds.origin.y)
+        if headerScrollView.contentView.bounds.origin.y != clipBounds.origin.y {
+            headerScrollView.contentView.scroll(to: NSPoint(x: 0, y: clipBounds.origin.y))
+            headerScrollView.reflectScrolledClipView(headerScrollView.contentView)
+        }
 
         // Sync ruler horizontal position
         rulerView.scrollOffset = clipBounds.origin.x
 
         // Sync master lane horizontal grid position
         masterLaneView.scrollOffset = clipBounds.origin.x
+    }
 
-        // Canvas draws in document coordinates — no need to pass scrollOffset.
-        // The NSScrollView handles viewport clipping automatically.
+    @objc private func headerScrolled(_ notification: Notification) {
+        let clipBounds = headerScrollView.contentView.bounds
+
+        // Sync canvas vertical position
+        if canvasScrollView.contentView.bounds.origin.y != clipBounds.origin.y {
+            let currentX = canvasScrollView.contentView.bounds.origin.x
+            canvasScrollView.contentView.scroll(to: NSPoint(x: currentX, y: clipBounds.origin.y))
+            canvasScrollView.reflectScrolledClipView(canvasScrollView.contentView)
+        }
     }
 
     // MARK: - Configure
@@ -1187,6 +1240,8 @@ public final class ArrangementViewController: NSViewController {
     @objc public func reloadTracks() {
         // Only show regular tracks in the scrollable header area (folded logic respected)
         let visibleTracks = project.allVisibleTracks.filter { $0.trackType != .master }
+        trackHeaders.trackResolver = { [weak self] id in self?.project.tracks.first { $0.id == id } }
+        trackHeaders.routingDestinationProvider = { [weak self] in self?.project.tracks ?? [] }
         trackHeaders.configure(tracks: visibleTracks)
         
         // Update master header (Pinned at bottom)
@@ -1216,20 +1271,30 @@ public final class ArrangementViewController: NSViewController {
     /// Standalone helper to (re)configure the pinned master header.
     private func configureMasterHeader() {
         masterHeaderView?.removeFromSuperview()
-        let mh = TrackHeaderView(track: project.masterTrack, index: project.tracks.count)
+        
+        let masterTrack = project.masterTrack
+        masterLaneView.trackID = masterTrack.id
+        
+        let mh = TrackHeaderView(track: masterTrack, index: project.tracks.count)
         mh.onTrackChanged = { [weak self] track in self?.refreshAudio() }
         mh.onHeaderClicked = { [weak self] trackID, isShift in
             guard let self = self else { return }
             self.handleTrackSelection(trackID, isShift: isShift)
         }
+        mh.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName, fileURL in
+            self?.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName, fileURL: fileURL)
+        }
         masterHeaderView = mh
         view.addSubview(mh)
         
-        masterLaneView.onEditCursorChanged = { [weak self] position in
+        masterLaneView.onEditCursorChanged = { [weak self, masterTrack] position in
             guard let self = self else { return }
-            self.canvasView.editCursor = EditCursor(trackID: self.project.masterTrack.id, position: position)
+            self.canvasView.editCursor = EditCursor(trackID: masterTrack.id, position: position)
             // Also select the track
-            self.selectTrack(self.project.masterTrack.id)
+            self.selectTrack(masterTrack.id)
+        }
+        masterLaneView.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName, fileURL in
+            self?.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName, fileURL: fileURL)
         }
         
         view.needsLayout = true
@@ -1894,8 +1959,10 @@ private final class FlippedView: NSView {
 
 /// A pinned background lane for the Master track that stays synced with the horizontal grid.
 internal class MasterLaneView: NSView {
+    var trackID: UUID?
     var onTrackClicked: (() -> Void)?
     var onEditCursorChanged: ((TimePosition) -> Void)?
+    var onBrowserItemDropped: ((UUID, String, String, URL?) -> Void)?
     var isSelected: Bool = false { didSet { needsDisplay = true } }
     
     var scrollOffset: CGFloat = 0 {
@@ -1928,6 +1995,7 @@ internal class MasterLaneView: NSView {
         gridLayer.timeSignature = self.timeSignature
         layer?.addSublayer(gridLayer)
         
+        registerForDraggedTypes([.browserItem])
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil))
     }
     
@@ -1978,5 +2046,25 @@ internal class MasterLaneView: NSView {
     
     override func mouseMoved(with event: NSEvent) {
         NSCursor.crosshair.set()
+    }
+
+    // MARK: - Dragging Destination
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        return .copy
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let pb = sender.draggingPasteboard
+        guard let payload = pb.string(forType: .browserItem), let id = trackID else { return false }
+        
+        let parts = payload.split(separator: ":", maxSplits: 1)
+        guard parts.count == 2 else { return false }
+        
+        let nodeType = String(parts[0])
+        let itemName = String(parts[1])
+        
+        onBrowserItemDropped?(id, nodeType, itemName, nil)
+        return true
     }
 }

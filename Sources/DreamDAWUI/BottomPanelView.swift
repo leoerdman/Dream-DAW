@@ -61,7 +61,6 @@ public final class BottomPanelView: NSView {
     /// Callback when an effect parameter is changed (e.g. Utility gain knob).
     /// Parameter: trackID
     public var onEffectParameterChanged: ((UUID) -> Void)?
-
     /// Callback when an instrument parameter is changed (e.g. Sampler ADSR).
     /// Parameter: trackID
     public var onInstrumentParameterChanged: ((UUID) -> Void)?
@@ -89,6 +88,9 @@ public final class BottomPanelView: NSView {
 
     /// Track ID of the currently displayed detail track.
     private var currentTrackID: UUID?
+    
+    /// Type of the current track (for meter signal type selection).
+    private var currentTrackType: TrackType = .audio
 
     // Sub-views
     private let blurView = NSVisualEffectView()
@@ -253,11 +255,13 @@ public final class BottomPanelView: NSView {
             titleLabel.stringValue = track.trackType == .midi
                 ? "\(track.name) — Instrument & Effects Chain"
                 : "\(track.name) — Effects Chain"
+            currentTrackType = track.trackType
             updateDetailContent(track: track)
 
         case .pianoRoll(let track, let clip):
             detailContentView.isHidden = true
             pianoScrollView.isHidden = false
+            currentTrackType = track.trackType
             titleLabel.stringValue = "\(track.name) — Piano Roll: \(clip.name)"
             pianoRollView.midiClip = clip
             pianoRollView.track = track
@@ -266,6 +270,7 @@ public final class BottomPanelView: NSView {
         case .audioClip(let track, let clip):
             detailContentView.isHidden = false
             pianoScrollView.isHidden = true
+            currentTrackType = track.trackType
             titleLabel.stringValue = "\(track.name) — Sample Editor: \(clip.name)"
             updateAudioClipEditor(track: track, clip: clip)
         }
@@ -449,11 +454,18 @@ public final class BottomPanelView: NSView {
 
         let preLevel = meter.level(for: trackID, point: .preEffects)
         let postLevel = meter.level(for: trackID, point: .postEffects)
+        let midiActivity = meter.midiLevel(for: trackID)
 
         for (index, chainMeter) in chainMeters.enumerated() {
             if index == 0 {
-                // Input meter — show Pre-FX RMS
-                chainMeter.level = preLevel.rms
+                // Input meter 
+                if currentTrackType == .midi {
+                    // Show MIDI activity for MIDI tracks
+                    chainMeter.level = midiActivity
+                } else {
+                    // Show Pre-FX RMS for Audio tracks
+                    chainMeter.level = preLevel.rms
+                }
             } else if index == chainMeters.count - 1 {
                 // Output meter — show Post-FX RMS
                 chainMeter.level = postLevel.rms
@@ -464,22 +476,22 @@ public final class BottomPanelView: NSView {
         }
     }
     private func instrumentSlotWidth(for type: InstrumentType?) -> CGFloat {
-        guard let type = type else { return 100 }
+        guard let type = type else { return 180 }
         switch type {
         case .sampler: return 500 // Wide sampler view
-        default:       return 100
+        default:       return 180
         }
     }
 
     /// Returns the slot width for a given effect type.
     private func effectSlotWidth(for type: AudioEffectType) -> CGFloat {
         switch type {
-        case .utility:    return 80   // Compact — just a knob
-        case .eq:         return 140  // Wider for EQ curve
-        case .compressor: return 160  // Multiple knobs for dynamics
-        case .delay:      return 160  // Time, feedback, mix
-        case .reverb:     return 120  // Preset and mix
-        default:          return 100  // Default for other effects
+        case .utility:    return 100  // Still compact but wider
+        case .eq:         return 400  // Large Ableton-style EQ Eight UI
+        case .compressor: return 180  // Multiple knobs for dynamics
+        case .delay:      return 180  // Time, feedback, mix
+        case .reverb:     return 180  // Preset and mix
+        default:          return 180  // Default square width
         }
     }
 
@@ -498,7 +510,8 @@ public final class BottomPanelView: NSView {
         }
         
         slot.onEyeClicked = { [weak self, weak effect] in
-            self?.onPluginEyeClicked?(track.id, effect, nil)
+            guard let eff = effect else { return }
+            self?.onPluginEyeClicked?(eff.id, eff, nil)
         }
 
         // ── Plugin-specific content ──
@@ -535,10 +548,19 @@ public final class BottomPanelView: NSView {
             contentWrap.addSubview(gainLabel)
 
         case .eq:
-            // Mini EQ curve visualization
-            let curveView = MiniEQCurveView(frame: CGRect(x: 4, y: 4, width: frame.width - 8, height: contentH - 8))
-            curveView.bands = effect.eqBands
-            contentWrap.addSubview(curveView)
+            if let meter = audioLevelMeter {
+                let eqView = EQEightView(config: effect, trackID: track.id, levelMeter: meter)
+                eqView.frame = CGRect(x: 0, y: 0, width: frame.width, height: contentH)
+                eqView.onConfigChanged = { [weak self] (_: AudioEffectConfig) in
+                    self?.onEffectParameterChanged?(track.id)
+                }
+                contentWrap.addSubview(eqView)
+            } else {
+                // Fallback to mini curve if meter is not injected
+                let curveView = MiniEQCurveView(frame: CGRect(x: 4, y: 4, width: frame.width - 8, height: contentH - 8))
+                curveView.bands = effect.eqBands
+                contentWrap.addSubview(curveView)
+            }
 
         case .compressor:
             // Threshold Knob

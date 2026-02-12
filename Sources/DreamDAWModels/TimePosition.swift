@@ -12,6 +12,30 @@ public struct TimePosition: Codable, Hashable, Sendable {
     /// Position in beats (quarter notes). 1 beat = 1 quarter note.
     public var beats: Double
 
+    // MARK: - Codable (Migration Support)
+
+    private enum CodingKeys: String, CodingKey {
+        case beats
+    }
+
+    public init(from decoder: Decoder) throws {
+        // 1. Try to decode from a single value (Legacy: position was a raw Double)
+        if let container = try? decoder.singleValueContainer(),
+           let value = try? container.decode(Double.self) {
+            self.beats = value
+            return
+        }
+
+        // 2. Try to decode from a keyed container (Current: struct format)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.beats = try container.decodeIfPresent(Double.self, forKey: .beats) ?? 0.0
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(beats, forKey: .beats)
+    }
+
     // MARK: - Initialization
 
     public init(beats: Double = 0) {

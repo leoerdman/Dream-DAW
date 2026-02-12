@@ -38,6 +38,14 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
     /// Total duration of the source audio file in seconds.
     public var sourceDurationSeconds: Double
 
+    // MARK: - Warping (Stage 2)
+
+    /// Whether the clip has warping enabled.
+    public var isWarped: Bool = false
+
+    /// List of warp markers for sample-accurate time-stretching.
+    public var warpMarkers: [WarpMarker] = []
+
     // MARK: - Initialization
 
     public init(
@@ -62,6 +70,48 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
         self.gain = gain
         self.isSelected = isSelected
         self.colorOverride = colorOverride
+    }
+
+    // MARK: - Codable (Migration support)
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, fileURL, position, duration, trimStartOffset, gain, isSelected, colorOverride, sourceDurationSeconds
+        case isWarped, warpMarkers
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Untitled Clip"
+        fileURL = try container.decodeIfPresent(URL.self, forKey: .fileURL) ?? URL(fileURLWithPath: "/")
+        position = try container.decodeIfPresent(TimePosition.self, forKey: .position) ?? .zero
+        duration = try container.decodeIfPresent(TimePosition.self, forKey: .duration) ?? .zero
+        
+        // Migration: Fields added later (Stage 1 & 2)
+        trimStartOffset = try container.decodeIfPresent(TimePosition.self, forKey: .trimStartOffset) ?? .zero
+        gain = try container.decodeIfPresent(Float.self, forKey: .gain) ?? 1.0
+        isSelected = try container.decodeIfPresent(Bool.self, forKey: .isSelected) ?? false
+        colorOverride = try container.decodeIfPresent(TrackColor.self, forKey: .colorOverride)
+        sourceDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .sourceDurationSeconds) ?? 0.0
+        
+        isWarped = try container.decodeIfPresent(Bool.self, forKey: .isWarped) ?? false
+        warpMarkers = try container.decodeIfPresent([WarpMarker].self, forKey: .warpMarkers) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(fileURL, forKey: .fileURL)
+        try container.encode(position, forKey: .position)
+        try container.encode(duration, forKey: .duration)
+        try container.encode(trimStartOffset, forKey: .trimStartOffset)
+        try container.encode(gain, forKey: .gain)
+        try container.encode(isSelected, forKey: .isSelected)
+        try container.encodeIfPresent(colorOverride, forKey: .colorOverride)
+        try container.encode(sourceDurationSeconds, forKey: .sourceDurationSeconds)
+        try container.encode(isWarped, forKey: .isWarped)
+        try container.encode(warpMarkers, forKey: .warpMarkers)
     }
 
     // MARK: - Computed

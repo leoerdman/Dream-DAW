@@ -14,7 +14,7 @@ public final class TrackMixer {
     // MARK: - Properties
 
     private let audioEngine: AudioEngine
-    private let audioLevelMeter: AudioLevelMeter
+    public let audioLevelMeter: AudioLevelMeter
     private let logger = Logger(subsystem: "com.dreamdaw", category: "TrackMixer")
 
     /// Standard stereo format used for all node connections.
@@ -37,6 +37,9 @@ public final class TrackMixer {
 
     /// Map from Track ID to its ordered list of effect nodes (excluding player and mixer).
     private var trackEffectChains: [UUID: [AVAudioNode]] = [:]
+    
+    /// Set of plugin IDs currently being instantiated to avoid infinite recursion.
+    private var loadingPlugins: Set<UUID> = []
 
     /// Map from Track ID to its instrument instance (for MIDI tracks).
     private var trackSynths: [UUID: SimpleSynthInstrument] = [:]
@@ -202,30 +205,35 @@ public final class TrackMixer {
         for effectConfig in track.effects where effectConfig.isEnabled {
             if effectConfig.effectType == .vst2 || effectConfig.effectType == .vst3 {
                 if let identifier = effectConfig.pluginIdentifier {
-                    // Asynchronous load for VST effects
-                    PluginHost.shared.instantiate(identifier: identifier, type: .vst2) { [weak self] unit, error in
-                        DispatchQueue.main.async {
-                            guard let self = self, let unit = unit else {
-                                self?.logger.error("TrackMixer: Failed to load VST Effect \(identifier)")
-                                return
+                    // Check if already loaded in PluginHost
+                    if let unit = PluginHost.shared.getInstance(effectConfig.id) {
+                        if unit.engine == nil { audioEngine.attach(unit) }
+                        newChain.append(unit)
+                    } else if !loadingPlugins.contains(effectConfig.id) {
+                        // Not loaded and not currently loading -> trigger load
+                        loadingPlugins.insert(effectConfig.id)
+                        
+                        self.logger.info("TrackMixer: Triggering async load for VST \(identifier)")
+                        PluginHost.shared.instantiate(identifier: identifier, type: .vst2) { [weak self] unit, error in
+                            DispatchQueue.main.async {
+                                guard let self = self else { return }
+                                self.loadingPlugins.remove(effectConfig.id)
+                                
+                                guard let unit = unit else {
+                                    self.logger.error("TrackMixer: Failed to load VST Effect \(identifier)")
+                                    return
+                                }
+                                
+                                PluginHost.shared.registerInstance(effectConfig.id, unit: unit)
+                                // Rebuild again to stitch this new node in (now it will hit the 'getInstance' block above)
+                                self.rebuildEffectChain(for: track)
                             }
-                            self.audioEngine.attach(unit)
-                            PluginHost.shared.registerInstance(effectConfig.id, unit: unit)
-                            // Rebuild again to stitch this new node in
-                            self.rebuildEffectChain(for: track)
                         }
                     }
                 }
             } else if let node = createNode(for: effectConfig) {
                 audioEngine.attach(node)
                 newChain.append(node)
-            }
-            
-            // Re-fetch any already loaded VST instances from PluginHost
-            if (effectConfig.effectType == .vst2 || effectConfig.effectType == .vst3),
-               let unit = PluginHost.shared.getInstance(effectConfig.id) {
-                if unit.engine == nil { audioEngine.attach(unit) }
-                newChain.append(unit)
             }
         }
         trackEffectChains[track.id] = newChain
@@ -358,6 +366,7 @@ public final class TrackMixer {
     }
 
     public func noteOn(trackID: UUID, pitch: Int, velocity: Int) {
+        audioLevelMeter.reportMidiActivity(trackID: trackID, velocity: velocity)
         trackSynths[trackID]?.noteOn(pitch: pitch, velocity: velocity)
         trackSamplers[trackID]?.noteOn(pitch: pitch, velocity: velocity)
     }

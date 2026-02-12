@@ -12,7 +12,7 @@ public final class WaveformRenderer: @unchecked Sendable {
 
     // MARK: - Properties
 
-    private let waveformCache: WaveformCache
+    public let waveformCache: WaveformCache
     
     /// Path cache to prevent flickering during zoom/resize.
     /// Key: fileURL + samplesPerPixel + boundsSize + style

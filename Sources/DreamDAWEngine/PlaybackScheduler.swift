@@ -65,10 +65,28 @@ public final class PlaybackScheduler {
             }
         }
 
+        // 0. Calculate PDC Latencies
+        let pdcEngine = PDCEngine()
+        let trackLatencies = pdcEngine.calculateLatencies(tracks: project.tracks)
+        let maxLatency = trackLatencies.values.max() ?? 0.0
+        logger.info("[PDC] Max project latency: \(maxLatency)s")
+
         // Stop all players first (clears queue)
         trackMixer.stopAll()
 
-        var playersToStart: [AVAudioPlayerNode] = []
+        var playerStartTimeMap: [AVAudioPlayerNode: AVAudioTime] = [:]
+
+        // 3. Prepare synchronized future time
+        let delaySeconds = 0.08 // Slightly increased for PDC safety
+        let renderTime = audioEngine.avAudioEngine.outputNode.lastRenderTime ?? AVAudioTime(hostTime: mach_absolute_time())
+        
+        var timebaseInfo = mach_timebase_info_data_t()
+        mach_timebase_info(&timebaseInfo)
+        let delayInNano = UInt64(delaySeconds * 1_000_000_000.0)
+        let delayInHostTicks = delayInNano * UInt64(timebaseInfo.denom) / UInt64(timebaseInfo.numer)
+        
+        // This is our "T-Zero" — the moment the first sample of the slowest track should hit the output.
+        let baseStartTime = AVAudioTime(hostTime: renderTime.hostTime + delayInHostTicks)
 
         for track in project.tracks {
             guard track.trackType != .master else { continue }
@@ -77,91 +95,53 @@ public final class PlaybackScheduler {
             player.stop()
 
             var hasContent = false
-
-            // Logic:
-            // 1. If NOT looping, or position is past loop end: Schedule linearly to end.
-            // 2. If looping:
-            //    a. Schedule "Pre-Roll": position -> loopEnd
-            //    b. Schedule "Loop Body" (N times): loopStart -> loopEnd
-
+            // ... (rest of scheduling logic unchanged)
             if !looping || position.beats >= loopEnd.beats {
-                // Linear playback (no loop active or past loop)
-                // We use a safe "infinity" (e.g. 1 hour) or just project end?
-                // Using project end is safer.
                 let end = project.totalDuration
-                _ = scheduleTrackRange(
-                    track: track, player: player,
-                    start: position, end: end,
-                    bpm: bpm, sampleRate: sampleRate
-                )
-                logger.debug("PlaybackScheduler: [SIGNAL] Scheduled linear track '\(track.name)' to beat \(end.beats)")
+                _ = scheduleTrackRange(track: track, player: player, start: position, end: end, bpm: bpm, sampleRate: sampleRate)
                 hasContent = true 
             } else {
-                // Gapless Loop Playback
-
-                // 1. Pre-Roll (Current Pos -> Loop End)
-                // Even if we are AT loop start, this covers the first iteration seamlessly
                 if position.beats < loopEnd.beats {
-                    _ = scheduleTrackRange(
-                        track: track, player: player,
-                        start: position, end: loopEnd,
-                        bpm: bpm, sampleRate: sampleRate
-                    )
+                    _ = scheduleTrackRange(track: track, player: player, start: position, end: loopEnd, bpm: bpm, sampleRate: sampleRate)
                     hasContent = true
                 }
-
-                // 2. Loop Body Iterations
-                // Calculate how many iterations to buffer (target ~3 minutes or max 32 iterations)
                 let loopDurationBeats = loopEnd.beats - loopStart.beats
                 if loopDurationBeats > 0 {
                     let loopDurationSec = loopDurationBeats / bpm * 60.0
-                    let targetBufferSec = 300.0 // Buffering ~5 minutes worth (Enterprise stability)
+                    let targetBufferSec = 300.0
                     let iterationCount = min(512, max(2, Int(ceil(targetBufferSec / loopDurationSec))))
-
-                    logger.debug("Buffering \(iterationCount) loop iterations for track '\(track.name)'")
-
                     var runningError: Double = 0
                     for _ in 0..<iterationCount {
-                        runningError = scheduleTrackRange(
-                            track: track, player: player,
-                            start: loopStart, end: loopEnd,
-                            bpm: bpm, sampleRate: sampleRate,
-                            accumulatedError: runningError
-                        )
+                        runningError = scheduleTrackRange(track: track, player: player, start: loopStart, end: loopEnd, bpm: bpm, sampleRate: sampleRate, accumulatedError: runningError)
                     }
                 }
-
                 hasContent = true
             }
 
             if hasContent {
-                playersToStart.append(player)
+                // APPLY PDC: Delay this player by (maxLatency - trackLatency)
+                let trackLatency = trackLatencies[track.id] ?? 0.0
+                let compensationDelay = maxLatency - trackLatency
+                
+                let compNano = UInt64(compensationDelay * 1_000_000_000.0)
+                let compTicks = compNano * UInt64(timebaseInfo.denom) / UInt64(timebaseInfo.numer)
+                
+                let adjustedStartTime = AVAudioTime(hostTime: baseStartTime.hostTime + compTicks)
+                playerStartTimeMap[player] = adjustedStartTime
             }
         }
 
-        // 3. Start all players at a synchronized future time
-        // Reduce delay from 0.2 to 0.05 for snappier response (Enterprise optimization)
-        let delaySeconds = 0.05
-        let renderTime = audioEngine.avAudioEngine.outputNode.lastRenderTime ?? AVAudioTime(hostTime: mach_absolute_time())
-        
-        var timebaseInfo = mach_timebase_info_data_t()
-        mach_timebase_info(&timebaseInfo)
-        let delayInNano = UInt64(delaySeconds * 1_000_000_000.0)
-        let delayInHostTicks = delayInNano * UInt64(timebaseInfo.denom) / UInt64(timebaseInfo.numer)
-        
-        let startTime = AVAudioTime(hostTime: renderTime.hostTime + delayInHostTicks)
-
-        if playersToStart.isEmpty {
+        if playerStartTimeMap.isEmpty {
             logger.warning("[Scheduler] No players to start.")
         } else {
-            logger.info("[Scheduler] Starting \(playersToStart.count) players at hostTime \(startTime.hostTime) (delay: \(delaySeconds)s)")
+            logger.info("[Scheduler] Starting \(playerStartTimeMap.count) synchronized players with PDC.")
         }
 
-        for player in playersToStart {
+        for (player, startTime) in playerStartTimeMap {
             player.play(at: startTime)
         }
         
-        return startTime
+        return baseStartTime
     }
 
     // MARK: - Range Scheduling (The Core "Stitcher")

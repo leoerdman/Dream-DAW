@@ -22,37 +22,68 @@ public final class PluginHost {
     /// Instantiates a plugin from its path/identifier.
     /// This is an asynchronous operation.
     public func instantiate(identifier: String, type: InstrumentType, completion: @escaping (AVAudioUnit?, Error?) -> Void) {
-        let componentType: OSType = (type == .vst2 || type == .vst3) ? kAudioUnitType_MusicDevice : kAudioUnitType_Effect
-        let manufacturer: OSType = 0 // Generic
         
-        let desc = AudioComponentDescription(
-            componentType: componentType,
-            componentSubType: 0, // Will be resolved by identifier if possible, or we use discovery
-            componentManufacturer: manufacturer,
-            componentFlags: 0,
-            componentFlagsMask: 0
-        )
+        // --- Robust Discovery ---
+        // Instead of guessing description, we search for the component by name or bundle ID
+        // We look for MusicDevice (Instruments), Effect (FX), and MusicEffect (MIDI-enabled FX)
+        let manager = AVAudioUnitComponentManager.shared()
+        let allTypes: [OSType] = [kAudioUnitType_MusicDevice, kAudioUnitType_Effect, kAudioUnitType_MusicEffect]
         
-        // ENTERPRISE NOTE: In a real DAW, we'd use the PluginManager's metadata to find the exact component.
-        // For this implementation, we'll assume we can resolve the component from the identifier (path).
+        var foundComponent: AVAudioUnitComponent? = nil
         
-        // Placeholder implementation for enterprise-grade plugin loading
-        AVAudioUnit.instantiate(with: desc, options: []) { unit, error in
+        for type in allTypes {
+            var desc = AudioComponentDescription()
+            desc.componentType = type
+            let components = manager.components(matching: desc)
+            
+            if let component = components.first(where: { cp in
+                let matchesPath = (cp.componentURL?.path == identifier)
+                let nameMatches = (cp.name == identifier)
+                
+                // Fuzzy match: if it's a VST path, try matching the product name
+                let fileName = URL(fileURLWithPath: identifier).deletingPathExtension().lastPathComponent
+                let matchesFileName = !fileName.isEmpty && (cp.name.localizedCaseInsensitiveContains(fileName) || fileName.localizedCaseInsensitiveContains(cp.name))
+                
+                return matchesPath || nameMatches || matchesFileName
+            }) {
+                foundComponent = component
+                self.logger.info("PluginHost: Found component '\(component.name, privacy: .public)' for identifier '\(identifier, privacy: .public)' using type \(type)")
+                break
+            }
+        }
+        
+        guard let targetComponent = foundComponent else {
+            self.logger.error("PluginHost: FAILED to find plugin component for: \(identifier, privacy: .public) across all types.")
+            completion(nil, NSError(domain: "PluginHost", code: -1, userInfo: [NSLocalizedDescriptionKey: "Plugin not found: \(identifier)"]))
+            return
+        }
+
+        AVAudioUnit.instantiate(with: targetComponent.audioComponentDescription, options: []) { unit, error in
             if let error = error {
-                self.logger.error("Failed to instantiate plugin: \(error.localizedDescription)")
+                self.logger.error("PluginHost: FAILED to instantiate \(identifier, privacy: .public): \(error.localizedDescription)")
                 completion(nil, error)
                 return
             }
             
             if let unit = unit {
+                self.logger.info("PluginHost: SUCCESS instantiated \(identifier, privacy: .public) (Unit Name: \(unit.name, privacy: .public))")
                 completion(unit, nil)
+            } else {
+                self.logger.error("PluginHost: FAILED to instantiate \(identifier, privacy: .public) - No unit and no error returned")
+                completion(nil, nil)
             }
         }
     }
     
     /// Requests the native GUI for a plugin.
     public func requestEditor(for unit: AVAudioUnit, completion: @escaping (NSViewController?) -> Void) {
+        self.logger.info("PluginHost: Requesting view controller for \(unit.name)...")
         unit.auAudioUnit.requestViewController { viewController in
+            if viewController == nil {
+                self.logger.warning("PluginHost: Plugin \(unit.name) returned NO view controller.")
+            } else {
+                self.logger.info("PluginHost: Plugin \(unit.name) returned view controller successfully.")
+            }
             DispatchQueue.main.async {
                 completion(viewController)
             }
@@ -67,6 +98,10 @@ public final class PluginHost {
         instances[id]
     }
     
+    public func getLatency(for id: UUID) -> Double {
+        return instances[id]?.auAudioUnit.latency ?? 0.0
+    }
+
     public func removeInstance(_ id: UUID) {
         instances.removeValue(forKey: id)
     }

@@ -2,81 +2,67 @@ import Foundation
 
 // MARK: - MidiNote
 
-/// A single MIDI note event within a clip.
+/// Represents a single MIDI note.
 public struct MidiNote: Identifiable, Codable, Hashable, Sendable {
     public let id: UUID
-    
-    /// MIDI note number (0-127, where 60 = Middle C).
-    public var pitch: Int
-    
-    /// Note-on velocity (0-127).
-    public var velocity: Int
-    
-    /// Start position relative to the clip's start (in beats).
+    public var pitch: Int     // 0-127 (60 = C3)
+    public var velocity: Int  // 0-127
     public var position: TimePosition
-    
-    /// Duration of the note (in beats).
     public var duration: TimePosition
-    
+
     public init(
         id: UUID = UUID(),
-        pitch: Int = 60,
+        pitch: Int,
         velocity: Int = 100,
-        position: TimePosition = .zero,
-        duration: TimePosition = TimePosition(beats: 1)
+        position: TimePosition,
+        duration: TimePosition = TimePosition(beats: 0.25)
     ) {
         self.id = id
-        self.pitch = min(127, max(0, pitch))
-        self.velocity = min(127, max(0, velocity))
+        self.pitch = pitch
+        self.velocity = velocity
         self.position = position
         self.duration = duration
     }
-    
-    /// End position relative to clip start.
-    public var endPosition: TimePosition {
-        position + duration
+
+    // MARK: - Codable (Migration support)
+
+    private enum CodingKeys: String, CodingKey {
+        case id, pitch, velocity, position, duration
     }
-    
-    /// Human-readable note name (e.g. "C4", "F#3").
-    public var noteName: String {
-        let noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-        let octave = (pitch / 12) - 1
-        let note = noteNames[pitch % 12]
-        return "\(note)\(octave)"
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        pitch = try container.decodeIfPresent(Int.self, forKey: .pitch) ?? 60
+        velocity = try container.decodeIfPresent(Int.self, forKey: .velocity) ?? 100
+        position = try container.decodeIfPresent(TimePosition.self, forKey: .position) ?? .zero
+        duration = try container.decodeIfPresent(TimePosition.self, forKey: .duration) ?? TimePosition(beats: 0.25)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(pitch, forKey: .pitch)
+        try container.encode(velocity, forKey: .velocity)
+        try container.encode(position, forKey: .position)
+        try container.encode(duration, forKey: .duration)
     }
 }
 
 // MARK: - MidiClip
 
-/// Represents a MIDI clip placed on a track in the arrangement.
-/// Contains MIDI note data that can be edited in a piano roll.
+/// Represents a MIDI clip in the arrangement.
 public struct MidiClip: Identifiable, Codable, Hashable, Sendable {
-    
-    // MARK: - Properties
-    
-    /// Unique identifier for this clip.
     public let id: UUID
-    
-    /// Display name for the clip.
     public var name: String
-    
-    /// Position of the clip's start on the arrangement timeline (in beats).
     public var position: TimePosition
-    
-    /// Total duration of the clip on the timeline (in beats).
     public var duration: TimePosition
-    
-    /// MIDI notes contained in this clip.
     public var notes: [MidiNote]
     
-    /// Whether the clip is currently selected in the UI.
+    // Selection state (not persisted to file, usually, but here it is for simplicity)
     public var isSelected: Bool
-    
-    /// Clip color override (nil = use track color).
     public var colorOverride: TrackColor?
-    
-    // MARK: - Initialization
-    
+
     public init(
         id: UUID = UUID(),
         name: String = "MIDI Clip",
@@ -95,6 +81,34 @@ public struct MidiClip: Identifiable, Codable, Hashable, Sendable {
         self.colorOverride = colorOverride
     }
     
+    // MARK: - Codable (Migration support)
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, position, duration, notes, isSelected, colorOverride
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? "MIDI Clip"
+        position = try container.decodeIfPresent(TimePosition.self, forKey: .position) ?? .zero
+        duration = try container.decodeIfPresent(TimePosition.self, forKey: .duration) ?? TimePosition(beats: 4)
+        notes = try container.decodeIfPresent([MidiNote].self, forKey: .notes) ?? []
+        isSelected = try container.decodeIfPresent(Bool.self, forKey: .isSelected) ?? false
+        colorOverride = try container.decodeIfPresent(TrackColor.self, forKey: .colorOverride)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(position, forKey: .position)
+        try container.encode(duration, forKey: .duration)
+        try container.encode(notes, forKey: .notes)
+        try container.encode(isSelected, forKey: .isSelected)
+        try container.encodeIfPresent(colorOverride, forKey: .colorOverride)
+    }
+
     // MARK: - Computed
     
     /// End position of the clip on the timeline.
@@ -102,13 +116,8 @@ public struct MidiClip: Identifiable, Codable, Hashable, Sendable {
         position + duration
     }
     
-    /// Whether a given timeline position falls within this clip.
+    /// Check if a given beat is within the clip range.
     public func contains(beat: Double) -> Bool {
         beat >= position.beats && beat < endPosition.beats
-    }
-    
-    /// Whether this clip overlaps with a given range.
-    public func overlaps(start: TimePosition, end: TimePosition) -> Bool {
-        position.beats < end.beats && endPosition.beats > start.beats
     }
 }

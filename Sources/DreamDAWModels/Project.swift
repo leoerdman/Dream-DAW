@@ -12,6 +12,44 @@ public struct TimeSignature: Codable, Hashable, Sendable {
         self.denominator = denominator
     }
 
+    // MARK: - Codable (Migration Support)
+
+    private enum CodingKeys: String, CodingKey {
+        case numerator, denominator
+    }
+
+    public init(from decoder: Decoder) throws {
+        // 1. Try to decode from a keyed container (Current)
+        if let container = try? decoder.container(keyedBy: CodingKeys.self) {
+            self.numerator = try container.decodeIfPresent(Int.self, forKey: .numerator) ?? 4
+            self.denominator = try container.decodeIfPresent(Int.self, forKey: .denominator) ?? 4
+            return
+        }
+
+        // 2. Try to decode from a single string (Legacy: "4/4")
+        if let container = try? decoder.singleValueContainer(),
+           let value = try? container.decode(String.self) {
+            let components = value.components(separatedBy: "/")
+            if components.count == 2,
+               let num = Int(components[0]),
+               let den = Int(components[1]) {
+                self.numerator = num
+                self.denominator = den
+                return
+            }
+        }
+
+        // Fallback
+        self.numerator = 4
+        self.denominator = 4
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(numerator, forKey: .numerator)
+        try container.encode(denominator, forKey: .denominator)
+    }
+
     /// Number of quarter-note beats per bar.
     public var beatsPerBar: Int {
         // Convert to quarter-note beats: e.g. 6/8 = 3 quarter-note beats
@@ -116,19 +154,21 @@ public final class Project: ObservableObject, Identifiable, Codable {
     public convenience init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
-            id: try container.decode(UUID.self, forKey: .id),
-            name: try container.decode(String.self, forKey: .name),
-            bpm: try container.decode(Double.self, forKey: .bpm),
-            timeSignature: try container.decode(TimeSignature.self, forKey: .timeSignature),
-            sampleRate: try container.decode(Double.self, forKey: .sampleRate),
-            tracks: try container.decode([Track].self, forKey: .tracks)
+            id: try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID(),
+            name: try container.decodeIfPresent(String.self, forKey: .name) ?? "Untitled Project",
+            bpm: try container.decodeIfPresent(Double.self, forKey: .bpm) ?? 120.0,
+            timeSignature: try container.decodeIfPresent(TimeSignature.self, forKey: .timeSignature) ?? TimeSignature(),
+            sampleRate: try container.decodeIfPresent(Double.self, forKey: .sampleRate) ?? 44100.0,
+            tracks: try container.decodeIfPresent([Track].self, forKey: .tracks) ?? []
         )
         self.isLooping = try container.decodeIfPresent(Bool.self, forKey: .isLooping) ?? false
         self.loopStart = try container.decodeIfPresent(TimePosition.self, forKey: .loopStart)
         self.loopEnd = try container.decodeIfPresent(TimePosition.self, forKey: .loopEnd)
+        
         if let master = try container.decodeIfPresent(Track.self, forKey: .masterTrack) {
             self.masterTrack = master
         }
+        
         self.viewZoomScale = try container.decodeIfPresent(Double.self, forKey: .viewZoomScale)
         self.viewScrollPosition = try container.decodeIfPresent(Double.self, forKey: .viewScrollPosition)
     }
@@ -207,10 +247,11 @@ public final class Project: ObservableObject, Identifiable, Codable {
         )
         groupTrack.childTrackIDs = selectedTracks.map(\.id)
         
-        // Update children's parent and routing
+        // Update children's parent, routing, and color for a unified look
         for track in selectedTracks {
             track.parentTrackID = groupTrack.id
             track.outputDestinationID = groupTrack.id
+            track.color = groupTrack.color
         }
         
         // Insert group track at the topmost position

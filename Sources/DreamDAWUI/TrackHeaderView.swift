@@ -42,6 +42,11 @@ public final class TrackHeaderView: NSView {
     private let vuMeterBarR = NSView()       // Right channel VU meter background
     private let vuMeterFillR = NSView()      // Right channel filled portion
     private let peakIndicator = NSView()     // Peak clip indicator
+    
+    // Group UI components
+    private let groupIndicatorBG = NSView()   // Indentation background
+    private let groupIndicatorLine = NSView() // Thin vertical line (solid color block)
+    private let groupDividerLine = NSView()   // Thin divider between indicator and track content
 
     /// Callback when track settings change.
     public var onTrackChanged: ((Track) -> Void)?
@@ -58,6 +63,15 @@ public final class TrackHeaderView: NSView {
     
     /// Closure to resolve a track by UUID (for routing label display).
     public var trackResolver: ((UUID) -> Track?)?
+    
+    /// Closure to get all available tracks for routing (excluding self and children).
+    public var routingDestinationProvider: (() -> [Track])?
+    
+    /// Callback when Output routing changes.
+    public var onOutputChanged: ((UUID?) -> Void)?
+    
+    /// Callback when a browser item is dropped on this specific header.
+    public var onBrowserItemDropped: ((UUID, String, String, URL?) -> Void)?
 
     // MARK: - Initialization
 
@@ -125,6 +139,23 @@ public final class TrackHeaderView: NSView {
         routingLabel.isEditable = false
         routingLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(routingLabel)
+        
+        // Make routing area clickable
+        let routingClickView = NSView()
+        routingClickView.translatesAutoresizingMaskIntoConstraints = false
+        routingClickView.wantsLayer = true
+        // routingClickView.layer?.backgroundColor = NSColor.red.withAlphaComponent(0.2).cgColor // Debug
+        addSubview(routingClickView)
+        
+        NSLayoutConstraint.activate([
+            routingClickView.leadingAnchor.constraint(equalTo: routingLabel.leadingAnchor, constant: -2),
+            routingClickView.trailingAnchor.constraint(equalTo: routingLabel.trailingAnchor, constant: 2),
+            routingClickView.topAnchor.constraint(equalTo: routingLabel.topAnchor, constant: -2),
+            routingClickView.bottomAnchor.constraint(equalTo: routingLabel.bottomAnchor, constant: 2)
+        ])
+        
+        let gesture = NSClickGestureRecognizer(target: self, action: #selector(routingClicked))
+        routingClickView.addGestureRecognizer(gesture)
 
         // Solo button (S)
         soloButton.title = "S"
@@ -144,6 +175,20 @@ public final class TrackHeaderView: NSView {
         collapseButton.action = #selector(toggleCollapse)
         collapseButton.translatesAutoresizingMaskIntoConstraints = false
         addSubview(collapseButton)
+
+        // Group Indicator UI
+        groupIndicatorBG.wantsLayer = true
+        groupIndicatorBG.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(groupIndicatorBG)
+        
+        groupIndicatorLine.wantsLayer = true
+        groupIndicatorLine.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(groupIndicatorLine)
+        
+        groupDividerLine.wantsLayer = true
+        groupDividerLine.layer?.backgroundColor = DreamTheme.bgPrimary.cgColor // Dark divider color
+        groupDividerLine.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(groupDividerLine)
 
         // Vertical VU meter — left channel
         vuMeterBarL.wantsLayer = true
@@ -193,11 +238,28 @@ public final class TrackHeaderView: NSView {
 
         // Layout
         NSLayoutConstraint.activate([
+            // Group Indicators
+            groupIndicatorBG.leadingAnchor.constraint(equalTo: leadingAnchor),
+            groupIndicatorBG.topAnchor.constraint(equalTo: topAnchor),
+            groupIndicatorBG.bottomAnchor.constraint(equalTo: bottomAnchor),
+            groupIndicatorBG.widthAnchor.constraint(equalToConstant: 10),
+            
+            groupIndicatorLine.leadingAnchor.constraint(equalTo: groupIndicatorBG.leadingAnchor),
+            groupIndicatorLine.topAnchor.constraint(equalTo: topAnchor),
+            groupIndicatorLine.bottomAnchor.constraint(equalTo: bottomAnchor),
+            groupIndicatorLine.widthAnchor.constraint(equalToConstant: 10),
+
+            // Indentation Divider
+            groupDividerLine.leadingAnchor.constraint(equalTo: groupIndicatorBG.trailingAnchor),
+            groupDividerLine.topAnchor.constraint(equalTo: topAnchor),
+            groupDividerLine.bottomAnchor.constraint(equalTo: bottomAnchor),
+            groupDividerLine.widthAnchor.constraint(equalToConstant: 1),
+
             // Name background (colored strip) — left portion
-            nameBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: track.parentTrackID != nil ? 18 : 0),
+            nameBackgroundView.leadingAnchor.constraint(equalTo: track.parentTrackID != nil ? groupDividerLine.trailingAnchor : leadingAnchor),
             nameBackgroundView.topAnchor.constraint(equalTo: topAnchor),
             nameBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            nameBackgroundView.widthAnchor.constraint(equalToConstant: 72),
+            nameBackgroundView.widthAnchor.constraint(equalToConstant: 80),
 
             // Name label inside colored strip
             nameLabel.leadingAnchor.constraint(equalTo: nameBackgroundView.leadingAnchor, constant: 4),
@@ -299,6 +361,22 @@ public final class TrackHeaderView: NSView {
         }
         routingLabel.stringValue = "\(destTrack.name) ▾"
         routingLabel.textColor = DreamTheme.accentSecondary
+        
+        // Update Group Indicators
+        // User feedback: "Hide divider line and indicator for group tracks themselves"
+        let isGroupHeader = track.trackType == .group
+        
+        if let parentID = track.parentTrackID, let resolver = trackResolver, let parent = resolver(parentID), !isGroupHeader {
+            groupIndicatorBG.isHidden = false
+            groupIndicatorLine.isHidden = false
+            groupDividerLine.isHidden = false
+            groupIndicatorBG.layer?.backgroundColor = parent.color.nsColor.withAlphaComponent(0.15).cgColor
+            groupIndicatorLine.layer?.backgroundColor = parent.color.nsColor.cgColor
+        } else {
+            groupIndicatorBG.isHidden = true
+            groupIndicatorLine.isHidden = true
+            groupDividerLine.isHidden = true
+        }
     }
 
     private func updateVolumeFill() {
@@ -600,6 +678,46 @@ public final class TrackHeaderView: NSView {
         onSoloChanged?()
     }
 
+    @objc private func routingClicked() {
+        guard let provider = routingDestinationProvider else { return }
+        let availableTracks = provider()
+        
+        let menu = NSMenu(title: "Output")
+        
+        // 1. Master item
+        let masterItem = NSMenuItem(title: "Master", action: #selector(selectOutput(_:)), keyEquivalent: "")
+        masterItem.target = self
+        masterItem.representedObject = nil // Nil = Master
+        if track.outputDestinationID == nil {
+            masterItem.state = .on
+        }
+        menu.addItem(masterItem)
+        menu.addItem(NSMenuItem.separator())
+        
+        // 2. All other tracks (excluding self and circular dependencies)
+        for dest in availableTracks where dest.id != track.id && dest.trackType != .master {
+            let item = NSMenuItem(title: dest.name, action: #selector(selectOutput(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = dest.id
+            if track.outputDestinationID == dest.id {
+                item.state = .on
+            }
+            menu.addItem(item)
+        }
+        
+        // Show menu below the label
+        let rect = routingLabel.bounds
+        menu.popUp(positioning: nil, at: NSPoint(x: rect.minX, y: rect.maxY), in: routingLabel)
+    }
+    
+    @objc private func selectOutput(_ sender: NSMenuItem) {
+        let newDestID = sender.representedObject as? UUID
+        track.outputDestinationID = newDestID
+        onOutputChanged?(newDestID)
+        updateRoutingLabel()
+        onTrackChanged?(track)
+    }
+
     @objc private func enableToggled() {
         track.isMuted.toggle()
         updateButtonStates()
@@ -649,6 +767,33 @@ extension TrackHeaderView: NSTextFieldDelegate {
         nameLabel.drawsBackground = false
         track.name = nameLabel.stringValue
         onTrackChanged?(track)
+    }
+}
+
+// MARK: - NSDraggingDestination
+
+extension TrackHeaderView {
+    public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let pb = sender.draggingPasteboard
+        if pb.string(forType: .browserItem) != nil {
+            return .copy
+        }
+        return []
+    }
+
+    public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let pb = sender.draggingPasteboard
+        guard let payload = pb.string(forType: .browserItem) else {
+            return false
+        }
+
+        let parts = payload.split(separator: ":", maxSplits: 1)
+        guard parts.count == 2 else { return false }
+        let nodeType = String(parts[0])
+        let itemName = String(parts[1])
+
+        onBrowserItemDropped?(track.id, nodeType, itemName, nil)
+        return true
     }
 }
 
@@ -706,8 +851,14 @@ public final class TrackHeadersContainerView: NSView {
     public var onGroupTracks: (() -> Void)?
     public var onUngroupTracks: (() -> Void)?
     
+    /// Callback when Output routing changes.
+    public var onOutputChanged: ((UUID, UUID?) -> Void)?
+    
     /// Injected closure for resolving tracks by UUID (passed to each header for routing display).
     public var trackResolver: ((UUID) -> Track?)?
+    
+    /// Injected closure to get all available tracks for routing.
+    public var routingDestinationProvider: (() -> [Track])?
     
     public override var isFlipped: Bool { true }
 
@@ -805,7 +956,14 @@ public final class TrackHeadersContainerView: NSView {
             header.onUngroupTracks = { [weak self] in
                 self?.onUngroupTracks?()
             }
+            header.onOutputChanged = { [weak self] newDestID in
+                self?.onOutputChanged?(track.id, newDestID)
+            }
+            header.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName, fileURL in
+                self?.onBrowserItemDropped?(trackID, nodeType, itemName, fileURL)
+            }
             header.trackResolver = trackResolver
+            header.routingDestinationProvider = routingDestinationProvider
             addSubview(header)
             headerViews.append(header)
 

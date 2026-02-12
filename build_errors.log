@@ -1,0 +1,176 @@
+warning: 'dream daw': found 1 file(s) which are unhandled; explicitly declare them as resources or exclude from the target
+    /Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/WaveformShaders.metal
+[0/1] Planning build
+Building for production...
+[0/4] Write sources
+[1/4] Write swift-version--58304C5D6DBC2206.txt
+[3/5] Compiling DreamDAWUI ArrangementViewController.swift
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/ArrangementViewController.swift:923:50: warning: variable 'self' was written to, but never read
+ 921 |         // Loop wrap → stop current audio + re-schedule from loop start
+ 922 |         // Loop wrap → do nothing for audio (handled by gapless queueing)
+ 923 |         transportController.onLoopWrap = { [weak self] in
+     |                                                  `- warning: variable 'self' was written to, but never read
+ 924 |             // Visuals are handled by TransportController updates.
+ 925 |             // Audio is pre-scheduled via queue, so we do NOT restart here.
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:220:13: warning: initialization of immutable value 'targetHeight' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+218 | 
+219 |     private func updateContent() {
+220 |         let targetHeight = panelHeight
+    |             `- warning: initialization of immutable value 'targetHeight' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+221 |         let isHiding = (mode == .hidden)
+222 |         
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:539:28: error: cannot find 'levelMeter' in scope
+537 | 
+538 |         case .eq:
+539 |             if let meter = levelMeter {
+    |                            `- error: cannot find 'levelMeter' in scope
+540 |                 let eqView = EQEightView(config: effect, trackID: track.id, levelMeter: meter)
+541 |                 eqView.frame = CGRect(x: 0, y: 0, width: frame.width, height: contentH)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:542:56: error: cannot infer type of closure parameter '_' without a type annotation
+540 |                 let eqView = EQEightView(config: effect, trackID: track.id, levelMeter: meter)
+541 |                 eqView.frame = CGRect(x: 0, y: 0, width: frame.width, height: contentH)
+542 |                 eqView.onConfigChanged = { [weak self] _ in
+    |                                                        `- error: cannot infer type of closure parameter '_' without a type annotation
+543 |                     self?.onEffectParameterChanged?(track.id)
+544 |                 }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:23:39: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+21 | 
+22 |     public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+23 |         if let docView = documentView as? NSDraggingDestination {
+   |                                       `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+24 |             return docView.draggingEntered?(sender) ?? []
+25 |         }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:30:39: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+28 | 
+29 |     public override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+30 |         if let docView = documentView as? NSDraggingDestination {
+   |                                       `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+31 |             return docView.draggingUpdated?(sender) ?? draggingEntered(sender)
+32 |         }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:37:60: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+35 | 
+36 |     public override func draggingExited(_ sender: NSDraggingInfo?) {
+37 |         if let sender = sender, let docView = documentView as? NSDraggingDestination {
+   |                                                            `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+38 |             docView.draggingExited?(sender)
+39 |         }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:43:39: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+41 | 
+42 |     public override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+43 |         if let docView = documentView as? NSDraggingDestination {
+   |                                       `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+44 |             return docView.prepareForDragOperation?(sender) ?? true
+45 |         }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:50:39: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+48 | 
+49 |     public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+50 |         if let docView = documentView as? NSDraggingDestination {
+   |                                       `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+51 |             return docView.performDragOperation?(sender) ?? false
+52 |         }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:57:60: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+55 | 
+56 |     public override func concludeDragOperation(_ sender: NSDraggingInfo?) {
+57 |         if let sender = sender, let docView = documentView as? NSDraggingDestination {
+   |                                                            `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+58 |             docView.concludeDragOperation?(sender)
+59 |         }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/EQEightView.swift:77:56: error: cannot assign value of type 'Double' to type 'Float'
+ 75 |         plotView.onBandChanged = { [weak self] bandIndex, freq, gain, q in
+ 76 |             guard let self = self else { return }
+ 77 |             self.config.eqBands[bandIndex].frequency = Double(freq)
+    |                                                        `- error: cannot assign value of type 'Double' to type 'Float'
+ 78 |             self.config.eqBands[bandIndex].gain = Double(gain)
+ 79 |             self.config.eqBands[bandIndex].q = Double(q)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/EQEightView.swift:320:32: error: value of type 'EQBandConfig' has no member 'q'
+318 |             let f0 = Float(band.frequency)
+319 |             let g = Float(band.gain)
+320 |             let q = Float(band.q)
+    |                                `- error: value of type 'EQBandConfig' has no member 'q'
+321 |             
+322 |             let octaves = log2(f / f0)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/PianoRollView.swift:374:62: warning: variable 'clip' was never used; consider replacing with '_' or removing it [#no-usage]
+372 |         let currentLoc = convert(event.locationInWindow, from: nil)
+373 |         
+374 |         if isDragging, let startLoc = dragStartLocation, var clip = midiClip {
+    |                                                              `- warning: variable 'clip' was never used; consider replacing with '_' or removing it [#no-usage]
+375 |             // Simple drag offset (could be improved with snapping)
+376 |             let deltaX = currentLoc.x - startLoc.x
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/PianoRollView.swift:379:17: warning: initialization of immutable value 'beatDelta' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+377 |             let deltaY = currentLoc.y - startLoc.y
+378 |             
+379 |             let beatDelta = Double(deltaX / pixelsPerBeat)
+    |                 `- warning: initialization of immutable value 'beatDelta' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+380 |             let pitchDelta = Int(round(deltaY / pitchRowHeight))
+381 |             
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/PianoRollView.swift:380:17: warning: initialization of immutable value 'pitchDelta' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+378 |             
+379 |             let beatDelta = Double(deltaX / pixelsPerBeat)
+380 |             let pitchDelta = Int(round(deltaY / pitchRowHeight))
+    |                 `- warning: initialization of immutable value 'pitchDelta' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+381 |             
+382 |             // Logic for visual movement could be here
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:597:21: warning: initialization of immutable value 'hasVolumeChanged' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+ 595 |                 let hasMoved = abs(layer.frame.origin.x - clipX) > 0.1 || abs(layer.frame.origin.y - (trackY + 2)) > 0.1
+ 596 |                 let hasResized = abs(layer.frame.width - clipWidth) > 0.1 || abs(layer.frame.height - (track.height - 4)) > 0.1
+ 597 |                 let hasVolumeChanged = layer.clip?.isSelected != clip.isSelected // selection changes often coincide with volume focus
+     |                     `- warning: initialization of immutable value 'hasVolumeChanged' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+ 598 |                 
+ 599 |                 if layer.track?.volume != track.volume || abs(layer.pixelsPerBeat - pixelsPerBeat) > 0.01 || hasMoved || hasResized || clip.isSelected != layer.clip?.isSelected {
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:759:13: warning: initialization of immutable value 'isCommand' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+ 757 |     public override func keyDown(with event: NSEvent) {
+ 758 |         let modifierFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+ 759 |         let isCommand = modifierFlags.contains(.command)
+     |             `- warning: initialization of immutable value 'isCommand' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+ 760 |         let isShift = modifierFlags.contains(.shift)
+ 761 | 
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:760:13: warning: initialization of immutable value 'isShift' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+ 758 |         let modifierFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+ 759 |         let isCommand = modifierFlags.contains(.command)
+ 760 |         let isShift = modifierFlags.contains(.shift)
+     |             `- warning: initialization of immutable value 'isShift' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+ 761 | 
+ 762 |         switch event.keyCode {
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:1840:13: warning: initialization of immutable value 'pasteboard' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+1838 |     public override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+1839 |         let location = convert(sender.draggingLocation, from: nil)
+1840 |         let pasteboard = sender.draggingPasteboard
+     |             `- warning: initialization of immutable value 'pasteboard' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+1841 |         
+1842 |         // Find target track and Snap to grid
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:1934:58: warning: 'duration' was deprecated in macOS 13.0: Use load(.duration) instead [#DeprecatedDeclaration]
+1932 |             // Get actual audio duration using AVFoundation
+1933 |             let asset = AVURLAsset(url: url)
+1934 |             let durationSeconds = CMTimeGetSeconds(asset.duration)
+     |                                                          `- warning: 'duration' was deprecated in macOS 13.0: Use load(.duration) instead [#DeprecatedDeclaration]
+1935 |             guard !durationSeconds.isNaN && durationSeconds > 0 else { continue }
+1936 |             
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TransportBarView.swift:76:10: warning: 'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead. [#DeprecatedDeclaration]
+ 74 |             alignment: .bottom
+ 75 |         )
+ 76 |         .onChange(of: project.bpm) { newBpm in
+    |          `- warning: 'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead. [#DeprecatedDeclaration]
+ 77 |             bpmText = String(format: "%.2f", newBpm)
+ 78 |         }
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>

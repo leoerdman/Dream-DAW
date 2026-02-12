@@ -200,6 +200,7 @@ public final class TimelineCanvasView: NSView {
     }
 
     public var waveformRenderer: WaveformRenderer?
+    public var metalWaveformRenderer: WaveformMetalRenderer? = WaveformMetalRenderer()
 
     /// Callback when the user clicks to set playhead.
     public var onClickPosition: ((TimePosition) -> Void)?
@@ -602,6 +603,7 @@ public final class TimelineCanvasView: NSView {
                     layer.bpm = project.bpm
                     layer.sampleRate = project.sampleRate
                     layer.waveformRenderer = waveformRenderer
+                    layer.metalWaveformRenderer = metalWaveformRenderer
                     layer.frame = newFrame
                     layer.setNeedsDisplay()
                 }
@@ -1007,25 +1009,23 @@ public final class TimelineCanvasView: NSView {
                     startMousePosition: location,
                     originalClipBeat: clipPos
                 )
-            } else {
-                // Body Click: Set Edit Cursor for playback point
-                marqueeState = nil
-                selectionRectLayer.isHidden = true
                 
-                editCursor = initialEditCursor // Apply the cursor if we hit the body
+                updateArrangementLayers()
+                onClipSelected?(track.id, wrapper.id)
+                return
+            } else {
+                // Body Click: Allow marquee selection starting from here
+                // AND set the edit cursor as requested
+                editCursor = initialEditCursor
                 NSCursor.arrow.set()
                 
-                if !isSelected {
-                    if !event.modifierFlags.contains(.shift) {
-                        deselectAllClips(in: project)
-                    }
-                    selectClip(id: wrapper.id, isMidi: wrapper.isMidi, in: project)
+                if !event.modifierFlags.contains(.shift) {
+                    deselectAllClips(in: project)
                 }
+                
+                // Jump to Marquee logic implicitly by NOT returning here
+                // and letting the empty space logic handle it.
             }
-            
-            updateArrangementLayers()
-            onClipSelected?(track.id, wrapper.id)
-            return
         }
 
         // 3. Marquee Selection / Empty Space Click (Lowest Priority)
@@ -1704,57 +1704,85 @@ public final class TimelineCanvasView: NSView {
         updateArrangementLayers()
     }
 
-    /// Duplicate selected clips — places copies immediately after the originals.
+    /// Duplicate selection — places copies immediately after the originals OR duplicates a marquee range.
     public func duplicateSelection() {
         guard let project = project else { return }
-        // Cmd+D usually duplicates AFTER original.
-        // User said "I can insert and duplicate into that place".
-        // Maybe check if cursor is set?
-        // Standard D: Duplicate selection.
-        // Paste always goes to cursor.
-        // Let's stick to standard duplication (end of clip) unless cursor is explicitly used for "Duplicate Time"?
-        // But user said "duplicate into that place". Maybe they mean Copy+Paste?
-        // I'll leave Duplicate as standard (append) for now, as it's safer.
-        // Wait, Ableton Duplicate (Cmd+D) puts it after.
-        // Paste (Cmd+V) puts it at cursor.
-        // User's request concerning Duplicate might be simpler: "I can duplicate...".
-        // I will implement standard behavior for Duplicate.
-
-        for track in project.allVisibleTracks {
-            var newAudio: [AudioClip] = []
-            var newMidi: [MidiClip] = []
-
-            for clip in track.clips where clip.isSelected {
+        
+        let clipsToDuplicate: [(Track, ClipWrapper)]
+        let moveOffset: Double
+        
+        if let marquee = marqueeState, let timeRange = marquee.timeRange, !selectionRectLayer.isHidden {
+            // DUPLICATE TIME RANGE (Marquee)
+            let query = QuadRect(
+                minX: timeRange.lowerBound,
+                maxX: timeRange.upperBound,
+                minY: 0,
+                maxY: Double(project.allVisibleTracks.count)
+            )
+            clipsToDuplicate = (quadTree?.query(range: query) ?? []).compactMap { element in
+                let wrapper = element.value
+                guard let track = project.allVisibleTracks.first(where: { $0.id == wrapper.trackID }) else { return nil }
+                return (track, wrapper)
+            }
+            moveOffset = timeRange.upperBound - timeRange.lowerBound
+            
+            // Move marquee forward for continuous duplication
+            marqueeState?.currentRect.origin.x += CGFloat(moveOffset) * pixelsPerBeat
+            marqueeState?.timeRange = (timeRange.upperBound...(timeRange.upperBound + moveOffset))
+            finalizeMarqueeSelection(rect: marqueeState?.currentRect ?? .zero)
+        } else {
+            // DUPLICATE SELECTED CLIPS
+            var selected: [(Track, ClipWrapper)] = []
+            var minStart = Double.greatestFiniteMagnitude
+            var maxEnd: Double = 0
+            
+            for track in project.allVisibleTracks {
+                for clip in track.clips where clip.isSelected {
+                    selected.append((track, ClipWrapper(id: clip.id, trackID: track.id, isMidi: false, audioClip: clip, midiClip: nil)))
+                    minStart = min(minStart, clip.position.beats)
+                    maxEnd = max(maxEnd, clip.endPosition.beats)
+                }
+                for clip in track.midiClips where clip.isSelected {
+                    selected.append((track, ClipWrapper(id: clip.id, trackID: track.id, isMidi: true, audioClip: nil, midiClip: clip)))
+                    minStart = min(minStart, clip.position.beats)
+                    maxEnd = max(maxEnd, clip.endPosition.beats)
+                }
+            }
+            clipsToDuplicate = selected
+            moveOffset = max(0, maxEnd - minStart)
+        }
+        
+        guard !clipsToDuplicate.isEmpty else { return }
+        
+        deselectAllClips(in: project)
+        
+        for (track, wrapper) in clipsToDuplicate {
+            if let clip = wrapper.audioClip {
                 let dupe = AudioClip(
                     name: clip.name,
                     fileURL: clip.fileURL,
-                    position: TimePosition(beats: clip.endPosition.beats),
+                    position: TimePosition(beats: clip.position.beats + moveOffset),
                     duration: clip.duration,
                     trimStartOffset: clip.trimStartOffset,
                     gain: clip.gain,
                     isSelected: true
                 )
-                newAudio.append(dupe)
-            }
-            for clip in track.midiClips where clip.isSelected {
+                track.clips.append(dupe)
+            } else if let clip = wrapper.midiClip {
                 let dupe = MidiClip(
                     name: clip.name,
-                    position: TimePosition(beats: clip.endPosition.beats),
+                    position: TimePosition(beats: clip.position.beats + moveOffset),
                     duration: clip.duration,
                     notes: clip.notes,
                     isSelected: true,
                     colorOverride: clip.colorOverride
                 )
-                newMidi.append(dupe)
+                track.midiClips.append(dupe)
             }
-
-            // Deselect originals
-            for i in track.clips.indices { track.clips[i].isSelected = false }
-            for i in track.midiClips.indices { track.midiClips[i].isSelected = false }
-
-            track.clips.append(contentsOf: newAudio)
-            track.midiClips.append(contentsOf: newMidi)
         }
+        
+        project.isDirty = true
+        onClipsModified?()
         refreshUI()
     }
 
@@ -2047,6 +2075,10 @@ internal class AudioClipLayer: CALayer {
     var bpm: Double = 120.0
     var sampleRate: Double = 44100.0
     var waveformRenderer: WaveformRenderer?
+    var metalWaveformRenderer: WaveformMetalRenderer?
+
+    // GPU Layer for waveforms
+    private let metalWaveformLayer = CAMetalLayer()
 
     // Waveform cache for 120Hz ProMotion performance
     private var cachedWaveform: CGImage?
@@ -2059,6 +2091,13 @@ internal class AudioClipLayer: CALayer {
         self.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
         self.contentsGravity = .resize
         self.actions = ["position": NSNull(), "bounds": NSNull(), "frame": NSNull()]
+        
+        // Setup Metal Layer
+        metalWaveformLayer.contentsScale = self.contentsScale
+        metalWaveformLayer.opacity = 0.8
+        metalWaveformLayer.isOpaque = false
+        metalWaveformLayer.actions = self.actions
+        self.addSublayer(metalWaveformLayer)
     }
 
     override init(layer: Any) {
@@ -2107,51 +2146,21 @@ internal class AudioClipLayer: CALayer {
         attrString.draw(in: textRect)
         NSGraphicsContext.restoreGraphicsState()
 
-        // Waveform - use cached image if possible
-        if let renderer = waveformRenderer {
-            let zoomDeviance = abs(cachedPPB - pixelsPerBeat) / max(0.01, cachedPPB)
-            // Re-render ONLY if height changed (vertical scale) or zoom changed by > 15%
-            // Width change is now handled by hardware scaling of the normalized path.
-            let needsNewRender = cachedWaveform == nil || cachedSize.height != rect.size.height || cachedClipID != clip.id || zoomDeviance > 0.15
+        // Waveform - use Metal if available, else fallback to CG
+        if let renderer = metalWaveformRenderer, let waveCache = waveformRenderer?.waveformCache {
+            let waveformHeight = rect.height - DreamTheme.clipTitleHeight
+            metalWaveformLayer.frame = CGRect(x: 0, y: DreamTheme.clipTitleHeight, width: rect.width, height: waveformHeight)
             
-            if needsNewRender {
-                // Try to render a fresh, high-quality waveform
-                let scale = self.contentsScale
-                let imgSize = CGSize(width: rect.width * scale, height: rect.height * scale)
-                
-                if imgSize.width > 0 && imgSize.height > 0 {
-                    let colorSpace = CGColorSpaceCreateDeviceRGB()
-                    if let bitmapCtx = CGContext(data: nil, width: Int(imgSize.width), height: Int(imgSize.height), bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
-                        bitmapCtx.scaleBy(x: scale, y: scale)
-                        
-                        // drawWaveform returns true if it drew from data, false if it drew a placeholder
-                        let didDrawData = renderer.drawWaveform(
-                            in: bitmapCtx,
-                            clip: clip,
-                            rect: CGRect(origin: .zero, size: rect.size),
-                            color: trackColor,
-                            pixelsPerBeat: pixelsPerBeat,
-                            bpm: bpm,
-                            sampleRate: sampleRate,
-                            verticalScale: track.volume
-                        )
-                        
-                        if didDrawData {
-                            // Successfully rendered a new waveform from data - update cache
-                            cachedWaveform = bitmapCtx.makeImage()
-                            cachedSize = rect.size
-                            cachedClipID = clip.id
-                            cachedPPB = pixelsPerBeat
-                        }
-                    }
-                }
+            // Try to get cached multi-band data
+            if let data = waveCache.getCachedMultiBandWaveform(for: clip.fileURL, samplesPerPixel: Int(sampleRate / Double(pixelsPerBeat))) {
+                renderer.render(clip: clip, data: data, in: metalWaveformLayer, color: trackColor, verticalScale: track.volume)
+            } else {
+                // Fallback to legcy renderer draw while data is loading
+                waveformRenderer?.drawWaveform(in: ctx, clip: clip, rect: rect, color: trackColor, pixelsPerBeat: pixelsPerBeat, bpm: bpm, sampleRate: sampleRate, verticalScale: track.volume)
             }
-            
-            // Draw whatever we have in cache (even if it's from a previous size/zoom)
-            // ctx.draw scales it to the rect automatically, providing a "blurred" transition during zoom.
-            if let img = cachedWaveform {
-                ctx.draw(img, in: rect)
-            }
+        } else if let renderer = waveformRenderer {
+            // Legacy Core Graphics path
+            renderer.drawWaveform(in: ctx, clip: clip, rect: rect, color: trackColor, pixelsPerBeat: pixelsPerBeat, bpm: bpm, sampleRate: sampleRate, verticalScale: track.volume)
         }
 
         ctx.restoreGState()

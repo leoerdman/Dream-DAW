@@ -1,7 +1,7 @@
-import AVFoundation
 import Accelerate
 import Foundation
 import os.log
+import AVFoundation
 
 // MARK: - LockFreeLevel
 
@@ -42,6 +42,43 @@ private final class LockFreeLevel: @unchecked Sendable {
     /// Read Peak — called from main thread. Lock-free.
     func loadPeak() -> Float {
         Float(bitPattern: storage.advanced(by: 1).pointee)
+    }
+}
+
+// MARK: - LockFreeFFT
+
+/// Lock-free storage for FFT magnitudes.
+/// Uses a double-buffered approach or atomic updates for the array.
+/// Since we only need a "snapshot" for UI, we'll use a fixed-size buffer
+/// and atomic bit pattern stores for each bin.
+private final class LockFreeFFT: @unchecked Sendable {
+    private let size: Int
+    private let storage: UnsafeMutablePointer<UInt32>
+
+    init(size: Int) {
+        self.size = size
+        storage = .allocate(capacity: size)
+        storage.initialize(repeating: 0, count: size)
+    }
+
+    deinit {
+        storage.deinitialize(count: size)
+        storage.deallocate()
+    }
+
+    func storeMagnitudes(_ magnitudes: [Float]) {
+        let count = min(size, magnitudes.count)
+        for i in 0..<count {
+            storage.advanced(by: i).pointee = magnitudes[i].bitPattern
+        }
+    }
+
+    func loadMagnitudes() -> [Float] {
+        var magnitudes = [Float](repeating: 0, count: size)
+        for i in 0..<size {
+            magnitudes[i] = Float(bitPattern: storage.advanced(by: i).pointee)
+        }
+        return magnitudes
     }
 }
 
@@ -92,6 +129,17 @@ public final class AudioLevelMeter {
     /// Lock-free level storage per track and tap point.
     private var atomicLevels: [LevelKey: LockFreeLevel] = [:]
     private let masterAtomicLevel = LockFreeLevel()
+    
+    /// MIDI activity storage per track (peak velocity scaled 0...1)
+    private var midiLevels: [UUID: LockFreeLevel] = [:]
+    
+    /// FFT storage per track.
+    private var fftStorage: [UUID: LockFreeFFT] = [:]
+    private var masterFFT = LockFreeFFT(size: 512) // Magnitude bins (FFT size / 2)
+
+    /// FFT Setup (Shared)
+    private let fftSize = 1024
+    private lazy var fftSetup: FFTSetup? = vDSP_create_fftsetup(vDSP_Length(log2(Double(fftSize))), FFTRadix(kFFTRadix2))
 
     /// Management lock — protects tap registry and dictionary mutations.
     private var managementLock = os_unfair_lock()
@@ -122,15 +170,17 @@ public final class AudioLevelMeter {
         }
 
         let levelStore = LockFreeLevel()
+        let fftStore = LockFreeFFT(size: fftSize / 2)
         let peakDecay = self.peakDecayRate
 
         os_unfair_lock_lock(&managementLock)
         activeTaps[key] = mixerNode
         atomicLevels[key] = levelStore
+        fftStorage[trackID] = fftStore
         os_unfair_lock_unlock(&managementLock)
 
-        mixerNode.installTap(onBus: 0, bufferSize: tapBufferSize, format: format) { buffer, _ in
-            guard let floatData = buffer.floatChannelData else { return }
+        mixerNode.installTap(onBus: 0, bufferSize: tapBufferSize, format: format) { [weak self] buffer, _ in
+            guard let self = self, let floatData = buffer.floatChannelData else { return }
             let frameLength = Int(buffer.frameLength)
             guard frameLength > 0 else { return }
 
@@ -148,14 +198,16 @@ public final class AudioLevelMeter {
 
                 var channelMaxPeak: Float = 0
                 vDSP_maxmgv(samples, 1, &channelMaxPeak, length)
-                if channelMaxPeak > peak {
-                    peak = channelMaxPeak
-                }
+                if channelMaxPeak > peak { peak = channelMaxPeak }
             }
 
             let rms = sqrt(sumOfSquares / Float(frameLength * channelCount))
             levelStore.storeRMS(rms)
             levelStore.storePeak(max(peak, levelStore.loadPeak() * peakDecay))
+            
+            if let setup = self.fftSetup {
+                self.computeFFT(buffer: buffer, fftStore: fftStore, setup: setup)
+            }
         }
     }
 
@@ -175,18 +227,15 @@ public final class AudioLevelMeter {
 
         // Capture references for lock-free audio thread access
         let masterStore = self.masterAtomicLevel
+        let mFFT = self.masterFFT
         let peakDecay = self.peakDecayRate
 
-        node.installTap(onBus: 0, bufferSize: tapBufferSize, format: format) { buffer, _ in
-            // ═══════════════════════════════════════════════════════
-            // AUDIO THREAD — ZERO locks, ZERO allocations, ZERO blocking
-            // ═══════════════════════════════════════════════════════
-            guard let floatData = buffer.floatChannelData else { return }
+        node.installTap(onBus: 0, bufferSize: tapBufferSize, format: format) { [weak self] buffer, _ in
+            guard let self = self, let floatData = buffer.floatChannelData else { return }
             let frameLength = Int(buffer.frameLength)
             guard frameLength > 0 else { return }
 
             let channelCount = Int(buffer.format.channelCount)
-
             var sumOfSquares: Float = 0
             var peak: Float = 0
 
@@ -194,24 +243,22 @@ public final class AudioLevelMeter {
                 let samples = floatData[channel]
                 let length = vDSP_Length(frameLength)
 
-                // RMS calculation: Sum of squares
                 var channelSumOfSquares: Float = 0
                 vDSP_svesq(samples, 1, &channelSumOfSquares, length)
                 sumOfSquares += channelSumOfSquares
 
-                // Peak calculation: Absolute maximum value
                 var channelMaxPeak: Float = 0
                 vDSP_maxmgv(samples, 1, &channelMaxPeak, length)
-                if channelMaxPeak > peak {
-                    peak = channelMaxPeak
-                }
+                if channelMaxPeak > peak { peak = channelMaxPeak }
             }
 
             let rms = sqrt(sumOfSquares / Float(frameLength * channelCount))
-
-            // Lock-free writes
             masterStore.storeRMS(rms)
             masterStore.storePeak(max(peak, masterStore.loadPeak() * peakDecay))
+            
+            if let setup = self.fftSetup {
+                self.computeFFT(buffer: buffer, fftStore: mFFT, setup: setup)
+            }
         }
     }
 
@@ -281,5 +328,89 @@ public final class AudioLevelMeter {
     /// Get the current master level. Fully lock-free — safe from any thread.
     public func masterLevelValue() -> Level {
         return Level(rms: masterAtomicLevel.loadRMS(), peak: masterAtomicLevel.loadPeak())
+    }
+
+    // MARK: - MIDI Activity API
+
+    /// Report MIDI note activity for a track. Safe from any thread.
+    public func reportMidiActivity(trackID: UUID, velocity: Int) {
+        let level = Float(velocity) / 127.0
+        
+        os_unfair_lock_lock(&managementLock)
+        if midiLevels[trackID] == nil {
+            midiLevels[trackID] = LockFreeLevel()
+        }
+        let store = midiLevels[trackID]
+        os_unfair_lock_unlock(&managementLock)
+        
+        if let store = store {
+            let current = store.loadPeak()
+            store.storePeak(max(level, current))
+        }
+    }
+
+    /// Get current MIDI activity level (0...1) for a track.
+    /// Also decays the level slightly to provide a smooth visual falloff.
+    public func midiLevel(for trackID: UUID) -> Float {
+        os_unfair_lock_lock(&managementLock)
+        let store = midiLevels[trackID]
+        os_unfair_lock_unlock(&managementLock)
+        
+        if let store = store {
+            let val = store.loadPeak()
+            // Apply decay on read for simpler implementation (UI typically reads at 30-60fps)
+            store.storePeak(val * 0.9) 
+            return val
+        }
+        return 0
+    }
+    
+    // MARK: - Spectrum Analysis API
+    
+    /// Get the current FFT spectrum for a track.
+    public func magnitudes(for trackID: UUID) -> [Float] {
+        os_unfair_lock_lock(&managementLock)
+        let fft = fftStorage[trackID]
+        os_unfair_lock_unlock(&managementLock)
+        
+        return fft?.loadMagnitudes() ?? [Float](repeating: 0, count: 512)
+    }
+    
+    /// Get the current master FFT spectrum.
+    public func masterMagnitudes() -> [Float] {
+        return masterFFT.loadMagnitudes()
+    }
+    
+    // MARK: - Internal FFT Computation
+    
+    private func computeFFT(buffer: AVAudioPCMBuffer, fftStore: LockFreeFFT, setup: FFTSetup) {
+        guard let floatData = buffer.floatChannelData else { return }
+        let frameCount = Int(buffer.frameLength)
+        if frameCount < fftSize { return }
+        
+        let log2n = vDSP_Length(log2(Double(fftSize)))
+        let halfSize = fftSize / 2
+        
+        var realP = [Float](repeating: 0, count: halfSize)
+        var imagP = [Float](repeating: 0, count: halfSize)
+        var output = DSPSplitComplex(realp: &realP, imagp: &imagP)
+        
+        // Pack into complex format (treating real samples as interleaved complex)
+        floatData[0].withMemoryRebound(to: DSPComplex.self, capacity: halfSize) { ptr in
+            vDSP_ctoz(ptr, 2, &output, 1, vDSP_Length(halfSize))
+        }
+        
+        // Forward FFT
+        vDSP_fft_zrip(setup, &output, 1, log2n, FFTDirection(FFT_FORWARD))
+        
+        // Compute Magnitudes
+        var magnitudes = [Float](repeating: 0, count: halfSize)
+        vDSP_zvmags(&output, 1, &magnitudes, 1, vDSP_Length(halfSize))
+        
+        // Normalize (scale by 1/N for power preservation)
+        var scale = 1.0 / Float(fftSize)
+        vDSP_vsmul(magnitudes, 1, &scale, &magnitudes, 1, vDSP_Length(halfSize))
+        
+        fftStore.storeMagnitudes(magnitudes)
     }
 }

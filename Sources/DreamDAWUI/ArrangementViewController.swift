@@ -1060,18 +1060,22 @@ public final class ArrangementViewController: NSViewController {
                 // Professional integrated window for the plugin GUI
                 let window = NSWindow(contentViewController: vc)
                 window.title = "Plugin: \(unit.name)"
-                
-                // Simplify styleMask to ensure visibility for now, but keep utility look
-                window.styleMask = [.titled, .closable, .utilityWindow]
+                window.styleMask = [.titled, .closable, .resizable, .utilityWindow]
                 window.level = .floating
                 window.isReleasedWhenClosed = false
                 window.hidesOnDeactivate = false
+                
+                // Apply preferred size if provided by the plugin
+                let prefSize = vc.preferredContentSize
+                if prefSize.width > 0 && prefSize.height > 0 {
+                    window.setContentSize(prefSize)
+                }
                 
                 // CRITICAL: Attach as a CHILD window to the main DAW window
                 if let mainWindow = self.view.window {
                     mainWindow.addChildWindow(window, ordered: .above)
                     
-                    // Position relative to main window center if it's the first open
+                    // Position relative to main window center
                     let mainFrame = mainWindow.frame
                     let windowSize = window.frame.size
                     let targetPoint = NSPoint(

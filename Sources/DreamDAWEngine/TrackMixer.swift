@@ -49,6 +49,10 @@ public final class TrackMixer {
     
     /// Map from Track ID to its instrument source node (attached to engine).
     private var trackInstrumentNodes: [UUID: AVAudioNode] = [:]
+    
+    /// Map from Track ID to its PDC (Plugin Delay Compensation) delay node.
+    /// This node is placed at the start of the chain to align the track's timing.
+    private var trackPDCNodes: [UUID: AVAudioUnitDelay] = [:]
 
     // MARK: - Initialization
 
@@ -84,12 +88,19 @@ public final class TrackMixer {
 
     private func setupTrackNodes(track: Track, format: AVAudioFormat) {
         let inputMixer = AVAudioMixerNode()
+        let pdcNode = AVAudioUnitDelay()
         let outputMixer = AVAudioMixerNode()
         let player = AVAudioPlayerNode()
 
         audioEngine.attach(inputMixer)
+        audioEngine.attach(pdcNode)
         audioEngine.attach(outputMixer)
         audioEngine.attach(player)
+        
+        // Configure PDC node for pure delay (no feedback, 100% wet)
+        pdcNode.feedback = 0
+        pdcNode.wetDryMix = 100
+        pdcNode.delayTime = 0
         
         // Setup instrument if applicable (even for Master if user wants generators there)
         if track.trackType == .midi || track.instrument != nil {
@@ -98,6 +109,7 @@ public final class TrackMixer {
         }
         
         trackInputMixers[track.id] = inputMixer
+        trackPDCNodes[track.id] = pdcNode
         trackMixerNodes[track.id] = outputMixer
         trackPlayerNodes[track.id] = player
         
@@ -127,15 +139,20 @@ public final class TrackMixer {
                             return
                         }
                         
+                        // Detach placeholder/old instrument if any
+                        if let oldInstr = self.trackInstrumentNodes[track.id], oldInstr !== unit {
+                            self.audioEngine.detach(oldInstr)
+                        }
+                        
                         self.audioEngine.attach(unit)
                         self.trackInstrumentNodes[track.id] = unit
                         PluginHost.shared.registerInstance(track.id, unit: unit)
                         
-                        // Trigger a chain rebuild to include the new plugin (main thread safe)
+                        // Trigger a chain rebuild to include the new plugin
                         self.rebuildEffectChain(for: track)
                     }
                 }
-                // Return placeholder during async load to prevent silent track
+                // Return placeholder during async load
                 let synth = SimpleSynthInstrument(sampleRate: format.sampleRate)
                 sourceNode = synth.createSourceNode()
             } else {
@@ -145,6 +162,11 @@ public final class TrackMixer {
         @unknown default:
             let synth = SimpleSynthInstrument(sampleRate: format.sampleRate)
             sourceNode = synth.createSourceNode()
+        }
+        
+        // Ensure old node is detached if we are replacing it synchronously
+        if let previousNode = trackInstrumentNodes[track.id], previousNode !== sourceNode {
+            audioEngine.detach(previousNode)
         }
         
         audioEngine.attach(sourceNode)
@@ -171,6 +193,11 @@ public final class TrackMixer {
             audioEngine.detach(inputMixer)
         }
 
+        if let pdc = trackPDCNodes.removeValue(forKey: id) {
+            audioEngine.disconnectNodeOutput(pdc)
+            audioEngine.detach(pdc)
+        }
+
         if let mixer = trackMixerNodes.removeValue(forKey: id) {
             audioEngine.disconnectNodeOutput(mixer)
             audioLevelMeter.removeTap(trackID: id, point: .postEffects)
@@ -179,15 +206,20 @@ public final class TrackMixer {
     }
 
     public func rebuildEffectChain(for track: Track, format: AVAudioFormat? = nil, allTracks: [Track] = []) {
+        let fmt = format ?? standardFormat
+        
+        // 0. Ensure instrument node matches configuration (detect changes)
+        syncTrackInstrument(track: track, format: fmt)
+        
         guard let inputMixer = trackInputMixers[track.id],
+              let pdcNode = trackPDCNodes[track.id],
               let outputMixer = trackMixerNodes[track.id],
               let player = trackPlayerNodes[track.id] else { return }
-        
-        let fmt = format ?? standardFormat
         
         // 1. Disconnect current components
         audioEngine.disconnectNodeOutput(player)
         audioEngine.disconnectNodeOutput(inputMixer)
+        audioEngine.disconnectNodeOutput(pdcNode)
         audioEngine.disconnectNodeOutput(outputMixer)
         if let synthNode = trackInstrumentNodes[track.id] {
             audioEngine.disconnectNodeOutput(synthNode)
@@ -196,7 +228,11 @@ public final class TrackMixer {
         if let oldChain = trackEffectChains[track.id] {
             for node in oldChain {
                 audioEngine.disconnectNodeOutput(node)
-                audioEngine.detach(node)
+                // If it's a VST, we keep it attached to the engine but managed by PluginHost
+                // Native nodes are detached/re-attached
+                if !(node is AVAudioUnit) || (node.auAudioUnit.manufacturerName == "Apple") {
+                    audioEngine.detach(node)
+                }
             }
         }
         
@@ -246,8 +282,11 @@ public final class TrackMixer {
             audioEngine.avAudioEngine.connect(synthNode, to: inputMixer, fromBus: 0, toBus: 1, format: fmt)
         }
         
+        // PDC node follows inputMixer immediately
+        audioEngine.connect(inputMixer, to: pdcNode, format: fmt)
+        
         let firstEffect = newChain.first ?? outputMixer
-        audioEngine.connect(inputMixer, to: firstEffect, format: fmt)
+        audioEngine.connect(pdcNode, to: firstEffect, format: fmt)
         
         var lastNode: AVAudioNode = firstEffect
         if !newChain.isEmpty {
@@ -338,7 +377,9 @@ public final class TrackMixer {
     private func createNode(for effect: AudioEffectConfig) -> AVAudioNode? {
         switch effect.effectType {
         case .eq:
-            return AVAudioUnitEQ(numberOfBands: 8)
+            let eq = AVAudioUnitEQ(numberOfBands: 8)
+            PluginHost.shared.registerInstance(effect.id, unit: eq)
+            return eq
         case .compressor:
             // Use component description as a fallback if class lookup is flaky
             let desc = AudioComponentDescription(
@@ -351,9 +392,13 @@ public final class TrackMixer {
             // Note: AVAudioUnitEffect is the correct subclass for effects with component descriptions
             return AVAudioUnitEffect(audioComponentDescription: desc)
         case .delay:
-            return AVAudioUnitDelay()
+            let delay = AVAudioUnitDelay()
+            PluginHost.shared.registerInstance(effect.id, unit: delay)
+            return delay
         case .reverb:
-            return AVAudioUnitReverb()
+            let reverb = AVAudioUnitReverb()
+            PluginHost.shared.registerInstance(effect.id, unit: reverb)
+            return reverb
         case .utility, .chorus:
             // Custom native nodes or simplified standard nodes
             return AVAudioMixerNode() // Spacer for now
@@ -363,6 +408,48 @@ public final class TrackMixer {
         @unknown default:
             return AVAudioMixerNode()
         }
+    }
+
+    /// Internal helper to sync instrument node if type changed
+    private func syncTrackInstrument(track: Track, format: AVAudioFormat) {
+        let currentConfig = track.instrument
+        let node = trackInstrumentNodes[track.id]
+        
+        // Determine if we need to re-instantiate
+        var needsRebuild = false
+        
+        if let config = currentConfig {
+            if node == nil {
+                needsRebuild = true
+            } else if config.instrumentType == .vst2 || config.instrumentType == .vst3 {
+                // For VST, check if identifier matches what's registered
+                let registered = PluginHost.shared.getInstance(track.id)
+                if registered == nil || registered !== node {
+                    needsRebuild = true
+                }
+            } else if config.instrumentType == .sampler {
+                if trackSamplers[track.id] == nil { needsRebuild = true }
+            } else if config.instrumentType == .sineSynth {
+                if trackSynths[track.id] == nil { needsRebuild = true }
+            }
+        } else if node != nil {
+            // Configuration removed
+            removeInstrumentNode(id: track.id)
+        }
+        
+        if needsRebuild {
+            setupInstrumentNode(track: track, format: format)
+        }
+    }
+
+    private func removeInstrumentNode(id: UUID) {
+        if let node = trackInstrumentNodes.removeValue(forKey: id) {
+            audioEngine.disconnectNodeOutput(node)
+            audioEngine.detach(node)
+        }
+        trackSynths.removeValue(forKey: id)
+        trackSamplers.removeValue(forKey: id)
+        PluginHost.shared.removeInstance(id)
     }
 
     public func noteOn(trackID: UUID, pitch: Int, velocity: Int) {
@@ -563,6 +650,30 @@ public final class TrackMixer {
         masterMixer.pan = masterTrack.pan
     }
 
+    /// Calculates and applies PDC delays based on current project processing latency.
+    public func syncPDC(tracks: [Track]) {
+        let pdc = PDCEngine()
+        let latencies = pdc.calculateLatencies(tracks: tracks)
+        let maxLatency = latencies.values.max() ?? 0.0
+        
+        logger.info("[PDC] Project-wide max latency: \(Int(maxLatency * 1000))ms")
+        
+        for (trackID, trackLatency) in latencies {
+            guard let pdcNode = trackPDCNodes[trackID] else { continue }
+            
+            // Compensation Delay: How much to delay THIS track to align with the SLOWEST track.
+            let compensation = maxLatency - trackLatency
+            
+            // Max delay for AVAudioUnitDelay is usually 2s (which is huge for PDC).
+            let safeDelay = max(0, min(2.0, compensation))
+            
+            if pdcNode.delayTime != safeDelay {
+                pdcNode.delayTime = safeDelay
+                logger.debug("[PDC] Applied \(Int(safeDelay * 1000))ms compensation to track \(trackID)")
+            }
+        }
+    }
+
     /// Remove all track nodes from the engine.
     public func removeAll() {
         stopAll()
@@ -572,6 +683,10 @@ public final class TrackMixer {
                 audioEngine.detach(node)
             }
         }
+        for (_, pdc) in trackPDCNodes {
+            audioEngine.disconnectNodeOutput(pdc)
+            audioEngine.detach(pdc)
+        }
         for (_, mixer) in trackMixerNodes {
             audioEngine.disconnectNodeOutput(mixer)
             audioEngine.detach(mixer)
@@ -580,6 +695,7 @@ public final class TrackMixer {
             audioEngine.disconnectNodeOutput(player)
             audioEngine.detach(player)
         }
+        trackPDCNodes.removeAll()
         trackMixerNodes.removeAll()
         trackPlayerNodes.removeAll()
         trackEffectChains.removeAll()

@@ -65,19 +65,14 @@ public final class PlaybackScheduler {
             }
         }
 
-        // 0. Calculate PDC Latencies
-        let pdcEngine = PDCEngine()
-        let trackLatencies = pdcEngine.calculateLatencies(tracks: project.tracks)
-        let maxLatency = trackLatencies.values.max() ?? 0.0
-        logger.info("[PDC] Max project latency: \(maxLatency)s")
+        // 0. Synchronize Project-wide PDC
+        trackMixer.syncPDC(tracks: project.tracks)
 
         // Stop all players first (clears queue)
         trackMixer.stopAll()
 
-        var playerStartTimeMap: [AVAudioPlayerNode: AVAudioTime] = [:]
-
         // 3. Prepare synchronized future time
-        let delaySeconds = 0.08 // Slightly increased for PDC safety
+        let delaySeconds = 0.1 // Safe buffer for graph changes
         let renderTime = audioEngine.avAudioEngine.outputNode.lastRenderTime ?? AVAudioTime(hostTime: mach_absolute_time())
         
         var timebaseInfo = mach_timebase_info_data_t()
@@ -85,7 +80,8 @@ public final class PlaybackScheduler {
         let delayInNano = UInt64(delaySeconds * 1_000_000_000.0)
         let delayInHostTicks = delayInNano * UInt64(timebaseInfo.denom) / UInt64(timebaseInfo.numer)
         
-        // This is our "T-Zero" — the moment the first sample of the slowest track should hit the output.
+        // This is our "T-Zero" — the moment the first sample should hit the start of the signal chain.
+        // PDC nodes will handle the alignment from here.
         let baseStartTime = AVAudioTime(hostTime: renderTime.hostTime + delayInHostTicks)
 
         for track in project.tracks {
@@ -95,7 +91,7 @@ public final class PlaybackScheduler {
             player.stop()
 
             var hasContent = false
-            // ... (rest of scheduling logic unchanged)
+            // ... (scheduling logic)
             if !looping || position.beats >= loopEnd.beats {
                 let end = project.totalDuration
                 _ = scheduleTrackRange(track: track, player: player, start: position, end: end, bpm: bpm, sampleRate: sampleRate)
@@ -119,26 +115,8 @@ public final class PlaybackScheduler {
             }
 
             if hasContent {
-                // APPLY PDC: Delay this player by (maxLatency - trackLatency)
-                let trackLatency = trackLatencies[track.id] ?? 0.0
-                let compensationDelay = maxLatency - trackLatency
-                
-                let compNano = UInt64(compensationDelay * 1_000_000_000.0)
-                let compTicks = compNano * UInt64(timebaseInfo.denom) / UInt64(timebaseInfo.numer)
-                
-                let adjustedStartTime = AVAudioTime(hostTime: baseStartTime.hostTime + compTicks)
-                playerStartTimeMap[player] = adjustedStartTime
+                player.play(at: baseStartTime)
             }
-        }
-
-        if playerStartTimeMap.isEmpty {
-            logger.warning("[Scheduler] No players to start.")
-        } else {
-            logger.info("[Scheduler] Starting \(playerStartTimeMap.count) synchronized players with PDC.")
-        }
-
-        for (player, startTime) in playerStartTimeMap {
-            player.play(at: startTime)
         }
         
         return baseStartTime

@@ -77,13 +77,17 @@ public final class PluginHost {
     
     /// Requests the native GUI for a plugin.
     public func requestEditor(for unit: AVAudioUnit, completion: @escaping (NSViewController?) -> Void) {
-        self.logger.info("PluginHost: Requesting view controller for \(unit.name)...")
+        let name = unit.name
+        self.logger.info("PluginHost: Requesting view controller for \(name, privacy: .public)...")
+        
+        // Ensure we are not on the audio thread if possible, though requestViewController is async
         unit.auAudioUnit.requestViewController { viewController in
-            if viewController == nil {
-                self.logger.warning("PluginHost: Plugin \(unit.name) returned NO view controller.")
+            if let vc = viewController {
+                self.logger.info("PluginHost: Plugin \(name, privacy: .public) returned view controller successfully. Preferred size: \(vc.preferredContentSize.width)x\(vc.preferredContentSize.height)")
             } else {
-                self.logger.info("PluginHost: Plugin \(unit.name) returned view controller successfully.")
+                self.logger.warning("PluginHost: Plugin \(name, privacy: .public) returned NO view controller.")
             }
+            
             DispatchQueue.main.async {
                 completion(viewController)
             }

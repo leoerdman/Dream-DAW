@@ -10,46 +10,19 @@ public final class PDCEngine {
     /// Calculates the total latency for each track in the project.
     /// - Parameters:
     ///   - tracks: All tracks in the project.
-    ///   - pluginHost: The host to query for individual plugin latencies.
     /// - Returns: A dictionary mapping Track ID to its cumulative latency in seconds.
     public func calculateLatencies(tracks: [Track]) -> [UUID: Double] {
-        var latencyMap: [UUID: Double] = [:]
+        var localLatencies: [UUID: Double] = [:]
         
-        // 1. Calculate base latency for each track (instrument + internal effects)
+        // 1. Calculate local latency for each track (instrument + internal effects)
         for track in tracks {
-            latencyMap[track.id] = calculateLocalTrackLatency(track: track)
+            localLatencies[track.id] = calculateLocalTrackLatency(track: track)
         }
         
-        // 2. Resolve routing latencies (Buses/Groups)
-        // We do this by iteratively adding destination latencies until no more changes occur.
-        // This handles recursive/nested routing without complex graph sorting.
-        var changed = true
-        var iterations = 0
-        let maxIterations = tracks.count // Safety cap
-        
-        while changed && iterations < maxIterations {
-            changed = false
-            iterations += 1
-            
-            for track in tracks {
-                guard let destID = track.outputDestinationID else { continue }
-                let currentLatency = latencyMap[track.id] ?? 0.0
-                let destLatency = latencyMap[destID] ?? 0.0
-                
-                // If the track routes to a destination that has its own latency,
-                // that latency must be added to the track's total path latency.
-                // But wait, PDC logic usually means tracks arriving at the same bus
-                // are aligned relative to that bus's input.
-                // Actually, for global output alignment, we need the total path to Master.
-            }
-        }
-        
-        // Enterprise PDC logic implementation:
-        // We need the "Arrival Time" at Master for each track.
-        // Let's use a simpler recursive approach.
+        // 2. Resolve total path latencies (Path to output)
         var totalPathLatencies: [UUID: Double] = [:]
         for track in tracks {
-            totalPathLatencies[track.id] = calculateTotalPathLatency(trackID: track.id, tracks: tracks, localLatencies: latencyMap)
+            totalPathLatencies[track.id] = calculateTotalPathLatency(trackID: track.id, tracks: tracks, localLatencies: localLatencies)
         }
         
         return totalPathLatencies

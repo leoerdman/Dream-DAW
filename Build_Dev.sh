@@ -8,8 +8,9 @@
 # ============================================================================
 
 # 1. Build the app bundle (using the production script's build-only mode)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 echo "▸ Building for Development..."
-./Build_Production.sh build-only
+"${SCRIPT_DIR}/Build_Production.sh" build-only
 
 if [ $? -eq 0 ]; then
     echo "✔ Build successful. Launching with Console Output..."

@@ -25,8 +25,9 @@ MIN_MACOS="13.0"
 
 # Paths
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BUILD_DIR="${SCRIPT_DIR}/.build"
-RESOURCES_DIR="${SCRIPT_DIR}/Resources"
+PROJECT_ROOT="${SCRIPT_DIR}"
+BUILD_DIR="${PROJECT_ROOT}/.build"
+RESOURCES_DIR="${PROJECT_ROOT}/Resources"
 INSTALL_DIR="${HOME}/Applications"
 APP_BUNDLE="${INSTALL_DIR}/${APP_NAME}.app"
 CONTENTS_DIR="${APP_BUNDLE}/Contents"
@@ -65,7 +66,7 @@ print_header() {
 
 # Increment the version in AppVersion.swift
 increment_version() {
-    local version_file="${SCRIPT_DIR}/Sources/DreamDAWModels/AppVersion.swift"
+    local version_file="${PROJECT_ROOT}/Sources/DreamDAWModels/AppVersion.swift"
     if [ ! -f "$version_file" ]; then
         return
     fi
@@ -111,7 +112,7 @@ increment_version() {
 build_swift() {
     increment_version
     print_step "Building Swift package (release)..."
-    cd "${SCRIPT_DIR}"
+    cd "${PROJECT_ROOT}"
     swift build -c release 2>&1 | while IFS= read -r line; do
         # Show only important lines
         if [[ "$line" == *"error:"* ]]; then
@@ -278,7 +279,7 @@ launch_app() {
 # Clean build artifacts
 clean() {
     print_step "Cleaning build artifacts..."
-    cd "${SCRIPT_DIR}"
+    cd "${PROJECT_ROOT}"
     swift package clean 2>/dev/null || true
     rm -rf "${BUILD_DIR}/AppIcon.iconset"
     rm -f "${BUILD_DIR}/AppIcon.icns"

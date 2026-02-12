@@ -12,12 +12,55 @@ import DreamDAWEngine
 /// Uses Core Graphics for high-performance custom rendering.
 public final class TimelineCanvasView: NSView {
 
+    public override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupLayers()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupLayers()
+    }
+
+    private func setupLayers() {
+        self.wantsLayer = true
+        self.layer?.backgroundColor = DreamTheme.bgPrimary.cgColor
+        
+        // Disable implicit animations for the entire view's sublayers
+        // to avoid "jank" during scroll/zoom updates
+        let noActions: [String: CAAction] = [
+            "position": NSNull(),
+            "bounds": NSNull(),
+            "contents": NSNull(),
+            "frame": NSNull(),
+            "isHidden": NSNull()
+        ]
+        
+        laneContainerLayer.actions = noActions
+        gridLayer.actions = noActions
+        clipContainerLayer.actions = noActions
+        cursorLayer.actions = noActions
+        playheadLayer.actions = noActions
+        
+        self.layer?.addSublayer(laneContainerLayer)
+        self.layer?.addSublayer(gridLayer)
+        self.layer?.addSublayer(clipContainerLayer)
+        self.layer?.addSublayer(cursorLayer)
+        self.layer?.addSublayer(cursorHandleLayer)
+        self.layer?.addSublayer(playheadLayer)
+        
+        // Initial setup for static elements
+        cursorLayer.backgroundColor = NSColor.systemBlue.cgColor
+        cursorHandleLayer.fillColor = NSColor.systemBlue.cgColor
+        playheadLayer.backgroundColor = NSColor.systemRed.cgColor
+    }
+
     // MARK: - Properties
 
     public var project: Project? {
         didSet {
             setupSubscriptions()
-            needsDisplay = true
+            updateArrangementLayers()
         }
     }
 
@@ -25,8 +68,8 @@ public final class TimelineCanvasView: NSView {
 
     public var pixelsPerBeat: CGFloat = DreamTheme.defaultPixelsPerBeat {
         didSet { 
-            needsDisplay = true 
             rebuildQuadTree() // Rebuild when zoom changes as track layout might shift
+            updateArrangementLayers()
         }
     }
 
@@ -35,7 +78,7 @@ public final class TimelineCanvasView: NSView {
     public var scrollOffset: CGPoint = .zero
 
     public var playheadPosition: TimePosition = .zero {
-        didSet { needsDisplay = true }
+        didSet { updatePlayheadLayer(project: project) }
     }
 
     public var waveformRenderer: WaveformRenderer?
@@ -90,6 +133,12 @@ public final class TimelineCanvasView: NSView {
     private let cursorHandleLayer = CAShapeLayer()
     private var isCursorVisible: Bool = true
 
+    /// GPU-accelerated layers for arrangement
+    private let gridLayer = GridLayer()
+    private let laneContainerLayer = LaneLayer()
+    private let clipContainerLayer = CALayer()
+    private let playheadLayer = CALayer()
+
 
     /// Whether we're dragging the playhead (click on ruler/empty space logic can vary).
 
@@ -126,7 +175,7 @@ public final class TimelineCanvasView: NSView {
         project.objectWillChange
             .sink { [weak self] _ in
                 self?.rebuildQuadTree()
-                self?.needsDisplay = true
+                self?.updateArrangementLayers()
             }
             .store(in: &cancellables)
 
@@ -136,7 +185,7 @@ public final class TimelineCanvasView: NSView {
             .sink { [weak self] tracks in
                 self?.subscribeToTracks(tracks)
                 self?.rebuildQuadTree()
-                self?.needsDisplay = true
+                self?.updateArrangementLayers()
             }
             .store(in: &cancellables)
             
@@ -150,7 +199,7 @@ public final class TimelineCanvasView: NSView {
             track.objectWillChange
                 .sink { [weak self] _ in
                     self?.rebuildQuadTree() // In case tracks moved/resized
-                    self?.needsDisplay = true
+                    self?.updateArrangementLayers()
                 }
                 .store(in: &cancellables)
         }
@@ -281,24 +330,142 @@ public final class TimelineCanvasView: NSView {
     public override var isFlipped: Bool { true }
 
     public override func draw(_ dirtyRect: NSRect) {
-        guard let ctx = NSGraphicsContext.current?.cgContext,
-              let project = project else { return }
+        // All rendering is now layer-backed.
+    }
 
-        // Background
-        ctx.setFillColor(DreamTheme.bgPrimary.cgColor)
-        ctx.fill(bounds)
+    public override func layout() {
+        super.layout()
+        updateArrangementLayers()
+    }
 
-        // Track lane backgrounds first (opaque fills)
-        drawTrackLanes(ctx: ctx, project: project)
-        // Grid lines ON TOP of lanes so they are visible
-        drawGridLines(ctx: ctx, project: project)
-        // Clips on top of grid
-        drawClips(ctx: ctx, project: project)
-        drawMidiClips(ctx: ctx, project: project)
-        drawMidiClips(ctx: ctx, project: project)
+    public func updateArrangementLayers() {
+        guard let project = project else { return }
+        
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        
+        updateGridLayer(project: project)
+        updateLaneLayers(project: project)
+        updateClipLayers(project: project)
         updateCursorLayer(project: project)
-        drawPlayhead(ctx: ctx)
-        drawPlayhead(ctx: ctx)
+        updatePlayheadLayer(project: project)
+        
+        CATransaction.commit()
+    }
+
+    private func updateGridLayer(project: Project) {
+        gridLayer.frame = self.bounds
+        gridLayer.pixelsPerBeat = pixelsPerBeat
+        gridLayer.timeSignature = project.timeSignature
+        gridLayer.setNeedsDisplay()
+    }
+
+    private func updateLaneLayers(project: Project) {
+        laneContainerLayer.frame = self.bounds
+        laneContainerLayer.tracks = project.tracks
+        laneContainerLayer.setNeedsDisplay()
+    }
+
+    private func updatePlayheadLayer(project: Project?) {
+        guard let _ = project else { return }
+        let x = CGFloat(playheadPosition.beats) * pixelsPerBeat
+        
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        playheadLayer.frame = CGRect(x: x - 0.5, y: 0, width: 1.5, height: bounds.height)
+        playheadLayer.isHidden = false
+        CATransaction.commit()
+    }
+
+    // Pools for layer reuse
+    private var audioLayerPool: [UUID: AudioClipLayer] = [:]
+    private var midiLayerPool: [UUID: MidiClipLayer] = [:]
+
+    private func updateClipLayers(project: Project) {
+        clipContainerLayer.frame = self.bounds
+        
+        let vr = visibleRect
+        let visibleBeatsRange = Double(vr.width) / Double(pixelsPerBeat)
+        let minBeat = Double(vr.minX) / Double(pixelsPerBeat)
+        let maxBeat = minBeat + visibleBeatsRange
+        
+        let queryRect = QuadRect(minX: minBeat - 4.0, maxX: maxBeat + 4.0, 
+                                 minY: 0, maxY: Double(project.tracks.count))
+        
+        let candidates = quadTree?.query(range: queryRect) ?? []
+        var visibleIDs = Set<UUID>()
+        
+        for element in candidates {
+            let wrapper = element.value
+            visibleIDs.insert(wrapper.id)
+            
+            guard let trackIndex = project.tracks.firstIndex(where: { $0.id == wrapper.trackID }) else { continue }
+            let track = project.tracks[trackIndex]
+            
+            var trackY: CGFloat = 0
+            for i in 0..<trackIndex { trackY += project.tracks[i].height }
+            
+            if !wrapper.isMidi, let clip = wrapper.audioClip {
+                let layer = audioLayerPool[clip.id] ?? {
+                    let newLayer = AudioClipLayer()
+                    audioLayerPool[clip.id] = newLayer
+                    clipContainerLayer.addSublayer(newLayer)
+                    return newLayer
+                }()
+                
+                layer.clip = clip
+                layer.track = track
+                layer.pixelsPerBeat = pixelsPerBeat
+                layer.bpm = project.bpm
+                layer.sampleRate = project.sampleRate
+                layer.waveformRenderer = waveformRenderer
+                
+                let clipX = CGFloat(clip.position.beats) * pixelsPerBeat
+                let clipWidth = CGFloat(clip.duration.beats) * pixelsPerBeat
+                
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.frame = CGRect(x: clipX, y: trackY + 2, width: clipWidth, height: track.height - 4)
+                CATransaction.commit()
+                layer.setNeedsDisplay()
+                
+            } else if wrapper.isMidi, let clip = wrapper.midiClip {
+                let layer = midiLayerPool[clip.id] ?? {
+                    let newLayer = MidiClipLayer()
+                    midiLayerPool[clip.id] = newLayer
+                    clipContainerLayer.addSublayer(newLayer)
+                    return newLayer
+                }()
+                
+                layer.midiClip = clip
+                layer.trackColor = track.color.nsColor
+                
+                let clipX = CGFloat(clip.position.beats) * pixelsPerBeat
+                let clipWidth = CGFloat(clip.duration.beats) * pixelsPerBeat
+                
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.frame = CGRect(x: clipX, y: trackY + 2, width: clipWidth, height: track.height - 4)
+                CATransaction.commit()
+                layer.setNeedsDisplay()
+            }
+        }
+        
+        let audioIDs = Array(audioLayerPool.keys)
+        for id in audioIDs {
+            if !visibleIDs.contains(id) {
+                audioLayerPool[id]?.removeFromSuperlayer()
+                audioLayerPool.removeValue(forKey: id)
+            }
+        }
+        
+        let midiIDs = Array(midiLayerPool.keys)
+        for id in midiIDs {
+            if !visibleIDs.contains(id) {
+                midiLayerPool[id]?.removeFromSuperlayer()
+                midiLayerPool.removeValue(forKey: id)
+            }
+        }
     }
 
     public override func viewDidMoveToWindow() {
@@ -759,7 +926,7 @@ public final class TimelineCanvasView: NSView {
     public override func mouseExited(with event: NSEvent) {
         hoverLocation = nil
         NSCursor.arrow.set()
-        needsDisplay = true
+        updateArrangementLayers()
     }
 
     // MARK: - Edge Hit Testing
@@ -926,7 +1093,7 @@ public final class TimelineCanvasView: NSView {
             // Also select the clip being resized
             deselectAllClips(in: project)
             selectClip(id: edgeHit.clipID, isMidi: edgeHit.isMidi, in: project)
-            needsDisplay = true
+            updateArrangementLayers()
             return
         }
 
@@ -990,7 +1157,7 @@ public final class TimelineCanvasView: NSView {
         // ──── Priority 3: Empty space click ────
         // Deselect all
         deselectAllClips(in: project)
-        needsDisplay = true
+        updateArrangementLayers()
     }
     
     /// Handle double-click: create MIDI clip on empty space of MIDI track,
@@ -1037,7 +1204,7 @@ public final class TimelineCanvasView: NSView {
                         track.midiClips.append(newClip)
                         // Record undo action for the clip creation
                         let action = AddMidiClipAction(trackID: track.id, clip: newClip)
-                        orchestrator.history.record(action)
+                        orchestrator?.actionHistory.record(action)
                         needsDisplay = true
                     }
                 }
@@ -1098,7 +1265,7 @@ public final class TimelineCanvasView: NSView {
                     }
                 }
             }
-            needsDisplay = true
+            updateArrangementLayers()
             return
         }
 
@@ -1164,7 +1331,7 @@ public final class TimelineCanvasView: NSView {
 
             NSCursor.arrow.set()
             resizeState = nil
-            needsDisplay = true
+            updateArrangementLayers()
             onClipsModified?()
             return
         }
@@ -1196,7 +1363,7 @@ public final class TimelineCanvasView: NSView {
 
             NSCursor.arrow.set()
             dragState = nil
-            needsDisplay = true
+            updateArrangementLayers()
             onClipsModified?()
             return
         }
@@ -1252,7 +1419,7 @@ public final class TimelineCanvasView: NSView {
             }
         }
         if didDelete {
-            needsDisplay = true
+            updateArrangementLayers()
             onClipsModified?()
         }
     }
@@ -1348,7 +1515,7 @@ public final class TimelineCanvasView: NSView {
             track.midiClips.append(contentsOf: newMidiClips)
         }
         if didSplit {
-            needsDisplay = true
+            updateArrangementLayers()
             onClipsModified?()
         }
     }
@@ -1414,7 +1581,7 @@ public final class TimelineCanvasView: NSView {
                 track.midiClips.append(pasted)
             }
         }
-        needsDisplay = true
+        updateArrangementLayers()
     }
 
     /// Select all clips across all tracks.
@@ -1424,7 +1591,7 @@ public final class TimelineCanvasView: NSView {
             for i in track.clips.indices { track.clips[i].isSelected = true }
             for i in track.midiClips.indices { track.midiClips[i].isSelected = true }
         }
-        needsDisplay = true
+        updateArrangementLayers()
     }
 
     /// Duplicate selected clips — places copies immediately after the originals.
@@ -1478,7 +1645,7 @@ public final class TimelineCanvasView: NSView {
             track.clips.append(contentsOf: newAudio)
             track.midiClips.append(contentsOf: newMidi)
         }
-        needsDisplay = true
+        updateArrangementLayers()
     }
 
     // MARK: - Scroll & Zoom
@@ -1546,6 +1713,197 @@ public final class TimelineCanvasView: NSView {
         guard targetTrackIndex < project.tracks.count else { return false }
         let track = project.tracks[targetTrackIndex]
 
+// MARK: - Specialized Clip Layers
+
+internal class AudioClipLayer: CALayer {
+    var clip: AudioClip?
+    var track: Track?
+    var pixelsPerBeat: CGFloat = 1.0
+    var bpm: Double = 120.0
+    var sampleRate: Double = 44100.0
+    var waveformRenderer: WaveformRenderer?
+
+    override init() {
+        super.init()
+        self.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        self.actions = ["position": NSNull(), "bounds": NSNull(), "frame": NSNull()]
+    }
+
+    override init(layer: Any) {
+        super.init(layer: layer)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(in ctx: CGContext) {
+        guard let clip = clip, let track = track else { return }
+        let trackColor = track.color.nsColor
+        let rect = self.bounds
+
+        ctx.saveGState()
+
+        // Clip body (rounded rect)
+        let clipPath = CGPath(roundedRect: rect, cornerWidth: DreamTheme.clipCornerRadius, cornerHeight: DreamTheme.clipCornerRadius, transform: nil)
+        ctx.addPath(clipPath)
+        ctx.clip()
+
+        // Background fill
+        let bodyColor = trackColor.withAlphaComponent(0.3)
+        ctx.setFillColor(bodyColor.cgColor)
+        ctx.fill(rect)
+
+        // Title bar
+        let titleRect = CGRect(x: 0, y: 0, width: rect.width, height: DreamTheme.clipTitleHeight)
+        ctx.setFillColor(trackColor.withAlphaComponent(0.6).cgColor)
+        ctx.fill(titleRect)
+
+        // Clip name text
+        let clipName = clip.name
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: DreamTheme.fontSmall,
+            .foregroundColor: DreamTheme.textPrimary
+        ]
+        let attrString = NSAttributedString(string: clipName, attributes: attrs)
+        let textRect = CGRect(x: 4, y: 2, width: rect.width - 8, height: DreamTheme.clipTitleHeight)
+        
+        // AppKit drawing in layer context
+        NSGraphicsContext.saveGraphicsState()
+        let nctx = NSGraphicsContext(cgContext: ctx, flipped: false)
+        NSGraphicsContext.current = nctx
+        attrString.draw(in: textRect)
+        NSGraphicsContext.restoreGraphicsState()
+
+        // Waveform
+        if let renderer = waveformRenderer {
+            renderer.drawWaveform(
+                in: ctx,
+                clip: clip,
+                rect: rect,
+                color: trackColor,
+                pixelsPerBeat: pixelsPerBeat,
+                bpm: bpm,
+                sampleRate: sampleRate
+            )
+        }
+
+        ctx.restoreGState()
+
+        // Clip border
+        ctx.setStrokeColor(trackColor.withAlphaComponent(0.5).cgColor)
+        ctx.setLineWidth(0.5)
+        ctx.addPath(clipPath)
+        ctx.strokePath()
+
+        // Selection border
+        if clip.isSelected {
+            ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.55).cgColor)
+            ctx.setLineWidth(1.5)
+            ctx.addPath(clipPath)
+            ctx.strokePath()
+        }
+    }
+}
+
+internal class MidiClipLayer: CALayer {
+    var midiClip: MidiClip?
+    var trackColor: NSColor = .systemBlue
+
+    override init() {
+        super.init()
+        self.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        self.actions = ["position": NSNull(), "bounds": NSNull(), "frame": NSNull()]
+    }
+
+    override init(layer: Any) {
+        super.init(layer: layer)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(in ctx: CGContext) {
+        guard let clip = midiClip else { return }
+        let rect = self.bounds
+        let color = clip.colorOverride?.nsColor ?? trackColor
+
+        ctx.saveGState()
+
+        // Clip body (rounded rect)
+        let clipPath = CGPath(roundedRect: rect, cornerWidth: DreamTheme.clipCornerRadius, cornerHeight: DreamTheme.clipCornerRadius, transform: nil)
+        ctx.addPath(clipPath)
+        ctx.clip()
+
+        // Background fill
+        ctx.setFillColor(color.withAlphaComponent(0.25).cgColor)
+        ctx.fill(rect)
+
+        // Title bar
+        let titleRect = CGRect(x: 0, y: 0, width: rect.width, height: DreamTheme.clipTitleHeight)
+        ctx.setFillColor(color.withAlphaComponent(0.55).cgColor)
+        ctx.fill(titleRect)
+
+        // Clip name
+        let clipName = "♪ \(clip.name)"
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: DreamTheme.fontSmall,
+            .foregroundColor: DreamTheme.textPrimary
+        ]
+        let attrString = NSAttributedString(string: clipName, attributes: attrs)
+        let textRect = CGRect(x: 4, y: 2, width: rect.width - 8, height: DreamTheme.clipTitleHeight)
+        
+        NSGraphicsContext.saveGraphicsState()
+        let nctx = NSGraphicsContext(cgContext: ctx, flipped: false)
+        NSGraphicsContext.current = nctx
+        attrString.draw(in: textRect)
+        NSGraphicsContext.restoreGraphicsState()
+
+        // Piano roll preview
+        let noteAreaRect = CGRect(x: 0, y: DreamTheme.clipTitleHeight, width: rect.width, height: rect.height - DreamTheme.clipTitleHeight)
+        drawMidiNotes(ctx: ctx, in: noteAreaRect, clip: clip, color: color)
+
+        ctx.restoreGState()
+
+        // Clip border
+        ctx.setStrokeColor(color.withAlphaComponent(0.5).cgColor)
+        ctx.setLineWidth(0.5)
+        ctx.addPath(clipPath)
+        ctx.strokePath()
+
+        if clip.isSelected {
+            ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.55).cgColor)
+            ctx.setLineWidth(1.5)
+            ctx.addPath(clipPath)
+            ctx.strokePath()
+        }
+    }
+
+    private func drawMidiNotes(ctx: CGContext, in rect: CGRect, clip: MidiClip, color: NSColor) {
+        // Implementation from TimelineCanvasView...
+        let notes = clip.notes
+        guard !notes.isEmpty else { return }
+
+        let minPitch = notes.map { $0.pitch }.min() ?? 36
+        let maxPitch = notes.map { $0.pitch }.max() ?? 84
+        let pitchRange = max(12, maxPitch - minPitch + 4)
+        let basePitch = minPitch - 2
+
+        ctx.setFillColor(color.withAlphaComponent(0.7).cgColor)
+
+        for note in notes {
+            let noteX = CGFloat(note.position.beats) * (rect.width / CGFloat(clip.duration.beats))
+            let noteW = CGFloat(note.duration.beats) * (rect.width / CGFloat(clip.duration.beats))
+            let normalizedPitch = CGFloat(note.pitch - basePitch) / CGFloat(pitchRange)
+            let noteH: CGFloat = 2.0
+            let noteY = rect.origin.y + rect.height - (normalizedPitch * rect.height) - noteH
+
+            ctx.fill(CGRect(x: noteX, y: noteY, width: noteW, height: noteH))
+        }
+    }
+}
+
         // CASE 1: Browser item drop (instruments, effects)
         if let payload = pasteboard.string(forType: .browserItem) {
             let parts = payload.split(separator: ":", maxSplits: 1)
@@ -1592,5 +1950,105 @@ public final class TimelineCanvasView: NSView {
 
         needsDisplay = true
         return true
+    }
+}
+
+internal class GridLayer: CALayer {
+    var pixelsPerBeat: CGFloat = 1.0
+    var timeSignature: TimeSignature = TimeSignature()
+    
+    override init() {
+        super.init()
+        self.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        self.actions = ["position": NSNull(), "bounds": NSNull(), "frame": NSNull()]
+    }
+    
+    override init(layer: Any) {
+        super.init(layer: layer)
+    }
+    
+    required init?(coder: NSCoder) { fatalError() }
+    
+    override func draw(in ctx: CGContext) {
+        let beatsPerBar = timeSignature.beatsPerBar
+        let vr = self.bounds
+        let visibleStartBeat = Double(vr.origin.x) / Double(pixelsPerBeat)
+        let visibleEndBeat = Double(vr.maxX) / Double(pixelsPerBeat)
+
+        let startBar = max(0, Int(floor(visibleStartBeat / Double(beatsPerBar))))
+        let endBar = Int(ceil(visibleEndBeat / Double(beatsPerBar))) + 1
+
+        for bar in startBar...endBar {
+            let barBeat = Double(bar * beatsPerBar)
+            let x = CGFloat(barBeat) * pixelsPerBeat
+
+            ctx.setStrokeColor(DreamTheme.gridLineMajor.cgColor)
+            ctx.setLineWidth(1)
+            ctx.move(to: CGPoint(x: x, y: 0))
+            ctx.addLine(to: CGPoint(x: x, y: bounds.height))
+            ctx.strokePath()
+
+            if pixelsPerBeat > 12 {
+                for beat in 1..<beatsPerBar {
+                    let beatX = x + CGFloat(beat) * pixelsPerBeat
+                    ctx.setStrokeColor(DreamTheme.gridLine.cgColor)
+                    ctx.setLineWidth(0.5)
+                    ctx.move(to: CGPoint(x: beatX, y: 0))
+                    ctx.addLine(to: CGPoint(x: beatX, y: bounds.height))
+                    ctx.strokePath()
+                }
+            }
+
+            if pixelsPerBeat > 40 {
+                for beat in 0..<beatsPerBar {
+                    for sub in 1..<4 {
+                        let subX = x + CGFloat(beat) * pixelsPerBeat + CGFloat(sub) * pixelsPerBeat * 0.25
+                        ctx.setStrokeColor(DreamTheme.gridLine.withAlphaComponent(0.3).cgColor)
+                        ctx.setLineWidth(0.25)
+                        ctx.move(to: CGPoint(x: subX, y: 0))
+                        ctx.addLine(to: CGPoint(x: subX, y: bounds.height))
+                        ctx.strokePath()
+                    }
+                }
+            }
+        }
+    }
+}
+
+internal class LaneLayer: CALayer {
+    var tracks: [Track] = []
+    
+    override init() {
+        super.init()
+        self.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        self.actions = ["position": NSNull(), "bounds": NSNull(), "frame": NSNull()]
+    }
+    
+    override init(layer: Any) {
+        super.init(layer: layer)
+    }
+    
+    required init?(coder: NSCoder) { fatalError() }
+    
+    override func draw(in ctx: CGContext) {
+        var yOffset: CGFloat = 0
+        for (index, track) in tracks.enumerated() {
+            let laneRect = CGRect(x: 0, y: yOffset, width: bounds.width, height: track.height)
+            let bgColor = index % 2 == 0 ? DreamTheme.bgSecondary : DreamTheme.bgTertiary
+            ctx.setFillColor(bgColor.cgColor)
+            ctx.fill(laneRect)
+
+            ctx.setStrokeColor(DreamTheme.divider.cgColor)
+            ctx.setLineWidth(0.5)
+            ctx.move(to: CGPoint(x: 0, y: yOffset + track.height - 0.5))
+            ctx.addLine(to: CGPoint(x: bounds.width, y: yOffset + track.height - 0.5))
+            ctx.strokePath()
+
+            if track.isMuted {
+                ctx.setFillColor(NSColor.black.withAlphaComponent(0.3).cgColor)
+                ctx.fill(laneRect)
+            }
+            yOffset += track.height
+        }
     }
 }

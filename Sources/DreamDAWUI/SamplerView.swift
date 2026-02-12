@@ -43,6 +43,8 @@ public final class SamplerView: NSView {
     private let filterToggle = NSButton(checkboxWithTitle: "Filter", target: nil, action: nil)
     private let cutoffKnob = DAWKnob(label: "Freq")
     private let resKnob = DAWKnob(label: "Res")
+    // Callback when sample is changed via drag-and-drop
+    public var onSampleURLChanged: ((URL) -> Void)?
 
     // MARK: - Initialization
 
@@ -52,6 +54,7 @@ public final class SamplerView: NSView {
         super.init(frame: .zero)
         setupUI()
         updateUI()
+        registerForDraggedTypes([.fileURL, .browserItem])
     }
 
     required init?(coder: NSCoder) {
@@ -93,21 +96,59 @@ public final class SamplerView: NSView {
     }
     
     private func setupSidebar() {
+        let sidebarStack = NSStackView()
+        sidebarStack.orientation = .vertical
+        sidebarStack.spacing = 4
+        sidebarStack.edgeInsets = NSEdgeInsets(top: 8, left: 2, bottom: 8, right: 2)
+        sidebarStack.alignment = .centerX
+        sidebar.addSubview(sidebarStack)
+        
+        sidebarStack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            sidebarStack.topAnchor.constraint(equalTo: sidebar.topAnchor),
+            sidebarStack.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),
+            sidebarStack.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor)
+        ])
+        
         let modes = ["Classic", "1-Shot", "Slice"]
         for mode in modes {
             let btn = NSButton(title: mode, target: self, action: #selector(modeSelected(_:)))
             btn.bezelStyle = .recessed
             btn.setButtonType(.pushOnPushOff)
+            btn.controlSize = .small
             btn.font = NSFont.systemFont(ofSize: 9, weight: .medium)
-            sidebar.addSubview(btn)
+            
+            btn.translatesAutoresizingMaskIntoConstraints = false
+            btn.heightAnchor.constraint(equalToConstant: 32).isActive = true
+            btn.widthAnchor.constraint(equalToConstant: 36).isActive = true
+            
+            sidebarStack.addArrangedSubview(btn)
             modeButtons.append(btn)
         }
     }
     
     private func setupParameterBar() {
+        let parameterStack = NSStackView()
+        parameterStack.orientation = .horizontal
+        parameterStack.spacing = 8
+        parameterStack.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
+        parameterStack.alignment = .centerY
+        parameterBar.addSubview(parameterStack)
+        
+        parameterStack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            parameterStack.topAnchor.constraint(equalTo: parameterBar.topAnchor),
+            parameterStack.bottomAnchor.constraint(equalTo: parameterBar.bottomAnchor),
+            parameterStack.leadingAnchor.constraint(equalTo: parameterBar.leadingAnchor),
+            parameterStack.trailingAnchor.constraint(equalTo: parameterBar.trailingAnchor)
+        ])
+        
         let controls = [gainControl, startControl, endControl, loopControl, fadeControl]
         for ctrl in controls {
-            parameterBar.addSubview(ctrl)
+            parameterStack.addArrangedSubview(ctrl)
+            ctrl.translatesAutoresizingMaskIntoConstraints = false
+            ctrl.widthAnchor.constraint(equalToConstant: 65).isActive = true
+            ctrl.heightAnchor.constraint(equalToConstant: 24).isActive = true
         }
         
         gainControl.onValueChanged = { [weak self] val in self?.config.gain = Float(val) }
@@ -118,20 +159,59 @@ public final class SamplerView: NSView {
     }
     
     private func setupLowerSection() {
+        let mainStack = NSStackView()
+        mainStack.orientation = .horizontal
+        mainStack.spacing = 20
+        mainStack.edgeInsets = NSEdgeInsets(top: 4, left: 12, bottom: 4, right: 12)
+        mainStack.alignment = .centerY
+        lowerSection.addSubview(mainStack)
+        
+        mainStack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            mainStack.topAnchor.constraint(equalTo: lowerSection.topAnchor),
+            mainStack.bottomAnchor.constraint(equalTo: lowerSection.bottomAnchor),
+            mainStack.leadingAnchor.constraint(equalTo: lowerSection.leadingAnchor),
+            mainStack.trailingAnchor.constraint(equalTo: lowerSection.trailingAnchor)
+        ])
+        
         // Filter Group
-        lowerSection.addSubview(filterToggle)
-        lowerSection.addSubview(cutoffKnob)
-        lowerSection.addSubview(resKnob)
+        let filterStack = NSStackView()
+        filterStack.spacing = 8
+        filterStack.alignment = .centerY
+        filterStack.addArrangedSubview(filterToggle)
+        filterStack.addArrangedSubview(cutoffKnob)
+        filterStack.addArrangedSubview(resKnob)
+        mainStack.addArrangedSubview(filterStack)
+        
+        // Divider
+        let divider = NSView()
+        divider.wantsLayer = true
+        divider.layer?.backgroundColor = NSColor(white: 0.3, alpha: 1.0).cgColor
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        divider.widthAnchor.constraint(equalToConstant: 1).isActive = true
+        divider.heightAnchor.constraint(equalToConstant: 40).isActive = true
+        mainStack.addArrangedSubview(divider)
         
         // Envelope Group
-        let envLabel = NSTextField(labelWithString: "Envelopes")
-        envLabel.font = NSFont.systemFont(ofSize: 8, weight: .bold)
-        lowerSection.addSubview(envLabel)
+        let envStack = NSStackView()
+        envStack.orientation = .vertical
+        envStack.spacing = 2
+        envStack.alignment = .centerX
         
-        lowerSection.addSubview(attackKnob)
-        lowerSection.addSubview(decayKnob)
-        lowerSection.addSubview(sustainKnob)
-        lowerSection.addSubview(releaseKnob)
+        let envLabel = NSTextField(labelWithString: "ENVELOPES")
+        envLabel.font = NSFont.systemFont(ofSize: 8, weight: .bold)
+        envLabel.textColor = NSColor(white: 0.6, alpha: 1.0)
+        envStack.addArrangedSubview(envLabel)
+        
+        let knobStack = NSStackView()
+        knobStack.spacing = 8
+        knobStack.addArrangedSubview(attackKnob)
+        knobStack.addArrangedSubview(decayKnob)
+        knobStack.addArrangedSubview(sustainKnob)
+        knobStack.addArrangedSubview(releaseKnob)
+        envStack.addArrangedSubview(knobStack)
+        
+        mainStack.addArrangedSubview(envStack)
         
         attackKnob.onValueChanged = { [weak self] v in self?.config.attack = v }
         decayKnob.onValueChanged = { [weak self] v in self?.config.decay = v }
@@ -150,7 +230,7 @@ public final class SamplerView: NSView {
             sidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
             sidebar.topAnchor.constraint(equalTo: topAnchor),
             sidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
-            sidebar.widthAnchor.constraint(equalToConstant: 40),
+            sidebar.widthAnchor.constraint(equalToConstant: 44),
             
             mainContent.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
             mainContent.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -165,28 +245,13 @@ public final class SamplerView: NSView {
             parameterBar.leadingAnchor.constraint(equalTo: mainContent.leadingAnchor),
             parameterBar.trailingAnchor.constraint(equalTo: mainContent.trailingAnchor),
             parameterBar.topAnchor.constraint(equalTo: waveformView.bottomAnchor),
-            parameterBar.heightAnchor.constraint(equalToConstant: 30),
+            parameterBar.heightAnchor.constraint(equalToConstant: 32),
             
             lowerSection.leadingAnchor.constraint(equalTo: mainContent.leadingAnchor),
             lowerSection.trailingAnchor.constraint(equalTo: mainContent.trailingAnchor),
             lowerSection.topAnchor.constraint(equalTo: parameterBar.bottomAnchor),
             lowerSection.bottomAnchor.constraint(equalTo: mainContent.bottomAnchor)
         ])
-        
-        // Layout sidebar buttons
-        var y: CGFloat = 8
-        for btn in modeButtons {
-            btn.frame = CGRect(x: 2, y: y, width: 36, height: 40)
-            y += 44
-        }
-        
-        // Layout parameterBar controls
-        var x: CGFloat = 8
-        let controls = [gainControl, startControl, endControl, loopControl, fadeControl]
-        for ctrl in controls {
-            ctrl.frame = CGRect(x: x, y: 2, width: 60, height: 26)
-            x += 65
-        }
     }
 
     private func updateUI() {
@@ -213,6 +278,56 @@ public final class SamplerView: NSView {
 
     @objc private func modeSelected(_ sender: NSButton) {
         // Toggle behavior logic
+    }
+    
+    // MARK: - Drag and Drop
+    
+    public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let pb = sender.draggingPasteboard
+        
+        // Check for audio files
+        if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingContentsConformToTypes: ["public.audio"]]) as? [URL], !urls.isEmpty {
+            return .copy
+        }
+        
+        // Check for browser items (samples)
+        if let payload = pb.string(forType: .browserItem) {
+            let parts = payload.split(separator: ":", maxSplits: 1)
+            if parts.count == 2 && String(parts[0]) == "sample" {
+                return .copy
+            }
+        }
+        
+        return []
+    }
+    
+    public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let pb = sender.draggingPasteboard
+        
+        // 1. Try file URLs
+        if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingContentsConformToTypes: ["public.audio"]]) as? [URL], let url = urls.first {
+            loadSample(url: url)
+            return true
+        }
+        
+        // 2. Try browser items (if we support a 'sample' type directly)
+        if let payload = pb.string(forType: .browserItem) {
+            let parts = payload.split(separator: ":", maxSplits: 1)
+            if parts.count == 2 && String(parts[0]) == "sample" {
+                let path = String(parts[1])
+                let url = URL(fileURLWithPath: path)
+                loadSample(url: url)
+                return true
+            }
+        }
+        
+        return false
+    }
+    
+    private func loadSample(url: URL) {
+        // We don't update config.sampleURL here directly to allow for proper Undo capturing by the Orchestrator
+        waveformView.loadSample(url: url)
+        onSampleURLChanged?(url)
     }
 }
 

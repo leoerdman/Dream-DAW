@@ -92,6 +92,21 @@ public final class AudioEffectConfig: ObservableObject, Identifiable, Codable {
     @Published public var eqBands: [EQBandConfig]
     @Published public var gainDB: Float   // For Utility: -60...+6 dB (default 0.0)
 
+    // Compressor
+    @Published public var threshold: Float = -20.0  // dB
+    @Published public var ratio: Float = 2.0        // :1
+    @Published public var attack: Float = 0.003     // Seconds
+    @Published public var release: Float = 0.05     // Seconds
+    
+    // Delay
+    @Published public var delayTime: Double = 0.25  // Seconds
+    @Published public var feedback: Float = 30.0    // %
+    @Published public var wetDryMix: Float = 20.0   // %
+    
+    // Reverb
+    @Published public var reverbPreset: Int = 0     // Factory Preset Index
+    @Published public var reverbMix: Float = 30.0   // %
+
     public init(
         id: UUID = UUID(),
         effectType: AudioEffectType = .eq,
@@ -133,6 +148,9 @@ public final class AudioEffectConfig: ObservableObject, Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, effectType, isEnabled, eqBands, gainDB
+        case threshold, ratio, attack, release
+        case delayTime, feedback, wetDryMix
+        case reverbPreset, reverbMix
     }
 
     public convenience init(from decoder: Decoder) throws {
@@ -145,6 +163,15 @@ public final class AudioEffectConfig: ObservableObject, Identifiable, Codable {
                 ?? AudioEffectConfig.defaultEQBands(),
             gainDB: try container.decodeIfPresent(Float.self, forKey: .gainDB) ?? 0.0
         )
+        threshold = try container.decodeIfPresent(Float.self, forKey: .threshold) ?? -20.0
+        ratio = try container.decodeIfPresent(Float.self, forKey: .ratio) ?? 2.0
+        attack = try container.decodeIfPresent(Float.self, forKey: .attack) ?? 0.003
+        release = try container.decodeIfPresent(Float.self, forKey: .release) ?? 0.05
+        delayTime = try container.decodeIfPresent(Double.self, forKey: .delayTime) ?? 0.25
+        feedback = try container.decodeIfPresent(Float.self, forKey: .feedback) ?? 30.0
+        wetDryMix = try container.decodeIfPresent(Float.self, forKey: .wetDryMix) ?? 20.0
+        reverbPreset = try container.decodeIfPresent(Int.self, forKey: .reverbPreset) ?? 0
+        reverbMix = try container.decodeIfPresent(Float.self, forKey: .reverbMix) ?? 30.0
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -154,6 +181,15 @@ public final class AudioEffectConfig: ObservableObject, Identifiable, Codable {
         try container.encode(isEnabled, forKey: .isEnabled)
         try container.encode(eqBands, forKey: .eqBands)
         try container.encode(gainDB, forKey: .gainDB)
+        try container.encode(threshold, forKey: .threshold)
+        try container.encode(ratio, forKey: .ratio)
+        try container.encode(attack, forKey: .attack)
+        try container.encode(release, forKey: .release)
+        try container.encode(delayTime, forKey: .delayTime)
+        try container.encode(feedback, forKey: .feedback)
+        try container.encode(wetDryMix, forKey: .wetDryMix)
+        try container.encode(reverbPreset, forKey: .reverbPreset)
+        try container.encode(reverbMix, forKey: .reverbMix)
     }
 }
 

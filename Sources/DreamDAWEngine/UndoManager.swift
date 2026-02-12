@@ -94,13 +94,14 @@ public final class ActionHistory: ObservableObject {
             undoStack.removeFirst(undoStack.count - maxHistoryDepth)
         }
 
+        project.isDirty = true
         updateState()
         logger.info("Performed: \(action.actionName) (history: \(self.undoStack.count))")
     }
 
     /// Record an action that has already been performed (for actions that modify state inline).
     /// Use this when the action is performed before being recorded (e.g., live parameter dragging).
-    public func record(_ action: UndoableAction) {
+    public func record(_ action: UndoableAction, on project: Project) {
         undoStack.append(action)
         redoStack.removeAll()
 
@@ -108,6 +109,7 @@ public final class ActionHistory: ObservableObject {
             undoStack.removeFirst(undoStack.count - maxHistoryDepth)
         }
 
+        project.isDirty = true
         updateState()
         logger.info("Recorded: \(action.actionName) (history: \(self.undoStack.count))")
     }
@@ -606,6 +608,57 @@ public final class ChangePanAction: UndoableAction {
     public func undo(on project: Project) {
         guard let track = project.tracks.first(where: { $0.id == trackID }) else { return }
         track.pan = oldPan
+    }
+}
+
+/// Change a sampler's loaded sample.
+public final class ChangeSamplerSampleAction: UndoableAction {
+    public let actionName: String = "Load Sample"
+    private let trackID: UUID
+    private let oldURL: URL?
+    private let newURL: URL
+
+    public init(trackID: UUID, oldURL: URL?, newURL: URL) {
+        self.trackID = trackID
+        self.oldURL = oldURL
+        self.newURL = newURL
+    }
+
+    public func execute(on project: Project) {
+        guard let track = project.tracks.first(where: { $0.id == trackID }),
+              let instrument = track.instrument,
+              instrument.instrumentType == .sampler else { return }
+        instrument.sampleURL = newURL
+    }
+
+    public func undo(on project: Project) {
+        guard let track = project.tracks.first(where: { $0.id == trackID }),
+              let instrument = track.instrument,
+              instrument.instrumentType == .sampler else { return }
+        instrument.sampleURL = oldURL
+    }
+}
+
+/// Move a track to a new position.
+public final class MoveTrackAction: UndoableAction {
+    public let actionName: String = "Move Track"
+    private let sourceIndex: Int
+    private let destinationIndex: Int
+
+    public init(from source: Int, to destination: Int) {
+        self.sourceIndex = source
+        self.destinationIndex = destination
+    }
+
+    public func execute(on project: Project) {
+        project.moveTrack(from: sourceIndex, to: destinationIndex)
+    }
+
+    public func undo(on project: Project) {
+        // To undo a move from source to destination:
+        // We move it from (calculated destination) back to source
+        let actualDest = destinationIndex < sourceIndex ? destinationIndex : destinationIndex - 1
+        project.moveTrack(from: actualDest, to: sourceIndex + (actualDest < sourceIndex ? 1 : 0))
     }
 }
 

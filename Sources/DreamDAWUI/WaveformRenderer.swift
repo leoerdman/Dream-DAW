@@ -39,6 +39,8 @@ public final class WaveformRenderer: @unchecked Sendable {
     // MARK: - Drawing
 
     /// Draw multi-band colored waveform for a clip within the given rect.
+    /// Returns true if a cached or computed path was drawn, false if placeholder/fallback.
+    @discardableResult
     public func drawWaveform(
         in ctx: CGContext,
         clip: AudioClip,
@@ -47,35 +49,38 @@ public final class WaveformRenderer: @unchecked Sendable {
         pixelsPerBeat: CGFloat,
         bpm: Double,
         sampleRate: Double
-    ) {
+    ) -> Bool {
         // Calculate samples per pixel for the current zoom level
         let secondsPerPixel = 1.0 / (pixelsPerBeat * (bpm / 60.0))
-        let samplesPerPixel = max(1, Int(secondsPerPixel * sampleRate))
+        let samplesPerPixel = max(Int(1), Int(secondsPerPixel * sampleRate))
         
         let style = AppSettings.shared.waveformStyle
         let cacheKey = "\(clip.fileURL.path)_\(samplesPerPixel)_\(rect.width)_\(rect.height)_\(style.rawValue)"
         
         if let cachedPath = pathCache[cacheKey] {
             drawPath(cachedPath, in: ctx, rect: rect, color: color, style: style)
-            return
+            return true
         }
+
+        var result = false
 
         // Try to get cached multi-band waveform data
         if let multiBandData = waveformCache.getCachedMultiBandWaveform(for: clip.fileURL, samplesPerPixel: samplesPerPixel) {
             let path = generateMultiBandPath(data: multiBandData, clip: clip, rect: rect, bpm: bpm, sampleRate: sampleRate, samplesPerPixel: samplesPerPixel)
             pathCache[cacheKey] = path
             drawPath(path, in: ctx, rect: rect, color: color, style: style)
-            return
-        }
-
-        // Check mono fallback
-        if let monoData = waveformCache.getCachedWaveform(for: clip.fileURL, samplesPerPixel: samplesPerPixel) {
+            result = true
+        } else if let monoData = waveformCache.getCachedWaveform(for: clip.fileURL, samplesPerPixel: samplesPerPixel) {
+            // Check mono fallback
             let path = generateMonoPath(data: monoData, clip: clip, rect: rect, bpm: bpm, sampleRate: sampleRate, samplesPerPixel: samplesPerPixel)
             pathCache[cacheKey] = path
             drawPath(path, in: ctx, rect: rect, color: color, style: style)
+            result = true
         } else {
             drawPlaceholder(in: ctx, rect: rect, color: color)
+            result = false
         }
+        
         
         // Periodically clear path cache to prevent excessive memory usage
         if pathCache.count > 256 { pathCache.removeAll() }
@@ -93,6 +98,8 @@ public final class WaveformRenderer: @unchecked Sendable {
                 self?.onWaveformReady?()
             }
         }
+
+        return result
     }
 
     // MARK: - Path Generation

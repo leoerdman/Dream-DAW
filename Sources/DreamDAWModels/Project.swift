@@ -57,6 +57,8 @@ public final class Project: ObservableObject, Identifiable, Codable {
 
     /// Selected track ID (persisted)
     public var selectedTrackID: UUID?
+    /// Whether the project has unsaved changes.
+    @Published public var isDirty: Bool = false
 
     // MARK: - Initialization
 
@@ -160,6 +162,14 @@ public final class Project: ObservableObject, Identifiable, Codable {
             color: TrackColor.forIndex(index)
         )
         tracks.append(track)
+        isDirty = true
+    }
+
+    /// Moves a track from one index to another (for drag-to-reorder).
+    public func moveTrack(from source: Int, to destination: Int) {
+        let track = tracks.remove(at: source)
+        tracks.insert(track, at: destination < source ? destination : destination - 1)
+        isDirty = true
     }
 
     // MARK: - Computed

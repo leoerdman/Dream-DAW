@@ -76,7 +76,7 @@ public final class ArrangementOrchestrator {
         
         if !actions.isEmpty {
             let composite = CompositeUndoAction(actionName: "Move Clip", actions: actions)
-            actionHistory.record(composite)
+            actionHistory.record(composite, on: project)
         }
     }
     
@@ -114,7 +114,7 @@ public final class ArrangementOrchestrator {
         
         if !actions.isEmpty {
             let composite = CompositeUndoAction(actionName: "Resize Clip", actions: actions)
-            actionHistory.record(composite)
+            actionHistory.record(composite, on: project)
         }
     }
 

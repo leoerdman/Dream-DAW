@@ -16,10 +16,21 @@ public final class BottomPanelView: NSView {
 
     // MARK: - Mode
 
-    public enum PanelMode {
+    public enum PanelMode: Equatable {
         case hidden
         case detail(Track)
         case pianoRoll(Track, MidiClip)
+        case audioClip(Track, AudioClip)
+        
+        public static func == (lhs: PanelMode, rhs: PanelMode) -> Bool {
+            switch (lhs, rhs) {
+            case (.hidden, .hidden): return true
+            case (.detail(let t1), .detail(let t2)): return t1.id == t2.id
+            case (.pianoRoll(let t1, let c1), .pianoRoll(let t2, let c2)): return t1.id == t2.id && c1.id == c2.id
+            case (.audioClip(let t1, let c1), .audioClip(let t2, let c2)): return t1.id == t2.id && c1.id == c2.id
+            default: return false
+            }
+        }
     }
 
     // MARK: - Properties
@@ -35,7 +46,7 @@ public final class BottomPanelView: NSView {
     public var panelHeight: CGFloat {
         switch mode {
         case .hidden: return 0
-        case .detail, .pianoRoll: return BottomPanelView.defaultHeight
+        case .detail, .pianoRoll, .audioClip: return BottomPanelView.defaultHeight
         }
     }
 
@@ -49,6 +60,10 @@ public final class BottomPanelView: NSView {
     /// Callback when an effect parameter is changed (e.g. Utility gain knob).
     /// Parameter: trackID
     public var onEffectParameterChanged: ((UUID) -> Void)?
+
+    /// Callback when a sample is changed in the Sampler instrument.
+    /// Parameters: trackID, oldURL, newURL
+    public var onSamplerSampleChanged: ((UUID, URL?, URL) -> Void)?
 
     /// Reference to the audio level meter for real-time signal chain metering.
     public weak var audioLevelMeter: AudioLevelMeter?
@@ -65,12 +80,14 @@ public final class BottomPanelView: NSView {
     private var currentTrackID: UUID?
 
     // Sub-views
+    private let blurView = NSVisualEffectView()
     private let headerBar = NSView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let closeButton = NSButton()
     private let pianoRollView = PianoRollView()
     private let detailContentView = NSView()
     private let pianoScrollView = NSScrollView()
+    private let gridSnapPopup = NSPopUpButton()
 
     // MARK: - Initialization
 
@@ -88,11 +105,19 @@ public final class BottomPanelView: NSView {
 
     private func setupUI() {
         wantsLayer = true
-        layer?.backgroundColor = DreamTheme.bgSecondary.cgColor
+        layer?.backgroundColor = .clear // Transparent to let blur show through
+
+        // Blur background (Liquid Glass)
+        blurView.material = DreamTheme.glassMaterial
+        blurView.blendingMode = DreamTheme.glassBlending
+        blurView.state = .active
+        blurView.wantsLayer = true
+        blurView.layer?.cornerRadius = 0
+        addSubview(blurView)
 
         // Header bar
         headerBar.wantsLayer = true
-        headerBar.layer?.backgroundColor = DreamTheme.bgHeader.cgColor
+        headerBar.layer?.backgroundColor = DreamTheme.bgHeader.withAlphaComponent(0.6).cgColor
         addSubview(headerBar)
 
         // Title label
@@ -132,6 +157,15 @@ public final class BottomPanelView: NSView {
                 self.onNotesChanged?(track, clip)
             }
         }
+        
+        // Grid Snap Popup
+        gridSnapPopup.bezelStyle = .recessed
+        gridSnapPopup.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+        gridSnapPopup.addItems(withTitles: ["1/4 Grid", "1/8 Grid", "1/16 Grid", "1/32 Grid", "Adaptive"])
+        gridSnapPopup.target = self
+        gridSnapPopup.action = #selector(gridSnapChanged(_:))
+        gridSnapPopup.isHidden = true
+        addSubview(gridSnapPopup)
     }
 
     // MARK: - Layout
@@ -139,10 +173,12 @@ public final class BottomPanelView: NSView {
     public override func layout() {
         super.layout()
 
+        blurView.frame = bounds
         let headerHeight: CGFloat = 24
         headerBar.frame = CGRect(x: 0, y: 0, width: bounds.width, height: headerHeight)
-        titleLabel.frame = CGRect(x: 8, y: 4, width: bounds.width - 40, height: 16)
+        titleLabel.frame = CGRect(x: 8, y: 4, width: bounds.width - 150, height: 16)
         closeButton.frame = CGRect(x: bounds.width - 24, y: 4, width: 16, height: 16)
+        gridSnapPopup.frame = CGRect(x: bounds.width - 140, y: 3, width: 100, height: 18)
 
         let contentFrame = CGRect(
             x: 0, y: headerHeight,
@@ -163,15 +199,36 @@ public final class BottomPanelView: NSView {
     // MARK: - Content Update
 
     private func updateContent() {
+        let targetHeight = panelHeight
+        let isHiding = (mode == .hidden)
+        
+        // Animate visibility and height
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = DreamTheme.standardAnimation
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            
+            if isHiding {
+                self.animator().alphaValue = 0
+            } else {
+                self.isHidden = false
+                self.animator().alphaValue = 1
+            }
+            
+            // Trigger layout on superview to animate the height change
+            self.superview?.needsLayout = true
+        } completionHandler: {
+            if isHiding {
+                self.isHidden = true
+                self.stopMeterTimer()
+            }
+        }
+
         switch mode {
         case .hidden:
-            stopMeterTimer()
             detailContentView.isHidden = true
             pianoScrollView.isHidden = true
-            isHidden = true
 
         case .detail(let track):
-            isHidden = false
             detailContentView.isHidden = false
             pianoScrollView.isHidden = true
             titleLabel.stringValue = track.trackType == .midi
@@ -180,16 +237,34 @@ public final class BottomPanelView: NSView {
             updateDetailContent(track: track)
 
         case .pianoRoll(let track, let clip):
-            isHidden = false
             detailContentView.isHidden = true
             pianoScrollView.isHidden = false
             titleLabel.stringValue = "\(track.name) — Piano Roll: \(clip.name)"
             pianoRollView.midiClip = clip
             pianoRollView.track = track
             pianoRollView.frame = NSRect(origin: .zero, size: pianoRollView.intrinsicContentSize)
-        }
 
-        superview?.needsLayout = true
+        case .audioClip(let track, let clip):
+            detailContentView.isHidden = false
+            pianoScrollView.isHidden = true
+            titleLabel.stringValue = "\(track.name) — Sample Editor: \(clip.name)"
+            updateAudioClipEditor(track: track, clip: clip)
+        }
+        
+        gridSnapPopup.isHidden = true
+        if case .pianoRoll = mode {
+            gridSnapPopup.isHidden = false
+        }
+    }
+    
+    @objc private func gridSnapChanged(_ sender: NSPopUpButton) {
+        let values: [Double] = [1.0, 0.5, 0.25, 0.125, 0.0625] // 1/4, 1/8, 1/16, 1/32, 1/64
+        let idx = sender.indexOfSelectedItem
+        guard idx >= 0 && idx < values.count else { return }
+        
+        // Update PianoRollView grid snap
+        pianoRollView.gridSnap = values[idx]
+        pianoRollView.needsDisplay = true
     }
 
     private func updateDetailContent(track: Track) {
@@ -301,6 +376,27 @@ public final class BottomPanelView: NSView {
         startMeterTimer()
     }
 
+    private func updateAudioClipEditor(track: Track, clip: AudioClip) {
+        detailContentView.subviews.forEach { $0.removeFromSuperview() }
+        
+        let container = NSView(frame: detailContentView.bounds)
+        container.autoresizingMask = [.width, .height]
+        
+        let infoLabel = NSTextField(labelWithString: "AUDIO CLIP: \(clip.name)\nLength: \(String(format: "%.3f", clip.duration.beats)) Beats")
+        infoLabel.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
+        infoLabel.textColor = DreamTheme.accent
+        infoLabel.frame = CGRect(x: 20, y: 40, width: 400, height: 60)
+        container.addSubview(infoLabel)
+        
+        let hintLabel = NSTextField(labelWithString: "Professional Sample Editor coming in next iteration...")
+        hintLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+        hintLabel.textColor = .lightGray
+        hintLabel.frame = CGRect(x: 20, y: 20, width: 400, height: 20)
+        container.addSubview(hintLabel)
+        
+        detailContentView.addSubview(container)
+    }
+
     // MARK: - Meter Animation Timer
 
     /// Start the 30fps timer that reads real-time levels from AudioLevelMeter.
@@ -353,9 +449,12 @@ public final class BottomPanelView: NSView {
     /// Returns the slot width for a given effect type.
     private func effectSlotWidth(for type: AudioEffectType) -> CGFloat {
         switch type {
-        case .utility: return 80   // Compact — just a knob
-        case .eq:      return 140  // Wider for EQ curve
-        default:       return 100  // Default for other effects
+        case .utility:    return 80   // Compact — just a knob
+        case .eq:         return 140  // Wider for EQ curve
+        case .compressor: return 160  // Multiple knobs for dynamics
+        case .delay:      return 160  // Time, feedback, mix
+        case .reverb:     return 120  // Preset and mix
+        default:          return 100  // Default for other effects
         }
     }
 
@@ -437,6 +536,97 @@ public final class BottomPanelView: NSView {
             curveView.bands = effect.eqBands
             slot.addSubview(curveView)
 
+        case .compressor:
+            // Threshold Knob
+            let tKnob = makeKnob(
+                x: 10, y: contentY + 10, size: 40, 
+                value: effect.threshold, min: -40, max: 0, def: -20, suffix: " dB", label: "Thr",
+                color: .orange
+            ) { [weak effect, weak self] v in
+                effect?.threshold = v
+                self?.onEffectParameterChanged?(track.id)
+            }
+            slot.addSubview(tKnob)
+            
+            // Ratio Knob
+            let rKnob = makeKnob(
+                x: 60, y: contentY + 10, size: 40, 
+                value: effect.ratio, min: 1, max: 20, def: 2, suffix: ":1", label: "Ratio",
+                color: .orange
+            ) { [weak effect, weak self] v in
+                effect?.ratio = v
+                self?.onEffectParameterChanged?(track.id)
+            }
+            slot.addSubview(rKnob)
+            
+            // Attack Knob
+            let aKnob = makeKnob(
+                x: 110, y: contentY + 10, size: 40, 
+                value: effect.attack * 1000, min: 0.1, max: 100, def: 3, suffix: " ms", label: "Att",
+                color: .orange
+            ) { [weak effect, weak self] v in
+                effect?.attack = v / 1000.0
+                self?.onEffectParameterChanged?(track.id)
+            }
+            slot.addSubview(aKnob)
+
+        case .delay:
+            // Time Knob
+            let dKnob = makeKnob(
+                x: 10, y: contentY + 10, size: 40, 
+                value: Float(effect.delayTime * 1000), min: 1, max: 1000, def: 250, suffix: " ms", label: "Time",
+                color: .green
+            ) { [weak effect, weak self] v in
+                effect?.delayTime = Double(v) / 1000.0
+                self?.onEffectParameterChanged?(track.id)
+            }
+            slot.addSubview(dKnob)
+            
+            // Feedback Knob
+            let fKnob = makeKnob(
+                x: 60, y: contentY + 10, size: 40, 
+                value: effect.feedback, min: 0, max: 100, def: 30, suffix: "%", label: "Fbk",
+                color: .green
+            ) { [weak effect, weak self] v in
+                effect?.feedback = v
+                self?.onEffectParameterChanged?(track.id)
+            }
+            slot.addSubview(fKnob)
+            
+            // Mix Knob
+            let mKnob = makeKnob(
+                x: 110, y: contentY + 10, size: 40, 
+                value: effect.wetDryMix, min: 0, max: 100, def: 20, suffix: "%", label: "Mix",
+                color: .green
+            ) { [weak effect, weak self] v in
+                effect?.wetDryMix = v
+                self?.onEffectParameterChanged?(track.id)
+            }
+            slot.addSubview(mKnob)
+
+        case .reverb:
+            // Preset Popup (simplified as a knob for index for now)
+            let pKnob = makeKnob(
+                x: 15, y: contentY + 10, size: 40, 
+                value: Float(effect.reverbPreset), min: 0, max: 5, def: 0, suffix: " Pst", label: "Type",
+                color: .purple
+            ) { [weak effect, weak self] v in
+                effect?.reverbPreset = Int(v)
+                self?.onEffectParameterChanged?(track.id)
+            }
+            slot.addSubview(pKnob)
+            
+            // Mix Knob
+            let rmKnob = makeKnob(
+                x: 65, y: contentY + 10, size: 40, 
+                value: effect.reverbMix, min: 0, max: 100, def: 30, suffix: "%", label: "Mix",
+                color: .purple
+            ) { [weak effect, weak self] v in
+                effect?.reverbMix = v
+                self?.onEffectParameterChanged?(track.id)
+            }
+            slot.addSubview(rmKnob)
+
         default:
             // Generic effect — show type icon and "No Controls" placeholder
             let iconSize: CGFloat = 24
@@ -477,6 +667,12 @@ public final class BottomPanelView: NSView {
                 // Return a high-fidelity SamplerView for the sampler
                 let samplerView = SamplerView(config: instrument, track: track)
                 samplerView.frame = frame
+                samplerView.onSampleURLChanged = { [weak self, weak instrument] newURL in
+                    guard let self = self, let instrument = instrument else { return }
+                    // Capture current URL as oldURL before the change is recorded
+                    let oldURL = instrument.sampleURL
+                    self.onSamplerSampleChanged?(track.id, oldURL, newURL) 
+                }
                 return samplerView
             }
 
@@ -530,6 +726,32 @@ public final class BottomPanelView: NSView {
         }
 
         return slot
+    }
+
+    /// Helper to create a configured KnobView.
+    private func makeKnob(
+        x: CGFloat, y: CGFloat, size: CGFloat,
+        value: Float, min: Float, max: Float, def: Float,
+        suffix: String, label: String, color: NSColor,
+        onChanged: @escaping (Float) -> Void
+    ) -> KnobView {
+        let knob = KnobView(frame: CGRect(x: x, y: y, width: size, height: size + 14))
+        knob.value = value
+        knob.minValue = min
+        knob.maxValue = max
+        knob.defaultValue = def
+        knob.valueSuffix = suffix
+        knob.arcColor = color
+        knob.onValueChanged = onChanged
+        
+        let labelField = NSTextField(labelWithString: label)
+        labelField.font = NSFont.systemFont(ofSize: 8, weight: .medium)
+        labelField.textColor = NSColor(white: 0.5, alpha: 1)
+        labelField.alignment = .center
+        labelField.frame = CGRect(x: x, y: y - 10, width: size, height: 10)
+        // Note: Slot builder will handle adding labels if needed, 
+        // but adding it here is convenient if we adjust y.
+        return knob
     }
 
     /// Returns the header color for an effect type.

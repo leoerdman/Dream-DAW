@@ -24,11 +24,14 @@ public final class BrowserSidebarView: NSView {
 
     private let searchField = NSTextField()
     private let searchIcon = NSImageView()
+    private let blurView = NSVisualEffectView()
     private let outlineScrollView = NSScrollView()
     private let outlineView = NSOutlineView()
     private var rootItems: [BrowserNode] = []
+    private var filteredItems: [BrowserNode] = []
     private var samplesObserver: Any?
     private var previewPlayer: AVAudioPlayer?
+    private var searchQuery: String = ""
 
     public override var isFlipped: Bool { true }
 
@@ -76,7 +79,15 @@ public final class BrowserSidebarView: NSView {
 
     private func setupUI() {
         wantsLayer = true
-        layer?.backgroundColor = DreamTheme.bgBrowser.cgColor
+        layer?.backgroundColor = .clear
+
+        // Blur background (Liquid Glass)
+        blurView.material = DreamTheme.glassMaterial
+        blurView.blendingMode = DreamTheme.glassBlending
+        blurView.state = .active
+        blurView.wantsLayer = true
+        blurView.layer?.cornerRadius = 0
+        addSubview(blurView)
 
         // Search icon — small magnifying glass
         if let mag = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Search") {
@@ -131,6 +142,7 @@ public final class BrowserSidebarView: NSView {
 
     public override func layout() {
         super.layout()
+        blurView.frame = bounds
         let searchAreaH: CGFloat = 28
         let hPad: CGFloat = 8
         let topPad: CGFloat = 5
@@ -232,12 +244,13 @@ public final class BrowserSidebarView: NSView {
         // Samples (from user settings)
         loadSamplesFolder()
 
-        outlineView.reloadData()
-
         // Expand all groups
         for item in rootItems {
             outlineView.expandItem(item)
         }
+        
+        // Initialize filtered items
+        updateFilteredItems()
     }
 
     private func loadSamplesFolder() {
@@ -303,8 +316,24 @@ public final class BrowserSidebarView: NSView {
     // MARK: - Search
 
     @objc private func searchChanged(_ sender: NSTextField) {
-        // TODO: implement search filtering
+        self.searchQuery = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        updateFilteredItems()
+    }
+
+    private func updateFilteredItems() {
+        if searchQuery.isEmpty {
+            filteredItems = rootItems
+        } else {
+            filteredItems = rootItems.compactMap { $0.filteredClone(query: searchQuery) }
+        }
         outlineView.reloadData()
+        
+        // Expand everything if searching to show results
+        if !searchQuery.isEmpty {
+            for item in filteredItems {
+                outlineView.expandItem(item, expandChildren: true)
+            }
+        }
     }
 }
 
@@ -328,12 +357,31 @@ class BrowserNode: NSObject {
     var children: [BrowserNode] = []
     var fileURL: URL?
 
-    init(name: String, icon: String, isGroup: Bool = false, nodeType: BrowserNodeType = .generic) {
+    init(name: String, icon: String, isGroup: Bool = false, nodeType: BrowserNodeType = .generic, fileURL: URL? = nil) {
         self.name = name
         self.icon = icon
         self.isGroup = isGroup
         self.nodeType = nodeType
+        self.fileURL = fileURL
         super.init()
+    }
+
+    /// Returns a clone of this node and its children that match the search query.
+    /// If a node matches, it is included. If a child matches, the parent is included too.
+    func filteredClone(query: String) -> BrowserNode? {
+        // Recursive step: filter children
+        let filteredChildren = children.compactMap { $0.filteredClone(query: query) }
+        
+        // Inclusion condition: self matches OR has matching children
+        let selfMatches = name.lowercased().contains(query)
+        
+        if selfMatches || !filteredChildren.isEmpty {
+            let newNode = BrowserNode(name: name, icon: icon, isGroup: isGroup, nodeType: nodeType, fileURL: fileURL)
+            newNode.children = filteredChildren
+            return newNode
+        }
+        
+        return nil
     }
 }
 
@@ -342,13 +390,13 @@ class BrowserNode: NSObject {
 extension BrowserSidebarView: NSOutlineViewDataSource {
 
     public func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-        if item == nil { return rootItems.count }
+        if item == nil { return filteredItems.count }
         if let node = item as? BrowserNode { return node.children.count }
         return 0
     }
 
     public func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-        if item == nil { return rootItems[index] }
+        if item == nil { return filteredItems[index] }
         if let node = item as? BrowserNode { return node.children[index] }
         return ""
     }

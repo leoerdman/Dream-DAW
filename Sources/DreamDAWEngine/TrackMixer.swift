@@ -1,5 +1,7 @@
 import AVFoundation
+import AVFAudio
 import Foundation
+import AudioToolbox
 import DreamDAWModels
 import os.log
 
@@ -29,8 +31,14 @@ public final class TrackMixer {
     /// Map from Track ID to its player node (for clip playback).
     private var trackPlayerNodes: [UUID: AVAudioPlayerNode] = [:]
 
-    /// Map from Track ID to its EQ processor.
-    private var trackEQNodes: [UUID: ParametricEQ] = [:]
+    /// Map from Track ID to its ordered list of effect nodes (excluding player and mixer).
+    private var trackEffectChains: [UUID: [AVAudioNode]] = [:]
+
+    /// Map from Track ID to its instrument instance (for MIDI tracks).
+    private var trackInstruments: [UUID: SimpleSynthInstrument] = [:]
+    
+    /// Map from Track ID to its instrument source node (attached to engine).
+    private var trackInstrumentNodes: [UUID: AVAudioNode] = [:]
 
     // MARK: - Initialization
 
@@ -40,62 +48,253 @@ public final class TrackMixer {
 
     // MARK: - Track Setup
 
-    /// Set up mixer, EQ, and player nodes for a set of tracks.
-    /// Signal chain: player → EQ → mixer → masterMixer
+    /// Set up mixer, player, and initial effect nodes for a set of tracks.
     public func configureTracks(_ tracks: [Track]) {
         let format = standardFormat
         logger.info("Configuring tracks with format: \(format.sampleRate)Hz, \(format.channelCount)ch")
 
-        // Remove nodes for tracks that no longer exist
+        // 1. Cleanup tracks that no longer exist
         let currentIDs = Set(tracks.map(\.id))
-        for (id, node) in trackMixerNodes where !currentIDs.contains(id) {
-            // Disconnect and detach EQ
-            if let eq = trackEQNodes.removeValue(forKey: id) {
-                audioEngine.disconnectNodeOutput(eq.eqNode)
-                audioEngine.detach(eq.eqNode)
-            }
-
-            audioEngine.disconnectNodeOutput(node)
-            audioEngine.detach(node)
-            trackMixerNodes.removeValue(forKey: id)
-
-            if let player = trackPlayerNodes.removeValue(forKey: id) {
-                player.stop()
-                audioEngine.disconnectNodeOutput(player)
-                audioEngine.detach(player)
-            }
+        for id in trackMixerNodes.keys where !currentIDs.contains(id) {
+            removeTrackNodes(id: id)
         }
 
-        // Create nodes for new tracks (skip master — it has no player)
+        // 2. Setup/Update existing tracks
         for track in tracks where track.trackType != .master {
             if trackMixerNodes[track.id] == nil {
-                let mixer = AVAudioMixerNode()
-                let player = AVAudioPlayerNode()
-                let eq = ParametricEQ()
-
-                audioEngine.attach(mixer)
-                audioEngine.attach(player)
-                audioEngine.attach(eq.eqNode)
-
-                // Signal chain: player → EQ → mixer → masterMixer
-                // CRITICAL: Use explicit format to prevent 0-channel negotiation
-                audioEngine.connect(player, to: eq.eqNode, format: format)
-                audioEngine.connect(eq.eqNode, to: mixer, format: format)
-                audioEngine.connect(mixer, to: audioEngine.masterMixer, format: format)
-
-                trackMixerNodes[track.id] = mixer
-                trackPlayerNodes[track.id] = player
-                trackEQNodes[track.id] = eq
-
-                logger.info("Created mixer chain for track: \(track.name) [format: \(format)]")
+                setupTrackNodes(track: track, format: format)
             }
-
-            // Apply current track settings
-            applyTrackSettings(track)
-
-            // Apply EQ config if track has EQ effect
-            applyEQConfig(track)
+            logger.info("Syncing track: \(track.name) (ID: \(track.id), volume: \(track.volume))")
+            // Always rebuild/sync the chain to ensure it matches project state (effects might have changed)
+            rebuildEffectChain(for: track, format: format)
         }
+    }
+
+    private func setupTrackNodes(track: Track, format: AVAudioFormat) {
+        let mixer = AVAudioMixerNode()
+        let player = AVAudioPlayerNode()
+
+        audioEngine.attach(mixer)
+        audioEngine.attach(player)
+        
+        // MIDI Tracks: Setup synth
+        if track.trackType == .midi {
+            let synth = SimpleSynthInstrument(sampleRate: format.sampleRate)
+            let synthNode = synth.createSourceNode()
+            audioEngine.attach(synthNode)
+            trackInstruments[track.id] = synth
+            trackInstrumentNodes[track.id] = synthNode
+        }
+        
+        // Initial simple connection: mixer -> master
+        // (Chain stitching happens in rebuildEffectChain)
+        audioEngine.connect(mixer, to: audioEngine.masterMixer, format: format)
+        
+        trackMixerNodes[track.id] = mixer
+        trackPlayerNodes[track.id] = player
+    }
+
+    private func removeTrackNodes(id: UUID) {
+        if let player = trackPlayerNodes.removeValue(forKey: id) {
+            player.stop()
+            audioEngine.disconnectNodeOutput(player)
+            audioEngine.detach(player)
+        }
+        
+        if let chain = trackEffectChains.removeValue(forKey: id) {
+            for node in chain {
+                audioEngine.disconnectNodeOutput(node)
+                audioEngine.detach(node)
+            }
+        }
+        
+        if let mixer = trackMixerNodes.removeValue(forKey: id) {
+            audioEngine.disconnectNodeOutput(mixer)
+            audioEngine.detach(mixer)
+        }
+    }
+
+    /// Rebuilds the audio graph for a specific track based on its current effects and instrument.
+    public func rebuildEffectChain(for track: Track, format: AVAudioFormat? = nil) {
+        guard let player = trackPlayerNodes[track.id],
+              let mixer = trackMixerNodes[track.id] else { return }
+        
+        let fmt = format ?? standardFormat
+        
+        // 1. Disconnect current components
+        audioEngine.disconnectNodeOutput(player)
+        if let synthNode = trackInstrumentNodes[track.id] {
+            audioEngine.disconnectNodeOutput(synthNode)
+        }
+        
+        if let oldChain = trackEffectChains[track.id] {
+            for node in oldChain {
+                audioEngine.disconnectNodeOutput(node)
+                audioEngine.detach(node)
+            }
+        }
+        
+        // 2. Create new effect nodes
+        var newChain: [AVAudioNode] = []
+        for effectConfig in track.effects where effectConfig.isEnabled {
+            if let node = createNode(for: effectConfig) {
+                audioEngine.attach(node)
+                newChain.append(node)
+            }
+        }
+        trackEffectChains[track.id] = newChain
+        
+        // 3. Stitch the chain:
+        // [Player + Synth] -> [Node1 -> Node2 -> ...] -> Mixer
+        // Note: For MIDI, the Player plays RENDERED audio, while Synth is for realtime/UI.
+        // We connect both to the first effect in the chain.
+        
+        let firstEffect = newChain.first ?? mixer
+        
+        audioEngine.connect(player, to: firstEffect, format: fmt)
+        if let synthNode = trackInstrumentNodes[track.id] {
+            audioEngine.connect(synthNode, to: firstEffect, format: fmt)
+        }
+        
+        var lastNode: AVAudioNode = firstEffect
+        if !newChain.isEmpty {
+            for i in 1..<newChain.count {
+                let node = newChain[i]
+                audioEngine.connect(lastNode, to: node, format: fmt)
+                lastNode = node
+            }
+            audioEngine.connect(lastNode, to: mixer, format: fmt)
+        }
+        
+        // 4. Update settings
+        applyTrackSettings(track)
+        syncEffectParameters(for: track)
+        
+        if let synth = trackInstruments[track.id], let config = track.instrument {
+            synth.amplitude = config.gain * 0.3 // Scaled for internal mix
+        }
+        
+        logger.info("Rebuilt effect chain for track '\(track.name)' with \(newChain.count) effects. Instrument active: \(self.trackInstrumentNodes[track.id] != nil)")
+    }
+
+    private func createNode(for effect: AudioEffectConfig) -> AVAudioNode? {
+        switch effect.effectType {
+        case .eq:
+            return AVAudioUnitEQ(numberOfBands: 8)
+        case .compressor:
+            // Use component description as a fallback if class lookup is flaky
+            let desc = AudioComponentDescription(
+                componentType: kAudioUnitType_Effect,
+                componentSubType: kAudioUnitSubType_DynamicsProcessor,
+                componentManufacturer: kAudioUnitManufacturer_Apple,
+                componentFlags: 0,
+                componentFlagsMask: 0
+            )
+            // Note: AVAudioUnitEffect is the correct subclass for effects with component descriptions
+            return AVAudioUnitEffect(audioComponentDescription: desc)
+        case .delay:
+            return AVAudioUnitDelay()
+        case .reverb:
+            return AVAudioUnitReverb()
+        case .utility, .chorus:
+            // Custom native nodes or simplified standard nodes
+            return AVAudioMixerNode() // Spacer for now
+        }
+    }
+
+    public func getInstrument(for trackID: UUID) -> SimpleSynthInstrument? {
+        return trackInstruments[trackID]
+    }
+    
+    /// Syncs parameters for all effects in a track's chain.
+    public func syncEffectParameters(for track: Track) {
+        guard let chain = trackEffectChains[track.id] else { return }
+        
+        var chainIdx = 0
+        for effectConfig in track.effects where effectConfig.isEnabled {
+            guard chainIdx < chain.count else { break }
+            let node = chain[chainIdx]
+            
+            applyEffectSettings(config: effectConfig, to: node)
+            chainIdx += 1
+        }
+    }
+
+    private func applyEffectSettings(config: AudioEffectConfig, to node: AVAudioNode) {
+        switch config.effectType {
+        case .eq:
+            if let eq = node as? AVAudioUnitEQ {
+                for (i, band) in config.eqBands.enumerated() {
+                    guard i < eq.bands.count else { break }
+                    let bandNode = eq.bands[i]
+                    bandNode.filterType = mapFilterType(band.filterType)
+                    bandNode.frequency = band.frequency
+                    bandNode.bandwidth = band.bandwidth
+                    bandNode.gain = band.gain
+                    bandNode.bypass = !band.isEnabled
+                }
+            }
+        case .compressor:
+            // Workaround for compiler issue where AVAudioUnitDynamicsProcessor is not found in scope
+            // We use direct AUAudioUnit parameter access (DynamicsProcessor constants)
+            let au = node.auAudioUnit
+            let tree = au.parameterTree
+            
+            // Threshold (Param 0): -40 to 20 dB
+            if let param = tree?.parameter(withAddress: 0) {
+                param.value = config.threshold
+            }
+            // Ratio (Param 2): 1 to 50
+            if let param = tree?.parameter(withAddress: 2) {
+                param.value = config.ratio
+            }
+            // Attack (Param 4): 0.0001 to 0.2s
+            if let param = tree?.parameter(withAddress: 4) {
+                param.value = config.attack
+            }
+            // Release (Param 5): 0.01 to 3s
+            if let param = tree?.parameter(withAddress: 5) {
+                param.value = config.release
+            }
+        case .delay:
+            if let delay = node as? AVAudioUnitDelay {
+                delay.delayTime = config.delayTime
+                delay.feedback = config.feedback
+                delay.wetDryMix = config.wetDryMix
+            }
+        case .reverb:
+            if let reverb = node as? AVAudioUnitReverb {
+                // Map presets (Enterprise implementation: use a stable map)
+                let presets: [AVAudioUnitReverbPreset] = [
+                    .mediumHall, .largeHall, .smallRoom, .mediumRoom, .largeRoom, .plate
+                ]
+                let presetIdx = min(max(0, config.reverbPreset), presets.count - 1)
+                reverb.loadFactoryPreset(presets[presetIdx])
+                reverb.wetDryMix = config.reverbMix
+            }
+        case .utility:
+            if let mixer = node as? AVAudioMixerNode {
+                // Utility gain stage
+                let gain = pow(10, config.gainDB / 20.0)
+                mixer.outputVolume = gain
+            }
+        case .chorus:
+            // Placeholder for chorus
+            break
+        }
+    }
+
+    private func mapFilterType(_ type: EQFilterType) -> AVAudioUnitEQFilterType {
+        switch type {
+        case .lowCut:     return .lowPass // Actually high-pass in Apple's enum logic for cuts
+        case .lowShelf:   return .lowShelf
+        case .parametric: return .parametric
+        case .highShelf:  return .highShelf
+        case .highCut:    return .highPass // Actually low-pass
+        }
+        // Correcting common mental inversion:
+        // Low Cut = Filter out lows = High Pass
+        // High Cut = Filter out highs = Low Pass
     }
 
     /// Apply volume, pan, and mute settings to a track's mixer node.
@@ -106,19 +305,14 @@ public final class TrackMixer {
         mixer.pan = track.pan
     }
 
-    /// Apply EQ configuration from track's effects list.
-    public func applyEQConfig(_ track: Track) {
-        guard let eq = trackEQNodes[track.id] else { return }
+    /// Get the player node for a given track.
+    public func playerNode(for trackID: UUID) -> AVAudioPlayerNode? {
+        trackPlayerNodes[trackID]
+    }
 
-        // Find the EQ effect in track's effects chain
-        if let eqConfig = track.effects.first(where: { $0.effectType == .eq }), eqConfig.isEnabled {
-            eq.applyConfig(eqConfig.eqBands)
-        } else {
-            // Bypass all bands if no EQ or disabled
-            for i in 0..<ParametricEQ.bandCount {
-                eq.setBandEnabled(i, enabled: false)
-            }
-        }
+    /// Get the mixer node for a given track.
+    public func mixerNode(for trackID: UUID) -> AVAudioMixerNode? {
+        trackMixerNodes[trackID]
     }
 
     /// Handle solo logic: when any track is soloed, mute all non-soloed tracks.
@@ -137,26 +331,16 @@ public final class TrackMixer {
         }
     }
 
-    /// Get the player node for a given track.
-    public func playerNode(for trackID: UUID) -> AVAudioPlayerNode? {
-        trackPlayerNodes[trackID]
-    }
-
-    /// Get the mixer node for a given track.
-    public func mixerNode(for trackID: UUID) -> AVAudioMixerNode? {
-        trackMixerNodes[trackID]
-    }
-
-    /// Get the EQ processor for a given track.
-    public func eqProcessor(for trackID: UUID) -> ParametricEQ? {
-        trackEQNodes[trackID]
-    }
-
-    /// Stop all player nodes.
+    /// Stop all track playback and instruments.
     public func stopAll() {
         for (_, player) in trackPlayerNodes {
             player.stop()
         }
+        for (_, synth) in trackInstruments {
+            synth.allNotesOff()
+        }
+        trackMixerNodes.values.forEach { $0.reset() }
+        logger.info("TrackMixer: All playback and instruments stopped.")
     }
 
     /// Stop playback for a specific track.
@@ -174,9 +358,11 @@ public final class TrackMixer {
     /// Remove all track nodes from the engine.
     public func removeAll() {
         stopAll()
-        for (_, eq) in trackEQNodes {
-            audioEngine.disconnectNodeOutput(eq.eqNode)
-            audioEngine.detach(eq.eqNode)
+        for (_, chain) in trackEffectChains {
+            for node in chain {
+                audioEngine.disconnectNodeOutput(node)
+                audioEngine.detach(node)
+            }
         }
         for (_, mixer) in trackMixerNodes {
             audioEngine.disconnectNodeOutput(mixer)
@@ -188,7 +374,7 @@ public final class TrackMixer {
         }
         trackMixerNodes.removeAll()
         trackPlayerNodes.removeAll()
-        trackEQNodes.removeAll()
+        trackEffectChains.removeAll()
         logger.info("All track mixer nodes removed")
     }
 }

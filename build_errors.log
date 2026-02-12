@@ -1,0 +1,815 @@
+Another instance of SwiftPM (PID: 41616) is already running using '/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/.build', waiting until that process has finished execution...[0/1] Planning build
+Building for production...
+[0/3] Write swift-version--58304C5D6DBC2206.txt
+[2/4] Compiling DreamDAWUI ArrangementViewController.swift
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:315:9: error: expected 'func' keyword in instance method declaration
+313 |     }
+314 |         // Clear existing detail subviews and meter references
+315 |         detailContentView.subviews.forEach { $0.removeFromSuperview() }
+    |         `- error: expected 'func' keyword in instance method declaration
+316 |         chainMeters.removeAll()
+317 |         currentTrackID = track.id
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:315:26: error: expected '(' in argument list of function declaration
+313 |     }
+314 |         // Clear existing detail subviews and meter references
+315 |         detailContentView.subviews.forEach { $0.removeFromSuperview() }
+    |                          `- error: expected '(' in argument list of function declaration
+316 |         chainMeters.removeAll()
+317 |         currentTrackID = track.id
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:315:26: error: consecutive declarations on a line must be separated by ';'
+313 |     }
+314 |         // Clear existing detail subviews and meter references
+315 |         detailContentView.subviews.forEach { $0.removeFromSuperview() }
+    |                          `- error: consecutive declarations on a line must be separated by ';'
+316 |         chainMeters.removeAll()
+317 |         currentTrackID = track.id
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:315:26: error: expected declaration
+ 10 | /// - Click track/clip → Detail tab
+ 11 | /// - Shift+click MIDI clip → Piano Roll tab
+ 12 | public final class BottomPanelView: NSView {
+    |                    `- note: in declaration of 'BottomPanelView'
+ 13 | 
+ 14 |     // Use flipped coordinate system (y=0 at top) for correct layout
+    :
+313 |     }
+314 |         // Clear existing detail subviews and meter references
+315 |         detailContentView.subviews.forEach { $0.removeFromSuperview() }
+    |                          `- error: expected declaration
+316 |         chainMeters.removeAll()
+317 |         currentTrackID = track.id
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:342:9: error: expected 'func' keyword in instance method declaration
+340 |         // ───── Input Signal Meter ─────
+341 |         let inputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+342 |         inputMeter.signalType = isMIDI ? .midi : .audio
+    |         `- error: expected 'func' keyword in instance method declaration
+343 |         detailContentView.addSubview(inputMeter)
+344 |         chainMeters.append(inputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:342:19: error: expected '(' in argument list of function declaration
+340 |         // ───── Input Signal Meter ─────
+341 |         let inputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+342 |         inputMeter.signalType = isMIDI ? .midi : .audio
+    |                   `- error: expected '(' in argument list of function declaration
+343 |         detailContentView.addSubview(inputMeter)
+344 |         chainMeters.append(inputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:342:19: error: consecutive declarations on a line must be separated by ';'
+340 |         // ───── Input Signal Meter ─────
+341 |         let inputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+342 |         inputMeter.signalType = isMIDI ? .midi : .audio
+    |                   `- error: consecutive declarations on a line must be separated by ';'
+343 |         detailContentView.addSubview(inputMeter)
+344 |         chainMeters.append(inputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:342:19: error: expected declaration
+ 10 | /// - Click track/clip → Detail tab
+ 11 | /// - Shift+click MIDI clip → Piano Roll tab
+ 12 | public final class BottomPanelView: NSView {
+    |                    `- note: in declaration of 'BottomPanelView'
+ 13 | 
+ 14 |     // Use flipped coordinate system (y=0 at top) for correct layout
+    :
+340 |         // ───── Input Signal Meter ─────
+341 |         let inputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+342 |         inputMeter.signalType = isMIDI ? .midi : .audio
+    |                   `- error: expected declaration
+343 |         detailContentView.addSubview(inputMeter)
+344 |         chainMeters.append(inputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:349:9: error: expected 'func' keyword in instance method declaration
+347 |         // Input label
+348 |         let inputLabel = NSTextField(labelWithString: "IN")
+349 |         inputLabel.font = NSFont.systemFont(ofSize: 7, weight: .bold)
+    |         `- error: expected 'func' keyword in instance method declaration
+350 |         inputLabel.textColor = NSColor(white: 0.45, alpha: 1)
+351 |         inputLabel.alignment = .center
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:349:19: error: expected '(' in argument list of function declaration
+347 |         // Input label
+348 |         let inputLabel = NSTextField(labelWithString: "IN")
+349 |         inputLabel.font = NSFont.systemFont(ofSize: 7, weight: .bold)
+    |                   `- error: expected '(' in argument list of function declaration
+350 |         inputLabel.textColor = NSColor(white: 0.45, alpha: 1)
+351 |         inputLabel.alignment = .center
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:349:19: error: consecutive declarations on a line must be separated by ';'
+347 |         // Input label
+348 |         let inputLabel = NSTextField(labelWithString: "IN")
+349 |         inputLabel.font = NSFont.systemFont(ofSize: 7, weight: .bold)
+    |                   `- error: consecutive declarations on a line must be separated by ';'
+350 |         inputLabel.textColor = NSColor(white: 0.45, alpha: 1)
+351 |         inputLabel.alignment = .center
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:349:19: error: expected declaration
+ 10 | /// - Click track/clip → Detail tab
+ 11 | /// - Shift+click MIDI clip → Piano Roll tab
+ 12 | public final class BottomPanelView: NSView {
+    |                    `- note: in declaration of 'BottomPanelView'
+ 13 | 
+ 14 |     // Use flipped coordinate system (y=0 at top) for correct layout
+    :
+347 |         // Input label
+348 |         let inputLabel = NSTextField(labelWithString: "IN")
+349 |         inputLabel.font = NSFont.systemFont(ofSize: 7, weight: .bold)
+    |                   `- error: expected declaration
+350 |         inputLabel.textColor = NSColor(white: 0.45, alpha: 1)
+351 |         inputLabel.alignment = .center
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:407:9: error: expected 'func' keyword in instance method declaration
+405 |         xOff += 4
+406 |         let outputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+407 |         outputMeter.signalType = .audio  // Output is always audio
+    |         `- error: expected 'func' keyword in instance method declaration
+408 |         detailContentView.addSubview(outputMeter)
+409 |         chainMeters.append(outputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:407:20: error: expected '(' in argument list of function declaration
+405 |         xOff += 4
+406 |         let outputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+407 |         outputMeter.signalType = .audio  // Output is always audio
+    |                    `- error: expected '(' in argument list of function declaration
+408 |         detailContentView.addSubview(outputMeter)
+409 |         chainMeters.append(outputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:407:20: error: consecutive declarations on a line must be separated by ';'
+405 |         xOff += 4
+406 |         let outputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+407 |         outputMeter.signalType = .audio  // Output is always audio
+    |                    `- error: consecutive declarations on a line must be separated by ';'
+408 |         detailContentView.addSubview(outputMeter)
+409 |         chainMeters.append(outputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:407:20: error: expected declaration
+ 10 | /// - Click track/clip → Detail tab
+ 11 | /// - Shift+click MIDI clip → Piano Roll tab
+ 12 | public final class BottomPanelView: NSView {
+    |                    `- note: in declaration of 'BottomPanelView'
+ 13 | 
+ 14 |     // Use flipped coordinate system (y=0 at top) for correct layout
+    :
+405 |         xOff += 4
+406 |         let outputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+407 |         outputMeter.signalType = .audio  // Output is always audio
+    |                    `- error: expected declaration
+408 |         detailContentView.addSubview(outputMeter)
+409 |         chainMeters.append(outputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:412:9: error: expected 'func' keyword in instance method declaration
+410 | 
+411 |         let outLabel = NSTextField(labelWithString: "OUT")
+412 |         outLabel.font = NSFont.systemFont(ofSize: 7, weight: .bold)
+    |         `- error: expected 'func' keyword in instance method declaration
+413 |         outLabel.textColor = NSColor(white: 0.45, alpha: 1)
+414 |         outLabel.alignment = .center
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:412:17: error: expected '(' in argument list of function declaration
+410 | 
+411 |         let outLabel = NSTextField(labelWithString: "OUT")
+412 |         outLabel.font = NSFont.systemFont(ofSize: 7, weight: .bold)
+    |                 `- error: expected '(' in argument list of function declaration
+413 |         outLabel.textColor = NSColor(white: 0.45, alpha: 1)
+414 |         outLabel.alignment = .center
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:412:17: error: consecutive declarations on a line must be separated by ';'
+410 | 
+411 |         let outLabel = NSTextField(labelWithString: "OUT")
+412 |         outLabel.font = NSFont.systemFont(ofSize: 7, weight: .bold)
+    |                 `- error: consecutive declarations on a line must be separated by ';'
+413 |         outLabel.textColor = NSColor(white: 0.45, alpha: 1)
+414 |         outLabel.alignment = .center
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:412:17: error: expected declaration
+ 10 | /// - Click track/clip → Detail tab
+ 11 | /// - Shift+click MIDI clip → Piano Roll tab
+ 12 | public final class BottomPanelView: NSView {
+    |                    `- note: in declaration of 'BottomPanelView'
+ 13 | 
+ 14 |     // Use flipped coordinate system (y=0 at top) for correct layout
+    :
+410 | 
+411 |         let outLabel = NSTextField(labelWithString: "OUT")
+412 |         outLabel.font = NSFont.systemFont(ofSize: 7, weight: .bold)
+    |                 `- error: expected declaration
+413 |         outLabel.textColor = NSColor(white: 0.45, alpha: 1)
+414 |         outLabel.alignment = .center
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:851:1: error: extraneous '}' at top level
+849 |         return true
+850 |     }
+851 | }
+    | `- error: extraneous '}' at top level
+852 | 
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:1394:1: error: attribute 'internal' can only be used in a non-local scope
+1392 | // MARK: - Specialized Clip Layers
+1393 | 
+1394 | internal class AudioClipLayer: CALayer {
+     | `- error: attribute 'internal' can only be used in a non-local scope
+1395 |     var clip: AudioClip?
+1396 |     var track: Track?
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:1510:1: error: attribute 'internal' can only be used in a non-local scope
+1508 | }
+1509 | 
+1510 | internal class MidiClipLayer: CALayer {
+     | `- error: attribute 'internal' can only be used in a non-local scope
+1511 |     var midiClip: MidiClip?
+1512 |     var trackColor: NSColor = .systemBlue
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/ArrangementViewController.swift:1145:17: error: invalid redeclaration of 'toggleBrowser()'
+ 104 |     private var isBrowserVisible: Bool = true
+ 105 |     
+ 106 |     func toggleBrowser() {
+     |          `- note: 'toggleBrowser()' previously declared here
+ 107 |         setBrowserVisibleAnimated(!isBrowserVisible)
+ 108 |     }
+     :
+1143 | 
+1144 |     /// Toggle browser sidebar visibility.
+1145 |     public func toggleBrowser() {
+     |                 `- error: invalid redeclaration of 'toggleBrowser()'
+1146 |         isBrowserVisible.toggle()
+1147 |         layoutSubviews()
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/ArrangementViewController.swift:907:30: error: value of type 'BottomPanelView' has no member 'showPianoRoll'
+ 905 |             self.selectTrack(trackID)
+ 906 |             
+ 907 |             self.bottomPanel.showPianoRoll(track: track, clip: clip)
+     |                              `- error: value of type 'BottomPanelView' has no member 'showPianoRoll'
+ 908 |             self.layoutSubviews()
+ 909 |         }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/ArrangementViewController.swift:1321:29: error: cannot find 'selectedClipID' in scope
+1319 |         case .detail(let track):
+1320 |             // Toggle to clip editor if a clip is selected
+1321 |             if let clipID = selectedClipID {
+     |                             `- error: cannot find 'selectedClipID' in scope
+1322 |                 if let audioClip = track.clips.first(where: { $0.id == clipID }) {
+1323 |                     setBottomPanelModeAnimated(.audioClip(track, audioClip))
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/ArrangementViewController.swift:1564:25: error: value of type 'BottomPanelView' has no member 'showDetail'
+1562 |         // 3. Show Details in Bottom Panel
+1563 |         if let track = project.tracks.first(where: { $0.id == trackID }) {
+1564 |             bottomPanel.showDetail(for: track)
+     |                         `- error: value of type 'BottomPanelView' has no member 'showDetail'
+1565 |             
+1566 |             // Ensure bottom panel is visible and layout is updated (unless it's hidden explicitly by user, but usually selection implies showing it)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:315:9: error: invalid redeclaration of 'detailContentView()'
+ 86 |     private let closeButton = NSButton()
+ 87 |     private let pianoRollView = PianoRollView()
+ 88 |     private let detailContentView = NSView()
+    |                 `- note: 'detailContentView' previously declared here
+ 89 |     private let pianoScrollView = NSScrollView()
+ 90 |     private let gridSnapPopup = NSPopUpButton()
+    :
+313 |     }
+314 |         // Clear existing detail subviews and meter references
+315 |         detailContentView.subviews.forEach { $0.removeFromSuperview() }
+    |         `- error: invalid redeclaration of 'detailContentView()'
+316 |         chainMeters.removeAll()
+317 |         currentTrackID = track.id
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:326:22: error: cannot find 'track' in scope
+324 |         let yOff: CGFloat = 8
+325 | 
+326 |         let isMIDI = track.trackType == .midi
+    |                      `- error: cannot find 'track' in scope
+327 |         let hasEffects = !track.effects.isEmpty
+328 | 
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:327:27: error: cannot find 'track' in scope
+325 | 
+326 |         let isMIDI = track.trackType == .midi
+327 |         let hasEffects = !track.effects.isEmpty
+    |                           `- error: cannot find 'track' in scope
+328 | 
+329 |         // ═════════════════════════════════════════════════════
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:341:59: error: cannot use instance member 'xOff' within property initializer; property initializers run before 'self' is available
+339 | 
+340 |         // ───── Input Signal Meter ─────
+341 |         let inputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+    |                                                           `- error: cannot use instance member 'xOff' within property initializer; property initializers run before 'self' is available
+342 |         inputMeter.signalType = isMIDI ? .midi : .audio
+343 |         detailContentView.addSubview(inputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:341:68: error: cannot use instance member 'yOff' within property initializer; property initializers run before 'self' is available
+339 | 
+340 |         // ───── Input Signal Meter ─────
+341 |         let inputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+    |                                                                    `- error: cannot use instance member 'yOff' within property initializer; property initializers run before 'self' is available
+342 |         inputMeter.signalType = isMIDI ? .midi : .audio
+343 |         detailContentView.addSubview(inputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:341:81: error: cannot use instance member 'meterWidth' within property initializer; property initializers run before 'self' is available
+339 | 
+340 |         // ───── Input Signal Meter ─────
+341 |         let inputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+    |                                                                                 `- error: cannot use instance member 'meterWidth' within property initializer; property initializers run before 'self' is available
+342 |         inputMeter.signalType = isMIDI ? .midi : .audio
+343 |         detailContentView.addSubview(inputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:341:101: error: cannot use instance member 'slotHeight' within property initializer; property initializers run before 'self' is available
+339 | 
+340 |         // ───── Input Signal Meter ─────
+341 |         let inputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+    |                                                                                                     `- error: cannot use instance member 'slotHeight' within property initializer; property initializers run before 'self' is available
+342 |         inputMeter.signalType = isMIDI ? .midi : .audio
+343 |         detailContentView.addSubview(inputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:349:9: error: invalid redeclaration of 'inputLabel()'
+346 | 
+347 |         // Input label
+348 |         let inputLabel = NSTextField(labelWithString: "IN")
+    |             `- note: 'inputLabel' previously declared here
+349 |         inputLabel.font = NSFont.systemFont(ofSize: 7, weight: .bold)
+    |         `- error: invalid redeclaration of 'inputLabel()'
+350 |         inputLabel.textColor = NSColor(white: 0.45, alpha: 1)
+351 |         inputLabel.alignment = .center
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:406:60: error: cannot use instance member 'xOff' within property initializer; property initializers run before 'self' is available
+404 |         // ───── Output Meter + Label ─────
+405 |         xOff += 4
+406 |         let outputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+    |                                                            `- error: cannot use instance member 'xOff' within property initializer; property initializers run before 'self' is available
+407 |         outputMeter.signalType = .audio  // Output is always audio
+408 |         detailContentView.addSubview(outputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:406:69: error: cannot use instance member 'yOff' within property initializer; property initializers run before 'self' is available
+404 |         // ───── Output Meter + Label ─────
+405 |         xOff += 4
+406 |         let outputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+    |                                                                     `- error: cannot use instance member 'yOff' within property initializer; property initializers run before 'self' is available
+407 |         outputMeter.signalType = .audio  // Output is always audio
+408 |         detailContentView.addSubview(outputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:406:82: error: cannot use instance member 'meterWidth' within property initializer; property initializers run before 'self' is available
+404 |         // ───── Output Meter + Label ─────
+405 |         xOff += 4
+406 |         let outputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+    |                                                                                  `- error: cannot use instance member 'meterWidth' within property initializer; property initializers run before 'self' is available
+407 |         outputMeter.signalType = .audio  // Output is always audio
+408 |         detailContentView.addSubview(outputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:406:102: error: cannot use instance member 'slotHeight' within property initializer; property initializers run before 'self' is available
+404 |         // ───── Output Meter + Label ─────
+405 |         xOff += 4
+406 |         let outputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+    |                                                                                                      `- error: cannot use instance member 'slotHeight' within property initializer; property initializers run before 'self' is available
+407 |         outputMeter.signalType = .audio  // Output is always audio
+408 |         detailContentView.addSubview(outputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:412:9: error: invalid redeclaration of 'outLabel()'
+409 |         chainMeters.append(outputMeter)
+410 | 
+411 |         let outLabel = NSTextField(labelWithString: "OUT")
+    |             `- note: 'outLabel' previously declared here
+412 |         outLabel.font = NSFont.systemFont(ofSize: 7, weight: .bold)
+    |         `- error: invalid redeclaration of 'outLabel()'
+413 |         outLabel.textColor = NSColor(white: 0.45, alpha: 1)
+414 |         outLabel.alignment = .center
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:813:6: error: '@objc' can only be used with members of classes, '@objc' protocols, and concrete extensions of classes
+811 |     }
+812 | 
+813 |     @objc private func closePanel() {
+    |      `- error: '@objc' can only be used with members of classes, '@objc' protocols, and concrete extensions of classes
+814 |         hidePanel()
+815 |     }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:819:12: error: 'override' can only be specified on class members
+817 |     // MARK: - Drag and Drop (Effects)
+818 | 
+819 |     public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+    |            `- error: 'override' can only be specified on class members
+820 |         guard case .detail = mode else { return [] }
+821 | 
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:835:12: error: 'override' can only be specified on class members
+833 |     }
+834 | 
+835 |     public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+    |            `- error: 'override' can only be specified on class members
+836 |         guard case .detail(let track) = mode,
+837 |               let data = sender.draggingPasteboard.data(forType: .browserItem),
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:47:9: error: switch must be exhaustive
+ 45 |     /// Current panel height (0 when hidden).
+ 46 |     public var panelHeight: CGFloat {
+ 47 |         switch mode {
+    |         |- error: switch must be exhaustive
+    |         `- note: add missing case: '.audioClip(_, _)'
+ 48 |         case .hidden: return 0
+ 49 |         case .detail, .pianoRoll: return BottomPanelView.defaultHeight
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:136:30: error: argument of '#selector' cannot refer to global function 'closePanel()'
+134 |         closeButton.isBordered = false
+135 |         closeButton.target = self
+136 |         closeButton.action = #selector(closePanel)
+    |                              `- error: argument of '#selector' cannot refer to global function 'closePanel()'
+137 |         addSubview(closeButton)
+138 | 
+    :
+811 |     }
+812 | 
+813 |     @objc private func closePanel() {
+    |                        `- note: 'closePanel()' declared here
+814 |         hidePanel()
+815 |     }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:222:22: error: value of type 'BottomPanelView' has no member 'stopMeterTimer'
+220 |             if isHiding {
+221 |                 self.isHidden = true
+222 |                 self.stopMeterTimer()
+    |                      `- error: value of type 'BottomPanelView' has no member 'stopMeterTimer'
+223 |             }
+224 |         }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:291:9: error: cannot find 'setupEffectChain' in scope
+289 |         
+290 |         // Setup instrument or effects...
+291 |         setupEffectChain(for: track, in: detailContentView, startingAtX: &xOff)
+    |         `- error: cannot find 'setupEffectChain' in scope
+292 |     }
+293 | 
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:342:9: error: expected '{' in body of function declaration
+340 |         // ───── Input Signal Meter ─────
+341 |         let inputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+342 |         inputMeter.signalType = isMIDI ? .midi : .audio
+    |         `- error: expected '{' in body of function declaration
+343 |         detailContentView.addSubview(inputMeter)
+344 |         chainMeters.append(inputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:407:9: error: expected '{' in body of function declaration
+405 |         xOff += 4
+406 |         let outputMeter = SignalMeterView(frame: CGRect(x: xOff, y: yOff, width: meterWidth, height: slotHeight))
+407 |         outputMeter.signalType = .audio  // Output is always audio
+    |         `- error: expected '{' in body of function declaration
+408 |         detailContentView.addSubview(outputMeter)
+409 |         chainMeters.append(outputMeter)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:426:9: error: cannot find 'meterTimer' in scope
+424 |     /// Start the 30fps timer that reads real-time levels from AudioLevelMeter.
+425 |     private func startMeterTimer() {
+426 |         meterTimer?.invalidate()
+    |         `- error: cannot find 'meterTimer' in scope
+427 |         meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+428 |             self?.updateChainMeters()
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:427:9: error: cannot find 'meterTimer' in scope
+425 |     private func startMeterTimer() {
+426 |         meterTimer?.invalidate()
+427 |         meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+    |         `- error: cannot find 'meterTimer' in scope
+428 |             self?.updateChainMeters()
+429 |         }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:427:96: error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+425 |     private func startMeterTimer() {
+426 |         meterTimer?.invalidate()
+427 |         meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+    |                                                                                                `- error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+428 |             self?.updateChainMeters()
+429 |         }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:434:9: error: cannot find 'meterTimer' in scope
+432 |     /// Stop the meter animation timer (when panel hides).
+433 |     private func stopMeterTimer() {
+434 |         meterTimer?.invalidate()
+    |         `- error: cannot find 'meterTimer' in scope
+435 |         meterTimer = nil
+436 |     }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:435:9: error: cannot find 'meterTimer' in scope
+433 |     private func stopMeterTimer() {
+434 |         meterTimer?.invalidate()
+435 |         meterTimer = nil
+    |         `- error: cannot find 'meterTimer' in scope
+436 |     }
+437 | 
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:440:29: error: cannot find 'currentTrackID' in scope
+438 |     /// Read real-time level from AudioLevelMeter and apply to all chain meters.
+439 |     private func updateChainMeters() {
+440 |         guard let trackID = currentTrackID,
+    |                             `- error: cannot find 'currentTrackID' in scope
+441 |               let meter = audioLevelMeter else {
+442 |             // No meter source — decay existing levels gracefully
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:441:27: error: cannot find 'audioLevelMeter' in scope
+439 |     private func updateChainMeters() {
+440 |         guard let trackID = currentTrackID,
+441 |               let meter = audioLevelMeter else {
+    |                           `- error: cannot find 'audioLevelMeter' in scope
+442 |             // No meter source — decay existing levels gracefully
+443 |             for m in chainMeters { m.decay() }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:443:22: error: cannot find 'chainMeters' in scope
+441 |               let meter = audioLevelMeter else {
+442 |             // No meter source — decay existing levels gracefully
+443 |             for m in chainMeters { m.decay() }
+    |                      `- error: cannot find 'chainMeters' in scope
+444 |             return
+445 |         }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:457:36: error: cannot find 'chainMeters' in scope
+455 |         // Input meter gets a slightly boosted reading (raw RMS before mixing)
+456 |         // and output meter gets the post-mix reading.
+457 |         for (index, chainMeter) in chainMeters.enumerated() {
+    |                                    `- error: cannot find 'chainMeters' in scope
+458 |             if index == 0 {
+459 |                 // Input meter — show raw RMS
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:461:32: error: cannot find 'chainMeters' in scope
+459 |                 // Input meter — show raw RMS
+460 |                 chainMeter.level = trackLevel.rms * 1.4
+461 |             } else if index == chainMeters.count - 1 {
+    |                                `- error: cannot find 'chainMeters' in scope
+462 |                 // Output meter — show post-mix peak-weighted level
+463 |                 chainMeter.level = (trackLevel.rms + trackLevel.peak) * 0.5
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:540:56: error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+538 |             knob.valueSuffix = " dB"
+539 |             knob.arcColor = NSColor(red: 0.95, green: 0.75, blue: 0.25, alpha: 1.0)
+540 |             knob.onValueChanged = { [weak effect, weak self] newValue in
+    |                                                        `- error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+541 |                 effect?.gainDB = newValue
+542 |                 // Notify the audio engine to re-apply track settings
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:567:36: error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+565 |                 value: effect.threshold, min: -40, max: 0, def: -20, suffix: " dB", label: "Thr",
+566 |                 color: .orange
+567 |             ) { [weak effect, weak self] v in
+    |                                    `- error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+568 |                 effect?.threshold = v
+569 |                 self?.onEffectParameterChanged?(track.id)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:578:36: error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+576 |                 value: effect.ratio, min: 1, max: 20, def: 2, suffix: ":1", label: "Ratio",
+577 |                 color: .orange
+578 |             ) { [weak effect, weak self] v in
+    |                                    `- error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+579 |                 effect?.ratio = v
+580 |                 self?.onEffectParameterChanged?(track.id)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:589:36: error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+587 |                 value: effect.attack * 1000, min: 0.1, max: 100, def: 3, suffix: " ms", label: "Att",
+588 |                 color: .orange
+589 |             ) { [weak effect, weak self] v in
+    |                                    `- error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+590 |                 effect?.attack = v / 1000.0
+591 |                 self?.onEffectParameterChanged?(track.id)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:601:36: error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+599 |                 value: Float(effect.delayTime * 1000), min: 1, max: 1000, def: 250, suffix: " ms", label: "Time",
+600 |                 color: .green
+601 |             ) { [weak effect, weak self] v in
+    |                                    `- error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+602 |                 effect?.delayTime = Double(v) / 1000.0
+603 |                 self?.onEffectParameterChanged?(track.id)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:612:36: error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+610 |                 value: effect.feedback, min: 0, max: 100, def: 30, suffix: "%", label: "Fbk",
+611 |                 color: .green
+612 |             ) { [weak effect, weak self] v in
+    |                                    `- error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+613 |                 effect?.feedback = v
+614 |                 self?.onEffectParameterChanged?(track.id)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:623:36: error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+621 |                 value: effect.wetDryMix, min: 0, max: 100, def: 20, suffix: "%", label: "Mix",
+622 |                 color: .green
+623 |             ) { [weak effect, weak self] v in
+    |                                    `- error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+624 |                 effect?.wetDryMix = v
+625 |                 self?.onEffectParameterChanged?(track.id)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:635:36: error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+633 |                 value: Float(effect.reverbPreset), min: 0, max: 5, def: 0, suffix: " Pst", label: "Type",
+634 |                 color: .purple
+635 |             ) { [weak effect, weak self] v in
+    |                                    `- error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+636 |                 effect?.reverbPreset = Int(v)
+637 |                 self?.onEffectParameterChanged?(track.id)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:646:36: error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+644 |                 value: effect.reverbMix, min: 0, max: 100, def: 30, suffix: "%", label: "Mix",
+645 |                 color: .purple
+646 |             ) { [weak effect, weak self] v in
+    |                                    `- error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+647 |                 effect?.reverbMix = v
+648 |                 self?.onEffectParameterChanged?(track.id)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:692:58: error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+690 |                 let samplerView = SamplerView(config: instrument, track: track)
+691 |                 samplerView.frame = frame
+692 |                 samplerView.onSampleURLChanged = { [weak self, weak instrument] newURL in
+    |                                                          `- error: cannot find 'self' in scope; did you mean to use it in a type or extension context?
+693 |                     guard let self = self, let instrument = instrument else { return }
+694 |                     // Capture current URL as oldURL before the change is recorded
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:793:17: error: cannot find 'panelHeight' in scope
+791 |     /// Content height excluding header.
+792 |     private var panelContentHeight: CGFloat {
+793 |         max(64, panelHeight - 24 - 8)  // panel minus header minus padding
+    |                 `- error: cannot find 'panelHeight' in scope
+794 |     }
+795 | 
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:800:9: error: cannot find 'mode' in scope
+798 |     /// Show the detail panel for a track.
+799 |     public func showDetail(for track: Track) {
+800 |         mode = .detail(track)
+    |         `- error: cannot find 'mode' in scope
+801 |     }
+802 | 
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:805:9: error: cannot find 'mode' in scope
+803 |     /// Show the piano roll for a specific MIDI clip.
+804 |     public func showPianoRoll(track: Track, clip: MidiClip) {
+805 |         mode = .pianoRoll(track, clip)
+    |         `- error: cannot find 'mode' in scope
+806 |     }
+807 | 
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:810:9: error: cannot find 'mode' in scope
+808 |     /// Hide the panel.
+809 |     public func hidePanel() {
+810 |         mode = .hidden
+    |         `- error: cannot find 'mode' in scope
+811 |     }
+812 | 
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:820:30: error: cannot find 'mode' in scope
+818 | 
+819 |     public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+820 |         guard case .detail = mode else { return [] }
+    |                              `- error: cannot find 'mode' in scope
+821 | 
+822 |         if let data = sender.draggingPasteboard.data(forType: .browserItem),
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:836:41: error: cannot find 'mode' in scope
+834 | 
+835 |     public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+836 |         guard case .detail(let track) = mode,
+    |                                         `- error: cannot find 'mode' in scope
+837 |               let data = sender.draggingPasteboard.data(forType: .browserItem),
+838 |               let payload = String(data: data, encoding: .utf8) else { return false }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/BottomPanelView.swift:848:9: error: cannot find 'onEffectDropped' in scope
+846 |         guard nodeType == "audioEffect" else { return false }
+847 | 
+848 |         onEffectDropped?(track.id, nodeType, itemName)
+    |         `- error: cannot find 'onEffectDropped' in scope
+849 |         return true
+850 |     }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:23:39: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+21 | 
+22 |     public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+23 |         if let docView = documentView as? NSDraggingDestination {
+   |                                       `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+24 |             return docView.draggingEntered?(sender) ?? []
+25 |         }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:30:39: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+28 | 
+29 |     public override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+30 |         if let docView = documentView as? NSDraggingDestination {
+   |                                       `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+31 |             return docView.draggingUpdated?(sender) ?? draggingEntered(sender)
+32 |         }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:37:60: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+35 | 
+36 |     public override func draggingExited(_ sender: NSDraggingInfo?) {
+37 |         if let sender = sender, let docView = documentView as? NSDraggingDestination {
+   |                                                            `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+38 |             docView.draggingExited?(sender)
+39 |         }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:43:39: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+41 | 
+42 |     public override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+43 |         if let docView = documentView as? NSDraggingDestination {
+   |                                       `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+44 |             return docView.prepareForDragOperation?(sender) ?? true
+45 |         }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:50:39: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+48 | 
+49 |     public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+50 |         if let docView = documentView as? NSDraggingDestination {
+   |                                       `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+51 |             return docView.performDragOperation?(sender) ?? false
+52 |         }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/DragForwardingScrollView.swift:57:60: warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+55 | 
+56 |     public override func concludeDragOperation(_ sender: NSDraggingInfo?) {
+57 |         if let sender = sender, let docView = documentView as? NSDraggingDestination {
+   |                                                            `- warning: conditional downcast from 'NSView?' to 'any NSDraggingDestination' is equivalent to an implicit conversion to an optional 'any NSDraggingDestination'
+58 |             docView.concludeDragOperation?(sender)
+59 |         }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/PianoRollView.swift:303:31: warning: immutable value 'startLoc' was never used; consider replacing with '_' or removing it [#no-usage]
+301 | 
+302 |     public override func mouseDragged(with event: NSEvent) {
+303 |         guard isDragging, let startLoc = dragStartLocation, var clip = midiClip else { return }
+    |                               `- warning: immutable value 'startLoc' was never used; consider replacing with '_' or removing it [#no-usage]
+304 |         let currentLoc = convert(event.locationInWindow, from: nil)
+305 |         
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/PianoRollView.swift:303:65: warning: variable 'clip' was never used; consider replacing with '_' or removing it [#no-usage]
+301 | 
+302 |     public override func mouseDragged(with event: NSEvent) {
+303 |         guard isDragging, let startLoc = dragStartLocation, var clip = midiClip else { return }
+    |                                                                 `- warning: variable 'clip' was never used; consider replacing with '_' or removing it [#no-usage]
+304 |         let currentLoc = convert(event.locationInWindow, from: nil)
+305 |         
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/PianoRollView.swift:304:13: warning: initialization of immutable value 'currentLoc' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+302 |     public override func mouseDragged(with event: NSEvent) {
+303 |         guard isDragging, let startLoc = dragStartLocation, var clip = midiClip else { return }
+304 |         let currentLoc = convert(event.locationInWindow, from: nil)
+    |             `- warning: initialization of immutable value 'currentLoc' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+305 |         
+306 |         // Simple drag offset implementation (delta-based)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:283:21: error: 'init(frame:)' has already been overridden
+  13 | public final class TimelineCanvasView: NSView {
+  14 | 
+  15 |     public override init(frame frameRect: NSRect) {
+     |                     `- note: 'init(frame:)' previously overridden here
+  16 |         super.init(frame: frameRect)
+  17 |         setupLayers()
+     :
+ 281 |     // MARK: - Initialization
+ 282 | 
+ 283 |     public override init(frame frameRect: NSRect) {
+     |                     `- error: 'init(frame:)' has already been overridden
+ 284 |         super.init(frame: frameRect)
+ 285 |         setupUI()
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:288:14: error: 'init(coder:)' has already been overridden
+  18 |     }
+  19 | 
+  20 |     required init?(coder: NSCoder) {
+     |              `- note: 'init(coder:)' previously overridden here
+  21 |         super.init(coder: coder)
+  22 |         setupLayers()
+     :
+ 286 |     }
+ 287 | 
+ 288 |     required init?(coder: NSCoder) {
+     |              `- error: 'init(coder:)' has already been overridden
+ 289 |         super.init(coder: coder)
+ 290 |         setupUI()
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:411:40: error: cannot find type 'AudioClipLayer' in scope
+ 409 | 
+ 410 |     // Pools for layer reuse
+ 411 |     private var audioLayerPool: [UUID: AudioClipLayer] = [:]
+     |                                        `- error: cannot find type 'AudioClipLayer' in scope
+ 412 |     private var midiLayerPool: [UUID: MidiClipLayer] = [:]
+ 413 | 
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:412:39: error: cannot find type 'MidiClipLayer' in scope
+ 410 |     // Pools for layer reuse
+ 411 |     private var audioLayerPool: [UUID: AudioClipLayer] = [:]
+ 412 |     private var midiLayerPool: [UUID: MidiClipLayer] = [:]
+     |                                       `- error: cannot find type 'MidiClipLayer' in scope
+ 413 | 
+ 414 |     private func updateClipLayers(project: Project) {
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:440:36: error: cannot find 'AudioClipLayer' in scope
+ 438 |             if !wrapper.isMidi, let clip = wrapper.audioClip {
+ 439 |                 let layer = audioLayerPool[clip.id] ?? {
+ 440 |                     let newLayer = AudioClipLayer()
+     |                                    `- error: cannot find 'AudioClipLayer' in scope
+ 441 |                     audioLayerPool[clip.id] = newLayer
+ 442 |                     clipContainerLayer.addSublayer(newLayer)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:464:36: error: cannot find 'MidiClipLayer' in scope
+ 462 |             } else if wrapper.isMidi, let clip = wrapper.midiClip {
+ 463 |                 let layer = midiLayerPool[clip.id] ?? {
+ 464 |                     let newLayer = MidiClipLayer()
+     |                                    `- error: cannot find 'MidiClipLayer' in scope
+ 465 |                     midiLayerPool[clip.id] = newLayer
+ 466 |                     clipContainerLayer.addSublayer(newLayer)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TransportBarView.swift:76:10: warning: 'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead. [#DeprecatedDeclaration]
+ 74 |             alignment: .bottom
+ 75 |         )
+ 76 |         .onChange(of: project.bpm) { newBpm in
+    |          `- warning: 'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead. [#DeprecatedDeclaration]
+ 77 |             bpmText = String(format: "%.2f", newBpm)
+ 78 |         }
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>

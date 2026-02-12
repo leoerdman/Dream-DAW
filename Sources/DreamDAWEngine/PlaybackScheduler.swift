@@ -26,7 +26,6 @@ public final class PlaybackScheduler {
 
     private let audioEngine: AudioEngine
     private let trackMixer: TrackMixer
-    private let synth: SimpleSynthInstrument
     private let logger = Logger(subsystem: "com.dreamdaw", category: "PlaybackScheduler")
 
     // MARK: - Initialization
@@ -34,7 +33,6 @@ public final class PlaybackScheduler {
     public init(audioEngine: AudioEngine, trackMixer: TrackMixer) {
         self.audioEngine = audioEngine
         self.trackMixer = trackMixer
-        self.synth = SimpleSynthInstrument(sampleRate: audioEngine.sampleRate)
     }
 
     // MARK: - Scheduling
@@ -57,7 +55,12 @@ public final class PlaybackScheduler {
         let bpm = project.bpm
         let sampleRate = audioEngine.sampleRate
 
-        logger.info("schedulePlayback from \(position.beats), looping=\(looping) [\(loopStart.beats)-\(loopEnd.beats)]")
+        logger.info(">>> schedulePlayback START from beat \(position.beats), looping=\(looping)")
+
+        if !audioEngine.isRunning {
+            logger.warning(">>> AudioEngine not running. Attempting emergency start.")
+            try? audioEngine.start()
+        }
 
         // Stop all players first (clears queue)
         trackMixer.stopAll()
@@ -132,10 +135,28 @@ public final class PlaybackScheduler {
             }
         }
 
-        // Start all players immediately
-        // (Since we used scheduleSegment/Buffer with at: nil, they are queued and ready)
+        // 3. Start all players at a synchronized future time
+        // Calculate a small "future" time to allow the engine to buffer the first segments.
+        // We use a safe delay of ~100ms.
+        let delaySeconds = 0.1
+        let renderTime = audioEngine.avAudioEngine.outputNode.lastRenderTime ?? AVAudioTime(hostTime: mach_absolute_time())
+        
+        // Convert seconds to host time units reliably
+        var timebaseInfo = mach_timebase_info_data_t()
+        mach_timebase_info(&timebaseInfo)
+        let delayInNano = UInt64(delaySeconds * 1_000_000_000.0)
+        let delayInHostTicks = delayInNano * UInt64(timebaseInfo.denom) / UInt64(timebaseInfo.numer)
+        
+        let startTime = AVAudioTime(hostTime: renderTime.hostTime + delayInHostTicks)
+
+        if playersToStart.isEmpty {
+            logger.warning(">>> No players to start (no content found in tracks).")
+        } else {
+            logger.info(">>> Starting \(playersToStart.count) players at hostTime \(startTime.hostTime) (delay: \(delaySeconds)s)")
+        }
+
         for player in playersToStart {
-            player.play()
+            player.play(at: startTime)
         }
     }
 
@@ -184,13 +205,13 @@ public final class PlaybackScheduler {
 
         for (clipObj, cStart, _, _) in clipsInRange {
             // 1. Handle Overlaps & Gaps before clip
-            // If the clip starts BEFORE current cursor, we MUST truncate the previous clip in the scheduler.
-            // However, since we schedule sequentially to the player node, we just ensure silence/offsets are correct.
             
             // Convert clip timings to seconds relative to rangeStart
             let clipStartAbsSeconds = cStart / bpm * 60.0
             let rangeStartAbsSeconds = rangeStartBeats / bpm * 60.0
             let relativeStartSeconds = max(0, clipStartAbsSeconds - rangeStartAbsSeconds)
+
+            logger.debug("--- Scheduling Clip: \( (clipObj as? AudioClip)?.name ?? (clipObj as? MidiClip)?.name ?? "Unknown" ) at relativeStart \(relativeStartSeconds)s")
 
             if relativeStartSeconds > cursorSeconds {
                 // There is a gap: Fill with silence
@@ -238,6 +259,7 @@ public final class PlaybackScheduler {
                 } else if let midiClip = clipObj as? MidiClip {
                     scheduleMidiBufferSegment(
                         player: player,
+                        track: track, // Pass track to lookup instrument
                         clip: midiClip,
                         startOffsetSeconds: startOffsetBeats / bpm * 60.0,
                         durationSeconds: visibleDurationSeconds,
@@ -308,12 +330,24 @@ public final class PlaybackScheduler {
 
     private func scheduleMidiBufferSegment(
         player: AVAudioPlayerNode,
+        track: Track,
         clip: MidiClip,
         startOffsetSeconds: Double,
         durationSeconds: Double,
         bpm: Double,
         sampleRate: Double
     ) {
+        // Fetch the track's specific synth
+        guard let synth = trackMixer.getInstrument(for: track.id) else {
+            logger.warning("No synth found for MIDI track: \(track.name)")
+            return
+        }
+        
+        // Ensure its rendering state matches the track's current config (for amplitude, etc.)
+        if let config = track.instrument {
+            synth.amplitude = config.gain * 0.3 // Enterprise mix scaling
+        }
+
         guard let fullBuffer = synth.renderClipToBuffer(clip: clip, bpm: bpm) else { return }
 
         let startFrame = AVAudioFramePosition(startOffsetSeconds * sampleRate)
@@ -343,9 +377,8 @@ public final class PlaybackScheduler {
         return AVAudioFramePosition(buffer.frameLength)
     }
 
-    /// Stop all playback and silence the synth.
+    /// Stop all playback and silence the synth chain.
     public func stopAll() {
-        synth.allNotesOff()
         trackMixer.stopAll()
     }
 

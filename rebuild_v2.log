@@ -1,0 +1,20 @@
+Another instance of SwiftPM (PID: 77525) is already running using '/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/.build', waiting until that process has finished execution...[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[2/3] Compiling DreamDAWEngine ArrangementOrchestrator.swift
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWEngine/PlaybackScheduler.swift:382:9: error: cannot find 'synth' in scope
+380 |     /// Stop all playback and silence the synth.
+381 |     public func stopAll() {
+382 |         synth.allNotesOff()
+    |         `- error: cannot find 'synth' in scope
+383 |         trackMixer.stopAll()
+384 |     }
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWEngine/TrackMixer.swift:177:122: error: reference to property 'trackInstrumentNodes' in closure requires explicit use of 'self' to make capture semantics explicit
+175 |         }
+176 |         
+177 |         logger.info("Rebuilt effect chain for track '\(track.name)' with \(newChain.count) effects. Instrument active: \(trackInstrumentNodes[track.id] != nil)")
+    |                                                                                                                          |- error: reference to property 'trackInstrumentNodes' in closure requires explicit use of 'self' to make capture semantics explicit
+    |                                                                                                                          `- note: reference 'self.' explicitly
+178 |     }
+179 | 

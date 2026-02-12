@@ -8,6 +8,10 @@ import DreamDAWModels
 /// Renders a single track header in the Ableton Live style.
 /// Layout: [ColoredName] [Routing▾] [S] [Volume] [Pan] [#]
 /// Track name is displayed on a colored background strip matching the track color.
+extension NSPasteboard.PasteboardType {
+    public static let trackID = NSPasteboard.PasteboardType("com.dreamdaw.trackID")
+}
+
 public final class TrackHeaderView: NSView {
 
     // MARK: - Properties
@@ -92,6 +96,7 @@ public final class TrackHeaderView: NSView {
         nameLabel.isBezeled = false
         nameLabel.isEditable = false
         nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.delegate = self
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(nameLabel)
 
@@ -225,6 +230,21 @@ public final class TrackHeaderView: NSView {
     public override func layout() {
         super.layout()
         updateVolumeFill()
+        
+        // Mini-Mode: Hide secondary labels at small heights
+        let isMini = bounds.height < 45
+        routingLabel.isHidden = isMini
+        trackTypeLabel.isHidden = isMini
+        soloButton.isHidden = isMini
+        
+        // Adjust nameLabel position if mini
+        if isMini {
+            nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor).isActive = true
+        } else {
+            // Default setup from setupUI handles non-mini case via constraints usually,
+            // but since constraints are static, let's toggle them or just adjust constants if needed.
+            // For simplicity in this layout, we'll let constraints handle it and just hide/show.
+        }
     }
 
     private func updateFromTrack() {
@@ -426,16 +446,82 @@ public final class TrackHeaderView: NSView {
         // Notify changes
         onTrackChanged?(track)
         updateFromTrack()
+        updateTrackingAreas()
     }
     
-    // MARK: - Mouse Events
+    // MARK: - Mouse Events (Resizing & Selection)
+    
+    private var isResizing = false
+    private let resizeThreshold: CGFloat = 4.0
+
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        let options: NSTrackingArea.Options = [.activeInActiveApp, .mouseMoved, .cursorUpdate]
+        addTrackingArea(NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil))
+    }
+
+    public override func cursorUpdate(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        if location.y >= bounds.height - resizeThreshold {
+            NSCursor.resizeUpDown.set()
+        } else {
+            NSCursor.arrow.set()
+        }
+    }
+
+    public override func mouseMoved(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        if location.y >= bounds.height - resizeThreshold {
+            NSCursor.resizeUpDown.set()
+        } else {
+            NSCursor.arrow.set()
+        }
+    }
     
     public override func mouseDown(with event: NSEvent) {
-        // Left click selection
+        let location = convert(event.locationInWindow, from: nil)
+        
+        // 1. Check for Resizing (Bottom edge in non-flipped view)
+        if location.y <= resizeThreshold {
+            isResizing = true
+            return
+        }
+        
+        // 2. Otherwise: Handle Selection and Reordering
         onHeaderClicked?()
         
-        // Pass event up if not handled (though we just handled selection)
-        super.mouseDown(with: event)
+        let pbItem = NSPasteboardItem()
+        pbItem.setString(track.id.uuidString, forType: .trackID)
+        let dragItem = NSDraggingItem(pasteboardWriter: pbItem)
+        dragItem.draggingFrame = bounds
+        beginDraggingSession(with: [dragItem], event: event, source: self)
+    }
+
+    public override func mouseDragged(with event: NSEvent) {
+        if isResizing {
+            let location = convert(event.locationInWindow, from: nil)
+            // location.y is the new height directly since it's bottom-relative
+            let newHeight = max(24, min(300, location.y))
+            track.height = newHeight
+            
+            // Notify UI to refresh layout in-place
+            if let container = superview as? TrackHeadersContainerView,
+               let arrangement = container.nextResponder as? ArrangementViewController {
+                arrangement.updateTrackLayout() 
+            }
+        }
+    }
+
+    public override func mouseUp(with event: NSEvent) {
+        if isResizing {
+            isResizing = false
+            // Mark project dirty on resize end
+            if let container = superview as? TrackHeadersContainerView,
+               let arrangement = container.nextResponder as? ArrangementViewController {
+                 arrangement.project.isDirty = true
+            }
+        }
     }
 
     // MARK: - Actions
@@ -459,6 +545,39 @@ public final class TrackHeaderView: NSView {
         if let container = superview as? TrackHeadersContainerView {
             container.onDeleteTrack?(track.id)
         }
+    }
+
+    // MARK: - Renaming
+
+    public func startRenaming() {
+        nameLabel.isEditable = true
+        nameLabel.backgroundColor = NSColor.white.withAlphaComponent(0.1)
+        nameLabel.drawsBackground = true
+        window?.makeFirstResponder(nameLabel)
+    }
+}
+
+extension TrackHeaderView: NSTextFieldDelegate {
+    public func controlTextDidEndEditing(_ obj: Notification) {
+        nameLabel.isEditable = false
+        nameLabel.drawsBackground = false
+        track.name = nameLabel.stringValue
+        onTrackChanged?(track)
+        
+        // Mark project dirty
+        if let container = superview as? TrackHeadersContainerView,
+           let arrangement = container.nextResponder as? ArrangementViewController {
+            arrangement.project.isDirty = true
+            arrangement.updateWindowTitle()
+        }
+    }
+}
+
+// MARK: - NSDraggingSource
+
+extension TrackHeaderView: NSDraggingSource {
+    public func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        return .move
     }
 }
 
@@ -499,8 +618,8 @@ public final class TrackHeadersContainerView: NSView {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupContextMenu()
-        // Register for drag-and-drop of browser items (instruments/effects)
-        registerForDraggedTypes([.browserItem, .fileURL])
+        // Register for drag-and-drop
+        registerForDraggedTypes([.browserItem, .fileURL, .trackID])
     }
 
     required init?(coder: NSCoder) {
@@ -512,15 +631,15 @@ public final class TrackHeadersContainerView: NSView {
     private func setupContextMenu() {
         let contextMenu = NSMenu(title: "Track Menu")
 
-        let addAudioItem = NSMenuItem(title: "Add Audio Track", action: #selector(contextAddAudioTrack), keyEquivalent: "")
-        addAudioItem.target = self
-        addAudioItem.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: nil)
-        contextMenu.addItem(addAudioItem)
-
         let addMidiItem = NSMenuItem(title: "Add MIDI Track", action: #selector(contextAddMidiTrack), keyEquivalent: "")
         addMidiItem.target = self
         addMidiItem.image = NSImage(systemSymbolName: "pianokeys", accessibilityDescription: nil)
         contextMenu.addItem(addMidiItem)
+
+        let addAudioItem = NSMenuItem(title: "Add Audio Track", action: #selector(contextAddAudioTrack), keyEquivalent: "")
+        addAudioItem.target = self
+        addAudioItem.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: nil)
+        contextMenu.addItem(addAudioItem)
 
         menu = contextMenu
     }
@@ -563,6 +682,16 @@ public final class TrackHeadersContainerView: NSView {
         // Update frame (only regular tracks — master is pinned separately)
         frame.size.height = yOffset
     }
+    
+    /// Update existing header frames without recreation.
+    public func updateLayoutInPlace() {
+        var yOffset: CGFloat = 0
+        for header in headerViews {
+            header.frame = CGRect(x: 0, y: yOffset, width: DreamTheme.trackHeaderWidth, height: header.track.height)
+            yOffset += header.track.height
+        }
+        frame.size.height = yOffset
+    }
 
     /// Scroll to match the timeline vertical scroll position.
     public func setVerticalOffset(_ offset: CGFloat) {
@@ -572,16 +701,50 @@ public final class TrackHeadersContainerView: NSView {
     // MARK: - Drag & Drop (Accept instruments/effects on track headers)
 
     public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        if sender.draggingPasteboard.string(forType: .browserItem) != nil {
+        let pb = sender.draggingPasteboard
+        if pb.string(forType: .trackID) != nil {
+            return .move
+        }
+        if pb.string(forType: .browserItem) != nil {
             return .copy
         }
         return []
     }
 
     public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let payload = sender.draggingPasteboard.string(forType: .browserItem) else {
+        let pb = sender.draggingPasteboard
+        
+        // 1. Handle Track Reordering
+        if let trackIDString = pb.string(forType: .trackID), let draggedID = UUID(uuidString: trackIDString) {
+            let location = convert(sender.draggingLocation, from: nil)
+            
+            // Find target index
+            var targetIndex = headerViews.count
+            for (index, header) in headerViews.enumerated() {
+                if location.y < header.frame.midY {
+                    targetIndex = index
+                    break
+                }
+            }
+            
+            // Perform move if valid
+            if let sourceIndex = headerViews.firstIndex(where: { $0.trackID == draggedID }) {
+                if sourceIndex != targetIndex && sourceIndex != targetIndex - 1 {
+                    // Trigger reorder in parent
+                    if let arrangement = nextResponder as? ArrangementViewController {
+                        arrangement.moveTrack(from: sourceIndex, to: targetIndex)
+                        return true
+                    }
+                }
+            }
             return false
         }
+        
+        // 2. Handle Browser Items / Files
+        guard let payload = pb.string(forType: .browserItem) else {
+            return false
+        }
+        // ... rest of item drop logic ...
 
         let parts = payload.split(separator: ":", maxSplits: 1)
         guard parts.count == 2 else { return false }

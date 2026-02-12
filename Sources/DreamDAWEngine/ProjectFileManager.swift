@@ -47,6 +47,13 @@ public final class ProjectFileManager {
         return dreamFolder.appendingPathComponent("DefaultProject.ddpj")
     }
 
+    /// Resets the manager state for a fresh project.
+    public func resetState() {
+        self.projectFolderURL = nil
+        self.currentVersion = 1
+        logger.info("Project file manager state reset.")
+    }
+
     // MARK: - Recent Projects
 
     // MARK: - Recent Projects

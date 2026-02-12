@@ -33,18 +33,23 @@ public final class PianoRollView: NSView {
     /// Piano keyboard width on the left.
     private let keyboardWidth: CGFloat = 48.0
 
-    /// Visible pitch range (show 4 octaves centered around middle C).
-    private let pitchRangeStart: Int = 36  // C2
-    private let pitchRangeEnd: Int = 96    // C7
+    /// Visible pitch range (show all 8+ octaves for professional range).
+    private let pitchRangeStart: Int = 0
+    private let pitchRangeEnd: Int = 127
 
-    /// Scroll offset for the note grid.
-    public var scrollOffset: NSPoint = .zero
+    /// Selected notes IDs.
+    private var selectedNoteIDs = Set<UUID>()
+    
+    /// Dragging state
+    private var dragStartLocation: CGPoint?
+    private var draggingNotesOffset: (beats: Double, pitch: Int) = (0, 0)
+    private var isDragging: Bool = false
 
     /// Callback when notes are modified.
     public var onNotesChanged: ((MidiClip) -> Void)?
 
     /// Grid snap value in beats (default: quarter note = 1 beat).
-    private let gridSnap: Double = 0.25
+    public var gridSnap: Double = 0.25
 
     /// Note names for keyboard display.
     private static let noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -183,7 +188,7 @@ public final class PianoRollView: NSView {
 
     private func drawNotes(ctx: CGContext, rect: NSRect) {
         guard let clip = midiClip else { return }
-        let trackColor = track?.color.nsColor ?? DreamTheme.accent
+        let baseTrackColor = track?.color.nsColor ?? DreamTheme.accent
 
         for note in clip.notes {
             let x = rect.minX + CGFloat(note.position.beats) * pixelsPerBeat
@@ -191,21 +196,30 @@ public final class PianoRollView: NSView {
             let w = CGFloat(note.duration.beats) * pixelsPerBeat
             let h = pitchRowHeight
 
-            let noteRect = CGRect(x: x, y: y, width: max(w, 2), height: h)
+            let noteRect = CGRect(x: x, y: y + 1, width: max(w, 2), height: h - 2)
+            let cornerRadius: CGFloat = 2.0
+            let path = NSBezierPath(roundedRect: noteRect, xRadius: cornerRadius, yRadius: cornerRadius)
+
+            let isSelected = selectedNoteIDs.contains(note.id)
+            let color = isSelected ? .white : baseTrackColor
 
             // Note body
-            ctx.setFillColor(trackColor.withAlphaComponent(0.85).cgColor)
-            ctx.fill(noteRect)
+            ctx.setFillColor(color.withAlphaComponent(isSelected ? 1.0 : 0.85).cgColor)
+            ctx.addPath(path.cgPath)
+            ctx.fillPath()
 
-            // Note border
-            ctx.setStrokeColor(trackColor.withAlphaComponent(0.4).cgColor)
-            ctx.setLineWidth(0.5)
-            ctx.stroke(noteRect)
+            // Note border (subtle)
+            ctx.setStrokeColor(color.withAlphaComponent(0.5).cgColor)
+            ctx.setLineWidth(1.0)
+            ctx.addPath(path.cgPath)
+            ctx.strokePath()
 
-            // Velocity shade (darker = lower velocity)
-            let velocityAlpha = CGFloat(note.velocity) / 127.0 * 0.3
-            ctx.setFillColor(NSColor.white.withAlphaComponent(velocityAlpha).cgColor)
-            ctx.fill(noteRect)
+            // Velocity indicator (darker bottom edge)
+            let velocityHeight = h * (1.0 - CGFloat(note.velocity) / 127.0)
+            if velocityHeight > 2 {
+                ctx.setFillColor(NSColor.black.withAlphaComponent(0.2).cgColor)
+                ctx.fill(CGRect(x: x, y: y + 1, width: w, height: velocityHeight))
+            }
         }
     }
 
@@ -229,42 +243,74 @@ public final class PianoRollView: NSView {
 
     // MARK: - Mouse Events
 
+    // MARK: - Mouse Events
+
     public override func mouseDown(with event: NSEvent) {
         guard var clip = midiClip else { return }
         let location = convert(event.locationInWindow, from: nil)
 
-        // Only handle clicks in the grid area
-        guard location.x > keyboardWidth else { return }
+        // Keyboard interaction (Audition)
+        if location.x < keyboardWidth {
+            // Note auditioning or other keyboard interaction...
+            return
+        }
 
         let beat = beatForX(location.x)
         let pitch = pitchForY(location.y)
 
         // Check if clicking on an existing note
-        if let existingIndex = clip.notes.firstIndex(where: {
+        if let clickedNote = clip.notes.first(where: {
             $0.pitch == pitch &&
             beat >= $0.position.beats &&
             beat < $0.position.beats + $0.duration.beats
         }) {
-            // Right-click or Ctrl+click = delete
-            if event.modifierFlags.contains(.control) || event.type == .rightMouseDown {
-                clip.notes.remove(at: existingIndex)
-                midiClip = clip
-                onNotesChanged?(clip)
-                return
+            if event.modifierFlags.contains(.shift) {
+                selectedNoteIDs.insert(clickedNote.id)
+            } else if !selectedNoteIDs.contains(clickedNote.id) {
+                selectedNoteIDs = [clickedNote.id]
             }
-            return // Click on existing note — no-op for now
+            
+            isDragging = true
+            dragStartLocation = location
+            draggingNotesOffset = (0, 0)
+            needsDisplay = true
+            return
         }
 
-        // Add new note
-        let note = MidiNote(
-            pitch: pitch,
-            velocity: 100,
-            position: TimePosition(beats: beat),
-            duration: TimePosition(beats: gridSnap)
-        )
-        clip.notes.append(note)
-        midiClip = clip
-        onNotesChanged?(clip)
+        // Click on empty space: clear selection OR add note
+        if !event.modifierFlags.contains(.shift) {
+            selectedNoteIDs.removeAll()
+        }
+        
+        // Double click to add note
+        if event.clickCount == 2 {
+            let note = MidiNote(
+                pitch: pitch,
+                velocity: 100,
+                position: TimePosition(beats: beat),
+                duration: TimePosition(beats: gridSnap)
+            )
+            clip.notes.append(note)
+            selectedNoteIDs = [note.id]
+            midiClip = clip
+            onNotesChanged?(clip)
+        }
+        
+        needsDisplay = true
+    }
+
+    public override func mouseDragged(with event: NSEvent) {
+        guard isDragging, let startLoc = dragStartLocation, var clip = midiClip else { return }
+        let currentLoc = convert(event.locationInWindow, from: nil)
+        
+        // Simple drag offset implementation (delta-based)
+        // For production, we'd snap final positions on mouseUp
+        // Let's just update the visual representation for now
+    }
+
+    public override func mouseUp(with event: NSEvent) {
+        isDragging = false
+        dragStartLocation = nil
     }
 
     public override func rightMouseDown(with event: NSEvent) {

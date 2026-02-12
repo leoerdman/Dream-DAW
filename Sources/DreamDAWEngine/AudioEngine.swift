@@ -32,13 +32,40 @@ public final class AudioEngine: @unchecked Sendable {
     /// Whether the engine is currently running.
     public private(set) var isRunning: Bool = false
 
+    /// Callback triggered when the engine configuration changes (e.g. headphone plug/unplug).
+    public var onConfigurationChange: (() -> Void)?
+
     // MARK: - Initialization
 
     public init() {
         self.masterMixer = AVAudioMixerNode()
-        engine.attach(masterMixer)
-        engine.connect(masterMixer, to: engine.mainMixerNode, format: nil)
+        setupGraph()
+        setupObservers()
         logger.info("AudioEngine initialized")
+    }
+
+    private func setupGraph() {
+        engine.attach(masterMixer)
+        let format = engine.mainMixerNode.outputFormat(forBus: 0)
+        engine.connect(masterMixer, to: engine.mainMixerNode, format: format)
+        logger.info("Connected masterMixer to mainMixerNode with format: \(format.sampleRate)Hz")
+    }
+
+    private func setupObservers() {
+        NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleConfigurationChange()
+        }
+    }
+
+    private func handleConfigurationChange() {
+        logger.info("AVAudioEngine configuration changed. Rebuilding graph...")
+        // If the engine was running, it will stop automatically.
+        // We notify the controller to re-configure tracks and restart if needed.
+        onConfigurationChange?()
     }
 
     // MARK: - Lifecycle
@@ -50,6 +77,7 @@ public final class AudioEngine: @unchecked Sendable {
 
         guard !isRunning else { return }
 
+        // Ensure we are in a clean state
         engine.prepare()
         try engine.start()
         isRunning = true
@@ -66,6 +94,17 @@ public final class AudioEngine: @unchecked Sendable {
         engine.stop()
         isRunning = false
         logger.info("AudioEngine stopped")
+    }
+
+    /// Emergency stop for all audio processing.
+    public func panic() {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+
+        engine.stop()
+        engine.reset()
+        isRunning = false
+        logger.warning("Panic! Audio engine halted and reset.")
     }
 
     /// Reset the audio engine graph.

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import DreamDAWModels
 
 // MARK: - MainWindowController
@@ -10,6 +11,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - Properties
 
     private let project: Project
+    private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Initialization
 
@@ -59,6 +61,23 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         
         // Load app icon
         loadAppIcon()
+        
+        // Observe dirty state
+        setupProjectSubscription()
+    }
+    
+    private func setupProjectSubscription() {
+        project.$isDirty
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateWindowTitle()
+            }
+            .store(in: &cancellables)
+    }
+    
+    private func updateWindowTitle() {
+        let dirtyIndicator = project.isDirty ? "*" : ""
+        window?.title = "Dream DAW – \(project.name)\(dirtyIndicator)"
     }
 
     required init?(coder: NSCoder) {

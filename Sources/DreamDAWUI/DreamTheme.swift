@@ -89,4 +89,19 @@ public enum DreamTheme {
     public static let defaultPixelsPerBeat: CGFloat = 25
     public static let minPixelsPerBeat: CGFloat = 3
     public static let maxPixelsPerBeat: CGFloat = 200
+
+    // MARK: - Liquid Glass HUD Tokens
+    
+    public static let glassMaterial: NSVisualEffectView.Material = .hudWindow
+    public static let glassBlending: NSVisualEffectView.BlendingMode = .withinWindow
+    public static let glassColor   = NSColor(white: 1.0, alpha: 0.05)
+    public static let glassBorder  = NSColor(white: 1.0, alpha: 0.12)
+    
+    // MARK: - Animation Constants
+    
+    public static let springDamping: CGFloat = 0.8
+    public static let springStiffness: CGFloat = 150
+    public static let fastAnimation: TimeInterval = 0.15
+    public static let standardAnimation: TimeInterval = 0.25
+    public static let premiumAnimation: TimeInterval = 0.4
 }

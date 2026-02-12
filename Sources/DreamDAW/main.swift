@@ -128,10 +128,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Track Menu
         let trackMenuItem = NSMenuItem()
         let trackMenu = NSMenu(title: "Track")
-        trackMenu.addItem(withTitle: "Add MIDI Track", action: #selector(addMidiTrack), keyEquivalent: "t")
+        
+        let addMidiItem = NSMenuItem(title: "Add MIDI Track", action: #selector(addMidiTrack), keyEquivalent: "t")
+        addMidiItem.keyEquivalentModifierMask = [.command, .shift]
+        trackMenu.addItem(addMidiItem)
+
         let addAudioItem = NSMenuItem(title: "Add Audio Track", action: #selector(addAudioTrack), keyEquivalent: "t")
-        addAudioItem.keyEquivalentModifierMask = [.command, .shift]
         trackMenu.addItem(addAudioItem)
+        
         trackMenuItem.submenu = trackMenu
         mainMenu.addItem(trackMenuItem)
 
@@ -166,7 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let savedFrame = window.frame
                     let arrangementVC = ArrangementViewController(project: self.project)
                     window.contentViewController = arrangementVC
-                    window.title = "Dream DAW — \(self.project.name)"
+                    window.title = "Dream DAW – \(self.project.name)"
                     window.setFrame(savedFrame, display: true)
                 } else {
                     self.mainWindowController = MainWindowController(project: self.project)
@@ -199,7 +203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     await MainActor.run {
                         fm.addToRecentProjects(url)
                         self.rebuildRecentMenu()
-                        self.mainWindowController?.window?.title = "Dream DAW — \(self.project.name) V\(fm.currentVersion)"
+                        self.mainWindowController?.window?.title = "Dream DAW – \(self.project.name) V\(fm.currentVersion)"
                     }
                 } catch {
                     await MainActor.run {
@@ -244,7 +248,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         let fm = ProjectFileManager.shared
                         fm.addToRecentProjects(savedURL)
                         self.rebuildRecentMenu()
-                        self.mainWindowController?.window?.title = "\(self.project.name) V\(fm.currentVersion) — Dream DAW"
+                        self.mainWindowController?.window?.title = "Dream DAW – \(self.project.name) V\(fm.currentVersion)"
                     }
                 } catch {
                     await MainActor.run {
@@ -342,7 +346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         let savedFrame = window.frame
                         let arrangementVC = ArrangementViewController(project: self.project)
                         window.contentViewController = arrangementVC
-                        window.title = "Dream DAW — \(self.project.name) V\(fm.currentVersion)"
+                        window.title = "Dream DAW – \(self.project.name) V\(fm.currentVersion)"
                         window.setFrame(savedFrame, display: true)
                     } else {
                         self.mainWindowController = MainWindowController(project: self.project)

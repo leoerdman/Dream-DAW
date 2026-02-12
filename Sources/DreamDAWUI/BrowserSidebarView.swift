@@ -25,7 +25,7 @@ public final class BrowserSidebarView: NSView {
 
     private let searchField = NSTextField()
     private let searchIcon = NSImageView()
-    private let blurView = NSVisualEffectView()
+    private let backgroundView = NSView()
     private let outlineScrollView = NSScrollView()
     private let outlineView = NSOutlineView()
     private var rootItems: [BrowserNode] = []
@@ -84,15 +84,12 @@ public final class BrowserSidebarView: NSView {
 
     private func setupUI() {
         wantsLayer = true
-        layer?.backgroundColor = .clear
+        layer?.backgroundColor = DreamTheme.bgBrowser.cgColor
 
-        // Blur background (Liquid Glass)
-        blurView.material = DreamTheme.glassMaterial
-        blurView.blendingMode = DreamTheme.glassBlending
-        blurView.state = .active
-        blurView.wantsLayer = true
-        blurView.layer?.cornerRadius = 0
-        addSubview(blurView)
+        // Solid background (Professional/Enterprise Opaque)
+        backgroundView.wantsLayer = true
+        backgroundView.layer?.backgroundColor = DreamTheme.bgBrowser.cgColor
+        addSubview(backgroundView)
 
         // Search icon — small magnifying glass
         if let mag = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Search") {
@@ -148,7 +145,7 @@ public final class BrowserSidebarView: NSView {
 
     public override func layout() {
         super.layout()
-        blurView.frame = bounds
+        backgroundView.frame = bounds
         let searchAreaH: CGFloat = 28
         let hPad: CGFloat = 8
         let topPad: CGFloat = 5

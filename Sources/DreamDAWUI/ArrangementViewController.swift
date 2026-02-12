@@ -429,7 +429,11 @@ public final class ArrangementViewController: NSViewController {
         let controlBarH = DreamTheme.controlBarHeight
         let rulerH = DreamTheme.rulerHeight
         let statusBarH = DreamTheme.statusBarHeight
-        let headerW = DreamTheme.trackHeaderWidth
+        
+        // DYNAMIC WIDTH: Adjust header column based on depth (8px per level)
+        let maxDepth = project.maxTrackDepth
+        let headerW = DreamTheme.trackHeaderWidth + CGFloat(maxDepth * 8)
+        
         let browserW = isBrowserVisible ? DreamTheme.browserWidth : 0
         let bottomPanelH = bottomPanel.panelHeight
 

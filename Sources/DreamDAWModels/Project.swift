@@ -327,4 +327,28 @@ public final class Project: ObservableObject, Identifiable, Codable {
         
         return filteredTracks + [masterTrack]
     }
+    
+    /// Calculates the nesting depth of a track (0 for top-level, 1 for first level group, etc.).
+    public func depth(for trackID: UUID) -> Int {
+        let trackMap = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+        var depth = 0
+        var currentParentID = trackMap[trackID]?.parentTrackID
+        
+        while let parentID = currentParentID {
+            depth += 1
+            currentParentID = trackMap[parentID]?.parentTrackID
+        }
+        return depth
+    }
+    
+    /// Returns the maximum nesting depth present in the project.
+    public var maxTrackDepth: Int {
+        let visible = allVisibleTracks
+        var maxD = 0
+        for track in visible {
+            let d = depth(for: track.id)
+            if d > maxD { maxD = d }
+        }
+        return maxD
+    }
 }

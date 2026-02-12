@@ -49,6 +49,7 @@ public final class TimelineCanvasView: NSView {
         gridLayer.zPosition = 1
         metalArrangementLayer.zPosition = 2
         clipContainerLayer.zPosition = 3
+        titleContainerLayer.zPosition = 4
         cursorLayer.zPosition = 100
         cursorLayer.backgroundColor = NSColor.white.cgColor
         cursorHandleLayer.zPosition = 101
@@ -66,12 +67,14 @@ public final class TimelineCanvasView: NSView {
         metalArrangementLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
         metalArrangementLayer.opacity = 0.95
         metalArrangementLayer.isOpaque = false
-        self.layer?.addSublayer(metalArrangementLayer)
+        // DO NOT add to self.layer yet — we'll add it to the ClipView (superview) for jitter-free scrolling
         
+        setupSubscriptions()
         self.layer?.addSublayer(clipContainerLayer)
         self.layer?.addSublayer(cursorLayer)
         self.layer?.addSublayer(cursorHandleLayer)
         self.layer?.addSublayer(playheadLayer)
+        self.layer?.addSublayer(titleContainerLayer)
         self.layer?.addSublayer(selectionRectLayer)
         
         // Ghost Preview Setup
@@ -304,6 +307,7 @@ public final class TimelineCanvasView: NSView {
     private let laneContainerLayer = LaneLayer()
     private let clipContainerLayer = CALayer()
     private let playheadLayer = CALayer()
+    private let titleContainerLayer = CALayer()
     
     /// Marquee selection visual overlay.
     private let selectionRectLayer: CAShapeLayer = {
@@ -378,12 +382,20 @@ public final class TimelineCanvasView: NSView {
     // MARK: - Spatial Indexing
 
     /// Wrapper for clips stored in the QuadTree.
-    private struct ClipWrapper: Identifiable {
+    private final class ClipWrapper: Identifiable {
         let id: UUID
         let trackID: UUID
         let isMidi: Bool
         let audioClip: AudioClip?
         let midiClip: MidiClip?
+        
+        init(id: UUID, trackID: UUID, isMidi: Bool, audioClip: AudioClip?, midiClip: MidiClip?) {
+            self.id = id
+            self.trackID = trackID
+            self.isMidi = isMidi
+            self.audioClip = audioClip
+            self.midiClip = midiClip
+        }
     }
 
     /// QuadTree for fast spatial queries (hit-testing and culling).
@@ -569,25 +581,42 @@ public final class TimelineCanvasView: NSView {
         }
         
         // GPU BATCH RENDERING:
-        // Match the Metal layer to the visible viewport for efficiency and correct coordinate mapping.
-        clipContainerLayer.isHidden = true
+        // Match the Metal layer to the visible viewport.
+        // To prevent flickering/jitter during scroll, we attach it to the superview (ClipView)
+        // so it stays fixed relative to the user, and we only update its contents.
+        if metalArrangementLayer.superlayer == nil, let clipView = self.superview?.layer {
+            clipView.addSublayer(metalArrangementLayer)
+        }
         
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        metalArrangementLayer.frame = visibleRect
+        
+        // The frame should be the bounds of the ClipView (the viewport)
+        if let clipView = self.superview {
+            metalArrangementLayer.frame = clipView.bounds
+        } else {
+            metalArrangementLayer.frame = visibleRect
+        }
+        
         let scale = self.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
         metalArrangementLayer.contentsScale = scale
-        metalArrangementLayer.drawableSize = CGSize(width: visibleRect.width * scale, height: visibleRect.height * scale)
+        metalArrangementLayer.drawableSize = CGSize(width: metalArrangementLayer.bounds.width * scale, height: metalArrangementLayer.bounds.height * scale)
         metalArrangementLayer.pixelFormat = .bgra8Unorm
         metalArrangementLayer.isGeometryFlipped = true
         CATransaction.commit()
         
-        metalTimelineRenderer?.render(
-            project: project,
-            visibleRect: visibleRect,
-            pixelsPerBeat: pixelsPerBeat,
-            in: metalArrangementLayer
-        )
+        if let renderer = metalTimelineRenderer {
+            if renderer.waveformCache == nil {
+                renderer.waveformCache = (self as TimelineCanvasView).waveformRenderer?.waveformCache
+            }
+            
+            renderer.render(
+                project: project,
+                visibleRect: visibleRect,
+                pixelsPerBeat: pixelsPerBeat,
+                in: metalArrangementLayer
+            )
+        }
         
         // Cursor and Playhead
         updateCursorLayer(project: project)
@@ -620,7 +649,7 @@ public final class TimelineCanvasView: NSView {
                 )
                 
                 if visibleRect.intersects(clipRect) {
-                    addTitleLayer(name: clip.name, frame: clipRect.offsetBy(dx: 0, dy: 0))
+                    addTitleLayer(name: clip.name, frame: clipRect, backgroundColor: track.color.nsColor)
                 }
             }
             
@@ -634,18 +663,26 @@ public final class TimelineCanvasView: NSView {
                 )
                 
                 if visibleRect.intersects(clipRect) {
-                    addTitleLayer(name: clip.name, frame: clipRect)
+                    addTitleLayer(name: clip.name, frame: clipRect, backgroundColor: track.color.nsColor)
                 }
             }
         }
     }
     
-    private func addTitleLayer(name: String, frame: CGRect) {
+    private func addTitleLayer(name: String, frame: CGRect, backgroundColor: NSColor) {
         let textLayer = CATextLayer()
         textLayer.string = name
         textLayer.fontSize = 11
         textLayer.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        textLayer.foregroundColor = NSColor.white.withAlphaComponent(0.9).cgColor
+        
+        // DYNAMIC CONTRAST LOGIC
+        // Calculate relative luminance: 0.2126*R + 0.7152*G + 0.0722*B
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        backgroundColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        
+        textLayer.foregroundColor = luminance > 0.6 ? NSColor.black.cgColor : NSColor.white.cgColor
+        textLayer.backgroundColor = NSColor.clear.cgColor
         textLayer.frame = frame.insetBy(dx: 5, dy: 2)
         textLayer.contentsScale = window?.backingScaleFactor ?? 2.0
         textLayer.alignmentMode = .left

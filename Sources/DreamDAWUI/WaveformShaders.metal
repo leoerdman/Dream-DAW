@@ -32,6 +32,9 @@ struct ClipInstance {
     float4 rect; // x, y, width, height
     float4 color;
     float isSelected;
+    int waveformOffset;
+    int waveformCount;
+    float isMidi;
 };
 
 struct MidiNoteInstance {
@@ -46,6 +49,9 @@ struct TimelineVertexOut {
     float2 localPos;
     float2 rectSize;
     float isSelected;
+    float isMidi;
+    int waveformOffset;
+    int waveformCount;
 };
 
 vertex TimelineVertexOut timeline_vertex(uint vid [[vertex_id]],
@@ -75,11 +81,15 @@ vertex TimelineVertexOut timeline_vertex(uint vid [[vertex_id]],
     out.localPos = quadPos;
     out.rectSize = rectSize;
     out.isSelected = inst.isSelected;
+    out.isMidi = inst.isMidi;
+    out.waveformOffset = inst.waveformOffset;
+    out.waveformCount = inst.waveformCount;
     
     return out;
 }
 
-fragment float4 timeline_fragment(TimelineVertexOut in [[stage_in]]) {
+fragment float4 timeline_fragment(TimelineVertexOut in [[stage_in]],
+                                 const device float* waveformPeaks [[buffer(2)]]) {
     float2 pixelCoord = in.localPos * in.rectSize;
     float2 size = in.rectSize;
     float r = 4.0; // Corner radius
@@ -98,36 +108,54 @@ fragment float4 timeline_fragment(TimelineVertexOut in [[stage_in]]) {
     
     if (isHeader) {
         // --- HEADER AESTHETICS (Opaque) ---
-        // Header is slightly darker or saturated for better readability
         color.rgb *= 1.15;
         color.a = 1.0;
-        
-        // Header separator line
-        if (abs(pixelCoord.y - headerHeight) < 1.0) {
-            color.rgb *= 0.7;
-        }
+        if (abs(pixelCoord.y - headerHeight) < 1.0) color.rgb *= 0.7;
     } else {
-        // --- BODY AESTHETICS (Semi-Transparent 'Liquid Glass') ---
-        color.a = 0.55; // High transparency for grid visibility
-        
-        // Subtle vertical gradient for body depth
+        // --- BODY AESTHETICS (Liquid Glass) ---
+        color.a = 0.55;
         color.rgb *= (1.05 - in.localPos.y * 0.1);
+        
+        // --- WAVEFORM RENDERING ---
+        if (in.isMidi < 0.5 && in.waveformOffset >= 0) {
+            float normX = in.localPos.x;
+            float sampleIdx = normX * (float(in.waveformCount) - 1.0);
+            int idxL = int(floor(sampleIdx));
+            int idxR = int(ceil(sampleIdx));
+            float frac = sampleIdx - float(idxL);
+            
+            float peakL = waveformPeaks[in.waveformOffset + idxL];
+            float peakR = waveformPeaks[in.waveformOffset + idxR];
+            float peak = mix(peakL, peakR, frac);
+            
+            // Normalize Y for body area (below header)
+            float bodyY = (pixelCoord.y - headerHeight) / (size.y - headerHeight);
+            float distToCenter = abs(bodyY - 0.5) * 2.0; // 0 to 1
+            
+            if (distToCenter < peak) {
+                // Waveform visible
+                float intensity = 1.0 - smoothstep(peak - 0.15, peak, distToCenter);
+                float3 waveColor = mix(color.rgb, float3(1.0), 0.35);
+                color.rgb = mix(color.rgb, waveColor, intensity);
+                color.a = mix(color.a, 0.85, intensity);
+            }
+        }
     }
     
     // Highlight at the top of the header
     float highlight = smoothstep(1.5, 0.0, pixelCoord.y) * 0.2;
     color.rgb += highlight;
     
-    // Border (Professional DAW outline)
+    // Border
     float borderSize = 1.0;
     if (dist > -borderSize) {
         float borderAlpha = smoothstep(-borderSize, -borderSize + 0.5, dist);
         float3 borderColor = mix(color.rgb * 1.6, float3(1.0), 0.25);
         color.rgb = mix(color.rgb, borderColor, borderAlpha);
-        color.a = mix(color.a, 1.0, borderAlpha); // Opaque border
+        color.a = mix(color.a, 1.0, borderAlpha);
     }
     
-    // Selection state (High Visibility)
+    // Selection state
     if (in.isSelected > 0.5) {
         if (dist > -2.0) {
             color.rgb = float3(1.0); 

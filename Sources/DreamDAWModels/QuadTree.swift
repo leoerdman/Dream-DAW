@@ -46,6 +46,8 @@ public final class QuadTree<T: Identifiable> {
     
     private let boundary: QuadRect
     private let capacity: Int
+    private let depth: Int
+    private let maxDepth: Int
     
     // MARK: - State
     
@@ -59,9 +61,11 @@ public final class QuadTree<T: Identifiable> {
     
     // MARK: - Initialization
     
-    public init(boundary: QuadRect, capacity: Int = 8) {
+    public init(boundary: QuadRect, capacity: Int = 8, depth: Int = 0, maxDepth: Int = 10) {
         self.boundary = boundary
         self.capacity = capacity
+        self.depth = depth
+        self.maxDepth = maxDepth
     }
     
     // MARK: - Public API
@@ -74,6 +78,13 @@ public final class QuadTree<T: Identifiable> {
         }
         
         if elements.count < capacity && !divided {
+            elements.append(element)
+            return true
+        }
+        
+        // RECURSION LIMIT: Stop subdividing if we reached max depth.
+        // Items will just be stored in the 'elements' array of this leaf node.
+        if depth >= maxDepth {
             elements.append(element)
             return true
         }
@@ -147,10 +158,12 @@ public final class QuadTree<T: Identifiable> {
         let w = (boundary.maxX - boundary.minX) / 2
         let h = (boundary.maxY - boundary.minY) / 2
         
-        northwest = QuadTree(boundary: QuadRect(minX: x, maxX: x + w, minY: y, maxY: y + h), capacity: capacity)
-        northeast = QuadTree(boundary: QuadRect(minX: x + w, maxX: x + w * 2, minY: y, maxY: y + h), capacity: capacity)
-        southwest = QuadTree(boundary: QuadRect(minX: x, maxX: x + w, minY: y + h, maxY: y + h * 2), capacity: capacity)
-        southeast = QuadTree(boundary: QuadRect(minX: x + w, maxX: x + w * 2, minY: y + h, maxY: y + h * 2), capacity: capacity)
+        let nextDepth = depth + 1
+        
+        northwest = QuadTree(boundary: QuadRect(minX: x, maxX: x + w, minY: y, maxY: y + h), capacity: capacity, depth: nextDepth, maxDepth: maxDepth)
+        northeast = QuadTree(boundary: QuadRect(minX: x + w, maxX: x + w * 2, minY: y, maxY: y + h), capacity: capacity, depth: nextDepth, maxDepth: maxDepth)
+        southwest = QuadTree(boundary: QuadRect(minX: x, maxX: x + w, minY: y + h, maxY: y + h * 2), capacity: capacity, depth: nextDepth, maxDepth: maxDepth)
+        southeast = QuadTree(boundary: QuadRect(minX: x + w, maxX: x + w * 2, minY: y + h, maxY: y + h * 2), capacity: capacity, depth: nextDepth, maxDepth: maxDepth)
         
         divided = true
         

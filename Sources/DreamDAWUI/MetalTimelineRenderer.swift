@@ -23,7 +23,9 @@ public final class MetalTimelineRenderer {
     private var waveformVertexBuffer: MTLBuffer?
     private var noteInstanceBuffer: MTLBuffer? // For MIDI notes
     
-    private let maxNotes = 50000 // Total visible notes
+    private static let maxNotes = 50000 // Total visible notes
+    
+    public var waveformCache: WaveformCache?
     
     // MARK: - Initialization
     public init?() {
@@ -104,7 +106,11 @@ public final class MetalTimelineRenderer {
     private func setupBuffers() {
         // Pre-allocate buffer for clip instances
         clipInstanceBuffer = device.makeBuffer(length: MemoryLayout<ClipInstance>.stride * maxClips, options: .storageModeShared)
-        noteInstanceBuffer = device.makeBuffer(length: MemoryLayout<MidiNoteInstance>.stride * maxNotes, options: .storageModeShared)
+        noteInstanceBuffer = device.makeBuffer(length: MemoryLayout<MidiNoteInstance>.stride * Self.maxNotes, options: .storageModeShared)
+        
+        // WAVEFORM STORAGE: Global buffer for all visible peaks
+        // 1000 clips * 1024 peaks per clip * 4 bytes = ~4MB
+        waveformVertexBuffer = device.makeBuffer(length: 1000 * 1024 * MemoryLayout<Float>.stride, options: .storageModeShared)
     }
     
     // MARK: - Drawing
@@ -138,6 +144,11 @@ public final class MetalTimelineRenderer {
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else { return }
         
+        guard let waveformCache = waveformCache else {
+            print("Metal: Error - waveformCache is NIL")
+            return
+        }
+        
         renderEncoder.setRenderPipelineState(pipelineState)
         
         // 1. Prepare Projection
@@ -165,11 +176,47 @@ public final class MetalTimelineRenderer {
                 let w = Float(CGFloat(clip.duration.beats) * pixelsPerBeat)
                 let h = Float(track.height - 4) // 2px padding top/bottom
                 let y = Float(trackY - visibleRect.minY + 2)
+
+                // WAVEFORM LOGIC: Fetch peaks from cache
+                var wfOffset: Int32 = -1
+                var wfCount: Int32 = 0
                 
+                // Professional DAW SPP stabilization (avoid cache thrashing)
+                let sampleRate = 44100.0 // TODO: Get from clip or engine
+                let secondsPerPixel = 1.0 / (pixelsPerBeat * (Double(60.0) / 60.0)) // FIXME: Use project BPM
+                let rawSPP = max(1, Int(secondsPerPixel * sampleRate))
+                
+                let stabilizedSPP: Int
+                if rawSPP < 100 {
+                    stabilizedSPP = rawSPP
+                } else {
+                    let logStep = pow(1.1, round(log(Double(rawSPP)) / log(1.1)))
+                    stabilizedSPP = Int(logStep)
+                }
+
+                if let data = waveformCache.getCachedWaveform(for: clip.fileURL, samplesPerPixel: stabilizedSPP) {
+                    let targetPeaks = 512 
+                    let globalPeakOffset = audioClipCount * targetPeaks
+                    if let waveformBuffer = waveformVertexBuffer {
+                        let wfPtr = waveformBuffer.contents().assumingMemoryBound(to: Float.self).advanced(by: globalPeakOffset)
+                        for i in 0..<min(data.peaks.count, targetPeaks) {
+                            wfPtr[i] = data.peaks[i]
+                        }
+                        wfOffset = Int32(globalPeakOffset)
+                        wfCount = Int32(min(data.peaks.count, targetPeaks))
+                    }
+                } else {
+                    // Trigger async load for next frame with the stabilized resolution
+                    waveformCache.getWaveform(for: clip.fileURL, samplesPerPixel: stabilizedSPP) { _ in }
+                }
+
                 instances.append(ClipInstance(
                     rect: simd_float4(x, y, w, h),
                     color: track.color.simdColor,
-                    isSelected: clip.isSelected ? 1.0 : 0.0
+                    isSelected: clip.isSelected ? 1.0 : 0.0,
+                    waveformOffset: wfOffset,
+                    waveformCount: wfCount,
+                    isMidi: 0.0
                 ))
                 audioClipCount += 1
                 if instances.count >= maxClips { break }
@@ -186,7 +233,10 @@ public final class MetalTimelineRenderer {
                 instances.append(ClipInstance(
                     rect: simd_float4(x, y, w, h),
                     color: track.color.simdColor,
-                    isSelected: clip.isSelected ? 1.0 : 0.0
+                    isSelected: clip.isSelected ? 1.0 : 0.0,
+                    waveformOffset: -1,
+                    waveformCount: 0,
+                    isMidi: 1.0
                 ))
                 midiClipCount += 1
                 if instances.count >= maxClips { break }
@@ -207,6 +257,12 @@ public final class MetalTimelineRenderer {
             }
             
             renderEncoder.setVertexBuffer(instanceBuffer, offset: 0, index: 0)
+            
+            // WAVEFORM BUFFER (Fragment index 2)
+            if let waveformBuffer = waveformVertexBuffer {
+                renderEncoder.setFragmentBuffer(waveformBuffer, offset: 0, index: 2)
+            }
+            
             renderEncoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: instances.count)
         }
         
@@ -266,11 +322,11 @@ public final class MetalTimelineRenderer {
                         color: simd_float4(1, 1, 1, 0.8), // White notes
                         type: 1.0 // MIDI Note
                     ))
-                    if noteInstances.count >= maxNotes { break }
+                    if noteInstances.count >= Self.maxNotes { break }
                 }
             }
             trackY += track.height
-            if noteInstances.count >= maxNotes { break }
+            if noteInstances.count >= Self.maxNotes { break }
         }
         
         if !noteInstances.isEmpty {
@@ -292,6 +348,9 @@ struct ClipInstance {
     var rect: simd_float4 // x, y, width, height
     var color: simd_float4
     var isSelected: Float
+    var waveformOffset: Int32 // Offset into waveformVertexBuffer
+    var waveformCount: Int32  // Number of peaks
+    var isMidi: Float         // 1.0 if MIDI, 0.0 if Audio
 }
 
 struct MidiNoteInstance {

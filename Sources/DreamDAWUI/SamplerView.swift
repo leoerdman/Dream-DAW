@@ -66,7 +66,7 @@ public final class SamplerView: NSView {
 
     private func setupUI() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor(white: 0.15, alpha: 1.0).cgColor
+        setupGradients()
         
         // --- Sidebar ---
         sidebar.wantsLayer = true
@@ -94,6 +94,53 @@ public final class SamplerView: NSView {
         setupLowerSection()
         
         setupConstraints()
+    }
+    
+    private func setupGradients() {
+        wantsLayer = true
+        let grad = CAGradientLayer()
+        grad.colors = [
+            NSColor(white: 0.2, alpha: 1.0).cgColor,
+            NSColor(white: 0.15, alpha: 1.0).cgColor
+        ]
+        grad.frame = bounds
+        grad.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        layer?.addSublayer(grad)
+    }
+    
+    private func setupConstraints() {
+        sidebar.translatesAutoresizingMaskIntoConstraints = false
+        mainContent.translatesAutoresizingMaskIntoConstraints = false
+        waveformView.translatesAutoresizingMaskIntoConstraints = false
+        parameterBar.translatesAutoresizingMaskIntoConstraints = false
+        lowerSection.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            sidebar.topAnchor.constraint(equalTo: topAnchor),
+            sidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            sidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
+            sidebar.widthAnchor.constraint(equalToConstant: 44),
+            
+            mainContent.topAnchor.constraint(equalTo: topAnchor),
+            mainContent.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
+            mainContent.trailingAnchor.constraint(equalTo: trailingAnchor),
+            mainContent.bottomAnchor.constraint(equalTo: bottomAnchor),
+            
+            waveformView.topAnchor.constraint(equalTo: mainContent.topAnchor),
+            waveformView.leadingAnchor.constraint(equalTo: mainContent.leadingAnchor),
+            waveformView.trailingAnchor.constraint(equalTo: mainContent.trailingAnchor),
+            waveformView.heightAnchor.constraint(equalToConstant: 80),
+            
+            parameterBar.topAnchor.constraint(equalTo: waveformView.bottomAnchor),
+            parameterBar.leadingAnchor.constraint(equalTo: mainContent.leadingAnchor),
+            parameterBar.trailingAnchor.constraint(equalTo: mainContent.trailingAnchor),
+            parameterBar.heightAnchor.constraint(equalToConstant: 32),
+            
+            lowerSection.topAnchor.constraint(equalTo: parameterBar.bottomAnchor),
+            lowerSection.leadingAnchor.constraint(equalTo: mainContent.leadingAnchor),
+            lowerSection.trailingAnchor.constraint(equalTo: mainContent.trailingAnchor),
+            lowerSection.bottomAnchor.constraint(equalTo: mainContent.bottomAnchor)
+        ])
     }
     
     private func setupSidebar() {
@@ -187,20 +234,25 @@ public final class SamplerView: NSView {
         ])
         
         // Filter Group
-        let filterContainer = NSView()
-        let filterStack = NSStackView()
-        filterStack.spacing = 8
-        filterStack.alignment = .centerY
-        filterStack.addArrangedSubview(filterToggle)
-        filterStack.addArrangedSubview(cutoffKnob)
-        filterStack.addArrangedSubview(resKnob)
-        filterContainer.addSubview(filterStack)
-        filterStack.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            filterStack.centerXAnchor.constraint(equalTo: filterContainer.centerXAnchor),
-            filterStack.centerYAnchor.constraint(equalTo: filterContainer.centerYAnchor)
-        ])
-        mainStack.addArrangedSubview(filterContainer)
+        let filterSection = NSStackView()
+        filterSection.orientation = .vertical
+        filterSection.spacing = 8
+        filterSection.alignment = .centerX
+        
+        let filterHeader = NSTextField(labelWithString: "FILTER")
+        filterHeader.font = NSFont.systemFont(ofSize: 9, weight: .bold)
+        filterHeader.textColor = NSColor(white: 0.5, alpha: 1.0)
+        filterSection.addArrangedSubview(filterHeader)
+        
+        let filterControls = NSStackView()
+        filterControls.spacing = 12
+        filterControls.alignment = .centerY
+        filterControls.addArrangedSubview(filterToggle)
+        filterControls.addArrangedSubview(cutoffKnob)
+        filterControls.addArrangedSubview(resKnob)
+        filterSection.addArrangedSubview(filterControls)
+        
+        mainStack.addArrangedSubview(filterSection)
         
         // Divider
         mainStack.addArrangedSubview(makeDivider())
@@ -229,13 +281,19 @@ public final class SamplerView: NSView {
         // Divider
         mainStack.addArrangedSubview(makeDivider())
 
-        // Volume Section
-        let volStack = NSStackView()
-        volStack.orientation = .vertical
-        volStack.spacing = 4
-        volStack.alignment = .centerX
-        volStack.addArrangedSubview(volumeKnob)
-        mainStack.addArrangedSubview(volStack)
+        // Volume Group
+        let volSection = NSStackView()
+        volSection.orientation = .vertical
+        volSection.spacing = 8
+        volSection.alignment = .centerX
+        
+        let volHeader = NSTextField(labelWithString: "GLOBAL")
+        volHeader.font = NSFont.systemFont(ofSize: 9, weight: .bold)
+        volHeader.textColor = NSColor(white: 0.5, alpha: 1.0)
+        volSection.addArrangedSubview(volHeader)
+        
+        volSection.addArrangedSubview(volumeKnob)
+        mainStack.addArrangedSubview(volSection)
         
         attackKnob.onValueChanged = { [weak self] v in 
             self?.config.attack = v
@@ -269,40 +327,7 @@ public final class SamplerView: NSView {
         return divider
     }
 
-    private func setupConstraints() {
-        sidebar.translatesAutoresizingMaskIntoConstraints = false
-        mainContent.translatesAutoresizingMaskIntoConstraints = false
-        waveformView.translatesAutoresizingMaskIntoConstraints = false
-        parameterBar.translatesAutoresizingMaskIntoConstraints = false
-        lowerSection.translatesAutoresizingMaskIntoConstraints = false
-        
-        NSLayoutConstraint.activate([
-            sidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
-            sidebar.topAnchor.constraint(equalTo: topAnchor),
-            sidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
-            sidebar.widthAnchor.constraint(equalToConstant: 44),
-            
-            mainContent.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
-            mainContent.trailingAnchor.constraint(equalTo: trailingAnchor),
-            mainContent.topAnchor.constraint(equalTo: topAnchor),
-            mainContent.bottomAnchor.constraint(equalTo: bottomAnchor),
-            
-            waveformView.leadingAnchor.constraint(equalTo: mainContent.leadingAnchor),
-            waveformView.trailingAnchor.constraint(equalTo: mainContent.trailingAnchor),
-            waveformView.topAnchor.constraint(equalTo: mainContent.topAnchor),
-            waveformView.heightAnchor.constraint(equalToConstant: 60), // Reduced from 80
-            
-            parameterBar.leadingAnchor.constraint(equalTo: mainContent.leadingAnchor),
-            parameterBar.trailingAnchor.constraint(equalTo: mainContent.trailingAnchor),
-            parameterBar.topAnchor.constraint(equalTo: waveformView.bottomAnchor),
-            parameterBar.heightAnchor.constraint(equalToConstant: 24), // Reduced from 32
-            
-            lowerSection.leadingAnchor.constraint(equalTo: mainContent.leadingAnchor),
-            lowerSection.trailingAnchor.constraint(equalTo: mainContent.trailingAnchor),
-            lowerSection.topAnchor.constraint(equalTo: parameterBar.bottomAnchor),
-            lowerSection.bottomAnchor.constraint(equalTo: mainContent.bottomAnchor)
-        ])
-    }
+
 
     private func updateUI() {
         // Load waveform
@@ -375,9 +400,25 @@ public final class SamplerView: NSView {
     }
     
     private func loadSample(url: URL) {
-        // We don't update config.sampleURL here directly to allow for proper Undo capturing by the Orchestrator
         waveformView.loadSample(url: url)
         onSampleURLChanged?(url)
+    }
+    
+    private var gradientLayer: CAGradientLayer?
+    
+    public override func layout() {
+        super.layout()
+        gradientLayer?.frame = bounds
+        sidebar.frame = NSRect(x: 0, y: 0, width: 44, height: bounds.height)
+        mainContent.frame = NSRect(x: 44, y: 0, width: bounds.width - 44, height: bounds.height)
+        
+        let barH: CGFloat = 28
+        let lowerH: CGFloat = bounds.height * 0.45
+        let waveH = bounds.height - barH - lowerH
+        
+        waveformView.frame = NSRect(x: 0, y: barH + lowerH, width: mainContent.bounds.width, height: waveH)
+        parameterBar.frame = NSRect(x: 0, y: lowerH, width: mainContent.bounds.width, height: barH)
+        lowerSection.frame = NSRect(x: 0, y: 0, width: mainContent.bounds.width, height: lowerH)
     }
 }
 
@@ -492,7 +533,11 @@ class DAWKnob: NSView {
 
     init(label: String) {
         self.label = label
-        super.init(frame: NSRect(x: 0, y: 0, width: 40, height: 50))
+        super.init(frame: NSRect(x: 0, y: 0, width: 54, height: 60))
+    }
+    
+    public override var intrinsicContentSize: NSSize {
+        return NSSize(width: 54, height: 60)
     }
     
     required init?(coder: NSCoder) { fatalError() }
@@ -531,12 +576,20 @@ class DAWKnob: NSView {
     }
     
     override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 {
+            value = 0.5
+            onValueChanged?(value)
+            return
+        }
         lastMouseY = convert(event.locationInWindow, from: nil).y
     }
     
     override func mouseDragged(with event: NSEvent) {
-        let y = convert(event.locationInWindow, from: nil).y
-        let delta = Double(y - lastMouseY) * 0.005
+        let location = convert(event.locationInWindow, from: nil)
+        let y = location.y
+        let isFine = event.modifierFlags.contains(.shift)
+        let sensitivity = isFine ? 0.001 : 0.005
+        let delta = Double(y - lastMouseY) * sensitivity
         value = max(0, min(1, value + delta))
         onValueChanged?(value)
         lastMouseY = y
@@ -554,7 +607,11 @@ class DAWNumberControl: NSView {
     init(label: String, unit: String) {
         self.label = label
         self.unit = unit
-        super.init(frame: NSRect(x: 0, y: 0, width: 60, height: 26))
+        super.init(frame: NSRect(x: 0, y: 0, width: 80, height: 26))
+    }
+    
+    public override var intrinsicContentSize: NSSize {
+        return NSSize(width: 80, height: 26)
     }
     
     required init?(coder: NSCoder) { fatalError() }
@@ -566,31 +623,44 @@ class DAWNumberControl: NSView {
         ctx.setFillColor(NSColor(white: 0.1, alpha: 1.0).cgColor)
         ctx.fill(bounds)
         
-        // Text
-        let valStr = String(format: "%.1f", value) + " " + unit
+        // Robust attribute creation (avoiding nil insertion crashes)
+        let font = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
+        let lFont = NSFont.systemFont(ofSize: 7, weight: .medium)
+        
         let attr: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 9, weight: .bold),
+            .font: font,
             .foregroundColor: NSColor(red: 0.1, green: 0.8, blue: 0.9, alpha: 1.0)
         ]
+        
+        let lAttr: [NSAttributedString.Key: Any] = [
+            .font: lFont,
+            .foregroundColor: NSColor(white: 0.5, alpha: 1.0)
+        ]
+        
+        // Text
+        let valStr = String(format: "%.1f", value) + " " + unit
         let str = NSAttributedString(string: valStr, attributes: attr)
         str.draw(at: CGPoint(x: 4, y: (bounds.height - str.size().height)/2))
         
         // Label
-        let lAttr: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 7, weight: .medium),
-            .foregroundColor: NSColor(white: 0.5, alpha: 1.0)
-        ]
         let lStr = NSAttributedString(string: label.uppercased(), attributes: lAttr)
         lStr.draw(at: CGPoint(x: bounds.width - lStr.size().width - 4, y: (bounds.height - lStr.size().height)/2))
     }
     
     override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 {
+            value = 0.0
+            onValueChanged?(value)
+            return
+        }
         lastMouseY = convert(event.locationInWindow, from: nil).y
     }
     
     override func mouseDragged(with event: NSEvent) {
         let y = convert(event.locationInWindow, from: nil).y
-        let delta = Double(y - lastMouseY) * 0.5
+        let isFine = event.modifierFlags.contains(.shift)
+        let sensitivity = isFine ? 0.05 : 0.5
+        let delta = Double(y - lastMouseY) * sensitivity
         value += delta
         onValueChanged?(value)
         lastMouseY = y

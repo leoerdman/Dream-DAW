@@ -177,7 +177,7 @@ public final class TrackHeaderView: NSView {
         // Layout
         NSLayoutConstraint.activate([
             // Name background (colored strip) — left portion
-            nameBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            nameBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: track.parentTrackID != nil ? 18 : 0),
             nameBackgroundView.topAnchor.constraint(equalTo: topAnchor),
             nameBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
             nameBackgroundView.widthAnchor.constraint(equalToConstant: 72),
@@ -196,10 +196,16 @@ public final class TrackHeaderView: NSView {
             routingLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 6),
 
             // Solo button
-            soloButton.trailingAnchor.constraint(equalTo: vuMeterBarL.leadingAnchor, constant: -4),
+            soloButton.trailingAnchor.constraint(equalTo: enableButton.leadingAnchor, constant: -2),
             soloButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            soloButton.widthAnchor.constraint(equalToConstant: 16),
-            soloButton.heightAnchor.constraint(equalToConstant: 14),
+            soloButton.widthAnchor.constraint(equalToConstant: 20),
+            soloButton.heightAnchor.constraint(equalToConstant: 18),
+
+            // Enable button (On/Off — shows track number)
+            enableButton.trailingAnchor.constraint(equalTo: vuMeterBarL.leadingAnchor, constant: -4),
+            enableButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            enableButton.widthAnchor.constraint(equalToConstant: 22),
+            enableButton.heightAnchor.constraint(equalToConstant: 18),
 
             // VU meter left channel (vertical bar, near right edge)
             vuMeterBarL.trailingAnchor.constraint(equalTo: vuMeterBarR.leadingAnchor, constant: -2),
@@ -207,17 +213,11 @@ public final class TrackHeaderView: NSView {
             vuMeterBarL.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             vuMeterBarL.widthAnchor.constraint(equalToConstant: 4),
 
-            // VU meter right channel
-            vuMeterBarR.trailingAnchor.constraint(equalTo: enableButton.leadingAnchor, constant: -4),
+            // VU meter right channel (outmost)
+            vuMeterBarR.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             vuMeterBarR.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             vuMeterBarR.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             vuMeterBarR.widthAnchor.constraint(equalToConstant: 4),
-
-            // Enable button (far right — shows track number)
-            enableButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            enableButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            enableButton.widthAnchor.constraint(equalToConstant: 22),
-            enableButton.heightAnchor.constraint(equalToConstant: 18),
 
             // Bottom divider
             divider.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -265,15 +265,13 @@ public final class TrackHeaderView: NSView {
                 routingLabel.textColor = DreamTheme.textMuted
             }
         } else if track.trackType == .audio {
-            if track.effects.isEmpty {
-                routingLabel.stringValue = "Main ▾"
-                routingLabel.textColor = DreamTheme.textSecondary
-            } else {
-                routingLabel.stringValue = "FX: \(track.effects.count) ▾"
-                routingLabel.textColor = DreamTheme.accentGreen
-            }
+            routingLabel.stringValue = "Main ▾"
+            routingLabel.textColor = DreamTheme.textSecondary
+        } else if track.trackType == .group {
+            routingLabel.stringValue = "Group ▾"
+            routingLabel.textColor = DreamTheme.accentSecondary
         } else {
-            routingLabel.stringValue = "Master"
+            routingLabel.stringValue = "Master ▾"
             routingLabel.textColor = DreamTheme.textSecondary
         }
 
@@ -285,9 +283,18 @@ public final class TrackHeaderView: NSView {
     private func updateVolumeFill() {
         // Volume fill is now handled by real-time VU meter updates
         // This method only handles the muted visual state
-        let fillColor = track.isMuted
-            ? NSColor(white: 0.2, alpha: 0.5)
-            : DreamTheme.accentGreen
+        let isMuted = track.isMuted
+        let isMidiNoInstrument = track.trackType == .midi && track.instrument == nil
+        
+        let fillColor: NSColor
+        if isMuted {
+            fillColor = NSColor(white: 0.2, alpha: 0.5)
+        } else if isMidiNoInstrument {
+            fillColor = DreamTheme.midiIndicator
+        } else {
+            fillColor = DreamTheme.accentGreen
+        }
+        
         vuMeterFillL.layer?.backgroundColor = fillColor.cgColor
         vuMeterFillR.layer?.backgroundColor = fillColor.cgColor
     }
@@ -326,25 +333,27 @@ public final class TrackHeaderView: NSView {
             height: fillHeight
         )
 
-        // ━━━ VU meter color depends on track type ━━━
+        // ━━━ VU meter color depends on signal type ━━━
         let meterColor: NSColor
-        if track.trackType == .midi {
-            // MIDI tracks: pure yellow signal
+        let hasInstrument = track.instrument != nil
+        
+        if track.trackType == .midi && !hasInstrument {
+            // Raw MIDI Signal (Yellow)
             if rmsDB > minDB + 3 {
-                meterColor = NSColor(red: 1.0, green: 0.85, blue: 0.15, alpha: 1)  // Yellow
+                meterColor = DreamTheme.midiIndicator
             } else {
-                meterColor = NSColor(white: 0.3, alpha: 1)  // Gray: silence
+                meterColor = NSColor(white: 0.3, alpha: 1)
             }
         } else {
-            // Audio tracks & Master: green → yellow → red
+            // Audio Signal (Green -> Yellow -> Red)
             if rmsDB > 0 {
-                meterColor = NSColor(red: 1.0, green: 0.2, blue: 0.2, alpha: 1)  // Red: clipping
+                meterColor = NSColor(red: 1.0, green: 0.2, blue: 0.2, alpha: 1)  // Clipping
             } else if rmsDB > -6 {
-                meterColor = NSColor(red: 1.0, green: 0.8, blue: 0.1, alpha: 1)  // Yellow: hot
+                meterColor = NSColor(red: 1.0, green: 0.8, blue: 0.1, alpha: 1)  // Hot
             } else if rmsDB > minDB + 3 {
-                meterColor = DreamTheme.accentGreen  // Green: normal
+                meterColor = DreamTheme.accentGreen  // Normal
             } else {
-                meterColor = NSColor(white: 0.3, alpha: 1)  // Gray: near-silence
+                meterColor = NSColor(white: 0.3, alpha: 1)  // Near-silence
             }
         }
         vuMeterFillL.layer?.backgroundColor = meterColor.cgColor
@@ -352,23 +361,33 @@ public final class TrackHeaderView: NSView {
     }
 
     private func updateButtonStates() {
-        // Solo button
-        let soloColor = track.isSoloed ? DreamTheme.soloButton : DreamTheme.textMuted
-        soloButton.contentTintColor = soloColor
-        soloButton.layer?.backgroundColor = track.isSoloed
-            ? DreamTheme.soloButton.withAlphaComponent(0.2).cgColor
-            : NSColor.clear.cgColor
-        soloButton.layer?.cornerRadius = 2
+        // Standardized Button Style (Genius Grade)
+        soloButton.wantsLayer = true
+        soloButton.layer?.cornerRadius = 3
+        soloButton.isBordered = false
+        
+        enableButton.wantsLayer = true
+        enableButton.layer?.cornerRadius = 3
+        enableButton.isBordered = false
 
-        // Enable button: light green when enabled, gray when disabled
+        // Solo button: Blue when active, gray when inactive
+        if track.isSoloed {
+            soloButton.contentTintColor = .white
+            soloButton.layer?.backgroundColor = DreamTheme.soloButton.cgColor
+        } else {
+            soloButton.contentTintColor = DreamTheme.textMuted
+            soloButton.layer?.backgroundColor = NSColor(white: 0.25, alpha: 1).cgColor
+        }
+
+        // Enable (On/Off) button: Green when active, gray when inactive
         if track.isMuted {
-            enableButton.contentTintColor = NSColor(white: 0.5, alpha: 1)
+            enableButton.contentTintColor = DreamTheme.textMuted
             enableButton.layer?.backgroundColor = NSColor(white: 0.25, alpha: 1).cgColor
             nameBackgroundView.alphaValue = 0.4
             nameLabel.alphaValue = 0.4
         } else {
             enableButton.contentTintColor = .white
-            enableButton.layer?.backgroundColor = NSColor(red: 0.35, green: 0.75, blue: 0.35, alpha: 0.8).cgColor
+            enableButton.layer?.backgroundColor = DreamTheme.accentGreen.withAlphaComponent(0.8).cgColor
             nameBackgroundView.alphaValue = 1.0
             nameLabel.alphaValue = 1.0
         }
@@ -418,6 +437,22 @@ public final class TrackHeaderView: NSView {
         let colorItem = NSMenuItem(title: "Color", action: nil, keyEquivalent: "")
         colorItem.submenu = colorMenu
         menu.addItem(colorItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        let groupItem = NSMenuItem(title: "Group Tracks", action: #selector(contextGroupTracks), keyEquivalent: "g")
+        groupItem.keyEquivalentModifierMask = .command
+        groupItem.target = self
+        menu.addItem(groupItem)
+        
+        if track.trackType == .group {
+            let ungroupItem = NSMenuItem(title: "Ungroup Pack", action: #selector(contextUngroupTrack), keyEquivalent: "g")
+            ungroupItem.keyEquivalentModifierMask = [.command, .shift]
+            ungroupItem.target = self
+            menu.addItem(ungroupItem)
+        }
+        
+        menu.addItem(NSMenuItem.separator())
         
         let renameItem = NSMenuItem(title: "Rename Track", action: #selector(renameTrack), keyEquivalent: "")
         renameItem.target = self
@@ -564,6 +599,20 @@ public final class TrackHeaderView: NSView {
         nameLabel.drawsBackground = true
         window?.makeFirstResponder(nameLabel)
     }
+    
+    @objc private func contextGroupTracks() {
+        if let container = superview as? TrackHeadersContainerView,
+           let arrangement = container.nextResponder as? ArrangementViewController {
+            arrangement.groupSelectedTracks()
+        }
+    }
+    
+    @objc private func contextUngroupTrack() {
+        if let container = superview as? TrackHeadersContainerView,
+           let arrangement = container.nextResponder as? ArrangementViewController {
+            arrangement.ungroupSelectedTracks()
+        }
+    }
 }
 
 extension TrackHeaderView: NSTextFieldDelegate {
@@ -572,13 +621,6 @@ extension TrackHeaderView: NSTextFieldDelegate {
         nameLabel.drawsBackground = false
         track.name = nameLabel.stringValue
         onTrackChanged?(track)
-        
-        // Mark project dirty
-        if let container = superview as? TrackHeadersContainerView,
-           let arrangement = container.nextResponder as? ArrangementViewController {
-            arrangement.project.isDirty = true
-            arrangement.updateWindowTitle()
-        }
     }
 }
 
@@ -600,6 +642,11 @@ public final class TrackHeadersContainerView: NSView {
     // MARK: - Properties
 
     public private(set) var headerViews: [TrackHeaderView] = []
+
+    /// Returns the IDs of all currently selected tracks.
+    public var selectedTrackIDs: [UUID] {
+        headerViews.filter { $0.isSelected }.map { $0.trackID }
+    }
 
     /// Callback when a track's properties change (solo, mute, volume).
     public var onTrackChanged: ((Track) -> Void)?
@@ -637,9 +684,9 @@ public final class TrackHeadersContainerView: NSView {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupContextMenu()
-        // Register for drag-and-drop
-        registerForDraggedTypes([.browserItem, .fileURL, .trackID])
         setupDropIndicator()
+        // Register for drag-and-drop
+        registerForDraggedTypes([.fileURL, .browserItem, .trackID])
     }
 
     private func setupDropIndicator() {

@@ -47,7 +47,7 @@ public final class Project: ObservableObject, Identifiable, Codable {
     @Published public var masterTrack: Track
 
     /// Project file URL (nil if unsaved).
-    public var fileURL: URL?
+    @Published public var fileURL: URL?
 
     /// View state persistence (Zoom level in pixels per beat)
     public var viewZoomScale: Double?
@@ -171,6 +171,51 @@ public final class Project: ObservableObject, Identifiable, Codable {
         tracks.insert(track, at: destination < source ? destination : destination - 1)
         isDirty = true
     }
+    
+    /// Groups the specified tracks into a new group track.
+    public func groupTracks(ids: [UUID]) {
+        let selectedTracks = tracks.filter { ids.contains($0.id) }
+        guard !selectedTracks.isEmpty else { return }
+        
+        // Find the topmost index among selected tracks
+        let topmostIndex = tracks.firstIndex(where: { ids.contains($0.id) }) ?? 0
+        
+        let groupName = "Group"
+        let groupTrack = Track(
+            name: groupName,
+            trackType: .group,
+            color: selectedTracks.first?.color ?? .slate
+        )
+        groupTrack.childTrackIDs = selectedTracks.map(\.id)
+        
+        // Update children's parent and routing
+        for track in selectedTracks {
+            track.parentTrackID = groupTrack.id
+            track.outputDestinationID = groupTrack.id
+        }
+        
+        // Insert group track at the topmost position
+        tracks.insert(groupTrack, at: topmostIndex)
+        
+        isDirty = true
+    }
+    
+    /// Ungroups a group track, returning its children to the parent's level.
+    public func ungroupTrack(id: UUID) {
+        guard let groupIndex = tracks.firstIndex(where: { $0.id == id }),
+              tracks[groupIndex].trackType == .group else { return }
+        
+        let groupTrack = tracks[groupIndex]
+        let children = tracks.filter { groupTrack.childTrackIDs.contains($0.id) }
+        
+        for child in children {
+            child.parentTrackID = groupTrack.parentTrackID
+            child.outputDestinationID = groupTrack.parentTrackID
+        }
+        
+        tracks.remove(at: groupIndex)
+        isDirty = true
+    }
 
     // MARK: - Computed
 
@@ -198,5 +243,10 @@ public final class Project: ObservableObject, Identifiable, Codable {
     /// Whether any track in the project is soloed.
     public var hasSoloedTrack: Bool {
         tracks.contains { $0.isSoloed }
+    }
+    
+    /// Returns all tracks that should be visible in the arrangement (including Master).
+    public var allVisibleTracks: [Track] {
+        return tracks + [masterTrack]
     }
 }

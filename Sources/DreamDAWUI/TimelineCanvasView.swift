@@ -81,13 +81,20 @@ public final class TimelineCanvasView: NSView {
         dropIndicatorLayer.backgroundColor = NSColor.systemCyan.cgColor
         dropIndicatorLayer.isHidden = true
         dropIndicatorLayer.zPosition = 2000 // Above clips
+        
+        // Genius Glow
+        dropIndicatorLayer.shadowColor = NSColor.systemCyan.cgColor
+        dropIndicatorLayer.shadowOpacity = 0.8
+        dropIndicatorLayer.shadowRadius = 4
+        dropIndicatorLayer.shadowOffset = .zero
+        
         self.layer?.addSublayer(dropIndicatorLayer)
 
         // Pulsing animation matching header
         let pulse = CABasicAnimation(keyPath: "opacity")
-        pulse.fromValue = 0.4
+        pulse.fromValue = 0.3
         pulse.toValue = 1.0
-        pulse.duration = 0.6
+        pulse.duration = 0.5
         pulse.autoreverses = true
         pulse.repeatCount = .infinity
         pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -101,8 +108,9 @@ public final class TimelineCanvasView: NSView {
         }
 
         var lineY: CGFloat = 0
-        for i in 0..<min(index, project.tracks.count) {
-            lineY += project.tracks[i].height
+        let tracks = project.tracks
+        for i in 0..<min(index, tracks.count) {
+            lineY += tracks[i].height
         }
 
         CATransaction.begin()
@@ -133,7 +141,8 @@ public final class TimelineCanvasView: NSView {
         // Determine tracks covered
         var tracksInRange: [Int] = []
         var yOffset: CGFloat = 0
-        for (index, track) in project.tracks.enumerated() {
+        let visibleTracks = project.allVisibleTracks
+        for (index, track) in visibleTracks.enumerated() {
             let trackRect = CGRect(x: 0, y: yOffset, width: bounds.width, height: track.height)
             if rect.intersects(trackRect) {
                 tracksInRange.append(index)
@@ -362,6 +371,14 @@ public final class TimelineCanvasView: NSView {
             }
             .store(in: &cancellables)
             
+        // 3. Master track changes
+        project.masterTrack.objectWillChange
+            .sink { [weak self] _ in
+                self?.rebuildQuadTree()
+                self?.updateArrangementLayers()
+            }
+            .store(in: &cancellables)
+            
         // Initial subscription
         subscribeToTracks(project.tracks)
     }
@@ -386,11 +403,12 @@ public final class TimelineCanvasView: NSView {
         }
 
         // Define the boundary: very large duration (e.g., 10k beats) and all tracks.
-        let boundary = QuadRect(minX: 0, maxX: 10000, minY: 0, maxY: Double(max(1, project.tracks.count)))
+        let visibleTracks = project.allVisibleTracks
+        let boundary = QuadRect(minX: 0, maxX: 10000, minY: 0, maxY: Double(max(1, visibleTracks.count)))
         let tree = QuadTree<ClipWrapper>(boundary: boundary, capacity: 12)
 
-        for track in project.tracks {
-            guard let trackIndex = project.tracks.firstIndex(where: { $0.id == track.id }) else { continue }
+        for track in visibleTracks {
+            guard let trackIndex = visibleTracks.firstIndex(where: { $0.id == track.id }) else { continue }
             let y = Double(trackIndex)
 
             // Audio Clips
@@ -511,7 +529,7 @@ public final class TimelineCanvasView: NSView {
 
     private func updateLaneLayers(project: Project) {
         laneContainerLayer.frame = self.bounds
-        laneContainerLayer.tracks = project.tracks
+        laneContainerLayer.tracks = project.allVisibleTracks
         laneContainerLayer.setNeedsDisplay()
     }
 
@@ -538,8 +556,9 @@ public final class TimelineCanvasView: NSView {
         let minBeat = Double(vr.minX) / Double(pixelsPerBeat)
         let maxBeat = minBeat + visibleBeatsRange
         
+        let visibleTracks = project.allVisibleTracks
         let queryRect = QuadRect(minX: minBeat - 4.0, maxX: maxBeat + 4.0, 
-                                 minY: 0, maxY: Double(project.tracks.count))
+                                 minY: 0, maxY: Double(visibleTracks.count))
         
         let candidates = quadTree?.query(range: queryRect) ?? []
         var visibleIDs = Set<UUID>()
@@ -551,11 +570,11 @@ public final class TimelineCanvasView: NSView {
             let wrapper = element.value
             visibleIDs.insert(wrapper.id)
             
-            guard let trackIndex = project.tracks.firstIndex(where: { $0.id == wrapper.trackID }) else { continue }
-            let track = project.tracks[trackIndex]
+            guard let trackIndex = visibleTracks.firstIndex(where: { $0.id == wrapper.trackID }) else { continue }
+            let track = visibleTracks[trackIndex]
             
             var trackY: CGFloat = 0
-            for i in 0..<trackIndex { trackY += project.tracks[i].height }
+            for i in 0..<trackIndex { trackY += visibleTracks[i].height }
             
             if !wrapper.isMidi, let clip = wrapper.audioClip {
                 let layer = audioLayerPool[clip.id] ?? {
@@ -639,7 +658,8 @@ public final class TimelineCanvasView: NSView {
         var trackHeight: CGFloat = 0
         var found = false
         
-        for track in project.tracks {
+        let visibleTracks = project.allVisibleTracks
+        for track in visibleTracks {
             if track.id == cursor.trackID {
                 trackHeight = track.height
                 found = true
@@ -762,7 +782,8 @@ public final class TimelineCanvasView: NSView {
         var trackIndexUnderMouse: Int?
         var trackUnderMouse: Track?
         
-        for (i, t) in project.tracks.enumerated() {
+        let visibleTracks = project.allVisibleTracks
+        for (i, t) in visibleTracks.enumerated() {
             if location.y >= currentY && location.y < currentY + t.height {
                 trackIndexUnderMouse = i
                 trackUnderMouse = t
@@ -1030,18 +1051,33 @@ public final class TimelineCanvasView: NSView {
     
     private func updateMarqueeLayer(project: Project) {
         guard let state = marqueeState, let timeRange = state.timeRange, !state.trackIndices.isEmpty else {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            selectionRectLayer.isHidden = true
+            CATransaction.commit()
             return
         }
         
         let startX = CGFloat(timeRange.lowerBound) * pixelsPerBeat
         let endX = CGFloat(timeRange.upperBound) * pixelsPerBeat
+        let width = endX - startX
+        
+        // Hide if width is negligible to avoid "two lines" on simple click
+        if abs(width) < 1.0 {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            selectionRectLayer.isHidden = true
+            CATransaction.commit()
+            return
+        }
         
         var minY: CGFloat = 0
         var maxY: CGFloat = 0
         var yOffset: CGFloat = 0
         var foundIndices = false
         
-        for (idx, track) in project.tracks.enumerated() {
+        let visibleTracks = project.allVisibleTracks
+        for (idx, track) in visibleTracks.enumerated() {
             if state.trackIndices.contains(idx) {
                 if !foundIndices {
                     minY = yOffset
@@ -1053,11 +1089,14 @@ public final class TimelineCanvasView: NSView {
         }
         
         if !foundIndices {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
             selectionRectLayer.isHidden = true
+            CATransaction.commit()
             return
         }
         
-        let rect = CGRect(x: startX, y: minY, width: endX - startX, height: maxY - minY)
+        let rect = CGRect(x: startX, y: minY, width: width, height: maxY - minY)
         
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -1128,10 +1167,13 @@ public final class TimelineCanvasView: NSView {
 
         // ──── Handle Marquee Selection ────
         if let state = marqueeState {
-            // Threshold to avoid clearing cursor on tiny accidental drags
             let dragDist = hypot(location.x - state.startLocation.x, location.y - state.startLocation.y)
             if dragDist > 5 {
                 editCursor = nil // Hide cursor on marquee drag
+            } else {
+                // If it's a very small drag, don't show marquee yet to keep it clean
+                selectionRectLayer.isHidden = true
+                return
             }
 
             let snapInterval: Double = pixelsPerBeat > 40 ? 0.25 : 1.0
@@ -1324,10 +1366,20 @@ public final class TimelineCanvasView: NSView {
 
     public override func mouseUp(with event: NSEvent) {
         // ──── Finalize Marquee ────
-        if let _ = marqueeState {
-            // marqueeState = nil // REMOVED: keep state for zoom-resilience
-            // NOTE: We do NOT hide the selectionRectLayer here so the user sees the box.
-            // It will be hidden on the NEXT mouseDown.
+        if let state = marqueeState {
+            let dragDist = hypot(event.locationInWindow.x - convert(state.startLocation, to: nil).x, 
+                                 event.locationInWindow.y - convert(state.startLocation, to: nil).y)
+            
+            if dragDist < 3 {
+                // It was just a click, not a drag. Clear marquee so we only see the cursor.
+                marqueeState = nil
+                selectionRectLayer.isHidden = true
+            } else {
+                // Valid marquee drag. Playhead/Cursor is typically hidden during/after marquee selection
+                // unless the user clicks again.
+                editCursor = nil
+            }
+            refreshUI()
             return
         }
 

@@ -17,7 +17,13 @@ public final class SamplerInstrument {
         var currentFrame: Double
         var isReleasing: Bool = false
         var releaseFrame: Double = 0
-        var phase: Double = 0 // For looping or multi-sample logic
+        var phase: Double = 0 
+        
+        // Filter state (SVF)
+        var ic1eq_L: Float = 0
+        var ic2eq_L: Float = 0
+        var ic1eq_R: Float = 0
+        var ic2eq_R: Float = 0
         
         init(pitch: Int, velocity: Float, currentFrame: Double) {
             self.pitch = pitch
@@ -57,6 +63,9 @@ public final class SamplerInstrument {
     public var release: Double = 0.05
     public var startPercent: Double = 0.0
     public var endPercent: Double = 100.0
+    public var fadePercent: Double = 0.0
+    public var filterCutoff: Double = 22000.0
+    public var filterResonance: Double = 0.0
 
     // MARK: - Sample Loading
 
@@ -147,6 +156,15 @@ public final class SamplerInstrument {
             let startF = (self.startPercent / 100.0) * sampleFrames
             let endF = (self.endPercent / 100.0) * sampleFrames
             
+            // Filter coefficients (Pre-calculated for the block)
+            let cutoff = max(20.0, min(self.filterCutoff, sr * 0.49))
+            let resonance = max(0.0, min(self.filterResonance, 0.99))
+            let g = Float(tan(Double.pi * cutoff / sr))
+            let k = Float(2.0 * (1.0 - resonance)) // Simplified 2*zeta
+            let a1 = 1.0 / (1.0 + g * (g + k))
+            let a2 = g * a1
+            let a3 = g * a2
+            
             os_unfair_lock_lock(&self.voiceLock)
             var currentVoices = self.activeVoices
             os_unfair_lock_unlock(&self.voiceLock)
@@ -205,15 +223,51 @@ public final class SamplerInstrument {
                     let interpL = s0_L * (1.0 - frac) + s1_L * frac
                     
                     let vGain = voice.velocity * gain * Float(env)
-                    mixL += interpL * vGain
+                    
+                    // --- Fade Logic (Start/End Ramps) ---
+                    var ramp: Float = 1.0
+                    let fadeFrames = max(10, (self.fadePercent / 100.0) * (endF - startF))
+                    
+                    // Start fade
+                    if t < fadeFrames {
+                        ramp *= Float(t / fadeFrames)
+                    }
+                    
+                    // End fade
+                    let tFromEnd = endF - voice.currentFrame
+                    if tFromEnd < fadeFrames {
+                        ramp *= Float(max(0, tFromEnd / fadeFrames))
+                    }
+                    
+                    let finalGain = vGain * ramp
+                    
+                    // --- Filter Application (SVF Lowpass) ---
+                    // Left Channel
+                    let v3L = interpL - voice.ic2eq_L
+                    let v1L = a1 * voice.ic1eq_L + a2 * v3L
+                    let v2L = voice.ic2eq_L + a2 * voice.ic1eq_L + a3 * v3L
+                    voice.ic1eq_L = 2.0 * v1L - voice.ic1eq_L
+                    voice.ic2eq_L = 2.0 * v2L - voice.ic2eq_L
+                    let filteredL = v2L
+                    
+                    mixL += filteredL * finalGain
                     
                     if sampleBuffer.format.channelCount > 1 {
                         let s0_R = sampleBuffer.floatChannelData?[1][idx0] ?? 0
                         let s1_R = sampleBuffer.floatChannelData?[1][idx1] ?? 0
                         let interpR = s0_R * (1.0 - frac) + s1_R * frac
-                        mixR += interpR * vGain
+                        
+                        // Right Channel
+                        let v3R = interpR - voice.ic2eq_R
+                        let v1R = a1 * voice.ic1eq_R + a2 * v3R
+                        let v2R = voice.ic2eq_R + a2 * voice.ic1eq_R + a3 * v3R
+                        voice.ic1eq_R = 2.0 * v1R - voice.ic1eq_R
+                        voice.ic2eq_R = 2.0 * v2R - voice.ic2eq_R
+                        let filteredR = v2R
+                        
+                        mixR += filteredR * finalGain
                     } else {
-                        mixR += interpL * vGain
+                        mixR += filteredL * finalGain
                     }
                     
                     // Advance pos

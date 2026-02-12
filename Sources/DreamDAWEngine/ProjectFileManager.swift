@@ -102,6 +102,7 @@ public final class ProjectFileManager {
             // UI updates on MainActor
             await MainActor.run {
                 project.fileURL = fileURL
+                project.isDirty = false
             }
             logger.info("Project saved (overwrite): \(fileURL.lastPathComponent) (V\(self.currentVersion))")
             return fileURL
@@ -189,6 +190,7 @@ public final class ProjectFileManager {
         // Final Update
         await MainActor.run {
             project.fileURL = targetFileURL
+            project.isDirty = false
         }
 
         if needsNewFolderStructure {

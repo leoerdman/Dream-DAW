@@ -53,9 +53,10 @@ public final class BottomPanelView: NSView {
     /// Callback when MIDI notes are modified in the piano roll.
     public var onNotesChanged: ((Track, MidiClip) -> Void)?
 
-    /// Callback when an effect is dropped on the effects chain panel.
-    /// Parameters: trackID, nodeType ("audioEffect"), itemName
     public var onEffectDropped: ((UUID, String, String) -> Void)?
+    
+    /// Callback when a browser item (instrument/loop) is dropped on the panel.
+    public var onBrowserItemDropped: ((UUID, String, String) -> Void)?
 
     /// Callback when an effect parameter is changed (e.g. Utility gain knob).
     /// Parameter: trackID
@@ -877,12 +878,10 @@ public final class BottomPanelView: NSView {
         if nodeType == "audioEffect" {
             onEffectDropped?(track.id, nodeType, itemName)
             return true
-        } else if nodeType == "instrument" && track.trackType == .midi {
-            // Re-use logic for instruments dropped on header
-            if let container = superview?.superview?.superview as? TrackHeadersContainerView {
-                container.onBrowserItemDropped?(track.id, nodeType, itemName)
-                return true
-            }
+        } else if nodeType == "instrument" && track.trackType == TrackType.midi {
+            // Re-use logic for instruments dropped on panel
+            onBrowserItemDropped?(track.id, nodeType, itemName)
+            return true
         }
 
         return false

@@ -57,24 +57,25 @@ public final class TrackMixer {
     // MARK: - Track Setup
 
     /// Set up mixer, player, and initial effect nodes for a set of tracks.
-    public func configureTracks(_ tracks: [Track]) {
+    public func configureTracks(_ tracks: [Track], masterTrack: Track? = nil) {
         let format = standardFormat
         logger.info("Configuring tracks with format: \(format.sampleRate)Hz, \(format.channelCount)ch")
 
         // 1. Cleanup tracks that no longer exist
-        let currentIDs = Set(tracks.map(\.id))
+        let allTracks = masterTrack != nil ? tracks + [masterTrack!] : tracks
+        let currentIDs = Set(allTracks.map(\.id))
+        
         for id in trackMixerNodes.keys where !currentIDs.contains(id) {
             removeTrackNodes(id: id)
         }
 
-        // 2. Setup/Update existing tracks
-        for track in tracks where track.trackType != .master {
+        // 2. Setup/Update all tracks (including Master and Groups)
+        for track in allTracks {
             if trackMixerNodes[track.id] == nil {
                 setupTrackNodes(track: track, format: format)
             }
-            logger.info("Syncing track: \(track.name) (ID: \(track.id), volume: \(track.volume))")
-            // Always rebuild/sync the chain to ensure it matches project state (effects might have changed)
-            rebuildEffectChain(for: track, format: format)
+            // Rebuild the chain to ensure correctly routed
+            rebuildEffectChain(for: track, format: format, allTracks: allTracks)
         }
     }
 
@@ -87,32 +88,33 @@ public final class TrackMixer {
         audioEngine.attach(outputMixer)
         audioEngine.attach(player)
         
-        // MIDI Tracks: Setup synth or sampler
-        if track.trackType == .midi {
-            let instrType = track.instrument?.instrumentType ?? .sineSynth
-            let sourceNode: AVAudioNode
-            
-            switch instrType {
-            case .sineSynth:
-                let synth = SimpleSynthInstrument(sampleRate: format.sampleRate)
-                sourceNode = synth.createSourceNode()
-                trackSynths[track.id] = synth
-            case .sampler:
-                let sampler = SamplerInstrument()
-                sourceNode = sampler.createSourceNode()
-                trackSamplers[track.id] = sampler
-            }
-            
-            audioEngine.attach(sourceNode)
-            trackInstrumentNodes[track.id] = sourceNode
+        // Setup instrument if applicable (even for Master if user wants generators there)
+        if track.trackType == .midi || track.instrument != nil {
+            setupInstrumentNode(track: track, format: format)
         }
-        
-        // Initial simple connection: outputMixer -> master
-        audioEngine.connect(outputMixer, to: audioEngine.masterMixer, format: format)
         
         trackInputMixers[track.id] = inputMixer
         trackMixerNodes[track.id] = outputMixer
         trackPlayerNodes[track.id] = player
+    }
+    
+    private func setupInstrumentNode(track: Track, format: AVAudioFormat) {
+        let instrType = track.instrument?.instrumentType ?? .sineSynth
+        let sourceNode: AVAudioNode
+        
+        switch instrType {
+        case .sineSynth:
+            let synth = SimpleSynthInstrument(sampleRate: format.sampleRate)
+            sourceNode = synth.createSourceNode()
+            trackSynths[track.id] = synth
+        case .sampler:
+            let sampler = SamplerInstrument()
+            sourceNode = sampler.createSourceNode()
+            trackSamplers[track.id] = sampler
+        }
+        
+        audioEngine.attach(sourceNode)
+        trackInstrumentNodes[track.id] = sourceNode
     }
 
     private func removeTrackNodes(id: UUID) {
@@ -142,7 +144,7 @@ public final class TrackMixer {
         }
     }
 
-    public func rebuildEffectChain(for track: Track, format: AVAudioFormat? = nil) {
+    public func rebuildEffectChain(for track: Track, format: AVAudioFormat? = nil, allTracks: [Track] = []) {
         guard let inputMixer = trackInputMixers[track.id],
               let outputMixer = trackMixerNodes[track.id],
               let player = trackPlayerNodes[track.id] else { return }
@@ -152,6 +154,7 @@ public final class TrackMixer {
         // 1. Disconnect current components
         audioEngine.disconnectNodeOutput(player)
         audioEngine.disconnectNodeOutput(inputMixer)
+        audioEngine.disconnectNodeOutput(outputMixer)
         if let synthNode = trackInstrumentNodes[track.id] {
             audioEngine.disconnectNodeOutput(synthNode)
         }
@@ -173,10 +176,9 @@ public final class TrackMixer {
         }
         trackEffectChains[track.id] = newChain
         
-        // 3. Stitch the chain:
+        // 3. Stitch the internal track chain:
         // [Player (Bus 0) + Synth (Bus 1)] -> inputMixer -> [Effects] -> outputMixer
         
-        // Connect player (bus 0) and synth (bus 1) to the INPUT mixer
         audioEngine.avAudioEngine.connect(player, to: inputMixer, fromBus: 0, toBus: 0, format: fmt)
         if let synthNode = trackInstrumentNodes[track.id] {
             audioEngine.avAudioEngine.connect(synthNode, to: inputMixer, fromBus: 0, toBus: 1, format: fmt)
@@ -195,15 +197,61 @@ public final class TrackMixer {
             audioEngine.connect(lastNode, to: outputMixer, format: fmt)
         }
         
-        // 4. Update settings
+        // 4. ROUTING: Connect outputMixer to destination
+        connectTrackOutput(track, outputMixer: outputMixer, format: fmt, allTracks: allTracks)
+        
+        // 5. Update settings
         applyTrackSettings(track)
         syncEffectParameters(for: track)
         
-        let instGain = track.instrument?.gain ?? 1.0
-        if let synth = trackSynths[track.id] {
-            synth.amplitude = instGain * 0.3 // Scaled for internal mix
-        } else if let sampler = trackSamplers[track.id], let config = track.instrument {
-            sampler.gain = instGain
+        // Sync instrument parameters
+        if let config = track.instrument {
+            syncInstrumentParameters(trackID: track.id, config: config)
+        }
+        
+        logger.info("Rebuilt signal chain for '\(track.name)' -> \(track.outputDestinationID?.uuidString ?? "Master")")
+    }
+
+    private func connectTrackOutput(_ track: Track, outputMixer: AVAudioMixerNode, format: AVAudioFormat, allTracks: [Track]) {
+        if track.trackType == .master {
+            // Master always goes to the hardware mainMixerNode
+            audioEngine.connect(outputMixer, to: audioEngine.avAudioEngine.mainMixerNode, format: format)
+            return
+        }
+        
+        if let destID = track.outputDestinationID,
+           !hasCircularRouting(startTrack: track.id, destTrack: destID, allTracks: allTracks),
+           let destMixer = trackInputMixers[destID] {
+            audioEngine.connect(outputMixer, to: destMixer, format: format)
+        } else {
+            // Default to Master
+            audioEngine.connect(outputMixer, to: audioEngine.masterMixer, format: format)
+        }
+    }
+
+    private func hasCircularRouting(startTrack: UUID, destTrack: UUID, allTracks: [Track]) -> Bool {
+        var current = destTrack
+        var visited = Set<UUID>()
+        visited.insert(startTrack)
+        
+        while true {
+            if visited.contains(current) { return true }
+            visited.insert(current)
+            
+            guard let track = allTracks.first(where: { $0.id == current }),
+                  let nextDest = track.outputDestinationID else {
+                break
+            }
+            current = nextDest
+        }
+        return false
+    }
+
+    private func syncInstrumentParameters(trackID: UUID, config: InstrumentConfig) {
+        if let synth = trackSynths[trackID] {
+            synth.amplitude = config.gain * 0.3
+        } else if let sampler = trackSamplers[trackID] {
+            sampler.gain = config.gain
             sampler.attack = config.attack
             sampler.decay = config.decay
             sampler.sustain = config.sustain
@@ -211,13 +259,14 @@ public final class TrackMixer {
             sampler.startPercent = config.startPercent
             sampler.endPercent = config.endPercent
             sampler.mode = config.samplerMode
+            sampler.fadePercent = config.fadePercent
+            sampler.filterCutoff = config.filterCutoff
+            sampler.filterResonance = config.filterResonance
             
             if let sampleURL = config.sampleURL {
                 try? sampler.loadSample(url: sampleURL)
             }
         }
-        
-        logger.info("Rebuilt signal chain for track '\(track.name)' (Player + Synth -> inputMixer -> \(newChain.count) effects -> outputMixer)")
     }
 
     private func createNode(for effect: AudioEffectConfig) -> AVAudioNode? {
@@ -372,6 +421,9 @@ public final class TrackMixer {
                 sampler.startPercent = config.startPercent
                 sampler.endPercent = config.endPercent
                 sampler.mode = config.samplerMode
+                sampler.fadePercent = config.fadePercent
+                sampler.filterCutoff = config.filterCutoff
+                sampler.filterResonance = config.filterResonance
                 
                 // Note: Sample URL loading is handled during clip render or explicit change
             } else if let synth = trackSynths[track.id] {

@@ -63,8 +63,53 @@ print_header() {
     echo ""
 }
 
+# Increment the version in AppVersion.swift
+increment_version() {
+    local version_file="${SCRIPT_DIR}/Sources/DreamDAWModels/AppVersion.swift"
+    if [ ! -f "$version_file" ]; then
+        return
+    fi
+
+    # Extract current version (X.Y.Z)
+    local current_version=$(grep 'public static let current =' "$version_file" | sed 's/.*"\(.*\)".*/\1/')
+    if [ -z "$current_version" ]; then return; fi
+
+    # Split into major.minor.patch
+    local major=$(echo "$current_version" | cut -d. -f1)
+    local minor=$(echo "$current_version" | cut -d. -f2)
+    local patch=$(echo "$current_version" | cut -d. -f3)
+
+    # Increment patch
+    patch=$((patch + 1))
+    local next_version="${major}.${minor}.${patch}"
+
+    # Generate build number: YYYY.MM.DD.N
+    local today=$(date +"%Y.%m.%d")
+    local current_build=$(grep 'public static let buildNumber =' "$version_file" | sed 's/.*"\(.*\)".*/\1/')
+    local build_suffix=1
+
+    if [[ "$current_build" == "$today"* ]]; then
+        local prev_suffix=$(echo "$current_build" | awk -F. '{print $NF}')
+        if [[ "$prev_suffix" =~ ^[0-9]+$ ]]; then
+            build_suffix=$((prev_suffix + 1))
+        fi
+    fi
+    local next_build="${today}.${build_suffix}"
+
+    # Update AppVersion.swift
+    sed -i '' "s/public static let current = \".*\"/public static let current = \"$next_version\"/" "$version_file"
+    sed -i '' "s/public static let buildNumber = \".*\"/public static let buildNumber = \"$next_build\"/" "$version_file"
+
+    # Export to shell variables for Info.plist use in create_bundle
+    VERSION="$next_version"
+    BUILD_NUMBER="$next_build"
+
+    print_success "Version incremented to $next_version ($next_build)"
+}
+
 # Build the Swift package
 build_swift() {
+    increment_version
     print_step "Building Swift package (release)..."
     cd "${SCRIPT_DIR}"
     swift build -c release 2>&1 | while IFS= read -r line; do

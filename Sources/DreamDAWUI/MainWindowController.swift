@@ -10,14 +10,29 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: - Properties
 
-    private let project: Project
+    private var project: Project
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Initialization
 
     public init(project: Project) {
         self.project = project
-
+        // ... (window setup)
+        super.init(window: nil) // We create a window below
+        
+        setupWindow()
+        
+        // Monitor double-click on title bar → zoom
+        setupTitleBarDoubleClickHandler()
+        
+        // Load app icon
+        loadAppIcon()
+        
+        // Observe dirty state
+        setupProjectSubscription()
+    }
+    
+    private func setupWindow() {
         let windowRect = NSRect(x: 0, y: 0, width: 1280, height: 800)
         let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         let window = NSWindow(contentRect: windowRect, styleMask: styleMask, backing: .buffered, defer: false)
@@ -32,48 +47,55 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.collectionBehavior = [.fullScreenPrimary]
         window.center()
 
-        super.init(window: window)
-
-        // Set delegate
+        self.window = window
         window.delegate = self
-
-        // Set up content
+        
         let arrangementVC = ArrangementViewController(project: project)
         window.contentViewController = arrangementVC
+    }
+
+    /// Swaps the project instance and re-binds observers.
+    public func updateProject(_ newProject: Project) {
+        self.project = newProject
         
-        // Monitor double-click on title bar → zoom (maximize with Dock/menu bar visible)
-        // NOT fullscreen — fullscreen is only via the green button.
-        NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak window] event in
-            guard let window = window,
+        // Update content view
+        if let window = self.window {
+            let arrangementVC = ArrangementViewController(project: newProject)
+            window.contentViewController = arrangementVC
+        }
+        
+        // Re-bind subscriptions
+        setupProjectSubscription()
+        updateWindowTitle()
+    }
+    
+    private func setupProjectSubscription() {
+        cancellables.removeAll()
+        
+        // Observe dirty state, name, and file URL changes
+        Publishers.CombineLatest3(project.$isDirty, project.$name, project.$fileURL)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _, _, _ in
+                self?.updateWindowTitle()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func setupTitleBarDoubleClickHandler() {
+        NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+            guard let window = self?.window,
                   event.clickCount == 2 else { return event }
             
-            // Check if click is in the title bar area (above content view)
             let locationInWindow = event.locationInWindow
             let contentFrame = window.contentLayoutRect
             let titleBarMinY = contentFrame.maxY
             
             if locationInWindow.y >= titleBarMinY {
                 window.zoom(nil)
-                return nil // consume the event
+                return nil
             }
             return event
         }
-        
-        // Load app icon
-        loadAppIcon()
-        
-        // Observe dirty state
-        setupProjectSubscription()
-    }
-    
-    private func setupProjectSubscription() {
-        // Observe both dirty state and project name changes
-        Publishers.CombineLatest(project.$isDirty, project.$name)
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _, _ in
-                self?.updateWindowTitle()
-            }
-            .store(in: &cancellables)
     }
     
     private func updateWindowTitle() {

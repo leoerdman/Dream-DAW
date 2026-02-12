@@ -5,6 +5,7 @@ import Foundation
 import DreamDAWModels
 import DreamDAWEngine
 import os.log
+import Combine
 
 // MARK: - ArrangementViewController
 
@@ -75,11 +76,13 @@ public final class ArrangementViewController: NSViewController {
     private let stressTestService = StressTestService()
     private let performanceBenchmark = PerformanceBenchmark()
     private let pluginAuditService = PluginAuditService()
+    
+    // Combine
+    private var cancellables = Set<AnyCancellable>()
 
     // VU meter update timer
     private var meterTimer: Timer?
 
-    // Loading overlay
     private var loadingOverlay: NSView?
     private let logger = Logger(subsystem: "com.dreamdaw", category: "ArrangementVC")
 
@@ -100,7 +103,7 @@ public final class ArrangementViewController: NSViewController {
     private let bottomPanel = BottomPanelView()
     private let bottomPanelDivider = NSView()
 
-    // Pinned master track (always visible at bottom of track area)
+    // Pinned master track
     private var masterHeaderView: TrackHeaderView?
     private let masterLaneView = NSView()           // Canvas-width lane for master
     private let masterSeparator = NSView()           // Divider above master lane
@@ -161,8 +164,10 @@ public final class ArrangementViewController: NSViewController {
         self.trackMixer = TrackMixer(audioEngine: audioEngine, audioLevelMeter: audioLevelMeter)
         self.playbackScheduler = PlaybackScheduler(audioEngine: audioEngine, trackMixer: trackMixer)
         self.orchestrator = ArrangementOrchestrator(project: project, actionHistory: actionHistory)
-
+        
         super.init(nibName: nil, bundle: nil)
+        
+        setupBindings()
 
         // Sync transport with project
         transportController.bpm = project.bpm
@@ -403,6 +408,8 @@ public final class ArrangementViewController: NSViewController {
         view.addSubview(cornerViewLeft)
     }
 
+
+
     // MARK: - Layout (Ableton Style)
     //
     // ┌──────────────────────────────────────────────────────────┐
@@ -534,32 +541,6 @@ public final class ArrangementViewController: NSViewController {
             height: canvasAreaHeight
         )
 
-        // ===== Pinned Master Track (below scroll area, above bottom panel) =====
-        let masterTop = canvasTop + canvasAreaHeight
-
-        // Separator line
-        masterSeparator.frame = CGRect(
-            x: canvasStartX,
-            y: masterTop,
-            width: bounds.width - canvasStartX,
-            height: masterSepH
-        )
-
-        // Master lane background (center column)
-        masterLaneView.frame = CGRect(
-            x: canvasStartX,
-            y: masterTop + masterSepH,
-            width: canvasWidth,
-            height: masterH
-        )
-
-        // Master header (right column)
-        masterHeaderView?.frame = CGRect(
-            x: canvasEndX + 1,
-            y: masterTop + masterSepH,
-            width: headerW,
-            height: masterH
-        )
 
         // Bottom panel
         if bottomPanelH > 0 {
@@ -614,7 +595,7 @@ public final class ArrangementViewController: NSViewController {
         audioEngine.onConfigurationChange = { [weak self] in
             guard let self = self else { return }
             self.logger.info("Handling engine configuration change...")
-            self.trackMixer.configureTracks(self.project.tracks)
+            self.trackMixer.configureTracks(self.project.tracks, masterTrack: self.project.masterTrack)
             
             if self.transportController.isPlaying {
                 do {
@@ -845,6 +826,7 @@ public final class ArrangementViewController: NSViewController {
             } else {
                 self.trackMixer.applyTrackSettings(track)
             }
+            self.project.isDirty = true
             self.canvasView.needsDisplay = true
         }
 
@@ -857,15 +839,7 @@ public final class ArrangementViewController: NSViewController {
         // Right-click context menu: Add Audio / MIDI Track
         trackHeaders.onAddTrack = { [weak self] isAudio in
             guard let self = self else { return }
-            let trackType: TrackType = isAudio ? .audio : .midi
-            let track = Track(
-                name: "\(isAudio ? "Audio" : "MIDI") \(self.project.tracks.count + 1)",
-                trackType: trackType,
-                color: TrackColor.forIndex(self.project.tracks.count)
-            )
-            let action = AddTrackAction(track: track)
-            self.actionHistory.perform(action, on: self.project)
-            self.reloadTracks()
+            self.addTrack(isAudio: isAudio)
         }
 
         // Track headers: browser item dropped (instrument or effect)
@@ -1097,31 +1071,6 @@ public final class ArrangementViewController: NSViewController {
         }
     }
 
-    // MARK: - Master Header Management
-
-    /// Create or update the pinned master track header.
-    private func configureMasterHeader() {
-        // Remove old master header
-        masterHeaderView?.removeFromSuperview()
-        masterHeaderView = nil
-
-        let masterTrack = project.masterTrack
-
-        let header = TrackHeaderView(track: masterTrack, index: project.tracks.count)
-        header.onTrackChanged = { [weak self] track in
-            self?.trackHeaders.onTrackChanged?(track)
-        }
-        header.onSoloChanged = { [weak self] in
-            self?.trackHeaders.onSoloChanged?()
-        }
-        // Slightly lighter background to distinguish master
-        header.wantsLayer = true
-        header.layer?.backgroundColor = NSColor(white: 0.14, alpha: 1).cgColor
-        view.addSubview(header)
-        masterHeaderView = header
-        layoutSubviews()
-    }
-
     @objc private func canvasScrolled(_ notification: Notification) {
         let clipBounds = canvasScrollView.contentView.bounds
 
@@ -1150,14 +1099,19 @@ public final class ArrangementViewController: NSViewController {
     }
 
     /// Reload track headers and canvas after tracks are added/removed.
-    public func reloadTracks() {
+    /// Reload track headers and canvas after tracks are added/removed.
+    @objc public func reloadTracks() {
         trackHeaders.configure(tracks: project.tracks)
-        configureMasterHeader()
-        trackMixer.configureTracks(project.tracks)
-        trackMixer.applyMasterSettings(project.masterTrack)
-        canvasView.project = project
-        canvasView.needsDisplay = true
-        layoutSubviews()
+        
+        // Update master header
+        masterHeaderView?.removeFromSuperview()
+        let mh = TrackHeaderView(track: project.masterTrack, index: project.tracks.count)
+        mh.onTrackChanged = { [weak self] track in self?.refreshAudio() }
+        masterHeaderView = mh
+        view.addSubview(mh)
+        
+        canvasView.project = project // This rebuilds the quad tree and updates layers
+        updateTrackLayout()
     }
     
     /// Precision layout update for in-place resizing (no recreation)
@@ -1165,6 +1119,16 @@ public final class ArrangementViewController: NSViewController {
         trackHeaders.updateLayoutInPlace()
         canvasView.needsDisplay = true // Redraw lanes
         layoutSubviews() // Re-position vertical dividers and master
+    }
+    
+    /// Standalone helper to (re)configure the pinned master header.
+    private func configureMasterHeader() {
+        masterHeaderView?.removeFromSuperview()
+        let mh = TrackHeaderView(track: project.masterTrack, index: project.tracks.count)
+        mh.onTrackChanged = { [weak self] track in self?.refreshAudio() }
+        masterHeaderView = mh
+        view.addSubview(mh)
+        view.needsLayout = true
     }
 
     private func runStressTest() {
@@ -1211,6 +1175,10 @@ public final class ArrangementViewController: NSViewController {
             performUndo()
         case 11 where flags.contains(.command) && flags.contains(.option): // Cmd+Opt+B — performance benchmark
             performanceBenchmark.runBenchmarks()
+        case 5 where flags.contains(.command) && flags.contains(.shift): // Cmd+Shift+G — ungroup
+            ungroupSelectedTracks()
+        case 5 where flags.contains(.command): // Cmd+G — group
+            groupSelectedTracks()
         case 11 where flags.contains(.command): // Cmd+B — toggle browser sidebar
             toggleBrowser()
         case 3 where flags.contains(.command): // Cmd+F — focus search
@@ -1440,7 +1408,7 @@ public final class ArrangementViewController: NSViewController {
             Task {
                 do {
                     let url = try await fm.save(project: project)
-                    updateWindowTitle()
+                    self.logger.info("Project saved: \(self.project.name)")
                     logger.info("Saved: \(url.lastPathComponent)")
                 } catch {
                     logger.error("Save failed: \(error.localizedDescription)")
@@ -1491,7 +1459,7 @@ public final class ArrangementViewController: NSViewController {
         Task {
             do {
                 let savedURL = try await ProjectFileManager.shared.saveToFile(project: self.project, fileURL: fileURL)
-                self.updateWindowTitle()
+                self.logger.info("Project saved: \(self.project.name)")
                 self.logger.info("Saved as: \(savedURL.lastPathComponent)")
             } catch {
                 let alert = NSAlert(error: error)
@@ -1534,23 +1502,22 @@ public final class ArrangementViewController: NSViewController {
                     self.project.loopStart = openedProject.loopStart
                     self.project.loopEnd = openedProject.loopEnd
                     self.project.fileURL = openedProject.fileURL
-
-                    // Reconfigure audio engine for the new tracks
-                    self.trackMixer.configureTracks(self.project.tracks)
+                    
+                    self.orchestrator = ArrangementOrchestrator(project: self.project, actionHistory: self.actionHistory)
+                    self.trackMixer.configureTracks(self.project.tracks, masterTrack: self.project.masterTrack)
                     self.trackMixer.applyMasterSettings(self.project.masterTrack)
                     self.installMeteringTaps()
                     
-                    // FIX: Helper methods
                     self.reloadTracks()
                     self.configureProject()
-                    self.updateWindowTitle()
+                    self.logger.info("Project saved: \(self.project.name)")
+                    self.hideLoadingOverlay()
                     
-                    self.logger.info("Opened project: \(openedProject.name)")
+                    self.logger.info("Opened project: \(self.project.name)")
                 } catch {
-                    let alert = NSAlert(error: error)
-                    alert.runModal()
+                    self.hideLoadingOverlay()
+                    self.logger.error("Failed to open project: \(error.localizedDescription)")
                 }
-                self.hideLoadingOverlay()
             }
         }
     }
@@ -1558,12 +1525,10 @@ public final class ArrangementViewController: NSViewController {
     // MARK: - Helper Methods
     
 
-    func updateWindowTitle() {
-        let dirtyIndicator = project.isDirty ? "*" : ""
-        self.view.window?.title = "Dream DAW – \(project.name)\(dirtyIndicator)"
-    }
+
 
     func configureProject() {
+        setupBindings() // Re-bind to the new project
         canvasView.project = project
         canvasView.pixelsPerBeat = pixelsPerBeat
         canvasView.orchestrator = orchestrator
@@ -1644,7 +1609,8 @@ public final class ArrangementViewController: NSViewController {
         
         self.reloadTracks()
         self.configureProject()
-        self.updateWindowTitle()
+        
+        logger.info("Created new project: \(newProject.name)")
         
         logger.info("Created new project: \(newProject.name)")
     }
@@ -1738,6 +1704,52 @@ public final class ArrangementViewController: NSViewController {
         if let headerView = trackHeaders.headerViews.first(where: { $0.trackID == trackID }) {
             headerView.startRenaming()
         }
+    }
+    
+    // MARK: - Grouping Actions
+    
+    @objc func groupSelectedTracks() {
+        // Find IDs of selected tracks
+        let selectedIDs = trackHeaders.selectedTrackIDs
+        guard !selectedIDs.isEmpty else { return }
+        
+        project.groupTracks(ids: selectedIDs)
+        reloadTracks()
+        trackMixer.configureTracks(project.tracks, masterTrack: project.masterTrack)
+        logger.info("Grouped \(selectedIDs.count) tracks.")
+    }
+    
+    @objc func ungroupSelectedTracks() {
+        let selectedIDs = trackHeaders.selectedTrackIDs
+        for id in selectedIDs {
+            project.ungroupTrack(id: id)
+        }
+        reloadTracks()
+        trackMixer.configureTracks(project.tracks, masterTrack: project.masterTrack)
+        logger.info("Ungrouped selected tracks.")
+    }
+
+    // MARK: - Genius Actions
+
+    @objc public func createNewProject(_ sender: Any?) {
+        let newProject = Project(name: "Untitled")
+        self.project = newProject
+        self.orchestrator = ArrangementOrchestrator(project: newProject, actionHistory: actionHistory)
+        configureProject()
+        reloadTracks()
+        logger.info("Created new project")
+    }
+    
+    private func addTrack(isAudio: Bool) {
+        let trackType: TrackType = isAudio ? .audio : .midi
+        let track = Track(
+            name: "\(isAudio ? "Audio" : "MIDI") \(project.tracks.count + 1)",
+            trackType: trackType,
+            color: TrackColor.forIndex(project.tracks.count)
+        )
+        let action = AddTrackAction(track: track)
+        actionHistory.perform(action, on: project)
+        // reloadTracks() is now handled by Combine sink
     }
 }
 

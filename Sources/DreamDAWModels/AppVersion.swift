@@ -2,8 +2,8 @@ import Foundation
 
 /// Central source of truth for the application version.
 public struct AppVersion {
-    public static let current = "v1.2.0-PRO"
-    public static let buildNumber = "2026.02.12"
+    public static let current = "1.2.11"
+    public static let buildNumber = "2026.02.12.12"
     
     public static var fullVersionString: String {
         return "\(current) (\(buildNumber))"
@@ -11,7 +11,7 @@ public struct AppVersion {
     
     /// Professional version history for the settings screen.
     public static let history: [(version: String, date: String, changes: [String])] = [
-        ("v1.2.0-PRO", "Feb 2026", [
+        ("v1.2.0", "Feb 2026", [
             "Full Sampler UI Overhaul with Gain/Volume control",
             "Real-time parameter synchronization for Instruments",
             "Global Search (Command+F) with focus/clear logic",

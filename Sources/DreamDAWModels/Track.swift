@@ -60,12 +60,14 @@ public enum TrackColor: Int, Codable, CaseIterable, Sendable {
 public enum TrackType: String, Codable, CaseIterable, Sendable {
     case audio  = "audio"
     case midi   = "midi"
+    case group  = "group"
     case master = "master"
     
     public var displayName: String {
         switch self {
         case .audio:  return "Audio"
         case .midi:   return "MIDI"
+        case .group:  return "Group"
         case .master: return "Master"
         }
     }
@@ -74,6 +76,7 @@ public enum TrackType: String, Codable, CaseIterable, Sendable {
         switch self {
         case .audio:  return "waveform"
         case .midi:   return "pianokeys"
+        case .group:  return "folder.fill"
         case .master: return "speaker.wave.3.fill"
         }
     }
@@ -100,6 +103,15 @@ public final class Track: ObservableObject, Identifiable, Codable {
     @Published public var midiClips: [MidiClip]
     @Published public var effects: [AudioEffectConfig]
     @Published public var instrument: InstrumentConfig?
+    
+    /// Grouping: The ID of the parent group track (nil if top-level).
+    @Published public var parentTrackID: UUID?
+    
+    /// Routing: The ID of the track where this track's audio is sent (nil = Master).
+    @Published public var outputDestinationID: UUID?
+    
+    /// Grouping: IDs of tracks contained within this group (if trackType is .group).
+    @Published public var childTrackIDs: [UUID] = []
 
     // MARK: - Initialization
 
@@ -133,12 +145,16 @@ public final class Track: ObservableObject, Identifiable, Codable {
         self.midiClips = midiClips
         self.effects = effects
         self.instrument = instrument
+        self.parentTrackID = nil
+        self.outputDestinationID = nil
+        self.childTrackIDs = []
     }
 
     // MARK: - Codable
 
     private enum CodingKeys: String, CodingKey {
         case id, name, trackType, color, volume, pan, isMuted, isSoloed, isArmed, height, clips, midiClips, effects, instrument
+        case parentTrackID, outputDestinationID, childTrackIDs
     }
 
     public convenience init(from decoder: Decoder) throws {
@@ -159,6 +175,9 @@ public final class Track: ObservableObject, Identifiable, Codable {
             effects: try container.decodeIfPresent([AudioEffectConfig].self, forKey: .effects) ?? [],
             instrument: try container.decodeIfPresent(InstrumentConfig.self, forKey: .instrument)
         )
+        self.parentTrackID = try container.decodeIfPresent(UUID.self, forKey: .parentTrackID)
+        self.outputDestinationID = try container.decodeIfPresent(UUID.self, forKey: .outputDestinationID)
+        self.childTrackIDs = try container.decodeIfPresent([UUID].self, forKey: .childTrackIDs) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -177,6 +196,9 @@ public final class Track: ObservableObject, Identifiable, Codable {
         try container.encode(midiClips, forKey: .midiClips)
         try container.encode(effects, forKey: .effects)
         try container.encodeIfPresent(instrument, forKey: .instrument)
+        try container.encodeIfPresent(parentTrackID, forKey: .parentTrackID)
+        try container.encodeIfPresent(outputDestinationID, forKey: .outputDestinationID)
+        try container.encode(childTrackIDs, forKey: .childTrackIDs)
     }
 
     // MARK: - Computed

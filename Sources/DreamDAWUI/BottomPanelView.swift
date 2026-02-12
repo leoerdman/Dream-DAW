@@ -53,9 +53,7 @@ public final class BottomPanelView: NSView {
     /// Callback when MIDI notes are modified in the piano roll.
     public var onNotesChanged: ((Track, MidiClip) -> Void)?
 
-    public var onEffectDropped: ((UUID, String, String) -> Void)?
-    
-    /// Callback when a browser item (instrument/loop) is dropped on the panel.
+    /// Callback when a browser item (instrument, effect, or sample) is dropped on the panel.
     public var onBrowserItemDropped: ((UUID, String, String) -> Void)?
 
     /// Callback when an effect parameter is changed (e.g. Utility gain knob).
@@ -847,5 +845,39 @@ public final class BottomPanelView: NSView {
 
     @objc private func closePanel() {
         hidePanel()
+    }
+
+    // MARK: - Drag & Drop
+
+    public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let pb = sender.draggingPasteboard
+        // Only accept if we have a current track context
+        guard currentTrackID != nil else { return [] }
+        
+        if pb.string(forType: .browserItem) != nil {
+            return .copy
+        }
+        return []
+    }
+
+    public override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        return currentTrackID != nil ? .copy : []
+    }
+
+    public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let pb = sender.draggingPasteboard
+        guard let trackID = currentTrackID,
+              let payload = pb.string(forType: .browserItem) else {
+            return false
+        }
+
+        let parts = payload.split(separator: ":", maxSplits: 1)
+        guard parts.count == 2 else { return false }
+        
+        let nodeType = String(parts[0])
+        let itemName = String(parts[1])
+
+        onBrowserItemDropped?(trackID, nodeType, itemName)
+        return true
     }
 }

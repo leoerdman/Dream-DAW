@@ -999,14 +999,10 @@ public final class ArrangementViewController: NSViewController {
             }
         }
 
-        // Bottom panel → project: effect dropped on effects chain
-        bottomPanel.onEffectDropped = { [weak self] trackID, nodeType, itemName in
+        // Bottom panel → project: browser item dropped on effects chain
+        bottomPanel.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName in
             guard let self = self else { return }
             self.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName)
-            // Refresh the bottom panel to show the newly added effect
-            if let track = self.project.tracks.first(where: { $0.id == trackID }) {
-                self.setBottomPanelModeAnimated(.detail(track))
-            }
         }
 
         // Bottom panel → audio engine: effect parameter changed (e.g. Utility gain knob)
@@ -1024,28 +1020,22 @@ public final class ArrangementViewController: NSViewController {
 
     /// Handles a browser item drop (instrument, audioEffect, midiEffect) on a track.
     private func handleBrowserItemDrop(trackID: UUID, nodeType: String, itemName: String) {
-        guard let track = project.tracks.first(where: { $0.id == trackID }) else { return }
+        // Safe lookup including Master track
+        let allTracks = project.tracks + [project.masterTrack]
+        guard let track = allTracks.first(where: { $0.id == trackID }) else { return }
         project.isDirty = true
 
         switch nodeType {
-        case "instrument", "vst2", "vst3":
-            // Only MIDI tracks accept instruments
+        case "instrument":
+            // Only MIDI tracks accept internal instruments
             guard track.trackType == .midi else { return }
-            
-            if nodeType == "vst2" || nodeType == "vst3" {
-                let type: InstrumentType = (nodeType == "vst2") ? .vst2 : .vst3
-                let config = InstrumentConfig(instrumentType: type)
-                config.pluginIdentifier = itemName // Path
-                track.instrument = config
-            } else {
-                let instrumentType: InstrumentType
-                switch itemName {
-                case "Simple Sine Synth": instrumentType = .sineSynth
-                case "Sampler":          instrumentType = .sampler
-                default: return
-                }
-                track.instrument = InstrumentConfig(instrumentType: instrumentType)
+            let instrumentType: InstrumentType
+            switch itemName {
+            case "Simple Sine Synth": instrumentType = .sineSynth
+            case "Sampler":          instrumentType = .sampler
+            default: return
             }
+            track.instrument = InstrumentConfig(instrumentType: instrumentType)
 
         case "audioEffect":
             // Any track accepts audio effects — map browser name to effect type
@@ -1063,16 +1053,25 @@ public final class ArrangementViewController: NSViewController {
             track.effects.append(effect)
 
         case "vst2", "vst3":
-            // External plugins
-            let type: AudioEffectType = (nodeType == "vst2") ? .vst2 : .vst3
-            let effect = AudioEffectConfig(effectType: type)
-            effect.pluginIdentifier = itemName // For VSTs, itemName is the path
-            track.effects.append(effect)
+            // External plugins: Intelligent routing
+            let type: InstrumentType = (nodeType == "vst2") ? .vst2 : .vst3
+            
+            // If dropped on MIDI and it has no instrument, treat as instrument drop
+            if track.trackType == .midi && track.instrument == nil {
+                let config = InstrumentConfig(instrumentType: type)
+                config.pluginIdentifier = itemName // Path
+                track.instrument = config
+            } else {
+                // Otherwise treat as effect addition
+                let effectType: AudioEffectType = (nodeType == "vst2") ? .vst2 : .vst3
+                let effect = AudioEffectConfig(effectType: effectType)
+                effect.pluginIdentifier = itemName // Path
+                track.effects.append(effect)
+            }
 
         case "midiEffect":
-            // Only MIDI tracks accept MIDI effects (future implementation)
             guard track.trackType == .midi else { return }
-            // TODO: Implement MIDI effect types when available
+            // TODO: Implement MIDI effect types
             break
 
         default:

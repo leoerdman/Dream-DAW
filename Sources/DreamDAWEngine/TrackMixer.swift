@@ -200,9 +200,32 @@ public final class TrackMixer {
         // 2. Create new effect nodes
         var newChain: [AVAudioNode] = []
         for effectConfig in track.effects where effectConfig.isEnabled {
-            if let node = createNode(for: effectConfig) {
+            if effectConfig.effectType == .vst2 || effectConfig.effectType == .vst3 {
+                if let identifier = effectConfig.pluginIdentifier {
+                    // Asynchronous load for VST effects
+                    PluginHost.shared.instantiate(identifier: identifier, type: .vst2) { [weak self] unit, error in
+                        DispatchQueue.main.async {
+                            guard let self = self, let unit = unit else {
+                                self?.logger.error("TrackMixer: Failed to load VST Effect \(identifier)")
+                                return
+                            }
+                            self.audioEngine.attach(unit)
+                            PluginHost.shared.registerInstance(effectConfig.id, unit: unit)
+                            // Rebuild again to stitch this new node in
+                            self.rebuildEffectChain(for: track)
+                        }
+                    }
+                }
+            } else if let node = createNode(for: effectConfig) {
                 audioEngine.attach(node)
                 newChain.append(node)
+            }
+            
+            // Re-fetch any already loaded VST instances from PluginHost
+            if (effectConfig.effectType == .vst2 || effectConfig.effectType == .vst3),
+               let unit = PluginHost.shared.getInstance(effectConfig.id) {
+                if unit.engine == nil { audioEngine.attach(unit) }
+                newChain.append(unit)
             }
         }
         trackEffectChains[track.id] = newChain
@@ -327,8 +350,8 @@ public final class TrackMixer {
             // Custom native nodes or simplified standard nodes
             return AVAudioMixerNode() // Spacer for now
         case .vst2, .vst3:
-            // Placeholder: eventually this will return a PluginWrapper node
-            return AVAudioMixerNode()
+            // VST nodes are instantiated asynchronously in rebuildEffectChain
+            return nil
         @unknown default:
             return AVAudioMixerNode()
         }

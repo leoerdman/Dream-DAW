@@ -115,6 +115,14 @@ public final class AudioEffectConfig: ObservableObject, Identifiable, Codable {
     
     // External Plugins (VST)
     @Published public var pluginIdentifier: String? // Path or ID for VST2/VST3
+    
+    public var computedDisplayName: String {
+        if let identifier = pluginIdentifier {
+            let url = URL(fileURLWithPath: identifier)
+            return url.deletingPathExtension().lastPathComponent
+        }
+        return effectType.displayName
+    }
 
     public init(
         id: UUID = UUID(),
@@ -287,6 +295,14 @@ public final class InstrumentConfig: ObservableObject, Identifiable, Codable {
     
     // External Plugins (VSTi)
     @Published public var pluginIdentifier: String? // Path or ID for VST2/VST3 instrument
+
+    public var computedDisplayName: String {
+        if let identifier = pluginIdentifier {
+            let url = URL(fileURLWithPath: identifier)
+            return url.deletingPathExtension().lastPathComponent
+        }
+        return instrumentType.displayName
+    }
 
     public init(
         id: UUID = UUID(),

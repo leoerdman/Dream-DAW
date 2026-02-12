@@ -3,6 +3,7 @@ import AVFoundation
 import AppKit
 import DreamDAWModels
 import os.log
+import CoreAudioKit
 
 /// Manages instantiation and lifecycle of external VST/AU plugins.
 /// Handles GUI request and parameter synchronization.

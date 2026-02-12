@@ -52,9 +52,11 @@ public final class TrackHeaderView: NSView {
     /// Callback when header is clicked (for track selection). Bool: isShiftPressed
     public var onHeaderClicked: ((UUID, Bool) -> Void)?
     public var onExpansionChanged: (() -> Void)?
+    public var onLayoutRequested: (() -> Void)?
+    public var onGroupTracks: (() -> Void)?
+    public var onUngroupTracks: (() -> Void)?
     
     /// Closure to resolve a track by UUID (for routing label display).
-    /// Injected by the container to avoid fragile responder-chain traversal.
     public var trackResolver: ((UUID) -> Track?)?
 
     // MARK: - Initialization
@@ -577,10 +579,7 @@ public final class TrackHeaderView: NSView {
             track.height = newHeight
             
             // Notify UI to refresh layout in-place
-            if let container = superview as? TrackHeadersContainerView,
-               let arrangement = container.nextResponder as? ArrangementViewController {
-                arrangement.updateTrackLayout() 
-            }
+            onLayoutRequested?()
         }
     }
 
@@ -588,10 +587,7 @@ public final class TrackHeaderView: NSView {
         if isResizing {
             isResizing = false
             // Mark project dirty on resize end
-            if let container = superview as? TrackHeadersContainerView,
-               let arrangement = container.nextResponder as? ArrangementViewController {
-                 arrangement.project.isDirty = true
-            }
+                onExpansionChanged?() // Reuse for dirtying or specific resize end
         }
     }
 
@@ -639,17 +635,11 @@ public final class TrackHeaderView: NSView {
     }
     
     @objc private func contextGroupTracks() {
-        if let container = superview as? TrackHeadersContainerView,
-           let arrangement = container.nextResponder as? ArrangementViewController {
-            arrangement.groupSelectedTracks()
-        }
+        onGroupTracks?()
     }
     
     @objc private func contextUngroupTrack() {
-        if let container = superview as? TrackHeadersContainerView,
-           let arrangement = container.nextResponder as? ArrangementViewController {
-            arrangement.ungroupSelectedTracks()
-        }
+        onUngroupTracks?()
     }
 }
 
@@ -711,8 +701,10 @@ public final class TrackHeadersContainerView: NSView {
     /// Callback when a specific header is clicked (for selection). Bool: isShiftPressed
     public var onHeaderClicked: ((UUID, Bool) -> Void)?
 
-    /// Callback when a track's expansion state changes.
     public var onExpansionChanged: (() -> Void)?
+    public var onLayoutRequested: (() -> Void)?
+    public var onGroupTracks: (() -> Void)?
+    public var onUngroupTracks: (() -> Void)?
     
     /// Injected closure for resolving tracks by UUID (passed to each header for routing display).
     public var trackResolver: ((UUID) -> Track?)?
@@ -803,6 +795,15 @@ public final class TrackHeadersContainerView: NSView {
             }
             header.onExpansionChanged = { [weak self] in
                 self?.onExpansionChanged?()
+            }
+            header.onLayoutRequested = { [weak self] in
+                self?.onLayoutRequested?()
+            }
+            header.onGroupTracks = { [weak self] in
+                self?.onGroupTracks?()
+            }
+            header.onUngroupTracks = { [weak self] in
+                self?.onUngroupTracks?()
             }
             header.trackResolver = trackResolver
             addSubview(header)

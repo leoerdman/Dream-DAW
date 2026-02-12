@@ -849,6 +849,24 @@ public final class ArrangementViewController: NSViewController {
         trackHeaders.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName, fileURL in
             self?.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName, fileURL: fileURL)
         }
+        
+        trackHeaders.onGroupTracks = { [weak self] in
+            self?.groupSelectedTracks()
+        }
+        
+        trackHeaders.onUngroupTracks = { [weak self] in
+            self?.ungroupSelectedTracks()
+        }
+
+        trackHeaders.onExpansionChanged = { [weak self] in
+            guard let self = self else { return }
+            self.reloadTracks()
+            self.project.isDirty = true
+        }
+
+        trackHeaders.onLayoutRequested = { [weak self] in
+            self?.updateTrackLayout()
+        }
 
         // Track reordering synchronization
         trackHeaders.onReorderDragUpdate = { [weak self] index in
@@ -989,11 +1007,7 @@ public final class ArrangementViewController: NSViewController {
                 self.trackMixer.applyTrackSettings(track)
             }
         }
-        
-            if let track = self.project.tracks.first(where: { $0.id == trackID }) {
-                self.trackMixer.applyTrackSettings(track)
-            }
-        }
+
         
         // Bottom panel → project: plugin settings clicked
         bottomPanel.onPluginSettingsClicked = { [weak self] trackID, effect, instrument in
@@ -1006,7 +1020,9 @@ public final class ArrangementViewController: NSViewController {
         bottomPanel.onPluginEyeClicked = { [weak self] trackID, effect, instrument in
             guard let self = self else { return }
             
-            // Try to get the instance ID (trackID for instruments, or specific ID for effects)
+            // Try to get the instance ID:
+            // Instruments are registered under trackID in TrackMixer.setupInstrumentNode
+            // Effects are registered under effect.id in TrackMixer.rebuildEffectChain
             let instanceID = instrument != nil ? trackID : (effect?.id ?? trackID)
             
             guard let unit = PluginHost.shared.getInstance(instanceID) else {
@@ -1821,7 +1837,7 @@ public final class ArrangementViewController: NSViewController {
     
     // MARK: - Grouping Actions
     
-    @objc func groupSelectedTracks() {
+    @objc public func groupSelectedTracks() {
         // Find IDs of selected tracks
         let selectedIDs = trackHeaders.selectedTrackIDs
         guard !selectedIDs.isEmpty else { return }
@@ -1832,7 +1848,7 @@ public final class ArrangementViewController: NSViewController {
         logger.info("Grouped \(selectedIDs.count) tracks.")
     }
     
-    @objc func ungroupSelectedTracks() {
+    @objc public func ungroupSelectedTracks() {
         let selectedIDs = trackHeaders.selectedTrackIDs
         for id in selectedIDs {
             project.ungroupTrack(id: id)

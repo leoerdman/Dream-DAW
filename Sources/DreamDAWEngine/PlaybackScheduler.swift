@@ -342,7 +342,7 @@ public final class PlaybackScheduler {
         bpm: Double,
         sampleRate: Double
     ) {
-        let midiBuffer: AVAudioPCMBuffer?
+        var midiBuffer: AVAudioPCMBuffer? = nil
         
         // 1. Check Cache First (The enterprise performance boost)
         if let cached = midiBufferCache[clip.id] {

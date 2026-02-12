@@ -486,7 +486,7 @@ public final class BottomPanelView: NSView {
     // MARK: - Effect Slot Builder
 
     private func makeEffectSlot(effect: AudioEffectConfig, index: Int, track: Track, frame: CGRect) -> NSView {
-        let slot = PluginSlotView(title: effect.effectType.displayName, frame: frame)
+        let slot = PluginSlotView(title: effect.computedDisplayName, frame: frame)
         slot.isEnabled = effect.isEnabled
         slot.onToggle = { [weak effect, weak self] newState in
             effect?.isEnabled = newState
@@ -677,7 +677,7 @@ public final class BottomPanelView: NSView {
                     self.onInstrumentParameterChanged?(track.id)
                 }
                 
-                let slot = PluginSlotView(title: "Sampler", frame: frame)
+                let slot = PluginSlotView(title: instrument.computedDisplayName, frame: frame)
                 slot.isEnabled = instrument.isEnabled
                 slot.onToggle = { [weak instrument, weak self] newState in
                     instrument?.isEnabled = newState
@@ -714,7 +714,7 @@ public final class BottomPanelView: NSView {
             }
 
             // Default instrument slot for other types
-            let slot = PluginSlotView(title: instrument.instrumentType.displayName, frame: frame)
+            let slot = PluginSlotView(title: instrument.computedDisplayName, frame: frame)
             slot.isEnabled = instrument.isEnabled
             slot.onToggle = { [weak instrument, weak self] newState in
                 instrument?.isEnabled = newState

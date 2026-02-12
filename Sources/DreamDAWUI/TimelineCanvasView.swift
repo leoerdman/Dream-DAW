@@ -399,7 +399,7 @@ public final class TimelineCanvasView: NSView {
 
         // 1. Project-level changes (Name, Loop, BPM, etc.)
         project.objectWillChange
-            .receive(on: DispatchQueue.main)
+            .debounce(for: .milliseconds(10), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.rebuildQuadTree()
                 self?.updateArrangementLayers()
@@ -407,9 +407,8 @@ public final class TimelineCanvasView: NSView {
             .store(in: &cancellables)
 
         // 2. Track list changes
-        // When the array reference changes, re-subscribe to individual tracks
         project.$tracks
-            .receive(on: DispatchQueue.main)
+            .debounce(for: .milliseconds(10), scheduler: DispatchQueue.main)
             .sink { [weak self] tracks in
                 self?.subscribeToTracks(tracks)
                 self?.rebuildQuadTree()
@@ -419,7 +418,7 @@ public final class TimelineCanvasView: NSView {
             
         // 3. Master track changes
         project.masterTrack.objectWillChange
-            .receive(on: DispatchQueue.main)
+            .debounce(for: .milliseconds(10), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.rebuildQuadTree()
                 self?.updateArrangementLayers()
@@ -432,11 +431,10 @@ public final class TimelineCanvasView: NSView {
 
     private func subscribeToTracks(_ tracks: [Track]) {
         for track in tracks {
-            // Observe each track for volume, pan, mute, solo changes
             track.objectWillChange
-                .receive(on: DispatchQueue.main)
+                .debounce(for: .milliseconds(10), scheduler: DispatchQueue.main)
                 .sink { [weak self] _ in
-                    self?.rebuildQuadTree() // In case tracks moved/resized
+                    self?.rebuildQuadTree()
                     self?.updateArrangementLayers()
                 }
                 .store(in: &cancellables)
@@ -559,20 +557,20 @@ public final class TimelineCanvasView: NSView {
         updateArrangementLayers()
     }
 
-    public func updateArrangementLayers() {
+    public func updateArrangementLayers(fullRedraw: Bool = true) {
         guard let project = project else { return }
         
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         
-        updateGridLayer(project: project)
-        updateLaneLayers(project: project)
+        if fullRedraw {
+            updateGridLayer(project: project)
+            updateLaneLayers(project: project)
+        }
         
         // GPU BATCH RENDERING:
         // Match the Metal layer to the visible viewport for efficiency and correct coordinate mapping.
         clipContainerLayer.isHidden = true
-        
-        print("Canvas: updateArrangementLayers - visibleRect=\(visibleRect) renderer=\(metalTimelineRenderer != nil)")
         
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -581,27 +579,87 @@ public final class TimelineCanvasView: NSView {
         metalArrangementLayer.contentsScale = scale
         metalArrangementLayer.drawableSize = CGSize(width: visibleRect.width * scale, height: visibleRect.height * scale)
         metalArrangementLayer.pixelFormat = .bgra8Unorm
+        metalArrangementLayer.isGeometryFlipped = true
         CATransaction.commit()
         
-        if let renderer = metalTimelineRenderer {
-            renderer.render(
-                project: project,
-                visibleRect: visibleRect,
-                pixelsPerBeat: pixelsPerBeat,
-                in: metalArrangementLayer
-            )
-        } else {
-            print("Canvas: Skipping render - metalTimelineRenderer is NIL")
-        }
+        metalTimelineRenderer?.render(
+            project: project,
+            visibleRect: visibleRect,
+            pixelsPerBeat: pixelsPerBeat,
+            in: metalArrangementLayer
+        )
         
-        // Use surgical updates for these as they change frequently
+        // Cursor and Playhead
         updateCursorLayer(project: project)
         updatePlayheadLayer(project: project)
         
         selectionRectLayer.frame = self.bounds // Ensure marquee layer covers whole area
         updateMarqueeLayer(project: project)
         
+        // --- CLIP TITLES (Optimized Pass) ---
+        updateClipTitles(project: project)
+        
         CATransaction.commit()
+    }
+    
+    private func updateClipTitles(project: Project) {
+        // Simple but effective: Remove all old titles and add only visible ones.
+        // For Enterprise production, we would use a reuse pool, but for 50-100 clips this is fine.
+        titleContainerLayer.sublayers?.forEach { $0.removeFromSuperlayer() }
+        
+        for track in project.allVisibleTracks {
+            let trackY = self.yOffsetForTrack(id: track.id, in: project)
+            
+            // Audio Clips
+            for clip in track.clips {
+                let clipRect = CGRect(
+                    x: CGFloat(clip.position.beats) * pixelsPerBeat,
+                    y: trackY + 2,
+                    width: CGFloat(clip.duration.beats) * pixelsPerBeat,
+                    height: 20
+                )
+                
+                if visibleRect.intersects(clipRect) {
+                    addTitleLayer(name: clip.name, frame: clipRect.offsetBy(dx: 0, dy: 0))
+                }
+            }
+            
+            // MIDI Clips
+            for clip in track.midiClips {
+                let clipRect = CGRect(
+                    x: CGFloat(clip.position.beats) * pixelsPerBeat,
+                    y: trackY + 2,
+                    width: CGFloat(clip.duration.beats) * pixelsPerBeat,
+                    height: 20
+                )
+                
+                if visibleRect.intersects(clipRect) {
+                    addTitleLayer(name: clip.name, frame: clipRect)
+                }
+            }
+        }
+    }
+    
+    private func addTitleLayer(name: String, frame: CGRect) {
+        let textLayer = CATextLayer()
+        textLayer.string = name
+        textLayer.fontSize = 11
+        textLayer.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        textLayer.foregroundColor = NSColor.white.withAlphaComponent(0.9).cgColor
+        textLayer.frame = frame.insetBy(dx: 5, dy: 2)
+        textLayer.contentsScale = window?.backingScaleFactor ?? 2.0
+        textLayer.alignmentMode = .left
+        textLayer.truncationMode = .end
+        titleContainerLayer.addSublayer(textLayer)
+    }
+    
+    private func yOffsetForTrack(id: UUID, in project: Project) -> CGFloat {
+        var y: CGFloat = 0
+        for track in project.allVisibleTracks {
+            if track.id == id { return y }
+            y += track.height
+        }
+        return 0
     }
 
     /// Optimized path for frequent playhead/cursor movement.
@@ -1054,8 +1112,7 @@ public final class TimelineCanvasView: NSView {
             if !event.modifierFlags.contains(.shift) {
                 deselectAllClips(in: project)
             }
-            selectClip(id: edgeHit.clipID, isMidi: edgeHit.isMidi, in: project)
-            updateArrangementLayers()
+            updateArrangementLayers(fullRedraw: false)
             return
         }
 
@@ -1104,7 +1161,7 @@ public final class TimelineCanvasView: NSView {
                     originalClipBeat: clipPos
                 )
                 
-                updateArrangementLayers()
+                updateArrangementLayers(fullRedraw: false)
                 onClipSelected?(track.id, wrapper.id)
                 return
             } else {

@@ -250,16 +250,16 @@ public final class TrackHeaderView: NSView {
 
         // Layout
         NSLayoutConstraint.activate([
-            // Group Indicators (24px width - Ableton style)
+            // Group Indicators (8px width - Ableton style)
             groupIndicatorBG.leadingAnchor.constraint(equalTo: leadingAnchor),
             groupIndicatorBG.topAnchor.constraint(equalTo: topAnchor),
             groupIndicatorBG.bottomAnchor.constraint(equalTo: bottomAnchor),
-            groupIndicatorBG.widthAnchor.constraint(equalToConstant: 24),
+            groupIndicatorBG.widthAnchor.constraint(equalToConstant: 8),
             
             groupIndicatorLine.leadingAnchor.constraint(equalTo: groupIndicatorBG.leadingAnchor),
             groupIndicatorLine.topAnchor.constraint(equalTo: topAnchor),
             groupIndicatorLine.bottomAnchor.constraint(equalTo: bottomAnchor),
-            groupIndicatorLine.widthAnchor.constraint(equalToConstant: 24),
+            groupIndicatorLine.widthAnchor.constraint(equalToConstant: 8),
 
             // Indentation Divider
             groupDividerLine.leadingAnchor.constraint(equalTo: groupIndicatorBG.trailingAnchor),
@@ -291,11 +291,11 @@ public final class TrackHeaderView: NSView {
             soloButton.widthAnchor.constraint(equalToConstant: 20),
             soloButton.heightAnchor.constraint(equalToConstant: 18),
 
-            // Collapse button (Inside the group indicator bar - Ableton style)
-            collapseButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            // Collapse button (for group tracks - visible on name plate)
+            collapseButton.trailingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor, constant: -4),
             collapseButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            collapseButton.widthAnchor.constraint(equalToConstant: 16),
-            collapseButton.heightAnchor.constraint(equalToConstant: 16),
+            collapseButton.widthAnchor.constraint(equalToConstant: 12),
+            collapseButton.heightAnchor.constraint(equalToConstant: 12),
 
             // Enable button (On/Off — shows track number)
             enableButton.trailingAnchor.constraint(equalTo: vuMeterBarL.leadingAnchor, constant: -4),
@@ -386,14 +386,14 @@ public final class TrackHeaderView: NSView {
             groupIndicatorLine.layer?.backgroundColor = parent.color.nsColor.cgColor
             
             // Indent name content
-            nameLeadingConstraint?.constant = 25 // (24 width + 1 divider)
+            nameLeadingConstraint?.constant = 9 // (8 width + 1 divider)
             
             // ABLETON STYLE: Continuous vertical flow.
-            // Horizontal line starts at 25px so it doesn't cut the vertical bar.
+            // Horizontal line starts at 9px so it doesn't cut the vertical bar.
             // UNLESS it's the last track, then it starts at 0px to cleanly close the strip.
-            dividerLeadingConstraint?.constant = isLastInGroup ? 0 : 25
+            dividerLeadingConstraint?.constant = isLastInGroup ? 0 : 9
             divider.isHidden = false
-            groupDividerLine.layer?.backgroundColor = DreamTheme.bgPrimary.cgColor // Normal separator
+            groupDividerLine.layer?.backgroundColor = DreamTheme.divider.cgColor // Reset to standard divider
         } else if isGroupHeader {
             // It's a group header track
             groupIndicatorBG.isHidden = false
@@ -403,11 +403,10 @@ public final class TrackHeaderView: NSView {
             groupIndicatorLine.layer?.backgroundColor = track.color.nsColor.cgColor
             
             // Group header name is indented to match vertical strip
-            nameLeadingConstraint?.constant = 25
+            nameLeadingConstraint?.constant = 9
             
-            // TRUE CONNECTED LOOK: Indent header divider too (25px).
-            // This allows the vertical yellow strip to flow perfectly into the first child.
-            dividerLeadingConstraint?.constant = 25
+            // TRUE CONNECTED LOOK: Indent header divider too (9px).
+            dividerLeadingConstraint?.constant = 9
             divider.isHidden = false
             
             // Match group divider color to track color to hide the vertical 1px gap on the header

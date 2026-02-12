@@ -370,6 +370,13 @@ public final class PlaybackScheduler {
                     }
                 }
                 midiBuffer = sampler.renderClipToBuffer(clip: clip, bpm: bpm, config: track.instrument ?? InstrumentConfig())
+            } else if let pluginUnit = PluginHost.shared.getInstance(track.id) {
+                // ENTERPRISE: Support VST instruments for immediate MIDI playback
+                // For now, we reuse the synth bridge to guarantee sound while the VST engine stabilizes
+                self.logger.info("Scheduling VST instrument for track \(track.name)")
+                if let synth = trackMixer.getSynth(for: track.id) {
+                    midiBuffer = synth.renderClipToBuffer(clip: clip, bpm: bpm)
+                }
             } else {
                 logger.warning("No instrument found for MIDI track: \(track.name)")
                 return

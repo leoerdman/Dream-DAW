@@ -278,8 +278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fm = ProjectFileManager.shared
 
         // Pre-fill filename with current project name
-        let currentVersion = fm.projectFolderURL != nil ? fm.currentVersion : 1
-        panel.nameFieldStringValue = "\(project.name) V\(currentVersion)"
+        panel.nameFieldStringValue = project.name
         panel.allowedContentTypes = [.init(filenameExtension: ProjectFileManager.fileExtension) ?? .data]
         panel.canCreateDirectories = true
         panel.title = "Save Project"

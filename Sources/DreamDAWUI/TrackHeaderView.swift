@@ -705,8 +705,8 @@ public final class TrackHeadersContainerView: NSView {
     public var onDeleteTrack: ((UUID) -> Void)?
 
     /// Callback when a browser item (instrument/effect) is dropped on a track header.
-    /// Parameters: (trackID, nodeType, itemName)
-    public var onBrowserItemDropped: ((UUID, String, String) -> Void)?
+    /// Parameters: (trackID, nodeType, itemName, fileURL)
+    public var onBrowserItemDropped: ((UUID, String, String, URL?) -> Void)?
 
     /// Callback when a specific header is clicked (for selection). Bool: isShiftPressed
     public var onHeaderClicked: ((UUID, Bool) -> Void)?
@@ -930,15 +930,14 @@ public final class TrackHeadersContainerView: NSView {
 
         for headerView in headerViews {
             if headerView.frame.contains(location) {
-                let trackID = headerView.trackID
-                onBrowserItemDropped?(trackID, nodeType, itemName)
+                onBrowserItemDropped?(headerView.trackID, nodeType, itemName, nil)
                 return true
             }
         }
 
         // Fallback: use the first track if drop is in the container
         if let first = headerViews.first {
-            onBrowserItemDropped?(first.trackID, nodeType, itemName)
+            onBrowserItemDropped?(first.trackID, nodeType, itemName, nil)
             return true
         }
 

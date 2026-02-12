@@ -217,8 +217,8 @@ public final class TimelineCanvasView: NSView {
     public var onMidiClipShiftClicked: ((UUID, UUID) -> Void)?  // (trackID, midiClipID)
 
     /// Callback when a browser item (instrument/effect) is dropped on a track.
-    /// Parameters: (trackID, nodeType, itemName)
-    public var onBrowserItemDropped: ((UUID, String, String) -> Void)?
+    /// Parameters: (trackID, nodeType, itemName, fileURL)
+    public var onBrowserItemDropped: ((UUID, String, String, URL?) -> Void)?
 
     /// Callback when zoom level changes (pixelsPerBeat, newScrollX).
     /// Host must update ruler and layout to keep everything in sync.
@@ -557,8 +557,10 @@ public final class TimelineCanvasView: NSView {
         let maxBeat = minBeat + visibleBeatsRange
         
         let visibleTracks = project.allVisibleTracks.filter { $0.trackType != .master }
-        let queryRect = QuadRect(minX: minBeat - 10.0, maxX: maxBeat + 10.0, 
-                                 minY: 0, maxY: Double(max(1, visibleTracks.count)))
+        
+        // ENTERPRISE PERFECTION: Expand culling range to prevent clip flickering during fast navigation
+        let queryRect = QuadRect(minX: minBeat - 200.0, maxX: maxBeat + 200.0, 
+                                 minY: 0, maxY: 100) // maxY 100 is plenty for track indexing
         
         let candidates = quadTree?.query(range: queryRect) ?? []
         var visibleIDs = Set<UUID>()
@@ -737,8 +739,8 @@ public final class TimelineCanvasView: NSView {
             if let _ = hitTestClipBody(at: location, project: project) {
                 NSCursor.arrow.set()
             } else {
-                // Empty space: crosshair for marquee
-                NSCursor.crosshair.set()
+                // Empty space: use standard arrow cursor (requested by user to fix flickering)
+                NSCursor.arrow.set()
             }
         }
         updateArrangementLayers()
@@ -1869,7 +1871,7 @@ public final class TimelineCanvasView: NSView {
             guard parts.count == 2 else { return false }
             let nodeType = String(parts[0])
             let itemName = String(parts[1])
-            onBrowserItemDropped?(track.id, nodeType, itemName)
+            onBrowserItemDropped?(track.id, nodeType, itemName, nil)
             self.updateArrangementLayers()
             return true
         }
@@ -1877,8 +1879,14 @@ public final class TimelineCanvasView: NSView {
         // CASE 2: Audio file URL drop
         guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [
             .urlReadingContentsConformToTypes: ["public.audio"]
-        ]) as? [URL] else {
+        ]) as? [URL], let firstURL = urls.first else {
             return false
+        }
+
+        // Genius Move: If dropped on a MIDI track, trigger the Auto-Sampler workflow
+        if track.trackType == .midi {
+            onBrowserItemDropped?(track.id, "audioFile", firstURL.lastPathComponent, firstURL)
+            return true
         }
 
         guard track.trackType == .audio else { return false }
@@ -2049,6 +2057,7 @@ internal class AudioClipLayer: CALayer {
     override init() {
         super.init()
         self.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        self.contentsGravity = .resize
         self.actions = ["position": NSNull(), "bounds": NSNull(), "frame": NSNull()]
     }
 
@@ -2100,7 +2109,10 @@ internal class AudioClipLayer: CALayer {
 
         // Waveform - use cached image if possible
         if let renderer = waveformRenderer {
-            let needsNewRender = cachedWaveform == nil || cachedSize != rect.size || cachedClipID != clip.id || cachedPPB != pixelsPerBeat
+            let zoomDeviance = abs(cachedPPB - pixelsPerBeat) / max(0.01, cachedPPB)
+            // Re-render ONLY if height changed (vertical scale) or zoom changed by > 15%
+            // Width change is now handled by hardware scaling of the normalized path.
+            let needsNewRender = cachedWaveform == nil || cachedSize.height != rect.size.height || cachedClipID != clip.id || zoomDeviance > 0.15
             
             if needsNewRender {
                 // Try to render a fresh, high-quality waveform

@@ -72,7 +72,7 @@ public final class WaveformRenderer: @unchecked Sendable {
         let cacheKey = "\(clip.fileURL.path)_\(stabilizedSPP)_\(rect.height)_\(style.rawValue)_\(roundedScale)"
         
         if let cachedPath = pathCache[cacheKey] {
-            drawPath(cachedPath, in: ctx, rect: rect, color: color, style: style)
+            drawPath(cachedPath, in: ctx, rect: rect, color: color, style: style, verticalScale: verticalScale)
             return true
         }
 
@@ -80,15 +80,15 @@ public final class WaveformRenderer: @unchecked Sendable {
 
         // Try to get cached multi-band waveform data
         if let multiBandData = waveformCache.getCachedMultiBandWaveform(for: clip.fileURL, samplesPerPixel: samplesPerPixel) {
-            let path = generateMultiBandPath(data: multiBandData, clip: clip, rect: rect, bpm: bpm, sampleRate: sampleRate, samplesPerPixel: samplesPerPixel, verticalScale: verticalScale)
+            let path = generateMultiBandPath(data: multiBandData, clip: clip, rect: rect, bpm: bpm, sampleRate: sampleRate, samplesPerPixel: samplesPerPixel)
             pathCache[cacheKey] = path
-            drawPath(path, in: ctx, rect: rect, color: color, style: style)
+            drawPath(path, in: ctx, rect: rect, color: color, style: style, verticalScale: verticalScale)
             result = true
         } else if let monoData = waveformCache.getCachedWaveform(for: clip.fileURL, samplesPerPixel: samplesPerPixel) {
             // Check mono fallback
-            let path = generateMonoPath(data: monoData, clip: clip, rect: rect, bpm: bpm, sampleRate: sampleRate, samplesPerPixel: samplesPerPixel, verticalScale: verticalScale)
+            let path = generateMonoPath(data: monoData, clip: clip, rect: rect, bpm: bpm, sampleRate: sampleRate, samplesPerPixel: samplesPerPixel)
             pathCache[cacheKey] = path
-            drawPath(path, in: ctx, rect: rect, color: color, style: style)
+            drawPath(path, in: ctx, rect: rect, color: color, style: style, verticalScale: verticalScale)
             result = true
         } else {
             drawPlaceholder(in: ctx, rect: rect, color: color)
@@ -124,36 +124,45 @@ public final class WaveformRenderer: @unchecked Sendable {
         rect: CGRect,
         bpm: Double,
         sampleRate: Double,
-        samplesPerPixel: Int,
-        verticalScale: Float = 1.0
+        samplesPerPixel: Int
     ) -> CGPath {
-        let waveformRect = CGRect(x: 0, y: 0, width: rect.width, height: rect.height - DreamTheme.clipTitleHeight)
-        let midY = waveformRect.height / 2.0
-        let halfHeight = midY
+        // ENTERPRISE PERFECTION: Fixed high-resolution for the path vertices.
+        // x is normalized 0.0..1.0 (mapped to clip duration)
+        // y is normalized -1.0..1.0 (mapped to peaks)
+        let targetResolution = 2000 
         
         let trimOffsetSamples = Int(clip.trimStartOffset.toSeconds(bpm: bpm) * sampleRate)
         let startIndex = trimOffsetSamples / samplesPerPixel
-        let pixelCount = Int(rect.width)
-
+        
+        let clipDurationSamples = Int(clip.duration.toSeconds(bpm: bpm) * sampleRate)
+        let totalSamplesInView = clipDurationSamples / samplesPerPixel
+        
         let combinedPath = CGMutablePath()
         
-        // Use track gain for scaling, but keep 0.5 minimum for visibility if volume is very low but not silent
-        let vScale = CGFloat(max(0.1, verticalScale)) 
+        // Start at mid-Y (0 in normalized coordinates)
+        combinedPath.move(to: CGPoint(x: 0, y: 0))
         
-        combinedPath.move(to: CGPoint(x: 0, y: midY))
-        for px in 0..<pixelCount {
-            let idx = startIndex + px
+        // Upper peaks
+        for i in 0..<targetResolution {
+            let progress = Double(i) / Double(targetResolution - 1)
+            let idx = startIndex + Int(progress * Double(totalSamplesInView))
             guard idx < data.lowPeaks.count else { break }
+            
             let peak = CGFloat(data.lowPeaks[idx])
-            combinedPath.addLine(to: CGPoint(x: CGFloat(px), y: midY - peak * halfHeight * 0.95 * vScale))
+            combinedPath.addLine(to: CGPoint(x: CGFloat(progress), y: -peak * 0.95))
         }
-        for px in stride(from: min(pixelCount - 1, data.lowPeaks.count - startIndex - 1), through: 0, by: -1) {
-            let idx = startIndex + px
-            let peak = CGFloat(data.lowPeaks[idx])
-            combinedPath.addLine(to: CGPoint(x: CGFloat(px), y: midY + peak * halfHeight * 0.95 * vScale))
-        }
-        combinedPath.closeSubpath()
         
+        // Lower peaks (backwards)
+        for i in stride(from: targetResolution - 1, through: 0, by: -1) {
+            let progress = Double(i) / Double(targetResolution - 1)
+            let idx = startIndex + Int(progress * Double(totalSamplesInView))
+            guard idx < data.lowPeaks.count else { break }
+            
+            let peak = CGFloat(data.lowPeaks[idx])
+            combinedPath.addLine(to: CGPoint(x: CGFloat(progress), y: peak * 0.95))
+        }
+        
+        combinedPath.closeSubpath()
         return combinedPath
     }
 
@@ -163,56 +172,74 @@ public final class WaveformRenderer: @unchecked Sendable {
         rect: CGRect,
         bpm: Double,
         sampleRate: Double,
-        samplesPerPixel: Int,
-        verticalScale: Float = 1.0
+        samplesPerPixel: Int
     ) -> CGPath {
-        let waveformRect = CGRect(x: 0, y: 0, width: rect.width, height: rect.height - DreamTheme.clipTitleHeight)
-        let midY = waveformRect.height / 2.0
-        let halfHeight = midY
+        let targetResolution = 2000 
         
         let trimOffsetSamples = Int(clip.trimStartOffset.toSeconds(bpm: bpm) * sampleRate)
         let startIndex = trimOffsetSamples / samplesPerPixel
-        let pixelCount = Int(rect.width)
+
+        let clipDurationSamples = Int(clip.duration.toSeconds(bpm: bpm) * sampleRate)
+        let totalSamplesInView = clipDurationSamples / samplesPerPixel
 
         let path = CGMutablePath()
-        let vScale = CGFloat(max(0.1, verticalScale))
 
-        path.move(to: CGPoint(x: 0, y: midY))
+        path.move(to: CGPoint(x: 0, y: 0))
         
-        for px in 0..<pixelCount {
-            let idx = startIndex + px
+        for i in 0..<targetResolution {
+            let progress = Double(i) / Double(targetResolution - 1)
+            let idx = startIndex + Int(progress * Double(totalSamplesInView))
             guard idx < data.peaks.count else { break }
+            
             let peak = CGFloat(data.peaks[idx])
-            path.addLine(to: CGPoint(x: CGFloat(px), y: midY - peak * halfHeight * 0.95 * vScale))
+            path.addLine(to: CGPoint(x: CGFloat(progress), y: -peak * 0.95))
         }
-        for px in stride(from: min(pixelCount - 1, data.peaks.count - startIndex - 1), through: 0, by: -1) {
-            let idx = startIndex + px
+        
+        for i in stride(from: targetResolution - 1, through: 0, by: -1) {
+            let progress = Double(i) / Double(targetResolution - 1)
+            let idx = startIndex + Int(progress * Double(totalSamplesInView))
+            guard idx < data.peaks.count else { break }
+            
             let peak = CGFloat(data.peaks[idx])
-            path.addLine(to: CGPoint(x: CGFloat(px), y: midY + peak * halfHeight * 0.95 * vScale))
+            path.addLine(to: CGPoint(x: CGFloat(progress), y: peak * 0.95))
         }
+        
         path.closeSubpath()
         return path
     }
 
-    private func drawPath(_ path: CGPath, in ctx: CGContext, rect: CGRect, color: NSColor, style: WaveformStyle) {
+    private func drawPath(_ path: CGPath, in ctx: CGContext, rect: CGRect, color: NSColor, style: WaveformStyle, verticalScale: Float) {
+        let waveformHeight = rect.height - DreamTheme.clipTitleHeight
         let waveformTop = rect.origin.y + DreamTheme.clipTitleHeight
+        let midY = waveformTop + (waveformHeight / 2.0)
+        let halfHeight = waveformHeight / 2.0
         
         ctx.saveGState()
-        ctx.translateBy(x: rect.origin.x, y: waveformTop)
+        
+        // Professional Scaling Logic:
+        // 1. Move to the mid-Y of the waveform area
+        ctx.translateBy(x: rect.origin.x, y: midY)
+        
+        // 2. Scale the context: 
+        // Horizontal: rect.width (maps 0..1 to actual width)
+        // Vertical: halfHeight * verticalScale (maps -1..1 to actual volume-adjusted peaks)
+        let vScale = CGFloat(max(0.01, verticalScale))
+        ctx.scaleBy(x: rect.width, y: halfHeight * vScale)
         
         if style == .solid {
-            ctx.setFillColor(NSColor.black.cgColor)
+            ctx.setFillColor(NSColor.black.withAlphaComponent(0.8).cgColor)
             ctx.addPath(path)
             ctx.fillPath()
         } else {
-            // Colored Style - use track color with high alpha for the main path
-            ctx.setFillColor(color.withAlphaComponent(0.6).cgColor)
+            // Colored Style - use track color
+            ctx.setFillColor(color.withAlphaComponent(0.7).cgColor)
             ctx.addPath(path)
             ctx.fillPath()
             
-            // Subtle glow/outline
-            ctx.setStrokeColor(color.withAlphaComponent(0.3).cgColor)
-            ctx.setLineWidth(0.5)
+            // Subtle contour stroke (resolution-independent line width)
+            ctx.setStrokeColor(color.withAlphaComponent(0.4).cgColor)
+            // Divide line width by the scale factor to keep it consistent on screen
+            ctx.setLineWidth(0.5 / max(1.0, rect.width))
             ctx.addPath(path)
             ctx.strokePath()
         }

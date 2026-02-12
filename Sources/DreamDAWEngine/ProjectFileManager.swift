@@ -33,9 +33,6 @@ public final class ProjectFileManager {
 
     /// The currently open project folder URL (nil if never saved).
     public private(set) var projectFolderURL: URL?
-
-    /// Current version number within the project folder.
-    public private(set) var currentVersion: Int = 1
     
     /// The URL for the user's default project template.
     /// Stored in `[User Folder]/User Info/DefaultProject.ddpj`.
@@ -47,11 +44,8 @@ public final class ProjectFileManager {
     /// Resets the manager state for a fresh project.
     public func resetState() {
         self.projectFolderURL = nil
-        self.currentVersion = 1
         logger.info("Project file manager state reset.")
     }
-
-    // MARK: - Recent Projects
 
     // MARK: - Recent Projects
 
@@ -85,15 +79,13 @@ public final class ProjectFileManager {
         UserDefaults.standard.removeObject(forKey: Self.recentProjectsKey)
     }
 
-    // MARK: - Save
-
     /// Save the project to its current location. If never saved, triggers save-as.
     /// Returns true if save succeeded.
     @discardableResult
     public func save(project: Project) async throws -> URL {
         if let folderURL = projectFolderURL {
-            // Overwrite the current version file in place (standard Cmd+S behavior)
-            let fileURL = makeFileURL(folder: folderURL, name: project.name, version: currentVersion)
+            // Overwrite the current file in place (standard Cmd+S behavior)
+            let fileURL = project.fileURL ?? makeFileURL(folder: folderURL, name: project.name)
             try await writeProject(project, to: fileURL)
             
             // UI updates on MainActor
@@ -101,7 +93,7 @@ public final class ProjectFileManager {
                 project.fileURL = fileURL
                 project.isDirty = false
             }
-            logger.info("Project saved (overwrite): \(fileURL.lastPathComponent) (V\(self.currentVersion))")
+            logger.info("Project saved (overwrite): \(fileURL.lastPathComponent)")
             return fileURL
         } else {
             // First save — needs a location
@@ -115,8 +107,7 @@ public final class ProjectFileManager {
         let parentDir = fileURL.deletingLastPathComponent()
         let filename = fileURL.deletingPathExtension().lastPathComponent
 
-        // Calculate new state (Version, Name, URLs) on Main Thread first
-        let newVersion: Int
+        // Calculate new state (Name, URLs) on Main Thread first
         let newProjectFolderURL: URL
         let newName: String
         let needsNewFolderStructure: Bool
@@ -124,20 +115,12 @@ public final class ProjectFileManager {
         if isDreamDAWProjectDirectory(parentDir) {
             // Saving inside an existing project directory
             newProjectFolderURL = parentDir
-            newVersion = extractVersion(from: fileURL) ?? 1
-            
-            let baseName = filename
-                .replacingOccurrences(of: " V\\d+$", with: "", options: .regularExpression)
-                .trimmingCharacters(in: .whitespaces)
-            newName = !baseName.isEmpty ? baseName : project.name
+            newName = filename
             needsNewFolderStructure = false
         } else {
             // Saving to a new location — create project folder structure
             let projectName = filename
-                .replacingOccurrences(of: " V\\d+$", with: "", options: .regularExpression)
-                .trimmingCharacters(in: .whitespaces)
             newProjectFolderURL = parentDir.appendingPathComponent(projectName)
-            newVersion = 1
             newName = projectName
             needsNewFolderStructure = true
         }
@@ -164,7 +147,6 @@ public final class ProjectFileManager {
 
         // Update Manager State
         self.projectFolderURL = newProjectFolderURL
-        self.currentVersion = newVersion
         
         // Write File (Async)
         // If it's a new structure, we use the constructed URL.
@@ -177,7 +159,7 @@ public final class ProjectFileManager {
         
         let targetFileURL: URL
         if needsNewFolderStructure {
-             targetFileURL = makeFileURL(folder: newProjectFolderURL, name: newName, version: newVersion)
+             targetFileURL = makeFileURL(folder: newProjectFolderURL, name: newName)
         } else {
              targetFileURL = fileURL
         }
@@ -290,32 +272,22 @@ public final class ProjectFileManager {
         }).value
 
         // Update MainActor state
-        await MainActor.run {
-            project.fileURL = fileURL
-        }
-        
+        project.fileURL = fileURL
         self.projectFolderURL = fileURL.deletingLastPathComponent()
-        self.currentVersion = extractVersion(from: fileURL) ?? 1
 
-        logger.info("Opened project: \(project.name) (V\(self.currentVersion))")
+        logger.info("Opened project: \(project.name)")
         return project
     }
 
-    /// Scan a project folder for all version files, sorted by version.
-    public func listVersions(in folderURL: URL) -> [(version: Int, url: URL)] {
+    /// Scan a project folder for all project files.
+    public func listProjectFiles(in folderURL: URL) -> [URL] {
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: folderURL,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) else { return [] }
 
-        return contents
-            .filter { $0.pathExtension == Self.fileExtension }
-            .compactMap { url -> (Int, URL)? in
-                guard let v = extractVersion(from: url) else { return nil }
-                return (v, url)
-            }
-            .sorted { $0.0 < $1.0 }
+        return contents.filter { $0.pathExtension == Self.fileExtension }
     }
 
     // MARK: - Backup (auto-save)
@@ -341,9 +313,7 @@ public final class ProjectFileManager {
 
     // MARK: - Private Helpers
 
-    private func makeFileURL(folder: URL, name: String, version: Int) -> URL {
-        // Professional requirement: Overwrite the active file without appending version clusters.
-        // We keep the version parameter for backward compatibility if needed, but default to name-only.
+    private func makeFileURL(folder: URL, name: String) -> URL {
         return folder.appendingPathComponent("\(name).\(ProjectFileManager.fileExtension)")
     }
 
@@ -393,15 +363,7 @@ public final class ProjectFileManager {
         logger.info("Copied sample: \(sourceURL.lastPathComponent)")
     }
 
-    private func extractVersion(from url: URL) -> Int? {
-        // Parse "ProjectName V3.ddpj" → 3
-        let filename = url.deletingPathExtension().lastPathComponent
-        guard let range = filename.range(of: " V", options: .backwards),
-              let version = Int(filename[range.upperBound...]) else {
-            return nil
-        }
-        return version
-    }
+    // extractVersion removed as versioning is now manual/standard.
 }
 
 // MARK: - ProjectFileError

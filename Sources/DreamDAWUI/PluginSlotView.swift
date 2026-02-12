@@ -11,13 +11,17 @@ public final class PluginSlotView: NSView {
     private let headerView = NSView()
     private let bodyContainer = NSView()
     
-    private let titleLabel = NSTextField(labelWithString: "")
+    private let settingsButton = NSButton()
+    private let eyeButton = NSButton()
     private let powerButton = NSButton()
+    private let titleLabel = NSTextField(labelWithString: "")
     
     /// Optional stack for plugin-specific header controls (e.g. Sampler tabs)
     public let extraHeaderStack = NSStackView()
     
     public var onToggle: ((Bool) -> Void)?
+    public var onSettingsClicked: (() -> Void)?
+    public var onEyeClicked: (() -> Void)?
     
     public var isEnabled: Bool = true {
         didSet { updatePowerState() }
@@ -72,6 +76,30 @@ public final class PluginSlotView: NSView {
         titleLabel.drawsBackground = false
         headerView.addSubview(titleLabel)
         
+        // Settings Button (Gear)
+        settingsButton.title = ""
+        settingsButton.bezelStyle = .inline
+        settingsButton.isBordered = false
+        settingsButton.wantsLayer = true
+        settingsButton.image = NSImage(systemSymbolName: "gearshape.fill", accessibilityDescription: "Settings")
+        settingsButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .bold)
+        settingsButton.contentTintColor = NSColor(white: 0.6, alpha: 1.0)
+        settingsButton.target = self
+        settingsButton.action = #selector(settingsClicked)
+        headerView.addSubview(settingsButton)
+        
+        // Eye Button (GUI)
+        eyeButton.title = ""
+        eyeButton.bezelStyle = .inline
+        eyeButton.isBordered = false
+        eyeButton.wantsLayer = true
+        eyeButton.image = NSImage(systemSymbolName: "eye.fill", accessibilityDescription: "Open Interface")
+        eyeButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .bold)
+        eyeButton.contentTintColor = NSColor(white: 0.6, alpha: 1.0)
+        eyeButton.target = self
+        eyeButton.action = #selector(eyeClicked)
+        headerView.addSubview(eyeButton)
+        
         // Extra Header Content (Tabs, etc)
         extraHeaderStack.orientation = .horizontal
         extraHeaderStack.spacing = 4
@@ -91,6 +119,8 @@ public final class PluginSlotView: NSView {
         bodyContainer.translatesAutoresizingMaskIntoConstraints = false
         powerButton.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        settingsButton.translatesAutoresizingMaskIntoConstraints = false
+        eyeButton.translatesAutoresizingMaskIntoConstraints = false
         extraHeaderStack.translatesAutoresizingMaskIntoConstraints = false
         
         NSLayoutConstraint.activate([
@@ -112,9 +142,19 @@ public final class PluginSlotView: NSView {
             titleLabel.leadingAnchor.constraint(equalTo: powerButton.trailingAnchor, constant: 6),
             titleLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
             
+            eyeButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -4),
+            eyeButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            eyeButton.widthAnchor.constraint(equalToConstant: 16),
+            eyeButton.heightAnchor.constraint(equalToConstant: 16),
+            
+            settingsButton.trailingAnchor.constraint(equalTo: eyeButton.leadingAnchor, constant: -2),
+            settingsButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            settingsButton.widthAnchor.constraint(equalToConstant: 16),
+            settingsButton.heightAnchor.constraint(equalToConstant: 16),
+            
             extraHeaderStack.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 8),
             extraHeaderStack.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
-            extraHeaderStack.trailingAnchor.constraint(lessThanOrEqualTo: headerView.trailingAnchor, constant: -4)
+            extraHeaderStack.trailingAnchor.constraint(lessThanOrEqualTo: settingsButton.leadingAnchor, constant: -4)
         ])
     }
     
@@ -129,6 +169,14 @@ public final class PluginSlotView: NSView {
     @objc private func powerToggled() {
         isEnabled = (powerButton.state == .on)
         onToggle?(isEnabled)
+    }
+    
+    @objc private func eyeClicked() {
+        onEyeClicked?()
+    }
+    
+    @objc private func settingsClicked() {
+        onSettingsClicked?()
     }
     
     private func updatePowerState() {

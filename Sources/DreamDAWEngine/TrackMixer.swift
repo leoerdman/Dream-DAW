@@ -115,9 +115,30 @@ public final class TrackMixer {
             sourceNode = sampler.createSourceNode()
             trackSamplers[track.id] = sampler
         case .vst2, .vst3:
-            // PluginWrapper logic will handle this
-            let synth = SimpleSynthInstrument(sampleRate: format.sampleRate) // Placeholder
-            sourceNode = synth.createSourceNode()
+            // Use PluginHost for enterprise-grade VST/AU loading
+            if let identifier = track.instrument?.pluginIdentifier {
+                PluginHost.shared.instantiate(identifier: identifier, type: instrType) { [weak self] unit, error in
+                    DispatchQueue.main.async {
+                        guard let self = self, let unit = unit else {
+                            self?.logger.error("TrackMixer: Failed to load VST \(identifier)")
+                            return
+                        }
+                        
+                        self.audioEngine.attach(unit)
+                        self.trackInstrumentNodes[track.id] = unit
+                        PluginHost.shared.registerInstance(track.id, unit: unit)
+                        
+                        // Trigger a chain rebuild to include the new plugin (main thread safe)
+                        self.rebuildEffectChain(for: track)
+                    }
+                }
+                // Return placeholder during async load to prevent silent track
+                let synth = SimpleSynthInstrument(sampleRate: format.sampleRate)
+                sourceNode = synth.createSourceNode()
+            } else {
+                let synth = SimpleSynthInstrument(sampleRate: format.sampleRate)
+                sourceNode = synth.createSourceNode()
+            }
         @unknown default:
             let synth = SimpleSynthInstrument(sampleRate: format.sampleRate)
             sourceNode = synth.createSourceNode()

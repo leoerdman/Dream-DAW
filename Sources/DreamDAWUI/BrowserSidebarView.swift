@@ -132,7 +132,8 @@ public final class BrowserSidebarView: NSView {
         outlineView.delegate = self
 
         // Register for drag source
-        outlineView.setDraggingSourceOperationMask(.copy, forLocal: false)
+        outlineView.setDraggingSourceOperationMask([.copy, .link], forLocal: false) // 'false' is fine for both as long as mask is broad
+        outlineView.setDraggingSourceOperationMask([.copy, .link], forLocal: true)
 
         // Scroll view
         outlineScrollView.wantsLayer = true
@@ -323,7 +324,7 @@ public final class BrowserSidebarView: NSView {
                     nodes.append(dirNode)
                 }
             } else if audioExtensions.contains(item.pathExtension.lowercased()) {
-                let fileNode = BrowserNode(name: item.lastPathComponent, icon: "waveform")
+                let fileNode = BrowserNode(name: item.lastPathComponent, icon: "waveform", nodeType: .audioFile)
                 fileNode.fileURL = item
                 nodes.append(fileNode)
             }
@@ -370,7 +371,13 @@ public final class BrowserSidebarView: NSView {
         if searchQuery.isEmpty {
             filteredItems = rootItems
         } else {
-            filteredItems = rootItems.compactMap { $0.filteredClone(query: searchQuery) }
+            // Filter and sort: Bring audio files and instruments to top, categories further down
+            let results = rootItems.compactMap { $0.filteredClone(query: searchQuery) }
+            filteredItems = results.sorted { a, b in
+                if a.nodeType == .audioFile && b.nodeType != .audioFile { return true }
+                if a.nodeType != .audioFile && b.nodeType == .audioFile { return false }
+                return false
+            }
         }
         outlineView.reloadData()
         
@@ -593,7 +600,7 @@ extension BrowserSidebarView: NSOutlineViewDelegate {
             return
         }
 
-        if let fileURL = node.fileURL {
+        if let fileURL = node.fileURL, node.nodeType == .audioFile {
             playPreview(url: fileURL)
         } else {
             stopPreview()

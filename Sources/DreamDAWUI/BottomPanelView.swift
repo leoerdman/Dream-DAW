@@ -54,7 +54,7 @@ public final class BottomPanelView: NSView {
     public var onNotesChanged: ((Track, MidiClip) -> Void)?
 
     /// Callback when a browser item (instrument, effect, or sample) is dropped on the panel.
-    public var onBrowserItemDropped: ((UUID, String, String) -> Void)?
+    public var onBrowserItemDropped: ((UUID, String, String, URL?) -> Void)?
 
     /// Callback when an effect parameter is changed (e.g. Utility gain knob).
     /// Parameter: trackID
@@ -69,6 +69,12 @@ public final class BottomPanelView: NSView {
     /// Callback when a sample is changed in the Sampler instrument.
     /// Parameters: trackID, oldURL, newURL
     public var onSamplerSampleChanged: ((UUID, URL?, URL) -> Void)?
+
+    /// Callback when a plugin's settings button is clicked.
+    public var onPluginSettingsClicked: ((UUID, AudioEffectConfig?, InstrumentConfig?) -> Void)?
+    
+    /// Callback when a plugin's eye (GUI) button is clicked.
+    public var onPluginEyeClicked: ((UUID, AudioEffectConfig?, InstrumentConfig?) -> Void)?
 
     /// Reference to the audio level meter for real-time signal chain metering.
     public weak var audioLevelMeter: AudioLevelMeter?
@@ -486,6 +492,14 @@ public final class BottomPanelView: NSView {
             effect?.isEnabled = newState
             self?.onEffectParameterChanged?(track.id)
         }
+        
+        slot.onSettingsClicked = { [weak self, weak effect] in 
+            self?.onPluginSettingsClicked?(track.id, effect, nil)
+        }
+        
+        slot.onEyeClicked = { [weak self, weak effect] in
+            self?.onPluginEyeClicked?(track.id, effect, nil)
+        }
 
         // ── Plugin-specific content ──
         let contentH = frame.height - 18 - 4
@@ -670,6 +684,14 @@ public final class BottomPanelView: NSView {
                     self?.onInstrumentParameterChanged?(track.id)
                 }
                 
+                slot.onSettingsClicked = { [weak self, weak instrument] in
+                    self?.onPluginSettingsClicked?(track.id, nil, instrument)
+                }
+                
+                slot.onEyeClicked = { [weak self, weak instrument] in
+                    self?.onPluginEyeClicked?(track.id, nil, instrument)
+                }
+                
                 // Add Edit/Ctrl Tabs to Header
                 let editTab = NSButton(title: "Edit", target: self, action: #selector(samplerTabTriggered(_:)))
                 let ctrlTab = NSButton(title: "Ctrl", target: self, action: #selector(samplerTabTriggered(_:)))
@@ -697,6 +719,14 @@ public final class BottomPanelView: NSView {
             slot.onToggle = { [weak instrument, weak self] newState in
                 instrument?.isEnabled = newState
                 self?.onInstrumentParameterChanged?(track.id)
+            }
+
+            slot.onSettingsClicked = { [weak self, weak instrument] in
+                self?.onPluginSettingsClicked?(track.id, nil, instrument)
+            }
+            
+            slot.onEyeClicked = { [weak self, weak instrument] in
+                self?.onPluginEyeClicked?(track.id, nil, instrument)
             }
 
             let iconSize: CGFloat = 20
@@ -877,7 +907,7 @@ public final class BottomPanelView: NSView {
         let nodeType = String(parts[0])
         let itemName = String(parts[1])
 
-        onBrowserItemDropped?(trackID, nodeType, itemName)
+        onBrowserItemDropped?(trackID, nodeType, itemName, nil)
         return true
     }
 }

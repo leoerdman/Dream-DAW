@@ -846,8 +846,8 @@ public final class ArrangementViewController: NSViewController {
         }
 
         // Track headers: browser item dropped (instrument or effect)
-        trackHeaders.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName in
-            self?.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName)
+        trackHeaders.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName, fileURL in
+            self?.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName, fileURL: fileURL)
         }
 
         // Track reordering synchronization
@@ -929,8 +929,8 @@ public final class ArrangementViewController: NSViewController {
         }
 
         // Canvas → track: browser item dropped (instrument or effect)
-        canvasView.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName in
-            self?.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName)
+        canvasView.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName, fileURL in
+            self?.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName, fileURL: fileURL)
         }
 
         // Canvas → host: zoom changed (Cmd+scroll) — sync ruler, master, and scroll
@@ -990,19 +990,49 @@ public final class ArrangementViewController: NSViewController {
             }
         }
         
-        // Bottom panel → project: instrument parameter changed (e.g. Sampler ADSR)
-        bottomPanel.onInstrumentParameterChanged = { [weak self] trackID in
-            guard let self = self else { return }
-            self.project.isDirty = true
             if let track = self.project.tracks.first(where: { $0.id == trackID }) {
                 self.trackMixer.applyTrackSettings(track)
             }
         }
+        
+        // Bottom panel → project: plugin settings clicked
+        bottomPanel.onPluginSettingsClicked = { [weak self] trackID, effect, instrument in
+            guard let self = self else { return }
+            self.logger.info("Settings clicked for plugin on track \(trackID)")
+            // Future: Show generic parameter list
+        }
+        
+        // Bottom panel → project: plugin eye (GUI) clicked
+        bottomPanel.onPluginEyeClicked = { [weak self] trackID, effect, instrument in
+            guard let self = self else { return }
+            
+            // Try to get the instance ID (trackID for instruments, or specific ID for effects)
+            let instanceID = instrument != nil ? trackID : (effect?.id ?? trackID)
+            
+            guard let unit = PluginHost.shared.getInstance(instanceID) else {
+                self.logger.warning("No plugin instance found for eye click on track \(trackID)")
+                return
+            }
+            
+            PluginHost.shared.requestEditor(for: unit) { [weak self] viewController in
+                guard let self = self, let vc = viewController else { 
+                    self?.logger.error("Failed to get view controller for plugin: \(unit.name)")
+                    return 
+                }
+                
+                // Professional floating window for the plugin GUI
+                let window = NSWindow(contentViewController: vc)
+                window.title = "Plugin: \(unit.name)"
+                window.styleMask = [.titled, .closable, .utilityWindow, .hudWindow]
+                window.isReleasedWhenClosed = false
+                window.makeKeyAndOrderFront(nil)
+            }
+        }
 
         // Bottom panel → project: browser item dropped on effects chain
-        bottomPanel.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName in
+        bottomPanel.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName, fileURL in
             guard let self = self else { return }
-            self.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName)
+            self.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName, fileURL: nil)
         }
 
         // Bottom panel → audio engine: effect parameter changed (e.g. Utility gain knob)
@@ -1018,8 +1048,8 @@ public final class ArrangementViewController: NSViewController {
 
     // MARK: - Browser Item Drop Handler (shared by canvas + track headers)
 
-    /// Handles a browser item drop (instrument, audioEffect, midiEffect) on a track.
-    private func handleBrowserItemDrop(trackID: UUID, nodeType: String, itemName: String) {
+    /// Handles a browser item drop (instrument, audioEffect, midiEffect, or audioFile) on a track.
+    private func handleBrowserItemDrop(trackID: UUID, nodeType: String, itemName: String, fileURL: URL? = nil) {
         // Safe lookup including Master track
         let allTracks = project.tracks + [project.masterTrack]
         guard let track = allTracks.first(where: { $0.id == trackID }) else { return }
@@ -1073,6 +1103,14 @@ public final class ArrangementViewController: NSViewController {
             guard track.trackType == .midi else { return }
             // TODO: Implement MIDI effect types
             break
+
+        case "audioFile":
+            // Genius Move: If dropped on a MIDI track, auto-instantiate Sampler with this sample
+            guard track.trackType == .midi else { return }
+            let samplerConfig = InstrumentConfig(instrumentType: .sampler)
+            samplerConfig.sampleURL = fileURL
+            track.instrument = samplerConfig
+            track.name = fileURL?.deletingPathExtension().lastPathComponent ?? track.name
 
         default:
             break
@@ -1483,7 +1521,6 @@ public final class ArrangementViewController: NSViewController {
         let fm = ProjectFileManager.shared
 
         // Pre-fill filename with current project name
-        let currentVersion = fm.projectFolderURL != nil ? fm.currentVersion : 1
         panel.nameFieldStringValue = project.name
         panel.allowedContentTypes = [.init(filenameExtension: ProjectFileManager.fileExtension) ?? .data]
         panel.canCreateDirectories = true

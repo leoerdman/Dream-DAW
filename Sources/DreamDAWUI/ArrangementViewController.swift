@@ -784,18 +784,7 @@ public final class ArrangementViewController: NSViewController {
             self?.transportController.seek(to: position)
         }
 
-        // Sync view state to project on changes
-        canvasView.onZoomChanged = { [weak self] newPPB, newScrollX in
-            guard let self = self else { return }
-            self.pixelsPerBeat = newPPB
-            self.canvasView.pixelsPerBeat = newPPB
-            self.rulerView.pixelsPerBeat = newPPB
-            
-            // Persist zoom
-            self.project.viewZoomScale = Double(newPPB)
-            
-            self.layoutSubviews()
-        }
+        // ━━━━━ Horizontal Zoom & Scroll Sync ━━━━━
         
         NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification,
@@ -944,26 +933,36 @@ public final class ArrangementViewController: NSViewController {
             self?.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName)
         }
 
-        // Canvas → host: zoom changed (Cmd+scroll) — sync ruler and scroll
+        // Canvas → host: zoom changed (Cmd+scroll) — sync ruler, master, and scroll
         canvasView.onZoomChanged = { [weak self] newPPB, newScrollX in
             guard let self = self else { return }
-            // Update shared zoom level
+            
+            // 1. Update shared zoom level
             self.pixelsPerBeat = newPPB
             self.canvasView.pixelsPerBeat = newPPB
             self.rulerView.pixelsPerBeat = newPPB
+            self.masterLaneView.pixelsPerBeat = newPPB
+            
+            // 2. Persist zoom to model
+            self.project.viewZoomScale = Double(newPPB)
 
-            // Recompute document size for the new zoom
+            // 3. Recompute document size for the new zoom
             self.layoutSubviews()
 
-            // Apply the scroll position to keep playhead centered
+            // 4. Apply the scroll position to keep focus centered
             let scrollView = self.canvasScrollView
             let maxScrollX = max(0, scrollView.documentView!.frame.width - scrollView.contentView.bounds.width)
             let clampedX = max(0, min(newScrollX, maxScrollX))
+            
             scrollView.contentView.scroll(to: NSPoint(x: clampedX, y: scrollView.contentView.bounds.origin.y))
             scrollView.reflectScrolledClipView(scrollView.contentView)
 
-            // Sync ruler scroll offset
+            // 5. Explicitly sync siblings (Ruler & Master Lane)
             self.rulerView.scrollOffset = clampedX
+            self.masterLaneView.scrollOffset = clampedX
+            
+            // 6. Persist scroll position
+            self.project.viewScrollPosition = Double(clampedX) / Double(newPPB)
         }
 
         // Bottom panel → project: note changes from piano roll
@@ -1889,10 +1888,27 @@ internal class MasterLaneView: NSView {
     }
     
     override func draw(_ dirtyRect: NSRect) {
+        let ctx = NSGraphicsContext.current?.cgContext
+        
+        // 1. Divider (Bottom) to match standard tracks
+        ctx?.setStrokeColor(DreamTheme.divider.cgColor)
+        ctx?.setLineWidth(0.5)
+        ctx?.move(to: CGPoint(x: 0, y: bounds.height - 0.5))
+        ctx?.addLine(to: CGPoint(x: bounds.width, y: bounds.height - 0.5))
+        ctx?.strokePath()
+
+        // 2. Selection Highlight (Genius Style)
         if isSelected {
             let path = NSBezierPath(rect: bounds)
-            NSColor.systemBlue.withAlphaComponent(0.15).set()
+            NSColor.systemBlue.withAlphaComponent(0.12).set()
             path.fill()
+            
+            // Subtle left border for selection
+            ctx?.setStrokeColor(NSColor.systemBlue.cgColor)
+            ctx?.setLineWidth(2.0)
+            ctx?.move(to: CGPoint(x: 1, y: 0))
+            ctx?.addLine(to: CGPoint(x: 1, y: bounds.height))
+            ctx?.strokePath()
         }
     }
     

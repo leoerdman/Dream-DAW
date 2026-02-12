@@ -402,9 +402,9 @@ public final class TimelineCanvasView: NSView {
             return
         }
 
-        // Define the boundary: very large duration (e.g., 10k beats) and all tracks.
+        // Define the boundary: very large duration (e.g., 100k beats) and all tracks.
         let visibleTracks = project.allVisibleTracks
-        let boundary = QuadRect(minX: 0, maxX: 10000, minY: 0, maxY: Double(max(1, visibleTracks.count)))
+        let boundary = QuadRect(minX: 0, maxX: 100000, minY: 0, maxY: Double(max(1, visibleTracks.count)))
         let tree = QuadTree<ClipWrapper>(boundary: boundary, capacity: 12)
 
         for track in visibleTracks {
@@ -557,8 +557,8 @@ public final class TimelineCanvasView: NSView {
         let maxBeat = minBeat + visibleBeatsRange
         
         let visibleTracks = project.allVisibleTracks.filter { $0.trackType != .master }
-        let queryRect = QuadRect(minX: minBeat - 4.0, maxX: maxBeat + 4.0, 
-                                 minY: 0, maxY: Double(visibleTracks.count))
+        let queryRect = QuadRect(minX: minBeat - 10.0, maxX: maxBeat + 10.0, 
+                                 minY: 0, maxY: Double(max(1, visibleTracks.count)))
         
         let candidates = quadTree?.query(range: queryRect) ?? []
         var visibleIDs = Set<UUID>()
@@ -588,8 +588,12 @@ public final class TimelineCanvasView: NSView {
                 let clipWidth = CGFloat(clip.duration.beats) * pixelsPerBeat
                 let newFrame = CGRect(x: clipX, y: trackY + 2, width: clipWidth, height: track.height - 4)
                 
-                // Only update and redraw if something changed
-                if layer.frame != newFrame || layer.clip?.position != clip.position || layer.clip?.duration != clip.duration || layer.clip?.isSelected != clip.isSelected {
+                // Only update and redraw if something meaningful changed
+                let hasMoved = abs(layer.frame.origin.x - clipX) > 0.1 || abs(layer.frame.origin.y - (trackY + 2)) > 0.1
+                let hasResized = abs(layer.frame.width - clipWidth) > 0.1 || abs(layer.frame.height - (track.height - 4)) > 0.1
+                let hasVolumeChanged = layer.clip?.isSelected != clip.isSelected // selection changes often coincide with volume focus
+                
+                if layer.track?.volume != track.volume || abs(layer.pixelsPerBeat - pixelsPerBeat) > 0.01 || hasMoved || hasResized || clip.isSelected != layer.clip?.isSelected {
                     layer.clip = clip
                     layer.track = track
                     layer.pixelsPerBeat = pixelsPerBeat
@@ -612,7 +616,10 @@ public final class TimelineCanvasView: NSView {
                 let clipWidth = CGFloat(clip.duration.beats) * pixelsPerBeat
                 let newFrame = CGRect(x: clipX, y: trackY + 2, width: clipWidth, height: track.height - 4)
                 
-                if layer.frame != newFrame || layer.midiClip?.position != clip.position || layer.midiClip?.duration != clip.duration || layer.midiClip?.isSelected != clip.isSelected {
+                let hasMoved = abs(layer.frame.origin.x - clipX) > 0.1 || abs(layer.frame.origin.y - (trackY + 2)) > 0.1
+                let hasResized = abs(layer.frame.width - clipWidth) > 0.1 || abs(layer.frame.height - (track.height - 4)) > 0.1
+                
+                if hasMoved || hasResized || clip.isSelected != layer.midiClip?.isSelected {
                     layer.midiClip = clip
                     layer.trackColor = track.color.nsColor
                     layer.frame = newFrame
@@ -2113,7 +2120,8 @@ internal class AudioClipLayer: CALayer {
                             color: trackColor,
                             pixelsPerBeat: pixelsPerBeat,
                             bpm: bpm,
-                            sampleRate: sampleRate
+                            sampleRate: sampleRate,
+                            verticalScale: track.volume
                         )
                         
                         if didDrawData {

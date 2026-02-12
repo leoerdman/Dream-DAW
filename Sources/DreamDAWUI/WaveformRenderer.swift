@@ -48,14 +48,28 @@ public final class WaveformRenderer: @unchecked Sendable {
         color: NSColor,
         pixelsPerBeat: CGFloat,
         bpm: Double,
-        sampleRate: Double
+        sampleRate: Double,
+        verticalScale: Float = 1.0
     ) -> Bool {
         // Calculate samples per pixel for the current zoom level
         let secondsPerPixel = 1.0 / (pixelsPerBeat * (bpm / 60.0))
         let samplesPerPixel = max(Int(1), Int(secondsPerPixel * sampleRate))
         
         let style = AppSettings.shared.waveformStyle
-        let cacheKey = "\(clip.fileURL.path)_\(samplesPerPixel)_\(rect.width)_\(rect.height)_\(style.rawValue)"
+        // Round vertical scale to 5% steps for cache stability during smooth volume changes
+        let roundedScale = (verticalScale * 20).rounded() / 20.0
+        
+        // Stabilize samplesPerPixel into discrete steps to avoid massive cache thrashing during zoom
+        let stabilizedSPP: Int
+        if samplesPerPixel < 100 {
+            stabilizedSPP = samplesPerPixel
+        } else {
+            // Logarithmic steps (10% increments)
+            let logStep = pow(1.1, round(log(Double(samplesPerPixel)) / log(1.1)))
+            stabilizedSPP = Int(logStep)
+        }
+
+        let cacheKey = "\(clip.fileURL.path)_\(stabilizedSPP)_\(rect.height)_\(style.rawValue)_\(roundedScale)"
         
         if let cachedPath = pathCache[cacheKey] {
             drawPath(cachedPath, in: ctx, rect: rect, color: color, style: style)
@@ -66,13 +80,13 @@ public final class WaveformRenderer: @unchecked Sendable {
 
         // Try to get cached multi-band waveform data
         if let multiBandData = waveformCache.getCachedMultiBandWaveform(for: clip.fileURL, samplesPerPixel: samplesPerPixel) {
-            let path = generateMultiBandPath(data: multiBandData, clip: clip, rect: rect, bpm: bpm, sampleRate: sampleRate, samplesPerPixel: samplesPerPixel)
+            let path = generateMultiBandPath(data: multiBandData, clip: clip, rect: rect, bpm: bpm, sampleRate: sampleRate, samplesPerPixel: samplesPerPixel, verticalScale: verticalScale)
             pathCache[cacheKey] = path
             drawPath(path, in: ctx, rect: rect, color: color, style: style)
             result = true
         } else if let monoData = waveformCache.getCachedWaveform(for: clip.fileURL, samplesPerPixel: samplesPerPixel) {
             // Check mono fallback
-            let path = generateMonoPath(data: monoData, clip: clip, rect: rect, bpm: bpm, sampleRate: sampleRate, samplesPerPixel: samplesPerPixel)
+            let path = generateMonoPath(data: monoData, clip: clip, rect: rect, bpm: bpm, sampleRate: sampleRate, samplesPerPixel: samplesPerPixel, verticalScale: verticalScale)
             pathCache[cacheKey] = path
             drawPath(path, in: ctx, rect: rect, color: color, style: style)
             result = true
@@ -110,7 +124,8 @@ public final class WaveformRenderer: @unchecked Sendable {
         rect: CGRect,
         bpm: Double,
         sampleRate: Double,
-        samplesPerPixel: Int
+        samplesPerPixel: Int,
+        verticalScale: Float = 1.0
     ) -> CGPath {
         let waveformRect = CGRect(x: 0, y: 0, width: rect.width, height: rect.height - DreamTheme.clipTitleHeight)
         let midY = waveformRect.height / 2.0
@@ -122,23 +137,20 @@ public final class WaveformRenderer: @unchecked Sendable {
 
         let combinedPath = CGMutablePath()
         
-        // We actually generate individual paths for colored style, 
-        // but for caching simplicity we can store them in a single path if they don't overlap 
-        // OR we just cache the most important one.
-        // For "Enterprise" perfection, let's just generate the main outline for now 
-        // and handle colors in drawPath.
+        // Use track gain for scaling, but keep 0.5 minimum for visibility if volume is very low but not silent
+        let vScale = CGFloat(max(0.1, verticalScale)) 
         
         combinedPath.move(to: CGPoint(x: 0, y: midY))
         for px in 0..<pixelCount {
             let idx = startIndex + px
             guard idx < data.lowPeaks.count else { break }
             let peak = CGFloat(data.lowPeaks[idx])
-            combinedPath.addLine(to: CGPoint(x: CGFloat(px), y: midY - peak * halfHeight * 0.95))
+            combinedPath.addLine(to: CGPoint(x: CGFloat(px), y: midY - peak * halfHeight * 0.95 * vScale))
         }
         for px in stride(from: min(pixelCount - 1, data.lowPeaks.count - startIndex - 1), through: 0, by: -1) {
             let idx = startIndex + px
             let peak = CGFloat(data.lowPeaks[idx])
-            combinedPath.addLine(to: CGPoint(x: CGFloat(px), y: midY + peak * halfHeight * 0.95))
+            combinedPath.addLine(to: CGPoint(x: CGFloat(px), y: midY + peak * halfHeight * 0.95 * vScale))
         }
         combinedPath.closeSubpath()
         
@@ -151,7 +163,8 @@ public final class WaveformRenderer: @unchecked Sendable {
         rect: CGRect,
         bpm: Double,
         sampleRate: Double,
-        samplesPerPixel: Int
+        samplesPerPixel: Int,
+        verticalScale: Float = 1.0
     ) -> CGPath {
         let waveformRect = CGRect(x: 0, y: 0, width: rect.width, height: rect.height - DreamTheme.clipTitleHeight)
         let midY = waveformRect.height / 2.0
@@ -162,18 +175,20 @@ public final class WaveformRenderer: @unchecked Sendable {
         let pixelCount = Int(rect.width)
 
         let path = CGMutablePath()
+        let vScale = CGFloat(max(0.1, verticalScale))
+
         path.move(to: CGPoint(x: 0, y: midY))
         
         for px in 0..<pixelCount {
             let idx = startIndex + px
             guard idx < data.peaks.count else { break }
             let peak = CGFloat(data.peaks[idx])
-            path.addLine(to: CGPoint(x: CGFloat(px), y: midY - peak * halfHeight * 0.95))
+            path.addLine(to: CGPoint(x: CGFloat(px), y: midY - peak * halfHeight * 0.95 * vScale))
         }
         for px in stride(from: min(pixelCount - 1, data.peaks.count - startIndex - 1), through: 0, by: -1) {
             let idx = startIndex + px
             let peak = CGFloat(data.peaks[idx])
-            path.addLine(to: CGPoint(x: CGFloat(px), y: midY + peak * halfHeight * 0.95))
+            path.addLine(to: CGPoint(x: CGFloat(px), y: midY + peak * halfHeight * 0.95 * vScale))
         }
         path.closeSubpath()
         return path

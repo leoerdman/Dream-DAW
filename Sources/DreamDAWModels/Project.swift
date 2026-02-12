@@ -57,11 +57,11 @@ public final class Project: ObservableObject, Identifiable, Codable {
 
     /// Multi-selection: set of all currently selected track IDs.
     /// This is runtime-only UI state — NOT persisted to the project file.
-    public var selectedTrackIDs: Set<UUID> = []
+    @Published public var selectedTrackIDs: Set<UUID> = []
     
     /// The most recently clicked/selected track (deterministic, unlike Set.first).
     /// Used by bottom panel, clip selection, etc.
-    public var primarySelectedTrackID: UUID?
+    @Published public var primarySelectedTrackID: UUID?
     
     /// Backward compatibility alias. Uses `primarySelectedTrackID` for reads,
     /// sets single-selection for writes.

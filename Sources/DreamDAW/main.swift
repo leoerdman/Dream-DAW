@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Properties
 
+    private var splashController: SplashScreenController?
     private var mainWindowController: MainWindowController?
     private var recentMenu: NSMenu!
     private var project: Project!
@@ -18,24 +19,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Application Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // 1. Show Splash Screen immediately
+        self.splashController = SplashScreenController()
+        self.splashController?.showWindow(nil)
+        
         Task {
-            // Try loading default template, otherwise create new default
+            // 2. Perform loading tasks
+            self.splashController?.updateStatus("Loading Plugins...")
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s dramatic flair
+            
+            self.splashController?.updateStatus("Loading Default Template...")
             if let defaultTemplate = await ProjectFileManager.shared.loadDefaultProject() {
                 self.project = defaultTemplate
             } else {
                 self.project = Project.createDefault()
             }
+            
+            self.splashController?.updateStatus("Initializing Audio Engine...")
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s dramatic flair
 
             await MainActor.run {
-                // Create and show main window
+                // 3. Create main window (hidden initially)
                 self.mainWindowController = MainWindowController(project: self.project)
-                self.mainWindowController?.showWindow()
-
-                // Set up application menu
+                
+                // 4. Set up application menu
                 self.setupMainMenu()
 
-                // Ensure app is in foreground
-                NSApp.activate(ignoringOtherApps: true)
+                // 5. Dismiss splash and show main window
+                self.splashController?.dismiss {
+                    self.mainWindowController?.showWindow()
+                    self.splashController = nil
+                    
+                    // Final activation
+                    NSApp.activate(ignoringOtherApps: true)
+                }
             }
         }
     }

@@ -44,6 +44,10 @@ public final class PianoRollView: NSView {
     private var dragStartLocation: CGPoint?
     private var draggingNotesOffset: (beats: Double, pitch: Int) = (0, 0)
     private var isDragging: Bool = false
+    
+    /// Marquee state
+    private var marqueeStart: CGPoint?
+    private var selectionRectLayer = CAShapeLayer()
 
     /// Callback when notes are modified.
     public var onNotesChanged: ((MidiClip) -> Void)?
@@ -62,6 +66,12 @@ public final class PianoRollView: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.backgroundColor = DreamTheme.bgPrimary.cgColor
+        
+        selectionRectLayer.fillColor = NSColor.systemBlue.withAlphaComponent(0.2).cgColor
+        selectionRectLayer.strokeColor = NSColor.systemBlue.cgColor
+        selectionRectLayer.lineWidth = 1.0
+        selectionRectLayer.isHidden = true
+        layer?.addSublayer(selectionRectLayer)
     }
 
     required init?(coder: NSCoder) {
@@ -241,13 +251,76 @@ public final class PianoRollView: NSView {
         return max(0, round(beat / gridSnap) * gridSnap)
     }
 
+    // MARK: - Keyboard & Focus
+
+    public override var acceptsFirstResponder: Bool { true }
+    
+    public override func becomeFirstResponder() -> Bool {
+        needsDisplay = true
+        return true
+    }
+    
+    public override func resignFirstResponder() -> Bool {
+        needsDisplay = true
+        return true
+    }
+
+    public override func keyDown(with event: NSEvent) {
+        guard var clip = midiClip else { return }
+        
+        let pitchDelta: Int
+        switch event.keyCode {
+        case 126: // Arrow Up
+            pitchDelta = 1
+        case 125: // Arrow Down
+            pitchDelta = -1
+        case 51, 117: // Backspace, Delete
+            deleteSelectedNotes()
+            return
+        default:
+            super.keyDown(with: event)
+            return
+        }
+        
+        // Transpose selected notes
+        var changed = false
+        for (idx, note) in clip.notes.enumerated() {
+            if selectedNoteIDs.contains(note.id) {
+                let newPitch = max(0, min(127, note.pitch + pitchDelta))
+                if newPitch != note.pitch {
+                    clip.notes[idx].pitch = newPitch
+                    changed = true
+                }
+            }
+        }
+        
+        if changed {
+            midiClip = clip
+            onNotesChanged?(clip)
+        }
+    }
+    
+    private func deleteSelectedNotes() {
+        guard var clip = midiClip, !selectedNoteIDs.isEmpty else { return }
+        clip.notes.removeAll(where: { selectedNoteIDs.contains($0.id) })
+        selectedNoteIDs.removeAll()
+        midiClip = clip
+        onNotesChanged?(clip)
+    }
+
     // MARK: - Mouse Events
 
     // MARK: - Mouse Events
 
     public override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
         guard var clip = midiClip else { return }
         let location = convert(event.locationInWindow, from: nil)
+
+        // Clear selection if not shifting
+        if !event.modifierFlags.contains(.shift) {
+            selectedNoteIDs.removeAll()
+        }
 
         // Keyboard interaction (Audition)
         if location.x < keyboardWidth {
@@ -264,12 +337,7 @@ public final class PianoRollView: NSView {
             beat >= $0.position.beats &&
             beat < $0.position.beats + $0.duration.beats
         }) {
-            if event.modifierFlags.contains(.shift) {
-                selectedNoteIDs.insert(clickedNote.id)
-            } else if !selectedNoteIDs.contains(clickedNote.id) {
-                selectedNoteIDs = [clickedNote.id]
-            }
-            
+            selectedNoteIDs.insert(clickedNote.id)
             isDragging = true
             dragStartLocation = location
             draggingNotesOffset = (0, 0)
@@ -277,12 +345,13 @@ public final class PianoRollView: NSView {
             return
         }
 
-        // Click on empty space: clear selection OR add note
-        if !event.modifierFlags.contains(.shift) {
-            selectedNoteIDs.removeAll()
-        }
+        // Start Marquee if clicked on empty space
+        marqueeStart = location
+        selectionRectLayer.isHidden = false
+        selectionRectLayer.frame = bounds
+        selectionRectLayer.path = nil
         
-        // Double click to add note
+        // Mode 3: Quick add on double click
         if event.clickCount == 2 {
             let note = MidiNote(
                 pitch: pitch,
@@ -300,17 +369,56 @@ public final class PianoRollView: NSView {
     }
 
     public override func mouseDragged(with event: NSEvent) {
-        guard isDragging, let startLoc = dragStartLocation, var clip = midiClip else { return }
         let currentLoc = convert(event.locationInWindow, from: nil)
         
-        // Simple drag offset implementation (delta-based)
-        // For production, we'd snap final positions on mouseUp
-        // Let's just update the visual representation for now
+        if isDragging, let startLoc = dragStartLocation, var clip = midiClip {
+            // Simple drag offset (could be improved with snapping)
+            let deltaX = currentLoc.x - startLoc.x
+            let deltaY = currentLoc.y - startLoc.y
+            
+            let beatDelta = Double(deltaX / pixelsPerBeat)
+            let pitchDelta = Int(round(deltaY / pitchRowHeight))
+            
+            // Logic for visual movement could be here
+            // For now let's focus on Marquee
+        } else if let start = marqueeStart {
+            let rect = CGRect(
+                x: min(start.x, currentLoc.x),
+                y: min(start.y, currentLoc.y),
+                width: abs(currentLoc.x - start.x),
+                height: abs(currentLoc.y - start.y)
+            )
+            
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            selectionRectLayer.path = CGPath(rect: rect, transform: nil)
+            CATransaction.commit()
+            
+            // Selective hit-testing
+            guard let clip = midiClip else { return }
+            for note in clip.notes {
+                let noteX = keyboardWidth + CGFloat(note.position.beats) * pixelsPerBeat
+                let noteY = yForPitch(note.pitch)
+                let noteW = CGFloat(note.duration.beats) * pixelsPerBeat
+                let noteRect = CGRect(x: noteX, y: noteY, width: noteW, height: pitchRowHeight)
+                
+                if rect.intersects(noteRect) {
+                    selectedNoteIDs.insert(note.id)
+                } else if !event.modifierFlags.contains(.shift) {
+                    selectedNoteIDs.remove(note.id)
+                }
+            }
+            needsDisplay = true
+        }
     }
 
     public override func mouseUp(with event: NSEvent) {
         isDragging = false
         dragStartLocation = nil
+        marqueeStart = nil
+        selectionRectLayer.isHidden = true
+        selectionRectLayer.path = nil
+        needsDisplay = true
     }
 
     public override func rightMouseDown(with event: NSEvent) {

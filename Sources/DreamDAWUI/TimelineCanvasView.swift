@@ -645,7 +645,7 @@ public final class TimelineCanvasView: NSView {
     // MARK: - Legacy Drawing Logic (Removed)
     // Note: All rendering is now managed by GridLayer, LaneLayer, AudioClipLayer, and MidiClipLayer subclasses.
 
-    override func updateTrackingAreas() {
+    public override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let area = hoverTrackingArea {
             removeTrackingArea(area)
@@ -666,8 +666,10 @@ public final class TimelineCanvasView: NSView {
 
         let location = convert(event.locationInWindow, from: nil)
         hoverLocation = location
-
-        if let edgeHit = hitTestClipEdge(at: location, project: project) {
+        
+        let edgeHitZoneLarge: CGFloat = edgeHitZone + 4 // Even more generous for hover
+        
+        if let edgeHit = hitTestClipEdge(at: location, project: project, zone: edgeHitZoneLarge) {
             if edgeHit.edge == .left {
                 leftBracketCursor.set()
             } else {
@@ -714,9 +716,10 @@ public final class TimelineCanvasView: NSView {
         let clipTrim: Double  // beats
     }
 
-    private func hitTestClipEdge(at location: NSPoint, project: Project) -> EdgeHit? {
+    private func hitTestClipEdge(at location: NSPoint, project: Project, zone: CGFloat? = nil) -> EdgeHit? {
+        let currentZone = zone ?? edgeHitZone
         let beat = Double(location.x) / Double(pixelsPerBeat)
-        let queryWindowBeats = Double(edgeHitZone * 2) / Double(pixelsPerBeat)
+        let queryWindowBeats = Double(currentZone * 2) / Double(pixelsPerBeat)
         
         // Find track under mouse to narrow spatial search
         var currentY: CGFloat = 0
@@ -743,34 +746,33 @@ public final class TimelineCanvasView: NSView {
         )
         
         let candidates = quadTree?.query(range: queryRect) ?? []
-        let trackY = currentY // Start of the track row
-        
         for element in candidates {
             let wrapper = element.value
             guard wrapper.trackID == track.id else { continue }
             
             let clipPos: Double
             let clipDur: Double
+            let clipTrim: Double
             
             if let ac = wrapper.audioClip {
                 clipPos = ac.position.beats
                 clipDur = ac.duration.beats
+                clipTrim = ac.trimStartOffset.beats
             } else if let mc = wrapper.midiClip {
                 clipPos = mc.position.beats
                 clipDur = mc.duration.beats
+                clipTrim = 0
             } else { continue }
             
             let clipX = CGFloat(clipPos) * pixelsPerBeat
             let clipWidth = CGFloat(clipDur) * pixelsPerBeat
-            let clipRect = CGRect(x: clipX, y: trackY + 2, width: clipWidth, height: track.height - 4)
             
-            let clipTrim = (wrapper.audioClip?.trimStartOffset.beats) ?? 0
-
-            if abs(location.x - clipRect.minX) <= edgeHitZone {
+            // X-only check for edge proximity within the track row
+            if abs(location.x - clipX) <= currentZone {
                 return EdgeHit(trackID: track.id, clipID: wrapper.id, isMidi: wrapper.isMidi,
                                edge: .left, clipPosition: clipPos, clipDuration: clipDur, clipTrim: clipTrim)
             }
-            if abs(location.x - clipRect.maxX) <= edgeHitZone {
+            if abs(location.x - (clipX + clipWidth)) <= currentZone {
                 return EdgeHit(trackID: track.id, clipID: wrapper.id, isMidi: wrapper.isMidi,
                                edge: .right, clipPosition: clipPos, clipDuration: clipDur, clipTrim: clipTrim)
             }
@@ -817,11 +819,13 @@ public final class TimelineCanvasView: NSView {
             if isMidi {
                 if let idx = track.midiClips.firstIndex(where: { $0.id == id }) {
                     track.midiClips[idx].isSelected = true
+                    updateArrangementLayers()
                     return
                 }
             } else {
                 if let idx = track.clips.firstIndex(where: { $0.id == id }) {
                     track.clips[idx].isSelected = true
+                    updateArrangementLayers()
                     return
                 }
             }
@@ -853,9 +857,10 @@ public final class TimelineCanvasView: NSView {
             }
             yOffset += track.height
         }
-        // Set Edit Cursor (on clicked track) & specific track selection
+        // Set initial Edit Cursor (on clicked track) - but we might clear it if we hit a header
+        var initialEditCursor: EditCursor? = nil
         if let trackID = clickedTrackID {
-            editCursor = EditCursor(trackID: trackID, position: TimePosition(beats: max(0, clickBeat)))
+            initialEditCursor = EditCursor(trackID: trackID, position: TimePosition(beats: max(0, clickBeat)))
             onTrackClicked?(trackID)
         }
 
@@ -866,7 +871,8 @@ public final class TimelineCanvasView: NSView {
         }
 
         // 1. Edge resize hit test (Highest Priority)
-        if let edgeHit = hitTestClipEdge(at: location, project: project) {
+        let edgeHitZoneLarge: CGFloat = edgeHitZone + 4
+        if let edgeHit = hitTestClipEdge(at: location, project: project, zone: edgeHitZoneLarge) {
             resizeState = ResizeState(
                 trackID: edgeHit.trackID,
                 clipID: edgeHit.clipID,
@@ -908,9 +914,15 @@ public final class TimelineCanvasView: NSView {
             
             if titleRect.contains(location) {
                 // Header Click: Movement / Multi-selection
-                editCursor = nil
+                marqueeState = nil
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
                 selectionRectLayer.isHidden = true
                 selectionRectLayer.path = nil
+                CATransaction.commit()
+
+                editCursor = nil // CRITICAL: Clear cursor if we hit a header
+                NSCursor.arrow.set()
                 
                 if !isSelected {
                     if !event.modifierFlags.contains(.shift) {
@@ -928,8 +940,18 @@ public final class TimelineCanvasView: NSView {
                 )
             } else {
                 // Body Click: Set Edit Cursor for playback point
-                editCursor = EditCursor(trackID: track.id, position: TimePosition(beats: max(0, clickBeat)))
-                // We do NOT start a drag or marquee here to keep it stable
+                marqueeState = nil
+                selectionRectLayer.isHidden = true
+                
+                editCursor = initialEditCursor // Apply the cursor if we hit the body
+                NSCursor.arrow.set()
+                
+                if !isSelected {
+                    if !event.modifierFlags.contains(.shift) {
+                        deselectAllClips(in: project)
+                    }
+                    selectClip(id: wrapper.id, isMidi: wrapper.isMidi, in: project)
+                }
             }
             
             updateArrangementLayers()
@@ -938,6 +960,12 @@ public final class TimelineCanvasView: NSView {
         }
 
         // 3. Marquee Selection / Empty Space Click (Lowest Priority)
+        
+        // PREVENT accidental marquee: If the mouse just clicked on ANY track that has clips,
+        // and we are within 50px of any clip, maybe we shouldn't start a marquee immediately?
+        // Actually, DAWs allow marquee in "true" empty space.
+        // Let's just ensure Step 1 and 2 are robust.
+        
         if !event.modifierFlags.contains(.shift) {
             deselectAllClips(in: project)
         }
@@ -958,6 +986,7 @@ public final class TimelineCanvasView: NSView {
         
         onTrackClicked?(clickedTrackID ?? project.tracks.first?.id ?? UUID())
         updateArrangementLayers()
+        // redraw
     }
     
     private func updateMarqueeLayer(project: Project) {
@@ -1014,7 +1043,7 @@ public final class TimelineCanvasView: NSView {
                     let clipRect = CGRect(x: clipX, y: yOffset + 2, width: clipWidth, height: track.height - 4)
                     
                     if clipRect.contains(location) {
-                        // Open piano roll for this clip
+                        // Open piano roll for this clip - ALWAYS, even on header double-click
                         onMidiClipDoubleClicked?(track.id, midiClip.id)
                         return
                     }
@@ -1204,28 +1233,53 @@ public final class TimelineCanvasView: NSView {
         }
 
         // ──── Clip move drag mode ────
-        guard let dragState = dragState else { return } // project is already guarded at the top
+        guard let drag = dragState else { return }
 
-        let deltaX = location.x - dragState.startMousePosition.x
+        let deltaX = location.x - drag.startMousePosition.x
         let deltaBeat = Double(deltaX) / Double(pixelsPerBeat)
-        let newBeat = max(0, dragState.originalClipBeat + deltaBeat)
+        let unroundedBeat = drag.originalClipBeat + deltaBeat
+        let snappedBeat = max(0, round(unroundedBeat))
 
-        // Snap to grid (nearest beat)
-        let snappedBeat = round(newBeat)
+        // Find target track under mouse
+        var currentY: CGFloat = 0
+        var targetTrackID: UUID?
+        for track in project.tracks {
+            if location.y >= currentY && location.y < currentY + track.height {
+                targetTrackID = track.id
+                break
+            }
+            currentY += track.height
+        }
 
-        // Find and update the clip
-        for track in project.tracks where track.id == dragState.trackID {
-            if dragState.isMidi {
-                if let idx = track.midiClips.firstIndex(where: { $0.id == dragState.clipID }) {
-                    track.midiClips[idx].position = TimePosition(beats: snappedBeat)
-                    updateArrangementLayers()
-                }
-            } else {
-                if let idx = track.clips.firstIndex(where: { $0.id == dragState.clipID }) {
-                    track.clips[idx].position = TimePosition(beats: snappedBeat)
-                    updateArrangementLayers()
+        if let targetID = targetTrackID {
+            // Check if track changed
+            if targetID != drag.trackID {
+                // Update track in project (Enterprise Move)
+                orchestrator?.changeClipTrack(clipID: drag.clipID, fromTrackID: drag.trackID, toTrackID: targetID, isMidi: drag.isMidi)
+                dragState = DragState(
+                    trackID: targetID,
+                    clipID: drag.clipID,
+                    isMidi: drag.isMidi,
+                    startMousePosition: drag.startMousePosition,
+                    originalClipBeat: drag.originalClipBeat
+                )
+            }
+
+            // Update position on the current track (snapped)
+            for track in project.tracks where track.id == targetID {
+                if drag.isMidi {
+                    if let idx = track.midiClips.firstIndex(where: { $0.id == drag.clipID }) {
+                        track.midiClips[idx].position = TimePosition(beats: snappedBeat)
+                    }
+                } else {
+                    if let idx = track.clips.firstIndex(where: { $0.id == drag.clipID }) {
+                        track.clips[idx].position = TimePosition(beats: snappedBeat)
+                    }
                 }
             }
+            
+            rebuildQuadTree()
+            updateArrangementLayers()
         }
     }
 

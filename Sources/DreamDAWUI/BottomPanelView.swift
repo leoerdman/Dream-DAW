@@ -85,6 +85,7 @@ public final class BottomPanelView: NSView {
     private let titleLabel = NSTextField(labelWithString: "")
     private let closeButton = NSButton()
     private let pianoRollView = PianoRollView()
+    private let detailScrollView = NSScrollView()
     private let detailContentView = NSView()
     private let pianoScrollView = NSScrollView()
     private let gridSnapPopup = NSPopUpButton()
@@ -136,10 +137,16 @@ public final class BottomPanelView: NSView {
         closeButton.action = #selector(closePanel)
         addSubview(closeButton)
 
-        // Detail content (placeholder for effects chain)
+        // Detail content view (effects/instruments) with scroll support
+        detailScrollView.wantsLayer = true
+        detailScrollView.drawsBackground = false
+        detailScrollView.hasHorizontalScroller = true
+        detailScrollView.hasVerticalScroller = false
+        detailScrollView.documentView = detailContentView
+        addSubview(detailScrollView)
+
         detailContentView.wantsLayer = true
         detailContentView.layer?.backgroundColor = DreamTheme.bgSecondary.cgColor
-        addSubview(detailContentView)
 
         // Piano roll scroll view
         pianoScrollView.wantsLayer = true
@@ -186,7 +193,7 @@ public final class BottomPanelView: NSView {
             height: max(0, bounds.height - headerHeight)
         )
 
-        detailContentView.frame = contentFrame
+        detailScrollView.frame = contentFrame
         pianoScrollView.frame = contentFrame
 
         // Resize the piano roll document view
@@ -229,7 +236,7 @@ public final class BottomPanelView: NSView {
             pianoScrollView.isHidden = true
 
         case .detail(let track):
-            detailContentView.isHidden = false
+            detailScrollView.isHidden = false
             pianoScrollView.isHidden = true
             titleLabel.stringValue = track.trackType == .midi
                 ? "\(track.name) — Instrument & Effects Chain"
@@ -318,7 +325,7 @@ public final class BottomPanelView: NSView {
 
         // ───── Instrument Slot (MIDI tracks only) ─────
         if isMIDI {
-            let slotWidth: CGFloat = 100
+            let slotWidth = instrumentSlotWidth(for: track.instrument?.instrumentType)
             let instSlot = makeInstrumentSlot(track: track, frame: CGRect(x: xOff, y: yOff, width: slotWidth, height: slotHeight))
             detailContentView.addSubview(instSlot)
             xOff += slotWidth + slotSpacing
@@ -371,6 +378,11 @@ public final class BottomPanelView: NSView {
         outLabel.alignment = .center
         outLabel.frame = CGRect(x: xOff - 4, y: yOff + slotHeight + 1, width: meterWidth + 8, height: 10)
         detailContentView.addSubview(outLabel)
+        
+        xOff += meterWidth + 20 // Padding
+        
+        // Finalize content size for scrolling
+        detailContentView.frame = CGRect(x: 0, y: 0, width: xOff, height: detailScrollView.bounds.height)
 
         // Start meter animation timer
         startMeterTimer()
@@ -443,6 +455,15 @@ public final class BottomPanelView: NSView {
                 // Inter-stage meters — show RMS
                 chainMeter.level = trackLevel.rms * 1.2
             }
+        }
+    }
+
+    /// Returns the slot width for an instrument type.
+    private func instrumentSlotWidth(for type: InstrumentType?) -> CGFloat {
+        guard let type = type else { return 100 }
+        switch type {
+        case .sampler: return 450 // Wide sampler view
+        default:       return 100
         }
     }
 

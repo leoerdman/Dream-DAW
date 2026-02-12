@@ -126,6 +126,25 @@ public final class ArrangementOrchestrator {
             actionHistory.perform(RemoveMidiClipAction(trackID: trackID, clip: clip), on: project)
         }
     }
+
+    /// Atomic track transfer (used during real-time dragging)
+    public func changeClipTrack(clipID: UUID, fromTrackID: UUID, toTrackID: UUID, isMidi: Bool) {
+        guard fromTrackID != toTrackID else { return }
+        guard let fromTrack = project.tracks.first(where: { $0.id == fromTrackID }),
+              let toTrack = project.tracks.first(where: { $0.id == toTrackID }) else { return }
+              
+        if isMidi {
+            if let idx = fromTrack.midiClips.firstIndex(where: { $0.id == clipID }) {
+                let clip = fromTrack.midiClips.remove(at: idx)
+                toTrack.midiClips.append(clip)
+            }
+        } else {
+            if let idx = fromTrack.clips.firstIndex(where: { $0.id == clipID }) {
+                let clip = fromTrack.clips.remove(at: idx)
+                toTrack.clips.append(clip)
+            }
+        }
+    }
     
     // MARK: - Internal Overlap Calculators
     

@@ -13,7 +13,7 @@ public final class MetalTimelineRenderer {
     private let maxClips = 10000 // Enterprise scale
     
     // MARK: - Properties
-    private let device: MTLDevice
+    public let device: MTLDevice
     private let commandQueue: MTLCommandQueue
     private var pipelineState: MTLRenderPipelineState?
     
@@ -23,13 +23,21 @@ public final class MetalTimelineRenderer {
     
     // MARK: - Initialization
     public init?() {
-        guard let device = MTLCreateSystemDefaultDevice() else { return nil }
+        print("Metal: Initializing renderer...")
+        guard let device = MTLCreateSystemDefaultDevice() else { 
+            print("Metal: Failed to create device")
+            return nil 
+        }
         self.device = device
-        guard let commandQueue = device.makeCommandQueue() else { return nil }
+        guard let commandQueue = device.makeCommandQueue() else { 
+            print("Metal: Failed to create command queue")
+            return nil 
+        }
         self.commandQueue = commandQueue
         
         setupPipeline()
         setupBuffers()
+        print("Metal: Initialization complete")
     }
     
     private func setupPipeline() {
@@ -90,9 +98,18 @@ public final class MetalTimelineRenderer {
         pixelsPerBeat: CGFloat,
         in layer: CAMetalLayer
     ) {
-        guard let drawable = layer.nextDrawable(),
-              let pipelineState = pipelineState,
-              let instanceBuffer = clipInstanceBuffer else { return }
+        guard let drawable = layer.nextDrawable() else {
+            print("Metal: Error - layer.nextDrawable() is NIL")
+            return
+        }
+        guard let pipelineState = pipelineState else {
+            print("Metal: Error - pipelineState is NIL")
+            return
+        }
+        guard let instanceBuffer = clipInstanceBuffer else {
+            print("Metal: Error - clipInstanceBuffer is NIL")
+            return
+        }
         
         let renderPassDescriptor = MTLRenderPassDescriptor()
         renderPassDescriptor.colorAttachments[0].texture = drawable.texture

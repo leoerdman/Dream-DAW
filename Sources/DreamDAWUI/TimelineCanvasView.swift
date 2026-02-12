@@ -44,14 +44,31 @@ public final class TimelineCanvasView: NSView {
         self.layer?.addSublayer(laneContainerLayer)
         self.layer?.addSublayer(gridLayer)
         
+        // Initial setup for static elements
+        laneContainerLayer.zPosition = 0
+        gridLayer.zPosition = 1
+        metalArrangementLayer.zPosition = 2
+        clipContainerLayer.zPosition = 3
+        cursorLayer.zPosition = 100
+        cursorLayer.backgroundColor = NSColor.white.cgColor
+        cursorHandleLayer.zPosition = 101
+        cursorHandleLayer.fillColor = NSColor.white.cgColor
+        playheadLayer.zPosition = 102
+        playheadLayer.backgroundColor = NSColor.systemRed.cgColor
+        selectionRectLayer.zPosition = 1000
+        
+        self.layer?.addSublayer(laneContainerLayer)
+        self.layer?.addSublayer(gridLayer)
+        
         // METAL INTEGRATION: Unified arrangement layer
         metalArrangementLayer.actions = noActions
+        metalArrangementLayer.device = metalTimelineRenderer?.device
         metalArrangementLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
         metalArrangementLayer.opacity = 0.95
         metalArrangementLayer.isOpaque = false
         self.layer?.addSublayer(metalArrangementLayer)
         
-        self.layer?.addSublayer(clipContainerLayer) // Kept for legacy interaction/fallback, but hidden for perf
+        self.layer?.addSublayer(clipContainerLayer)
         self.layer?.addSublayer(cursorLayer)
         self.layer?.addSublayer(cursorHandleLayer)
         self.layer?.addSublayer(playheadLayer)
@@ -65,15 +82,27 @@ public final class TimelineCanvasView: NSView {
         ghostClipLayer.cornerRadius = DreamTheme.clipCornerRadius
         self.layer?.addSublayer(ghostClipLayer)
         
-        // Initial setup for static elements
-        cursorLayer.zPosition = 100
-        cursorLayer.backgroundColor = NSColor.white.cgColor
-        cursorHandleLayer.zPosition = 101
-        cursorHandleLayer.fillColor = NSColor.white.cgColor
-        playheadLayer.backgroundColor = NSColor.systemRed.cgColor
-        
         setupCursorAnimation()
         setupDropIndicator()
+    }
+
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        
+        // Listen to scroll events from the parent scroll view to trigger Metal redraws
+        if let scrollView = enclosingScrollView {
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(viewBoundsChanged),
+                name: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView
+            )
+        }
+    }
+
+    @objc private func viewBoundsChanged(_ notification: Notification) {
+        updateArrangementLayers()
     }
 
     /// Refresh the UI instantly — redraws all layers and marks the view as dirty.
@@ -414,8 +443,17 @@ public final class TimelineCanvasView: NSView {
         }
     }
 
+    /// Tracks the last change time to prevent rapid-fire rebuilds (e.g. rapid clicking)
+    private var lastQuadTreeRebuildTime: Date = Date.distantPast
+    private let rebuildCooldown: TimeInterval = 0.05 // 50ms cooldown
+
     /// Rebuilds the spatial index (QuadTree) from the current project state.
     private func rebuildQuadTree() {
+        // PERFORMANCE GUARD: Prevent "Click-Spam-Lag" by debouncing rebuilds
+        let now = Date()
+        if now.timeIntervalSince(lastQuadTreeRebuildTime) < rebuildCooldown { return }
+        lastQuadTreeRebuildTime = now
+        
         guard let project = project else {
             quadTree = nil
             return
@@ -534,17 +572,27 @@ public final class TimelineCanvasView: NSView {
         // Match the Metal layer to the visible viewport for efficiency and correct coordinate mapping.
         clipContainerLayer.isHidden = true
         
+        print("Canvas: updateArrangementLayers - visibleRect=\(visibleRect) renderer=\(metalTimelineRenderer != nil)")
+        
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         metalArrangementLayer.frame = visibleRect
+        let scale = self.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        metalArrangementLayer.contentsScale = scale
+        metalArrangementLayer.drawableSize = CGSize(width: visibleRect.width * scale, height: visibleRect.height * scale)
+        metalArrangementLayer.pixelFormat = .bgra8Unorm
         CATransaction.commit()
         
-        metalTimelineRenderer?.render(
-            project: project,
-            visibleRect: visibleRect,
-            pixelsPerBeat: pixelsPerBeat,
-            in: metalArrangementLayer
-        )
+        if let renderer = metalTimelineRenderer {
+            renderer.render(
+                project: project,
+                visibleRect: visibleRect,
+                pixelsPerBeat: pixelsPerBeat,
+                in: metalArrangementLayer
+            )
+        } else {
+            print("Canvas: Skipping render - metalTimelineRenderer is NIL")
+        }
         
         // Use surgical updates for these as they change frequently
         updateCursorLayer(project: project)

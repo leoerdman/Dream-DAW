@@ -22,8 +22,9 @@ public final class TransportController: ObservableObject {
 
     private let logger = Logger(subsystem: "com.dreamdaw", category: "Transport")
     private var displayLink: CVDisplayLink?
-    private var playbackStartTime: CFAbsoluteTime = 0
+    private var playbackStartHostTime: UInt64 = 0 // In mach_absolute_time ticks
     private var playbackStartBeat: Double = 0
+    private var timebaseInfo = mach_timebase_info_data_t()
 
     @Published public private(set) var state: TransportState = .stopped
     @Published public var playheadPosition: TimePosition = .zero
@@ -49,7 +50,9 @@ public final class TransportController: ObservableObject {
 
     // MARK: - Initialization
 
-    public init() {}
+    public init() {
+        mach_timebase_info(&timebaseInfo)
+    }
 
     deinit {
         stopDisplayLink()
@@ -57,27 +60,33 @@ public final class TransportController: ObservableObject {
 
     // MARK: - Transport Controls
 
-    /// Start or resume playback.
-    public func play() {
+    /// Start or resume playback aligned with an engine start time.
+    /// If `notify` is true, observers are called (use false when called from an observer to avoid loops).
+    public func start(at startTime: AVAudioTime? = nil, notify: Bool = true) {
+        let hostTimeAtStart = startTime?.hostTime ?? mach_absolute_time()
+        
+        let oldState = state
         switch state {
-        case .stopped:
+        case .stopped, .paused:
             playbackStartBeat = playheadPosition.beats
-            playbackStartTime = CFAbsoluteTimeGetCurrent()
+            playbackStartHostTime = hostTimeAtStart
             state = .playing
             startDisplayLink()
-            logger.info("Transport: PLAY from beat \(self.playheadPosition.beats)")
-
-        case .paused:
-            playbackStartBeat = playheadPosition.beats
-            playbackStartTime = CFAbsoluteTimeGetCurrent()
-            state = .playing
-            startDisplayLink()
-            logger.info("Transport: RESUME from beat \(self.playheadPosition.beats)")
+            logger.info("Transport: START at hostTime \(hostTimeAtStart), beat \(self.playheadPosition.beats)")
 
         case .playing:
-            break
+            // Update reference to stay in sync with audio engine's actual hardware start
+            playbackStartHostTime = hostTimeAtStart
         }
-        onStateChange?(state)
+        
+        if notify {
+            onStateChange?(state)
+        }
+    }
+
+    /// Start or resume playback.
+    public func play() {
+        start()
     }
 
     /// Pause playback at current position.
@@ -93,7 +102,6 @@ public final class TransportController: ObservableObject {
     public func stop() {
         state = .stopped
         stopDisplayLink()
-        // Do not reset playheadPosition to .zero — let it stay where it stopped.
         logger.info("Transport: STOP")
         onStateChange?(state)
     }
@@ -114,7 +122,7 @@ public final class TransportController: ObservableObject {
 
         if wasPlaying {
             playbackStartBeat = position.beats
-            playbackStartTime = CFAbsoluteTimeGetCurrent()
+            playbackStartHostTime = mach_absolute_time()
             // Re-trigger playback scheduling from the new position
             onStateChange?(.playing)
         }
@@ -151,21 +159,27 @@ public final class TransportController: ObservableObject {
     }
 
     private func updatePlayhead() {
-        let now = CFAbsoluteTimeGetCurrent()
-        let elapsed = now - playbackStartTime
-        let beatsElapsed = elapsed * (bpm / 60.0)
+        let now = mach_absolute_time()
+        
+        // Calculate elapsed seconds using high-precision mach_absolute_time
+        let elapsedTicks = now > playbackStartHostTime ? now - playbackStartHostTime : 0
+        let elapsedNano = (elapsedTicks * UInt64(timebaseInfo.numer)) / UInt64(timebaseInfo.denom)
+        let elapsedSeconds = Double(elapsedNano) / 1_000_000_000.0
+        
+        let beatsElapsed = elapsedSeconds * (bpm / 60.0)
         var currentBeat = playbackStartBeat + beatsElapsed
         var didLoopWrap = false
 
         // Handle looping
         if isLooping && loopEnd.beats > loopStart.beats {
             if currentBeat >= loopEnd.beats {
-                // Wrap to loop start
                 let loopLength = loopEnd.beats - loopStart.beats
                 let overshoot = currentBeat - loopStart.beats
                 currentBeat = loopStart.beats + overshoot.truncatingRemainder(dividingBy: loopLength)
+                
+                // Perfect loop wrap sync
                 playbackStartBeat = currentBeat
-                playbackStartTime = now
+                playbackStartHostTime = now
                 didLoopWrap = true
             }
         }

@@ -27,6 +27,10 @@ public final class PlaybackScheduler {
     private let audioEngine: AudioEngine
     private let trackMixer: TrackMixer
     private let logger = Logger(subsystem: "com.dreamdaw", category: "PlaybackScheduler")
+    
+    /// Cache for rendered MIDI clips to PCM buffers.
+    /// Key: Clip ID (UUID)
+    private var midiBufferCache: [UUID: AVAudioPCMBuffer] = [:]
 
     // MARK: - Initialization
 
@@ -38,20 +42,15 @@ public final class PlaybackScheduler {
     // MARK: - Scheduling
 
     /// Schedule all clips for playback, with optional gapless looping support.
-    ///
-    /// - Parameters:
-    ///   - project: The project data.
-    ///   - position: Start position for playback.
-    ///   - looping: Whether loop mode is active.
-    ///   - loopStart: Loop start position (if looping).
-    ///   - loopEnd: Loop end position (if looping).
+    /// Returns the exact synchronization time when playback is intended to start.
+    @discardableResult
     public func schedulePlayback(
         project: Project,
         from position: TimePosition,
         looping: Bool = false,
         loopStart: TimePosition = .zero,
         loopEnd: TimePosition = .zero
-    ) {
+    ) -> AVAudioTime {
         let bpm = project.bpm
         let sampleRate = audioEngine.sampleRate
 
@@ -140,12 +139,10 @@ public final class PlaybackScheduler {
         }
 
         // 3. Start all players at a synchronized future time
-        // Calculate a small "future" time to allow the engine to buffer the first segments.
-        // We use a safe delay of ~200ms for enterprise stability.
-        let delaySeconds = 0.2
+        // Reduce delay from 0.2 to 0.05 for snappier response (Enterprise optimization)
+        let delaySeconds = 0.05
         let renderTime = audioEngine.avAudioEngine.outputNode.lastRenderTime ?? AVAudioTime(hostTime: mach_absolute_time())
         
-        // Convert seconds to host time units reliably
         var timebaseInfo = mach_timebase_info_data_t()
         mach_timebase_info(&timebaseInfo)
         let delayInNano = UInt64(delaySeconds * 1_000_000_000.0)
@@ -154,17 +151,16 @@ public final class PlaybackScheduler {
         let startTime = AVAudioTime(hostTime: renderTime.hostTime + delayInHostTicks)
 
         if playersToStart.isEmpty {
-            logger.warning("[Scheduler] No players to start (no content found in tracks).")
+            logger.warning("[Scheduler] No players to start.")
         } else {
-            logger.info("[Scheduler] Starting \(playersToStart.count) players at hostTime \(startTime.hostTime) (delay: \(delaySeconds)s, hostTimeNow: \(renderTime.hostTime))")
+            logger.info("[Scheduler] Starting \(playersToStart.count) players at hostTime \(startTime.hostTime) (delay: \(delaySeconds)s)")
         }
 
         for player in playersToStart {
             player.play(at: startTime)
-            if !player.isPlaying {
-                logger.error("[Scheduler] Player node failed to start playing!")
-            }
         }
+        
+        return startTime
     }
 
     // MARK: - Range Scheduling (The Core "Stitcher")
@@ -345,35 +341,42 @@ public final class PlaybackScheduler {
         bpm: Double,
         sampleRate: Double
     ) {
-        // Fetch the track's specific instrument
-        let bpm = bpm
-        let sampleRate = sampleRate
         let midiBuffer: AVAudioPCMBuffer?
         
-        if let synth = trackMixer.getSynth(for: track.id) {
-            if let config = track.instrument {
-                synth.amplitude = config.gain * 0.3
-            }
-            midiBuffer = synth.renderClipToBuffer(clip: clip, bpm: bpm)
-        } else if let sampler = trackMixer.getSampler(for: track.id) {
-            if let config = track.instrument {
-                sampler.gain = config.gain
-                sampler.attack = config.attack
-                sampler.decay = config.decay
-                sampler.sustain = config.sustain
-                sampler.release = config.release
-                sampler.startPercent = config.startPercent
-                sampler.endPercent = config.endPercent
-                sampler.mode = config.samplerMode
-                
-                if let url = config.sampleURL {
-                    try? sampler.loadSample(url: url)
-                }
-            }
-            midiBuffer = sampler.renderClipToBuffer(clip: clip, bpm: bpm, config: track.instrument ?? InstrumentConfig())
+        // 1. Check Cache First (The enterprise performance boost)
+        if let cached = midiBufferCache[clip.id] {
+            midiBuffer = cached
         } else {
-            logger.warning("No instrument found for MIDI track: \(track.name)")
-            return
+            // 2. Render and Cache
+            if let synth = trackMixer.getSynth(for: track.id) {
+                if let config = track.instrument {
+                    synth.amplitude = config.gain * 0.3
+                }
+                midiBuffer = synth.renderClipToBuffer(clip: clip, bpm: bpm)
+            } else if let sampler = trackMixer.getSampler(for: track.id) {
+                if let config = track.instrument {
+                    sampler.gain = config.gain
+                    sampler.attack = config.attack
+                    sampler.decay = config.decay
+                    sampler.sustain = config.sustain
+                    sampler.release = config.release
+                    sampler.startPercent = config.startPercent
+                    sampler.endPercent = config.endPercent
+                    sampler.mode = config.samplerMode
+                    
+                    if let url = config.sampleURL {
+                        try? sampler.loadSample(url: url)
+                    }
+                }
+                midiBuffer = sampler.renderClipToBuffer(clip: clip, bpm: bpm, config: track.instrument ?? InstrumentConfig())
+            } else {
+                logger.warning("No instrument found for MIDI track: \(track.name)")
+                return
+            }
+            
+            if let rendered = midiBuffer {
+                midiBufferCache[clip.id] = rendered
+            }
         }
 
         guard let fullBuffer = midiBuffer else { return }
@@ -412,6 +415,12 @@ public final class PlaybackScheduler {
 
     // MARK: - Utility
 
+    /// Clear the rendered MIDI buffer cache. Call this when instrument settings change.
+    public func clearMidiCache() {
+        midiBufferCache.removeAll()
+        logger.info("[Scheduler] MIDI buffer cache cleared")
+    }
+
     /// Create a silence buffer of the specified length.
     /// Used as a time spacer when clips don't start at the playhead position.
     private func createSilenceBuffer(frameCount: AVAudioFrameCount, sampleRate: Double) -> AVAudioPCMBuffer? {
@@ -425,20 +434,17 @@ public final class PlaybackScheduler {
 
     // MARK: - Audio File Loading
 
-    /// Known-valid audio file URLs (avoids re-checking filesystem).
     private var validFileURLs: Set<URL> = []
 
-    /// Create a fresh AVAudioFile handle for each scheduling call.
-    /// AVAudioFile is NOT safe to share across concurrent scheduleSegment calls
-    /// because its internal `framePosition` is mutable state.
     private func loadAudioFile(url: URL) throws -> AVAudioFile {
         let file = try AVAudioFile(forReading: url)
         validFileURLs.insert(url)
         return file
     }
 
-    /// Clear the valid-URL cache.
-    public func clearCache() {
+    /// Clear the valid-URL cache and MIDI cache.
+    public func clearAllCaches() {
         validFileURLs.removeAll()
+        midiBufferCache.removeAll()
     }
 }

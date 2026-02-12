@@ -64,35 +64,11 @@ public final class TimelineCanvasView: NSView {
         cursorHandleLayer.fillColor = NSColor.white.cgColor
         playheadLayer.backgroundColor = NSColor.systemRed.cgColor
         
-        setupDisplayLink()
         setupCursorAnimation()
     }
 
-    private func setupDisplayLink() {
-        CVDisplayLinkCreateWithActiveCGDisplays(&displayLink)
-        guard let link = displayLink else { return }
-        
-        let displayLinkOutputCallback: CVDisplayLinkOutputCallback = { (displayLink, inNow, inOutputTime, flagsIn, flagsOut, displayLinkContext) -> CVReturn in
-            let view = Unmanaged<TimelineCanvasView>.fromOpaque(displayLinkContext!).takeUnretainedValue()
-            view.displayLinkTick()
-            return kCVReturnSuccess
-        }
-        
-        CVDisplayLinkSetOutputCallback(link, displayLinkOutputCallback, Unmanaged.passUnretained(self).toOpaque())
-        CVDisplayLinkStart(link)
-    }
-
-    private func displayLinkTick() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.updatePlayheadLayer(project: self.project)
-        }
-    }
     
     deinit {
-        if let link = displayLink {
-            CVDisplayLinkStop(link)
-        }
     }
 
     private func finalizeMarqueeSelection(rect: CGRect) {
@@ -248,7 +224,6 @@ public final class TimelineCanvasView: NSView {
     /// Ghost layer for drag-and-drop preview
     private let ghostClipLayer = CALayer()
     private var ghostAudioClip: AudioClip?
-    private var displayLink: CVDisplayLink?
 
 
     /// Whether we're dragging the playhead (click on ruler/empty space logic can vary).
@@ -516,6 +491,9 @@ public final class TimelineCanvasView: NSView {
         let candidates = quadTree?.query(range: queryRect) ?? []
         var visibleIDs = Set<UUID>()
         
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        
         for element in candidates {
             let wrapper = element.value
             visibleIDs.insert(wrapper.id)
@@ -534,21 +512,21 @@ public final class TimelineCanvasView: NSView {
                     return newLayer
                 }()
                 
-                layer.clip = clip
-                layer.track = track
-                layer.pixelsPerBeat = pixelsPerBeat
-                layer.bpm = project.bpm
-                layer.sampleRate = project.sampleRate
-                layer.waveformRenderer = waveformRenderer
-                
                 let clipX = CGFloat(clip.position.beats) * pixelsPerBeat
                 let clipWidth = CGFloat(clip.duration.beats) * pixelsPerBeat
+                let newFrame = CGRect(x: clipX, y: trackY + 2, width: clipWidth, height: track.height - 4)
                 
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                layer.frame = CGRect(x: clipX, y: trackY + 2, width: clipWidth, height: track.height - 4)
-                CATransaction.commit()
-                layer.setNeedsDisplay()
+                // Only update and redraw if something changed
+                if layer.frame != newFrame || layer.clip?.position != clip.position || layer.clip?.duration != clip.duration || layer.clip?.isSelected != clip.isSelected {
+                    layer.clip = clip
+                    layer.track = track
+                    layer.pixelsPerBeat = pixelsPerBeat
+                    layer.bpm = project.bpm
+                    layer.sampleRate = project.sampleRate
+                    layer.waveformRenderer = waveformRenderer
+                    layer.frame = newFrame
+                    layer.setNeedsDisplay()
+                }
                 
             } else if wrapper.isMidi, let clip = wrapper.midiClip {
                 let layer = midiLayerPool[clip.id] ?? {
@@ -558,35 +536,34 @@ public final class TimelineCanvasView: NSView {
                     return newLayer
                 }()
                 
-                layer.midiClip = clip
-                layer.trackColor = track.color.nsColor
-                
                 let clipX = CGFloat(clip.position.beats) * pixelsPerBeat
                 let clipWidth = CGFloat(clip.duration.beats) * pixelsPerBeat
+                let newFrame = CGRect(x: clipX, y: trackY + 2, width: clipWidth, height: track.height - 4)
                 
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                layer.frame = CGRect(x: clipX, y: trackY + 2, width: clipWidth, height: track.height - 4)
-                CATransaction.commit()
-                layer.setNeedsDisplay()
+                if layer.frame != newFrame || layer.midiClip?.position != clip.position || layer.midiClip?.duration != clip.duration || layer.midiClip?.isSelected != clip.isSelected {
+                    layer.midiClip = clip
+                    layer.trackColor = track.color.nsColor
+                    layer.frame = newFrame
+                    layer.setNeedsDisplay()
+                }
             }
         }
         
-        let audioIDs = Array(audioLayerPool.keys)
-        for id in audioIDs {
+        // Remove off-screen layers
+        audioLayerPool.keys.forEach { id in
             if !visibleIDs.contains(id) {
                 audioLayerPool[id]?.removeFromSuperlayer()
                 audioLayerPool.removeValue(forKey: id)
             }
         }
-        
-        let midiIDs = Array(midiLayerPool.keys)
-        for id in midiIDs {
+        midiLayerPool.keys.forEach { id in
             if !visibleIDs.contains(id) {
                 midiLayerPool[id]?.removeFromSuperlayer()
                 midiLayerPool.removeValue(forKey: id)
             }
         }
+        
+        CATransaction.commit()
     }
 
     public override func viewDidMoveToWindow() {

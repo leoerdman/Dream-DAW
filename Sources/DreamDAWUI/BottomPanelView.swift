@@ -692,12 +692,10 @@ public final class BottomPanelView: NSView {
 
         if let instrument = track.instrument {
             if instrument.instrumentType == .sampler {
-                // Return a high-fidelity SamplerView for the sampler
                 let samplerView = SamplerView(config: instrument, track: track)
                 samplerView.frame = frame
                 samplerView.onSampleURLChanged = { [weak self, weak instrument] newURL in
                     guard let self = self, let instrument = instrument else { return }
-                    // Capture current URL as oldURL before the change is recorded
                     let oldURL = instrument.sampleURL
                     self.onSamplerSampleChanged?(track.id, oldURL, newURL) 
                 }
@@ -713,7 +711,6 @@ public final class BottomPanelView: NSView {
             slot.layer?.borderWidth = 1
             slot.layer?.borderColor = NSColor(red: 0.85, green: 0.55, blue: 0.1, alpha: 0.5).cgColor
 
-            // Colored header
             let header = NSView(frame: CGRect(x: 0, y: 0, width: frame.width, height: headerH))
             header.wantsLayer = true
             header.layer?.cornerRadius = 4
@@ -728,7 +725,6 @@ public final class BottomPanelView: NSView {
             nameLabel.frame = CGRect(x: 4, y: 1, width: frame.width - 8, height: 16)
             header.addSubview(nameLabel)
 
-            // Instrument icon
             let iconSize: CGFloat = 20
             if let symbolImage = NSImage(systemSymbolName: instrument.instrumentType.icon, accessibilityDescription: nil) {
                 let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
@@ -742,19 +738,47 @@ public final class BottomPanelView: NSView {
                 iconView.contentTintColor = NSColor(red: 0.95, green: 0.70, blue: 0.25, alpha: 1)
                 slot.addSubview(iconView)
             }
-        }
- else {
-            // Empty instrument slot
-            slot.layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
-            slot.layer?.borderWidth = 1
-            slot.layer?.borderColor = NSColor(white: 0.25, alpha: 0.5).cgColor
+        } else {
+            // Enterprise "Add Instrument" Placeholder
+            slot.layer?.backgroundColor = NSColor(white: 0.1, alpha: 0.4).cgColor
+            
+            // Dashed border (layer-backed for performance)
+            let dashLayer = CAShapeLayer()
+            dashLayer.strokeColor = NSColor(white: 0.3, alpha: 0.6).cgColor
+            dashLayer.fillColor = nil
+            dashLayer.lineDashPattern = [4, 4]
+            dashLayer.path = NSBezierPath(roundedRect: slot.bounds.insetBy(dx: 4, dy: 4), xRadius: 4, yRadius: 4).cgPath
+            slot.layer?.addSublayer(dashLayer)
 
-            let placeholder = NSTextField(labelWithString: "∅ Instrument")
-            placeholder.font = NSFont.systemFont(ofSize: 9, weight: .medium)
-            placeholder.textColor = NSColor(white: 0.35, alpha: 1)
-            placeholder.alignment = .center
-            placeholder.frame = CGRect(x: 0, y: (frame.height - 14) / 2, width: frame.width, height: 14)
-            slot.addSubview(placeholder)
+            let stack = NSStackView(frame: slot.bounds)
+            stack.orientation = .vertical
+            stack.spacing = 8
+            stack.alignment = .centerX
+            stack.distribution = .gravityAreas
+            
+            let iconView = NSImageView(frame: CGRect(x: 0, y: 0, width: 24, height: 24))
+            iconView.image = NSImage(systemSymbolName: "plus.circle.fill", accessibilityDescription: nil)
+            iconView.contentTintColor = NSColor.systemOrange.withAlphaComponent(0.6)
+            
+            let label = NSTextField(labelWithString: "Add Instrument")
+            label.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+            label.textColor = NSColor(white: 0.5, alpha: 1)
+            
+            let hint = NSTextField(labelWithString: "Drop from Browser")
+            hint.font = NSFont.systemFont(ofSize: 8, weight: .medium)
+            hint.textColor = NSColor(white: 0.35, alpha: 1)
+            
+            stack.addArrangedSubview(iconView)
+            stack.addArrangedSubview(label)
+            stack.addArrangedSubview(hint)
+            
+            // Center the stack
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            slot.addSubview(stack)
+            NSLayoutConstraint.activate([
+                stack.centerXAnchor.constraint(equalTo: slot.centerXAnchor),
+                stack.centerYAnchor.constraint(equalTo: slot.centerYAnchor)
+            ])
         }
 
         return slot

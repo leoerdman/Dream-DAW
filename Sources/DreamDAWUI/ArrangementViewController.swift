@@ -875,13 +875,16 @@ public final class ArrangementViewController: NSViewController {
             switch state {
             case .playing:
                 self.browserSidebar.stopPreview()
-                self.playbackScheduler.schedulePlayback(
+                let startTime = self.playbackScheduler.schedulePlayback(
                     project: self.project,
                     from: self.transportController.playheadPosition,
                     looping: self.transportController.isLooping,
                     loopStart: self.transportController.loopStart,
                     loopEnd: self.transportController.loopEnd
                 )
+                // Sync the high-precision transport with the actual engine start time
+                self.transportController.start(at: startTime, notify: false)
+                
             case .paused, .stopped:
                 self.playbackScheduler.stopAll()
             }

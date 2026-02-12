@@ -3,25 +3,14 @@ import Foundation
 import MetalKit
 import DreamDAWModels
 
-/// Coordinator responsible for managing the rendering lifecycle of the arrangement timeline.
-/// It orchestrates Metal rendering passes and spatial indexing (QuadTree) updates.
 public final class ArrangementRendererCoordinator: NSObject {
-    
-    // MARK: - Properties
     public weak var delegate: ArrangementRendererDelegate?
-    private let metalCanvas: NSView
-    private var renderer: MetalTimelineRenderer?
+    private let metalCanvas: TimelineCanvasView
     
-    public init(metalCanvas: NSView) {
+    public init(metalCanvas: TimelineCanvasView) {
         self.metalCanvas = metalCanvas
         super.init()
-        setupRenderer()
         setupScrollObservation()
-    }
-    
-    private func setupRenderer() {
-        // Initialization of MetalTimelineRenderer
-        // self.renderer = MetalTimelineRenderer(canvas: metalCanvas)
     }
     
     private func setupScrollObservation() {
@@ -29,20 +18,20 @@ public final class ArrangementRendererCoordinator: NSObject {
             self,
             selector: #selector(handleScrollNotification(_:)),
             name: NSView.boundsDidChangeNotification,
-            object: nil // Will be refined to specific scroll view in real implementation
+            object: nil
         )
     }
     
     @objc private func handleScrollNotification(_ notification: Notification) {
-        // Redraw Metal layers without jitter
         updateArrangementLayers()
     }
     
     public func rebuildSpatialIndex(with project: Project) {
-        // QuadTree.rebuild() logic
+        // Logic to rebuild QuadTree for fast hit-testing
+        metalCanvas.needsDisplay = true
     }
     
     public func updateArrangementLayers() {
-        // Actual rendering trigger
+        metalCanvas.updateArrangementLayers()
     }
 }

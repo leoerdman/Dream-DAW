@@ -133,3 +133,28 @@ extension TimePosition {
         lhs.beats -= rhs.beats
     }
 }
+
+// MARK: - TimeRange
+
+/// Represents a range on the timeline.
+public struct TimeRange: Codable, Hashable, Sendable {
+    public var start: TimePosition
+    public var duration: TimePosition
+    
+    public var end: TimePosition {
+        start + duration
+    }
+    
+    public init(start: TimePosition = .zero, duration: TimePosition = .zero) {
+        self.start = start
+        self.duration = duration
+    }
+    
+    public func contains(_ position: TimePosition) -> Bool {
+        position >= start && position < end
+    }
+    
+    public func intersects(_ other: TimeRange) -> Bool {
+        start < other.end && other.start < end
+    }
+}

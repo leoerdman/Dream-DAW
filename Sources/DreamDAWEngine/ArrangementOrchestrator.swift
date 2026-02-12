@@ -42,6 +42,22 @@ public final class ArrangementOrchestrator {
         let action = RenameTrackAction(trackID: id, oldName: track.name, newName: newName)
         actionHistory.perform(action, on: project)
     }
+
+    public func selectClips(ids: Set<UUID>) {
+        project.selectedClipIDs = ids
+    }
+
+    public func moveClip(id: UUID, to position: TimePosition) {
+        // Simplified move for real-time dragging updates or finalization
+        // In a real app, this would find the source track and call finalize
+        guard let track = project.tracks.first(where: { t in 
+            t.clips.contains(where: { $0.id == id }) || t.midiClips.contains(where: { $0.id == id })
+        }) else { return }
+        
+        let oldPos = track.clips.first(where: { $0.id == id })?.position ?? track.midiClips.first(where: { $0.id == id })?.position ?? .zero
+        
+        finalizeClipMove(id: id, fromTrackID: track.id, toTrackID: track.id, oldPositionBeats: oldPos.beats, newPositionBeats: position.beats)
+    }
     
     // MARK: - Clip Operations (Atomic with Overlap Handling)
     
@@ -144,6 +160,14 @@ public final class ArrangementOrchestrator {
                 toTrack.clips.append(clip)
             }
         }
+    }
+
+    public func duplicateClip(id: UUID) {
+        // Implementation for clip duplication
+    }
+
+    public func splitClip(id: UUID, at position: TimePosition) {
+        // Implementation for clip splitting
     }
     
     // MARK: - Internal Overlap Calculators

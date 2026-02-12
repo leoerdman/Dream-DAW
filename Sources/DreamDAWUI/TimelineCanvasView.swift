@@ -822,7 +822,7 @@ public final class TimelineCanvasView: NSView {
                 if layer.track?.volume != track.volume || abs(layer.pixelsPerBeat - pixelsPerBeat) > 0.01 || hasMoved || hasResized || clip.isSelected != layer.clip?.isSelected {
                     layer.clip = clip
                     layer.track = track
-                    layer.pixelsPerBeat = pixelsPerBeatOverride ?? pixelsPerBeat
+                    layer.pixelsPerBeat = pixelsPerBeat
                     layer.bpm = project.bpm
                     layer.sampleRate = project.sampleRate
                     layer.waveformRenderer = waveformRenderer

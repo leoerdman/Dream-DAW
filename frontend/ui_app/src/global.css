@@ -1,41 +1,110 @@
+/* ═══════════════════════════════════════════════════════════════
+   DREAM DAW — GLOBAL STYLESHEET (Tailwind v4 Entry Point)
+   
+   This is the SINGLE entry point for all CSS in the application.
+   Tailwind v4 uses CSS-first configuration via @theme directive.
+   ═════════════════════════════════════════════════════════════ */
+
 @import "tailwindcss";
+
+/* ── Design System Layers ── */
+@import "./app/styles/reset.css";
 @import "./app/styles/tokens.css";
-@import "./app/styles/layout.css";
-@import "./app/styles/components.css";
+@import "./app/styles/glass.css";
+@import "./app/styles/plugin-rack.css";
 
 
+/* ═══════════════════════════════════════════════════════════════
+   TAILWIND v4 THEME (Bind CSS Variables → Utility Classes)
+   ═══════════════════════════════════════════════════════════════ */
 @theme {
-    /* Colors - Mapping CSS Variables */
+    /* ── Application Backgrounds ── */
     --color-bg-app: var(--color-bg-app);
-    --color-bg-page: var(--color-bg-page);
     --color-bg-canvas: var(--color-bg-canvas);
+    --color-bg-panel: var(--color-bg-panel);
+    --color-bg-elevated: var(--color-bg-elevated);
     --color-bg-header: var(--color-bg-header);
+    --color-bg-input: var(--color-bg-input);
+    --color-bg-hover: var(--color-bg-hover);
+    --color-bg-active: var(--color-bg-active);
+    --color-bg-node: var(--color-bg-node);
 
+    /* ── Text Colors ── */
     --color-text-primary: var(--color-text-primary);
     --color-text-secondary: var(--color-text-secondary);
     --color-text-tertiary: var(--color-text-tertiary);
+    --color-text-inverse: var(--color-text-inverse);
 
+    /* ── Accent ── */
     --color-accent: var(--color-accent-primary);
     --color-accent-hover: var(--color-accent-primary-hover);
+    --color-accent-glow: var(--color-accent-primary-glow);
 
+    /* ── Status ── */
+    --color-status-success: var(--color-status-success);
+    --color-status-error: var(--color-status-error);
+    --color-status-warning: var(--color-status-warning);
+    --color-status-record: var(--color-status-record);
+
+    /* ── Borders ── */
     --color-border-subtle: var(--color-border-subtle);
     --color-border-default: var(--color-border-default);
+    --color-border-highlight: var(--color-border-highlight);
 
-    /* Spacing */
-    --spacing-header: var(--layout-header-height);
-    --spacing-sidebar: var(--layout-sidebar-expanded);
+    /* ── Port Colors ── */
+    --color-port-audio: var(--color-port-audio);
+    --color-port-midi: var(--color-port-midi);
+    --color-port-sidechain: var(--color-port-sidechain);
 
-    /* Fonts */
+    /* ── Spacing ── */
+    --spacing-0: var(--space-0);
+    --spacing-px: var(--space-px);
+    --spacing-0-5: var(--space-0-5);
+    --spacing-1: var(--space-1);
+    --spacing-1-5: var(--space-1-5);
+    --spacing-2: var(--space-2);
+    --spacing-2-5: var(--space-2-5);
+    --spacing-3: var(--space-3);
+    --spacing-3-5: var(--space-3-5);
+    --spacing-4: var(--space-4);
+    --spacing-5: var(--space-5);
+    --spacing-6: var(--space-6);
+    --spacing-7: var(--space-7);
+    --spacing-8: var(--space-8);
+    --spacing-10: var(--space-10);
+    --spacing-12: var(--space-12);
+    --spacing-16: var(--space-16);
+    --spacing-20: var(--space-20);
+    --spacing-24: var(--space-24);
+
+    /* ── Fonts ── */
     --font-sans: var(--font-family);
     --font-mono: var(--font-mono);
 
-    /* Radius */
-    --radius-glass: var(--glass-radius);
+    /* ── Radii ── */
+    --radius-xs: var(--radius-xs);
+    --radius-sm: var(--radius-sm);
+    --radius-md: var(--radius-md);
+    --radius-lg: var(--radius-lg);
+    --radius-xl: var(--radius-xl);
+    --radius-2xl: var(--radius-2xl);
+    --radius-full: var(--radius-full);
+
+    /* ── Shadows ── */
+    --shadow-sm: var(--shadow-sm);
+    --shadow-md: var(--shadow-md);
+    --shadow-lg: var(--shadow-lg);
+    --shadow-xl: var(--shadow-xl);
+    --shadow-panel: var(--shadow-panel);
 }
 
-/* Utilities not covered by Tailwind Auto-detection or specific overrides */
-.glass {
-    background: var(--glass-bg);
-    backdrop-filter: blur(var(--glass-blur));
-    border: 1px solid var(--glass-border);
+
+/* ═══════════════════════════════════════════════════════════════
+   BASE RULES
+   ═══════════════════════════════════════════════════════════════ */
+html,
+body,
+#root {
+    @apply bg-bg-app text-text-primary overflow-hidden w-full h-full m-0 p-0 select-none;
+    overscroll-behavior: none;
 }

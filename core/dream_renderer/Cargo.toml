@@ -1,0 +1,13 @@
+[package]
+name = "dream_renderer"
+description = "Dream DAW — WebGPU Timeline & Waveform Renderer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
+log = { workspace = true }
+
+dream_models = { path = "../dream_models" }

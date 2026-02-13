@@ -5,6 +5,8 @@ members = [
     "core/dream_graph",
     "core/dream_dsp",
     "core/dream_engine",
+    "core/dream_renderer",
+    "core/dream_plugins",
     "apps/desktop_host",
 ]
 resolver = "3"
@@ -26,6 +28,8 @@ rubato = "0.16"
 cpal = "0.17"
 log = "0.4"
 env_logger = "0.11"
+wgpu = "24"
+bytemuck = { version = "1.21", features = ["derive"] }
 
 # ── Release Profile (Enterprise) ────────────────────────────────────────
 # These optimizations apply to ALL crates in the workspace when built with --release.

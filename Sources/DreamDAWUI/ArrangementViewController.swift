@@ -26,6 +26,7 @@ public final class ArrangementViewController: NSViewController {
     public let sharedEngine: SharedEngine
     private var interactionCoordinator: TimelineInteractionCoordinator!
     private var rendererCoordinator: ArrangementRendererCoordinator!
+    private var orchestrator: ArrangementOrchestrator!
     private var cancellables = Set<AnyCancellable>()
     private let logger = Logger(subsystem: "com.dreamdaw", category: "ArrangementVC")
 
@@ -57,9 +58,19 @@ public final class ArrangementViewController: NSViewController {
     private var isBrowserVisible: Bool = true {
         didSet { view.needsLayout = true }
     }
+    private var browserWidth: CGFloat = DreamTheme.browserWidth
     private var keyEventMonitor: Any?
     private var meterUpdateTimer: Timer?
     private var pendingHorizontalScrollX: CGFloat?
+    
+    // Bottom Panel Dragging State
+    private var isDraggingBottomDivider = false
+    private var dragStartY: CGFloat = 0
+    private var initialPanelHeight: CGFloat = 0
+    private var dividerTrackingArea: NSTrackingArea?
+    private var isDraggingBrowserDivider = false
+    private var dragStartX: CGFloat = 0
+    private var initialBrowserWidth: CGFloat = 0
 
     // MARK: - Absolute Architecture (Phase 1)
     /// Enterprise layout engine: O(1) Y lookup, O(log N) hit-testing.
@@ -76,6 +87,7 @@ public final class ArrangementViewController: NSViewController {
     public init(project: Project, sharedEngine: SharedEngine) {
         self.project = project
         self.sharedEngine = sharedEngine
+        self.orchestrator = ArrangementOrchestrator(project: project, actionHistory: project.actionHistory)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -109,6 +121,8 @@ public final class ArrangementViewController: NSViewController {
         setupHierarchy()
         
         // 3. System Config
+        self.canvasView.interactionCoordinator = self.interactionCoordinator
+        self.rulerView.interactionCoordinator = self.interactionCoordinator
         self.waveformRenderer = WaveformRenderer(waveformCache: sharedEngine.waveformCache)
         canvasView.waveformRenderer = self.waveformRenderer
         canvasView.project = project
@@ -263,7 +277,13 @@ public final class ArrangementViewController: NSViewController {
         let controlBarH = DreamTheme.controlBarHeight
         let statusBarH = DreamTheme.statusBarHeight
         let rulerH = DreamTheme.rulerHeight
-        let browserW = isBrowserVisible ? DreamTheme.browserWidth : 0
+        let dynamicBrowserMax = max(
+            DreamTheme.browserMinWidth,
+            min(DreamTheme.browserMaxWidth, bounds.width * 0.45)
+        )
+        let clampedBrowserWidth = min(dynamicBrowserMax, max(DreamTheme.browserMinWidth, browserWidth))
+        browserWidth = clampedBrowserWidth
+        let browserW = isBrowserVisible ? clampedBrowserWidth : 0
         let bottomPanelH = bottomPanel.isHidden ? 0 : bottomPanel.panelHeight
         let masterLaneH = project.masterTrack.height
         
@@ -307,12 +327,19 @@ public final class ArrangementViewController: NSViewController {
         }
         
         let visibleTracks = project.allVisibleTracks.filter { $0.trackType != .master }
-        // Rebuild layout engine cache (runs once per layout, not per frame)
+        // 1. Sync Foundations
         layoutEngine.rebuildCache(visibleTracks: visibleTracks)
-        let totalTrackH = layoutEngine.totalHeight
-        let totalWidth = CGFloat(project.totalDuration.beats) * pixelsPerBeat
+        canvasView.layoutEngine = self.layoutEngine
         
-        canvasView.frame = NSRect(x: 0, y: 0, width: max(totalWidth, mainWidth), height: max(totalTrackH, scrollAreaH))
+        viewportMatrix.viewportWidth = Double(mainWidth)
+        viewportMatrix.viewportHeight = Double(scrollAreaH)
+        canvasView.viewportMatrix = self.viewportMatrix
+        canvasView.interactionSM = self.interactionSM
+
+        let totalTrackH = layoutEngine.totalHeight
+        let canvasW = CGFloat(viewportMatrix.visibleEndSample / viewportMatrix.samplesPerPixel)
+        
+        canvasView.frame = NSRect(x: 0, y: 0, width: max(canvasW, mainWidth), height: max(totalTrackH, scrollAreaH))
         trackHeaders.frame = NSRect(x: 0, y: 0, width: headerW, height: max(totalTrackH, scrollAreaH))
         
         trackHeaders.configure(tracks: visibleTracks, viewportHeight: scrollAreaH)
@@ -323,23 +350,18 @@ public final class ArrangementViewController: NSViewController {
         masterLaneView.timeSignature = project.timeSignature
         masterLaneView.scrollOffset = canvasScrollView.contentView.bounds.origin.x
 
-        // Keep horizontal anchor stable during zoom/layout.
-        let requestedX = pendingHorizontalScrollX ?? CGFloat(project.viewScrollPosition ?? Double(canvasScrollView.contentView.bounds.origin.x))
-        let maxScrollX = max(0, canvasView.frame.width - canvasScrollView.contentView.bounds.width)
-        let clampedX = min(max(0, requestedX), maxScrollX)
-        let currentY = canvasScrollView.contentView.bounds.origin.y
-        let maxScrollY = max(0, canvasView.frame.height - canvasScrollView.contentView.bounds.height)
-        let clampedY = min(max(0, currentY), maxScrollY)
+        let clampedX = canvasScrollView.contentView.bounds.origin.x
+        let clampedY = canvasScrollView.contentView.bounds.origin.y
         canvasScrollView.contentView.scroll(to: NSPoint(x: clampedX, y: clampedY))
         canvasScrollView.reflectScrolledClipView(canvasScrollView.contentView)
         headerScrollView.contentView.scroll(to: NSPoint(x: 0, y: clampedY))
         headerScrollView.reflectScrolledClipView(headerScrollView.contentView)
         masterLaneView.scrollOffset = clampedX
-        pendingHorizontalScrollX = nil
         
         // Force refresh after frame assignment
+        setupDividerTrackingArea()
         canvasView.updateArrangementLayers(fullRedraw: true)
-        log("performManualLayout finished. CanvasView frame: \(canvasView.frame)")
+        log("performManualLayout finished. Matrix visibleStartSample: \(viewportMatrix.visibleStartSample)")
     }
 
     // MARK: - Public API
@@ -449,6 +471,41 @@ public final class ArrangementViewController: NSViewController {
         canvasView.onZoomChanged = { [weak self] newPPB, newScrollX in
             self?.applyZoom(newPPB, anchoredScrollX: newScrollX)
         }
+        canvasView.onTrackClicked = { [weak self] trackID in
+            self?.handleTrackSelection(trackID, isShift: false)
+        }
+        canvasView.onClipSelected = { [weak self] trackID, clipID in
+            guard let self = self else { return }
+            self.project.primarySelectedClipID = clipID
+            self.handleTrackSelection(trackID, isShift: false)
+            guard let track = self.project.allVisibleTracks.first(where: { $0.id == trackID }),
+                  let state = self.project.panelState(for: trackID) else { return }
+            switch state.kind {
+            case .pianoRoll:
+                if let clip = track.midiClips.first(where: { $0.id == clipID }) {
+                    self.setBottomPanelMode(.pianoRoll(track, clip))
+                }
+            case .audioClip:
+                if let clip = track.clips.first(where: { $0.id == clipID }) {
+                    self.setBottomPanelMode(.audioClip(track, clip))
+                }
+            case .detail:
+                break
+            }
+        }
+        canvasView.onMidiClipDoubleClicked = { [weak self] trackID, clipID in
+            guard let self = self,
+                  let track = self.project.allVisibleTracks.first(where: { $0.id == trackID }),
+                  let clip = track.midiClips.first(where: { $0.id == clipID }) else { return }
+            self.project.primarySelectedClipID = clipID
+            self.setBottomPanelMode(.pianoRoll(track, clip))
+            self.project.selectedTrackID = trackID
+            self.trackHeaders.updateSelection(selectedID: trackID)
+            self.masterHeaderView?.isSelected = (trackID == self.project.masterTrack.id)
+            self.masterLaneView.isSelected = (trackID == self.project.masterTrack.id)
+            self.bottomPanel.isHidden = false
+            self.view.needsLayout = true
+        }
         
         // Selection Logic
         trackHeaders.onHeaderClicked = { [weak self] trackID, isShift in
@@ -499,9 +556,55 @@ public final class ArrangementViewController: NSViewController {
         masterLaneView.isSelected = (trackID == project.masterTrack.id)
         
         if let track = project.allVisibleTracks.first(where: { $0.id == trackID }) {
-            bottomPanel.mode = .detail(track)
+            restoreBottomPanelMode(for: track)
             bottomPanel.isHidden = false
             view.needsLayout = true
+        }
+    }
+
+    private func restoreBottomPanelMode(for track: Track) {
+        guard let state = project.panelState(for: track.id) else {
+            setBottomPanelMode(.detail(track))
+            return
+        }
+
+        switch state.kind {
+        case .detail:
+            setBottomPanelMode(.detail(track))
+        case .pianoRoll:
+            let clip = state.midiClipID.flatMap { id in track.midiClips.first(where: { $0.id == id }) } ?? track.midiClips.first
+            if let clip = clip {
+                setBottomPanelMode(.pianoRoll(track, clip))
+            } else {
+                setBottomPanelMode(.detail(track))
+            }
+        case .audioClip:
+            let clip = state.audioClipID.flatMap { id in track.clips.first(where: { $0.id == id }) } ?? track.clips.first
+            if let clip = clip {
+                setBottomPanelMode(.audioClip(track, clip))
+            } else {
+                setBottomPanelMode(.detail(track))
+            }
+        }
+    }
+
+    private func setBottomPanelMode(_ mode: BottomPanelView.PanelMode) {
+        bottomPanel.mode = mode
+        switch mode {
+        case .hidden:
+            break
+        case .detail(let track):
+            project.setPanelState(for: track.id, state: TrackPanelState(kind: .detail))
+        case .pianoRoll(let track, let clip):
+            project.setPanelState(
+                for: track.id,
+                state: TrackPanelState(kind: .pianoRoll, midiClipID: clip.id, audioClipID: nil)
+            )
+        case .audioClip(let track, let clip):
+            project.setPanelState(
+                for: track.id,
+                state: TrackPanelState(kind: .audioClip, midiClipID: nil, audioClipID: clip.id)
+            )
         }
     }
     
@@ -580,6 +683,11 @@ public final class ArrangementViewController: NSViewController {
 
     private func configureProject() {
         isBrowserVisible = true
+        if let savedBrowserWidth = project.viewBrowserWidth {
+            browserWidth = min(DreamTheme.browserMaxWidth, max(DreamTheme.browserMinWidth, CGFloat(savedBrowserWidth)))
+        } else {
+            browserWidth = DreamTheme.browserWidth
+        }
         if let savedZoom = project.viewZoomScale {
             setZoom(CGFloat(savedZoom))
         }
@@ -587,7 +695,26 @@ public final class ArrangementViewController: NSViewController {
             pendingHorizontalScrollX = CGFloat(savedScroll)
         }
         transportController.seek(to: project.playheadPosition)
+        
+        // PHASE 9.2: Initial Project Synchronization
+        // Ensures all existing clips have sample-accurate bounds for Metal rendering.
+        let pm = PulseMap(bpm: project.bpm, sampleRate: project.sampleRate)
+        for track in project.tracks {
+            for i in 0..<track.clips.count {
+                track.clips[i].synchronize(with: pm)
+            }
+            for i in 0..<track.midiClips.count {
+                track.midiClips[i].synchronize(with: pm)
+            }
+        }
+        
         reloadTracks()
+        if let selectedID = project.primarySelectedTrackID,
+           project.allVisibleTracks.contains(where: { $0.id == selectedID }) {
+            handleTrackSelection(selectedID, isShift: false)
+        } else if let first = project.allVisibleTracks.first {
+            handleTrackSelection(first.id, isShift: false)
+        }
     }
 
     private func installGlobalKeyMonitor() {
@@ -625,21 +752,21 @@ public final class ArrangementViewController: NSViewController {
                 // Find primary clip or first available
                 let clipID = project.primarySelectedClipID ?? track.midiClips.first?.id
                 if let cid = clipID, let clip = track.midiClips.first(where: { $0.id == cid }) {
-                    bottomPanel.mode = .pianoRoll(track, clip)
+                    setBottomPanelMode(.pianoRoll(track, clip))
                 } else if let first = track.midiClips.first {
-                    bottomPanel.mode = .pianoRoll(track, first)
+                    setBottomPanelMode(.pianoRoll(track, first))
                 }
             } else if track.trackType == .audio {
                 let clipID = project.primarySelectedClipID ?? track.clips.first?.id
                 if let cid = clipID, let clip = track.clips.first(where: { $0.id == cid }) {
-                    bottomPanel.mode = .audioClip(track, clip)
+                    setBottomPanelMode(.audioClip(track, clip))
                 } else if let first = track.clips.first {
-                    bottomPanel.mode = .audioClip(track, first)
+                    setBottomPanelMode(.audioClip(track, first))
                 }
             }
         case .pianoRoll, .audioClip:
             // Switch to Devices
-            bottomPanel.mode = .detail(track)
+            setBottomPanelMode(.detail(track))
         default:
             break
         }
@@ -647,26 +774,226 @@ public final class ArrangementViewController: NSViewController {
 }
 
 extension ArrangementViewController: TimelineInteractionDelegate {
-    public func interactionDidRequestClipMove(clipID: UUID, newPosition: TimePosition) {
-        // TODO: Handle clip move in project state
+    public func interactionDidRequestTrackSelection(id: UUID, isShift: Bool) {
+        handleTrackSelection(id, isShift: isShift)
     }
     
-    public func interactionDidClickTimeline(at position: TimePosition, on trackID: UUID) {
-        // Update edit cursor when timeline is clicked
+    public func interactionDidRequestSeek(to position: TimePosition, on trackID: UUID?) {
+        transportController.seek(to: position)
         project.editCursorPosition = position
-    }
-    
-    public func interactionDidSelectClips(clipIDs: Set<UUID>) {
-        project.selectedClipIDs = clipIDs
-        if let first = clipIDs.first {
-            project.primarySelectedClipID = first
-        } else {
-            project.primarySelectedClipID = nil
+        if let id = trackID {
+            project.primarySelectedTrackID = id
         }
     }
     
-    public func interactionDidRequestContextMenu(for clipID: UUID, at point: CGPoint) {
-        // TODO: Show context menu for clip
+    public func interactionDidUpdateSelection(clipIDs: [UUID], isShift: Bool) {
+        let clipSet = Set(clipIDs)
+        if isShift {
+            project.selectedClipIDs.formUnion(clipSet)
+        } else {
+            project.selectedClipIDs = clipSet
+        }
+        
+        if let first = clipIDs.first {
+            project.primarySelectedClipID = first
+        }
+    }
+    
+    public func interactionDidCommitClipsModification(finalState: InteractionState) {
+        log("interactionDidCommitClipsModification with state: \(finalState)")
+        
+        switch finalState {
+        case .marqueeSelecting(let startX, let currentX, let startY, let currentY):
+            // Perform marquee selection query
+            let minX = min(startX, currentX)
+            let maxX = max(startX, currentX)
+            let minY = min(startY, currentY)
+            let maxY = max(startY, currentY)
+            
+            let beatMin = Double(minX) / Double(pixelsPerBeat)
+            let beatMax = Double(maxX) / Double(pixelsPerBeat)
+            
+            let query = QuadRect(minX: beatMin, maxX: beatMax, minY: Double(minY), maxY: Double(maxY))
+            if let results = canvasView.quadTree?.query(range: query) {
+                let ids = Set(results.map { $0.id })
+                orchestrator.selectClips(ids: ids)
+            } else {
+                orchestrator.selectClips(ids: [])
+            }
+            
+        case .dragging(let ids, let deltaSamples, let deltaTracks):
+            let deltaBeats = Double(deltaSamples) / Double(project.sampleRate * 60.0 / Double(project.bpm))
+            
+            for id in ids {
+                // Find current track
+                guard let sourceTrack = project.allVisibleTracks.first(where: { t in
+                    t.clips.contains(where: { $0.id == id }) || t.midiClips.contains(where: { $0.id == id })
+                }) else { continue }
+                
+                let sourceIdx = project.allVisibleTracks.firstIndex(where: { $0.id == sourceTrack.id }) ?? 0
+                let targetIdx = max(0, min(project.allVisibleTracks.count - 1, sourceIdx + deltaTracks))
+                let targetTrack = project.allVisibleTracks[targetIdx]
+                
+                let oldPos: Double
+                if let clip = sourceTrack.clips.first(where: { $0.id == id }) {
+                    oldPos = clip.position.beats
+                } else if let clip = sourceTrack.midiClips.first(where: { $0.id == id }) {
+                    oldPos = clip.position.beats
+                } else { continue }
+                
+                orchestrator.finalizeClipMove(
+                    id: id,
+                    fromTrackID: sourceTrack.id,
+                    toTrackID: targetTrack.id,
+                    oldPositionBeats: oldPos,
+                    newPositionBeats: oldPos + deltaBeats
+                )
+            }
+            
+        case .trimming(let id, let edge, let bounds, let deltaSamples):
+            let deltaBeats = Double(deltaSamples) / Double(project.sampleRate * 60.0 / Double(project.bpm))
+            
+            guard let track = project.allVisibleTracks.first(where: { t in
+                t.clips.contains(where: { $0.id == id }) || t.midiClips.contains(where: { $0.id == id })
+            }) else { break }
+            
+            let isMidi = track.midiClips.contains(where: { $0.id == id })
+            let oldStart = Double(bounds.startSample) / Double(project.sampleRate * 60.0 / Double(project.bpm))
+            let oldDur = Double(bounds.endSample - bounds.startSample) / Double(project.sampleRate * 60.0 / Double(project.bpm))
+            let oldTrim = Double(bounds.trimStartOffsetSamples) / Double(project.sampleRate * 60.0 / Double(project.bpm))
+            
+            var newStart = oldStart
+            var newDur = oldDur
+            var newTrim = oldTrim
+            
+            if edge == .left {
+                newStart += deltaBeats
+                newDur -= deltaBeats
+                if !isMidi { newTrim += deltaBeats }
+            } else {
+                newDur += deltaBeats
+            }
+            
+            orchestrator.finalizeClipResize(
+                id: id,
+                trackID: track.id,
+                isMidi: isMidi,
+                oldPositionBeats: oldStart,
+                oldDurationBeats: oldDur,
+                oldTrimBeats: oldTrim,
+                newPositionBeats: newStart,
+                newDurationBeats: newDur,
+                newTrimBeats: newTrim
+            )
+            
+        default:
+            break
+        }
+        
+        canvasView.updateArrangementLayers(fullRedraw: true)
+    }
+    
+    public func interactionDidRequestLoopStartChange(to position: TimePosition) {
+        transportController.loopStart = position
+        rulerView.loopStart = position
+        canvasView.updateArrangementLayers(fullRedraw: false)
+    }
+    
+    public func interactionDidRequestLoopEndChange(to position: TimePosition) {
+        transportController.loopEnd = position
+        rulerView.loopEnd = position
+        canvasView.updateArrangementLayers(fullRedraw: false)
+    }
+}
+
+// MARK: - Bottom Panel Resizing
+extension ArrangementViewController {
+
+    public override func mouseDown(with event: NSEvent) {
+        let location = view.convert(event.locationInWindow, from: nil)
+
+        // Hit test for browser divider (right edge of browser panel).
+        if isBrowserVisible && abs(location.x - vertDividerLeft.frame.midX) <= 4 {
+            isDraggingBrowserDivider = true
+            dragStartX = location.x
+            initialBrowserWidth = browserWidth
+            return
+        }
+        
+        // Hit test for bottom divider
+        if !bottomPanel.isHidden && abs(location.y - bottomPanelDivider.frame.midY) <= 4 {
+            isDraggingBottomDivider = true
+            dragStartY = location.y
+            initialPanelHeight = BottomPanelView.defaultHeight
+            return
+        }
+    }
+
+    public override func mouseDragged(with event: NSEvent) {
+        if isDraggingBrowserDivider {
+            let location = view.convert(event.locationInWindow, from: nil)
+            let deltaX = location.x - dragStartX
+            let newWidth = initialBrowserWidth + deltaX
+            browserWidth = min(DreamTheme.browserMaxWidth, max(DreamTheme.browserMinWidth, newWidth))
+            project.viewBrowserWidth = Double(browserWidth)
+            view.needsLayout = true
+            return
+        }
+
+        if isDraggingBottomDivider {
+            let location = view.convert(event.locationInWindow, from: nil)
+            let deltaY = location.y - dragStartY
+            
+            // Invert deltaY because we are dragging UP to increase height (decreases Y coordinate in flipped view)
+            // Wait, in a flipped view (Y=0 at top), dragging UP means Y decreases.
+            // bottomPanel bottom is at view.bounds.height - statusBarH.
+            // bottomPanel top is at contentBottom (bottom - height).
+            // So if we drag UP, location.y decreases, and height increases.
+            
+            let newHeight = max(DreamTheme.bottomPanelMinHeight, initialPanelHeight - deltaY)
+            BottomPanelView.defaultHeight = min(newHeight, view.bounds.height * 0.8) // Cap at 80% screen
+            view.needsLayout = true
+        }
+    }
+
+    public override func mouseUp(with event: NSEvent) {
+        if isDraggingBrowserDivider {
+            isDraggingBrowserDivider = false
+            project.viewBrowserWidth = Double(browserWidth)
+        }
+        isDraggingBottomDivider = false
+    }
+
+    // Update tracking area for the divider cursor
+    public override func updateViewConstraints() {
+        super.updateViewConstraints()
+        setupDividerTrackingArea()
+    }
+
+    private func setupDividerTrackingArea() {
+        if let existing = dividerTrackingArea {
+            view.removeTrackingArea(existing)
+        }
+        
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        view.addTrackingArea(area)
+        dividerTrackingArea = area
+    }
+
+    public override func mouseMoved(with event: NSEvent) {
+        let location = view.convert(event.locationInWindow, from: nil)
+        if isBrowserVisible && abs(location.x - vertDividerLeft.frame.midX) <= 4 {
+            NSCursor.resizeLeftRight.set()
+        } else if !bottomPanel.isHidden && abs(location.y - bottomPanelDivider.frame.midY) <= 4 {
+            NSCursor.resizeUpDown.set()
+        } else {
+            NSCursor.arrow.set()
+        }
     }
 }
 

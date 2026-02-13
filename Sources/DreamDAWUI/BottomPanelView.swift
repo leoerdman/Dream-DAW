@@ -48,8 +48,8 @@ public final class BottomPanelView: NSView {
         updateContent()
     }
 
-    /// Default collapsed height for the panel.
-    public static let defaultHeight: CGFloat = 200.0
+    /// Default height for the panel.
+    public static var defaultHeight: CGFloat = 200.0
 
     /// Current panel height (0 when hidden).
     public var panelHeight: CGFloat {

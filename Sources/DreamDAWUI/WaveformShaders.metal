@@ -28,19 +28,22 @@ vertex VertexOut waveform_vertex(const device VertexIn* vertices [[buffer(0)]],
 
 // --- Timeline Rendering (Batch Clips) ---
 
+// --- Timeline Rendering (Batch Clips) ---
+
 struct ClipInstance {
-    float4 rect; // x, y, width, height
-    float4 color;
-    float isSelected;
+    float4 rect;        // x, y, width, height (screen pixels)
+    float4 color;       // RGBA
+    float4 stateFlags;  // x: isSelected, y: isPhantom, z: cornerRadius, w: isMuted
     int waveformOffset;
     int waveformCount;
     float isMidi;
+    float padding;
 };
 
 struct MidiNoteInstance {
     float4 rect;
     float4 color;
-    float type; // 1.0 = Note
+    float2 stateFlags; // x: type (1.0=note), y: isSelected
 };
 
 struct TimelineVertexOut {
@@ -48,7 +51,7 @@ struct TimelineVertexOut {
     float4 color;
     float2 localPos;
     float2 rectSize;
-    float isSelected;
+    float4 stateFlags;
     float isMidi;
     int waveformOffset;
     int waveformCount;
@@ -80,7 +83,7 @@ vertex TimelineVertexOut timeline_vertex(uint vid [[vertex_id]],
     out.color = inst.color;
     out.localPos = quadPos;
     out.rectSize = rectSize;
-    out.isSelected = inst.isSelected;
+    out.stateFlags = inst.stateFlags;
     out.isMidi = inst.isMidi;
     out.waveformOffset = inst.waveformOffset;
     out.waveformCount = inst.waveformCount;
@@ -92,28 +95,41 @@ fragment float4 timeline_fragment(TimelineVertexOut in [[stage_in]],
                                  const device float* waveformPeaks [[buffer(2)]]) {
     float2 pixelCoord = in.localPos * in.rectSize;
     float2 size = in.rectSize;
-    float r = 4.0; // Corner radius
-    float headerHeight = 22.0; // Professional DAW header height
+    float r = in.stateFlags.z > 0.0 ? in.stateFlags.z : 5.0; // Dynamic corner radius
+    float headerHeight = 22.0; 
     
-    // Rounded corner SDF
+    // 1. SDF Rounded Rectangle (Inigo Quilez)
     float2 d = abs(pixelCoord - size/2.0) - (size/2.0 - r);
     float dist = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - r;
     
-    // Anti-aliasing for the outer edge
-    float alpha = 1.0 - smoothstep(-0.5, 0.5, dist);
-    if (alpha <= 0.01) discard_fragment();
+    // 2. Hardware Anti-Aliasing
+    float alphaMask = 1.0 - smoothstep(-0.5, 0.5, dist);
+    if (alphaMask <= 0.01) discard_fragment();
     
     float4 color = in.color;
+    
+    // 3. Phantom State (isPhantom == 1.0)
+    if (in.stateFlags.y > 0.5) {
+        color.a *= 0.45;
+    }
+    
+    // 4. Muted State (isMuted == 1.0)
+    if (in.stateFlags.w > 0.5) {
+        float gray = dot(color.rgb, float3(0.299, 0.587, 0.114));
+        color.rgb = mix(color.rgb, float3(gray), 0.8) * 0.5;
+    }
+    
     bool isHeader = (pixelCoord.y < headerHeight);
     
     if (isHeader) {
-        // --- HEADER AESTHETICS (Opaque) ---
+        // --- HEADER AESTHETICS ---
         color.rgb *= 1.15;
-        color.a = 1.0;
+        // Keep header more opaque unless it's a phantom
+        if (in.stateFlags.y < 0.5) color.a = 1.0; 
         if (abs(pixelCoord.y - headerHeight) < 1.0) color.rgb *= 0.7;
     } else {
         // --- BODY AESTHETICS (Liquid Glass) ---
-        color.a = 0.55;
+        if (in.stateFlags.y < 0.5) color.a *= 0.65;
         color.rgb *= (1.05 - in.localPos.y * 0.1);
         
         // --- WAVEFORM RENDERING ---
@@ -128,46 +144,41 @@ fragment float4 timeline_fragment(TimelineVertexOut in [[stage_in]],
             float peakR = waveformPeaks[in.waveformOffset + idxR];
             float peak = mix(peakL, peakR, frac);
             
-            // Normalize Y for body area (below header)
             float bodyY = (pixelCoord.y - headerHeight) / (size.y - headerHeight);
-            float distToCenter = abs(bodyY - 0.5) * 2.0; // 0 to 1
+            float distToCenter = abs(bodyY - 0.5) * 2.0; 
             
             if (distToCenter < peak) {
-                // Waveform visible
                 float intensity = 1.0 - smoothstep(peak - 0.15, peak, distToCenter);
-                float3 waveColor = mix(color.rgb, float3(1.0), 0.35);
+                float3 waveColor = mix(color.rgb, float3(1.0), 0.4);
                 color.rgb = mix(color.rgb, waveColor, intensity);
-                color.a = mix(color.a, 0.85, intensity);
+                color.a = mix(color.a, 0.9, intensity);
             }
         }
     }
     
-    // Highlight at the top of the header
-    float highlight = smoothstep(1.5, 0.0, pixelCoord.y) * 0.2;
-    color.rgb += highlight;
+    // Highlight at the top
+    float topHighlight = smoothstep(1.5, 0.0, pixelCoord.y) * 0.25;
+    color.rgb += topHighlight;
     
-    // Border
-    float borderSize = 1.0;
-    if (dist > -borderSize) {
-        float borderAlpha = smoothstep(-borderSize, -borderSize + 0.5, dist);
-        float3 borderColor = mix(color.rgb * 1.6, float3(1.0), 0.25);
-        color.rgb = mix(color.rgb, borderColor, borderAlpha);
-        color.a = mix(color.a, 1.0, borderAlpha);
-    }
-    
-    // Selection state
-    if (in.isSelected > 0.5) {
-        if (dist > -2.0) {
-            color.rgb = float3(1.0); 
+    // 5. Selection Neon Inner Glow (isSelected == 1.0)
+    if (in.stateFlags.x > 0.5) {
+        // Draw white border inside
+        float borderDist = abs(dist);
+        float borderGlow = 1.0 - smoothstep(0.0, 2.0, borderDist);
+        color.rgb = mix(color.rgb, float3(1.0), borderGlow * 0.9);
+        color.a = mix(color.a, 1.0, borderGlow);
+    } else {
+        // Subtle regular border
+        float borderDist = abs(dist);
+        if (borderDist < 1.0) {
+            color.rgb *= 1.4;
             color.a = 1.0;
-        } else {
-            color.rgb = mix(color.rgb, float3(1.0), 0.3);
-            color.a = mix(color.a, 1.0, 0.4);
         }
     }
     
-    return float4(color.rgb, color.a * alpha);
+    return float4(color.rgb, color.a * alphaMask);
 }
+
 
 // --- Note Rendering (MIDI) ---
 
@@ -194,14 +205,18 @@ vertex TimelineVertexOut note_vertex(uint vid [[vertex_id]],
     out.color = inst.color;
     out.localPos = quadPos;
     out.rectSize = rectSize;
-    out.isSelected = 0.0;
+    out.stateFlags = float4(inst.stateFlags.y, 0.0, 5.0, 0.0); // x: isSelected, z: cornerRadius
     
     return out;
 }
 
 fragment float4 note_fragment(TimelineVertexOut in [[stage_in]]) {
-    // Simple opaque notes for now, with a tiny border
     float3 color = in.color.rgb;
+    
+    // Selection highlight
+    if (in.stateFlags.x > 0.5) {
+        color = mix(color, float3(1.0), 0.4);
+    }
     
     // Horizontal highlight
     color *= (1.1 - in.localPos.y * 0.2);

@@ -1,0 +1,85 @@
+Building for debugging...
+[0/4] Write sources
+[1/4] Write swift-version--58304C5D6DBC2206.txt
+[3/6] Compiling DreamDAWUI TimelineCanvasView.swift
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:684:14: [1;33mwarning: [1;39mimmutable value 'index' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+ [0;36m682 |[0;0m         var y: CGFloat = 0
+ [0;36m683 |[0;0m         let visibleTracks = project.allVisibleTracks
+ [0;36m684 |[0;0m         for (index, track) in visibleTracks.enumerated() {
+     [0;36m|[0;0m              `- [1;33mwarning: [1;39mimmutable value 'index' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+ [0;36m685 |[0;0m             if track.id == id {
+ [0;36m686 |[0;0m                 // Same logic as header: pull Master to bottom
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:790:21: [1;33mwarning: [1;39minitialization of immutable value 'hasVolumeChanged' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+ [0;36m788 |[0;0m                 let hasMoved = abs(layer.frame.origin.x - clipX) > 0.1 || abs(layer.frame.origin.y - (trackY + 2)) > 0.1
+ [0;36m789 |[0;0m                 let hasResized = abs(layer.frame.width - clipWidth) > 0.1 || abs(layer.frame.height - (track.height - 4)) > 0.1
+ [0;36m790 |[0;0m                 let hasVolumeChanged = layer.clip?.isSelected != clip.isSelected // selection changes often coincide with volume focus
+     [0;36m|[0;0m                     `- [1;33mwarning: [1;39minitialization of immutable value 'hasVolumeChanged' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+ [0;36m791 |[0;0m                 
+ [0;36m792 |[0;0m                 if layer.track?.volume != track.volume || abs(layer.pixelsPerBeat - pixelsPerBeat) > 0.01 || hasMoved || hasResized || clip.isSelected != layer.clip?.isSelected {
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:1067:13: [1;33mwarning: [1;39mvariable 'changed' was written to, but never read[0;0m
+[0;36m1065 |[0;0m     /// Deselect all clips across all tracks.
+[0;36m1066 |[0;0m     private func deselectAllClips(in project: Project) {
+[0;36m1067 |[0;0m         var changed = false
+     [0;36m|[0;0m             `- [1;33mwarning: [1;39mvariable 'changed' was written to, but never read[0;0m
+[0;36m1068 |[0;0m         for track in project.allVisibleTracks {
+[0;36m1069 |[0;0m             for i in track.clips.indices {
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:1109:19: [1;33mwarning: [1;39mvalue 'project' was defined but never used; consider replacing with boolean test[0;0m [#no-usage]
+[0;36m1107 |[0;0m         window?.makeFirstResponder(self)
+[0;36m1108 |[0;0m         
+[0;36m1109 |[0;0m         guard let project = project else { return }
+     [0;36m|[0;0m                   `- [1;33mwarning: [1;39mvalue 'project' was defined but never used; consider replacing with boolean test[0;0m [#no-usage]
+[0;36m1110 |[0;0m         interactionCoordinator?.mouseDown(with: event, in: self)
+[0;36m1111 |[0;0m         updateArrangementLayers(fullRedraw: false)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:1116:19: [1;33mwarning: [1;39mvalue 'project' was defined but never used; consider replacing with boolean test[0;0m [#no-usage]
+[0;36m1114 |[0;0m     /* REMOVED LEGACY CODE */
+[0;36m1115 |[0;0m     public override func mouseDragged(with event: NSEvent) {
+[0;36m1116 |[0;0m         guard let project = project else { return }
+     [0;36m|[0;0m                   `- [1;33mwarning: [1;39mvalue 'project' was defined but never used; consider replacing with boolean test[0;0m [#no-usage]
+[0;36m1117 |[0;0m         interactionCoordinator?.mouseDragged(with: event, in: self)
+[0;36m1118 |[0;0m         updateArrangementLayers(fullRedraw: false)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:1441:65: [1;33mwarning: [1;39mimmutable value 'startY' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m1439 |[0;0m         let moveOffset: Double
+[0;36m1440 |[0;0m         
+[0;36m1441 |[0;0m         if case .marqueeSelecting(let startX, let currentX, let startY, let currentY) = interactionSM.currentState {
+     [0;36m|[0;0m                                                                 `- [1;33mwarning: [1;39mimmutable value 'startY' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m1442 |[0;0m             // DUPLICATE TIME RANGE (Marquee)
+[0;36m1443 |[0;0m             let ppb = Double(pixelsPerBeat)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:1441:77: [1;33mwarning: [1;39mimmutable value 'currentY' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m1439 |[0;0m         let moveOffset: Double
+[0;36m1440 |[0;0m         
+[0;36m1441 |[0;0m         if case .marqueeSelecting(let startX, let currentX, let startY, let currentY) = interactionSM.currentState {
+     [0;36m|[0;0m                                                                             `- [1;33mwarning: [1;39mimmutable value 'currentY' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m1442 |[0;0m             // DUPLICATE TIME RANGE (Marquee)
+[0;36m1443 |[0;0m             let ppb = Double(pixelsPerBeat)
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:1603:13: [1;33mwarning: [1;39minitialization of immutable value 'pasteboard' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+[0;36m1601 |[0;0m     public override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+[0;36m1602 |[0;0m         let location = convert(sender.draggingLocation, from: nil)
+[0;36m1603 |[0;0m         let pasteboard = sender.draggingPasteboard
+     [0;36m|[0;0m             `- [1;33mwarning: [1;39minitialization of immutable value 'pasteboard' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+[0;36m1604 |[0;0m         
+[0;36m1605 |[0;0m         // Find target track and Snap to grid
+
+/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/Sources/DreamDAWUI/TimelineCanvasView.swift:1697:58: [1;33mwarning: [1;39m'duration' was deprecated in macOS 13.0: Use load(.duration) instead[0;0m [#]8;;https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration\DeprecatedDeclaration]8;;\]
+[0;36m1695 |[0;0m             // Get actual audio duration using AVFoundation
+[0;36m1696 |[0;0m             let asset = AVURLAsset(url: url)
+[0;36m1697 |[0;0m             let durationSeconds = CMTimeGetSeconds(asset.duration)
+     [0;36m|[0;0m                                                          `- [1;33mwarning: [1;39m'duration' was deprecated in macOS 13.0: Use load(.duration) instead[0;0m [#]8;;https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration\DeprecatedDeclaration]8;;\]
+[0;36m1698 |[0;0m             guard !durationSeconds.isNaN && durationSeconds > 0 else { continue }
+[0;36m1699 |[0;0m             
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+[4/6] Emitting module DreamDAWUI
+[5/9] Compiling DreamDAWUI ArrangementRendererCoordinator.swift
+[6/9] Compiling DreamDAWUI MainWindowController.swift
+[7/9] Compiling DreamDAWUI ArrangementViewController.swift
+[7/10] Write Objects.LinkFileList
+[8/10] Linking DreamDAW
+[9/10] Applying DreamDAW
+Build complete! (3.51s)

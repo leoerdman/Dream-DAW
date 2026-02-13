@@ -77,14 +77,8 @@ public final class TimelineRulerView: NSView {
     /// Callback when loop end marker is dragged to a new position.
     public var onLoopEndChanged: ((TimePosition) -> Void)?
 
-    // MARK: - Drag State
-
-    /// Which marker the user is currently dragging (nil = not dragging a marker).
-    private enum DragTarget {
-        case loopStartMarker
-        case loopEndMarker
-    }
-    private var activeDrag: DragTarget?
+    /// Coordinator for all mouse/gestures logic (Injected by ViewController)
+    public var interactionCoordinator: TimelineInteractionCoordinator?
 
     // MARK: - Drawing
 
@@ -260,96 +254,39 @@ public final class TimelineRulerView: NSView {
 
     public override func mouseDown(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
-
-        // Check if click is on a loop marker FIRST (markers take priority)
-        if hitTestMarker(location: location, position: loopEnd, side: .right) {
-            activeDrag = .loopEndMarker
-            return
-        }
-
-        if hitTestMarker(location: location, position: loopStart, side: .left) {
-            activeDrag = .loopStartMarker
-            return
-        }
-
-        // Otherwise: click on ruler → set playhead
-        let beatPosition = (location.x + scrollOffset) / pixelsPerBeat
-        let snapped = max(0, beatPosition)
-        onClickPosition?(TimePosition(beats: Double(snapped)))
+        
+        interactionCoordinator?.mouseDownRuler(
+            with: event,
+            at: location,
+            pixelsPerBeat: pixelsPerBeat,
+            loopStart: loopStart.beats,
+            loopEnd: loopEnd.beats
+        )
     }
 
     public override func mouseDragged(with event: NSEvent) {
-        guard let drag = activeDrag else { return }
-
         let location = convert(event.locationInWindow, from: nil)
-        let rawBeat = Double((location.x + scrollOffset) / pixelsPerBeat)
 
-        // Snap to nearest beat boundary
-        let snappedBeat = max(0, (rawBeat).rounded())
-
-        switch drag {
-        case .loopStartMarker:
-            // Constrain: start cannot go past end - minimum gap
-            let maxBeat = loopEnd.beats - Self.minimumLoopBeats
-            let constrainedBeat = min(snappedBeat, max(0, maxBeat))
-            let newPosition = TimePosition(beats: constrainedBeat)
-            loopStart = newPosition
-            onLoopStartChanged?(newPosition)
-
-        case .loopEndMarker:
-            // Constrain: end cannot go before start + minimum gap
-            let minBeat = loopStart.beats + Self.minimumLoopBeats
-            let constrainedBeat = max(snappedBeat, minBeat)
-            let newPosition = TimePosition(beats: constrainedBeat)
-            loopEnd = newPosition
-            onLoopEndChanged?(newPosition)
-        }
+        interactionCoordinator?.mouseDraggedRuler(
+            with: event,
+            at: location,
+            pixelsPerBeat: pixelsPerBeat,
+            loopStart: loopStart.beats,
+            loopEnd: loopEnd.beats
+        )
     }
 
     public override func mouseUp(with event: NSEvent) {
-        activeDrag = nil
+        interactionCoordinator?.mouseUp(with: event, in: self)
     }
 
-    // MARK: - Hit Testing
-
-    /// Check if a point is within the hit area of a loop marker.
-    private func hitTestMarker(location: CGPoint, position: TimePosition, side: MarkerSide) -> Bool {
-        let markerX = CGFloat(position.beats) * pixelsPerBeat - scrollOffset
-        let tolerance = Self.markerHitTolerance
-        let h = Self.markerHeight + tolerance
-
-        // Only test in the vertical region where the marker is drawn
-        guard location.y >= 0 && location.y <= h else { return false }
-
-        switch side {
-        case .left:
-            // Left marker extends to the right of its position
-            return location.x >= markerX - tolerance && location.x <= markerX + Self.markerWidth + tolerance
-        case .right:
-            // Right marker extends to the left of its position
-            return location.x >= markerX - Self.markerWidth - tolerance && location.x <= markerX + tolerance
-        }
-    }
-
+    // MARK: - Hit Testing Logic Removed (Moved to Coordinator)
+    
     // MARK: - Cursor Feedback
-
+    // Note: Temporary commented out to avoid using local hit-testing state.
+    // In Sprint 2, the Coordinator will provide the cursor state.
     public override func resetCursorRects() {
-        // Set a resize cursor when hovering over loop markers
-        addCursorRect(markerRect(for: loopStart, side: .left), cursor: .resizeLeftRight)
-        addCursorRect(markerRect(for: loopEnd, side: .right), cursor: .resizeLeftRight)
-    }
-
-    /// Calculate the rect for a marker for cursor tracking.
-    private func markerRect(for position: TimePosition, side: MarkerSide) -> NSRect {
-        let x = CGFloat(position.beats) * pixelsPerBeat - scrollOffset
-        let tolerance = Self.markerHitTolerance
-        let h = Self.markerHeight + tolerance
-
-        switch side {
-        case .left:
-            return NSRect(x: x - tolerance, y: 0, width: Self.markerWidth + tolerance * 2, height: h)
-        case .right:
-            return NSRect(x: x - Self.markerWidth - tolerance, y: 0, width: Self.markerWidth + tolerance * 2, height: h)
-        }
+        // addCursorRect(markerRect(for: loopStart, side: .left), cursor: .resizeLeftRight)
+        // addCursorRect(markerRect(for: loopEnd, side: .right), cursor: .resizeLeftRight)
     }
 }

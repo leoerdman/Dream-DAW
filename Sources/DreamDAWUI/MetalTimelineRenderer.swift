@@ -119,26 +119,23 @@ public final class MetalTimelineRenderer: MetalCanvasRenderer {
     
     // MARK: - Drawing
     
+    // MARK: - Drawing (PHASE 9.6)
+    
     /// Renders the entire visible arrangement into the provided Metal layer.
+    /// Uses ViewportMatrix and TrackLayoutEngine for O(1)/O(log N) performance.
+    @MainActor
     public func render(
         project: Project,
-        visibleRect: CGRect,
-        pixelsPerBeat: CGFloat,
+        viewport: ViewportMatrix,
+        layoutEngine: TrackLayoutEngine,
+        interactionSM: InteractionStateMachine,
+        pulseMap: PulseMap,
         in layer: CAMetalLayer
     ) {
-        guard let drawable = layer.nextDrawable() else {
-            // This is completely normal during resize/initialization when the layer isn't fully ready.
-            // Silently return instead of spamming logs.
-            return 
-        }
-        guard let pipelineState = clipPipelineState else {
-            print("Metal: Error - clipPipelineState is NIL")
-            return
-        }
-        guard let instanceBuffer = clipInstanceBuffer else {
-            print("Metal: Error - clipInstanceBuffer is NIL")
-            return
-        }
+        guard let drawable = layer.nextDrawable() else { return }
+        guard let pipelineState = clipPipelineState,
+              let instanceBuffer = clipInstanceBuffer,
+              let waveformCache = waveformCache else { return }
         
         let renderPassDescriptor = MTLRenderPassDescriptor()
         renderPassDescriptor.colorAttachments[0].texture = drawable.texture
@@ -146,69 +143,58 @@ public final class MetalTimelineRenderer: MetalCanvasRenderer {
         renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0.0)
         renderPassDescriptor.colorAttachments[0].storeAction = .store
         
-        guard let waveformCache = waveformCache else {
-            print("Metal: Error - waveformCache is NIL")
-            return
-        }
-
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else { return }
         
         renderEncoder.setRenderPipelineState(pipelineState)
         
-        // 1. Prepare Projection
-        var viewport = simd_float2(Float(layer.bounds.width), Float(layer.bounds.height))
-        renderEncoder.setVertexBytes(&viewport, length: MemoryLayout<simd_float2>.size, index: 1)
+        // 1. Prepare Projection (Normalized Device Coordinates / Viewport Size)
+        var vpSize = simd_float2(Float(layer.bounds.width), Float(layer.bounds.height))
+        renderEncoder.setVertexBytes(&vpSize, length: MemoryLayout<simd_float2>.size, index: 1)
         
-        // 2. Filter & Prepare Instances
-        let visibleTracks = project.allVisibleTracks
+        // 2. Prepare Instances
+        let visibleTracks = project.allVisibleTracks.filter { $0.trackType != .master }
         var instances: [ClipInstance] = []
         
-        let minBeat = Double(visibleRect.minX) / Double(pixelsPerBeat)
-        let maxBeat = Double(visibleRect.maxX) / Double(pixelsPerBeat)
+        let phantom = interactionSM.phantomOverlay
+        let visibleSampleRange = viewport.visibleSampleRange
         
-        print("Metal: Rendering visibleRect=\(visibleRect) ppB=\(pixelsPerBeat) tracks=\(visibleTracks.count) beats=\(minBeat)...\(maxBeat)")
-        
-        let totalH = visibleTracks.reduce(0) { $0 + $1.height }
-        let canvasH = layer.bounds.height
-
-        var trackY: CGFloat = 0
         var audioClipCount = 0
         var midiClipCount = 0
 
-        for track in visibleTracks {
-            var drawY = trackY
-            if track.trackType == .master && totalH < canvasH {
-                drawY = canvasH - track.height
-            }
+        for (trackIndex, track) in visibleTracks.enumerated() {
+            let trackY = Float(layoutEngine.yPosition(forTrackIndex: trackIndex))
+            // Skip offscreen tracks (culling is mostly handled by layoutEngine.visibleTrackRange)
+            // but we process all visibleTracks here for simplicity in this pass.
             
             // Render Audio Clips
-            let audioClipsInRange = track.clips.filter { $0.endPosition.beats >= minBeat && $0.position.beats <= maxBeat }
+            let audioClipsInRange = track.clips.filter {
+                $0.absolutePosition.sampleFrame + $0.absoluteDuration.sampleFrame >= visibleSampleRange.lowerBound &&
+                $0.absolutePosition.sampleFrame <= visibleSampleRange.upperBound
+            }
+            
             for clip in audioClipsInRange {
-                let x = Float(CGFloat(clip.position.beats) * pixelsPerBeat - visibleRect.minX)
-                let w = Float(CGFloat(clip.duration.beats) * pixelsPerBeat)
+                if clip.absoluteDuration.sampleFrame == 0 {
+                    NSLog("[MetalTimelineRenderer] WARNING: Audio clip '\(clip.name)' has zero absoluteDuration. Beats: \(clip.duration.beats)")
+                }
+                
+                let x = viewport.pixelX(for: clip.absolutePosition.sampleFrame)
+                let w = viewport.pixelWidth(forSamples: clip.absoluteDuration.sampleFrame)
                 let h = Float(track.height - 4) // 2px padding top/bottom
-                let y = Float(drawY - visibleRect.minY + 2)
-
+                let y = trackY + 2
+                
+                let isSelected = clip.isSelected
+                let isPhantom = phantom.isActive && phantom.clipIDs.contains(clip.id)
+                
                 // WAVEFORM LOGIC: Fetch peaks from cache
                 var wfOffset: Int32 = -1
                 var wfCount: Int32 = 0
                 
-                // Professional DAW SPP stabilization (avoid cache thrashing)
-                let sampleRate = 44100.0 // TODO: Get from clip or engine
-                let secondsPerPixel = 1.0 / (pixelsPerBeat * (Double(project.bpm) / 60.0)) // Use project BPM
-                let rawSPP = max(1, Int(secondsPerPixel * sampleRate))
+                // Use ViewportMatrix SPP directly for stabilization
+                let stabilizedSPP = Int(viewport.samplesPerPixel)
                 
-                let stabilizedSPP: Int
-                if rawSPP < 100 {
-                    stabilizedSPP = rawSPP
-                } else {
-                    let logStep = pow(1.1, round(log(Double(rawSPP)) / log(1.1)))
-                    stabilizedSPP = Int(logStep)
-                }
-
                 if let data = waveformCache.getCachedWaveform(for: clip.fileURL, samplesPerPixel: stabilizedSPP) {
-                    let targetPeaks = 512 
+                    let targetPeaks = 1024 
                     let globalPeakOffset = audioClipCount * targetPeaks
                     if let waveformBuffer = waveformVertexBuffer {
                         let wfPtr = waveformBuffer.contents().assumingMemoryBound(to: Float.self).advanced(by: globalPeakOffset)
@@ -219,14 +205,14 @@ public final class MetalTimelineRenderer: MetalCanvasRenderer {
                         wfCount = Int32(min(data.peaks.count, targetPeaks))
                     }
                 } else {
-                    // Trigger async load for next frame with the stabilized resolution
+                    // Trigger async load
                     waveformCache.getWaveform(for: clip.fileURL, samplesPerPixel: stabilizedSPP) { _ in }
                 }
 
                 instances.append(ClipInstance(
                     rect: simd_float4(x, y, w, h),
                     color: track.color.simdColor,
-                    isSelected: clip.isSelected ? 1.0 : 0.0,
+                    stateFlags: simd_float4(isSelected ? 1.0 : 0.0, isPhantom ? 1.0 : 0.0, 5.0, 0.0), // z=5.0 radius
                     waveformOffset: wfOffset,
                     waveformCount: wfCount,
                     isMidi: 0.0
@@ -236,17 +222,24 @@ public final class MetalTimelineRenderer: MetalCanvasRenderer {
             }
             
             // Render MIDI Clips
-            let midiClipsInRange = track.midiClips.filter { $0.endPosition.beats >= minBeat && $0.position.beats <= maxBeat }
+            let midiClipsInRange = track.midiClips.filter { 
+                $0.absolutePosition.sampleFrame + $0.absoluteDuration.sampleFrame >= visibleSampleRange.lowerBound &&
+                $0.absolutePosition.sampleFrame <= visibleSampleRange.upperBound
+            }
+            
             for clip in midiClipsInRange {
-                let x = Float(CGFloat(clip.position.beats) * pixelsPerBeat - visibleRect.minX)
-                let w = Float(CGFloat(clip.duration.beats) * pixelsPerBeat)
-                let h = Float(track.height - 4) // 2px padding top/bottom
-                let y = Float(drawY - visibleRect.minY + 2)
+                let x = viewport.pixelX(for: clip.absolutePosition.sampleFrame)
+                let w = viewport.pixelWidth(forSamples: clip.absoluteDuration.sampleFrame)
+                let h = Float(track.height - 4)
+                let y = trackY + 2
+                
+                let isSelected = clip.isSelected
+                let isPhantom = phantom.isActive && phantom.clipIDs.contains(clip.id)
                 
                 instances.append(ClipInstance(
                     rect: simd_float4(x, y, w, h),
                     color: track.color.simdColor,
-                    isSelected: clip.isSelected ? 1.0 : 0.0,
+                    stateFlags: simd_float4(isSelected ? 1.0 : 0.0, isPhantom ? 1.0 : 0.0, 5.0, 0.0),
                     waveformOffset: -1,
                     waveformCount: 0,
                     isMidi: 1.0
@@ -255,15 +248,11 @@ public final class MetalTimelineRenderer: MetalCanvasRenderer {
                 if instances.count >= maxClips { break }
             }
             
-            trackY += track.height
             if instances.count >= maxClips { break }
         }
         
-        print("Metal: Prepared \(audioClipCount) audio and \(midiClipCount) midi clips")
-        
         // 3. Upload and Draw
         if !instances.isEmpty {
-            print("Metal: Rendering \(instances.count) clips")
             let bufferPointer = instanceBuffer.contents().assumingMemoryBound(to: ClipInstance.self)
             for (i, instance) in instances.enumerated() {
                 bufferPointer[i] = instance
@@ -282,16 +271,19 @@ public final class MetalTimelineRenderer: MetalCanvasRenderer {
         renderEncoder.endEncoding()
         
         // 4. Draw MIDI Notes
-        renderMidiNotes(project: project, visibleRect: visibleRect, pixelsPerBeat: pixelsPerBeat, in: layer, commandBuffer: commandBuffer, drawable: drawable)
+        // 4. Draw MIDI Notes
+        renderMidiNotes(project: project, viewport: viewport, layoutEngine: layoutEngine, pulseMap: pulseMap, in: layer, commandBuffer: commandBuffer, drawable: drawable)
         
         commandBuffer.present(drawable)
         commandBuffer.commit()
     }
-    
+
+    @MainActor
     private func renderMidiNotes(
         project: Project,
-        visibleRect: CGRect,
-        pixelsPerBeat: CGFloat,
+        viewport: ViewportMatrix,
+        layoutEngine: TrackLayoutEngine,
+        pulseMap: PulseMap,
         in layer: CAMetalLayer,
         commandBuffer: MTLCommandBuffer,
         drawable: CAMetalDrawable
@@ -307,38 +299,47 @@ public final class MetalTimelineRenderer: MetalCanvasRenderer {
         guard let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else { return }
         renderEncoder.setRenderPipelineState(pipelineState)
         
-        var viewport = simd_float2(Float(layer.bounds.width), Float(layer.bounds.height))
-        renderEncoder.setVertexBytes(&viewport, length: MemoryLayout<simd_float2>.size, index: 1)
+        var vpSize = simd_float2(Float(layer.bounds.width), Float(layer.bounds.height))
+        renderEncoder.setVertexBytes(&vpSize, length: MemoryLayout<simd_float2>.size, index: 1)
         
         var noteInstances: [MidiNoteInstance] = []
         let visibleTracks = project.allVisibleTracks.filter { $0.trackType != .master }
-        let minBeat = Double(visibleRect.minX) / Double(pixelsPerBeat)
-        let maxBeat = Double(visibleRect.maxX) / Double(pixelsPerBeat)
+        let visibleSampleRange = viewport.visibleSampleRange
         
-        var trackY: CGFloat = 0
-        for track in visibleTracks {
-            let clipsInRange = track.midiClips.filter { $0.endPosition.beats >= minBeat && $0.position.beats <= maxBeat }
+        for (trackIndex, track) in visibleTracks.enumerated() {
+            let trackY = Float(layoutEngine.yPosition(forTrackIndex: trackIndex))
+            
+            let clipsInRange = track.midiClips.filter { 
+                $0.absolutePosition.sampleFrame + $0.absoluteDuration.sampleFrame >= visibleSampleRange.lowerBound &&
+                $0.absolutePosition.sampleFrame <= visibleSampleRange.upperBound
+            }
+            
             for clip in clipsInRange {
                 for note in clip.notes {
-                    // Coordinates relative to view
-                    let x = Float(CGFloat(clip.position.beats + note.position.beats) * pixelsPerBeat - visibleRect.minX)
-                    let w = Float(CGFloat(note.duration.beats) * pixelsPerBeat)
+                    // Coordinates relative to viewport left edge
+                    let noteStartSample = pulseMap.sampleFrame(at: note.position.beats)
+                    let noteDurationSamples = Int64(note.duration.beats * (60.0 / Double(project.bpm)) * 44100.0) // Fallback for duration
                     
-                    // Vertical: 128 MIDI notes mapped to track height (with 20px header excluded)
-                    let headerH: CGFloat = 20
+                    let x = viewport.pixelX(for: clip.absolutePosition.sampleFrame + noteStartSample)
+                    let w = viewport.pixelWidth(forSamples: noteDurationSamples)
+                    
+                    // Vertical: 128 MIDI notes mapped to track height (with 22px header excluded)
+                    let headerH: CGFloat = 22 // Sync with shader headerHeight
                     let usableH = track.height - headerH - 4
+                    let pitchRatio = CGFloat(127 - note.pitch) / 128.0
+                    let pitchOffset = pitchRatio * usableH
+                    let noteY = Float(trackY + Float(headerH) + 2 + Float(pitchOffset))
                     let noteH = Float(max(1.0, usableH / 128.0))
-                    let noteY = Float(trackY - visibleRect.minY + headerH + 2 + (CGFloat(127 - note.pitch) * (usableH / 128.0)))
                     
                     noteInstances.append(MidiNoteInstance(
                         rect: simd_float4(x, noteY, w, noteH),
-                        color: simd_float4(1, 1, 1, 0.8), // White notes
-                        type: 1.0 // MIDI Note
+                        color: simd_float4(1, 1, 1, 0.7), // White notes with 0.7 alpha
+                        stateFlags: simd_float2(1.0, clip.isSelected ? 1.0 : 0.0) // type=1.0, isSelected
                     ))
                     if noteInstances.count >= Self.maxNotes { break }
                 }
+                if noteInstances.count >= Self.maxNotes { break }
             }
-            trackY += track.height
             if noteInstances.count >= Self.maxNotes { break }
         }
         
@@ -355,21 +356,38 @@ public final class MetalTimelineRenderer: MetalCanvasRenderer {
     }
 }
 
-// MARK: - Shared Types
+// MARK: - Shared Types (Phase 9.6)
 
-struct ClipInstance {
-    var rect: simd_float4 // x, y, width, height
-    var color: simd_float4
-    var isSelected: Float
-    var waveformOffset: Int32 // Offset into waveformVertexBuffer
-    var waveformCount: Int32  // Number of peaks
-    var isMidi: Float         // 1.0 if MIDI, 0.0 if Audio
+/// Enterprise-grade clip instance data for Metal rendering.
+/// Memory layout: 64 bytes (perfectly aligned for GPU).
+public struct ClipInstance {
+    /// x, y, width, height in screen pixels.
+    public var rect: simd_float4
+    /// R, G, B, A normalized (0.0 - 1.0).
+    public var color: simd_float4
+    
+    /// Bito-wise state flags for the fragment shader:
+    /// x: isSelected (0.0 or 1.0) -> Neon border
+    /// y: isPhantom (0.0 or 1.0) -> alpha * 0.4
+    /// z: cornerRadius (pixels) -> SDF rounding
+    /// w: isMuted (0.0 or 1.0) -> Desaturation
+    public var stateFlags: simd_float4
+    
+    /// Waveform metadata.
+    public var waveformOffset: Int32 // Offset into waveformVertexBuffer
+    public var waveformCount: Int32  // Number of peaks
+    public var isMidi: Float         // 1.0 if MIDI, 0.0 if Audio
+    
+    /// Padding to maintain 16-byte alignment
+    public var padding: Float = 0
 }
 
-struct MidiNoteInstance {
-    var rect: simd_float4
-    var color: simd_float4
-    var type: Float // 1.0 for note
+/// MIDI note instance data.
+public struct MidiNoteInstance {
+    public var rect: simd_float4
+    public var color: simd_float4
+    /// x: type (1.0 = note), y: isSelected (1.0 = highlight)
+    public var stateFlags: simd_float2
 }
 
 extension TrackColor {

@@ -17,6 +17,11 @@ public final class TrackMixer: @unchecked Sendable {
     private let audioEngine: AudioEngine
     public let audioLevelMeter: AudioLevelMeter
     private let logger = Logger(subsystem: "com.dreamdaw", category: "TrackMixer")
+    private let masterHeadroom: Float = 0.92
+
+    private func safeGain(_ value: Float) -> Float {
+        max(0.0, min(2.0, value))
+    }
 
     /// Standard stereo format used for all node connections.
     /// Ensures consistent format negotiation across the entire graph.
@@ -591,7 +596,7 @@ public final class TrackMixer: @unchecked Sendable {
     public func applyTrackSettings(_ track: Track) {
         guard let mixer = trackMixerNodes[track.id] else { return }
 
-        mixer.outputVolume = track.effectiveVolume
+        mixer.outputVolume = safeGain(track.effectiveVolume)
         mixer.pan = track.pan
 
         // Sync instrument parameters in real-time
@@ -636,9 +641,9 @@ public final class TrackMixer: @unchecked Sendable {
 
             if hasSolo {
                 // Only soloed tracks are heard
-                mixer.outputVolume = track.isSoloed ? track.volume : 0
+                mixer.outputVolume = track.isSoloed ? safeGain(track.volume) : 0
             } else {
-                mixer.outputVolume = track.effectiveVolume
+                mixer.outputVolume = safeGain(track.effectiveVolume)
             }
         }
     }
@@ -667,7 +672,7 @@ public final class TrackMixer: @unchecked Sendable {
     /// Apply master track volume/pan to the engine's master mixer node.
     public func applyMasterSettings(_ masterTrack: Track) {
         let masterMixer = audioEngine.masterMixer
-        masterMixer.outputVolume = masterTrack.isMuted ? 0.0 : masterTrack.volume
+        masterMixer.outputVolume = masterTrack.isMuted ? 0.0 : min(masterHeadroom, safeGain(masterTrack.volume))
         masterMixer.pan = masterTrack.pan
     }
 

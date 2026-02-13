@@ -194,10 +194,12 @@ public final class AudioLevelMeter: @unchecked Sendable {
                 let samples = floatData[channel]
                 let length = vDSP_Length(frameLength)
 
-                var channelSumOfSquares: Float = 0
-                vDSP_svesq(samples, 1, &channelSumOfSquares, length)
-                sumOfSquares += channelSumOfSquares
+                // ARCHITECT ORDER #5: Optimized Vectorized RMS
+                var channelRMS: Float = 0
+                vDSP_rmsqv(samples, 1, &channelRMS, length)
+                sumOfSquares += (channelRMS * channelRMS) * Float(frameLength) // weighted sum for multi-channel average
 
+                // ARCHITECT ORDER #5: Optimized Vectorized Peak
                 var channelMaxPeak: Float = 0
                 vDSP_maxmgv(samples, 1, &channelMaxPeak, length)
                 if channelMaxPeak > peak { peak = channelMaxPeak }

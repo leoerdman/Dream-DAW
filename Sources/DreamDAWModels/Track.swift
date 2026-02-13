@@ -126,7 +126,7 @@ public final class Track: ObservableObject, Identifiable, Codable {
         name: String = "Audio",
         trackType: TrackType = .audio,
         color: TrackColor = .coral,
-        volume: Float = 0.8,
+        volume: Float = 1.0,
         pan: Float = 0.0,
         isMuted: Bool = false,
         isSoloed: Bool = false,
@@ -228,6 +228,24 @@ public final class Track: ObservableObject, Identifiable, Codable {
         }
 
         return volume * gainLinear
+    }
+
+    public static let minFaderDecibels: Float = -80.0
+    public static let maxFaderDecibels: Float = 6.0
+
+    public static func linearGain(fromDecibels db: Float) -> Float {
+        if db <= minFaderDecibels { return 0 }
+        return pow(10, db / 20.0)
+    }
+
+    public static func decibels(fromLinearGain gain: Float) -> Float {
+        if gain <= 0.000_01 { return minFaderDecibels }
+        return 20.0 * log10(gain)
+    }
+
+    public var volumeDecibels: Float {
+        get { Self.decibels(fromLinearGain: volume) }
+        set { volume = Self.linearGain(fromDecibels: newValue) }
     }
     
     /// Whether this track has any content.

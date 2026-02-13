@@ -151,4 +151,13 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
     public func overlaps(start: TimePosition, end: TimePosition) -> Bool {
         position.beats < end.beats && endPosition.beats > start.beats
     }
+
+    // MARK: - Synchronization
+
+    /// Synchronizes sample-accurate bounds with beat-based positions.
+    /// Critical for Metal rendering and engine scheduling.
+    public mutating func synchronize(with pulseMap: PulseMap) {
+        self.absolutePosition = AbsoluteTime(sampleFrame: pulseMap.sampleFrame(at: position.beats))
+        self.absoluteDuration = AbsoluteTime(sampleFrame: pulseMap.durationInSamples(beats: duration.beats, startingAt: absolutePosition.sampleFrame))
+    }
 }

@@ -12,9 +12,8 @@ extension NSPasteboard.PasteboardType {
 
 // MARK: - BrowserSidebarView
 
-/// Left sidebar mimicking Ableton Live's browser panel.
-/// Shows Library sections + real sample files from configured samples folder.
-/// Users can drag audio files from the browser onto audio tracks.
+/// Ableton-style browser with two panes:
+/// left = categories, right = result list.
 public final class BrowserSidebarView: NSView {
 
     // MARK: - Properties
@@ -26,14 +25,34 @@ public final class BrowserSidebarView: NSView {
     private let searchField = NSSearchField()
     private let searchContainer = NSView()
     private let backgroundView = NSView()
-    private let outlineScrollView = NSScrollView()
-    private let outlineView = NSOutlineView()
+
+    private let splitView = NSSplitView()
+
+    private let categoriesScrollView = NSScrollView()
+    private let categoriesOutlineView = NSOutlineView()
+
+    private let resultsScrollView = NSScrollView()
+    private let resultsTableView = NSTableView()
+
     private var rootItems: [BrowserNode] = []
-    private var filteredItems: [BrowserNode] = []
+    private var categoryItems: [BrowserNode] = []
+    private var resultItems: [BrowserNode] = []
+
+    private var selectedCategory: BrowserNode?
+
     private var samplesObserver: Any?
     private var vstObserver: Any?
+
     private var previewPlayer: AVAudioPlayer?
     private var searchQuery: String = ""
+
+    private var favoriteKeys: Set<String> = []
+    private let favoritesDefaultsKey = "DreamDAW.BrowserFavorites.v1"
+
+    private let browserContextMenu = NSMenu(title: "Browser")
+    private var contextMenuNode: BrowserNode?
+
+    private let categoryPaneWidthDefaultsKey = "DreamDAW.Browser.CategoryPaneWidth.v1"
 
     public override var isFlipped: Bool { true }
 
@@ -42,6 +61,7 @@ public final class BrowserSidebarView: NSView {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupUI()
+        loadFavorites()
         buildTree()
         observeSettings()
     }
@@ -62,7 +82,6 @@ public final class BrowserSidebarView: NSView {
 
     // MARK: - Audio Preview
 
-    /// Play a preview of the selected audio file.
     private func playPreview(url: URL) {
         previewPlayer?.stop()
         do {
@@ -74,7 +93,6 @@ public final class BrowserSidebarView: NSView {
         }
     }
 
-    /// Stop any active preview playback.
     public func stopPreview() {
         previewPlayer?.stop()
         previewPlayer = nil
@@ -86,19 +104,17 @@ public final class BrowserSidebarView: NSView {
         wantsLayer = true
         layer?.backgroundColor = DreamTheme.bgBrowser.cgColor
 
-        // Solid background (Professional/Enterprise Opaque)
         backgroundView.wantsLayer = true
         backgroundView.layer?.backgroundColor = DreamTheme.bgBrowser.cgColor
         addSubview(backgroundView)
 
-        // Search field — explicit visible panel for reliable UX.
         searchContainer.wantsLayer = true
         searchContainer.layer?.backgroundColor = DreamTheme.bgHeader.cgColor
         searchContainer.layer?.borderColor = DreamTheme.divider.cgColor
         searchContainer.layer?.borderWidth = 1
         addSubview(searchContainer)
 
-        searchField.placeholderString = "Search"
+        searchField.placeholderString = "Search (Cmd+F)"
         searchField.font = NSFont.systemFont(ofSize: 11, weight: .regular)
         searchField.focusRingType = .none
         searchField.isBezeled = true
@@ -112,43 +128,81 @@ public final class BrowserSidebarView: NSView {
         searchField.action = #selector(searchChanged(_:))
         searchContainer.addSubview(searchField)
 
-        // Outline view — Ableton-style compact tree
-        outlineView.headerView = nil
-        outlineView.rowHeight = 20  // Compact density matching Ableton
-        outlineView.indentationPerLevel = 14  // Slightly tighter indentation
-        outlineView.style = .sourceList
-        outlineView.floatsGroupRows = false
-        outlineView.autoresizesSubviews = true
+        setupCategoriesPane()
+        setupResultsPane()
 
-        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
+        splitView.dividerStyle = .thin
+        splitView.isVertical = true
+        splitView.delegate = self
+        splitView.addArrangedSubview(categoriesScrollView)
+        splitView.addArrangedSubview(resultsScrollView)
+        addSubview(splitView)
+
+        browserContextMenu.delegate = self
+    }
+
+    private func setupCategoriesPane() {
+        categoriesOutlineView.headerView = nil
+        categoriesOutlineView.rowHeight = 20
+        categoriesOutlineView.indentationPerLevel = 14
+        categoriesOutlineView.style = .sourceList
+        categoriesOutlineView.floatsGroupRows = false
+
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("categoryName"))
         column.isEditable = false
-        outlineView.addTableColumn(column)
-        outlineView.outlineTableColumn = column
+        categoriesOutlineView.addTableColumn(column)
+        categoriesOutlineView.outlineTableColumn = column
 
-        outlineView.dataSource = self
-        outlineView.delegate = self
+        categoriesOutlineView.dataSource = self
+        categoriesOutlineView.delegate = self
+        categoriesOutlineView.menu = browserContextMenu
 
-        // Register for drag source
-        outlineView.setDraggingSourceOperationMask([.copy, .link], forLocal: false) // 'false' is fine for both as long as mask is broad
-        outlineView.setDraggingSourceOperationMask([.copy, .link], forLocal: true)
+        categoriesOutlineView.setDraggingSourceOperationMask([.copy, .link], forLocal: false)
+        categoriesOutlineView.setDraggingSourceOperationMask([.copy, .link], forLocal: true)
 
-        // Scroll view
-        outlineScrollView.wantsLayer = true
-        outlineScrollView.drawsBackground = false
-        outlineScrollView.hasVerticalScroller = true
-        outlineScrollView.hasHorizontalScroller = false
-        outlineScrollView.scrollerStyle = .overlay
-        outlineScrollView.autohidesScrollers = true
-        outlineScrollView.documentView = outlineView
-        addSubview(outlineScrollView)
+        categoriesScrollView.wantsLayer = true
+        categoriesScrollView.drawsBackground = false
+        categoriesScrollView.hasVerticalScroller = true
+        categoriesScrollView.hasHorizontalScroller = false
+        categoriesScrollView.scrollerStyle = .overlay
+        categoriesScrollView.autohidesScrollers = true
+        categoriesScrollView.documentView = categoriesOutlineView
+    }
+
+    private func setupResultsPane() {
+        resultsTableView.headerView = nil
+        resultsTableView.rowHeight = 21
+        resultsTableView.intercellSpacing = NSSize(width: 0, height: 0)
+        resultsTableView.allowsMultipleSelection = false
+
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("resultName"))
+        column.isEditable = false
+        resultsTableView.addTableColumn(column)
+
+        resultsTableView.dataSource = self
+        resultsTableView.delegate = self
+        resultsTableView.menu = browserContextMenu
+
+        resultsTableView.setDraggingSourceOperationMask([.copy, .link], forLocal: false)
+        resultsTableView.setDraggingSourceOperationMask([.copy, .link], forLocal: true)
+
+        resultsScrollView.wantsLayer = true
+        resultsScrollView.drawsBackground = false
+        resultsScrollView.hasVerticalScroller = true
+        resultsScrollView.hasHorizontalScroller = false
+        resultsScrollView.scrollerStyle = .overlay
+        resultsScrollView.autohidesScrollers = true
+        resultsScrollView.documentView = resultsTableView
     }
 
     public override func layout() {
         super.layout()
         backgroundView.frame = bounds
+
         let searchAreaH: CGFloat = 32
         let hPad: CGFloat = 8
         let topPad: CGFloat = 5
+
         searchContainer.frame = CGRect(x: 0, y: 0, width: bounds.width, height: searchAreaH)
         searchField.frame = CGRect(
             x: hPad,
@@ -157,12 +211,24 @@ public final class BrowserSidebarView: NSView {
             height: searchAreaH - topPad * 2
         )
 
-        outlineScrollView.frame = CGRect(
+        splitView.frame = CGRect(
             x: 0,
             y: searchAreaH,
             width: bounds.width,
             height: bounds.height - searchAreaH
         )
+
+        if splitView.subviews.count >= 2 {
+            let minCategories: CGFloat = 150
+            let maxCategories: CGFloat = max(minCategories, bounds.width * 0.6)
+            let savedWidth = UserDefaults.standard.double(forKey: categoryPaneWidthDefaultsKey)
+            let preferred = savedWidth > 0 ? CGFloat(savedWidth) : bounds.width * 0.38
+            let categoryWidth = min(maxCategories, max(minCategories, preferred))
+
+            var leftFrame = splitView.subviews[0].frame
+            leftFrame.size.width = categoryWidth
+            splitView.setPosition(leftFrame.width, ofDividerAt: 0)
+        }
     }
 
     // MARK: - Tree Building
@@ -170,24 +236,19 @@ public final class BrowserSidebarView: NSView {
     private func buildTree() {
         rootItems.removeAll()
 
-        // Collections
         let collections = BrowserNode(name: "Collections", icon: "star.fill", isGroup: true)
-        collections.children = [
-            BrowserNode(name: "Favorites", icon: "star.fill"),
-        ]
+        let favoritesNode = BrowserNode(name: "Favorites", icon: "star.fill", isGroup: true)
+        collections.children = [favoritesNode]
         rootItems.append(collections)
 
-        // Library
         let library = BrowserNode(name: "Library", icon: "folder.fill", isGroup: true)
 
-        // Instruments sub-category with built-in synths
         let instruments = BrowserNode(name: "Instruments", icon: "pianokeys", isGroup: true)
         instruments.children = [
             BrowserNode(name: "Simple Sine Synth", icon: "waveform.path", nodeType: .instrument),
             BrowserNode(name: "Sampler", icon: "waveform.badge.plus", nodeType: .instrument),
         ]
 
-        // Audio Effects
         let audioEffects = BrowserNode(name: "Audio Effects", icon: "wand.and.stars", isGroup: true)
         audioEffects.children = [
             BrowserNode(name: "EQ Eight", icon: "slider.horizontal.3", nodeType: .audioEffect),
@@ -198,7 +259,6 @@ public final class BrowserSidebarView: NSView {
             BrowserNode(name: "Utility", icon: "wrench", nodeType: .audioEffect),
         ]
 
-        // MIDI Effects
         let midiEffects = BrowserNode(name: "MIDI Effects", icon: "sparkles", isGroup: true)
         midiEffects.children = [
             BrowserNode(name: "Arpeggiator", icon: "arrow.up.right", nodeType: .midiEffect),
@@ -207,18 +267,15 @@ public final class BrowserSidebarView: NSView {
             BrowserNode(name: "Scale", icon: "tuningfork", nodeType: .midiEffect),
         ]
 
-        // Plug-Ins (AU / VST)
         let plugIns = BrowserNode(name: "Plug-Ins", icon: "puzzlepiece.fill", isGroup: true)
-        
-        // AU - placeholder for now
         let audioUnits = BrowserNode(name: "Audio Units", icon: "cpu")
-        
-        // VSTs from PluginManager
         let vsts = loadPlugins()
-        
         plugIns.children = [audioUnits] + vsts
 
+        let allNode = BrowserNode(name: "All", icon: "line.3.horizontal.decrease", isGroup: true)
+
         library.children = [
+            allNode,
             BrowserNode(name: "Sounds", icon: "music.note"),
             BrowserNode(name: "Drums", icon: "drum.fill"),
             instruments,
@@ -230,7 +287,6 @@ public final class BrowserSidebarView: NSView {
         ]
         rootItems.append(library)
 
-        // Places
         let places = BrowserNode(name: "Places", icon: "externaldrive.fill", isGroup: true)
         places.children = [
             BrowserNode(name: "User Library", icon: "person.crop.circle"),
@@ -238,45 +294,95 @@ public final class BrowserSidebarView: NSView {
         ]
         rootItems.append(places)
 
-        // Samples (from user settings)
-        loadSamplesFolder()
-
-        // Expand all groups
-        for item in rootItems {
-            outlineView.expandItem(item)
+        let samplesNode = loadSamplesFolder()
+        if let samplesNode = samplesNode {
+            rootItems.append(samplesNode)
         }
-        
-        // Initialize filtered items
-        updateFilteredItems()
+
+        let allLeafs = collectLeafNodes(from: [library, places, samplesNode].compactMap { $0 })
+        allNode.children = allLeafs
+
+        let favoriteLeafs = allLeafs.filter { favoriteKeys.contains(favoriteKey(for: $0)) }
+        favoritesNode.children = favoriteLeafs
+
+        categoryItems = rootItems
+        categoriesOutlineView.reloadData()
+
+        for item in rootItems {
+            categoriesOutlineView.expandItem(item, expandChildren: true)
+        }
+
+        if selectedCategory == nil {
+            if let defaultNode = findNode(named: "All", in: rootItems) ?? rootItems.first {
+                selectCategory(defaultNode)
+            }
+        } else {
+            updateResultItems()
+        }
     }
 
-    private func loadSamplesFolder() {
+    private func findNode(named name: String, in roots: [BrowserNode]) -> BrowserNode? {
+        for root in roots {
+            if root.name == name { return root }
+            if let found = findNode(named: name, in: root.children) { return found }
+        }
+        return nil
+    }
+
+    private func selectCategory(_ node: BrowserNode) {
+        selectedCategory = node
+        updateResultItems()
+    }
+
+    private func updateResultItems() {
+        guard let category = selectedCategory else {
+            resultItems = []
+            resultsTableView.reloadData()
+            return
+        }
+
+        let allLeafs = collectLeafNodes(from: [category])
+        let filtered = allLeafs.filter { node in
+            guard !searchQuery.isEmpty else { return true }
+            return node.name.lowercased().contains(searchQuery)
+        }
+
+        resultItems = filtered.sorted { a, b in
+            if a.nodeType == .audioFile && b.nodeType != .audioFile { return true }
+            if a.nodeType != .audioFile && b.nodeType == .audioFile { return false }
+            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        }
+
+        resultsTableView.reloadData()
+    }
+
+    private func loadSamplesFolder() -> BrowserNode? {
         let samplesPath = AppSettings.shared.samplesPath
-        guard !samplesPath.isEmpty else { return }
+        guard !samplesPath.isEmpty else { return nil }
 
         let samplesURL = URL(fileURLWithPath: samplesPath)
-        guard FileManager.default.fileExists(atPath: samplesPath) else { return }
+        guard FileManager.default.fileExists(atPath: samplesPath) else { return nil }
 
         let samplesNode = BrowserNode(name: "Samples", icon: "waveform", isGroup: true)
         samplesNode.children = scanDirectory(url: samplesURL, depth: 0, maxDepth: 8)
-        rootItems.append(samplesNode)
+        return samplesNode
     }
 
     private func loadPlugins() -> [BrowserNode] {
         let plugins = PluginManager.shared.availablePlugins
         var nodes: [BrowserNode] = []
-        
+
         for plugin in plugins {
             let nType: BrowserNodeType = (plugin.type == .vst2) ? .vst2 : .vst3
             let node = BrowserNode(
-                name: plugin.name, 
+                name: plugin.name,
                 icon: (nType == .vst2) ? "puzzlepiece.extension.fill" : "puzzlepiece.fill",
                 nodeType: nType
             )
             node.fileURL = URL(fileURLWithPath: plugin.path)
             nodes.append(node)
         }
-        
+
         return nodes
     }
 
@@ -292,7 +398,6 @@ public final class BrowserSidebarView: NSView {
             options: [.skipsHiddenFiles]
         ) else { return [] }
 
-        // Sort: directories first, then files
         let sorted = contents.sorted { a, b in
             let aIsDir = (try? a.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
             let bIsDir = (try? b.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
@@ -326,7 +431,7 @@ public final class BrowserSidebarView: NSView {
         ) { [weak self] _ in
             self?.buildTree()
         }
-        
+
         vstObserver = NotificationCenter.default.addObserver(
             forName: .vstPathsDidChange, object: nil, queue: .main
         ) { [weak self] _ in
@@ -334,62 +439,194 @@ public final class BrowserSidebarView: NSView {
         }
     }
 
+    private func favoriteKey(for node: BrowserNode) -> String {
+        if let url = node.fileURL {
+            return "file:\(url.path)"
+        }
+        return "\(node.nodeType.rawValue):\(node.name)"
+    }
+
+    private func loadFavorites() {
+        let array = UserDefaults.standard.stringArray(forKey: favoritesDefaultsKey) ?? []
+        favoriteKeys = Set(array)
+    }
+
+    private func saveFavorites() {
+        UserDefaults.standard.set(Array(favoriteKeys).sorted(), forKey: favoritesDefaultsKey)
+    }
+
+    private func toggleFavorite(_ node: BrowserNode) {
+        let key = favoriteKey(for: node)
+        if favoriteKeys.contains(key) {
+            favoriteKeys.remove(key)
+        } else {
+            favoriteKeys.insert(key)
+        }
+        saveFavorites()
+        buildTree()
+    }
+
+    private func collectLeafNodes(from roots: [BrowserNode]) -> [BrowserNode] {
+        var out: [BrowserNode] = []
+        var seen = Set<String>()
+
+        func visit(_ node: BrowserNode) {
+            if node.isGroup {
+                for child in node.children {
+                    visit(child)
+                }
+                return
+            }
+
+            let key = favoriteKey(for: node)
+            guard !seen.contains(key) else { return }
+            seen.insert(key)
+
+            let copy = BrowserNode(
+                name: node.name,
+                icon: node.icon,
+                isGroup: false,
+                nodeType: node.nodeType,
+                fileURL: node.fileURL
+            )
+            out.append(copy)
+        }
+
+        for root in roots {
+            visit(root)
+        }
+        return out
+    }
+
     // MARK: - Search
 
-    /// Focus the search field, selecting all text. If already focused, clear it.
     public func focusSearch() {
         if window?.firstResponder == searchField.currentEditor() {
             searchField.stringValue = ""
             searchQuery = ""
-            updateFilteredItems()
+            updateResultItems()
         }
-        
+
         window?.makeFirstResponder(searchField)
         searchField.currentEditor()?.selectAll(nil)
     }
 
     @objc private func searchChanged(_ sender: NSSearchField) {
         self.searchQuery = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        updateFilteredItems()
+        updateResultItems()
     }
 
-    private func updateFilteredItems() {
-        if searchQuery.isEmpty {
-            filteredItems = rootItems
+    // MARK: - Shared Cell Configuration
+
+    private func iconTint(for node: BrowserNode) -> NSColor {
+        if node.isGroup {
+            return NSColor(red: 0.50, green: 0.45, blue: 0.37, alpha: 1.0)
+        }
+
+        switch node.nodeType {
+        case .instrument:
+            return NSColor(red: 0.95, green: 0.75, blue: 0.25, alpha: 1.0)
+        case .audioEffect:
+            return NSColor(red: 0.35, green: 0.70, blue: 0.90, alpha: 1.0)
+        case .midiEffect:
+            return NSColor(red: 0.65, green: 0.50, blue: 0.90, alpha: 1.0)
+        case .audioFile:
+            return DreamTheme.textSecondary
+        case .vst2, .vst3:
+            return NSColor(red: 0.20, green: 0.85, blue: 0.55, alpha: 1.0)
+        case .generic:
+            if node.name == "Favorites" { return NSColor(red: 0.95, green: 0.78, blue: 0.20, alpha: 1.0) }
+            return DreamTheme.textSecondary
+        }
+    }
+
+    private func configureTextAndIcon(for cellView: NSTableCellView, node: BrowserNode, compactSectionStyle: Bool) {
+        if node.isGroup && compactSectionStyle {
+            cellView.textField?.stringValue = node.name
+            cellView.textField?.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+            cellView.textField?.textColor = NSColor(red: 0.55, green: 0.50, blue: 0.40, alpha: 1.0)
         } else {
-            // Filter and sort: Bring audio files and instruments to top, categories further down
-            let results = rootItems.compactMap { $0.filteredClone(query: searchQuery) }
-            filteredItems = results.sorted { a, b in
-                if a.nodeType == .audioFile && b.nodeType != .audioFile { return true }
-                if a.nodeType != .audioFile && b.nodeType == .audioFile { return false }
-                return false
-            }
+            let isFav = favoriteKeys.contains(favoriteKey(for: node))
+            cellView.textField?.stringValue = isFav ? "★ \(node.name)" : node.name
+            cellView.textField?.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+            cellView.textField?.textColor = DreamTheme.textPrimary
         }
-        outlineView.reloadData()
-        
-        // Expand everything if searching to show results
-        if !searchQuery.isEmpty {
-            for item in filteredItems {
-                outlineView.expandItem(item, expandChildren: true)
-            }
+
+        if let symbolImage = NSImage(systemSymbolName: node.icon, accessibilityDescription: nil) {
+            let iconSize: CGFloat = node.isGroup && compactSectionStyle ? 9 : 10
+            let config = NSImage.SymbolConfiguration(pointSize: iconSize, weight: .medium)
+            cellView.imageView?.image = symbolImage.withSymbolConfiguration(config)
+            cellView.imageView?.contentTintColor = iconTint(for: node)
         }
+    }
+
+    private func makeOrReuseCell(in tableView: NSTableView, id: NSUserInterfaceItemIdentifier) -> NSTableCellView {
+        if let reused = tableView.makeView(withIdentifier: id, owner: self) as? NSTableCellView {
+            return reused
+        }
+
+        let cellView = NSTableCellView()
+        cellView.identifier = id
+
+        let imageView = NSImageView()
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        cellView.addSubview(imageView)
+        cellView.imageView = imageView
+
+        let textField = NSTextField(labelWithString: "")
+        textField.translatesAutoresizingMaskIntoConstraints = false
+        textField.lineBreakMode = .byTruncatingTail
+        cellView.addSubview(textField)
+        cellView.textField = textField
+
+        NSLayoutConstraint.activate([
+            imageView.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 2),
+            imageView.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
+            imageView.widthAnchor.constraint(equalToConstant: 14),
+            imageView.heightAnchor.constraint(equalToConstant: 14),
+
+            textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 6),
+            textField.trailingAnchor.constraint(equalTo: cellView.trailingAnchor, constant: -4),
+            textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
+        ])
+
+        return cellView
+    }
+
+    private func pasteboardWriter(for node: BrowserNode) -> NSPasteboardWriting? {
+        if let fileURL = node.fileURL, node.nodeType == .audioFile {
+            return fileURL as NSURL
+        }
+
+        if node.nodeType != .generic {
+            let pasteboardItem = NSPasteboardItem()
+            let payloadValue: String
+            if (node.nodeType == .vst2 || node.nodeType == .vst3), let path = node.fileURL?.path {
+                payloadValue = path
+            } else {
+                payloadValue = node.name
+            }
+            let payload = "\(node.nodeType.rawValue):\(payloadValue)"
+            pasteboardItem.setString(payload, forType: .browserItem)
+            return pasteboardItem
+        }
+
+        return nil
     }
 }
 
 // MARK: - BrowserNode
 
-/// Type classification for browser items.
 enum BrowserNodeType: String {
-    case generic      // Non-draggable items (folders, groups, labels)
-    case instrument   // Synths, samplers → drag onto MIDI tracks
-    case audioEffect  // EQ, Compressor, etc. → drag onto any track
-    case midiEffect   // Arpeggiator, etc. → drag onto MIDI tracks
-    case audioFile    // .wav, .aif, .mp3 → drag onto audio tracks
-    case vst2         // External VST2 plugin
-    case vst3         // External VST3 plugin
+    case generic
+    case instrument
+    case audioEffect
+    case midiEffect
+    case audioFile
+    case vst2
+    case vst3
 }
 
-/// Tree node for the browser outline view.
 class BrowserNode: NSObject {
     let name: String
     let icon: String
@@ -406,190 +643,160 @@ class BrowserNode: NSObject {
         self.fileURL = fileURL
         super.init()
     }
+}
 
-    /// Returns a clone of this node and its children that match the search query.
-    /// If a node matches, it is included. If a child matches, the parent is included too.
-    func filteredClone(query: String) -> BrowserNode? {
-        // Recursive step: filter children
-        let filteredChildren = children.compactMap { $0.filteredClone(query: query) }
-        
-        // Inclusion condition: self matches OR has matching children
-        let selfMatches = name.lowercased().contains(query)
-        
-        if selfMatches || !filteredChildren.isEmpty {
-            let newNode = BrowserNode(name: name, icon: icon, isGroup: isGroup, nodeType: nodeType, fileURL: fileURL)
-            newNode.children = filteredChildren
-            return newNode
-        }
-        
-        return nil
+// MARK: - NSSplitViewDelegate
+
+extension BrowserSidebarView: NSSplitViewDelegate {
+    public func splitView(_ splitView: NSSplitView, constrainSplitPosition proposedPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        guard dividerIndex == 0 else { return proposedPosition }
+        let minLeft: CGFloat = 140
+        let maxLeft: CGFloat = max(minLeft, splitView.bounds.width * 0.65)
+        return min(maxLeft, max(minLeft, proposedPosition))
+    }
+
+    public func splitViewDidResizeSubviews(_ notification: Notification) {
+        guard splitView.subviews.count >= 2 else { return }
+        let leftWidth = splitView.subviews[0].frame.width
+        UserDefaults.standard.set(Double(leftWidth), forKey: categoryPaneWidthDefaultsKey)
     }
 }
 
-// MARK: - NSOutlineViewDataSource
+// MARK: - NSOutlineViewDataSource / Delegate (Categories)
 
-extension BrowserSidebarView: NSOutlineViewDataSource {
-
+extension BrowserSidebarView: NSOutlineViewDataSource, NSOutlineViewDelegate {
     public func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-        if item == nil { return filteredItems.count }
+        if item == nil { return categoryItems.count }
         if let node = item as? BrowserNode { return node.children.count }
         return 0
     }
 
     public func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-        if item == nil { return filteredItems[index] }
+        if item == nil { return categoryItems[index] }
         if let node = item as? BrowserNode { return node.children[index] }
         return ""
     }
 
     public func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
-        if let node = item as? BrowserNode { return node.isGroup && !node.children.isEmpty }
-        return false
+        guard let node = item as? BrowserNode else { return false }
+        return node.isGroup && !node.children.isEmpty
     }
-
-    // MARK: - Drag Source (provide file URL for audio files, custom type for instruments/effects)
-
-    public func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
-        guard let node = item as? BrowserNode else { return nil }
-
-        // Audio files → drag as file URL
-        if let fileURL = node.fileURL, node.nodeType == .audioFile {
-            return fileURL as NSURL
-        }
-
-        // Instruments / Effects → drag as custom pasteboard item
-        if node.nodeType != .generic {
-            let pasteboardItem = NSPasteboardItem()
-            
-            // For external plugins, we use the path as the payload to ensure we can load them
-            let payloadValue: String
-            if (node.nodeType == .vst2 || node.nodeType == .vst3), let path = node.fileURL?.path {
-                payloadValue = path
-            } else {
-                payloadValue = node.name
-            }
-            
-            // Encode as "type:payload" — e.g. "instrument:Simple Sine Synth" or "vst3:/Path/To/Plugin.vst3"
-            let payload = "\(node.nodeType.rawValue):\(payloadValue)"
-            pasteboardItem.setString(payload, forType: .browserItem)
-            return pasteboardItem
-        }
-
-        return nil  // Groups and generic nodes are not draggable
-    }
-}
-
-// MARK: - NSOutlineViewDelegate
-
-extension BrowserSidebarView: NSOutlineViewDelegate {
 
     public func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
         guard let node = item as? BrowserNode else { return nil }
-
-        let cellID = NSUserInterfaceItemIdentifier("BrowserCell")
-        let cellView: NSTableCellView
-
-        if let reused = outlineView.makeView(withIdentifier: cellID, owner: self) as? NSTableCellView {
-            cellView = reused
-        } else {
-            cellView = NSTableCellView()
-            cellView.identifier = cellID
-
-            let imageView = NSImageView()
-            imageView.translatesAutoresizingMaskIntoConstraints = false
-            cellView.addSubview(imageView)
-            cellView.imageView = imageView
-
-            let textField = NSTextField(labelWithString: "")
-            textField.translatesAutoresizingMaskIntoConstraints = false
-            textField.lineBreakMode = .byTruncatingTail
-            cellView.addSubview(textField)
-            cellView.textField = textField
-
-            NSLayoutConstraint.activate([
-                imageView.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 2),
-                imageView.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
-                imageView.widthAnchor.constraint(equalToConstant: 14),
-                imageView.heightAnchor.constraint(equalToConstant: 14),
-
-                textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 6),
-                textField.trailingAnchor.constraint(equalTo: cellView.trailingAnchor, constant: -4),
-                textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
-            ])
-        }
-
-        // Configure cell — Ableton-style visual hierarchy
-        if node.isGroup {
-            // Section headers: mixed-case, muted accent color (like Ableton's golden section labels)
-            cellView.textField?.stringValue = node.name
-            cellView.textField?.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-            cellView.textField?.textColor = NSColor(red: 0.55, green: 0.50, blue: 0.40, alpha: 1.0)  // Warm muted gold
-        } else {
-            cellView.textField?.stringValue = node.name
-            cellView.textField?.font = NSFont.systemFont(ofSize: 11, weight: .regular)
-            cellView.textField?.textColor = DreamTheme.textPrimary
-        }
-
-        // Icons with section-aware coloring (Ableton uses colored icons per category)
-        if let symbolImage = NSImage(systemSymbolName: node.icon, accessibilityDescription: nil) {
-            let iconSize: CGFloat = node.isGroup ? 9 : 10
-            let config = NSImage.SymbolConfiguration(pointSize: iconSize, weight: .medium)
-            cellView.imageView?.image = symbolImage.withSymbolConfiguration(config)
-            cellView.imageView?.contentTintColor = iconTint(for: node)
-        }
-
-        return cellView
-    }
-
-    /// Returns the appropriate icon tint color for a browser node,
-    /// matching Ableton's per-section icon coloring.
-    private func iconTint(for node: BrowserNode) -> NSColor {
-        if node.isGroup {
-            return NSColor(red: 0.50, green: 0.45, blue: 0.37, alpha: 1.0)  // Warm muted gold for headers
-        }
-
-        switch node.nodeType {
-        case .instrument:
-            return NSColor(red: 0.95, green: 0.75, blue: 0.25, alpha: 1.0)  // Gold — instruments
-        case .audioEffect:
-            return NSColor(red: 0.35, green: 0.70, blue: 0.90, alpha: 1.0)  // Blue — audio effects
-        case .midiEffect:
-            return NSColor(red: 0.65, green: 0.50, blue: 0.90, alpha: 1.0)  // Purple — MIDI effects
-        case .audioFile:
-            return DreamTheme.textSecondary
-        case .vst2, .vst3:
-            return NSColor(red: 0.20, green: 0.85, blue: 0.55, alpha: 1.0)  // Mint green — VSTs
-        case .generic:
-            // Special icon coloring for specific items
-            if node.name == "Favorites" { return NSColor(red: 0.95, green: 0.78, blue: 0.20, alpha: 1.0) }  // Yellow star
-            return DreamTheme.textSecondary
-        }
-    }
-
-    public func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {
-        false // We handle group styling manually
+        let cell = makeOrReuseCell(in: categoriesOutlineView, id: NSUserInterfaceItemIdentifier("CategoryCell"))
+        configureTextAndIcon(for: cell, node: node, compactSectionStyle: true)
+        return cell
     }
 
     public func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
-        if let node = item as? BrowserNode {
-            return !node.isGroup // Only leaf items are selectable
+        guard let node = item as? BrowserNode else { return false }
+        // Top-level section labels are not selectable; all others are.
+        if categoryItems.contains(where: { $0 === node }) {
+            return false
         }
-        return false
+        return true
     }
 
-    /// Play preview when a file is selected (clicked) in the browser.
     public func outlineViewSelectionDidChange(_ notification: Notification) {
-        let row = outlineView.selectedRow
-        guard row >= 0,
-              let node = outlineView.item(atRow: row) as? BrowserNode else {
+        guard notification.object as AnyObject? === categoriesOutlineView else { return }
+        let row = categoriesOutlineView.selectedRow
+        guard row >= 0, let node = categoriesOutlineView.item(atRow: row) as? BrowserNode else { return }
+        selectCategory(node)
+    }
+
+    public func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
+        guard let node = item as? BrowserNode else { return nil }
+        return pasteboardWriter(for: node)
+    }
+}
+
+// MARK: - NSTableViewDataSource / Delegate (Results)
+
+extension BrowserSidebarView: NSTableViewDataSource, NSTableViewDelegate {
+    public func numberOfRows(in tableView: NSTableView) -> Int {
+        if tableView === resultsTableView {
+            return resultItems.count
+        }
+        return 0
+    }
+
+    public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard tableView === resultsTableView,
+              row >= 0, row < resultItems.count else { return nil }
+
+        let node = resultItems[row]
+        let cell = makeOrReuseCell(in: resultsTableView, id: NSUserInterfaceItemIdentifier("ResultCell"))
+        configureTextAndIcon(for: cell, node: node, compactSectionStyle: false)
+        return cell
+    }
+
+    public func tableViewSelectionDidChange(_ notification: Notification) {
+        guard notification.object as AnyObject? === resultsTableView else { return }
+        let row = resultsTableView.selectedRow
+        guard row >= 0, row < resultItems.count else {
             stopPreview()
             return
         }
 
+        let node = resultItems[row]
         if let fileURL = node.fileURL, node.nodeType == .audioFile {
             playPreview(url: fileURL)
         } else {
             stopPreview()
         }
+    }
+
+    public func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+        guard tableView === resultsTableView,
+              row >= 0, row < resultItems.count else { return nil }
+        return pasteboardWriter(for: resultItems[row])
+    }
+}
+
+// MARK: - Browser Context Menu
+
+extension BrowserSidebarView: NSMenuDelegate {
+    public func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+
+        var node: BrowserNode?
+
+        if resultsTableView.clickedRow >= 0,
+           resultsTableView.clickedRow < resultItems.count {
+            node = resultItems[resultsTableView.clickedRow]
+        } else if categoriesOutlineView.clickedRow >= 0,
+                  let clicked = categoriesOutlineView.item(atRow: categoriesOutlineView.clickedRow) as? BrowserNode,
+                  !clicked.isGroup {
+            node = clicked
+        }
+
+        guard let contextNode = node else { return }
+        contextMenuNode = contextNode
+
+        let key = favoriteKey(for: contextNode)
+        let isFav = favoriteKeys.contains(key)
+
+        let favTitle = isFav ? "Remove from Favorites" : "Add to Favorites"
+        let favItem = NSMenuItem(title: favTitle, action: #selector(toggleFavoriteFromMenu), keyEquivalent: "")
+        favItem.target = self
+        menu.addItem(favItem)
+
+        if contextNode.fileURL != nil {
+            menu.addItem(NSMenuItem.separator())
+            let revealItem = NSMenuItem(title: "Reveal in Finder", action: #selector(revealInFinderFromMenu), keyEquivalent: "")
+            revealItem.target = self
+            menu.addItem(revealItem)
+        }
+    }
+
+    @objc private func toggleFavoriteFromMenu() {
+        guard let node = contextMenuNode else { return }
+        toggleFavorite(node)
+    }
+
+    @objc private func revealInFinderFromMenu() {
+        guard let url = contextMenuNode?.fileURL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 }

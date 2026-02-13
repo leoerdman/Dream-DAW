@@ -83,6 +83,7 @@ public enum DreamTheme {
     public static let scrollbarSize: CGFloat = 10
     public static let playheadWidth: CGFloat = 1.0
     public static let dividerWidth: CGFloat = 1
+    public static let bottomPanelMinHeight: CGFloat = 100
     public static let colorStripeWidth: CGFloat = 3         // Track color indicator width
 
     // MARK: - Zoom

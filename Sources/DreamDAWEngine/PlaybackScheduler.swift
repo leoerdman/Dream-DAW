@@ -394,29 +394,48 @@ public final class PlaybackScheduler {
             
             // PHASE 9.3: Work entirely in sample frames — zero floating-point conversion.
             let samplesElapsed = Int64(sampleTime) - self.playbackStartSampleTime
-            
-            // Buffer window in absolute sample frames
-            var bufferStartFrame = playbackStartFrame + samplesElapsed
+            let bufferStartFrame = playbackStartFrame + samplesElapsed
             let bufferFrameCount = Int64(frameCount)
             
-            // Loop wrapping using integer modulo (Phase 9.1 pattern)
-            if isLooping && loopEndFrame > loopStartFrame {
-                let loopLen = loopEndFrame - loopStartFrame
-                if bufferStartFrame >= loopEndFrame {
-                    bufferStartFrame = loopStartFrame + ((bufferStartFrame - loopStartFrame) % loopLen)
+            // PHASE 10 Audit: Handle loop boundary straddling (Split Dispatch).
+            // A single buffer might start before loopEndFrame and end after it.
+            // We must process this in two chunks to ensure MIDI events at the wrap point are scheduled correctly.
+            var framesProcessed: Int64 = 0
+            var currentBufferPosition = bufferStartFrame // This changes during wrap-around
+            
+            while framesProcessed < bufferFrameCount {
+                var remainingInChunk = bufferFrameCount - framesProcessed
+                
+                // If looping is on, check if this chunk crosses the loop end
+                if isLooping && loopEndFrame > loopStartFrame {
+                    let samplesToLoopEnd = loopEndFrame - currentBufferPosition
+                    if samplesToLoopEnd > 0 && samplesToLoopEnd < remainingInChunk {
+                        // Split! Process exactly up to loopEndFrame
+                        remainingInChunk = samplesToLoopEnd
+                    }
                 }
-            }
-            
-            let bufferEndFrame = bufferStartFrame + bufferFrameCount
-            
-            // PHASE 9.4: Read from captured immutable snapshot — ZERO LOCKS.
-            for activeClip in midiSnapshot {
-                self.dispatchMidiEventsAbsolute(
-                    activeClip: activeClip,
-                    bufferStartFrame: bufferStartFrame,
-                    bufferEndFrame: bufferEndFrame,
-                    frameCount: frameCount
-                )
+                
+                let currentChunkEnd = currentBufferPosition + remainingInChunk
+                
+                // Dispatch for this safe sub-range
+                for activeClip in midiSnapshot {
+                    self.dispatchMidiEventsAbsolute(
+                        activeClip: activeClip,
+                        bufferStartFrame: currentBufferPosition,
+                        bufferEndFrame: currentChunkEnd,
+                        playbackStartPointFrame: playbackStartFrame,
+                        frameCount: UInt32(bufferFrameCount),
+                        bufferOffset: UInt32(framesProcessed)
+                    )
+                }
+                
+                framesProcessed += remainingInChunk
+                currentBufferPosition += remainingInChunk
+                
+                // Wrap-around for the NEXT chunk if we just hit loopEndFrame
+                if isLooping && loopEndFrame > loopStartFrame && currentBufferPosition >= loopEndFrame {
+                    currentBufferPosition = loopStartFrame
+                }
             }
             
             return noErr
@@ -430,32 +449,33 @@ public final class PlaybackScheduler {
 
     /// PHASE 9.3 (AbsoluteTime): Dispatches MIDI events using pre-computed sample
     /// frame positions. All arithmetic is integer — zero floating-point on the hot path.
-    /// This completely eliminates accumulated drift in long sessions.
     ///
-    /// HOTFIX 8.5 still applies: offset is clamped to [0, frameCount-1] before use.
+    /// - Parameters:
+    ///   - bufferOffset: Offset in frames from the start of the ACTUAL hardware buffer.
+    ///     Used when the buffer is split due to looping.
     private func dispatchMidiEventsAbsolute(
         activeClip: ActiveMidiClip,
         bufferStartFrame: Int64,
         bufferEndFrame: Int64,
-        frameCount: UInt32
+        playbackStartPointFrame: Int64,
+        frameCount: UInt32,
+        bufferOffset: UInt32 = 0
     ) {
         // Check if clip intersects current buffer (integer comparison)
         guard activeClip.clipEndFrame > bufferStartFrame &&
               activeClip.clipStartFrame < bufferEndFrame else { return }
         
-        let maxOffset = Int64(frameCount > 0 ? frameCount - 1 : 0)
-        
         for note in activeClip.noteFrames {
             // If playback begins in the middle of a sustained note, fire note-on immediately.
+            // PHASE 10 Audit: We only do this if this is the very first sample of the transport start.
             if note.startFrame < bufferStartFrame && note.endFrame > bufferStartFrame {
-                let isFirstBuffer = (bufferStartFrame - Int64(playbackStartBeat * 60.0 / currentBPM * audioEngine.sampleRate)) < Int64(frameCount)
-                if isFirstBuffer {
+                if bufferStartFrame == playbackStartPointFrame {
                     sendMidiEvent(
                         activeClip: activeClip,
                         status: 0x90,
                         data1: UInt8(note.pitch),
                         data2: UInt8(note.velocity),
-                        offset: 0,
+                        offset: Int64(bufferOffset), // Start immediately at the correct buffer offset
                         isNoteOn: true
                     )
                 }
@@ -463,26 +483,34 @@ public final class PlaybackScheduler {
             
             // Note On — integer math only
             if note.startFrame >= bufferStartFrame && note.startFrame < bufferEndFrame {
-                let offset = min(maxOffset, max(0, note.startFrame - bufferStartFrame))
+                let internalOffset = note.startFrame - bufferStartFrame
+                let totalOffset = Int64(bufferOffset) + internalOffset
+                // Order #1 Compliance: Clamp to [0, frameCount-1] to prevent Integer Underflow Fatal Error
+                let finalOffset = max(0, min(Int64(frameCount) - 1, totalOffset))
+                
                 sendMidiEvent(
                     activeClip: activeClip,
                     status: 0x90,
                     data1: UInt8(note.pitch),
                     data2: UInt8(note.velocity),
-                    offset: offset,
+                    offset: finalOffset,
                     isNoteOn: true
                 )
             }
             
             // Note Off — integer math only
             if note.endFrame >= bufferStartFrame && note.endFrame < bufferEndFrame {
-                let offset = min(maxOffset, max(0, note.endFrame - bufferStartFrame))
+                let internalOffset = note.endFrame - bufferStartFrame
+                let totalOffset = Int64(bufferOffset) + internalOffset
+                // Order #1 Compliance: Same clamping for Note Off
+                let finalOffset = max(0, min(Int64(frameCount) - 1, totalOffset))
+                
                 sendMidiEvent(
                     activeClip: activeClip,
                     status: 0x80,
                     data1: UInt8(note.pitch),
                     data2: 0,
-                    offset: offset,
+                    offset: finalOffset,
                     isNoteOn: false
                 )
             }

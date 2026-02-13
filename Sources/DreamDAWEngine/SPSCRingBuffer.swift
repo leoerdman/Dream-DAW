@@ -57,6 +57,13 @@ public final class SPSCRingBuffer<T>: @unchecked Sendable {
             alignment: MemoryLayout<T>.alignment
         )
         
+        // ARCHITECT HOTFIX 8.5: Zero-initialize numeric memory
+        // If T is Numeric, we ensure the raw memory is zero-filled to avoid
+        // garbage data in the audio buffer.
+        if T.self is any Numeric.Type {
+            self.rawBuffer.initializeMemory(as: UInt8.self, repeating: 0, count: capacity * MemoryLayout<T>.stride)
+        }
+        
         // Occupation flags — simple Bool array, no ARC (Bool is trivial).
         self.slotOccupied = UnsafeMutablePointer<Bool>.allocate(capacity: capacity)
         self.slotOccupied.initialize(repeating: false, count: capacity)

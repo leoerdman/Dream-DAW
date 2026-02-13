@@ -1,5 +1,4 @@
 import Foundation
-import DreamDAWModels
 import os.log
 
 // MARK: - UndoableAction Protocol
@@ -147,7 +146,6 @@ public final class ActionHistory: ObservableObject {
     }
 
     // MARK: - Private
-
     private func updateState() {
         canUndo = !undoStack.isEmpty
         canRedo = !redoStack.isEmpty
@@ -173,7 +171,9 @@ public final class AddAudioClipAction: UndoableAction {
     public func execute(on project: Project) {
         guard let track = project.tracks.first(where: { $0.id == trackID }) else { return }
         if !track.clips.contains(where: { $0.id == clip.id }) {
-            track.clips.append(clip)
+            var newClip = clip
+            newClip.synchronize(with: PulseMap(bpm: project.bpm, sampleRate: project.sampleRate))
+            track.clips.append(newClip)
         }
     }
 
@@ -229,12 +229,14 @@ public final class MoveAudioClipAction: UndoableAction {
         guard let track = project.tracks.first(where: { $0.id == trackID }),
               let clipIdx = track.clips.firstIndex(where: { $0.id == clipID }) else { return }
         track.clips[clipIdx].position = newPosition
+        track.clips[clipIdx].synchronize(with: PulseMap(bpm: project.bpm, sampleRate: project.sampleRate))
     }
 
     public func undo(on project: Project) {
         guard let track = project.tracks.first(where: { $0.id == trackID }),
               let clipIdx = track.clips.firstIndex(where: { $0.id == clipID }) else { return }
         track.clips[clipIdx].position = oldPosition
+        track.clips[clipIdx].synchronize(with: PulseMap(bpm: project.bpm, sampleRate: project.sampleRate))
     }
 }
 
@@ -266,6 +268,7 @@ public final class TransferAudioClipAction: UndoableAction {
         
         var c = fromTrack.clips.remove(at: idx)
         c.position = newPosition
+        c.synchronize(with: PulseMap(bpm: project.bpm, sampleRate: project.sampleRate))
         self.clip = c
         toTrack.clips.append(c)
     }
@@ -278,6 +281,7 @@ public final class TransferAudioClipAction: UndoableAction {
         
         toTrack.clips.remove(at: idx)
         c.position = oldPosition
+        c.synchronize(with: PulseMap(bpm: project.bpm, sampleRate: project.sampleRate))
         fromTrack.clips.append(c)
     }
 }
@@ -312,6 +316,7 @@ public final class ResizeAudioClipAction: UndoableAction {
         track.clips[idx].position = newPosition
         track.clips[idx].duration = newDuration
         track.clips[idx].trimStartOffset = newTrim
+        track.clips[idx].synchronize(with: PulseMap(bpm: project.bpm, sampleRate: project.sampleRate))
     }
 
     public func undo(on project: Project) {
@@ -320,6 +325,7 @@ public final class ResizeAudioClipAction: UndoableAction {
         track.clips[idx].position = oldPosition
         track.clips[idx].duration = oldDuration
         track.clips[idx].trimStartOffset = oldTrim
+        track.clips[idx].synchronize(with: PulseMap(bpm: project.bpm, sampleRate: project.sampleRate))
     }
 }
 
@@ -338,7 +344,9 @@ public final class AddMidiClipAction: UndoableAction {
     public func execute(on project: Project) {
         guard let track = project.tracks.first(where: { $0.id == trackID }) else { return }
         if !track.midiClips.contains(where: { $0.id == clip.id }) {
-            track.midiClips.append(clip)
+            var newClip = clip
+            newClip.synchronize(with: PulseMap(bpm: project.bpm, sampleRate: project.sampleRate))
+            track.midiClips.append(newClip)
         }
     }
 
@@ -394,12 +402,14 @@ public final class MoveMidiClipAction: UndoableAction {
         guard let track = project.tracks.first(where: { $0.id == trackID }),
               let clipIdx = track.midiClips.firstIndex(where: { $0.id == clipID }) else { return }
         track.midiClips[clipIdx].position = newPosition
+        track.midiClips[clipIdx].synchronize(with: PulseMap(bpm: project.bpm, sampleRate: project.sampleRate))
     }
 
     public func undo(on project: Project) {
         guard let track = project.tracks.first(where: { $0.id == trackID }),
               let clipIdx = track.midiClips.firstIndex(where: { $0.id == clipID }) else { return }
         track.midiClips[clipIdx].position = oldPosition
+        track.midiClips[clipIdx].synchronize(with: PulseMap(bpm: project.bpm, sampleRate: project.sampleRate))
     }
 }
 
@@ -430,6 +440,7 @@ public final class TransferMidiClipAction: UndoableAction {
         
         var c = fromTrack.midiClips.remove(at: idx)
         c.position = newPosition
+        c.synchronize(with: PulseMap(bpm: project.bpm, sampleRate: project.sampleRate))
         self.clip = c
         toTrack.midiClips.append(c)
     }
@@ -442,6 +453,7 @@ public final class TransferMidiClipAction: UndoableAction {
         
         toTrack.midiClips.remove(at: idx)
         c.position = oldPosition
+        c.synchronize(with: PulseMap(bpm: project.bpm, sampleRate: project.sampleRate))
         fromTrack.midiClips.append(c)
     }
 }
@@ -471,6 +483,7 @@ public final class ResizeMidiClipAction: UndoableAction {
               let idx = track.midiClips.firstIndex(where: { $0.id == clipID }) else { return }
         track.midiClips[idx].position = newPosition
         track.midiClips[idx].duration = newDuration
+        track.midiClips[idx].synchronize(with: PulseMap(bpm: project.bpm, sampleRate: project.sampleRate))
     }
 
     public func undo(on project: Project) {
@@ -478,6 +491,7 @@ public final class ResizeMidiClipAction: UndoableAction {
               let idx = track.midiClips.firstIndex(where: { $0.id == clipID }) else { return }
         track.midiClips[idx].position = oldPosition
         track.midiClips[idx].duration = oldDuration
+        track.midiClips[idx].synchronize(with: PulseMap(bpm: project.bpm, sampleRate: project.sampleRate))
     }
 }
 

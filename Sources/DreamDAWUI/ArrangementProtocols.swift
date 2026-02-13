@@ -4,17 +4,23 @@ import DreamDAWModels
 
 // MARK: - Interaction Delegate
 public protocol TimelineInteractionDelegate: AnyObject {
-    /// Request to move a clip to a new start time.
-    func interactionDidRequestClipMove(clipID: UUID, newPosition: TimePosition)
+    /// Request to set the playhead/seek position.
+    func interactionDidRequestSeek(to position: TimePosition, on trackID: UUID?)
     
-    /// Request to select a set of clips (replacing current selection).
-    func interactionDidSelectClips(clipIDs: Set<UUID>)
+    /// Update selection state for clips.
+    func interactionDidUpdateSelection(clipIDs: [UUID], isShift: Bool)
     
-    /// Request to show a context menu for a specific clip.
-    func interactionDidRequestContextMenu(for clipID: UUID, at point: CGPoint)
+    /// Update selection state for tracks.
+    func interactionDidRequestTrackSelection(id: UUID, isShift: Bool)
     
-    /// Request to set the edit cursor at a specific position.
-    func interactionDidClickTimeline(at position: TimePosition, on trackID: UUID)
+    /// Finalize current interaction (e.g. on MouseUp).
+    func interactionDidCommitClipsModification(finalState: InteractionState)
+    
+    /// Adjust loop region start.
+    func interactionDidRequestLoopStartChange(to position: TimePosition)
+    
+    /// Adjust loop region end.
+    func interactionDidRequestLoopEndChange(to position: TimePosition)
 }
 
 // MARK: - Renderer Delegate

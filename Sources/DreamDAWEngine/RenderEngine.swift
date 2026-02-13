@@ -226,26 +226,25 @@ public final class RenderEngine {
                             let outFrame = outputStartFrame + outOffset
                             guard outFrame >= 0, outFrame < totalFrames else { continue }
 
-                            // Fractal Math
+                            // ARCHITECT ORDER #3: Sub-Sample Precision Math
                             let srcPos = Double(sourceStartFrame) + Double(outOffset) * ratio
                             let idx = Int(srcPos)
                             let frac = Float(srcPos - Double(idx))
                             
-                            // Bounds Check
+                            // ARCHITECT ORDER #3: Strict Bounds Guard
                             if idx >= Int(fileFrames) { continue }
                             let nextIdx = min(idx + 1, Int(fileFrames) - 1)
                             
-                            // Left Channel
+                            // Safe Raw Linear Interpolation
                             let leftSample1 = leftChannel[idx]
                             let leftSample2 = leftChannel[nextIdx]
                             let interpolatedLeft = leftSample1 + frac * (leftSample2 - leftSample1)
                             
-                            // Right Channel
                             let rightSample1 = rightChannel[idx]
                             let rightSample2 = rightChannel[nextIdx]
                             let interpolatedRight = rightSample1 + frac * (rightSample2 - rightSample1)
                             
-                            // Mix
+                            // Mix with Equal Power Panning
                             let panGainL = Self.equalPowerPanGain(pan: trackPan, channel: 0)
                             let panGainR = Self.equalPowerPanGain(pan: trackPan, channel: 1)
                             

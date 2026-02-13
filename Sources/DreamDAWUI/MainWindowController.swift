@@ -14,6 +14,8 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     private var project: Project
     public let sharedEngine: SharedEngine
     private var cancellables = Set<AnyCancellable>()
+    private let windowFrameDefaultsKey = "DreamDAW.MainWindow.Frame.v1"
+    private let windowZoomedDefaultsKey = "DreamDAW.MainWindow.Zoomed.v1"
 
     // MARK: - Initialization
 
@@ -50,7 +52,10 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.titleVisibility = .visible
         window.isMovableByWindowBackground = false
         window.collectionBehavior = [.fullScreenPrimary]
-        window.center()
+        window.setFrameAutosaveName("DreamDAWMainWindowFrame")
+        if !restoreWindowGeometry(window) {
+            window.center()
+        }
 
         self.window = window
         window.delegate = self
@@ -120,12 +125,13 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     public func showWindow() {
         window?.makeKeyAndOrderFront(nil)
-        // Defer zoom to the next run loop tick so the window and all subviews
-        // are fully realized before the layout pass triggered by zoom(nil).
         DispatchQueue.main.async { [weak self] in
-            guard let window = self?.window else { return }
-            window.zoom(nil)
-            window.makeFirstResponder(window.contentViewController)
+            guard let self = self, let window = self.window else { return }
+            let shouldZoom = UserDefaults.standard.bool(forKey: self.windowZoomedDefaultsKey)
+            if shouldZoom && !window.isZoomed {
+                window.zoom(nil)
+            }
+            window.makeFirstResponder(window.contentViewController?.view)
         }
     }
 
@@ -133,6 +139,42 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     public func window(_ window: NSWindow, shouldPopUpDocumentPathMenu menu: NSMenu) -> Bool {
         false
+    }
+
+    public func windowDidResize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        persistWindowGeometry(window)
+    }
+
+    public func windowDidMove(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        persistWindowGeometry(window)
+    }
+
+    public func windowDidEndLiveResize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        persistWindowGeometry(window)
+    }
+
+    public func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        persistWindowGeometry(window)
+    }
+
+    private func persistWindowGeometry(_ window: NSWindow) {
+        UserDefaults.standard.set(window.frameDescriptor, forKey: windowFrameDefaultsKey)
+        UserDefaults.standard.set(window.isZoomed, forKey: windowZoomedDefaultsKey)
+    }
+
+    private func restoreWindowGeometry(_ window: NSWindow) -> Bool {
+        if window.setFrameUsingName("DreamDAWMainWindowFrame", force: true) {
+            return true
+        }
+        guard let frameString = UserDefaults.standard.string(forKey: windowFrameDefaultsKey) else {
+            return false
+        }
+        window.setFrame(from: frameString)
+        return true
     }
     
     private func loadAppIcon() {
@@ -167,4 +209,3 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 }
-

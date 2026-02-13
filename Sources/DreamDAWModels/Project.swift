@@ -88,6 +88,24 @@ public enum ProjectKeyMode: String, Codable, CaseIterable, Sendable {
     case locrian = "Locrian"
 }
 
+public enum TrackPanelKind: String, Codable, CaseIterable, Sendable {
+    case detail
+    case pianoRoll
+    case audioClip
+}
+
+public struct TrackPanelState: Codable, Hashable, Sendable {
+    public var kind: TrackPanelKind
+    public var midiClipID: UUID?
+    public var audioClipID: UUID?
+
+    public init(kind: TrackPanelKind = .detail, midiClipID: UUID? = nil, audioClipID: UUID? = nil) {
+        self.kind = kind
+        self.midiClipID = midiClipID
+        self.audioClipID = audioClipID
+    }
+}
+
 // MARK: - Project
 
 /// Root model for a Dream DAW project file.
@@ -120,8 +138,13 @@ public final class Project: ObservableObject, Identifiable, Codable {
     /// View state persistence (Horizontal scroll position in beats)
     public var viewScrollPosition: Double?
 
+    /// View state persistence (browser panel width in points)
+    public var viewBrowserWidth: Double?
+
     /// Multi-selection: set of all currently selected track IDs.
     /// This is runtime-only UI state — NOT persisted to the project file.
+    public let actionHistory = ActionHistory()
+    
     @Published public var selectedTrackIDs: Set<UUID> = []
     
     /// Multi-selection: set of all currently selected clip IDs.
@@ -143,6 +166,9 @@ public final class Project: ObservableObject, Identifiable, Codable {
     @Published public var keySignatureEnabled: Bool
     @Published public var keySignatureTonic: ProjectKeyTonic
     @Published public var keySignatureMode: ProjectKeyMode
+
+    /// Persisted per-track panel mode state.
+    @Published public var trackPanelStates: [String: TrackPanelState] = [:]
     
     /// Backward compatibility alias. Uses `primarySelectedTrackID` for reads,
     /// sets single-selection for writes.
@@ -194,8 +220,9 @@ public final class Project: ObservableObject, Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, bpm, timeSignature, sampleRate, tracks, isLooping, loopStart, loopEnd, masterTrack
-        case viewZoomScale, viewScrollPosition
+        case viewZoomScale, viewScrollPosition, viewBrowserWidth
         case playheadPosition, keySignatureEnabled, keySignatureTonic, keySignatureMode
+        case primarySelectedTrackID, trackPanelStates
     }
 
     public convenience init(from decoder: Decoder) throws {
@@ -218,10 +245,16 @@ public final class Project: ObservableObject, Identifiable, Codable {
         
         self.viewZoomScale = try container.decodeIfPresent(Double.self, forKey: .viewZoomScale)
         self.viewScrollPosition = try container.decodeIfPresent(Double.self, forKey: .viewScrollPosition)
+        self.viewBrowserWidth = try container.decodeIfPresent(Double.self, forKey: .viewBrowserWidth)
         self.playheadPosition = try container.decodeIfPresent(TimePosition.self, forKey: .playheadPosition) ?? .zero
         self.keySignatureEnabled = try container.decodeIfPresent(Bool.self, forKey: .keySignatureEnabled) ?? false
         self.keySignatureTonic = try container.decodeIfPresent(ProjectKeyTonic.self, forKey: .keySignatureTonic) ?? .c
         self.keySignatureMode = try container.decodeIfPresent(ProjectKeyMode.self, forKey: .keySignatureMode) ?? .major
+        self.primarySelectedTrackID = try container.decodeIfPresent(UUID.self, forKey: .primarySelectedTrackID)
+        if let selected = self.primarySelectedTrackID {
+            self.selectedTrackIDs = [selected]
+        }
+        self.trackPanelStates = try container.decodeIfPresent([String: TrackPanelState].self, forKey: .trackPanelStates) ?? [:]
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -238,10 +271,22 @@ public final class Project: ObservableObject, Identifiable, Codable {
         try container.encode(masterTrack, forKey: .masterTrack)
         try container.encodeIfPresent(viewZoomScale, forKey: .viewZoomScale)
         try container.encodeIfPresent(viewScrollPosition, forKey: .viewScrollPosition)
+        try container.encodeIfPresent(viewBrowserWidth, forKey: .viewBrowserWidth)
         try container.encode(playheadPosition, forKey: .playheadPosition)
         try container.encode(keySignatureEnabled, forKey: .keySignatureEnabled)
         try container.encode(keySignatureTonic, forKey: .keySignatureTonic)
         try container.encode(keySignatureMode, forKey: .keySignatureMode)
+        try container.encodeIfPresent(primarySelectedTrackID, forKey: .primarySelectedTrackID)
+        try container.encode(trackPanelStates, forKey: .trackPanelStates)
+    }
+
+    public func panelState(for trackID: UUID) -> TrackPanelState? {
+        trackPanelStates[trackID.uuidString]
+    }
+
+    public func setPanelState(for trackID: UUID, state: TrackPanelState) {
+        trackPanelStates[trackID.uuidString] = state
+        isDirty = true
     }
 
     // MARK: - Factory

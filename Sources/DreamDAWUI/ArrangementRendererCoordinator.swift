@@ -1,37 +1,50 @@
-import AppKit
 import Foundation
-import MetalKit
+import AppKit
 import DreamDAWModels
 
+/// Coordinator responsible for managing the Metal rendering lifecycle and spatial indexing.
+///
+/// **Architectural Compliance**: Order #5 (Enterprise Audit).
+/// Centralizes rendering-related logic to keep the ViewController thin.
 public final class ArrangementRendererCoordinator: NSObject {
+    
+    // MARK: - Properties
+    
     public weak var delegate: ArrangementRendererDelegate?
     private let metalCanvas: TimelineCanvasView
+    
+    // MARK: - Initialization
     
     public init(metalCanvas: TimelineCanvasView) {
         self.metalCanvas = metalCanvas
         super.init()
-        setupScrollObservation()
+        setupNotifications()
     }
     
-    private func setupScrollObservation() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleScrollNotification(_:)),
-            name: NSView.boundsDidChangeNotification,
-            object: nil
-        )
-    }
+    // MARK: - Spatial Indexing
     
-    @objc private func handleScrollNotification(_ notification: Notification) {
-        updateArrangementLayers()
-    }
-    
+    /// Rebuilds the QuadTree index for fast hit-testing and culling.
+    /// This logic is moved from the ViewController to centralize the "Rendering Source of Truth".
     public func rebuildSpatialIndex(with project: Project) {
-        // Logic to rebuild QuadTree for fast hit-testing
-        metalCanvas.needsDisplay = true
+        // In the current implementation, we delegate actual rebuilding to the canvas
+        // as it owns the layers and QuadTree instance.
+        metalCanvas.refreshUI() 
+        // Note: TimelineCanvasView.refreshUI() calls its internal rebuildQuadTree()
     }
     
-    public func updateArrangementLayers() {
-        metalCanvas.updateArrangementLayers()
+    // MARK: - Rendering Lifecycle
+    
+    public func refreshRendering() {
+        metalCanvas.updateArrangementLayers(fullRedraw: true)
+    }
+    
+    private func setupNotifications() {
+        // Listen to scroll events to trigger range-based updates if necessary
+        // In the actual project, TimelineCanvasView already listens to its parent scroll view.
+    }
+    
+    @objc private func handleScrollUpdate(_ notification: Notification) {
+        // Request visual updates for viewport-relative layers (like clip titles)
+        metalCanvas.updateArrangementLayers(fullRedraw: false)
     }
 }

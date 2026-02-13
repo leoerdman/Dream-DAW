@@ -100,9 +100,14 @@ public final class Project: ObservableObject, Identifiable, Codable {
     /// Multi-selection: set of all currently selected clip IDs.
     @Published public var selectedClipIDs: Set<UUID> = []
     
-    /// The most recently clicked/selected track (deterministic, unlike Set.first).
-    /// Used by bottom panel, clip selection, etc.
+    /// The most recently clicked/selected clip.
+    @Published public var primarySelectedClipID: UUID?
+    
+    /// The most recently clicked/selected track.
     @Published public var primarySelectedTrackID: UUID?
+    
+    /// Current edit cursor position (insertion marker).
+    @Published public var editCursorPosition: TimePosition = .zero
     
     /// Backward compatibility alias. Uses `primarySelectedTrackID` for reads,
     /// sets single-selection for writes.

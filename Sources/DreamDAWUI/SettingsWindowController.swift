@@ -243,7 +243,7 @@ struct AudioSettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .onChange(of: selectedDeviceUID) { _, newUID in
+                .onChange(of: selectedDeviceUID) { newUID in
                     settings.audioOutputDeviceUID = newUID
                 }
             } header: {

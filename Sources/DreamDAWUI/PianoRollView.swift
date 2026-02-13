@@ -215,13 +215,13 @@ public final class PianoRollView: NSView {
 
             // Note body
             ctx.setFillColor(color.withAlphaComponent(isSelected ? 1.0 : 0.85).cgColor)
-            ctx.addPath(path.cgPath)
+            ctx.addPath(path.asCGPath)
             ctx.fillPath()
 
             // Note border (subtle)
             ctx.setStrokeColor(color.withAlphaComponent(0.5).cgColor)
             ctx.setLineWidth(1.0)
-            ctx.addPath(path.cgPath)
+            ctx.addPath(path.asCGPath)
             ctx.strokePath()
 
             // Velocity indicator (darker bottom edge)

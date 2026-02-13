@@ -49,6 +49,10 @@ public final class TransportController: ObservableObject {
     /// Host should re-schedule audio from the new position.
     public var onLoopWrap: (() -> Void)?
 
+    /// Callback invoked when a "Play" command is received, allowing the host
+    /// to adjust the playhead position before playback actually starts.
+    public var onPlayRequested: (() -> Void)?
+
     // MARK: - Initialization
 
     public init() {
@@ -90,6 +94,7 @@ public final class TransportController: ObservableObject {
 
     /// Start or resume playback.
     public func play() {
+        onPlayRequested?()
         start()
     }
 

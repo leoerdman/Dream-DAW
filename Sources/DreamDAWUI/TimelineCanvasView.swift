@@ -722,8 +722,18 @@ public final class TimelineCanvasView: NSView {
     
     private func yOffsetForTrack(id: UUID, in project: Project) -> CGFloat {
         var y: CGFloat = 0
-        for track in project.allVisibleTracks {
-            if track.id == id { return y }
+        let visibleTracks = project.allVisibleTracks
+        for (index, track) in visibleTracks.enumerated() {
+            if track.id == id {
+                // Same logic as header: pull Master to bottom
+                if track.trackType == .master {
+                    let totalH = visibleTracks.reduce(0) { $0 + $1.height }
+                    if totalH < bounds.height {
+                        return bounds.height - track.height
+                    }
+                }
+                return y
+            }
             y += track.height
         }
         return 0
@@ -750,6 +760,11 @@ public final class TimelineCanvasView: NSView {
     private func updateLaneLayers(project: Project) {
         laneContainerLayer.frame = self.bounds
         laneContainerLayer.tracks = project.allVisibleTracks.filter { $0.trackType != .master }
+        
+        // We might need to pass the alignment info to laneContainerLayer if it draws dividers
+        // For now, let's assume it draws based on track order. 
+        // If it draws lines between tracks, it needs to know about the gap.
+        
         laneContainerLayer.setNeedsDisplay()
     }
 
@@ -978,7 +993,24 @@ public final class TimelineCanvasView: NSView {
     public override func keyDown(with event: NSEvent) {
         let modifierFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let isCommand = modifierFlags.contains(.command)
-        let isShift = modifierFlags.contains(.shift)
+        if isCommand, let chars = event.charactersIgnoringModifiers?.lowercased() {
+            switch chars {
+            case "c":
+                copy(nil)
+                return
+            case "v":
+                paste(nil)
+                return
+            case "d":
+                duplicate(nil)
+                return
+            case "a":
+                selectAll(nil)
+                return
+            default:
+                break
+            }
+        }
 
         switch event.keyCode {
         case 51, 117:  // Backspace (51), Forward Delete (117)
@@ -1161,6 +1193,7 @@ public final class TimelineCanvasView: NSView {
         var initialEditCursor: EditCursor? = nil
         if let trackID = clickedTrackID {
             initialEditCursor = EditCursor(trackID: trackID, position: TimePosition(beats: max(0, clickBeat)))
+            onClickPosition?(TimePosition(beats: max(0, clickBeat)))
             onTrackClicked?(trackID)
         }
 
@@ -1282,7 +1315,10 @@ public final class TimelineCanvasView: NSView {
         
         // Mode 1: Update Edit Cursor to the clicked location
         let snappedPos = TimePosition(beats: max(0, clickBeat))
-        editCursor = EditCursor(trackID: clickedTrackID ?? project.allVisibleTracks.first?.id ?? UUID(), position: snappedPos)
+        let cursor = EditCursor(trackID: clickedTrackID ?? project.allVisibleTracks.first?.id ?? UUID(), position: snappedPos)
+        self.editCursor = cursor
+        // Sync to project model for playback context
+        project.editCursorPosition = snappedPos
         
         onTrackClicked?(clickedTrackID ?? project.allVisibleTracks.first?.id ?? UUID())
         updateCursorAndPlayheadOnly()
@@ -1866,12 +1902,49 @@ public final class TimelineCanvasView: NSView {
     public func copySelection() {
         guard let project = project else { return }
         Self.clipboard.removeAll()
+
+        var selectedCount = 0
         for track in project.allVisibleTracks {
             for clip in track.clips where clip.isSelected {
                 Self.clipboard.append(ClipboardItem(item: .audio(clip), trackID: track.id))
+                selectedCount += 1
             }
             for clip in track.midiClips where clip.isSelected {
                 Self.clipboard.append(ClipboardItem(item: .midi(clip), trackID: track.id))
+                selectedCount += 1
+            }
+        }
+
+        // If no explicit clip selection exists, copy the current marquee time area.
+        if selectedCount == 0,
+           let box = selectionRectLayer.path?.boundingBoxOfPath,
+           !selectionRectLayer.isHidden {
+            let minBeat = Double(box.minX) / Double(pixelsPerBeat)
+            let maxBeat = Double(box.maxX) / Double(pixelsPerBeat)
+
+            var yOffset: CGFloat = 0
+            var minTrackIndex: Int?
+            var maxTrackIndex: Int?
+            for (index, track) in project.allVisibleTracks.enumerated() {
+                let top = yOffset
+                let bottom = yOffset + track.height
+                if box.minY < bottom && box.maxY > top {
+                    minTrackIndex = min(minTrackIndex ?? index, index)
+                    maxTrackIndex = max(maxTrackIndex ?? index, index)
+                }
+                yOffset += track.height
+            }
+
+            guard let minIndex = minTrackIndex, let maxIndex = maxTrackIndex else { return }
+            let trackRange = minIndex...maxIndex
+
+            for (index, track) in project.allVisibleTracks.enumerated() where trackRange.contains(index) {
+                for clip in track.clips where clip.endPosition.beats > minBeat && clip.position.beats < maxBeat {
+                    Self.clipboard.append(ClipboardItem(item: .audio(clip), trackID: track.id))
+                }
+                for clip in track.midiClips where clip.endPosition.beats > minBeat && clip.position.beats < maxBeat {
+                    Self.clipboard.append(ClipboardItem(item: .midi(clip), trackID: track.id))
+                }
             }
         }
     }
@@ -1924,6 +1997,7 @@ public final class TimelineCanvasView: NSView {
             }
         }
         refreshUI()
+        onClipsModified?()
     }
 
     /// Select all clips across all tracks.
@@ -2016,6 +2090,28 @@ public final class TimelineCanvasView: NSView {
         project.isDirty = true
         onClipsModified?()
         refreshUI()
+    }
+
+    // MARK: - Responder Actions
+
+    @objc public func copy(_ sender: Any?) {
+        copySelection()
+    }
+
+    @objc public func paste(_ sender: Any?) {
+        pasteClipsAtEditCursor()
+    }
+
+    @objc public func duplicate(_ sender: Any?) {
+        duplicateSelection()
+    }
+
+    @objc public override func selectAll(_ sender: Any?) {
+        selectAllClips()
+    }
+
+    @objc public func delete(_ sender: Any?) {
+        deleteSelection()
     }
 
     // MARK: - Scroll & Zoom
@@ -2281,16 +2377,25 @@ internal class LaneLayer: CALayer {
     
     override func draw(in ctx: CGContext) {
         var yOffset: CGFloat = 0
-        for (index, track) in tracks.enumerated() {
-            let laneRect = CGRect(x: 0, y: yOffset, width: bounds.width, height: track.height)
+        let visibleTracks = tracks
+        for (index, track) in visibleTracks.enumerated() {
+            var drawY = yOffset
+            if track.trackType == .master {
+                let currentBottom = yOffset + track.height
+                if currentBottom < bounds.height {
+                    drawY = bounds.height - track.height
+                }
+            }
+            
+            let laneRect = CGRect(x: 0, y: drawY, width: bounds.width, height: track.height)
             let bgColor = index % 2 == 0 ? DreamTheme.bgSecondary : DreamTheme.bgTertiary
             ctx.setFillColor(bgColor.cgColor)
             ctx.fill(laneRect)
 
             ctx.setStrokeColor(DreamTheme.divider.cgColor)
             ctx.setLineWidth(0.5)
-            ctx.move(to: CGPoint(x: 0, y: yOffset + track.height - 0.5))
-            ctx.addLine(to: CGPoint(x: bounds.width, y: yOffset + track.height - 0.5))
+            ctx.move(to: CGPoint(x: 0, y: drawY + track.height - 0.5))
+            ctx.addLine(to: CGPoint(x: bounds.width, y: drawY + track.height - 0.5))
             ctx.strokePath()
 
             if track.isMuted {

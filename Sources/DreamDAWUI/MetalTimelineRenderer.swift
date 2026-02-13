@@ -157,7 +157,7 @@ public final class MetalTimelineRenderer {
         renderEncoder.setVertexBytes(&viewport, length: MemoryLayout<simd_float2>.size, index: 1)
         
         // 2. Filter & Prepare Instances
-        let visibleTracks = project.allVisibleTracks.filter { $0.trackType != .master }
+        let visibleTracks = project.allVisibleTracks
         var instances: [ClipInstance] = []
         
         let minBeat = Double(visibleRect.minX) / Double(pixelsPerBeat)
@@ -165,18 +165,26 @@ public final class MetalTimelineRenderer {
         
         print("Metal: Rendering visibleRect=\(visibleRect) ppB=\(pixelsPerBeat) tracks=\(visibleTracks.count) beats=\(minBeat)...\(maxBeat)")
         
+        let totalH = visibleTracks.reduce(0) { $0 + $1.height }
+        let canvasH = layer.bounds.height
+
         var trackY: CGFloat = 0
         var audioClipCount = 0
         var midiClipCount = 0
-        
+
         for track in visibleTracks {
+            var drawY = trackY
+            if track.trackType == .master && totalH < canvasH {
+                drawY = canvasH - track.height
+            }
+            
             // Render Audio Clips
             let audioClipsInRange = track.clips.filter { $0.endPosition.beats >= minBeat && $0.position.beats <= maxBeat }
             for clip in audioClipsInRange {
                 let x = Float(CGFloat(clip.position.beats) * pixelsPerBeat - visibleRect.minX)
                 let w = Float(CGFloat(clip.duration.beats) * pixelsPerBeat)
                 let h = Float(track.height - 4) // 2px padding top/bottom
-                let y = Float(trackY - visibleRect.minY + 2)
+                let y = Float(drawY - visibleRect.minY + 2)
 
                 // WAVEFORM LOGIC: Fetch peaks from cache
                 var wfOffset: Int32 = -1
@@ -184,7 +192,7 @@ public final class MetalTimelineRenderer {
                 
                 // Professional DAW SPP stabilization (avoid cache thrashing)
                 let sampleRate = 44100.0 // TODO: Get from clip or engine
-                let secondsPerPixel = 1.0 / (pixelsPerBeat * (Double(60.0) / 60.0)) // FIXME: Use project BPM
+                let secondsPerPixel = 1.0 / (pixelsPerBeat * (Double(project.bpm) / 60.0)) // Use project BPM
                 let rawSPP = max(1, Int(secondsPerPixel * sampleRate))
                 
                 let stabilizedSPP: Int
@@ -229,7 +237,7 @@ public final class MetalTimelineRenderer {
                 let x = Float(CGFloat(clip.position.beats) * pixelsPerBeat - visibleRect.minX)
                 let w = Float(CGFloat(clip.duration.beats) * pixelsPerBeat)
                 let h = Float(track.height - 4) // 2px padding top/bottom
-                let y = Float(trackY - visibleRect.minY + 2)
+                let y = Float(drawY - visibleRect.minY + 2)
                 
                 instances.append(ClipInstance(
                     rect: simd_float4(x, y, w, h),

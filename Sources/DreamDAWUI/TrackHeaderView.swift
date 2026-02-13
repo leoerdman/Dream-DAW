@@ -958,7 +958,7 @@ public final class TrackHeadersContainerView: NSView {
         }
     }
 
-    public func configure(tracks: [Track]) {
+    public func configure(tracks: [Track], viewportHeight: CGFloat) {
         // DISABLE implicit animations (fly-in/out) during layout updates
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -1032,7 +1032,16 @@ public final class TrackHeadersContainerView: NSView {
                 
                 yOffset += track.height
             }
-            frame.size.height = yOffset
+            
+            // PULL MASTER TO BOTTOM: If it's the last track and there's space, offset it.
+            if let last = headerViews.last, last.track.trackType == .master {
+                let currentBottom = last.frame.maxY
+                if currentBottom < viewportHeight {
+                    last.frame.origin.y = viewportHeight - last.frame.height
+                }
+            }
+            
+            frame.size.height = max(yOffset, viewportHeight)
             return
         }
 
@@ -1109,9 +1118,16 @@ public final class TrackHeadersContainerView: NSView {
             yOffset += track.height
         }
 
-        // Update frame (only regular tracks — master is pinned separately)
-        frame.size.height = yOffset
-    }    
+        // PULL MASTER TO BOTTOM: If it's the last track and there's space, offset it.
+        if let last = headerViews.last, last.track.trackType == .master {
+            if yOffset < viewportHeight {
+                last.frame.origin.y = viewportHeight - last.frame.height
+            }
+        }
+
+        // Update frame
+        frame.size.height = max(yOffset, viewportHeight)
+    }
     /// Update existing header frames without recreation.
     public func updateLayoutInPlace() {
         var yOffset: CGFloat = 0

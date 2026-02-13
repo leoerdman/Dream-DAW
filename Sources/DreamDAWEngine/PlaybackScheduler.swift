@@ -89,6 +89,10 @@ public final class PlaybackScheduler {
         let sampleRate = audioEngine.sampleRate
         let bpm = project.bpm
         var baseStartTime: AVAudioTime?
+
+        // Reset observer timing context before every fresh schedule.
+        teardownRenderObserver()
+        playbackStartSampleTime = 0
         
         // 1. Prepare base start time (common for all nodes for sync)
         let delay: Double = 0.1 // 100ms lead time for hardware setup
@@ -222,7 +226,7 @@ public final class PlaybackScheduler {
             let durationSeconds = segmentDurationBeats / bpm * 60.0
 
             if let audioClip = clipObj as? AudioClip {
-                scheduleAudioSegment(player: player, clip: audioClip, offset: offsetSeconds, duration: durationSeconds)
+                scheduleAudioSegment(player: player, clip: audioClip, offset: offsetSeconds, duration: durationSeconds, bpm: bpm)
             } 
             // MIDI clips are now handled by Real-Time Dispatcher (Phase 8 Order #2)
             
@@ -243,10 +247,12 @@ public final class PlaybackScheduler {
 
     // MARK: - Internal Scheduling Helpers
 
-    private func scheduleAudioSegment(player: AVAudioPlayerNode, clip: AudioClip, offset: Double, duration: Double) {
+    private func scheduleAudioSegment(player: AVAudioPlayerNode, clip: AudioClip, offset: Double, duration: Double, bpm: Double) {
         do {
             let file = try AVAudioFile(forReading: clip.fileURL)
-            let fileStartFrame = AVAudioFramePosition(offset * file.fileFormat.sampleRate)
+            let trimStartSeconds = clip.trimStartOffset.toSeconds(bpm: bpm)
+            let sourceOffsetSeconds = trimStartSeconds + offset
+            let fileStartFrame = AVAudioFramePosition(sourceOffsetSeconds * file.fileFormat.sampleRate)
             let fileFrameCount = AVAudioFrameCount(duration * file.fileFormat.sampleRate)
             
             guard fileFrameCount > 0 else { return }
@@ -370,6 +376,18 @@ public final class PlaybackScheduler {
         for note in clip.notes {
             let noteStart = clipStart + note.position.beats
             let noteEnd = noteStart + note.duration.beats
+
+            // If playback begins in the middle of a sustained note, fire note-on immediately.
+            if noteStart < bufferStartBeat && noteEnd > bufferStartBeat && abs(bufferStartBeat - playbackStartBeat) < 0.001 {
+                sendMidiEvent(
+                    activeClip: activeClip,
+                    status: 0x90,
+                    data1: UInt8(note.pitch),
+                    data2: UInt8(note.velocity),
+                    offset: 0,
+                    isNoteOn: true
+                )
+            }
             
             // Note On
             if noteStart >= bufferStartBeat && noteStart < bufferEndBeat {
@@ -403,11 +421,17 @@ public final class PlaybackScheduler {
     
     public func stop() {
         isPlaying = false
+        teardownRenderObserver()
+        playbackStartSampleTime = 0
+        // ... existing logic ...
+    }
+
+    private func teardownRenderObserver() {
         if let ro = renderObserver {
+            audioEngine.disconnectNodeOutput(ro)
             audioEngine.detach(ro)
             renderObserver = nil
         }
-        // ... existing logic ...
     }
 
 

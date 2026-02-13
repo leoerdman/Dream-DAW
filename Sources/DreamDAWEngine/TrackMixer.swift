@@ -85,6 +85,9 @@ public final class TrackMixer: @unchecked Sendable {
             // Rebuild the chain to ensure correctly routed
             rebuildEffectChain(for: track, format: format, allTracks: allTracks)
         }
+
+        // Keep master tap installed for realtime master metering.
+        audioLevelMeter.installMasterTap(on: audioEngine.masterMixer)
     }
 
     private func setupTrackNodes(track: Track, format: AVAudioFormat) {
@@ -305,6 +308,7 @@ public final class TrackMixer: @unchecked Sendable {
         // 5. Update settings
         applyTrackSettings(track)
         syncEffectParameters(for: track)
+        refreshMeterTaps(trackID: track.id, inputMixer: inputMixer, outputMixer: outputMixer)
         
         // Sync instrument parameters
         if let config = track.instrument {
@@ -312,6 +316,11 @@ public final class TrackMixer: @unchecked Sendable {
         }
         
         logger.info("Rebuilt signal chain for '\(track.name)' -> \(track.outputDestinationID?.uuidString ?? "Master")")
+    }
+
+    private func refreshMeterTaps(trackID: UUID, inputMixer: AVAudioMixerNode, outputMixer: AVAudioMixerNode) {
+        audioLevelMeter.installTap(trackID: trackID, point: .preEffects, on: inputMixer)
+        audioLevelMeter.installTap(trackID: trackID, point: .postEffects, on: outputMixer)
     }
 
     private func connectTrackOutput(_ track: Track, outputMixer: AVAudioMixerNode, format: AVAudioFormat, allTracks: [Track]) {
@@ -715,4 +724,3 @@ public final class TrackMixer: @unchecked Sendable {
         logger.info("All track mixer nodes removed")
     }
 }
-

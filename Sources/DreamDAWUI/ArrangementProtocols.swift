@@ -12,6 +12,9 @@ public protocol TimelineInteractionDelegate: AnyObject {
     
     /// Request to show a context menu for a specific clip.
     func interactionDidRequestContextMenu(for clipID: UUID, at point: CGPoint)
+    
+    /// Request to set the edit cursor at a specific position.
+    func interactionDidClickTimeline(at position: TimePosition, on trackID: UUID)
 }
 
 // MARK: - Renderer Delegate

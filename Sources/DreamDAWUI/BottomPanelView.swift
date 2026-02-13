@@ -787,7 +787,7 @@ public final class BottomPanelView: NSView {
             dashLayer.strokeColor = NSColor(white: 0.3, alpha: 0.6).cgColor
             dashLayer.fillColor = nil
             dashLayer.lineDashPattern = [4, 4]
-            dashLayer.path = NSBezierPath(roundedRect: slot.bounds.insetBy(dx: 4, dy: 4), xRadius: 4, yRadius: 4).cgPath
+            dashLayer.path = NSBezierPath(roundedRect: slot.bounds.insetBy(dx: 4, dy: 4), xRadius: 4, yRadius: 4).asCGPath
             slot.layer?.addSublayer(dashLayer)
 
             let stack = NSStackView(frame: slot.bounds)

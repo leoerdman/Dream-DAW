@@ -23,8 +23,7 @@ public final class BrowserSidebarView: NSView {
         didSet { needsLayout = true }
     }
 
-    private let searchField = NSTextField()
-    private let searchIcon = NSImageView()
+    private let searchField = NSSearchField()
     private let backgroundView = NSView()
     private let outlineScrollView = NSScrollView()
     private let outlineView = NSOutlineView()
@@ -91,23 +90,17 @@ public final class BrowserSidebarView: NSView {
         backgroundView.layer?.backgroundColor = DreamTheme.bgBrowser.cgColor
         addSubview(backgroundView)
 
-        // Search icon — small magnifying glass
-        if let mag = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Search") {
-            let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
-            searchIcon.image = mag.withSymbolConfiguration(config)
-        }
-        searchIcon.contentTintColor = DreamTheme.textMuted
-        addSubview(searchIcon)
-
-        // Search field — completely flat, same bg as panel, no bezel
+        // Search field — explicit visible panel for reliable UX.
         searchField.placeholderString = "Search"
         searchField.font = NSFont.systemFont(ofSize: 11, weight: .regular)
         searchField.focusRingType = .none
-        searchField.isBordered = false
-        searchField.isBezeled = false
-        searchField.drawsBackground = false  // Transparent — panel bg shows through
+        searchField.isBezeled = true
+        searchField.isBordered = true
+        searchField.drawsBackground = true
+        searchField.backgroundColor = DreamTheme.bgSecondary
         searchField.textColor = DreamTheme.textPrimary
         searchField.appearance = NSAppearance(named: .darkAqua)
+        searchField.sendsSearchStringImmediately = true
         searchField.target = self
         searchField.action = #selector(searchChanged(_:))
         addSubview(searchField)
@@ -149,22 +142,10 @@ public final class BrowserSidebarView: NSView {
         let searchAreaH: CGFloat = 28
         let hPad: CGFloat = 8
         let topPad: CGFloat = 5
-        let iconSize: CGFloat = 14
-
-        // Magnifying glass icon
-        searchIcon.frame = CGRect(
-            x: hPad,
-            y: topPad + (searchAreaH - iconSize) / 2 - topPad,
-            width: iconSize,
-            height: iconSize
-        )
-
-        // Text field after icon
-        let fieldX = hPad + iconSize + 4
         searchField.frame = CGRect(
-            x: fieldX,
+            x: hPad,
             y: topPad,
-            width: bounds.width - fieldX - hPad,
+            width: bounds.width - hPad * 2,
             height: searchAreaH - topPad * 2
         )
 
@@ -359,7 +340,7 @@ public final class BrowserSidebarView: NSView {
         searchField.currentEditor()?.selectAll(nil)
     }
 
-    @objc private func searchChanged(_ sender: NSTextField) {
+    @objc private func searchChanged(_ sender: NSSearchField) {
         self.searchQuery = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         updateFilteredItems()
     }

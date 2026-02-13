@@ -1,4 +1,7 @@
+# ── macOS ────────────────────────────────────────────────────
 .DS_Store
+
+# ── Swift (Legacy Archive) ───────────────────────────────────
 /.build
 /Packages
 xcuserdata/
@@ -7,3 +10,14 @@ DerivedData/
 *.xcodeproj/
 .build/
 Dream DAW - Main Folder
+
+# ── Rust ─────────────────────────────────────────────────────
+/target/
+**/*.rs.bk
+
+# ── IDE ──────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

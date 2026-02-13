@@ -1,0 +1,26 @@
+[package]
+name = "dream_engine_core"
+version = "0.1.0"
+edition = "2024"
+description = "Dream DAW — Titanium Audio Kernel (Phase 1: Proof of Life)"
+license = "Proprietary"
+
+[dependencies]
+# ── Audio I/O ────────────────────────────────────────────────────────────
+# Cross-platform audio: CoreAudio (macOS), WASAPI (Windows), ALSA/JACK (Linux)
+cpal = "0.17"
+
+# ── Lock-Free IPC ────────────────────────────────────────────────────────
+# Wait-free SPSC ring buffer — the ONLY safe bridge between UI and audio threads
+rtrb = "0.3"
+
+# ── Logging (non-RT only) ────────────────────────────────────────────────
+log = "0.4"
+env_logger = "0.11"
+
+[profile.release]
+opt-level = 3          # Maximum optimization
+lto = "fat"            # Full link-time optimization across all crates
+codegen-units = 1      # Single codegen unit = best optimization, slower compile
+strip = "symbols"      # Strip debug symbols from release binary
+panic = "abort"        # No unwinding in release — smaller binary, faster

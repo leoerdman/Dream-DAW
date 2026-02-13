@@ -1,0 +1,41 @@
+@import "tailwindcss";
+@import "./app/styles/tokens.css";
+@import "./app/styles/layout.css";
+@import "./app/styles/components.css";
+
+
+@theme {
+    /* Colors - Mapping CSS Variables */
+    --color-bg-app: var(--color-bg-app);
+    --color-bg-page: var(--color-bg-page);
+    --color-bg-canvas: var(--color-bg-canvas);
+    --color-bg-header: var(--color-bg-header);
+
+    --color-text-primary: var(--color-text-primary);
+    --color-text-secondary: var(--color-text-secondary);
+    --color-text-tertiary: var(--color-text-tertiary);
+
+    --color-accent: var(--color-accent-primary);
+    --color-accent-hover: var(--color-accent-primary-hover);
+
+    --color-border-subtle: var(--color-border-subtle);
+    --color-border-default: var(--color-border-default);
+
+    /* Spacing */
+    --spacing-header: var(--layout-header-height);
+    --spacing-sidebar: var(--layout-sidebar-expanded);
+
+    /* Fonts */
+    --font-sans: var(--font-family);
+    --font-mono: var(--font-mono);
+
+    /* Radius */
+    --radius-glass: var(--glass-radius);
+}
+
+/* Utilities not covered by Tailwind Auto-detection or specific overrides */
+.glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+}

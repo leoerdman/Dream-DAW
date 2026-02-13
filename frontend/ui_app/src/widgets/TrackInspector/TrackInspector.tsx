@@ -1,61 +1,79 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 
 /**
- * TrackInspector — Right-side track list + mixer strip.
+ * TrackInspector — Right-side track list following Ableton Live layout exactly.
  *
- * Ported from TrackHeaderView.swift (1337 lines) & MixerView.swift.
+ * TWO-ROW layout per track (matches Ableton reference screenshot):
+ *   Row 1: [fold?] [icon] [Name]       [Routing ▼]  [#]  [S]  [Arm]
+ *   Row 2:         [volume slider]      [vol dB]     [pan value]
  *
- * Each track row shows:
- *   [ColorStripe + Name] [Type] [Routing ▾] [Volume Fader] [S] [#] [VU]
- *
- * Plus a separate Inspector section at top for the selected track.
+ * Group tracks:
+ *   - Collapsible (▼/▸ toggle)
+ *   - Children inherit group background color (tinted)
+ *   - Sub-groups supported (Percussion inside DRUMS)
  */
 
 // ── Types ──────────────────────────────────────────────────
 
-interface TrackData {
+export interface TrackData {
     id: string;
     name: string;
     type: 'audio' | 'midi' | 'group' | 'master';
     color: string;
-    volume: number;   // dB, -60 to +6
-    pan: number;      // -1 to +1
+    volume: number;
+    pan: number;
     isMuted: boolean;
     isSoloed: boolean;
     isArmed: boolean;
-    vuLevel: number;   // 0-1
+    vuLevel: number;
     routing: string;
+    groupId?: string;
     sends: { name: string; amount: number; color: string }[];
     input?: string;
     output?: string;
 }
 
-// ── Demo Data from TrackHeaderView.swift / MixerView.swift ──
+// ── Demo Data ──
 
-const TRACK_COLORS = [
-    '#c93c38', '#d97028', '#a2a835', '#38a84f',
-    '#2d8fa5', '#4466cc', '#8844aa', '#c850a0',
-];
+export const DEMO_TRACKS: TrackData[] = [
+    // DRUMS group
+    { id: 'g-drums', name: 'DRUMS', type: 'group', color: '#d4a843', volume: 0, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.6, routing: 'Main', sends: [], input: '', output: 'Main' },
+    { id: 't-kick', name: 'Kick', type: 'audio', color: '#d4a843', volume: 0, pan: 0, isMuted: false, isSoloed: false, isArmed: true, vuLevel: 0.55, routing: 'DRUMS', groupId: 'g-drums', sends: [], input: 'In 1-2', output: 'DRUMS' },
+    { id: 't-snare', name: 'Snare', type: 'audio', color: '#d4a843', volume: -2.0, pan: 0, isMuted: false, isSoloed: false, isArmed: true, vuLevel: 0.4, routing: 'DRUMS', groupId: 'g-drums', sends: [], input: 'In 1-2', output: 'DRUMS' },
+    { id: 't-ch', name: 'CH', type: 'audio', color: '#d4a843', volume: 0, pan: 0, isMuted: false, isSoloed: false, isArmed: true, vuLevel: 0.35, routing: 'DRUMS', groupId: 'g-drums', sends: [], input: 'In 1-2', output: 'DRUMS' },
+    { id: 't-broken', name: 'Broken Item', type: 'audio', color: '#d4a843', volume: 0, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.3, routing: 'DRUMS', groupId: 'g-drums', sends: [], input: 'In 3-4', output: 'DRUMS' },
+    { id: 't-foley', name: '6 Foley Small M', type: 'audio', color: '#d4a843', volume: 0, pan: 0, isMuted: false, isSoloed: false, isArmed: true, vuLevel: 0.25, routing: 'DRUMS', groupId: 'g-drums', sends: [], input: 'In 1-2', output: 'DRUMS' },
+    { id: 't-cymatics', name: '7 Cymatics - Ta', type: 'audio', color: '#d4a843', volume: -21.7, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.2, routing: 'DRUMS', groupId: 'g-drums', sends: [], input: 'In 1-2', output: 'DRUMS' },
 
-const DEMO_TRACKS: TrackData[] = [
-    { id: '1', name: 'DRUMS', type: 'group', color: TRACK_COLORS[0], volume: -1.9, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.6, routing: 'Master', sends: [], input: 'In 1-2', output: 'Master' },
-    { id: '2', name: 'Kick', type: 'audio', color: TRACK_COLORS[0], volume: -1.9, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.55, routing: 'DRUMS', sends: [], input: 'In 1-2', output: 'DRUMS' },
-    { id: '3', name: 'Snare', type: 'midi', color: TRACK_COLORS[4], volume: -1.9, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.4, routing: 'DRUMS', sends: [], input: 'In 1-2', output: 'DRUMS' },
-    { id: '4', name: 'Hihat', type: 'audio', color: TRACK_COLORS[4], volume: -1.9, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.35, routing: 'DRUMS', sends: [], input: 'In 1-2', output: 'DRUMS' },
-    { id: '5', name: 'BASS', type: 'group', color: TRACK_COLORS[3], volume: -3.8, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.5, routing: 'Master', sends: [], input: 'In 1-2', output: 'Master' },
-    { id: '6', name: 'Bass', type: 'audio', color: TRACK_COLORS[3], volume: -1.9, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.45, routing: 'BASS', sends: [], input: 'In 1-2', output: 'BASS' },
-    { id: '7', name: 'MIDI 7', type: 'midi', color: TRACK_COLORS[5], volume: 0, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.3, routing: 'Master', sends: [], input: 'In 1-2', output: 'Master' },
-    { id: '8', name: 'MIDI 8', type: 'midi', color: TRACK_COLORS[6], volume: 0, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.25, routing: 'Master', sends: [], input: 'In 1-2', output: 'Master' },
-    { id: 'master', name: 'Master', type: 'master', color: '#666', volume: -1.0, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.65, routing: '', sends: [], input: '', output: 'Main' },
+    // Percussion sub-group inside DRUMS
+    { id: 'g-percussion', name: 'Percussion', type: 'group', color: '#d4a843', volume: 0, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.4, routing: 'DRUMS', groupId: 'g-drums', sends: [], input: '', output: 'DRUMS' },
+    { id: 't-clap808', name: '9 Clap 808 Ligh', type: 'audio', color: '#e09050', volume: -5.7, pan: 0, isMuted: false, isSoloed: false, isArmed: true, vuLevel: 0.3, routing: 'Percussion', groupId: 'g-percussion', sends: [], input: 'In 1-2', output: 'Percussion' },
+    { id: 't-bongo', name: '10 LE - Bongo', type: 'audio', color: '#e09050', volume: -13.4, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.2, routing: 'Percussion', groupId: 'g-percussion', sends: [], input: 'In 1-2', output: 'Percussion' },
+
+    { id: 't-audio11', name: '11 Audio', type: 'audio', color: '#d4a843', volume: 0, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.15, routing: 'DRUMS', groupId: 'g-drums', sends: [], input: 'In 1-2', output: 'DRUMS' },
+
+    // Standalone audio
+    { id: 't-audio12', name: '12 Audio', type: 'audio', color: '#4488bb', volume: -15.1, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.3, routing: 'Main', sends: [], input: 'In 1-2', output: 'Main' },
+
+    // Vocal group
+    { id: 'g-vocal', name: 'Vocal', type: 'group', color: '#8866cc', volume: 0, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.5, routing: 'Main', sends: [], input: '', output: 'Main' },
+    { id: 't-ds14', name: '14 DS_MDH_12', type: 'audio', color: '#8866cc', volume: -9.3, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.35, routing: 'Vocal', groupId: 'g-vocal', sends: [], input: 'In 1-2', output: 'Vocal' },
+    { id: 't-ds15', name: '15 DS_MDH_12', type: 'audio', color: '#8866cc', volume: -6.0, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.3, routing: 'Vocal', groupId: 'g-vocal', sends: [], input: 'In 1-2', output: 'Vocal' },
+
+    // Master
+    { id: 'master', name: 'Main', type: 'master', color: '#666', volume: -6.0, pan: 0, isMuted: false, isSoloed: false, isArmed: false, vuLevel: 0.65, routing: '', sends: [], input: '', output: 'Main' },
 ];
 
 // ── Component ──────────────────────────────────────────
 
-export const TrackInspector = () => {
-    const [tracks, setTracks] = useState(DEMO_TRACKS);
-    const [selectedTrackId, setSelectedTrackId] = useState('1');
+interface TrackInspectorProps {
+    selectedTrackId: string;
+    onSelectTrack: (id: string) => void;
+}
 
-    const selectedTrack = tracks.find(t => t.id === selectedTrackId) || tracks[0];
+export const TrackInspector = ({ selectedTrackId, onSelectTrack }: TrackInspectorProps) => {
+    const [tracks, setTracks] = useState(DEMO_TRACKS);
+    const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
     const toggleMute = useCallback((id: string) => {
         setTracks(prev => prev.map(t => t.id === id ? { ...t, isMuted: !t.isMuted } : t));
@@ -69,307 +87,323 @@ export const TrackInspector = () => {
         setTracks(prev => prev.map(t => t.id === id ? { ...t, isArmed: !t.isArmed } : t));
     }, []);
 
+    const toggleGroupCollapse = useCallback((groupId: string) => {
+        setCollapsedGroups(prev => {
+            const next = new Set(prev);
+            if (next.has(groupId)) next.delete(groupId);
+            else next.add(groupId);
+            return next;
+        });
+    }, []);
+
+    // Build ancestor collapse check — a track is hidden if ANY of its ancestor groups is collapsed
+    const isAncestorCollapsed = useCallback((track: TrackData): boolean => {
+        if (!track.groupId) return false;
+        if (collapsedGroups.has(track.groupId)) return true;
+        const parentGroup = tracks.find(t => t.id === track.groupId);
+        if (parentGroup) return isAncestorCollapsed(parentGroup);
+        return false;
+    }, [tracks, collapsedGroups]);
+
+    const visibleTracks = useMemo(() => {
+        return tracks.filter(t => !isAncestorCollapsed(t));
+    }, [tracks, isAncestorCollapsed]);
+
+    // Compute nesting depth for indentation
+    const getDepth = useCallback((track: TrackData): number => {
+        if (!track.groupId) return 0;
+        const parent = tracks.find(t => t.id === track.groupId);
+        if (parent) return 1 + getDepth(parent);
+        return 1;
+    }, [tracks]);
+
+    // Track number counter (excluding groups)
+    let trackNum = 0;
+
     return (
         <div style={{
             display: 'flex',
             flexDirection: 'column',
             height: '100%',
             background: 'var(--color-bg-panel)',
-            fontSize: 'var(--font-size-xs)',
+            fontSize: 10,
         }}>
-
-            {/* ── Inspector Header ── */}
-            <div style={{
-                padding: '8px 10px 6px',
-                borderBottom: '1px solid var(--color-divider)',
-                background: 'var(--color-bg-header)',
-            }}>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                }}>
-                    <span style={{
-                        fontSize: 'var(--font-size-2xs)',
-                        fontWeight: 600,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                        color: 'var(--color-text-secondary)',
-                    }}>
-                        INSPECTOR
-                    </span>
-                </div>
-
-                <div style={{ marginTop: 4 }}>
-                    <div style={{
-                        fontSize: 'var(--font-size-sm)',
-                        fontWeight: 600,
-                        color: 'var(--color-text-primary)',
-                    }}>
-                        {selectedTrack.name}
-                    </div>
-                    <div style={{
-                        fontSize: 'var(--font-size-2xs)',
-                        color: 'var(--color-text-tertiary)',
-                    }}>
-                        {selectedTrack.type === 'audio' ? 'Audio' : selectedTrack.type === 'midi' ? 'MIDI' : selectedTrack.type === 'group' ? 'Group' : 'Master'} · Stereo
-                    </div>
-                </div>
-
-                {/* Volume + Pan controls for selected track */}
-                <div style={{ marginTop: 6 }}>
-                    <InspectorRow label="VOLUME" value={`${selectedTrack.volume.toFixed(1)} dB`} />
-                    <InspectorRow label="PAN" value={selectedTrack.pan === 0 ? 'C' : selectedTrack.pan > 0 ? `${Math.round(selectedTrack.pan * 50)}R` : `${Math.round(Math.abs(selectedTrack.pan) * 50)}L`} />
-
-                    {/* Sends */}
-                    {selectedTrack.sends.length > 0 && (
-                        <div style={{ marginTop: 4 }}>
-                            <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase', fontWeight: 600 }}>
-                                SENDS
-                            </span>
-                            {selectedTrack.sends.map((send, i) => (
-                                <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 2 }}>
-                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: send.color }} />
-                                    <span style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-2xs)' }}>{send.name}</span>
-                                    <span style={{ marginLeft: 'auto', color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-2xs)', fontFamily: 'var(--font-mono)' }}>
-                                        {send.amount.toFixed(1)} dB
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* I/O Routing */}
-                    <div style={{ marginTop: 4 }}>
-                        <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase', fontWeight: 600 }}>
-                            I/O ROUTING
-                        </span>
-                        <InspectorRow label="Input" value={selectedTrack.input || '—'} />
-                        <InspectorRow label="Output" value={selectedTrack.output || 'Master'} />
-                    </div>
-                </div>
-            </div>
-
-            {/* ── Track List ── */}
+            {/* ── Track List (scrollable) ── */}
             <div className="scrollbar-hide" style={{
                 flex: 1,
                 overflowY: 'auto',
             }}>
-                {tracks.map((track, index) => (
-                    <TrackRow
-                        key={track.id}
-                        track={track}
-                        index={index}
-                        isSelected={selectedTrackId === track.id}
-                        onClick={() => setSelectedTrackId(track.id)}
-                        onToggleMute={() => toggleMute(track.id)}
-                        onToggleSolo={() => toggleSolo(track.id)}
-                        onToggleArm={() => toggleArm(track.id)}
-                    />
-                ))}
+                {visibleTracks.map((track) => {
+                    const isGroup = track.type === 'group';
+                    const isMaster = track.type === 'master';
+                    if (!isGroup && !isMaster) trackNum++;
+                    const displayNum = isGroup ? undefined : isMaster ? undefined : trackNum;
+                    const isCollapsed = isGroup ? collapsedGroups.has(track.id) : false;
+                    const depth = getDepth(track);
+
+                    return (
+                        <TrackRow
+                            key={track.id}
+                            track={track}
+                            displayNum={displayNum}
+                            isSelected={selectedTrackId === track.id}
+                            isCollapsed={isCollapsed}
+                            depth={depth}
+                            onClick={() => onSelectTrack(track.id)}
+                            onToggleMute={() => toggleMute(track.id)}
+                            onToggleSolo={() => toggleSolo(track.id)}
+                            onToggleArm={() => toggleArm(track.id)}
+                            onToggleCollapse={isGroup ? () => toggleGroupCollapse(track.id) : undefined}
+                        />
+                    );
+                })}
             </div>
         </div>
     );
 };
 
-// ── Sub-components ──────────────────────────────────────
-
-const InspectorRow = ({ label, value }: { label: string; value: string }) => (
-    <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '1px 0',
-    }}>
-        <span style={{
-            color: 'var(--color-text-tertiary)',
-            fontSize: 'var(--font-size-2xs)',
-            fontWeight: 500,
-        }}>
-            {label}
-        </span>
-        <span style={{
-            color: 'var(--color-text-primary)',
-            fontSize: 'var(--font-size-2xs)',
-            fontFamily: 'var(--font-mono)',
-            fontWeight: 500,
-        }}>
-            {value}
-        </span>
-    </div>
-);
+// ── TrackRow (Ableton two-row layout) ──────────────────
 
 const TrackRow = ({
-    track, index, isSelected, onClick, onToggleMute, onToggleSolo, onToggleArm,
+    track, displayNum, isSelected, isCollapsed, depth,
+    onClick, onToggleMute, onToggleSolo, onToggleArm, onToggleCollapse,
 }: {
     track: TrackData;
-    index: number;
+    displayNum?: number;
     isSelected: boolean;
+    isCollapsed: boolean;
+    depth: number;
     onClick: () => void;
     onToggleMute: () => void;
     onToggleSolo: () => void;
     onToggleArm: () => void;
+    onToggleCollapse?: () => void;
 }) => {
     const isMaster = track.type === 'master';
-    const vuPercent = Math.min(100, Math.max(0, track.vuLevel * 100));
-    const vuColor = track.vuLevel > 0.85
-        ? 'var(--color-meter-clip)'
-        : track.vuLevel > 0.6
-            ? 'var(--color-meter-hot)'
-            : track.type === 'midi'
-                ? 'var(--color-midi-indicator)'
-                : 'var(--color-meter-normal)';
+    const isGroup = track.type === 'group';
+    const isChild = depth > 0;
+
+    // Group tinted background (like Ableton's yellow/purple tint for children)
+    const groupTint = isChild || isGroup
+        ? `color-mix(in srgb, ${track.color} 15%, transparent)`
+        : 'transparent';
+
+    // Volume bar width (0-100%)
+    const volRange = 66; // -60..+6 dB range
+    const volNorm = Math.min(1, Math.max(0, (track.volume + 60) / volRange));
 
     return (
         <div
             onClick={onClick}
             style={{
                 display: 'flex',
-                alignItems: 'stretch',
-                height: isMaster ? 34 : 30,
+                flexDirection: 'column',
                 borderBottom: '1px solid var(--color-divider)',
-                background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
+                background: isSelected
+                    ? 'var(--color-bg-selected)'
+                    : groupTint,
                 cursor: 'default',
                 opacity: track.isMuted ? 0.45 : 1,
                 transition: 'opacity var(--transition-fast)',
+                paddingLeft: depth * 10,
             }}
         >
-            {/* Color stripe + Name */}
+            {/* ─── ROW 1: Name + Routing + Buttons ─── */}
             <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 0,
-                flexShrink: 0,
-                minWidth: 0,
-                flex: 1,
-                overflow: 'hidden',
+                height: 22,
+                gap: 2,
             }}>
-                {/* Color Strip (3px vertical bar like Ableton) */}
-                <div style={{
-                    width: 3,
-                    height: '100%',
-                    background: track.color,
-                    flexShrink: 0,
-                }} />
+                {/* Collapse arrow for groups */}
+                {isGroup && onToggleCollapse ? (
+                    <button
+                        onClick={e => { e.stopPropagation(); onToggleCollapse(); }}
+                        style={{
+                            width: 16,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--color-text-secondary)',
+                            fontSize: 8,
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                        }}
+                    >
+                        {isCollapsed ? '⊕' : '⊖'}
+                    </button>
+                ) : (
+                    <div style={{ width: 16, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <span style={{
+                            fontSize: 8,
+                            color: 'var(--color-text-tertiary)',
+                        }}>
+                            {track.type === 'midi' ? '◉' : track.type === 'audio' ? '◉' : isMaster ? '▶' : ''}
+                        </span>
+                    </div>
+                )}
 
+                {/* Track Name */}
                 <span style={{
-                    padding: '0 6px',
-                    fontSize: 'var(--font-size-xs)',
-                    fontWeight: track.type === 'group' || track.type === 'master' ? 700 : 400,
-                    color: 'var(--color-text-primary)',
+                    flex: 1,
+                    fontSize: isGroup ? 10 : 10,
+                    fontWeight: isGroup || isMaster ? 700 : 400,
+                    color: isGroup ? '#1a1a1a' : 'var(--color-text-primary)',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
+                    minWidth: 0,
                 }}>
                     {track.name}
                 </span>
+
+                {/* Routing Dropdown */}
+                <select
+                    onClick={e => e.stopPropagation()}
+                    value={track.routing}
+                    onChange={() => {/* read-only demo */ }}
+                    style={{
+                        fontSize: 8,
+                        fontWeight: 500,
+                        color: 'var(--color-text-primary)',
+                        background: 'var(--color-control-bg)',
+                        border: '1px solid var(--color-control-border)',
+                        borderRadius: 2,
+                        padding: '1px 2px',
+                        cursor: 'pointer',
+                        maxWidth: 65,
+                        minWidth: 40,
+                        flexShrink: 0,
+                        appearance: 'auto' as React.CSSProperties['appearance'],
+                    }}
+                >
+                    <option>{track.routing || 'Main'}</option>
+                    <option>Main</option>
+                    <option>DRUMS</option>
+                    <option>BASS</option>
+                    <option>Vocal</option>
+                    <option>Percussion</option>
+                </select>
+
+                {/* Track Number */}
+                {displayNum !== undefined && (
+                    <span style={{
+                        width: 18,
+                        height: 14,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: track.color,
+                        color: '#fff',
+                        borderRadius: 2,
+                        fontSize: 8,
+                        fontWeight: 700,
+                        flexShrink: 0,
+                    }}>
+                        {displayNum}
+                    </span>
+                )}
+
+                {/* Solo button */}
+                {!isMaster && (
+                    <button
+                        onClick={e => { e.stopPropagation(); onToggleSolo(); }}
+                        style={{
+                            width: 14, height: 14,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: track.isSoloed ? 'var(--color-btn-solo)' : 'transparent',
+                            color: track.isSoloed ? '#fff' : 'var(--color-text-secondary)',
+                            border: 'none',
+                            borderRadius: 2,
+                            fontSize: 8,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                        }}
+                    >
+                        S
+                    </button>
+                )}
+
+                {/* Arm button */}
+                {!isMaster && !isGroup && (
+                    <button
+                        onClick={e => { e.stopPropagation(); onToggleArm(); }}
+                        style={{
+                            width: 14, height: 14,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: track.isArmed ? 'var(--color-btn-arm)' : 'transparent',
+                            color: track.isArmed ? '#fff' : 'var(--color-text-tertiary)',
+                            border: track.isArmed ? 'none' : '1px solid var(--color-control-border)',
+                            borderRadius: '50%',
+                            fontSize: 7,
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                        }}
+                    >
+                        {track.isArmed ? '●' : '●'}
+                    </button>
+                )}
             </div>
 
-            {/* Type badge */}
-            {track.type === 'midi' && (
-                <span style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '0 3px',
-                    fontSize: 8,
-                    fontWeight: 600,
-                    color: 'var(--color-midi-indicator)',
-                    flexShrink: 0,
-                }}>
-                    MIDI
-                </span>
-            )}
-
-            {/* Solo button */}
-            {!isMaster && (
-                <button
-                    onClick={e => { e.stopPropagation(); onToggleSolo(); }}
-                    title="Solo"
-                    style={{
-                        width: 18, height: 18,
-                        margin: '6px 2px',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        background: track.isSoloed ? 'var(--color-btn-solo)' : 'var(--color-control-bg-active)',
-                        color: track.isSoloed ? '#fff' : 'var(--color-text-secondary)',
-                        border: 'none',
-                        borderRadius: 'var(--radius-xs)',
-                        fontSize: 9,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        flexShrink: 0,
-                    }}
-                >
-                    S
-                </button>
-            )}
-
-            {/* Enable button (track number) */}
-            {!isMaster && (
-                <button
-                    onClick={e => { e.stopPropagation(); onToggleMute(); }}
-                    title={track.isMuted ? 'Unmute' : 'Mute'}
-                    style={{
-                        width: 18, height: 18,
-                        margin: '6px 2px',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        background: track.isMuted ? 'var(--color-control-bg)' : `color-mix(in srgb, var(--color-status-success) 80%, transparent)`,
-                        color: track.isMuted ? 'var(--color-text-tertiary)' : '#fff',
-                        border: 'none',
-                        borderRadius: 'var(--radius-xs)',
-                        fontSize: 9,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        flexShrink: 0,
-                    }}
-                >
-                    {index + 1}
-                </button>
-            )}
-
-            {/* VU Meter bars (stereo, vertical) */}
+            {/* ─── ROW 2: Volume bar + dB value + Pan ─── */}
             <div style={{
                 display: 'flex',
-                gap: 2,
-                padding: '4px 4px 4px 2px',
-                alignItems: 'flex-end',
-                flexShrink: 0,
+                alignItems: 'center',
+                height: 18,
+                gap: 4,
+                paddingLeft: 16,
+                paddingRight: 4,
             }}>
+                {/* Volume slider track */}
                 <div style={{
-                    width: 4, height: '100%',
+                    flex: 1,
+                    height: 4,
                     background: 'var(--color-meter-bg)',
-                    borderRadius: 1,
+                    borderRadius: 2,
                     position: 'relative',
                     overflow: 'hidden',
                 }}>
                     <div style={{
                         position: 'absolute',
-                        bottom: 0,
                         left: 0,
-                        width: '100%',
-                        height: `${vuPercent}%`,
-                        background: vuColor,
-                        borderRadius: 1,
-                        transition: 'height 0.08s linear',
+                        top: 0,
+                        height: '100%',
+                        width: `${volNorm * 100}%`,
+                        background: `color-mix(in srgb, ${track.color} 70%, var(--color-meter-normal))`,
+                        borderRadius: 2,
+                        transition: 'width 0.1s linear',
                     }} />
                 </div>
-                <div style={{
-                    width: 4, height: '100%',
-                    background: 'var(--color-meter-bg)',
-                    borderRadius: 1,
-                    position: 'relative',
-                    overflow: 'hidden',
+
+                {/* Volume dB value */}
+                <span style={{
+                    fontSize: 8,
+                    fontFamily: 'var(--font-mono)',
+                    color: track.volume !== 0
+                        ? (track.volume > 0 ? '#4caf50' : '#e09050')
+                        : 'var(--color-text-tertiary)',
+                    fontWeight: 500,
+                    minWidth: 28,
+                    textAlign: 'right',
+                    flexShrink: 0,
                 }}>
-                    <div style={{
-                        position: 'absolute',
-                        bottom: 0,
-                        left: 0,
-                        width: '100%',
-                        height: `${Math.max(0, vuPercent - 5)}%`,
-                        background: vuColor,
-                        borderRadius: 1,
-                        transition: 'height 0.08s linear',
-                    }} />
-                </div>
+                    {track.volume.toFixed(1)}
+                </span>
+
+                {/* Pan */}
+                <span style={{
+                    fontSize: 8,
+                    color: 'var(--color-text-tertiary)',
+                    fontWeight: 500,
+                    minWidth: 12,
+                    textAlign: 'center',
+                    flexShrink: 0,
+                }}>
+                    {track.pan === 0 ? 'C' : track.pan > 0 ? `${Math.round(track.pan * 50)}R` : `${Math.round(Math.abs(track.pan) * 50)}L`}
+                </span>
             </div>
         </div>
     );

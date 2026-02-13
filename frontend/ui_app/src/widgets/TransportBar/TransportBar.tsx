@@ -14,7 +14,11 @@ const QUANTIZE_VALUES = ['1/4', '1/8', '1/16', '1/32', '1/4T', '1/8T', '1/16T', 
 const KEY_TONICS = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'] as const;
 const KEY_MODES = ['Major', 'Minor', 'Dorian', 'Mixolydian', 'Phrygian', 'Lydian'] as const;
 
-export const TransportBar = () => {
+interface TransportBarProps {
+    onSettingsClick?: () => void;
+}
+
+export const TransportBar = ({ onSettingsClick }: TransportBarProps) => {
     // Transport state
     const [isPlaying, setIsPlaying] = useState(false);
     const [isRecording, setIsRecording] = useState(false);
@@ -275,7 +279,7 @@ export const TransportBar = () => {
 
             <Divider />
 
-            <Section style={{ paddingRight: 8 }}>
+            <Section style={{ paddingRight: 4 }}>
                 <span style={{
                     fontSize: 'var(--font-size-2xs)',
                     color: 'var(--color-text-tertiary)',
@@ -284,6 +288,31 @@ export const TransportBar = () => {
                 }}>
                     CPU {cpuPercent}%
                 </span>
+            </Section>
+
+            <Divider />
+
+            {/* Settings Gear */}
+            <Section style={{ paddingRight: 8 }}>
+                <button
+                    onClick={onSettingsClick}
+                    title="Settings (⌘,)"
+                    style={{
+                        width: 24, height: 24,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: 'transparent',
+                        border: 'none',
+                        borderRadius: 'var(--radius-xs)',
+                        color: 'var(--color-text-tertiary)',
+                        fontSize: 13,
+                        cursor: 'pointer',
+                        transition: 'color var(--transition-fast)',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-text-primary)')}
+                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-text-tertiary)')}
+                >
+                    ⚙
+                </button>
             </Section>
         </div>
     );

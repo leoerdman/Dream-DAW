@@ -1,16 +1,39 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 
 /**
- * AssetBrowser — Full Ableton-style sidebar browser.
+ * AssetBrowser — Ableton-style two-pane vertical-split sidebar browser.
  *
  * Ported from BrowserSidebarView.swift (1639 lines).
  *
- * Layout (top → bottom):
- *   1. Search field (Cmd+F)
- *   2. Collapsible Category tree (Collections / Library / Places sections)
- *   3. Filter toolbar (Source, Format, Audio)
- *   4. Results list with icons + metadata
- *   5. Preview bar with toggle + waveform placeholder
+ * Layout (LEFT panel | RIGHT panel):
+ *   ┌──────────────────────────────────────────┐
+ *   │ 🔎 Search (Cmd+F)                        │
+ *   ├────────────┬─────────────────────────────┤
+ *   │ COLLECTIONS│ Source: All   Format: All   │
+ *   │  ★ Fav…    │ Audio: All                  │
+ *   │           │──────────────────────────────│
+ *   │ LIBRARY    │  Kick_808_Deep.wav          │
+ *   │  ≡ All     │  Snare_Tight_02.wav         │
+ *   │  ♫ Samples │  HiHat_Closed_01.wav        │
+ *   │  ♪ Sounds  │  Clap_Vinyl.wav             │
+ *   │  ▪ Drums   │  Bass_Sub_02.wav            │
+ *   │  🎹 Instr… │  Pad_Ambient_Dm.wav         │
+ *   │  ✦ Audio…  │  Vocal_Chop_Rise.wav        │
+ *   │  🧩 Plug…  │  ...                        │
+ *   │  🎬 Clips  │                             │
+ *   │  📄 Templ… │                             │
+ *   │           │                             │
+ *   │ PLACES     │                             │
+ *   │  👤 User…  │                             │
+ *   │  📋 Curr…  │                             │
+ *   │  ＋ Add…   │                             │
+ *   ├────────────┴─────────────────────────────┤
+ *   │ 12 items          🎧 Preview             │
+ *   └──────────────────────────────────────────┘
+ *
+ * The split mirrors Ableton Live's browser exactly:
+ * - Left pane: category tree (Collections, Library, Places)
+ * - Right pane: filter toolbar + scrollable file list
  */
 
 // ── Types ──────────────────────────────────────────────────
@@ -43,18 +66,22 @@ const CATEGORIES: BrowserCategory[] = [
     { id: 'sounds', title: 'Sounds', icon: '♪', kind: 'leaf' },
     { id: 'drums', title: 'Drums', icon: '▪', kind: 'leaf' },
     { id: 'instruments', title: 'Instruments', icon: '🎹', kind: 'leaf' },
-    { id: 'audioEffects', title: 'Audio Effects', icon: '✦', kind: 'leaf' },
+    { id: 'audioEffects', title: 'Audio E…', icon: '✦', kind: 'leaf' },
+    { id: 'midiEffects', title: 'MIDI Ef…', icon: '✧', kind: 'leaf' },
+    { id: 'maxForLive', title: 'Max for…', icon: '∞', kind: 'leaf' },
     { id: 'plugins', title: 'Plug-Ins', icon: '🧩', kind: 'leaf' },
     { id: 'clips', title: 'Clips', icon: '🎬', kind: 'leaf' },
-    { id: 'templates', title: 'Templates', icon: '📄', kind: 'leaf' },
+    { id: 'grooves', title: 'Grooves', icon: '∿', kind: 'leaf' },
+    { id: 'templates', title: 'Templa…', icon: '📄', kind: 'leaf' },
 
     { id: 'sec-places', title: 'Places', icon: '💾', kind: 'section' },
-    { id: 'userLibrary', title: 'User Library', icon: '👤', kind: 'leaf' },
-    { id: 'currentProject', title: 'Current Project', icon: '📋', kind: 'leaf' },
-    { id: 'addFolder', title: 'Add Folder…', icon: '＋', kind: 'leaf' },
+    { id: 'packs', title: 'Packs', icon: '📦', kind: 'leaf' },
+    { id: 'userLibrary', title: 'User Li…', icon: '👤', kind: 'leaf' },
+    { id: 'currentProject', title: 'Current…', icon: '📋', kind: 'leaf' },
+    { id: 'addFolder', title: 'Add Fol…', icon: '＋', kind: 'leaf' },
 ];
 
-// Demo browser items for the "Samples" category
+// Demo browser items
 const DEMO_SAMPLES: BrowserItem[] = [
     { id: '1', name: 'Kick_808_Deep.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit · 44k' },
     { id: '2', name: 'Snare_Tight_02.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit · 44k' },
@@ -68,6 +95,27 @@ const DEMO_SAMPLES: BrowserItem[] = [
     { id: '10', name: 'Synth_Lead_Am7.wav', type: 'audio', format: 'WAV', meta: 'Loop · 140 BPM · 4 bars' },
     { id: '11', name: 'Kick_Acoustic_01.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit · 48k' },
     { id: '12', name: 'Tom_Low_Room.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit · 48k' },
+    { id: '13', name: 'BASS BUZZ ★★…', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
+    { id: '14', name: 'BASS BUZZ ★…', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
+    { id: '15', name: 'BREAK.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit' },
+    { id: '16', name: 'Drums BUZZ.wav', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
+    { id: '17', name: 'Fill 174 BPM - 1.wav', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
+    { id: '18', name: 'FX Noise.wav', type: 'audio', format: 'WAV', meta: 'FX · 24bit' },
+    { id: '19', name: 'FX-1.wav', type: 'audio', format: 'WAV', meta: 'FX · 24bit' },
+    { id: '20', name: 'FX.wav', type: 'audio', format: 'WAV', meta: 'FX · 24bit' },
+    { id: '21', name: 'HAT.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit' },
+    { id: '22', name: 'INTRO SYNTH.wav', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
+    { id: '23', name: 'KICK.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit' },
+    { id: '24', name: 'MISC BUZZ.wav', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
+    { id: '25', name: 'MISC BUZZ ★★…', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
+    { id: '26', name: 'OPEN HAT.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit' },
+    { id: '27', name: 'PLuCK-1.wav', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
+    { id: '28', name: 'PLuCK.wav', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
+    { id: '29', name: 'SD.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit' },
+    { id: '30', name: 'VOC 1.wav', type: 'audio', format: 'WAV', meta: 'Vocal · 24bit' },
+    { id: '31', name: 'VOC 2.wav', type: 'audio', format: 'WAV', meta: 'Vocal · 24bit' },
+    { id: '32', name: 'VOC 3.wav', type: 'audio', format: 'WAV', meta: 'Vocal · 24bit' },
+    { id: '33', name: 'VOC FX.wav', type: 'audio', format: 'WAV', meta: 'Vocal FX · 24bit' },
 ];
 
 const DEMO_INSTRUMENTS: BrowserItem[] = [
@@ -81,6 +129,7 @@ const DEMO_FX: BrowserItem[] = [
     { id: 'fx3', name: 'Delay', type: 'audioEffect', meta: 'Built-in' },
     { id: 'fx4', name: 'Reverb', type: 'audioEffect', meta: 'Built-in' },
     { id: 'fx5', name: 'Utility', type: 'audioEffect', meta: 'Built-in' },
+    { id: 'fx6', name: 'Plate Reverb', type: 'audioEffect', meta: 'Built-in' },
 ];
 
 const SOURCE_FILTERS = ['Source: All', 'Source: Library', 'Source: Samples', 'Source: Plug-ins'] as const;
@@ -138,6 +187,8 @@ export const AssetBrowser = () => {
                 base = DEMO_INSTRUMENTS;
                 break;
             case 'audioEffects':
+            case 'midiEffects':
+            case 'maxForLive':
                 base = DEMO_FX;
                 break;
             case 'favorites':
@@ -155,7 +206,7 @@ export const AssetBrowser = () => {
         return base;
     }, [selectedCategoryId, searchQuery]);
 
-    // Rendered sections
+    // Track current section for collapse logic
     let currentSection: string | null = null;
 
     return (
@@ -193,152 +244,185 @@ export const AssetBrowser = () => {
                 />
             </div>
 
-            {/* ── Category Tree ────────── */}
-            <div className="scrollbar-hide" style={{
-                flex: '0 0 auto',
-                maxHeight: 190,
-                overflowY: 'auto',
-                borderBottom: '1px solid var(--color-divider)',
+            {/* ══════════════════════════════════════════════
+                TWO-PANE VERTICAL SPLIT (Ableton-style)
+                Left: Category tree | Right: Filter + file list
+               ══════════════════════════════════════════════ */}
+            <div style={{
+                flex: 1,
+                display: 'flex',
+                overflow: 'hidden',
             }}>
-                {CATEGORIES.map(cat => {
-                    // Section header
-                    if (cat.kind === 'section') {
-                        const collapsed = collapsedSections.has(cat.id);
-                        currentSection = cat.id;
+                {/* ── LEFT PANE: Category Tree ── */}
+                <div
+                    className="scrollbar-hide"
+                    style={{
+                        width: 95,
+                        minWidth: 85,
+                        flexShrink: 0,
+                        overflowY: 'auto',
+                        borderRight: '1px solid var(--color-divider)',
+                        background: 'var(--color-bg-panel)',
+                    }}
+                >
+                    {CATEGORIES.map(cat => {
+                        // Section header
+                        if (cat.kind === 'section') {
+                            const collapsed = collapsedSections.has(cat.id);
+                            currentSection = cat.id;
+                            return (
+                                <button
+                                    key={cat.id}
+                                    onClick={() => toggleSection(cat.id)}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 3,
+                                        width: '100%',
+                                        padding: '5px 6px 3px',
+                                        background: 'none',
+                                        border: 'none',
+                                        color: 'var(--color-text-secondary)',
+                                        fontSize: 9,
+                                        fontWeight: 700,
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.04em',
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    <span style={{
+                                        fontSize: 7,
+                                        transform: collapsed ? 'rotate(-90deg)' : 'rotate(0)',
+                                        transition: 'transform 0.15s',
+                                    }}>▼</span>
+                                    {cat.title}
+                                </button>
+                            );
+                        }
+
+                        // Leaf item — hidden if parent section collapsed
+                        const parentSectionId = currentSection;
+                        if (parentSectionId && collapsedSections.has(parentSectionId)) return null;
+
+                        const isSelected = selectedCategoryId === cat.id;
                         return (
                             <button
                                 key={cat.id}
-                                onClick={() => toggleSection(cat.id)}
+                                onClick={() => setSelectedCategoryId(cat.id)}
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: 4,
                                     width: '100%',
-                                    padding: '4px 8px',
-                                    background: 'none',
+                                    padding: '2px 4px 2px 12px',
+                                    background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
                                     border: 'none',
-                                    color: 'var(--color-text-secondary)',
-                                    fontSize: 'var(--font-size-2xs)',
-                                    fontWeight: 600,
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.05em',
+                                    color: isSelected ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                                    fontSize: 10,
+                                    textAlign: 'left',
                                     cursor: 'pointer',
+                                    transition: 'background var(--transition-fast)',
+                                    lineHeight: 1.6,
                                 }}
                             >
-                                <span style={{ fontSize: 8, transform: collapsed ? 'rotate(-90deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>▼</span>
-                                {cat.icon} {cat.title}
-                            </button>
-                        );
-                    }
-
-                    // Leaf item — hidden if parent section collapsed
-                    const parentSectionId = currentSection;
-                    if (parentSectionId && collapsedSections.has(parentSectionId)) return null;
-
-                    const isSelected = selectedCategoryId === cat.id;
-                    return (
-                        <button
-                            key={cat.id}
-                            onClick={() => setSelectedCategoryId(cat.id)}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 6,
-                                width: '100%',
-                                padding: '3px 8px 3px 20px',
-                                background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
-                                border: 'none',
-                                color: isSelected ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                                fontSize: 'var(--font-size-xs)',
-                                textAlign: 'left',
-                                cursor: 'pointer',
-                                transition: 'background var(--transition-fast)',
-                            }}
-                        >
-                            <span style={{ width: 16, textAlign: 'center', fontSize: 11 }}>{cat.icon}</span>
-                            {cat.title}
-                        </button>
-                    );
-                })}
-            </div>
-
-            {/* ── Filters Toolbar ────────── */}
-            <div style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 4,
-                padding: '4px 8px',
-                borderBottom: '1px solid var(--color-divider)',
-                background: 'var(--color-bg-header)',
-            }}>
-                <FilterPill
-                    options={SOURCE_FILTERS as unknown as string[]}
-                    value={sourceFilter}
-                    onChange={setSourceFilter}
-                />
-                <FilterPill
-                    options={FORMAT_FILTERS as unknown as string[]}
-                    value={formatFilter}
-                    onChange={setFormatFilter}
-                />
-                <FilterPill
-                    options={AUDIO_FILTERS as unknown as string[]}
-                    value={audioFilter}
-                    onChange={setAudioFilter}
-                />
-            </div>
-
-            {/* ── Results List ────────── */}
-            <div className="scrollbar-hide" style={{
-                flex: 1,
-                overflowY: 'auto',
-                overflowX: 'hidden',
-            }}>
-                {items.map(item => {
-                    const isSelected = selectedItemId === item.id;
-                    return (
-                        <div
-                            key={item.id}
-                            onClick={() => setSelectedItemId(item.id)}
-                            style={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                padding: '3px 8px',
-                                cursor: 'default',
-                                background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
-                                borderBottom: '1px solid var(--color-divider-light)',
-                                transition: 'background var(--transition-fast)',
-                            }}
-                        >
-                            <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 6,
-                            }}>
-                                <TypeDot type={item.type} />
+                                <span style={{ width: 13, textAlign: 'center', fontSize: 10, flexShrink: 0 }}>{cat.icon}</span>
                                 <span style={{
-                                    color: 'var(--color-text-primary)',
-                                    fontSize: 'var(--font-size-xs)',
-                                    fontWeight: 400,
+                                    whiteSpace: 'nowrap',
                                     overflow: 'hidden',
                                     textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                }}>
-                                    {item.name}
-                                </span>
-                            </div>
-                            {item.meta && (
-                                <span style={{
-                                    color: 'var(--color-text-tertiary)',
-                                    fontSize: 'var(--font-size-2xs)',
-                                    paddingLeft: 18,
-                                }}>
-                                    {item.meta}
-                                </span>
-                            )}
-                        </div>
-                    );
-                })}
+                                }}>{cat.title}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {/* ── RIGHT PANE: Filters + File List ── */}
+                <div style={{
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden',
+                    background: 'var(--color-bg-secondary)',
+                }}>
+                    {/* Filters Toolbar */}
+                    <div style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: 4,
+                        padding: '4px 6px',
+                        borderBottom: '1px solid var(--color-divider)',
+                        background: 'var(--color-bg-header)',
+                    }}>
+                        <FilterPill
+                            options={SOURCE_FILTERS as unknown as string[]}
+                            value={sourceFilter}
+                            onChange={setSourceFilter}
+                        />
+                        <FilterPill
+                            options={FORMAT_FILTERS as unknown as string[]}
+                            value={formatFilter}
+                            onChange={setFormatFilter}
+                        />
+                        <FilterPill
+                            options={AUDIO_FILTERS as unknown as string[]}
+                            value={audioFilter}
+                            onChange={setAudioFilter}
+                        />
+                    </div>
+
+                    {/* File List */}
+                    <div className="scrollbar-hide" style={{
+                        flex: 1,
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                    }}>
+                        {items.map(item => {
+                            const isSelected = selectedItemId === item.id;
+                            return (
+                                <div
+                                    key={item.id}
+                                    onClick={() => setSelectedItemId(item.id)}
+                                    style={{
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        padding: '2px 6px',
+                                        cursor: 'default',
+                                        background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
+                                        borderBottom: '1px solid var(--color-divider-light)',
+                                        transition: 'background var(--transition-fast)',
+                                    }}
+                                >
+                                    <div style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 5,
+                                    }}>
+                                        <TypeDot type={item.type} />
+                                        <span style={{
+                                            color: 'var(--color-text-primary)',
+                                            fontSize: 10,
+                                            fontWeight: 400,
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                        }}>
+                                            {item.name}
+                                        </span>
+                                    </div>
+                                    {item.meta && (
+                                        <span style={{
+                                            color: 'var(--color-text-tertiary)',
+                                            fontSize: 9,
+                                            paddingLeft: 14,
+                                        }}>
+                                            {item.meta}
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
             </div>
 
             {/* ── Footer: Count + Preview ────────── */}
@@ -386,7 +470,7 @@ const TypeDot = ({ type }: { type: BrowserItem['type'] }) => {
     };
     return (
         <span style={{
-            width: 6, height: 6,
+            width: 5, height: 5,
             borderRadius: '50%',
             background: colorMap[type] || 'var(--color-text-tertiary)',
             flexShrink: 0,
@@ -408,8 +492,8 @@ const FilterPill = ({
             color: value > 0 ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)',
             border: 'none',
             borderRadius: 'var(--radius-xs)',
-            padding: '2px 6px',
-            fontSize: 'var(--font-size-2xs)',
+            padding: '2px 5px',
+            fontSize: 9,
             cursor: 'pointer',
             fontWeight: 500,
             whiteSpace: 'nowrap',

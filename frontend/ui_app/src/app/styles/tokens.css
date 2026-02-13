@@ -199,6 +199,10 @@
     /* alias for bgElevated */
     --color-bg-active: #3a3a3a;
     /* alias for bgHover */
+    --color-bg-sidebar: #282828;
+    /* sidebar: slightly darker than panel */
+    --color-bg-surface: #303030;
+    /* surface: alias for panel */
 
     /* ── Node Backgrounds (Device Rack) ── */
     --color-bg-node: #303030;
@@ -392,6 +396,8 @@
     --color-bg-input: #ffffff;
     --color-bg-header: #ffffff;
     --color-bg-active: #e5e5e5;
+    --color-bg-sidebar: #eaeaea;
+    --color-bg-surface: #f0f0f0;
 
     --color-bg-node: #f0f0f0;
     --color-bg-node-header: #e5e5e5;

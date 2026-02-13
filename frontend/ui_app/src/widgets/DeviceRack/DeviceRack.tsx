@@ -1,17 +1,14 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 
 /**
  * DeviceRack — Bottom panel: instrument & effects signal chain.
  *
  * Ported from BottomPanelView.swift (1094 lines).
  *
- * Layout: [Title Bar] → [IN meter] → [Instrument?] → [FX1] → [FX2] → ... → [OUT meter] → [+ Add]
+ * KEY FEATURE: Device chain changes based on selected track.
+ * Each track has its own Instrument & Effects Chain, just like Ableton.
  *
- * Each device slot shows:
- *   - Header with name + enable toggle + settings icon
- *   - Colored type stripe (data-effect attribute from plugin-rack.css)
- *   - Knobs for device parameters
- *   - VU fill bar at bottom
+ * Layout: [Title Bar] → [IN meter] → [Instrument?] → [FX1] → [FX2] → ... → [OUT meter] → [+ Add]
  */
 
 // ── Types ──────────────────────────────────────────────────
@@ -27,63 +24,327 @@ interface DeviceParam {
 interface DeviceSlot {
     id: string;
     name: string;
-    effectType: 'eq' | 'compressor' | 'delay' | 'reverb' | 'chorus' | 'utility' | 'vst' | 'instrument';
+    effectType: 'eq' | 'compressor' | 'delay' | 'reverb' | 'chorus' | 'utility' | 'vst' | 'instrument' | 'sampler' | 'saturator';
     isEnabled: boolean;
     params: DeviceParam[];
     vuLevel: number;
 }
 
-// ── Demo Data (from BottomPanelView.swift) ──────────────────
+// ── Per-track device chains (like Ableton) ──────────────────
 
-const DEMO_CHAIN: DeviceSlot[] = [
-    {
-        id: 'eq1',
-        name: 'EQ EIGHT',
-        effectType: 'eq',
-        isEnabled: true,
-        params: [
-            { name: 'LOW', value: -0.1, min: -15, max: 15, suffix: ' dB' },
-            { name: '400', value: 1.3, min: -15, max: 15, suffix: ' dB' },
-            { name: '1k', value: -0.5, min: -15, max: 15, suffix: ' dB' },
-            { name: '4.1', value: 0.8, min: -15, max: 15, suffix: ' dB' },
-            { name: '10k', value: -1.41, min: -15, max: 15, suffix: ' dB' },
-            { name: 'HIGH', value: 0, min: -15, max: 15, suffix: ' dB' },
-        ],
-        vuLevel: 0.65,
-    },
-    {
-        id: 'comp1',
-        name: 'COMPRESSOR',
-        effectType: 'compressor',
-        isEnabled: true,
-        params: [
-            { name: 'THRESH', value: -18, min: -40, max: 0, suffix: ' dB' },
-            { name: 'RATIO', value: 3, min: 1, max: 20, suffix: ':1' },
-            { name: 'ATTACK', value: 3, min: 0.1, max: 100, suffix: ' ms' },
-            { name: 'RELEASE', value: 80, min: 10, max: 1000, suffix: ' ms' },
-        ],
-        vuLevel: 0.55,
-    },
-    {
-        id: 'reverb1',
-        name: 'PLATE REVERB',
-        effectType: 'reverb',
-        isEnabled: true,
-        params: [
-            { name: 'SIZE', value: 72, min: 0, max: 100, suffix: '%' },
-            { name: 'DECAY', value: 2.4, min: 0.1, max: 10, suffix: ' s' },
-            { name: 'DAMP', value: 45, min: 0, max: 100, suffix: '%' },
-            { name: 'MIX', value: 22, min: 0, max: 100, suffix: '%' },
-        ],
-        vuLevel: 0.45,
-    },
-];
+const TRACK_DEVICE_CHAINS: Record<string, DeviceSlot[]> = {
+    // DRUMS group — bus effects
+    'g-drums': [
+        {
+            id: 'drum-comp', name: 'GLUE COMPRESSOR', effectType: 'compressor', isEnabled: true,
+            params: [
+                { name: 'THRESH', value: -12, min: -40, max: 0, suffix: ' dB' },
+                { name: 'RATIO', value: 4, min: 2, max: 10, suffix: ':1' },
+                { name: 'ATTACK', value: 0.1, min: 0.01, max: 30, suffix: ' ms' },
+                { name: 'RELEASE', value: 100, min: 10, max: 1200, suffix: ' ms' },
+            ],
+            vuLevel: 0.6,
+        },
+        {
+            id: 'drum-eq', name: 'EQ EIGHT', effectType: 'eq', isEnabled: true,
+            params: [
+                { name: 'LOW', value: 1.5, min: -15, max: 15, suffix: ' dB' },
+                { name: '400', value: -2, min: -15, max: 15, suffix: ' dB' },
+                { name: '2.5k', value: 1, min: -15, max: 15, suffix: ' dB' },
+                { name: 'HIGH', value: -0.5, min: -15, max: 15, suffix: ' dB' },
+            ],
+            vuLevel: 0.55,
+        },
+    ],
+
+    // Kick — Sampler + EQ + Saturator
+    't-kick': [
+        {
+            id: 'kick-sampler', name: 'SAMPLER', effectType: 'sampler', isEnabled: true,
+            params: [
+                { name: 'TUNE', value: 0, min: -24, max: 24, suffix: ' st' },
+                { name: 'VOL', value: -3, min: -36, max: 6, suffix: ' dB' },
+                { name: 'FILTER', value: 20000, min: 20, max: 20000, suffix: ' Hz' },
+                { name: 'ATTACK', value: 0, min: 0, max: 500, suffix: ' ms' },
+            ],
+            vuLevel: 0.7,
+        },
+        {
+            id: 'kick-eq', name: 'EQ EIGHT', effectType: 'eq', isEnabled: true,
+            params: [
+                { name: 'LOW', value: 3, min: -15, max: 15, suffix: ' dB' },
+                { name: '250', value: -4, min: -15, max: 15, suffix: ' dB' },
+                { name: '5k', value: 2, min: -15, max: 15, suffix: ' dB' },
+                { name: 'HIGH', value: -2, min: -15, max: 15, suffix: ' dB' },
+            ],
+            vuLevel: 0.55,
+        },
+        {
+            id: 'kick-sat', name: 'SATURATOR', effectType: 'saturator', isEnabled: true,
+            params: [
+                { name: 'DRIVE', value: 6, min: 0, max: 24, suffix: ' dB' },
+                { name: 'TYPE', value: 2, min: 0, max: 5, suffix: '' },
+                { name: 'OUTPUT', value: -3, min: -36, max: 0, suffix: ' dB' },
+            ],
+            vuLevel: 0.5,
+        },
+    ],
+
+    // Snare — MIDI instrument + Compressor
+    't-snare': [
+        {
+            id: 'snare-inst', name: 'WAVETABLE', effectType: 'instrument', isEnabled: true,
+            params: [
+                { name: 'OSC1', value: 64, min: 0, max: 127, suffix: '' },
+                { name: 'OSC2', value: 32, min: 0, max: 127, suffix: '' },
+                { name: 'FILTER', value: 8500, min: 20, max: 20000, suffix: ' Hz' },
+                { name: 'RES', value: 30, min: 0, max: 100, suffix: '%' },
+            ],
+            vuLevel: 0.45,
+        },
+        {
+            id: 'snare-comp', name: 'COMPRESSOR', effectType: 'compressor', isEnabled: true,
+            params: [
+                { name: 'THRESH', value: -20, min: -40, max: 0, suffix: ' dB' },
+                { name: 'RATIO', value: 6, min: 1, max: 20, suffix: ':1' },
+                { name: 'ATTACK', value: 1, min: 0.1, max: 100, suffix: ' ms' },
+                { name: 'RELEASE', value: 50, min: 10, max: 1000, suffix: ' ms' },
+            ],
+            vuLevel: 0.4,
+        },
+    ],
+
+    // Hihat — Sampler + Utility
+    't-hihat': [
+        {
+            id: 'hh-sampler', name: 'SAMPLER', effectType: 'sampler', isEnabled: true,
+            params: [
+                { name: 'TUNE', value: 0, min: -24, max: 24, suffix: ' st' },
+                { name: 'VOL', value: -6, min: -36, max: 6, suffix: ' dB' },
+                { name: 'DECAY', value: 200, min: 1, max: 2000, suffix: ' ms' },
+            ],
+            vuLevel: 0.35,
+        },
+        {
+            id: 'hh-util', name: 'UTILITY', effectType: 'utility', isEnabled: true,
+            params: [
+                { name: 'GAIN', value: -6, min: -36, max: 6, suffix: ' dB' },
+                { name: 'WIDTH', value: 100, min: 0, max: 200, suffix: '%' },
+            ],
+            vuLevel: 0.3,
+        },
+    ],
+
+    // Metropolis Pad — Reverb + Delay
+    't-metro': [
+        {
+            id: 'metro-eq', name: 'EQ EIGHT', effectType: 'eq', isEnabled: true,
+            params: [
+                { name: 'LOW', value: -3, min: -15, max: 15, suffix: ' dB' },
+                { name: '800', value: 1, min: -15, max: 15, suffix: ' dB' },
+                { name: '3k', value: -1, min: -15, max: 15, suffix: ' dB' },
+                { name: 'HIGH', value: 2, min: -15, max: 15, suffix: ' dB' },
+            ],
+            vuLevel: 0.5,
+        },
+        {
+            id: 'metro-reverb', name: 'REVERB', effectType: 'reverb', isEnabled: true,
+            params: [
+                { name: 'SIZE', value: 85, min: 0, max: 100, suffix: '%' },
+                { name: 'DECAY', value: 4.2, min: 0.1, max: 10, suffix: ' s' },
+                { name: 'DAMP', value: 60, min: 0, max: 100, suffix: '%' },
+                { name: 'MIX', value: 35, min: 0, max: 100, suffix: '%' },
+            ],
+            vuLevel: 0.45,
+        },
+        {
+            id: 'metro-delay', name: 'DELAY', effectType: 'delay', isEnabled: true,
+            params: [
+                { name: 'TIME', value: 375, min: 1, max: 2000, suffix: ' ms' },
+                { name: 'FDBK', value: 40, min: 0, max: 100, suffix: '%' },
+                { name: 'MIX', value: 20, min: 0, max: 100, suffix: '%' },
+            ],
+            vuLevel: 0.35,
+        },
+    ],
+
+    // Hihat Pad — Sampler + EQ
+    't-hihatpad': [
+        {
+            id: 'hhpad-sampler', name: 'SAMPLER', effectType: 'sampler', isEnabled: true,
+            params: [
+                { name: 'TUNE', value: 2, min: -24, max: 24, suffix: ' st' },
+                { name: 'VOL', value: -4, min: -36, max: 6, suffix: ' dB' },
+                { name: 'FILTER', value: 12000, min: 20, max: 20000, suffix: ' Hz' },
+            ],
+            vuLevel: 0.4,
+        },
+    ],
+
+    // BASS group — bus effects
+    'g-bass': [
+        {
+            id: 'bass-comp', name: 'COMPRESSOR', effectType: 'compressor', isEnabled: true,
+            params: [
+                { name: 'THRESH', value: -15, min: -40, max: 0, suffix: ' dB' },
+                { name: 'RATIO', value: 3, min: 1, max: 20, suffix: ':1' },
+                { name: 'ATTACK', value: 10, min: 0.1, max: 100, suffix: ' ms' },
+                { name: 'RELEASE', value: 120, min: 10, max: 1000, suffix: ' ms' },
+            ],
+            vuLevel: 0.5,
+        },
+    ],
+
+    // Bass — EQ + Saturator
+    't-bass': [
+        {
+            id: 'bass-eq', name: 'EQ EIGHT', effectType: 'eq', isEnabled: true,
+            params: [
+                { name: 'LOW', value: 4, min: -15, max: 15, suffix: ' dB' },
+                { name: '200', value: -3, min: -15, max: 15, suffix: ' dB' },
+                { name: '1k', value: 1, min: -15, max: 15, suffix: ' dB' },
+                { name: 'HIGH', value: -6, min: -15, max: 15, suffix: ' dB' },
+            ],
+            vuLevel: 0.5,
+        },
+        {
+            id: 'bass-sat', name: 'SATURATOR', effectType: 'saturator', isEnabled: true,
+            params: [
+                { name: 'DRIVE', value: 8, min: 0, max: 24, suffix: ' dB' },
+                { name: 'OUTPUT', value: -4, min: -36, max: 0, suffix: ' dB' },
+            ],
+            vuLevel: 0.45,
+        },
+    ],
+
+    // MIDI 7 — Instrument + Delay + Reverb
+    't-midi7': [
+        {
+            id: 'm7-inst', name: 'OPERATOR', effectType: 'instrument', isEnabled: true,
+            params: [
+                { name: 'FREQ A', value: 1, min: 0.5, max: 20, suffix: 'x' },
+                { name: 'LEVEL', value: 100, min: 0, max: 100, suffix: '%' },
+                { name: 'FDBK', value: 0, min: 0, max: 100, suffix: '%' },
+                { name: 'VOICE', value: 4, min: 1, max: 12, suffix: '' },
+            ],
+            vuLevel: 0.35,
+        },
+        {
+            id: 'm7-delay', name: 'DELAY', effectType: 'delay', isEnabled: true,
+            params: [
+                { name: 'TIME', value: 250, min: 1, max: 2000, suffix: ' ms' },
+                { name: 'FDBK', value: 35, min: 0, max: 100, suffix: '%' },
+                { name: 'MIX', value: 25, min: 0, max: 100, suffix: '%' },
+            ],
+            vuLevel: 0.3,
+        },
+        {
+            id: 'm7-reverb', name: 'REVERB', effectType: 'reverb', isEnabled: true,
+            params: [
+                { name: 'SIZE', value: 65, min: 0, max: 100, suffix: '%' },
+                { name: 'DECAY', value: 2.8, min: 0.1, max: 10, suffix: ' s' },
+                { name: 'MIX', value: 18, min: 0, max: 100, suffix: '%' },
+            ],
+            vuLevel: 0.25,
+        },
+    ],
+
+    // MIDI 8 — Instrument + Chorus
+    't-midi8': [
+        {
+            id: 'm8-inst', name: 'WAVETABLE', effectType: 'instrument', isEnabled: true,
+            params: [
+                { name: 'OSC1', value: 80, min: 0, max: 127, suffix: '' },
+                { name: 'SUB', value: 50, min: 0, max: 127, suffix: '' },
+                { name: 'FILTER', value: 6000, min: 20, max: 20000, suffix: ' Hz' },
+            ],
+            vuLevel: 0.3,
+        },
+        {
+            id: 'm8-chorus', name: 'CHORUS-ENSEMBLE', effectType: 'chorus', isEnabled: true,
+            params: [
+                { name: 'RATE', value: 1.2, min: 0.1, max: 20, suffix: ' Hz' },
+                { name: 'AMOUNT', value: 60, min: 0, max: 100, suffix: '%' },
+                { name: 'MIX', value: 50, min: 0, max: 100, suffix: '%' },
+            ],
+            vuLevel: 0.25,
+        },
+    ],
+
+    // Master — EQ + Compressor + Limiter
+    'master': [
+        {
+            id: 'mst-eq', name: 'EQ EIGHT', effectType: 'eq', isEnabled: true,
+            params: [
+                { name: 'LOW', value: -0.1, min: -15, max: 15, suffix: ' dB' },
+                { name: '400', value: 1.3, min: -15, max: 15, suffix: ' dB' },
+                { name: '1k', value: -0.5, min: -15, max: 15, suffix: ' dB' },
+                { name: '4.1k', value: 0.8, min: -15, max: 15, suffix: ' dB' },
+                { name: '10k', value: -1.4, min: -15, max: 15, suffix: ' dB' },
+                { name: 'HIGH', value: 0, min: -15, max: 15, suffix: ' dB' },
+            ],
+            vuLevel: 0.65,
+        },
+        {
+            id: 'mst-comp', name: 'COMPRESSOR', effectType: 'compressor', isEnabled: true,
+            params: [
+                { name: 'THRESH', value: -18, min: -40, max: 0, suffix: ' dB' },
+                { name: 'RATIO', value: 3, min: 1, max: 20, suffix: ':1' },
+                { name: 'ATTACK', value: 3, min: 0.1, max: 100, suffix: ' ms' },
+                { name: 'RELEASE', value: 80, min: 10, max: 1000, suffix: ' ms' },
+            ],
+            vuLevel: 0.55,
+        },
+        {
+            id: 'mst-reverb', name: 'PLATE REVERB', effectType: 'reverb', isEnabled: true,
+            params: [
+                { name: 'SIZE', value: 72, min: 0, max: 100, suffix: '%' },
+                { name: 'DECAY', value: 2.4, min: 0.1, max: 10, suffix: ' s' },
+                { name: 'DAMP', value: 45, min: 0, max: 100, suffix: '%' },
+                { name: 'MIX', value: 22, min: 0, max: 100, suffix: '%' },
+            ],
+            vuLevel: 0.45,
+        },
+    ],
+};
+
+// Track name lookup for header display
+const TRACK_NAMES: Record<string, string> = {
+    'g-drums': 'DRUMS',
+    't-kick': 'Kick',
+    't-snare': 'Snare',
+    't-hihat': 'Hihat',
+    't-metro': 'Metropolis Pad - 3B',
+    't-hihatpad': 'Hihat Pad',
+    'g-bass': 'BASS',
+    't-bass': 'Bass',
+    't-midi7': 'MIDI 7',
+    't-midi8': 'MIDI 8',
+    'master': 'Master',
+};
 
 // ── Component ──────────────────────────────────────────
 
-export const DeviceRack = () => {
-    const [chain, setChain] = useState(DEMO_CHAIN);
-    const [selectedTrackName] = useState('Track 01');
+interface DeviceRackProps {
+    selectedTrackId: string;
+}
+
+export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
+    const initialChain = useMemo(
+        () => TRACK_DEVICE_CHAINS[selectedTrackId] || TRACK_DEVICE_CHAINS['master'],
+        [selectedTrackId]
+    );
+
+    const [chain, setChain] = useState(initialChain);
+    const trackName = TRACK_NAMES[selectedTrackId] || 'Unknown';
+
+    // Sync chain when selected track changes
+    // Using a key-based approach: re-mount when track changes
+    const [activeTrack, setActiveTrack] = useState(selectedTrackId);
+    if (activeTrack !== selectedTrackId) {
+        setActiveTrack(selectedTrackId);
+        setChain(TRACK_DEVICE_CHAINS[selectedTrackId] || TRACK_DEVICE_CHAINS['master']);
+    }
 
     const toggleDevice = useCallback((id: string) => {
         setChain(prev => prev.map(d =>
@@ -117,13 +378,13 @@ export const DeviceRack = () => {
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
                 }}>
-                    ⛓ MASTER CHAIN · {chain.length} devices
+                    ⛓ {trackName} — Instrument & Effects Chain · {chain.length} devices
                 </span>
                 <span style={{
                     fontSize: 'var(--font-size-2xs)',
                     color: 'var(--color-text-tertiary)',
                 }}>
-                    {selectedTrackName}
+                    {trackName}
                 </span>
             </div>
 
@@ -201,13 +462,28 @@ const DeviceNode = ({
     const vuWidthPercent = Math.min(100, Math.max(0, device.vuLevel * 100));
     const vuColor = device.vuLevel > 0.85 ? 'var(--color-meter-clip)' : device.vuLevel > 0.6 ? 'var(--color-meter-hot)' : 'var(--color-meter-normal)';
 
+    // Color per device type (matching Ableton's device categories)
+    const typeColorMap: Record<string, string> = {
+        instrument: '#4a9eff',
+        sampler: '#4a9eff',
+        eq: '#d9a625',
+        compressor: '#66cc33',
+        delay: '#33a6d9',
+        reverb: '#8844aa',
+        chorus: '#c850a0',
+        utility: '#999',
+        saturator: '#d97028',
+        vst: '#4a9eff',
+    };
+    const typeColor = typeColorMap[device.effectType] || 'var(--color-accent-primary)';
+
     return (
         <div
             className="device-node"
             data-effect={device.effectType}
             style={{
-                minWidth: device.effectType === 'eq' ? 160 : 120,
-                width: device.effectType === 'eq' ? 160 : 120,
+                minWidth: device.effectType === 'eq' ? 160 : device.effectType === 'instrument' || device.effectType === 'sampler' ? 140 : 120,
+                width: device.effectType === 'eq' ? 160 : device.effectType === 'instrument' || device.effectType === 'sampler' ? 140 : 120,
                 display: 'flex',
                 flexDirection: 'column',
                 background: 'var(--color-bg-node)',
@@ -221,6 +497,13 @@ const DeviceNode = ({
                 position: 'relative',
             }}
         >
+            {/* Type color stripe at top (2px) */}
+            <div style={{
+                height: 2,
+                background: typeColor,
+                flexShrink: 0,
+            }} />
+
             {/* Header */}
             <div style={{
                 display: 'flex',
@@ -236,7 +519,7 @@ const DeviceNode = ({
                     style={{
                         width: 8, height: 8,
                         borderRadius: '50%',
-                        background: device.isEnabled ? 'var(--color-status-success)' : 'var(--color-text-tertiary)',
+                        background: device.isEnabled ? typeColor : 'var(--color-text-tertiary)',
                         border: 'none',
                         cursor: 'pointer',
                         flexShrink: 0,
@@ -274,7 +557,7 @@ const DeviceNode = ({
                 justifyContent: 'center',
             }}>
                 {device.params.map((param, i) => (
-                    <KnobDisplay key={i} param={param} />
+                    <KnobDisplay key={i} param={param} accentColor={typeColor} />
                 ))}
             </div>
 
@@ -301,7 +584,7 @@ const DeviceNode = ({
 
 // ── KnobDisplay ──────────────────────────────────────────
 
-const KnobDisplay = ({ param }: { param: DeviceParam }) => {
+const KnobDisplay = ({ param, accentColor }: { param: DeviceParam; accentColor: string }) => {
     const range = param.max - param.min;
     const normalizedValue = range > 0 ? (param.value - param.min) / range : 0;
     const arcAngle = 135 + (normalizedValue * 270);
@@ -309,7 +592,7 @@ const KnobDisplay = ({ param }: { param: DeviceParam }) => {
     const center = size / 2;
     const r = 10;
 
-    // Arc SVG for the knob
+    // Arc SVG
     const startAngle = 135;
     const endAngle = arcAngle;
 
@@ -352,20 +635,15 @@ const KnobDisplay = ({ param }: { param: DeviceParam }) => {
                     <path
                         d={`M ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 1 ${ex} ${ey}`}
                         fill="none"
-                        stroke="var(--color-knob-fill)"
+                        stroke={accentColor}
                         strokeWidth="2"
                         strokeLinecap="round"
                     />
                 )}
                 {/* Center dot */}
-                <circle cx={center} cy={center} r="3" fill="var(--color-bg-elevated)" stroke="var(--color-knob-fill)" strokeWidth="0.5" />
+                <circle cx={center} cy={center} r="3" fill="var(--color-bg-elevated)" stroke={accentColor} strokeWidth="0.5" />
                 {/* Indicator dot */}
-                <circle
-                    cx={ex}
-                    cy={ey}
-                    r="1.5"
-                    fill="var(--color-knob-fill)"
-                />
+                <circle cx={ex} cy={ey} r="1.5" fill={accentColor} />
             </svg>
             <span style={{
                 fontSize: 8,

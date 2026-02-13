@@ -94,6 +94,114 @@ impl ClipScheduler {
 
         active
     }
+
+    /// Finds active clips with loop-aware scheduling.
+    ///
+    /// When the playback window crosses a loop boundary (end → start),
+    /// the buffer is split into two segments:
+    ///   1. Pre-wrap: from playhead to loop end
+    ///   2. Post-wrap: from loop start for remaining frames
+    ///
+    /// Clips are scheduled for both segments independently.
+    ///
+    /// Ported from Swift `PlaybackScheduler.scheduleLoopedBuffer()`.
+    ///
+    /// # Arguments
+    /// - `clips`: All clips on a track.
+    /// - `playhead_pos`: Current playhead position in sample frames.
+    /// - `buffer_size`: Size of the current audio buffer in frames.
+    /// - `loop_region`: Optional loop region. If `None`, behaves like `find_active`.
+    pub fn find_active_looped<'a>(
+        clips: &'a [AudioClip],
+        playhead_pos: i64,
+        buffer_size: usize,
+        loop_region: Option<&LoopRegion>,
+    ) -> Vec<ActiveClip<'a>> {
+        let loop_region = match loop_region {
+            Some(lr) if lr.is_valid() => lr,
+            _ => return Self::find_active(clips, playhead_pos, buffer_size),
+        };
+
+        let buffer_end = playhead_pos + buffer_size as i64;
+
+        // Does the buffer cross the loop boundary?
+        if buffer_end <= loop_region.end {
+            // No wrap — standard scheduling
+            return Self::find_active(clips, playhead_pos, buffer_size);
+        }
+
+        // ── Buffer wraps around loop boundary ──────────────────────────
+
+        // Pre-wrap segment: playhead → loop end
+        let pre_wrap_frames = (loop_region.end - playhead_pos).max(0) as usize;
+
+        // Post-wrap segment: loop start → remaining frames
+        let post_wrap_frames = buffer_size.saturating_sub(pre_wrap_frames);
+
+        let mut active = Vec::new();
+
+        // Schedule clips for the pre-wrap segment
+        if pre_wrap_frames > 0 {
+            let pre_clips = Self::find_active(clips, playhead_pos, pre_wrap_frames);
+            active.extend(pre_clips);
+        }
+
+        // Schedule clips for the post-wrap segment (from loop start)
+        if post_wrap_frames > 0 {
+            let post_clips = Self::find_active(clips, loop_region.start, post_wrap_frames);
+
+            // Offset the post-wrap clips into the buffer
+            for mut clip in post_clips {
+                clip.buffer_offset += pre_wrap_frames;
+                active.push(clip);
+            }
+        }
+
+        active
+    }
+}
+
+// ── Loop Region ────────────────────────────────────────────────────────
+
+/// Defines a loop region on the timeline (in sample frames).
+///
+/// When playback reaches `end`, it wraps back to `start`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoopRegion {
+    /// Loop start position in sample frames.
+    pub start: i64,
+
+    /// Loop end position in sample frames (exclusive).
+    pub end: i64,
+}
+
+impl LoopRegion {
+    /// Creates a new loop region.
+    pub fn new(start: i64, end: i64) -> Self {
+        Self { start, end }
+    }
+
+    /// Whether this loop region is valid (end > start, positive length).
+    #[inline]
+    pub fn is_valid(&self) -> bool {
+        self.end > self.start && self.start >= 0
+    }
+
+    /// Length of the loop in sample frames.
+    #[inline]
+    pub fn length(&self) -> i64 {
+        self.end - self.start
+    }
+
+    /// Wraps a position to stay within the loop.
+    #[inline]
+    pub fn wrap_position(&self, position: i64) -> i64 {
+        if !self.is_valid() || position < self.start {
+            return position;
+        }
+        let offset = (position - self.start) % self.length();
+        self.start + offset
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -199,4 +307,79 @@ mod tests {
         let active = ClipScheduler::find_active(&clips, 256, 256);
         assert!(active.is_empty()); // End is exclusive
     }
+
+    // ── Loop-Aware Scheduling Tests ────────────────────────────────────
+
+    #[test]
+    fn loop_no_wrap_same_as_standard() {
+        let clips = vec![make_clip("A", 0, 1000)];
+        let loop_region = LoopRegion::new(0, 2000);
+
+        let standard = ClipScheduler::find_active(&clips, 100, 256);
+        let looped = ClipScheduler::find_active_looped(&clips, 100, 256, Some(&loop_region));
+
+        assert_eq!(standard.len(), looped.len());
+        assert_eq!(standard[0].frames_to_read, looped[0].frames_to_read);
+    }
+
+    #[test]
+    fn loop_wrap_splits_buffer() {
+        // Clip spans 0..1000, loop is 0..500, playhead at 400 with buffer 256
+        // Buffer range: 400..656, but loop end is 500
+        // Pre-wrap: 400..500 = 100 frames
+        // Post-wrap: 0..156 = 156 frames (from loop start)
+        let clips = vec![make_clip("A", 0, 1000)];
+        let loop_region = LoopRegion::new(0, 500);
+
+        let active = ClipScheduler::find_active_looped(&clips, 400, 256, Some(&loop_region));
+
+        assert_eq!(active.len(), 2, "Should have pre-wrap and post-wrap segments");
+
+        // Pre-wrap: starts at buffer offset 0, 100 frames
+        assert_eq!(active[0].buffer_offset, 0);
+        assert_eq!(active[0].frames_to_read, 100);
+
+        // Post-wrap: starts at buffer offset 100, 156 frames
+        assert_eq!(active[1].buffer_offset, 100);
+        assert_eq!(active[1].frames_to_read, 156);
+    }
+
+    #[test]
+    fn loop_without_region_falls_back() {
+        let clips = vec![make_clip("A", 0, 1000)];
+        let active = ClipScheduler::find_active_looped(&clips, 100, 256, None);
+        assert_eq!(active.len(), 1);
+    }
+
+    #[test]
+    fn loop_region_validity() {
+        assert!(LoopRegion::new(0, 1000).is_valid());
+        assert!(!LoopRegion::new(1000, 0).is_valid());     // Inverted
+        assert!(!LoopRegion::new(500, 500).is_valid());     // Zero length
+        assert!(!LoopRegion::new(-100, 500).is_valid());    // Negative start
+    }
+
+    #[test]
+    fn loop_region_wrap_position() {
+        let lr = LoopRegion::new(0, 1000);
+        assert_eq!(lr.wrap_position(500), 500);     // Within loop
+        assert_eq!(lr.wrap_position(1000), 0);      // At end → wraps to start
+        assert_eq!(lr.wrap_position(1500), 500);    // Past end → wraps
+        assert_eq!(lr.wrap_position(2000), 0);      // Double wrap
+    }
+
+    #[test]
+    fn loop_region_wrap_with_offset() {
+        let lr = LoopRegion::new(1000, 2000);
+        assert_eq!(lr.wrap_position(1500), 1500);   // Within
+        assert_eq!(lr.wrap_position(2000), 1000);   // At end → wraps
+        assert_eq!(lr.wrap_position(2500), 1500);   // Past end
+    }
+
+    #[test]
+    fn loop_region_length() {
+        assert_eq!(LoopRegion::new(0, 44100).length(), 44100);
+        assert_eq!(LoopRegion::new(1000, 5000).length(), 4000);
+    }
 }
+

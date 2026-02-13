@@ -18,6 +18,7 @@ pub mod scheduler;
 pub mod reader;
 pub mod pool;
 
-pub use scheduler::ClipScheduler;
+pub use scheduler::{ClipScheduler, LoopRegion};
 pub use reader::ClipReader;
 pub use pool::ClipPool;
+

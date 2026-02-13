@@ -119,14 +119,12 @@ const DEFAULT_PPB = 20;
 // ── Component ──────────────────────────────────────────
 
 export const Timeline = ({
-    bpm = 172,
     timeSignature = [4, 4],
     totalBars = 32,
     trackCount = 9,
     trackHeight = 48,
     clips: externalClips,
     playheadBeat: externalPlayhead,
-    isPlaying = false,
     loopStart = 4,
     loopEnd = 20,
     loopEnabled = true,
@@ -136,7 +134,6 @@ export const Timeline = ({
 }: TimelineProps) => {
     const [pixelsPerBeat, setPixelsPerBeat] = useState(DEFAULT_PPB);
     const [scrollLeft, setScrollLeft] = useState(0);
-    const [scrollTop, setScrollTop] = useState(0);
     const [playheadBeat, setPlayheadBeat] = useState(externalPlayhead ?? 40);
     const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
     const [draggingClip, setDraggingClip] = useState<{
@@ -160,7 +157,6 @@ export const Timeline = ({
     const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
         const target = e.currentTarget;
         setScrollLeft(target.scrollLeft);
-        setScrollTop(target.scrollTop);
     }, []);
 
     // ── Zoom (Ctrl+Scroll or pinch) ──
@@ -527,7 +523,7 @@ export const Timeline = ({
 // ── Sub-components ──────────────────────────────────────
 
 /** Fake waveform representation inside audio clips */
-const WaveformPlaceholder = ({ color, width }: { color: string; width: number }) => {
+const WaveformPlaceholder = ({ width }: { color?: string; width: number }) => {
     const segmentCount = Math.max(4, Math.floor(width / 3));
     return (
         <svg
@@ -556,7 +552,7 @@ const WaveformPlaceholder = ({ color, width }: { color: string; width: number })
 };
 
 /** MIDI note blocks inside midi clips */
-const MidiNotePlaceholder = ({ color, width, height }: { color: string; width: number; height: number }) => {
+const MidiNotePlaceholder = ({ width }: { color?: string; width: number; height?: number }) => {
     const noteCount = Math.max(2, Math.floor(width / 8));
     return (
         <svg

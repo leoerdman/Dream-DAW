@@ -3,9 +3,10 @@
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // Real-time audio mixer for the DAW:
-//   - Volume fader with dB-linear gain
+//   - Volume fader with dB-linear gain + anti-zipper ramping
 //   - Stereo panning (constant-power pan law)
-//   - Solo/mute logic (with implicit solo handling)
+//   - Per-track channel strip (gain → pan → metering in one pass)
+//   - Solo/mute resolver (implicit solo, mute-overrides-solo)
 //   - VU metering (peak + RMS with ballistics)
 //   - Summing bus for track → master mixing
 //
@@ -18,8 +19,12 @@ pub mod gain;
 pub mod pan;
 pub mod meter;
 pub mod bus;
+pub mod channel_strip;
+pub mod solo;
 
-pub use gain::{db_to_linear, linear_to_db, apply_gain};
+pub use gain::{db_to_linear, linear_to_db, apply_gain, apply_gain_ramp};
 pub use pan::{PanLaw, apply_pan};
 pub use meter::VuMeter;
 pub use bus::SummingBus;
+pub use channel_strip::ChannelStrip;
+pub use solo::{SoloResolver, ResolvedTrack, TrackFlags};

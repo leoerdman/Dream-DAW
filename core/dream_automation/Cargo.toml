@@ -1,0 +1,11 @@
+[package]
+name = "dream_automation"
+description = "Dream DAW — Automation Curves, Parameter Targets, Modes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+log = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true }

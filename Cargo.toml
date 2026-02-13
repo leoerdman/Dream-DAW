@@ -7,6 +7,11 @@ members = [
     "core/dream_engine",
     "core/dream_renderer",
     "core/dream_plugins",
+    "core/dream_io",
+    "core/dream_mixer",
+    "core/dream_transport",
+    "core/dream_clip_engine",
+    "core/dream_automation",
     "apps/desktop_host",
 ]
 resolver = "3"
@@ -30,6 +35,8 @@ log = "0.4"
 env_logger = "0.11"
 wgpu = "24"
 bytemuck = { version = "1.21", features = ["derive"] }
+symphonia = { version = "0.5", features = ["all"] }
+hound = "3.5"
 
 # ── Release Profile (Enterprise) ────────────────────────────────────────
 # These optimizations apply to ALL crates in the workspace when built with --release.

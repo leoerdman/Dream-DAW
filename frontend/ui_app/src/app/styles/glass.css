@@ -1,10 +1,12 @@
 /* ═══════════════════════════════════════════════════════════════
-   DREAM DAW — GLASSMORPHISM SYSTEM
-   Reusable glass panel utilities for DAW panels.
-   Source: Ultra Deep Service glass tokens (purged)
-   ═════════════════════════════════════════════════════════════ */
+   DREAM DAW — GLASS & ANIMATION SYSTEM v2.0
+   Glassmorphism tokens + AI Era animation library port.
+   ═══════════════════════════════════════════════════════════════ */
 
-/* ── Base Glass Panel ── */
+/* ─────────────────────────────────────────────────────────────
+   GLASSMORPHISM PANELS
+   ───────────────────────────────────────────────────────────── */
+
 .glass-panel {
     background: var(--glass-bg);
     backdrop-filter: blur(var(--glass-blur));
@@ -17,81 +19,286 @@
 }
 
 .glass-panel:hover {
-    background: var(--glass-bg-hover);
     border-color: var(--glass-border-hover);
 }
 
-/* ── Glass Pill (Transport Controls) ── */
+/* Transport bar — compact Ableton-style */
 .glass-pill {
-    background: var(--glass-bg);
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
-    border: var(--border-width-1) solid var(--glass-border);
-    border-radius: var(--glass-radius);
     display: inline-flex;
     align-items: center;
-    padding: 0 var(--space-4);
-    gap: var(--space-3);
-    transition: all var(--transition-normal);
+    gap: 0;
+    background: var(--color-bg-elevated);
+    border-bottom: var(--border-width-1) solid var(--color-divider);
+    transition: background var(--transition-fast);
+    width: 100%;
+    height: 100%;
 }
 
-.glass-pill:hover {
-    background: var(--glass-bg-hover);
-    border-color: var(--glass-border-hover);
-}
-
-/* ── Glass Divider (inside pills) ── */
+/* Thin 1px vertical divider between transport sections */
 .glass-divider {
-    width: var(--border-width-1);
-    height: var(--space-8);
-    background: var(--glass-border);
+    width: var(--daw-divider-width);
+    height: 20px;
+    background: var(--color-divider);
     flex-shrink: 0;
 }
 
-/* ── Ghost Button (used across panels) ── */
-.btn-ghost {
-    background: transparent;
-    color: var(--color-text-secondary);
-    padding: var(--space-2);
-    border-radius: var(--radius-md);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    transition: all var(--transition-fast);
-}
+/* ─────────────────────────────────────────────────────────────
+   PANEL TAB SYSTEM
+   ───────────────────────────────────────────────────────────── */
 
-.btn-ghost:hover {
-    background: var(--color-bg-hover);
-    color: var(--color-text-primary);
-}
-
-/* ── Panel Tab System (Asset Browser) ── */
 .panel-tabs {
     display: flex;
-    border-bottom: var(--border-width-1) solid var(--color-border-subtle);
+    align-items: center;
+    gap: 0;
+    padding: 0;
+    border-bottom: var(--border-width-1) solid var(--color-divider);
+    background: var(--color-bg-elevated);
 }
 
 .panel-tab {
-    flex: 1;
-    height: 40px;
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    font-size: var(--font-size-sm);
+    gap: 4px;
+    padding: 4px 10px;
+    font-size: var(--font-size-xs);
     font-weight: var(--font-weight-medium);
-    color: var(--color-text-secondary);
+    color: var(--color-text-tertiary);
     cursor: pointer;
-    transition: color var(--transition-fast), background var(--transition-fast);
+    border: none;
+    background: transparent;
     border-bottom: 2px solid transparent;
+    transition: color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .panel-tab:hover {
-    color: var(--color-text-primary);
-    background: var(--color-bg-hover);
+    color: var(--color-text-secondary);
 }
 
 .panel-tab.active {
     color: var(--color-text-primary);
     border-bottom-color: var(--color-accent-primary);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   GHOST BUTTON (transparent, icon-only)
+   ───────────────────────────────────────────────────────────── */
+
+.btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    border: none;
+    background: transparent;
+    color: var(--color-text-tertiary);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.btn-ghost:hover {
+    background: var(--color-bg-hover);
+    color: var(--color-text-secondary);
+}
+
+.btn-ghost:active {
+    background: var(--color-bg-active);
+}
+
+/* Ableton-style small control button */
+.btn-control {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 6px;
+    border: none;
+    background: var(--color-control-bg);
+    color: var(--color-text-secondary);
+    border-radius: var(--radius-xs);
+    font-size: var(--font-size-2xs);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.btn-control:hover {
+    background: var(--color-control-bg-active);
+    color: var(--color-text-primary);
+}
+
+.btn-control.active {
+    color: var(--color-text-on-color);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   KEYFRAME ANIMATIONS (Ported from AI Era Music App)
+   ───────────────────────────────────────────────────────────── */
+
+@keyframes fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes scale-in {
+    from {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes slide-in-right {
+    from {
+        opacity: 0;
+        transform: translateX(16px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes pulse-glow {
+
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 rgba(217, 64, 64, 0.4);
+    }
+
+    50% {
+        box-shadow: 0 0 16px 4px rgba(217, 64, 64, 0.25);
+    }
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: -200% 0;
+    }
+
+    100% {
+        background-position: 200% 0;
+    }
+}
+
+@keyframes meter-pulse {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.7;
+    }
+}
+
+/* ── Animation Utilities ─────────────────────────────────────── */
+
+.animate-fade-in {
+    animation: fade-in 0.3s ease-out forwards;
+}
+
+.animate-scale-in {
+    animation: scale-in 0.2s ease-out forwards;
+}
+
+.animate-slide-in-right {
+    animation: slide-in-right 0.3s ease-out forwards;
+}
+
+.animate-pulse-record {
+    animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Stagger children (up to 8 items) */
+.stagger-children>* {
+    opacity: 0;
+    animation: fade-in 0.3s ease-out forwards;
+}
+
+.stagger-children>*:nth-child(1) {
+    animation-delay: 0.03s;
+}
+
+.stagger-children>*:nth-child(2) {
+    animation-delay: 0.06s;
+}
+
+.stagger-children>*:nth-child(3) {
+    animation-delay: 0.09s;
+}
+
+.stagger-children>*:nth-child(4) {
+    animation-delay: 0.12s;
+}
+
+.stagger-children>*:nth-child(5) {
+    animation-delay: 0.15s;
+}
+
+.stagger-children>*:nth-child(6) {
+    animation-delay: 0.18s;
+}
+
+.stagger-children>*:nth-child(7) {
+    animation-delay: 0.21s;
+}
+
+.stagger-children>*:nth-child(8) {
+    animation-delay: 0.24s;
+}
+
+/* ── Transition Utilities ────────────────────────────────────── */
+
+.transition-smooth {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.transition-fast {
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Glow Effects ────────────────────────────────────────────── */
+
+.glow-accent {
+    box-shadow: 0 0 16px rgba(74, 158, 255, 0.3);
+}
+
+.glow-success {
+    box-shadow: 0 0 16px rgba(102, 204, 51, 0.3);
+}
+
+.glow-record {
+    box-shadow: 0 0 16px rgba(217, 64, 64, 0.3);
+}
+
+/* ── Scrollbar Hide ──────────────────────────────────────────── */
+
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+
+/* ── Progress Shimmer ────────────────────────────────────────── */
+
+.progress-shimmer {
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+    background-size: 200% 100%;
+    animation: shimmer 2s infinite;
 }

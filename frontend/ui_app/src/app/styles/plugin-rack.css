@@ -1,243 +1,323 @@
 /* ═══════════════════════════════════════════════════════════════
-   DREAM DAW — PLUGIN RACK STYLES (Device Chain)
-   Transplanted from Ultra Deep Service .flow-node system.
-   
-   In UDS: Nodes = AI image generation blocks on a 2D canvas.
-   In DAW: Nodes = VST Audio Effects in a horizontal rack.
-   
-   The visual language is identical, the semantics are different.
-   ═════════════════════════════════════════════════════════════ */
+   DREAM DAW — DEVICE RACK (Plugin Rack) v2.0
+   Transplanted from UDS .flow-node → .device-node
+   Enhanced with DreamTheme.swift effect type tints + improved
+   knob/meter visuals.
+   ═══════════════════════════════════════════════════════════════ */
 
-/* ── Device Node (VST Plugin Card) ── */
+/* ─────────────────────────────────────────────────────────────
+   DEVICE NODE (VST Plugin Card)
+   ───────────────────────────────────────────────────────────── */
+
 .device-node {
     width: 200px;
-    min-height: 180px;
+    min-height: 160px;
     background: var(--color-bg-node);
-    border: var(--border-width-1) solid var(--color-border-default);
+    border: var(--border-width-1) solid var(--color-control-border);
     border-radius: var(--node-border-radius);
     display: flex;
     flex-direction: column;
     position: relative;
+    cursor: pointer;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
     flex-shrink: 0;
-    transition:
-        border-color var(--transition-fast),
-        box-shadow var(--transition-fast);
     overflow: hidden;
 }
 
 .device-node:hover {
-    border-color: var(--color-border-highlight);
+    border-color: var(--color-divider-light);
 }
 
 .device-node.selected {
-    border-color: var(--color-border-selected);
-    box-shadow: 0 0 0 1px var(--color-border-selected);
+    border-color: var(--color-accent-primary);
+    box-shadow: 0 0 0 1px var(--color-accent-primary);
 }
 
 .device-node.bypassed {
     opacity: var(--opacity-dim);
 }
 
-/* ── Node Header (Plugin Title Bar) ── */
+.device-node.bypassed .device-node-header {
+    background: var(--color-bg-node);
+}
+
+/* ── Color Stripe (3px top bar per effect type) ─────────────── */
+
+.device-node::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--daw-color-stripe-width);
+    background: var(--device-tint, var(--color-control-tint));
+    border-radius: var(--node-border-radius) var(--node-border-radius) 0 0;
+}
+
+/* Effect-type color stripes */
+.device-node[data-effect="eq"]::before {
+    --device-tint: var(--color-effect-eq);
+}
+
+.device-node[data-effect="compressor"]::before {
+    --device-tint: var(--color-effect-compressor);
+}
+
+.device-node[data-effect="delay"]::before {
+    --device-tint: var(--color-effect-delay);
+}
+
+.device-node[data-effect="reverb"]::before {
+    --device-tint: var(--color-effect-reverb);
+}
+
+.device-node[data-effect="chorus"]::before {
+    --device-tint: var(--color-effect-chorus);
+}
+
+.device-node[data-effect="utility"]::before {
+    --device-tint: var(--color-effect-utility);
+}
+
+.device-node[data-effect="vst"]::before {
+    --device-tint: var(--color-effect-vst);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   NODE HEADER
+   ───────────────────────────────────────────────────────────── */
+
 .device-node-header {
-    height: 36px;
+    height: 28px;
+    background: var(--color-bg-node-header);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 var(--space-3);
-    background: var(--color-bg-node-header);
-    border-bottom: var(--border-width-1) solid var(--color-border-subtle);
-    border-radius: var(--node-border-radius) var(--node-border-radius) 0 0;
-    flex-shrink: 0;
+    padding: 0 8px;
+    padding-top: var(--daw-color-stripe-width);
+    border-bottom: var(--border-width-1) solid var(--color-divider);
 }
 
 .device-node-title {
-    font-size: var(--font-size-xs);
+    font-size: var(--font-size-2xs);
     font-weight: var(--font-weight-semibold);
     color: var(--color-text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    letter-spacing: var(--letter-spacing-wide);
-    text-transform: uppercase;
+    max-width: 100px;
 }
 
 .device-node-actions {
     display: flex;
     align-items: center;
-    gap: var(--space-1);
+    gap: 6px;
 }
 
 /* ── Bypass LED ── */
+
 .device-bypass-led {
-    width: 8px;
-    height: 8px;
+    width: 7px;
+    height: 7px;
     border-radius: var(--radius-full);
     background: var(--color-status-success);
-    transition: background var(--transition-fast);
     cursor: pointer;
+    transition: background var(--transition-fast), box-shadow var(--transition-fast);
+    box-shadow: 0 0 4px rgba(102, 204, 51, 0.4);
+}
+
+.device-bypass-led:hover {
+    box-shadow: 0 0 8px rgba(102, 204, 51, 0.6);
 }
 
 .device-bypass-led.bypassed {
-    background: var(--color-text-tertiary);
+    background: var(--color-meter-silent);
+    box-shadow: none;
 }
 
-/* ── Node Body (Plugin Controls Area) ── */
+/* ─────────────────────────────────────────────────────────────
+   NODE BODY
+   ───────────────────────────────────────────────────────────── */
+
 .device-node-body {
     flex: 1;
+    background: var(--color-bg-node-body);
+    padding: 8px;
     display: flex;
     flex-direction: column;
-    gap: var(--space-3);
-    padding: var(--space-3);
-    background: var(--color-bg-node-body);
+    gap: 6px;
 }
 
 /* ── Knob Row ── */
+
 .device-knob-row {
     display: flex;
-    align-items: center;
     justify-content: space-around;
-    gap: var(--space-2);
+    gap: 2px;
 }
 
-/* ── Single Knob ── */
 .device-knob {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--space-1);
+    gap: 2px;
+    min-width: 36px;
 }
 
+/* Knob dial — 270° arc (ported from KnobView.swift) */
 .device-knob-dial {
-    width: 36px;
-    height: 36px;
+    width: 28px;
+    height: 28px;
     border-radius: var(--radius-full);
-    background: var(--color-bg-input);
-    border: var(--border-width-2) solid var(--color-border-default);
+    background: var(--color-knob-fill);
+    border: 2px solid var(--color-knob-arc-inactive);
     position: relative;
-    cursor: grab;
+    cursor: pointer;
     transition: border-color var(--transition-fast);
 }
 
+.device-knob-dial:hover {
+    border-color: var(--color-control-tint);
+}
+
+/* Knob indicator dot */
 .device-knob-dial::after {
     content: '';
     position: absolute;
-    width: 2px;
-    height: 10px;
-    background: var(--color-accent-primary);
-    top: 4px;
+    top: 2px;
     left: 50%;
     transform: translateX(-50%);
-    border-radius: 1px;
-}
-
-.device-knob-dial:hover {
-    border-color: var(--color-accent-primary);
-}
-
-.device-knob-label {
-    font-size: var(--font-size-2xs);
-    color: var(--color-text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: var(--letter-spacing-wide);
+    width: 3px;
+    height: 3px;
+    border-radius: var(--radius-full);
+    background: var(--color-text-primary);
 }
 
 .device-knob-value {
-    font-size: var(--font-size-2xs);
+    font-size: var(--font-size-micro);
     font-family: var(--font-mono);
-    color: var(--color-text-secondary);
+    color: var(--color-knob-value-text);
+    line-height: 1;
 }
 
-/* ── Meter Bar (Gain Reduction, Threshold) ── */
+.device-knob-label {
+    font-size: var(--font-size-micro);
+    color: var(--color-text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    line-height: 1;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   VU METER (from SignalMeterView.swift — segmented gradient)
+   ───────────────────────────────────────────────────────────── */
+
 .device-meter {
     width: 100%;
-    height: 4px;
-    background: var(--color-bg-input);
-    border-radius: 2px;
+    height: 3px;
+    background: var(--color-meter-bg);
+    border-radius: var(--radius-xs);
     overflow: hidden;
 }
 
 .device-meter-fill {
     height: 100%;
-    background: var(--color-accent-primary);
-    border-radius: 2px;
-    transition: width var(--transition-fast);
+    border-radius: var(--radius-xs);
+    background: var(--color-meter-normal);
+    transition: width 0.1s ease-out;
 }
 
+/* Hot state (>70% level) */
 .device-meter-fill.hot {
-    background: var(--color-status-error);
+    background: linear-gradient(to right, var(--color-meter-normal) 0%, var(--color-meter-hot) 70%, var(--color-meter-clip) 100%);
 }
 
-/* ── Audio Ports (Signal Flow Dots) ── */
+/* ─────────────────────────────────────────────────────────────
+   PORTS (Audio/MIDI/Sidechain)
+   ───────────────────────────────────────────────────────────── */
+
 .device-port {
-    width: 10px;
-    height: 10px;
-    border-radius: var(--radius-full);
-    border: var(--border-width-2) solid var(--color-border-default);
     position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 1;
-    transition: all var(--transition-fast);
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-full);
+    background: var(--color-port-audio);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    z-index: 2;
 }
 
 .device-port.input {
-    left: -5px;
-    background: var(--color-port-audio);
+    left: -4px;
+    top: 50%;
+    transform: translateY(-50%);
 }
 
 .device-port.output {
-    right: -5px;
-    background: var(--color-port-audio);
-}
-
-.device-port.midi {
-    background: var(--color-port-midi);
+    right: -4px;
+    top: 50%;
+    transform: translateY(-50%);
 }
 
 .device-port.sidechain {
     background: var(--color-port-sidechain);
 }
 
-/* ── Signal Wire (Connection between ports) ── */
-.device-wire {
-    height: 2px;
-    background: var(--color-accent-primary);
-    align-self: center;
-    flex-shrink: 0;
-    opacity: 0.3;
-    border-radius: 1px;
-    min-width: var(--space-6);
+.device-port.midi {
+    background: var(--color-port-midi);
 }
 
-/* ── Add Device Slot ── */
+/* ─────────────────────────────────────────────────────────────
+   SIGNAL WIRE (connection between devices)
+   ───────────────────────────────────────────────────────────── */
+
+.device-wire {
+    height: 2px;
+    background: var(--color-divider-light);
+    flex-shrink: 0;
+    position: relative;
+}
+
+.device-wire::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: -2px;
+    width: 0;
+    height: 0;
+    border-left: 4px solid var(--color-divider-light);
+    border-top: 3px solid transparent;
+    border-bottom: 3px solid transparent;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   ADD DEVICE SLOT
+   ───────────────────────────────────────────────────────────── */
+
 .device-add-slot {
-    width: 200px;
-    min-height: 180px;
-    border: 2px dashed var(--color-border-subtle);
+    width: 80px;
+    min-height: 160px;
+    border: 1px dashed var(--color-divider-light);
     border-radius: var(--node-border-radius);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: var(--space-2);
-    color: var(--color-text-tertiary);
+    gap: 6px;
     cursor: pointer;
+    color: var(--color-text-tertiary);
+    transition: all var(--transition-fast);
     flex-shrink: 0;
-    transition: all var(--transition-normal);
 }
 
 .device-add-slot:hover {
-    border-color: var(--color-text-secondary);
-    color: var(--color-text-secondary);
-    background: var(--color-overlay-light);
-}
-
-.device-add-slot-icon {
-    font-size: var(--font-size-2xl);
+    border-color: var(--color-accent-primary);
+    color: var(--color-accent-primary);
+    background: var(--color-accent-primary-dim);
 }
 
 .device-add-slot-text {
-    font-size: var(--font-size-xs);
+    font-size: var(--font-size-micro);
     font-weight: var(--font-weight-medium);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
 }

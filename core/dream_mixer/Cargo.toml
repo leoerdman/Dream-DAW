@@ -1,0 +1,9 @@
+[package]
+name = "dream_mixer"
+description = "Dream DAW — Mixer Engine (Volume, Pan, Solo/Mute, Metering)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+log = { workspace = true }

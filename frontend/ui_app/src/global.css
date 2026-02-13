@@ -1,8 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════
    DREAM DAW — GLOBAL STYLESHEET (Tailwind v4 Entry Point)
    
-   This is the SINGLE entry point for all CSS in the application.
-   Tailwind v4 uses CSS-first configuration via @theme directive.
+   All CSS variables from tokens.css are bound to Tailwind 
+   utility classes via @theme. This is the only CSS import
+   needed in main.tsx.
    ═════════════════════════════════════════════════════════════ */
 
 @import "tailwindcss";
@@ -18,84 +19,131 @@
    TAILWIND v4 THEME (Bind CSS Variables → Utility Classes)
    ═══════════════════════════════════════════════════════════════ */
 @theme {
-    /* ── Application Backgrounds ── */
-    --color-bg-app: var(--color-bg-app);
-    --color-bg-canvas: var(--color-bg-canvas);
-    --color-bg-panel: var(--color-bg-panel);
-    --color-bg-elevated: var(--color-bg-elevated);
-    --color-bg-header: var(--color-bg-header);
-    --color-bg-input: var(--color-bg-input);
-    --color-bg-hover: var(--color-bg-hover);
-    --color-bg-active: var(--color-bg-active);
-    --color-bg-node: var(--color-bg-node);
+   /* ── Backgrounds ── */
+   --color-bg-base: var(--color-bg-base);
+   --color-bg-app: var(--color-bg-app);
+   --color-bg-canvas: var(--color-bg-canvas);
+   --color-bg-secondary: var(--color-bg-secondary);
+   --color-bg-tertiary: var(--color-bg-tertiary);
+   --color-bg-panel: var(--color-bg-panel);
+   --color-bg-elevated: var(--color-bg-elevated);
+   --color-bg-hover: var(--color-bg-hover);
+   --color-bg-selected: var(--color-bg-selected);
+   --color-bg-input: var(--color-bg-input);
+   --color-bg-header: var(--color-bg-header);
+   --color-bg-active: var(--color-bg-active);
+   --color-bg-node: var(--color-bg-node);
 
-    /* ── Text Colors ── */
-    --color-text-primary: var(--color-text-primary);
-    --color-text-secondary: var(--color-text-secondary);
-    --color-text-tertiary: var(--color-text-tertiary);
-    --color-text-inverse: var(--color-text-inverse);
+   /* ── Text ── */
+   --color-text-primary: var(--color-text-primary);
+   --color-text-secondary: var(--color-text-secondary);
+   --color-text-tertiary: var(--color-text-tertiary);
+   --color-text-bright: var(--color-text-bright);
+   --color-text-inverse: var(--color-text-inverse);
 
-    /* ── Accent ── */
-    --color-accent: var(--color-accent-primary);
-    --color-accent-hover: var(--color-accent-primary-hover);
-    --color-accent-glow: var(--color-accent-primary-glow);
+   /* ── Accent ── */
+   --color-accent: var(--color-accent-primary);
+   --color-accent-hover: var(--color-accent-primary-hover);
+   --color-accent-glow: var(--color-accent-primary-glow);
+   --color-accent-dim: var(--color-accent-primary-dim);
 
-    /* ── Status ── */
-    --color-status-success: var(--color-status-success);
-    --color-status-error: var(--color-status-error);
-    --color-status-warning: var(--color-status-warning);
-    --color-status-record: var(--color-status-record);
+   /* ── Status ── */
+   --color-status-success: var(--color-status-success);
+   --color-status-error: var(--color-status-error);
+   --color-status-warning: var(--color-status-warning);
+   --color-status-info: var(--color-status-info);
+   --color-status-record: var(--color-status-record);
 
-    /* ── Borders ── */
-    --color-border-subtle: var(--color-border-subtle);
-    --color-border-default: var(--color-border-default);
-    --color-border-highlight: var(--color-border-highlight);
+   /* ── DAW Buttons ── */
+   --color-btn-mute: var(--color-btn-mute);
+   --color-btn-solo: var(--color-btn-solo);
+   --color-btn-arm: var(--color-btn-arm);
 
-    /* ── Port Colors ── */
-    --color-port-audio: var(--color-port-audio);
-    --color-port-midi: var(--color-port-midi);
-    --color-port-sidechain: var(--color-port-sidechain);
+   /* ── Borders ── */
+   --color-border-subtle: var(--color-border-subtle);
+   --color-border-default: var(--color-border-default);
+   --color-border-highlight: var(--color-border-highlight);
 
-    /* ── Spacing ── */
-    --spacing-0: var(--space-0);
-    --spacing-px: var(--space-px);
-    --spacing-0-5: var(--space-0-5);
-    --spacing-1: var(--space-1);
-    --spacing-1-5: var(--space-1-5);
-    --spacing-2: var(--space-2);
-    --spacing-2-5: var(--space-2-5);
-    --spacing-3: var(--space-3);
-    --spacing-3-5: var(--space-3-5);
-    --spacing-4: var(--space-4);
-    --spacing-5: var(--space-5);
-    --spacing-6: var(--space-6);
-    --spacing-7: var(--space-7);
-    --spacing-8: var(--space-8);
-    --spacing-10: var(--space-10);
-    --spacing-12: var(--space-12);
-    --spacing-16: var(--space-16);
-    --spacing-20: var(--space-20);
-    --spacing-24: var(--space-24);
+   /* ── Dividers ── */
+   --color-divider: var(--color-divider);
+   --color-divider-light: var(--color-divider-light);
 
-    /* ── Fonts ── */
-    --font-sans: var(--font-family);
-    --font-mono: var(--font-mono);
+   /* ── Controls ── */
+   --color-control-bg: var(--color-control-bg);
+   --color-control-bg-active: var(--color-control-bg-active);
+   --color-control-border: var(--color-control-border);
+   --color-control-tint: var(--color-control-tint);
 
-    /* ── Radii ── */
-    --radius-xs: var(--radius-xs);
-    --radius-sm: var(--radius-sm);
-    --radius-md: var(--radius-md);
-    --radius-lg: var(--radius-lg);
-    --radius-xl: var(--radius-xl);
-    --radius-2xl: var(--radius-2xl);
-    --radius-full: var(--radius-full);
+   /* ── Meters ── */
+   --color-meter-bg: var(--color-meter-bg);
+   --color-meter-normal: var(--color-meter-normal);
+   --color-meter-hot: var(--color-meter-hot);
+   --color-meter-clip: var(--color-meter-clip);
+   --color-meter-silent: var(--color-meter-silent);
 
-    /* ── Shadows ── */
-    --shadow-sm: var(--shadow-sm);
-    --shadow-md: var(--shadow-md);
-    --shadow-lg: var(--shadow-lg);
-    --shadow-xl: var(--shadow-xl);
-    --shadow-panel: var(--shadow-panel);
+   /* ── Effect Tints ── */
+   --color-effect-eq: var(--color-effect-eq);
+   --color-effect-compressor: var(--color-effect-compressor);
+   --color-effect-delay: var(--color-effect-delay);
+   --color-effect-reverb: var(--color-effect-reverb);
+   --color-effect-utility: var(--color-effect-utility);
+
+   /* ── Browser Categories ── */
+   --color-browser-audio: var(--color-browser-audio);
+   --color-browser-midi: var(--color-browser-midi);
+   --color-browser-plugin: var(--color-browser-plugin);
+   --color-browser-preset: var(--color-browser-preset);
+
+   /* ── Knob / Fader ── */
+   --color-knob-arc-inactive: var(--color-knob-arc-inactive);
+   --color-knob-fill: var(--color-knob-fill);
+   --color-knob-value-text: var(--color-knob-value-text);
+
+   /* ── Port Colors ── */
+   --color-port-audio: var(--color-port-audio);
+   --color-port-midi: var(--color-port-midi);
+   --color-port-sidechain: var(--color-port-sidechain);
+
+   /* ── Spacing ── */
+   --spacing-0: var(--space-0);
+   --spacing-px: var(--space-px);
+   --spacing-0-5: var(--space-0-5);
+   --spacing-1: var(--space-1);
+   --spacing-1-5: var(--space-1-5);
+   --spacing-2: var(--space-2);
+   --spacing-2-5: var(--space-2-5);
+   --spacing-3: var(--space-3);
+   --spacing-3-5: var(--space-3-5);
+   --spacing-4: var(--space-4);
+   --spacing-5: var(--space-5);
+   --spacing-6: var(--space-6);
+   --spacing-7: var(--space-7);
+   --spacing-8: var(--space-8);
+   --spacing-10: var(--space-10);
+   --spacing-12: var(--space-12);
+   --spacing-16: var(--space-16);
+   --spacing-20: var(--space-20);
+   --spacing-24: var(--space-24);
+
+   /* ── Fonts ── */
+   --font-sans: var(--font-family);
+   --font-mono: var(--font-mono);
+
+   /* ── Radii ── */
+   --radius-xs: var(--radius-xs);
+   --radius-sm: var(--radius-sm);
+   --radius-md: var(--radius-md);
+   --radius-lg: var(--radius-lg);
+   --radius-xl: var(--radius-xl);
+   --radius-2xl: var(--radius-2xl);
+   --radius-full: var(--radius-full);
+
+   /* ── Shadows ── */
+   --shadow-sm: var(--shadow-sm);
+   --shadow-md: var(--shadow-md);
+   --shadow-lg: var(--shadow-lg);
+   --shadow-xl: var(--shadow-xl);
+   --shadow-panel: var(--shadow-panel);
 }
 
 
@@ -105,6 +153,21 @@
 html,
 body,
 #root {
-    @apply bg-bg-app text-text-primary overflow-hidden w-full h-full m-0 p-0 select-none;
-    overscroll-behavior: none;
+   width: 100%;
+   height: 100%;
+   margin: 0;
+   padding: 0;
+   overflow: hidden;
+   background-color: var(--color-bg-base);
+   color: var(--color-text-primary);
+   font-family: var(--font-family);
+   -webkit-font-smoothing: antialiased;
+   -moz-osx-font-smoothing: grayscale;
+   user-select: none;
+   overscroll-behavior: none;
+}
+
+#root {
+   display: flex;
+   flex-direction: column;
 }

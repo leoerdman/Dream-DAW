@@ -1,0 +1,11 @@
+[package]
+name = "dream_transport"
+description = "Dream DAW — Transport State Machine, Playhead, Loop Regions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+log = { workspace = true }
+
+dream_models = { path = "../dream_models" }

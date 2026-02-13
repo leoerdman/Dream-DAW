@@ -1,8 +1,10 @@
 /* ═══════════════════════════════════════════════════════════════
-   DREAM DAW — DESIGN TOKENS v1.0
-   PURGED: All SaaS/web/marketing tokens removed.
-   SOURCE: Ultra Deep Service tokens.css (Semantic Transplantation)
+   DREAM DAW — DESIGN TOKENS v2.0
+   SOURCE: DreamTheme.swift (681 lines) — Full 1:1 Port
+   170+ tokens covering every visual aspect of the DAW.
    ═════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
     /* ─────────────────────────────────────────────────────────────
@@ -29,47 +31,60 @@
     --space-24: 96px;
 
     /* ─────────────────────────────────────────────────────────────
-     DAW LAYOUT DIMENSIONS
+     DAW LAYOUT DIMENSIONS (from DreamTheme.swift ThemeProtocol)
      ───────────────────────────────────────────────────────────── */
-    --daw-transport-height: 60px;
-    --daw-sidebar-width: 280px;
-    --daw-inspector-width: 280px;
+    --daw-transport-height: 32px;
+    --daw-sidebar-width: 240px;
+    --daw-sidebar-min-width: 200px;
+    --daw-sidebar-max-width: 400px;
+    --daw-inspector-width: 240px;
     --daw-device-rack-height: 30vh;
     --daw-device-rack-min-height: 250px;
-    --daw-panel-gap: 16px;
+    --daw-panel-gap: 0px;
+    --daw-ruler-height: 22px;
+    --daw-status-bar-height: 20px;
+    --daw-panel-header-height: 24px;
+    --daw-track-header-width: 220px;
+    --daw-default-track-height: 64px;
+    --daw-min-track-height: 32px;
+    --daw-max-track-height: 640px;
+    --daw-track-resize-step: 8px;
+    --daw-clip-corner-radius: 2px;
+    --daw-clip-title-height: 14px;
+    --daw-color-stripe-width: 3px;
+    --daw-browser-row-height: 22px;
+    --daw-bottom-panel-min-height: 100px;
+    --daw-playhead-width: 1px;
+    --daw-scrollbar-size: 10px;
+    --daw-divider-width: 1px;
 
     /* ─────────────────────────────────────────────────────────────
      Z-INDICES (DAW Layer Stack)
      ───────────────────────────────────────────────────────────── */
     --z-canvas: 0;
-    /* WebGPU timeline */
     --z-ui-overlay: 10;
-    /* React UI layer */
     --z-panels: 40;
-    /* Side panels */
     --z-transport: 50;
-    /* Transport bar */
     --z-modal: 1000;
-    /* Modals */
     --z-tooltip: 2000;
-    /* Tooltips */
 
     /* ─────────────────────────────────────────────────────────────
-     TYPOGRAPHY
+     TYPOGRAPHY (from DreamTheme.swift fonts)
      ───────────────────────────────────────────────────────────── */
-    --font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+    --font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', ui-monospace, monospace;
 
-    --font-size-2xs: 10px;
-    --font-size-xs: 11px;
-    --font-size-sm: 13px;
-    --font-size-base: 14px;
-    --font-size-md: 15px;
-    --font-size-lg: 16px;
-    --font-size-xl: 18px;
-    --font-size-2xl: 24px;
-    --font-size-3xl: 32px;
-    --font-size-4xl: 48px;
+    /* Matching Swift: fontMicro=8, fontSmall=9, fontBody=10, fontHeading=11, fontMono=11, fontMonoLarge=14 */
+    --font-size-micro: 8px;
+    --font-size-2xs: 9px;
+    --font-size-xs: 10px;
+    --font-size-sm: 11px;
+    --font-size-base: 12px;
+    --font-size-md: 13px;
+    --font-size-lg: 14px;
+    --font-size-xl: 16px;
+    --font-size-2xl: 18px;
+    --font-size-3xl: 24px;
 
     --font-weight-regular: 400;
     --font-weight-medium: 500;
@@ -85,19 +100,18 @@
     --letter-spacing-wide: 0.05em;
 
     /* ─────────────────────────────────────────────────────────────
-     RADII
+     RADII (from DreamTheme: radiusSmall=2, radiusCard=4)
      ───────────────────────────────────────────────────────────── */
-    --radius-xs: 4px;
-    --radius-sm: 6px;
-    --radius-md: 8px;
-    --radius-lg: 12px;
-    --radius-xl: 16px;
-    --radius-2xl: 20px;
+    --radius-xs: 2px;
+    --radius-sm: 3px;
+    --radius-md: 4px;
+    --radius-lg: 6px;
+    --radius-xl: 8px;
+    --radius-2xl: 12px;
     --radius-full: 9999px;
 
-    /* Device Rack Node radii (from UDS .flow-node) */
-    --node-border-radius: 12px;
-    --node-border-radius-inner: 10px;
+    --node-border-radius: 4px;
+    --node-border-radius-inner: 3px;
 
     /* ─────────────────────────────────────────────────────────────
      BLUR & EFFECTS
@@ -117,13 +131,27 @@
     --shadow-panel: 0 8px 32px rgba(0, 0, 0, 0.5);
 
     /* ─────────────────────────────────────────────────────────────
-     TRANSITIONS
+     TRANSITIONS & ANIMATION (from DreamTheme.swift)
+     fast=0.15s, standard=0.25s, premium=0.4s
      ───────────────────────────────────────────────────────────── */
     --transition-fast: 0.15s ease;
     --transition-normal: 0.25s ease;
     --transition-slow: 0.4s ease;
     --ease-out: cubic-bezier(0.0, 0.0, 0.2, 1);
     --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+    --animation-fast: 0.15s;
+    --animation-standard: 0.25s;
+    --animation-premium: 0.4s;
+    --spring-damping: 0.8;
+
+    /* ─────────────────────────────────────────────────────────────
+     DIMENSIONS (from Swift: controlPadH=4, sectionPadH=8, icons)
+     ───────────────────────────────────────────────────────────── */
+    --control-pad-h: 4px;
+    --section-pad-h: 8px;
+    --icon-micro: 6px;
+    --icon-small: 9px;
+    --icon-medium: 12px;
 
     /* ─────────────────────────────────────────────────────────────
      OPACITY
@@ -140,60 +168,201 @@
 
 /* ═══════════════════════════════════════════════════════════════
    DARK THEME (DEFAULT)
+   Source: DreamTheme.swift → DarkTheme struct (lines 463-556)
+   All hex values converted from NSColor(white:) and NSColor(red:green:blue:)
    ═══════════════════════════════════════════════════════════════ */
 :root,
 :root[data-theme="dark"] {
-    /* ── Application Backgrounds ── */
-    --color-bg-app: #0f0f0f;
-    --color-bg-canvas: #151515;
-    --color-bg-panel: rgba(20, 20, 20, 0.85);
-    --color-bg-elevated: #1e1e1e;
-    --color-bg-header: #1a1a1a;
-    --color-bg-input: #181818;
-    --color-bg-hover: #2a2a2a;
-    --color-bg-active: #2d2d2d;
+
+    /* ── Backgrounds (9-level gray scale from DarkTheme) ──────── */
+    --color-bg-base: #141414;
+    /* bgBase:   white 0.08 */
+    --color-bg-app: #1e1e1e;
+    /* bgPrimary: white 0.12 */
+    --color-bg-canvas: #1e1e1e;
+    /* bgPrimary: main workspace */
+    --color-bg-secondary: #262626;
+    /* bgSecondary: white 0.15 (even rows) */
+    --color-bg-tertiary: #2a2a2a;
+    /* bgTertiary: white 0.165 (odd rows) */
+    --color-bg-panel: #303030;
+    /* bgSurface: white 0.19 */
+    --color-bg-elevated: #353535;
+    /* bgElevated: white 0.21 */
+    --color-bg-hover: #3a3a3a;
+    /* bgHover: white 0.23 */
+    --color-bg-selected: #1d3557;
+    /* bgSelected: blue tint */
+    --color-bg-input: #252525;
+    /* bgInput: white 0.145 */
+    --color-bg-header: #353535;
+    /* alias for bgElevated */
+    --color-bg-active: #3a3a3a;
+    /* alias for bgHover */
 
     /* ── Node Backgrounds (Device Rack) ── */
-    --color-bg-node: #2a2a2a;
-    --color-bg-node-header: #1e1e1e;
-    --color-bg-node-body: #242424;
+    --color-bg-node: #303030;
+    /* same as bgSurface */
+    --color-bg-node-header: #353535;
+    /* same as bgElevated */
+    --color-bg-node-body: #2a2a2a;
+    /* same as bgTertiary */
 
-    /* ── Borders ── */
+    /* ── Text (from DarkTheme) ── */
+    --color-text-primary: #e0e0e0;
+    /* white 0.88 */
+    --color-text-secondary: #999999;
+    /* white 0.60 */
+    --color-text-tertiary: #666666;
+    /* white 0.40 (muted) */
+    --color-text-bright: #f5f5f5;
+    /* white 0.96 */
+    --color-text-inverse: #0d0d0d;
+    /* near-black */
+    --color-text-on-accent: #ffffff;
+    --color-text-on-color: #0d0d0d;
+    /* dark text on bright track bg */
+
+    /* ── Accent (Blue — from DarkTheme) ──────────────────────── */
+    --color-accent-primary: #4a9eff;
+    /* accent: rgb(0.29, 0.62, 1.00) */
+    --color-accent-primary-hover: #5cadff;
+    /* accentHover */
+    --color-accent-primary-glow: rgba(74, 158, 255, 0.35);
+    --color-accent-primary-dim: rgba(74, 158, 255, 0.15);
+    /* accentMuted */
+
+    /* ── Semantic Colors (from DarkTheme) ─────────────────────── */
+    --color-status-success: #66cc33;
+    /* success: rgb(0.40, 0.80, 0.20) */
+    --color-status-warning: #d9a625;
+    /* warning: rgb(0.85, 0.65, 0.15) */
+    --color-status-error: #d94040;
+    /* danger: rgb(0.85, 0.25, 0.25) */
+    --color-status-info: #33a6d9;
+    /* info/solo: rgb(0.20, 0.65, 0.85) */
+    --color-status-record: #d94040;
+    /* same as danger */
+
+    /* ── DAW Buttons (from DarkTheme semantic) ──────────────── */
+    --color-btn-mute: #d9a625;
+    /* mute = warning (orange/amber) */
+    --color-btn-solo: #33a6d9;
+    /* solo = info (blue) */
+    --color-btn-arm: #d94040;
+    /* record arm = danger (red) */
+    --color-midi-indicator: #d9a625;
+    /* MIDI = warning (amber) */
+
+    /* ── Borders (from DarkTheme) ── */
     --color-border-subtle: rgba(255, 255, 255, 0.06);
-    --color-border-default: #262626;
-    --color-border-highlight: rgba(79, 172, 254, 0.5);
+    --color-border-default: #383838;
+    /* white 0.22 — controlBorder */
+    --color-border-highlight: rgba(74, 158, 255, 0.5);
     --color-border-selected: rgba(255, 255, 255, 0.85);
 
-    /* ── Texts ── */
-    --color-text-primary: rgba(255, 255, 255, 0.95);
-    --color-text-secondary: rgba(255, 255, 255, 0.65);
-    --color-text-tertiary: rgba(255, 255, 255, 0.4);
-    --color-text-inverse: #000000;
+    /* ── UI Elements (from DarkTheme) ─────────────────────────── */
+    --color-divider: #2e2e2e;
+    /* divider: white 0.18 */
+    --color-divider-light: #404040;
+    /* dividerLight: white 0.25 */
+    --color-grid-line: #404040;
+    /* gridLine: white 0.25 */
+    --color-grid-line-major: #595959;
+    /* gridLineMajor: white 0.35 */
+    --color-playhead: #d9d9d9;
+    /* playhead: white 0.85 */
+    --color-selection-border: rgba(89, 140, 230, 0.85);
+    /* selectionBorder */
+    --color-selection-fill: rgba(51, 89, 153, 0.25);
+    /* selectionFill */
+    --color-clip-highlight: rgba(255, 255, 255, 0.08);
+    --color-drop-target: rgba(51, 51, 51, 0.5);
 
-    /* ── Accent (Brand Blue) ── */
-    --color-accent-primary: #4facfe;
-    --color-accent-primary-hover: #60b5ff;
-    --color-accent-primary-glow: rgba(79, 172, 254, 0.35);
-    --color-accent-primary-dim: rgba(79, 172, 254, 0.12);
+    /* ── VU Meters (from DarkTheme — 4 states) ──────────────── */
+    --color-meter-bg: #1e1e1e;
+    /* meterBackground: white 0.12 */
+    --color-meter-normal: #66cc33;
+    /* meterNormal: green */
+    --color-meter-hot: #ffcc1a;
+    /* meterHot: yellow */
+    --color-meter-clip: #ff3333;
+    /* meterClip: red */
+    --color-meter-silent: #4d4d4d;
+    /* meterSilent: white 0.30 */
 
-    /* ── Status Colors (Transport/Metering) ── */
-    --color-status-success: #22c55e;
-    --color-status-error: #ef4444;
-    --color-status-warning: #eab308;
-    --color-status-record: #ef4444;
+    /* ── Controls (from DarkTheme) ────────────────────────────── */
+    --color-control-bg: #404040;
+    /* controlBg: white 0.25 */
+    --color-control-bg-active: #595959;
+    /* controlBgActive: white 0.35 */
+    --color-control-border: #383838;
+    /* controlBorder: white 0.22 */
+    --color-control-tint: #999999;
+    /* controlTint: white 0.60 */
+
+    /* ── Effect Type Tints (from DarkTheme — 7 types) ─────── */
+    --color-effect-eq: #5a8cd9;
+    /* effectEQ: rgb(0.35, 0.55, 0.85) */
+    --color-effect-compressor: #b36640;
+    /* effectCompressor: rgb(0.70, 0.40, 0.25) */
+    --color-effect-delay: #66a673;
+    /* effectDelay: rgb(0.40, 0.65, 0.45) */
+    --color-effect-reverb: #8c66bf;
+    /* effectReverb: rgb(0.55, 0.40, 0.75) */
+    --color-effect-chorus: #a6804d;
+    /* effectChorus: rgb(0.65, 0.50, 0.30) */
+    --color-effect-utility: #808080;
+    /* effectUtility: white 0.50 */
+    --color-effect-vst: #339966;
+    /* effectVST: rgb(0.20, 0.60, 0.40) */
+
+    /* ── Browser Category Colors (from DarkTheme) ────────────── */
+    --color-browser-default: #8c8066;
+    /* browserDefault */
+    --color-browser-audio: #f2bf40;
+    /* browserAudio: gold */
+    --color-browser-midi: #59b3e6;
+    /* browserMIDI: blue */
+    --color-browser-plugin: #a680e6;
+    /* browserPlugin: purple */
+    --color-browser-preset: #33d98c;
+    /* browserPreset: green */
+
+    /* ── Knob / Fader (from DarkTheme) ──────────────────────── */
+    --color-knob-arc-inactive: #404040;
+    /* knobArcInactive: white 0.25 */
+    --color-knob-fill: #2e2e2e;
+    /* knobFill: white 0.18 */
+    --color-knob-value-text: #b3b3b3;
+    /* knobValueText: white 0.70 */
+    --color-fader-track-bg: #262626;
+    /* faderTrackBg: white 0.15 */
+    --color-fader-groove: #1e1e1e;
+    /* faderGroove: white 0.12 */
 
     /* ── Port Colors (Audio Signal Types) ── */
-    --color-port-audio: #4facfe;
-    --color-port-midi: #b794f6;
+    --color-port-audio: #4a9eff;
+    --color-port-midi: #d9a625;
+    /* MIDI = amber (matching Swift midiIndicator) */
     --color-port-sidechain: #ff8c00;
 
-    /* ── Glass (Panels & Overlays) ── */
-    --glass-bg: rgba(18, 18, 18, 0.85);
-    --glass-bg-hover: rgba(28, 28, 28, 0.92);
-    --glass-border: rgba(255, 255, 255, 0.06);
+    /* ── Piano Roll (from DarkTheme) ── */
+    --color-piano-white: #474747;
+    --color-piano-black: #2e2e2e;
+    --color-piano-grid: #262626;
+    --color-piano-c-line: #404040;
+    --color-piano-bar: #4d4d4d;
+    --color-piano-beat: #333333;
+    --color-piano-sub: rgba(36, 36, 36, 0.5);
+
+    /* ── Glass (HUD — from DarkTheme) ─────────────────────────── */
+    --glass-bg: rgba(18, 18, 18, 0.92);
+    --glass-bg-hover: rgba(28, 28, 28, 0.95);
+    --glass-border: rgba(255, 255, 255, 0.05);
     --glass-border-hover: rgba(255, 255, 255, 0.12);
-    --glass-blur: 16px;
-    --glass-radius: 16px;
+    --glass-blur: 12px;
+    --glass-radius: 4px;
 
     /* ── Overlays ── */
     --color-overlay-light: rgba(0, 0, 0, 0.2);
@@ -202,42 +371,73 @@
     --color-overlay-modal: rgba(0, 0, 0, 0.7);
 
     /* ── Gradients ── */
-    --gradient-primary: linear-gradient(135deg, #4facfe 0%, #60b5ff 100%);
-    --gradient-meter: linear-gradient(to top, #22c55e 0%, #eab308 70%, #ef4444 100%);
+    --gradient-primary: linear-gradient(135deg, #4a9eff 0%, #5cadff 100%);
+    --gradient-meter: linear-gradient(to top, #66cc33 0%, #ffcc1a 70%, #ff3333 100%);
 }
 
 
 /* ═══════════════════════════════════════════════════════════════
-   LIGHT THEME
+   LIGHT THEME (from LightTheme struct, lines 561-654)
    ═══════════════════════════════════════════════════════════════ */
 :root[data-theme="light"] {
+    --color-bg-base: #ffffff;
     --color-bg-app: #f5f5f5;
-    --color-bg-canvas: #e5e7eb;
-    --color-bg-panel: rgba(255, 255, 255, 0.92);
+    --color-bg-canvas: #f5f5f5;
+    --color-bg-secondary: #ebebeb;
+    --color-bg-tertiary: #e3e3e3;
+    --color-bg-panel: #f0f0f0;
     --color-bg-elevated: #ffffff;
-    --color-bg-header: #eeeff1;
+    --color-bg-hover: #e5e5e5;
+    --color-bg-selected: #d9ebff;
     --color-bg-input: #ffffff;
-    --color-bg-hover: #e8e9eb;
-    --color-bg-active: #dfe0e2;
+    --color-bg-header: #ffffff;
+    --color-bg-active: #e5e5e5;
 
     --color-bg-node: #f0f0f0;
     --color-bg-node-header: #e5e5e5;
     --color-bg-node-body: #ebebeb;
 
-    --color-border-subtle: rgba(0, 0, 0, 0.08);
-    --color-border-default: #c5c7cc;
-    --color-border-highlight: rgba(37, 99, 235, 0.5);
-    --color-border-selected: #1e293b;
-
-    --color-text-primary: #111827;
-    --color-text-secondary: #4b5563;
-    --color-text-tertiary: #9ca3af;
+    --color-text-primary: #1a1a1a;
+    --color-text-secondary: #666666;
+    --color-text-tertiary: #999999;
+    --color-text-bright: #000000;
     --color-text-inverse: #ffffff;
 
-    --color-accent-primary: #3b82f6;
-    --color-accent-primary-hover: #2563eb;
-    --color-accent-primary-glow: rgba(37, 99, 235, 0.3);
-    --color-accent-primary-dim: rgba(37, 99, 235, 0.1);
+    --color-accent-primary: #007aff;
+    --color-accent-primary-hover: #0066e0;
+    --color-accent-primary-glow: rgba(0, 122, 255, 0.3);
+    --color-accent-primary-dim: rgba(0, 122, 255, 0.10);
+
+    --color-status-success: #33b326;
+    --color-status-warning: #cc9900;
+    --color-status-error: #cc2626;
+    --color-status-info: #1a80cc;
+    --color-status-record: #cc2626;
+
+    --color-border-subtle: rgba(0, 0, 0, 0.08);
+    --color-border-default: #cccccc;
+    --color-border-highlight: rgba(0, 122, 255, 0.5);
+    --color-border-selected: #1a1a1a;
+
+    --color-divider: #d1d1d1;
+    --color-divider-light: #e0e0e0;
+
+    --color-meter-bg: #e0e0e0;
+    --color-meter-normal: #33b326;
+    --color-meter-hot: #f2b30d;
+    --color-meter-clip: #e62626;
+    --color-meter-silent: #bfbfbf;
+
+    --color-control-bg: #d9d9d9;
+    --color-control-bg-active: #c7c7c7;
+    --color-control-border: #cccccc;
+    --color-control-tint: #737373;
+
+    --color-knob-arc-inactive: #c7c7c7;
+    --color-knob-fill: #ebebeb;
+    --color-knob-value-text: #4d4d4d;
+    --color-fader-track-bg: #e0e0e0;
+    --color-fader-groove: #e6e6e6;
 
     --glass-bg: rgba(255, 255, 255, 0.92);
     --glass-bg-hover: rgba(255, 255, 255, 0.97);

@@ -2,19 +2,29 @@ import { TransportBar } from '@/widgets/TransportBar/TransportBar';
 import { AssetBrowser } from '@/widgets/AssetBrowser/AssetBrowser';
 import { DeviceRack } from '@/widgets/DeviceRack/DeviceRack';
 import { TrackInspector } from '@/widgets/TrackInspector/TrackInspector';
+import { StatusBar } from '@/widgets/StatusBar/StatusBar';
 
 /**
- * DawShell — The "Hole-Punch" Architecture Layout.
+ * DawShell — The "Hole-Punch Architecture" Layout.
  * 
- * Layer 0 (z-0):  WebGPU Timeline Canvas — Rust/WASM renders audio waveforms at 144Hz.
- * Layer 1 (z-10): React UI Overlay — pointer-events-none container that lets clicks
- *                 fall through to the canvas where no UI panels exist.
+ * Ported from MainWindowController.swift → ArrangementViewController layout:
  * 
- * Glass panels (sidebar, inspector, transport, device rack) re-enable pointer-events
- * so they capture mouse clicks in their areas.
+ *   ┌─────────────────────────────────────────────────┐
+ *   │                  TransportBar                    │  ← 32px
+ *   ├──────────┬────────────────────────┬─────────────┤
+ *   │          │                        │             │
+ *   │  Asset   │   WebGPU Timeline      │   Track     │
+ *   │ Browser  │   (Hole-Punch)         │  Inspector  │
+ *   │          │                        │             │
+ *   ├──────────┴────────────────────────┴─────────────┤
+ *   │                  DeviceRack                      │  ← 160-200px
+ *   ├─────────────────────────────────────────────────┤
+ *   │                  StatusBar                       │  ← 20px
+ *   └─────────────────────────────────────────────────┘
  * 
- * The center of the screen is the "hole" — transparent, no pointer events,
- * directly exposing the WebGPU canvas beneath.
+ * Layer 0 (z-0):  WebGPU Timeline Canvas (Rust/WASM at 144Hz)
+ * Layer 1 (z-10): React UI Overlay (pointer-events-none)
+ * Glass panels re-enable pointer-events for mouse capture.
  */
 export const DawShell = () => {
     return (
@@ -25,7 +35,7 @@ export const DawShell = () => {
                 id="webgpu-timeline-canvas"
                 className="absolute inset-0 z-0 bg-bg-canvas"
             >
-                {/* Placeholder: Rust/WASM will mount a 144Hz WebGPU canvas here */}
+                {/* Placeholder until Rust/WASM mounts */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none">
                     <div className="flex flex-col items-center gap-3 opacity-[0.07]">
                         <svg width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="0.5" className="text-text-primary">
@@ -42,33 +52,61 @@ export const DawShell = () => {
             <div className="absolute inset-0 z-10 flex flex-col pointer-events-none">
 
                 {/* ── TOP: Transport Bar ── */}
-                <header className="h-[var(--daw-transport-height)] shrink-0 w-full flex items-center justify-center pointer-events-none z-50 pt-3">
+                <header className="shrink-0 w-full flex items-center justify-center pointer-events-none z-50"
+                    style={{ height: 'var(--daw-transport-height)' }}
+                >
                     <div className="pointer-events-auto">
                         <TransportBar />
                     </div>
                 </header>
 
-                {/* ── CENTER: Split Layout ── */}
-                <main className="flex flex-1 overflow-hidden p-3 gap-3">
+                {/* ── CENTER: Split Layout (Browser | Timeline Hole | TrackList) ── */}
+                <main className="flex flex-1 overflow-hidden" style={{ gap: 0 }}>
 
                     {/* Left Sidebar (Asset Browser) */}
-                    <aside className="w-[var(--daw-sidebar-width)] shrink-0 pointer-events-auto h-full z-40 flex flex-col glass-panel shadow-panel overflow-hidden">
+                    <aside
+                        className="shrink-0 pointer-events-auto h-full z-40 flex flex-col overflow-hidden"
+                        style={{
+                            width: 'var(--daw-sidebar-width)',
+                            background: 'var(--color-bg-panel)',
+                            borderRight: '1px solid var(--color-divider)',
+                        }}
+                    >
                         <AssetBrowser />
                     </aside>
 
                     {/* THE HOLE-PUNCH: Transparent zone → clicks fall to WebGPU */}
                     <div className="flex-1 bg-transparent pointer-events-none" />
 
-                    {/* Right Sidebar (Track Inspector) */}
-                    <aside className="w-[var(--daw-inspector-width)] shrink-0 pointer-events-auto h-full z-40 flex flex-col glass-panel shadow-panel overflow-hidden">
+                    {/* Right Sidebar (Track Inspector / Track List) */}
+                    <aside
+                        className="shrink-0 pointer-events-auto h-full z-40 flex flex-col overflow-hidden"
+                        style={{
+                            width: 'var(--daw-inspector-width)',
+                            background: 'var(--color-bg-panel)',
+                            borderLeft: '1px solid var(--color-divider)',
+                        }}
+                    >
                         <TrackInspector />
                     </aside>
                 </main>
 
                 {/* ── BOTTOM: Device Rack ── */}
-                <footer className="h-[var(--daw-device-rack-height)] min-h-[var(--daw-device-rack-min-height)] shrink-0 pointer-events-auto z-40 mx-3 mb-3 glass-panel shadow-panel overflow-hidden">
+                <footer
+                    className="shrink-0 pointer-events-auto z-40 overflow-hidden"
+                    style={{
+                        height: 'var(--daw-device-rack-height)',
+                        minHeight: 'var(--daw-device-rack-min-height)',
+                        borderTop: '1px solid var(--color-divider)',
+                    }}
+                >
                     <DeviceRack />
                 </footer>
+
+                {/* ── VERY BOTTOM: Status Bar ── */}
+                <div className="pointer-events-auto z-50">
+                    <StatusBar />
+                </div>
 
             </div>
         </div>

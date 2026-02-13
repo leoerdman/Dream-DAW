@@ -238,6 +238,7 @@ public final class ArrangementViewController: NSViewController {
     // MARK: - Manual Layout
 
     private func performManualLayout() {
+        guard view.window != nil else { return } // Not yet attached — skip layout.
         let bounds = view.bounds
         let titleBarH: CGFloat = 28
         let controlBarH = DreamTheme.controlBarHeight

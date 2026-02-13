@@ -120,9 +120,13 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     public func showWindow() {
         window?.makeKeyAndOrderFront(nil)
-        // Maximize to fill the visible screen area (menu bar + Dock stay visible)
-        window?.zoom(nil)
-        window?.makeFirstResponder(window?.contentViewController)
+        // Defer zoom to the next run loop tick so the window and all subviews
+        // are fully realized before the layout pass triggered by zoom(nil).
+        DispatchQueue.main.async { [weak self] in
+            guard let window = self?.window else { return }
+            window.zoom(nil)
+            window.makeFirstResponder(window.contentViewController)
+        }
     }
 
     // MARK: - NSWindowDelegate

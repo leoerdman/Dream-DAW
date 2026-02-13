@@ -48,8 +48,11 @@ public final class TrackHeaderView: NSView {
     private let groupIndicatorContainer = NSView()
     private var dividerLeadingConstraint: NSLayoutConstraint?
     private var nameLeadingConstraint: NSLayoutConstraint?
+    private var nameBackgroundLeadingConstraint: NSLayoutConstraint?
+    private var nameBackgroundWidthConstraint: NSLayoutConstraint?
     private var maxDepth: Int = 0
     private var trackDepth: Int = 0
+    private let colorAreaBaseWidth: CGFloat = 120
     
     /// Grouping: Whether this track is the last visible member of its group (used for closing separator).
     public var isLastInGroup: Bool = false
@@ -235,10 +238,8 @@ public final class TrackHeaderView: NSView {
             groupIndicatorContainer.topAnchor.constraint(equalTo: topAnchor),
             groupIndicatorContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
             
-            nameBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
             nameBackgroundView.topAnchor.constraint(equalTo: topAnchor),
             nameBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            nameBackgroundView.widthAnchor.constraint(equalToConstant: 120),
 
             nameLabel.trailingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor, constant: -2),
             nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -6),
@@ -278,8 +279,18 @@ public final class TrackHeaderView: NSView {
             divider.bottomAnchor.constraint(equalTo: bottomAnchor),
             divider.heightAnchor.constraint(equalToConstant: 1)
         ])
+
+        // Keep group indicators inside the colored area.
+        NSLayoutConstraint.activate([
+            groupIndicatorContainer.trailingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor)
+        ])
         
         // Save dynamic constraints
+        nameBackgroundLeadingConstraint = nameBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 0)
+        nameBackgroundLeadingConstraint?.isActive = true
+        nameBackgroundWidthConstraint = nameBackgroundView.widthAnchor.constraint(equalToConstant: colorAreaBaseWidth)
+        nameBackgroundWidthConstraint?.isActive = true
+
         nameLeadingConstraint = nameLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4)
         nameLeadingConstraint?.isActive = true
         
@@ -337,7 +348,10 @@ public final class TrackHeaderView: NSView {
         // 1. Calculate Indentation
         // ABLETON STYLE: 8px per depth level.
         // nameLeadingConstraint constant handles the label and controls offset.
-        let indent: CGFloat = CGFloat(trackDepth * 8)
+        let indentStep: CGFloat = 8
+        let indent: CGFloat = CGFloat(trackDepth) * indentStep
+        nameBackgroundLeadingConstraint?.constant = indent
+        nameBackgroundWidthConstraint?.constant = max(52, colorAreaBaseWidth - indent)
         nameLeadingConstraint?.constant = indent + 9 // Standard 9px padding after indent
         
         // 2. Build Indicators
@@ -356,12 +370,25 @@ public final class TrackHeaderView: NSView {
                 if parents.count > 20 { break }
             }
             
-            for (i, parent) in parents.enumerated() {
-                let bar = NSView()
-                bar.wantsLayer = true
-                bar.layer?.backgroundColor = parent.color.nsColor.cgColor
-                bar.frame = CGRect(x: CGFloat(i * 8), y: 0, width: 8, height: bounds.height)
-                groupIndicatorContainer.addSubview(bar)
+            for (i, _) in parents.enumerated() {
+                // Group spine line (Ableton-style hierarchy marker).
+                let depthIndex = CGFloat(i + 1)
+                let x = depthIndex * indentStep
+                let isImmediateParent = (i == parents.count - 1)
+                let lineHeight = (isImmediateParent && isLastInGroup) ? bounds.height * 0.5 : bounds.height
+                
+                let spine = NSView(frame: CGRect(x: x, y: 0, width: 1, height: lineHeight))
+                spine.wantsLayer = true
+                spine.layer?.backgroundColor = DreamTheme.divider.withAlphaComponent(0.95).cgColor
+                groupIndicatorContainer.addSubview(spine)
+                
+                // Close branch for last child in a group.
+                if isImmediateParent && isLastInGroup {
+                    let cap = NSView(frame: CGRect(x: x, y: bounds.height * 0.5, width: 7, height: 1))
+                    cap.wantsLayer = true
+                    cap.layer?.backgroundColor = DreamTheme.divider.withAlphaComponent(0.95).cgColor
+                    groupIndicatorContainer.addSubview(cap)
+                }
             }
         }
         
@@ -370,21 +397,18 @@ public final class TrackHeaderView: NSView {
         // 3. Special Case: Group Header
         // If it's a group header, it also gets its OWN color bar at its specific depth.
         if isGroupHeader {
-            let bar = NSView()
-            bar.wantsLayer = true
-            bar.layer?.backgroundColor = track.color.nsColor.cgColor
-            bar.frame = CGRect(x: indent, y: 0, width: 8, height: bounds.height)
-            groupIndicatorContainer.addSubview(bar)
-            
-            // PIXEL PERFECT: Ensure nameBackground touches the indicator without gaps.
-            // We set nameBackground leading to the end of the indicator? 
-            // Actually nameBackground already starts at 0. So it's UNDER the indicators.
+            let x = indent
+            let spine = NSView(frame: CGRect(x: x, y: 0, width: 1, height: bounds.height))
+            spine.wantsLayer = true
+            spine.layer?.backgroundColor = DreamTheme.divider.withAlphaComponent(0.95).cgColor
+            groupIndicatorContainer.addSubview(spine)
         }
         
         // 4. Update Dividers
         // Horizontal line starts at indent + 8 to perfectly overlap the vertical border and seal corner gaps.
         // UNLESS it's the last track (or group end), then it starts at 0px to cleanly close the strip.
-        dividerLeadingConstraint?.constant = (isLastInGroup || (isGroupHeader && !track.isExpanded)) ? 0 : indent + 8
+        // Divider should remain consistent; for children it starts at indent, never disappears.
+        dividerLeadingConstraint?.constant = indent
         divider.isHidden = false
 
         // 5. Update routing text
@@ -1257,4 +1281,3 @@ public final class TrackHeadersContainerView: NSView {
         return false
     }
 }
-

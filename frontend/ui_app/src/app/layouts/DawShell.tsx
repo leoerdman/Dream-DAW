@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { TransportBar } from '@/widgets/TransportBar/TransportBar';
 import { AssetBrowser } from '@/widgets/AssetBrowser/AssetBrowser';
@@ -6,8 +6,10 @@ import { DeviceRack } from '@/widgets/DeviceRack/DeviceRack';
 import { TrackInspector } from '@/widgets/TrackInspector/TrackInspector';
 import { StatusBar } from '@/widgets/StatusBar/StatusBar';
 import { Timeline } from '@/widgets/Timeline/Timeline';
+import type { BrowserDragItem } from '@/widgets/Timeline/Timeline';
 import { SettingsPanel } from '@/widgets/SettingsPanel/SettingsPanel';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import * as engineApi from '@/shared/api/engine';
 
 /** Supported audio file extensions for drag-and-drop import. */
 const AUDIO_EXTENSIONS = new Set([
@@ -80,9 +82,11 @@ export const DawShell = () => {
         let unlisten: (() => void) | undefined;
 
         const setup = async () => {
-            // Listen for drag hover (visual feedback)
+            // Listen for drag hover (visual feedback) — only for OS file drops, not in-app drags
             const unlistenHover = await listen('tauri://drag-over', () => {
-                setIsDragOver(true);
+                if (!(window as any).__dreamInAppDrag) {
+                    setIsDragOver(true);
+                }
             });
 
             // Listen for drag leave
@@ -131,6 +135,35 @@ export const DawShell = () => {
     const openSettings = useCallback(() => setSettingsOpen(true), []);
     const handleSelectTrack = useCallback((id: string) => setSelectedTrackId(id), []);
 
+    // ── Engine state for Timeline ───────────────────────────────────
+    const transport = useEngineStore(s => s.transport);
+    const timelineClips = useEngineStore(s => s.timelineClips);
+    const projectTracks = useEngineStore(s => s.projectTracks);
+
+    // Convert position_seconds → beats using BPM
+    const playheadBeat = useMemo(() => {
+        const bpm = transport.bpm || 120;
+        return transport.position_seconds * (bpm / 60);
+    }, [transport.position_seconds, transport.bpm]);
+
+    const trackCount = Math.max(projectTracks.length, 8);
+
+    // Seek callback: Timeline click → seek in engine
+    const handlePlayheadChange = useCallback((beat: number) => {
+        const bpm = transport.bpm || 120;
+        const seconds = beat / (bpm / 60);
+        engineApi.seekSeconds(seconds);
+    }, [transport.bpm]);
+
+    // Drop from AssetBrowser → Timeline
+    const handleBrowserDrop = useCallback((item: BrowserDragItem, trackIndex: number, _beat: number) => {
+        if (item.path) {
+            importFile(item.path, trackIndex);
+        } else {
+            console.warn(`[DawShell] Browser item '${item.name}' has no file path — demo items cannot be imported yet`);
+        }
+    }, [importFile]);
+
     return (
         <div className="relative w-screen h-screen overflow-hidden bg-bg-app text-text-primary">
 
@@ -166,7 +199,14 @@ export const DawShell = () => {
                             background: 'var(--color-bg-canvas)',
                         }}
                     >
-                        <Timeline />
+                        <Timeline
+                            clips={timelineClips}
+                            playheadBeat={playheadBeat}
+                            isPlaying={transport.is_playing}
+                            trackCount={trackCount}
+                            onPlayheadChange={handlePlayheadChange}
+                            onDropBrowserItem={handleBrowserDrop}
+                        />
                     </div>
 
                     {/* Right Sidebar (Track Inspector / Track List) */}

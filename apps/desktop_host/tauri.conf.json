@@ -1,7 +1,7 @@
 {
     "productName": "Dream DAW",
     "version": "0.1.0",
-    "identifier": "com.dreamdaw.app",
+    "identifier": "com.dreamdaw.desktop",
     "build": {
         "frontendDist": "../../frontend/ui_app/dist",
         "devUrl": "http://localhost:5173",

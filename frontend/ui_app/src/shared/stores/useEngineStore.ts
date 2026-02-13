@@ -24,6 +24,54 @@ import type {
     ImportAudioResponse,
 } from '@/shared/api/engine';
 
+// ── Timeline Clip Type (used by Timeline widget) ─────────────────────────
+
+export interface TimelineClip {
+    id: string;
+    name: string;
+    trackIndex: number;
+    startBeat: number;
+    durationBeats: number;
+    type: 'audio' | 'midi';
+    color: string;
+    selected?: boolean;
+}
+
+/** Track info from Rust project. */
+export interface ProjectTrack {
+    id: string;
+    name: string;
+    color: string;
+    volume: number;
+    pan: number;
+    is_mute: boolean;
+    is_solo: boolean;
+}
+
+// ── Track color mapping (matches Rust TrackColor enum) ───────────────────
+
+const TRACK_COLORS: Record<string, string> = {
+    Red: '#c93c38',
+    Orange: '#d97028',
+    Yellow: '#d9a428',
+    Green: '#38a84f',
+    Teal: '#2d8fa5',
+    Blue: '#4466cc',
+    Purple: '#8844aa',
+    Pink: '#c850a0',
+    Slate: '#667788',
+    Coral: '#e05050',
+    Lime: '#a2a835',
+    Indigo: '#5555cc',
+};
+
+function resolveTrackColor(color: unknown): string {
+    if (typeof color === 'string') {
+        return TRACK_COLORS[color] ?? '#667788';
+    }
+    return '#667788';
+}
+
 // ── Store Types ──────────────────────────────────────────────────────────
 
 interface EngineStore {
@@ -39,6 +87,15 @@ interface EngineStore {
 
     /** VU meter readings from the Rust engine. */
     meters: MeteringSnapshot;
+
+    /** Timeline clips converted from project (sample frames → beats). */
+    timelineClips: TimelineClip[];
+
+    /** Track metadata from project. */
+    projectTracks: ProjectTrack[];
+
+    /** Project sample rate (for beat conversion). */
+    projectSampleRate: number;
 
     /** Last IPC error (for error boundary / status bar display). */
     lastError: string | null;
@@ -80,6 +137,9 @@ interface EngineStore {
 
     /** Import an audio file onto a track. */
     importFile: (path: string, trackIndex: number) => Promise<ImportAudioResponse | null>;
+
+    /** Fetch project state from Rust and convert to timeline format. */
+    fetchProject: () => Promise<void>;
 
     /** Expand window from splash to full DAW mode. */
     expandWindow: () => Promise<void>;
@@ -137,6 +197,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     connected: false,
     transport: { ...DEFAULT_TRANSPORT },
     meters: { ...DEFAULT_METERS },
+    timelineClips: [],
+    projectTracks: [],
+    projectSampleRate: 44100,
     lastError: null,
 
     // ── Transport Actions ──────────────────────────────────────────────
@@ -260,12 +323,85 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             console.log(
                 `[Engine] Imported '${response.clip_name}' → track ${trackIndex} (${response.duration_seconds.toFixed(1)}s)`,
             );
+            // Refresh project state so Timeline shows the new clip
+            await get().fetchProject();
             return response;
         } catch (err) {
             const msg = `Import failed: ${err}`;
             console.error(`[Engine] ${msg}`);
             set({ lastError: msg });
             return null;
+        }
+    },
+
+    // ── Project Sync ───────────────────────────────────────────────────
+
+    fetchProject: async () => {
+        try {
+            const project = await engine.getProject() as {
+                tracks: Array<{
+                    id: string;
+                    name: string;
+                    color: unknown;
+                    volume: number;
+                    pan: number;
+                    is_mute: boolean;
+                    is_solo: boolean;
+                    clips: Array<{
+                        id: string;
+                        name: string;
+                        position: { sample_frame: number };
+                        duration: { sample_frame: number };
+                        color_override: unknown;
+                    }>;
+                }>;
+                sample_rate: number;
+                pulse_map: { initial_bpm: number };
+            };
+
+            const bpm = get().transport.bpm || project.pulse_map?.initial_bpm || 120;
+            const sr = project.sample_rate || 44100;
+            const beatsPerSecond = bpm / 60;
+
+            // Convert all clips from sample frames → beats
+            const timelineClips: TimelineClip[] = [];
+            const projectTracks: ProjectTrack[] = [];
+
+            for (let trackIdx = 0; trackIdx < project.tracks.length; trackIdx++) {
+                const track = project.tracks[trackIdx];
+
+                projectTracks.push({
+                    id: track.id,
+                    name: track.name,
+                    color: resolveTrackColor(track.color),
+                    volume: track.volume,
+                    pan: track.pan,
+                    is_mute: track.is_mute,
+                    is_solo: track.is_solo,
+                });
+
+                for (const clip of track.clips) {
+                    const posSeconds = clip.position.sample_frame / sr;
+                    const durSeconds = clip.duration.sample_frame / sr;
+                    const trackColor = resolveTrackColor(track.color);
+
+                    timelineClips.push({
+                        id: clip.id,
+                        name: clip.name,
+                        trackIndex: trackIdx,
+                        startBeat: posSeconds * beatsPerSecond,
+                        durationBeats: durSeconds * beatsPerSecond,
+                        type: 'audio',
+                        color: resolveTrackColor(clip.color_override) !== '#667788'
+                            ? resolveTrackColor(clip.color_override)
+                            : trackColor,
+                    });
+                }
+            }
+
+            set({ timelineClips, projectTracks, projectSampleRate: sr });
+        } catch (e) {
+            console.error('[Engine] fetchProject failed:', e);
         }
     },
 
@@ -284,6 +420,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     startTelemetryLoop: () => {
         if (get().telemetryRunning) return;
         set({ telemetryRunning: true });
+
+        // Fetch project once at startup
+        get().fetchProject();
 
         const poll = async () => {
             _frameCount++;

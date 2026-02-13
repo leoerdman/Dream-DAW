@@ -2,9 +2,8 @@
    DREAM DAW — DESIGN TOKENS v2.0
    SOURCE: DreamTheme.swift (681 lines) — Full 1:1 Port
    170+ tokens covering every visual aspect of the DAW.
+   Note: Google Fonts @import lives in global.css (must be first)
    ═════════════════════════════════════════════════════════════ */
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
     /* ─────────────────────────────────────────────────────────────

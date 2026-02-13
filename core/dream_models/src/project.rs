@@ -521,7 +521,18 @@ impl Project {
 
 impl Default for Project {
     fn default() -> Self {
-        Self::new("Untitled Project", 120.0, 44100.0)
+        let mut project = Self::new("Untitled Project", 120.0, 44100.0);
+
+        // Start with 8 audio tracks (matching Swift DAW default layout)
+        let track_names = [
+            "Audio 1", "Audio 2", "Audio 3", "Audio 4",
+            "Audio 5", "Audio 6", "Audio 7", "Audio 8",
+        ];
+        for (i, name) in track_names.iter().enumerate() {
+            project.add_track(Track::with_type(*name, TrackType::Audio, i));
+        }
+
+        project
     }
 }
 
@@ -543,7 +554,7 @@ mod tests {
 
     #[test]
     fn add_and_find_tracks() {
-        let mut project = Project::default();
+        let mut project = Project::new("Test", 120.0, 44100.0);
 
         let track = Track::new("Lead Vocal");
         let tid = track.id;
@@ -733,7 +744,7 @@ mod tests {
 
     #[test]
     fn project_move_track() {
-        let mut project = Project::default();
+        let mut project = Project::new("Test", 120.0, 44100.0);
         project.add_track(Track::new("A"));
         project.add_track(Track::new("B"));
         project.add_track(Track::new("C"));

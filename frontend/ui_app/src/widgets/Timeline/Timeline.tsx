@@ -30,6 +30,14 @@ export interface TimelineClip {
     selected?: boolean;
 }
 
+/** Data transferred when dragging from AssetBrowser. */
+export interface BrowserDragItem {
+    id: string;
+    name: string;
+    type: string;
+    path: string;
+}
+
 interface TimelineProps {
     bpm?: number;
     timeSignature?: [number, number];
@@ -45,6 +53,8 @@ interface TimelineProps {
     onPlayheadChange?: (beat: number) => void;
     onClipSelect?: (clipId: string) => void;
     onClipMove?: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
+    /** Called when an item is dropped from the AssetBrowser. */
+    onDropBrowserItem?: (item: BrowserDragItem, trackIndex: number, beat: number) => void;
 }
 
 // ── Demo Data (matching the Swift DAW screenshot) ──────────
@@ -125,16 +135,18 @@ export const Timeline = ({
     trackHeight = 48,
     clips: externalClips,
     playheadBeat: externalPlayhead,
+    isPlaying = false,
     loopStart = 4,
     loopEnd = 20,
     loopEnabled = true,
     onPlayheadChange,
     onClipSelect,
     onClipMove,
+    onDropBrowserItem,
 }: TimelineProps) => {
     const [pixelsPerBeat, setPixelsPerBeat] = useState(DEFAULT_PPB);
     const [scrollLeft, setScrollLeft] = useState(0);
-    const [playheadBeat, setPlayheadBeat] = useState(externalPlayhead ?? 40);
+    const [internalPlayhead, setInternalPlayhead] = useState(0);
     const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
     const [draggingClip, setDraggingClip] = useState<{
         clipId: string;
@@ -144,9 +156,21 @@ export const Timeline = ({
         startTrack: number;
     } | null>(null);
 
+    // Drop target state for visual feedback
+    const [dropTargetTrack, setDropTargetTrack] = useState<number | null>(null);
+    const [dropTargetBeat, setDropTargetBeat] = useState<number | null>(null);
+
+    // Use external playhead (from engine telemetry) when available
+    const playheadBeat = externalPlayhead ?? internalPlayhead;
+    const setPlayheadBeat = (beat: number) => {
+        setInternalPlayhead(beat);
+    };
+
+    // Show empty tracks when no clips provided (don't fall back to demo)
     const clips = externalClips ?? DEMO_CLIPS;
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLDivElement>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
 
     const beatsPerBar = timeSignature[0];
     const totalBeats = totalBars * beatsPerBar;
@@ -174,6 +198,27 @@ export const Timeline = ({
         el.addEventListener('wheel', onWheel, { passive: false });
         return () => el.removeEventListener('wheel', onWheel);
     }, []);
+
+    // ── Auto-scroll to follow playhead during playback ──
+    useEffect(() => {
+        if (!isPlaying || externalPlayhead === undefined) return;
+        const scrollEl = scrollContainerRef.current;
+        if (!scrollEl) return;
+
+        const playheadX = externalPlayhead * pixelsPerBeat;
+        const viewLeft = scrollEl.scrollLeft;
+        const viewRight = viewLeft + scrollEl.clientWidth;
+        const margin = scrollEl.clientWidth * 0.15; // 15% margin
+
+        // If playhead goes past 85% of visible area, scroll to follow
+        if (playheadX > viewRight - margin) {
+            scrollEl.scrollLeft = playheadX - scrollEl.clientWidth * 0.3;
+        }
+        // If playhead wraps back (e.g. loop), scroll back
+        if (playheadX < viewLeft) {
+            scrollEl.scrollLeft = Math.max(0, playheadX - margin);
+        }
+    }, [externalPlayhead, isPlaying, pixelsPerBeat]);
 
     // ── Ruler click → set playhead ──
     const handleRulerClick = useCallback((e: React.MouseEvent) => {
@@ -369,6 +414,7 @@ export const Timeline = ({
 
             {/* ── Canvas (scrollable) ── */}
             <div
+                ref={scrollContainerRef}
                 onScroll={handleScroll}
                 className="scrollbar-hide"
                 style={{
@@ -380,6 +426,44 @@ export const Timeline = ({
                 <div
                     ref={canvasRef}
                     onClick={handleCanvasClick}
+                    onDragOver={(e) => {
+                        // Accept drops only if we have browser item data
+                        if (e.dataTransfer.types.includes('application/x-dream-browser-item')) {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = 'copy';
+                            // Compute target track from cursor Y
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const y = e.clientY - rect.top;
+                            const x = e.clientX - rect.left;
+                            const track = Math.min(Math.floor(y / trackHeight), trackCount - 1);
+                            const beat = Math.max(0, Math.round((x / pixelsPerBeat) * 4) / 4); // snap to 1/4 beat
+                            setDropTargetTrack(track);
+                            setDropTargetBeat(beat);
+                        }
+                    }}
+                    onDragLeave={() => {
+                        setDropTargetTrack(null);
+                        setDropTargetBeat(null);
+                    }}
+                    onDrop={(e) => {
+                        e.preventDefault();
+                        const raw = e.dataTransfer.getData('application/x-dream-browser-item');
+                        if (!raw) return;
+                        try {
+                            const item = JSON.parse(raw) as BrowserDragItem;
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const y = e.clientY - rect.top;
+                            const x = e.clientX - rect.left;
+                            const track = Math.min(Math.floor(y / trackHeight), trackCount - 1);
+                            const beat = Math.max(0, Math.round((x / pixelsPerBeat) * 4) / 4);
+                            onDropBrowserItem?.(item, track, beat);
+                        } catch (err) {
+                            console.error('[Timeline] Drop parse error:', err);
+                        } finally {
+                            setDropTargetTrack(null);
+                            setDropTargetBeat(null);
+                        }
+                    }}
                     style={{
                         position: 'relative',
                         width: canvasWidth,
@@ -501,6 +585,35 @@ export const Timeline = ({
                             </div>
                         );
                     })}
+
+                    {/* ── Drop target indicator ── */}
+                    {dropTargetTrack !== null && (
+                        <div style={{
+                            position: 'absolute',
+                            left: 0,
+                            top: dropTargetTrack * trackHeight,
+                            width: '100%',
+                            height: trackHeight,
+                            background: 'color-mix(in srgb, var(--color-accent-primary) 15%, transparent)',
+                            border: '1px dashed var(--color-accent-primary)',
+                            borderRadius: 2,
+                            zIndex: 15,
+                            pointerEvents: 'none',
+                            animation: 'pulse 1s ease-in-out infinite',
+                        }}>
+                            {dropTargetBeat !== null && (
+                                <div style={{
+                                    position: 'absolute',
+                                    left: dropTargetBeat * pixelsPerBeat,
+                                    top: 2,
+                                    bottom: 2,
+                                    width: 2,
+                                    background: 'var(--color-accent-primary)',
+                                    borderRadius: 1,
+                                }} />
+                            )}
+                        </div>
+                    )}
 
                     {/* ── Playhead ── */}
                     <div style={{

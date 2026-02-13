@@ -1,0 +1,115 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// Dream DAW — Settings Zustand Store
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Persistent application settings synced with the Rust backend.
+// Mirrors Swift `AppSettings` → Rust `AppSettings` → this store.
+//
+// Usage:
+//   const { settings, updateSetting, pickAndSetFolder } = useSettingsStore();
+//
+// ═══════════════════════════════════════════════════════════════════════════
+
+import { create } from 'zustand';
+import * as engineApi from '@/shared/api/engine';
+import type { AppSettings } from '@/shared/api/engine';
+
+interface SettingsStore {
+    /** Current application settings. */
+    settings: AppSettings;
+
+    /** Whether settings have been loaded from backend at least once. */
+    loaded: boolean;
+
+    /** Load settings from the Rust backend. Called once on app startup. */
+    loadSettings: () => Promise<void>;
+
+    /** Update a single setting key → persists to disk immediately. */
+    updateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>;
+
+    /** Replace all settings at once (bulk update). */
+    updateAllSettings: (newSettings: AppSettings) => Promise<void>;
+
+    /**
+     * Open native folder picker dialog and update a folder setting.
+     * Returns the selected path, or null if cancelled.
+     */
+    pickAndSetFolder: (settingKey: keyof AppSettings) => Promise<string | null>;
+}
+
+/** Default settings — used before backend loads. Must match Rust defaults. */
+const DEFAULT_SETTINGS: AppSettings = {
+    language: 'English',
+    startup_behavior: 'new',
+    waveform_style: 'colored',
+    driver_type: 'CoreAudio',
+    output_device: 'Default Output',
+    input_device: 'Default Input',
+    sample_rate: 44100,
+    buffer_size: 512,
+    driver_error_compensation: 0.0,
+    test_tone_enabled: false,
+    test_tone_volume: -20.0,
+    test_tone_frequency: 440.0,
+    cpu_usage_simulator: false,
+    sr_pitch_conversion: true,
+    user_folder_path: '~/Music/Dream DAW',
+    samples_path: '~/Music/Dream DAW/Samples',
+    vst2_path: '/Library/Audio/Plug-Ins/VST',
+    vst3_path: '/Library/Audio/Plug-Ins/VST3',
+};
+
+export const useSettingsStore = create<SettingsStore>((set, get) => ({
+    settings: DEFAULT_SETTINGS,
+    loaded: false,
+
+    loadSettings: async () => {
+        try {
+            const settings = await engineApi.getSettings();
+            set({ settings, loaded: true });
+        } catch (err) {
+            console.error('[SettingsStore] Failed to load settings:', err);
+            // Keep defaults
+            set({ loaded: true });
+        }
+    },
+
+    updateSetting: async (key, value) => {
+        const current = get().settings;
+        const updated = { ...current, [key]: value };
+        set({ settings: updated });
+
+        try {
+            await engineApi.updateSettings(updated);
+        } catch (err) {
+            console.error('[SettingsStore] Failed to persist setting:', key, err);
+            // Revert optimistic update
+            set({ settings: current });
+        }
+    },
+
+    updateAllSettings: async (newSettings) => {
+        const current = get().settings;
+        set({ settings: newSettings });
+
+        try {
+            await engineApi.updateSettings(newSettings);
+        } catch (err) {
+            console.error('[SettingsStore] Failed to persist settings:', err);
+            set({ settings: current });
+        }
+    },
+
+    pickAndSetFolder: async (settingKey) => {
+        try {
+            const selected = await engineApi.pickFolder();
+            if (selected) {
+                await get().updateSetting(settingKey, selected as AppSettings[typeof settingKey]);
+            }
+            return selected;
+        } catch (err) {
+            console.error('[SettingsStore] Folder pick failed:', err);
+            return null;
+        }
+    },
+}));

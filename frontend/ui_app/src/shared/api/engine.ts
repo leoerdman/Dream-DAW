@@ -212,3 +212,26 @@ export const getSettings = () => invoke<AppSettings>('get_settings');
 /** Update application settings and persist to disk. */
 export const updateSettings = (newSettings: AppSettings) =>
     invoke<void>('update_settings', { newSettings });
+
+// ── File Browser ─────────────────────────────────────────────────────────
+
+/** Audio file entry returned by folder scan. */
+export interface AudioFileEntry {
+    name: string;
+    path: string;
+    size_bytes: number;
+    modified_at: string;
+    format: string;
+}
+
+/** Recursively scan a directory for audio files. */
+export const scanAudioFolder = (path: string) =>
+    invoke<AudioFileEntry[]>('scan_audio_folder', { path });
+
+/** Get resolved samples folder path (lightweight, no mutex). */
+export const getSamplesPath = () =>
+    invoke<string>('get_samples_path');
+
+/** Open a native folder picker dialog. Returns null if cancelled. */
+export const pickFolder = () =>
+    invoke<string | null>('pick_folder');

@@ -102,9 +102,6 @@ export function SplashScreen({ minDuration = 2400, onComplete }: SplashScreenPro
                     <div className="splash-spinner" />
                     <span className="splash-status">{status}</span>
                 </div>
-
-                {/* Subtle border */}
-                <div className="splash-border" />
             </div>
         </div>
     )

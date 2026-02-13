@@ -79,8 +79,6 @@ export const TrackInspector = ({ selectedTrackId, onSelectTrack }: TrackInspecto
     // Engine store actions for real IPC
     const engineSetTrackMute = useEngineStore((s) => s.setTrackMute);
     const engineSetTrackSolo = useEngineStore((s) => s.setTrackSolo);
-    const engineSetTrackVolume = useEngineStore((s) => s.setTrackVolume);
-    const meterTracks = useEngineStore((s) => s.meters.tracks);
 
     // Helper: get engine track index from track id
     const getTrackIndex = useCallback((id: string): number => {
@@ -109,15 +107,6 @@ export const TrackInspector = ({ selectedTrackId, onSelectTrack }: TrackInspecto
         });
     }, [getTrackIndex, engineSetTrackSolo]);
 
-    const handleVolumeChange = useCallback((id: string, volume: number) => {
-        setTracks(prev => prev.map(t => t.id === id ? { ...t, volume } : t));
-        const idx = getTrackIndex(id);
-        // Convert dB to linear gain for the engine: gain = 10^(dB/20)
-        if (idx >= 0) {
-            const linearGain = Math.pow(10, volume / 20);
-            engineSetTrackVolume(idx, linearGain);
-        }
-    }, [getTrackIndex, engineSetTrackVolume]);
 
     const toggleArm = useCallback((id: string) => {
         setTracks(prev => prev.map(t => t.id === id ? { ...t, isArmed: !t.isArmed } : t));
@@ -202,7 +191,7 @@ export const TrackInspector = ({ selectedTrackId, onSelectTrack }: TrackInspecto
 
 const TrackRow = ({
     track, displayNum, isSelected, isCollapsed, depth,
-    onClick, onToggleMute, onToggleSolo, onToggleArm, onToggleCollapse,
+    onClick, onToggleMute: _onToggleMute, onToggleSolo, onToggleArm, onToggleCollapse,
 }: {
     track: TrackData;
     displayNum?: number;

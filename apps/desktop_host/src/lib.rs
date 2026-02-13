@@ -968,6 +968,27 @@ fn get_settings(
     Ok(settings.clone())
 }
 
+/// Returns the resolved samples folder path by reading settings.json directly.
+/// This avoids the SettingsState mutex — safe for lightweight IPC calls.
+#[tauri::command]
+fn get_samples_path(app: tauri::AppHandle) -> Result<String, String> {
+    let app_data_dir = app.path().app_data_dir()
+        .map_err(|e| format!("Cannot resolve app data dir: {}", e))?;
+    let settings_path = app_data_dir.join("settings.json");
+
+    if settings_path.exists() {
+        if let Ok(json) = std::fs::read_to_string(&settings_path) {
+            if let Ok(settings) = serde_json::from_str::<AppSettings>(&json) {
+                return Ok(settings.samples_path);
+            }
+        }
+    }
+
+    // Fall back to default
+    let home = dirs::home_dir().unwrap_or_default();
+    Ok(home.join("Music").join("Dream DAW").join("Samples").to_string_lossy().to_string())
+}
+
 /// Updates application settings and persists to disk.
 #[tauri::command]
 fn update_settings(
@@ -985,6 +1006,107 @@ fn update_settings(
     Ok(())
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// File Browser Commands
+// ═══════════════════════════════════════════════════════════════════════
+
+/// A single audio file entry returned by the browser scan.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AudioFileEntry {
+    name: String,
+    path: String,
+    size_bytes: u64,
+    modified_at: String,
+    format: String,
+}
+
+/// Audio extensions recognized by the file browser (case-insensitive).
+const AUDIO_EXTENSIONS: &[&str] = &[
+    "wav", "wave", "aiff", "aif", "mp3", "m4a", "flac", "ogg", "caf",
+];
+
+/// Recursively scans the given directory for audio files.
+#[tauri::command]
+fn scan_audio_folder(path: String) -> Result<Vec<AudioFileEntry>, String> {
+    let root = std::path::Path::new(&path);
+    if !root.exists() {
+        return Err(format!("Folder does not exist: {}", path));
+    }
+    if !root.is_dir() {
+        return Err(format!("Path is not a directory: {}", path));
+    }
+
+    let mut entries = Vec::new();
+    scan_directory_recursive(root, &mut entries, 0, 8)?; // max depth 8
+    entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(entries)
+}
+
+/// Recursive directory walker for audio files.
+fn scan_directory_recursive(
+    dir: &std::path::Path,
+    entries: &mut Vec<AudioFileEntry>,
+    depth: u32,
+    max_depth: u32,
+) -> Result<(), String> {
+    if depth > max_depth {
+        return Ok(());
+    }
+
+    let read_dir = std::fs::read_dir(dir).map_err(|e| format!("Cannot read {}: {}", dir.display(), e))?;
+
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+
+        // Skip hidden files/directories
+        if entry.file_name().to_str().map_or(false, |n| n.starts_with('.')) {
+            continue;
+        }
+
+        if path.is_dir() {
+            scan_directory_recursive(&path, entries, depth + 1, max_depth)?;
+        } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            if AUDIO_EXTENSIONS.contains(&ext.to_lowercase().as_str()) {
+                let metadata = std::fs::metadata(&path).ok();
+                let size_bytes = metadata.as_ref().map_or(0, |m| m.len());
+                let modified_at = metadata
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs().to_string())
+                    .unwrap_or_default();
+
+                entries.push(AudioFileEntry {
+                    name: entry.file_name().to_string_lossy().to_string(),
+                    path: path.to_string_lossy().to_string(),
+                    size_bytes,
+                    modified_at,
+                    format: ext.to_uppercase(),
+                });
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Opens a native folder picker dialog and returns the selected path.
+#[tauri::command]
+async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    app.dialog().file()
+        .pick_folder(move |folder| {
+            let _ = tx.send(folder.map(|p| p.to_string()));
+        });
+
+    tauri::async_runtime::spawn_blocking(move || {
+        rx.recv().map_err(|e| format!("Dialog error: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Join error: {}", e))?
+}
 // ═══════════════════════════════════════════════════════════════════════
 // Application Setup
 // ═══════════════════════════════════════════════════════════════════════
@@ -1069,6 +1191,10 @@ pub fn run() {
             // Settings
             get_settings,
             update_settings,
+            get_samples_path,
+            // File Browser
+            scan_audio_folder,
+            pick_folder,
             // Splash
             expand_window,
             // Legacy

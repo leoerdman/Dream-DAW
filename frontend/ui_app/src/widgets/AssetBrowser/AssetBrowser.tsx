@@ -1,4 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import * as engineApi from '@/shared/api/engine';
+import type { AudioFileEntry } from '@/shared/api/engine';
 
 /**
  * AssetBrowser — Ableton-style two-pane vertical-split sidebar browser.
@@ -52,6 +54,8 @@ interface BrowserItem {
     format?: string;
     meta?: string;
     favorite?: boolean;
+    /** Absolute path to file on disk (for drag-and-drop import). */
+    path?: string;
 }
 
 // ── Static Data (matching BrowserSidebarView.swift) ────────
@@ -172,6 +176,72 @@ export const AssetBrowser = () => {
         });
     }, []);
 
+    // ── Real file scanning (LAZY — only triggers when user views samples) ──
+    const [realFiles, setRealFiles] = useState<AudioFileEntry[]>([]);
+    const [scanLoading, setScanLoading] = useState(false);
+    const [scanError, setScanError] = useState<string | null>(null);
+    const scanTriggeredRef = useRef(false);
+
+    // Only scan when user navigates to a samples-related category
+    const isSamplesCategory = ['samples', 'all', 'sounds', 'drums', 'clips'].includes(selectedCategoryId);
+
+    useEffect(() => {
+        if (!isSamplesCategory || scanTriggeredRef.current) return;
+        scanTriggeredRef.current = true;
+
+        let cancelled = false;
+
+        // Defer IPC briefly to avoid blocking initial render
+        // Note: requestIdleCallback is NOT available in WKWebView (Tauri/Safari)
+        const timerId = setTimeout(() => {
+            if (cancelled) return;
+            setScanLoading(true);
+            setScanError(null);
+
+            // Chain: get path → scan folder
+            engineApi.getSamplesPath()
+                .then(path => {
+                    if (cancelled) return Promise.reject('cancelled');
+                    return engineApi.scanAudioFolder(path);
+                })
+                .then(files => {
+                    if (!cancelled) {
+                        setRealFiles(files);
+                        setScanLoading(false);
+                    }
+                })
+                .catch(err => {
+                    if (!cancelled && err !== 'cancelled') {
+                        console.warn('[AssetBrowser] Scan failed:', err);
+                        setScanError(String(err));
+                        setScanLoading(false);
+                    }
+                });
+        }, 500);
+
+        return () => {
+            cancelled = true;
+            clearTimeout(timerId);
+        };
+    }, [isSamplesCategory]);
+
+    // Convert real file entries to BrowserItems
+    const realBrowserItems: BrowserItem[] = useMemo(() => {
+        return realFiles.map((f, i) => {
+            const sizeKb = Math.round(f.size_bytes / 1024);
+            const sizeMb = (f.size_bytes / (1024 * 1024)).toFixed(1);
+            const sizeLabel = sizeKb > 1024 ? `${sizeMb} MB` : `${sizeKb} KB`;
+            return {
+                id: `real-${i}`,
+                name: f.name,
+                type: 'audio' as const,
+                format: f.format,
+                meta: sizeLabel,
+                path: f.path,
+            };
+        });
+    }, [realFiles]);
+
     // Get items based on selected category
     const items = useMemo(() => {
         let base: BrowserItem[] = [];
@@ -181,7 +251,8 @@ export const AssetBrowser = () => {
             case 'sounds':
             case 'drums':
             case 'clips':
-                base = DEMO_SAMPLES;
+                // Use real files if available, otherwise fall back to demo
+                base = realBrowserItems.length > 0 ? realBrowserItems : DEMO_SAMPLES;
                 break;
             case 'instruments':
                 base = DEMO_INSTRUMENTS;
@@ -192,10 +263,10 @@ export const AssetBrowser = () => {
                 base = DEMO_FX;
                 break;
             case 'favorites':
-                base = [...DEMO_SAMPLES, ...DEMO_INSTRUMENTS].filter(i => i.favorite);
+                base = [...(realBrowserItems.length > 0 ? realBrowserItems : DEMO_SAMPLES), ...DEMO_INSTRUMENTS].filter(i => i.favorite);
                 break;
             default:
-                base = DEMO_SAMPLES;
+                base = realBrowserItems.length > 0 ? realBrowserItems : DEMO_SAMPLES;
         }
 
         if (searchQuery.trim()) {
@@ -204,7 +275,7 @@ export const AssetBrowser = () => {
         }
 
         return base;
-    }, [selectedCategoryId, searchQuery]);
+    }, [selectedCategoryId, searchQuery, realBrowserItems]);
 
     // Track current section for collapse logic
     let currentSection: string | null = null;
@@ -376,17 +447,75 @@ export const AssetBrowser = () => {
                         overflowY: 'auto',
                         overflowX: 'hidden',
                     }}>
+                        {/* Scan Status */}
+                        {scanLoading && (
+                            <div style={{
+                                padding: '12px 10px',
+                                textAlign: 'center',
+                                color: 'var(--color-text-tertiary)',
+                                fontSize: 10,
+                                animation: 'pulse 1.5s ease-in-out infinite',
+                            }}>
+                                ⏳ Scanning samples folder…
+                            </div>
+                        )}
+                        {scanError && !scanLoading && (
+                            <div style={{
+                                padding: '8px 10px',
+                                color: 'var(--color-error, #ff6b6b)',
+                                fontSize: 10,
+                                lineHeight: 1.4,
+                            }}>
+                                ⚠️ Could not scan folder<br />
+                                <span style={{ opacity: 0.7, fontFamily: 'var(--font-mono)', fontSize: 9 }}>{scanError}</span>
+                            </div>
+                        )}
                         {items.map(item => {
                             const isSelected = selectedItemId === item.id;
+                            const isAudio = item.type === 'audio';
                             return (
                                 <div
                                     key={item.id}
+                                    draggable={isAudio}
                                     onClick={() => setSelectedItemId(item.id)}
+                                    onDragStart={(e) => {
+                                        if (!isAudio) return;
+                                        // Mark as in-app drag so DawShell doesn't show Tauri overlay
+                                        (window as any).__dreamInAppDrag = true;
+                                        // Set drag data for Timeline drop zone
+                                        e.dataTransfer.effectAllowed = 'copy';
+                                        e.dataTransfer.setData('application/x-dream-browser-item', JSON.stringify({
+                                            id: item.id,
+                                            name: item.name,
+                                            type: item.type,
+                                            path: item.path || '',
+                                        }));
+                                        e.dataTransfer.setData('text/plain', item.name);
+
+                                        // Custom drag ghost
+                                        const ghost = document.createElement('div');
+                                        ghost.textContent = `🎵 ${item.name}`;
+                                        ghost.style.cssText = `
+                                            position: fixed; top: -100px; left: -100px;
+                                            padding: 4px 10px; border-radius: 4px;
+                                            background: var(--color-accent-primary);
+                                            color: #fff; font-size: 11px; font-weight: 600;
+                                            font-family: var(--font-mono);
+                                            white-space: nowrap; pointer-events: none;
+                                            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+                                        `;
+                                        document.body.appendChild(ghost);
+                                        e.dataTransfer.setDragImage(ghost, 0, 0);
+                                        requestAnimationFrame(() => document.body.removeChild(ghost));
+                                    }}
+                                    onDragEnd={() => {
+                                        (window as any).__dreamInAppDrag = false;
+                                    }}
                                     style={{
                                         display: 'flex',
                                         flexDirection: 'column',
                                         padding: '2px 6px',
-                                        cursor: 'default',
+                                        cursor: isAudio ? 'grab' : 'default',
                                         background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
                                         borderBottom: '1px solid var(--color-divider-light)',
                                         transition: 'background var(--transition-fast)',

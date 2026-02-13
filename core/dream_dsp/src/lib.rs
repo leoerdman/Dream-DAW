@@ -1,0 +1,18 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// Dream DAW — Pure DSP Math Library
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// This crate contains ZERO OS-specific or thread-related code.
+// It operates exclusively on `&[f32]` / `&mut [f32]` buffers.
+//
+// Modules:
+//   fades      — Hann-window micro-fades for click-free clip boundaries
+//   resampler  — Polyphase sinc resampler via `rubato` (studio-grade)
+//
+// All functions are designed to be called from the audio hot path
+// after pre-allocation. No heap allocations during processing.
+//
+// ═══════════════════════════════════════════════════════════════════════════
+
+pub mod fades;
+pub mod resampler;

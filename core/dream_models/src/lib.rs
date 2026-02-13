@@ -17,6 +17,10 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+pub mod project;
+pub mod pulse_map;
+pub mod time;
+
 // ── Playback State ──────────────────────────────────────────────────────
 
 /// The current state of the audio engine's transport.

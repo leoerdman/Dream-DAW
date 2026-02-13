@@ -1,0 +1,12 @@
+[package]
+name = "dream_dsp"
+description = "Dream DAW — Pure DSP Math (Micro-Fades, Resampling, SIMD Primitives)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rubato = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]

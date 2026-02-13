@@ -3,6 +3,7 @@ members = [
     "core/dream_models",
     "core/dream_ipc",
     "core/dream_graph",
+    "core/dream_dsp",
     "core/dream_engine",
 ]
 resolver = "3"
@@ -18,7 +19,9 @@ license = "Proprietary"
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
 ts-rs = { version = "12.0", features = ["serde-compat"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
 rtrb = "0.3"
+rubato = "0.16"
 cpal = "0.17"
 log = "0.4"
 env_logger = "0.11"

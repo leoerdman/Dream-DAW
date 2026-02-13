@@ -59,7 +59,13 @@ public struct MidiClip: Identifiable, Codable, Hashable, Sendable {
     public var duration: TimePosition
     public var notes: [MidiNote]
     
-    // Selection state (not persisted to file, usually, but here it is for simplicity)
+    // PHASE 9.2: Sample-Accurate Clip Bounds
+    /// Sample-accurate position (engine source of truth).
+    public var absolutePosition: AbsoluteTime
+    /// Sample-accurate duration (engine source of truth).
+    public var absoluteDuration: AbsoluteTime
+    
+    // Selection state
     public var isSelected: Bool
     public var colorOverride: TrackColor?
 
@@ -69,6 +75,8 @@ public struct MidiClip: Identifiable, Codable, Hashable, Sendable {
         position: TimePosition,
         duration: TimePosition = TimePosition(beats: 4),
         notes: [MidiNote] = [],
+        absolutePosition: AbsoluteTime = AbsoluteTime(sampleFrame: 0),
+        absoluteDuration: AbsoluteTime = AbsoluteTime(sampleFrame: 0),
         isSelected: Bool = false,
         colorOverride: TrackColor? = nil
     ) {
@@ -77,6 +85,8 @@ public struct MidiClip: Identifiable, Codable, Hashable, Sendable {
         self.position = position
         self.duration = duration
         self.notes = notes
+        self.absolutePosition = absolutePosition
+        self.absoluteDuration = absoluteDuration
         self.isSelected = isSelected
         self.colorOverride = colorOverride
     }
@@ -85,6 +95,7 @@ public struct MidiClip: Identifiable, Codable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, position, duration, notes, isSelected, colorOverride
+        case absolutePosition, absoluteDuration
     }
 
     public init(from decoder: Decoder) throws {
@@ -94,6 +105,9 @@ public struct MidiClip: Identifiable, Codable, Hashable, Sendable {
         position = try container.decodeIfPresent(TimePosition.self, forKey: .position) ?? .zero
         duration = try container.decodeIfPresent(TimePosition.self, forKey: .duration) ?? TimePosition(beats: 4)
         notes = try container.decodeIfPresent([MidiNote].self, forKey: .notes) ?? []
+        // PHASE 9.2: Backward-compatible AbsoluteTime deserialization
+        absolutePosition = try container.decodeIfPresent(AbsoluteTime.self, forKey: .absolutePosition) ?? AbsoluteTime(sampleFrame: 0)
+        absoluteDuration = try container.decodeIfPresent(AbsoluteTime.self, forKey: .absoluteDuration) ?? AbsoluteTime(sampleFrame: 0)
         isSelected = try container.decodeIfPresent(Bool.self, forKey: .isSelected) ?? false
         colorOverride = try container.decodeIfPresent(TrackColor.self, forKey: .colorOverride)
     }
@@ -105,6 +119,8 @@ public struct MidiClip: Identifiable, Codable, Hashable, Sendable {
         try container.encode(position, forKey: .position)
         try container.encode(duration, forKey: .duration)
         try container.encode(notes, forKey: .notes)
+        try container.encode(absolutePosition, forKey: .absolutePosition)
+        try container.encode(absoluteDuration, forKey: .absoluteDuration)
         try container.encode(isSelected, forKey: .isSelected)
         try container.encodeIfPresent(colorOverride, forKey: .colorOverride)
     }

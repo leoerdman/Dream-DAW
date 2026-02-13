@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import DreamDAWModels
 import os.log
+import Atomics
 
 // MARK: - TransportState
 
@@ -16,6 +17,12 @@ public enum TransportState: Sendable {
 
 /// Controls playback transport: play, pause, stop, seek, loop.
 /// Tracks the playhead position and notifies observers via callback.
+///
+/// **PHASE 9.1 (Sample-Accurate Time)**: The internal source of truth is now
+/// `absolutePlayhead: AbsoluteTime` (Int64 sample frames). The published
+/// `playheadPosition: TimePosition` is a computed property that derives beats
+/// from the absolute playhead via `PulseMap`. This ensures zero accumulated
+/// drift regardless of session length.
 @MainActor
 public final class TransportController: ObservableObject {
 
@@ -24,12 +31,41 @@ public final class TransportController: ObservableObject {
     private let logger = Logger(subsystem: "com.dreamdaw", category: "Transport")
     private var displayLink: CVDisplayLink?
     private var playbackStartHostTime: UInt64 = 0 // In mach_absolute_time ticks
-    private var playbackStartBeat: Double = 0
+    private var playbackStartSampleFrame: Int64 = 0
     private var timebaseInfo = mach_timebase_info_data_t()
 
+    // PHASE 9.1: Sample-Accurate Playhead
+    // PulseMap is the sole authority for beat↔sample conversion.
+    // All internal calculations use Int64 sample frames.
+    
+    /// The tempo map for this project. Must be set before playback.
+    public var pulseMap: PulseMap = PulseMap(bpm: 120, sampleRate: 44100)
+    
+    /// Internal source of truth: sample-accurate playhead position.
+    @Published public private(set) var absolutePlayhead: AbsoluteTime = AbsoluteTime(sampleFrame: 0)
+
     @Published public private(set) var state: TransportState = .stopped
-    @Published public var playheadPosition: TimePosition = .zero
-    @Published public var bpm: Double = 120.0
+    
+    /// Musical playhead — derived from `absolutePlayhead` via `PulseMap`.
+    /// All existing UI consumers read this property unchanged.
+    public var playheadPosition: TimePosition {
+        get {
+            let beats = pulseMap.beats(at: absolutePlayhead.sampleFrame)
+            return TimePosition(beats: beats)
+        }
+        set {
+            // When set from UI (seek), convert beats → sample frames
+            let sf = pulseMap.sampleFrame(at: newValue.beats)
+            absolutePlayhead = AbsoluteTime(sampleFrame: sf)
+        }
+    }
+    
+    @Published public var bpm: Double = 120.0 {
+        didSet {
+            // Keep PulseMap in sync when BPM changes
+            pulseMap.setConstantTempo(bpm)
+        }
+    }
     @Published public var timeSignature: TimeSignature = TimeSignature()
     @Published public var isLooping: Bool = false
     @Published public var loopStart: TimePosition = .zero
@@ -76,11 +112,12 @@ public final class TransportController: ObservableObject {
         
         switch state {
         case .stopped, .paused:
-            playbackStartBeat = playheadPosition.beats
+            // PHASE 9.1: Store start position as sample frame (source of truth)
+            playbackStartSampleFrame = absolutePlayhead.sampleFrame
             playbackStartHostTime = hostTimeAtStart
             state = .playing
             startDisplayLink()
-            logger.info("Transport: START at hostTime \(hostTimeAtStart), beat \(self.playheadPosition.beats)")
+            logger.info("Transport: START at hostTime \(hostTimeAtStart), sampleFrame \(self.absolutePlayhead.sampleFrame)")
 
         case .playing:
             // Update reference to stay in sync with audio engine's actual hardware start
@@ -127,17 +164,19 @@ public final class TransportController: ObservableObject {
     /// Seek to a specific position.
     public func seek(to position: TimePosition) {
         let wasPlaying = state == .playing
-        playheadPosition = position
+        // PHASE 9.1: Convert to sample frames via PulseMap (source of truth)
+        let sf = pulseMap.sampleFrame(at: position.beats)
+        absolutePlayhead = AbsoluteTime(sampleFrame: sf)
 
         if wasPlaying {
-            playbackStartBeat = position.beats
+            playbackStartSampleFrame = sf
             playbackStartHostTime = mach_absolute_time()
             // Re-trigger playback scheduling from the new position
             onStateChange?(.playing)
         }
 
         onPlayheadUpdate?(playheadPosition)
-        logger.info("Transport: SEEK to beat \(position.beats)\(wasPlaying ? " (re-scheduled)" : "")")
+        logger.info("Transport: SEEK to sampleFrame \(sf) (beat \(position.beats))\(wasPlaying ? " (re-scheduled)" : "")")
     }
 
     // MARK: - Display Link
@@ -172,19 +211,17 @@ public final class TransportController: ObservableObject {
         displayLink = nil
     }
 
-    /// The new stable way to update playhead from the background timer.
+    /// PHASE 9.1: Playhead computation uses sample frames as source of truth.
+    /// Elapsed time from `mach_absolute_time` → seconds → sample frames → beats
+    /// via `PulseMap`. This eliminates floating-point drift entirely.
     private func applyPlayheadUpdates() {
         guard state == .playing else { return }
         
-        // GENIUS FIX: If we are waiting for a new scheduling start time, 
-        // DON'T update from the old reference! This prevents the "jump-forward-and-back" bug.
         let now = mach_absolute_time()
         
-        // If now is way before start time, it means we have a fresh start pending
-        // but the display link is already running.
+        // If now is before start time, a fresh start is pending
         if now < playbackStartHostTime {
             // Stay at the seeked position until hardware starts
-            self.playheadPosition = TimePosition(beats: playbackStartBeat)
             self.onPlayheadUpdate?(self.playheadPosition)
             return
         }
@@ -194,25 +231,29 @@ public final class TransportController: ObservableObject {
         let elapsedNano = (elapsedTicks * UInt64(timebaseInfo.numer)) / UInt64(timebaseInfo.denom)
         let elapsedSeconds = Double(elapsedNano) / 1_000_000_000.0
         
-        let beatsElapsed = elapsedSeconds * (bpm / 60.0)
-        var currentBeat = playbackStartBeat + beatsElapsed
+        // PHASE 9.1: Convert elapsed seconds → sample frames (integer, no drift)
+        let elapsedSamples = Int64(elapsedSeconds * pulseMap.sampleRate)
+        var currentSampleFrame = playbackStartSampleFrame + elapsedSamples
         var didLoopWrap = false
 
-        // Handle looping
-        if isLooping && loopEnd.beats > loopStart.beats {
-            if currentBeat >= loopEnd.beats {
-                let loopLength = loopEnd.beats - loopStart.beats
-                let overshoot = currentBeat - loopStart.beats
-                currentBeat = loopStart.beats + overshoot.truncatingRemainder(dividingBy: loopLength)
+        // Handle looping (convert loop bounds to sample frames)
+        if isLooping {
+            let loopStartFrame = pulseMap.sampleFrame(at: loopStart.beats)
+            let loopEndFrame = pulseMap.sampleFrame(at: loopEnd.beats)
+            let loopLength = loopEndFrame - loopStartFrame
+            
+            if loopLength > 0 && currentSampleFrame >= loopEndFrame {
+                let overshoot = currentSampleFrame - loopStartFrame
+                currentSampleFrame = loopStartFrame + (overshoot % loopLength)
                 
                 // Perfect loop wrap sync
-                playbackStartBeat = currentBeat
+                playbackStartSampleFrame = currentSampleFrame
                 playbackStartHostTime = now
                 didLoopWrap = true
             }
         }
 
-        self.playheadPosition = TimePosition(beats: currentBeat)
+        self.absolutePlayhead = AbsoluteTime(sampleFrame: currentSampleFrame)
         self.onPlayheadUpdate?(self.playheadPosition)
 
         // Re-schedule audio after loop wrap

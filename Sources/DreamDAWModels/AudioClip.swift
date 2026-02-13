@@ -22,6 +22,16 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
 
     /// Total duration of the clip on the timeline (in beats).
     public var duration: TimePosition
+    
+    // PHASE 9.2: Sample-Accurate Clip Bounds
+    // These are the engine's source of truth for scheduling.
+    // They are kept in sync with `position`/`duration` via PulseMap.
+    
+    /// Sample-accurate position (engine source of truth).
+    public var absolutePosition: AbsoluteTime
+    
+    /// Sample-accurate duration (engine source of truth).
+    public var absoluteDuration: AbsoluteTime
 
     /// Offset into the source audio file (trim start). In beats.
     public var trimStartOffset: TimePosition
@@ -54,6 +64,8 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
         fileURL: URL,
         position: TimePosition,
         duration: TimePosition,
+        absolutePosition: AbsoluteTime = AbsoluteTime(sampleFrame: 0),
+        absoluteDuration: AbsoluteTime = AbsoluteTime(sampleFrame: 0),
         sourceDurationSeconds: Double = 0,
         trimStartOffset: TimePosition = .zero,
         gain: Float = 1.0,
@@ -65,6 +77,8 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
         self.fileURL = fileURL
         self.position = position
         self.duration = duration
+        self.absolutePosition = absolutePosition
+        self.absoluteDuration = absoluteDuration
         self.sourceDurationSeconds = sourceDurationSeconds
         self.trimStartOffset = trimStartOffset
         self.gain = gain
@@ -77,6 +91,7 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id, name, fileURL, position, duration, trimStartOffset, gain, isSelected, colorOverride, sourceDurationSeconds
         case isWarped, warpMarkers
+        case absolutePosition, absoluteDuration
     }
 
     public init(from decoder: Decoder) throws {
@@ -86,6 +101,10 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
         fileURL = try container.decodeIfPresent(URL.self, forKey: .fileURL) ?? URL(fileURLWithPath: "/")
         position = try container.decodeIfPresent(TimePosition.self, forKey: .position) ?? .zero
         duration = try container.decodeIfPresent(TimePosition.self, forKey: .duration) ?? .zero
+        
+        // PHASE 9.2: Backward-compatible AbsoluteTime deserialization
+        absolutePosition = try container.decodeIfPresent(AbsoluteTime.self, forKey: .absolutePosition) ?? AbsoluteTime(sampleFrame: 0)
+        absoluteDuration = try container.decodeIfPresent(AbsoluteTime.self, forKey: .absoluteDuration) ?? AbsoluteTime(sampleFrame: 0)
         
         // Migration: Fields added later (Stage 1 & 2)
         trimStartOffset = try container.decodeIfPresent(TimePosition.self, forKey: .trimStartOffset) ?? .zero
@@ -105,6 +124,8 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
         try container.encode(fileURL, forKey: .fileURL)
         try container.encode(position, forKey: .position)
         try container.encode(duration, forKey: .duration)
+        try container.encode(absolutePosition, forKey: .absolutePosition)
+        try container.encode(absoluteDuration, forKey: .absoluteDuration)
         try container.encode(trimStartOffset, forKey: .trimStartOffset)
         try container.encode(gain, forKey: .gain)
         try container.encode(isSelected, forKey: .isSelected)

@@ -61,6 +61,16 @@ public final class ArrangementViewController: NSViewController {
     private var meterUpdateTimer: Timer?
     private var pendingHorizontalScrollX: CGFloat?
 
+    // MARK: - Absolute Architecture (Phase 1)
+    /// Enterprise layout engine: O(1) Y lookup, O(log N) hit-testing.
+    private let layoutEngine = TrackLayoutEngine()
+    /// Sample-based viewport matrix for anchor zoom (will replace pixelsPerBeat in Sprint 2).
+    private var viewportMatrix = ViewportMatrix()
+    /// Phantom UX state machine: zero model mutations during drag.
+    private let interactionSM = InteractionStateMachine()
+    /// Tempo map for sample ↔ beat conversion.
+    private var pulseMap = PulseMap(bpm: 120, sampleRate: 44100)
+
     // MARK: - Initialization
 
     public init(project: Project, sharedEngine: SharedEngine) {
@@ -107,6 +117,9 @@ public final class ArrangementViewController: NSViewController {
         // Synchronize pixelsPerBeat
         rulerView.pixelsPerBeat = pixelsPerBeat
         canvasView.pixelsPerBeat = pixelsPerBeat
+        
+        // Sync Absolute Architecture systems with project state
+        pulseMap.setConstantTempo(Double(project.bpm))
         
         setupAudioEngine()
         setupBindings()
@@ -219,6 +232,12 @@ public final class ArrangementViewController: NSViewController {
             guard let self = self else { return }
             self.sharedEngine.trackMixer.applySoloLogic(self.project.tracks + [self.project.masterTrack])
         }
+        masterHeader.onLayoutRequested = { [weak self] in
+            self?.handleTrackHeightLayoutUpdate(interactive: true)
+        }
+        masterHeader.onExpansionChanged = { [weak self] in
+            self?.handleTrackHeightLayoutUpdate(interactive: false)
+        }
         masterHeader.trackResolver = { [weak self] id in
             guard let self = self else { return nil }
             return (self.project.tracks + [self.project.masterTrack]).first(where: { $0.id == id })
@@ -287,7 +306,9 @@ public final class ArrangementViewController: NSViewController {
         }
         
         let visibleTracks = project.allVisibleTracks.filter { $0.trackType != .master }
-        let totalTrackH = visibleTracks.reduce(0) { $0 + $1.height }
+        // Rebuild layout engine cache (runs once per layout, not per frame)
+        layoutEngine.rebuildCache(visibleTracks: visibleTracks)
+        let totalTrackH = layoutEngine.totalHeight
         let totalWidth = CGFloat(project.totalDuration.beats) * pixelsPerBeat
         
         canvasView.frame = NSRect(x: 0, y: 0, width: max(totalWidth, mainWidth), height: max(totalTrackH, scrollAreaH))
@@ -440,6 +461,12 @@ public final class ArrangementViewController: NSViewController {
             guard let self = self else { return }
             self.sharedEngine.trackMixer.applySoloLogic(self.project.tracks + [self.project.masterTrack])
         }
+        trackHeaders.onLayoutRequested = { [weak self] in
+            self?.handleTrackHeightLayoutUpdate(interactive: true)
+        }
+        trackHeaders.onExpansionChanged = { [weak self] in
+            self?.handleTrackHeightLayoutUpdate(interactive: false)
+        }
         masterLaneView.trackID = project.masterTrack.id
         masterLaneView.onTrackClicked = { [weak self] in
             guard let self = self else { return }
@@ -450,6 +477,17 @@ public final class ArrangementViewController: NSViewController {
         }
         
         startHeaderMeteringTimer()
+    }
+
+    private func handleTrackHeightLayoutUpdate(interactive: Bool) {
+        guard isViewLoaded else { return }
+        view.needsLayout = true
+        if interactive {
+            view.layoutSubtreeIfNeeded()
+            return
+        }
+        rendererCoordinator.rebuildSpatialIndex(with: project)
+        canvasView.updateArrangementLayers(fullRedraw: true)
     }
 
     private func handleTrackSelection(_ trackID: UUID, isShift: Bool) {

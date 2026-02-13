@@ -73,9 +73,10 @@ public enum DreamTheme {
     public static let browserMinWidth: CGFloat = 200        // Min browser width
     public static let browserMaxWidth: CGFloat = 400        // Max browser width
     public static let statusBarHeight: CGFloat = 20         // Bottom status bar
-    public static let defaultTrackHeight: CGFloat = 32      // Ableton-compact track height
-    public static let minTrackHeight: CGFloat = 24
-    public static let maxTrackHeight: CGFloat = 300
+    public static let defaultTrackHeight: CGFloat = 64
+    public static let minTrackHeight: CGFloat = 64
+    public static let maxTrackHeight: CGFloat = 640
+    public static let trackResizeStep: CGFloat = 8
     public static let transportBarHeight: CGFloat = 32      // Same as controlBarHeight
     public static let clipCornerRadius: CGFloat = 2         // Ableton uses minimal rounding
     public static let clipTitleHeight: CGFloat = 14

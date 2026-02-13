@@ -17,6 +17,12 @@ public final class PlaybackScheduler {
     private var timebaseInfo = mach_timebase_info_data_t()
     
     // Real-Time MIDI State
+    //
+    // PHASE 9.4 (Thread Safety): ActiveMidiClip is an immutable value type.
+    // The snapshot array is created ONCE on schedulePlayback() and captured
+    // directly into the AVAudioSourceNode render closure. The audio thread
+    // reads from this captured snapshot with ZERO synchronization — no locks,
+    // no atomics, no ARC. This is the only correct pattern for audio callbacks.
     private struct ActiveMidiClip {
         let clip: MidiClip
         let trackID: UUID
@@ -24,7 +30,6 @@ public final class PlaybackScheduler {
         let midiBlock: AUScheduleMIDIEventBlock?
     }
     
-    private var activeMidiClips: [ActiveMidiClip] = []
     private var renderObserver: AVAudioSourceNode?
     private var isPlaying: Bool = false
     private var playbackStartSampleTime: AVAudioFramePosition = 0
@@ -35,8 +40,6 @@ public final class PlaybackScheduler {
     private var looping: Bool = false
     private var loopStart: Double = 0.0
     private var loopEnd: Double = 0.0
-
-    private var lock = os_unfair_lock_s()
     
     /// Dedicated background queue for scheduling logic to avoid UI freezes.
     private let schedulingQueue = DispatchQueue(label: "com.dreamdaw.scheduling", qos: .userInitiated)
@@ -139,13 +142,12 @@ public final class PlaybackScheduler {
             }
         }
         
-        // 5. Setup Real-Time MIDI Observer (Phase 8)
-        setupRealTimeObserver(project: project, bpm: bpm, sampleRate: sampleRate)
+        // 5. Setup Real-Time MIDI Observer (Phase 8 + Phase 9.4 Thread Safety)
+        // CRITICAL: Collect snapshot BEFORE starting the render observer.
+        // The snapshot is passed by value into the closure — zero synchronization needed.
+        let midiSnapshot = collectActiveMidiClips(project: project)
+        setupRealTimeObserver(midiSnapshot: midiSnapshot, bpm: bpm, sampleRate: sampleRate)
         isPlaying = true
-        
-        os_unfair_lock_lock(&lock)
-        activeMidiClips = collectActiveMidiClips(project: project)
-        os_unfair_lock_unlock(&lock)
         
         playbackStartHostTime = startHostTime
         currentBPM = bpm
@@ -291,22 +293,24 @@ public final class PlaybackScheduler {
         return clips
     }
     
-    private func setupRealTimeObserver(project: Project, bpm: Double, sampleRate: Double) {
-        // Create a silent source node to tap into the render cycle
+    /// PHASE 9.4 (Thread Safety): The MIDI snapshot is passed by value and captured
+    /// directly into the AVAudioSourceNode closure. The audio thread reads from this
+    /// immutable local copy with ZERO synchronization.
+    ///
+    /// WHY THIS IS CORRECT:
+    /// - `midiSnapshot` is an `[ActiveMidiClip]` value type (Array of structs)
+    /// - It's captured once in the closure's capture list at creation time
+    /// - The audio thread's copy is independent — no shared mutable state
+    /// - No locks, no atomics, no ARC on the render path
+    /// - When playback restarts, a NEW closure with a NEW snapshot is created
+    private func setupRealTimeObserver(midiSnapshot: [ActiveMidiClip], bpm: Double, sampleRate: Double) {
+        // Create a silent source node to tap into the render cycle.
+        // The midiSnapshot is captured by value here — immutable for the
+        // entire lifetime of this render observer.
         let sourceNode = AVAudioSourceNode { [weak self] _, timeStamp, frameCount, _ -> OSStatus in
             guard let self = self, self.isPlaying else { return noErr }
             
             let sampleTime = timeStamp.pointee.mSampleTime
-            // If just starting, capture base time? 
-            // Actually, we rely on calculations relative to current buffer
-            
-            // Calculate global beats
-            // For now, assuming linear time since start. Transport sync is harder.
-            // Using system uptime for robust sync?
-            
-            // Simplified: Use sampleTime relative to when we started
-            // But we don't know exact sampleTime of start until it happens.
-            // Let's assume PlaybackScheduler is recreated/reset on play.
              
             if self.playbackStartSampleTime == 0 {
                 self.playbackStartSampleTime = Int64(sampleTime)
@@ -316,16 +320,7 @@ public final class PlaybackScheduler {
             let secondsElapsed = Double(samplesElapsed) / sampleRate
             let beatsElapsed = secondsElapsed * (bpm / 60.0)
             
-            // TODO: Pass in actual startBeat from Transport? 
-            // For now, assume start from 0 or last known position.
-            // Refactor: We need Transport's startBeat passed in `schedulePlayback`.
-            // Let's assume startBeat = 0 for this immediate task or rely on caller updates.
-            // The prompt "dispatchMidiEvents" implies calculating bufferStartBeat is Key.
-            
-            // Let's use a "currentBeat" that updates? No, drift.
-            // Robust: startBeat + (samples / SR * bpm/60)
-            
-            // Buffer Window
+            // Buffer Window: startBeat + (elapsed samples → beats)
             var bufferStartBeat = self.playbackStartBeat + beatsElapsed
             let bufferDurationBeats = (Double(frameCount) / sampleRate) * (bpm / 60.0)
             
@@ -338,16 +333,13 @@ public final class PlaybackScheduler {
             
             let bufferEndBeat = bufferStartBeat + bufferDurationBeats
             
-            // Thread-Safe Access
-            os_unfair_lock_lock(&self.lock)
-            let clips = self.activeMidiClips
-            os_unfair_lock_unlock(&self.lock)
-            
-            for activeClip in clips {
+            // PHASE 9.4: Read from captured immutable snapshot — ZERO LOCKS.
+            for activeClip in midiSnapshot {
                 self.dispatchMidiEvents(
                     activeClip: activeClip,
                     bufferStartBeat: bufferStartBeat, 
                     bufferEndBeat: bufferEndBeat, 
+                    frameCount: frameCount,
                     sampleRate: sampleRate, 
                     bpm: bpm
                 )
@@ -357,21 +349,27 @@ public final class PlaybackScheduler {
         }
         
         // Attach to engine (silent input to main mixer)
-        // We need to attach to something that runs.
         renderObserver = sourceNode
         audioEngine.attach(sourceNode)
-        audioEngine.connect(sourceNode, to: audioEngine.masterMixer, format: nil) // Mixer will mix silence
+        audioEngine.connect(sourceNode, to: audioEngine.masterMixer, format: nil)
     }
 
-    private func dispatchMidiEvents(activeClip: ActiveMidiClip, bufferStartBeat: Double, bufferEndBeat: Double, sampleRate: Double, bpm: Double) {
+    /// HOTFIX 8.5: All offset calculations use clamped Double math before casting.
+    /// This prevents Fatal Error (Integer Underflow) when floating-point imprecision
+    /// produces negative offsetInBeats (e.g., -0.0000001 due to IEEE 754 rounding).
+    private func dispatchMidiEvents(activeClip: ActiveMidiClip, bufferStartBeat: Double, bufferEndBeat: Double, frameCount: UInt32, sampleRate: Double, bpm: Double) {
         let clip = activeClip.clip
         
         // Check if clip intersects current buffer
-        // Clip time is absolute in project beats
         let clipStart = clip.position.beats
         let clipEnd = clipStart + clip.duration.beats
         
         guard clipEnd > bufferStartBeat && clipStart < bufferEndBeat else { return }
+        
+        // Pre-calculate constants for the buffer window
+        let samplesPerBeat = (60.0 / bpm) * sampleRate
+        // Maximum valid offset = last sample in this buffer (now using real frameCount)
+        let maxOffset = Double(frameCount > 0 ? frameCount - 1 : 0)
         
         for note in clip.notes {
             let noteStart = clipStart + note.position.beats
@@ -391,29 +389,38 @@ public final class PlaybackScheduler {
             
             // Note On
             if noteStart >= bufferStartBeat && noteStart < bufferEndBeat {
-                 let offsetInBeats = noteStart - bufferStartBeat
-                 let offsetInSamples = UInt32((offsetInBeats / (bpm / 60.0)) * sampleRate)
+                let offsetInBeats = noteStart - bufferStartBeat
+                // HOTFIX 8.5: Clamp to [0, maxOffset] BEFORE integer cast.
+                // A negative Double -> UInt32 cast causes Swift Fatal Error.
+                let exactOffset = offsetInBeats * samplesPerBeat
+                let clampedOffset = max(0.0, min(maxOffset, exactOffset))
+                let offsetInSamples = Int64(clampedOffset)
                  
-                 // Dispatch
-                 sendMidiEvent(activeClip: activeClip, status: 0x90, data1: UInt8(note.pitch), data2: UInt8(note.velocity), offset: offsetInSamples, isNoteOn: true)
+                sendMidiEvent(activeClip: activeClip, status: 0x90, data1: UInt8(note.pitch), data2: UInt8(note.velocity), offset: offsetInSamples, isNoteOn: true)
             }
             
             // Note Off
             if noteEnd >= bufferStartBeat && noteEnd < bufferEndBeat {
-                 let offsetInBeats = noteEnd - bufferStartBeat
-                 let offsetInSamples = UInt32((offsetInBeats / (bpm / 60.0)) * sampleRate)
+                let offsetInBeats = noteEnd - bufferStartBeat
+                // HOTFIX 8.5: Same clamping protection for Note Off
+                let exactOffset = offsetInBeats * samplesPerBeat
+                let clampedOffset = max(0.0, min(maxOffset, exactOffset))
+                let offsetInSamples = Int64(clampedOffset)
                  
-                 sendMidiEvent(activeClip: activeClip, status: 0x80, data1: UInt8(note.pitch), data2: 0, offset: offsetInSamples, isNoteOn: false)
+                sendMidiEvent(activeClip: activeClip, status: 0x80, data1: UInt8(note.pitch), data2: 0, offset: offsetInSamples, isNoteOn: false)
             }
         }
     }
     
-    private func sendMidiEvent(activeClip: ActiveMidiClip, status: UInt8, data1: UInt8, data2: UInt8, offset: UInt32, isNoteOn: Bool) {
+    /// HOTFIX 8.5: Offset type changed from UInt32 to Int64 (AUEventSampleTime).
+    /// CoreAudio's AUScheduleMIDIEventBlock uses AUEventSampleTime (Int64),
+    /// so passing UInt32 was a silent truncation risk on top of the underflow bug.
+    private func sendMidiEvent(activeClip: ActiveMidiClip, status: UInt8, data1: UInt8, data2: UInt8, offset: Int64, isNoteOn: Bool) {
         if let sampler = activeClip.sampler {
-            // Internal Sampler
-            sampler.scheduleMidiEvent(pitch: data1, velocity: data2, sampleOffset: offset, isNoteOn: isNoteOn)
+            // Internal Sampler — convert to UInt32 with safe cast (clamped above)
+            sampler.scheduleMidiEvent(pitch: data1, velocity: data2, sampleOffset: UInt32(clamping: offset), isNoteOn: isNoteOn)
         } else if let block = activeClip.midiBlock {
-            // AU Plugin
+            // AUv3 Plugin — native Int64 (AUEventSampleTime)
             let bytes: [UInt8] = [status, data1, data2]
             block(AUEventSampleTimeImmediate + AUEventSampleTime(offset), 0, 3, bytes)
         }

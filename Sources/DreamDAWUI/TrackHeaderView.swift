@@ -651,7 +651,20 @@ public final class TrackHeaderView: NSView {
     // MARK: - Mouse Events (Resizing & Selection)
     
     private var isResizing = false
-    private let resizeThreshold: CGFloat = 4.0
+    private var resizeStartWindowY: CGFloat = 0
+    private var resizeStartHeight: CGFloat = 0
+    private let resizeThreshold: CGFloat = 6.0
+
+    private func isInResizeHandle(_ location: NSPoint) -> Bool {
+        // Non-flipped TrackHeaderView: bottom edge is y ~= 0.
+        location.y <= resizeThreshold
+    }
+
+    private func quantizedTrackHeight(_ rawHeight: CGFloat) -> CGFloat {
+        let clamped = min(DreamTheme.maxTrackHeight, max(DreamTheme.minTrackHeight, rawHeight))
+        let stepped = (clamped / DreamTheme.trackResizeStep).rounded() * DreamTheme.trackResizeStep
+        return min(DreamTheme.maxTrackHeight, max(DreamTheme.minTrackHeight, stepped))
+    }
 
     public override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -662,7 +675,7 @@ public final class TrackHeaderView: NSView {
 
     public override func cursorUpdate(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
-        if location.y >= bounds.height - resizeThreshold {
+        if isInResizeHandle(location) {
             NSCursor.resizeUpDown.set()
         } else {
             NSCursor.arrow.set()
@@ -671,7 +684,7 @@ public final class TrackHeaderView: NSView {
 
     public override func mouseMoved(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
-        if location.y >= bounds.height - resizeThreshold {
+        if isInResizeHandle(location) {
             NSCursor.resizeUpDown.set()
         } else {
             NSCursor.arrow.set()
@@ -682,8 +695,11 @@ public final class TrackHeaderView: NSView {
         let location = convert(event.locationInWindow, from: nil)
         
         // 1. Check for Resizing (Bottom edge in non-flipped view)
-        if location.y <= resizeThreshold {
+        if isInResizeHandle(location) {
             isResizing = true
+            resizeStartWindowY = event.locationInWindow.y
+            resizeStartHeight = track.height
+            NSCursor.resizeUpDown.set()
             return
         }
         
@@ -700,21 +716,23 @@ public final class TrackHeaderView: NSView {
 
     public override func mouseDragged(with event: NSEvent) {
         if isResizing {
-            let location = convert(event.locationInWindow, from: nil)
-            // location.y is the new height directly since it's bottom-relative
-            let newHeight = max(24, min(300, location.y))
-            track.height = newHeight
-            
-            // Notify UI to refresh layout in-place
-            onLayoutRequested?()
+            // Dragging down should increase row height.
+            let deltaY = resizeStartWindowY - event.locationInWindow.y
+            let newHeight = quantizedTrackHeight(resizeStartHeight + deltaY)
+            if abs(track.height - newHeight) >= 0.5 {
+                track.height = newHeight
+                onLayoutRequested?()
+            }
         }
     }
 
     public override func mouseUp(with event: NSEvent) {
         if isResizing {
             isResizing = false
+            NSCursor.arrow.set()
+            onLayoutRequested?()
             // Mark project dirty on resize end
-                onExpansionChanged?() // Reuse for dirtying or specific resize end
+            onExpansionChanged?() // Reuse for dirtying or specific resize end
         }
     }
 

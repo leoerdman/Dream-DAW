@@ -65,7 +65,11 @@ public final class TimelineCanvasView: NSView {
         metalArrangementLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
         metalArrangementLayer.opacity = 0.95
         metalArrangementLayer.isOpaque = false
-        // DO NOT add to self.layer yet — we'll add it to the ClipView (superview) for jitter-free scrolling
+        self.layer?.addSublayer(metalArrangementLayer)
+        
+        titleContainerLayer.actions = noActions
+        titleContainerLayer.zPosition = 4
+        self.layer?.addSublayer(titleContainerLayer)
         
         setupSubscriptions()
         self.layer?.addSublayer(laneContainerLayer)
@@ -573,13 +577,20 @@ public final class TimelineCanvasView: NSView {
 
     public func updateArrangementLayers(fullRedraw: Bool = true, visibleRectOverride: CGRect? = nil, pixelsPerBeatOverride: CGFloat? = nil) {
         // NSLog("[TimelineCanvasView] updateArrangementLayers start (fullRedraw: \(fullRedraw))")
-        guard let project = project else { return }
+        guard let project = project else { 
+            NSLog("[TimelineCanvasView] updateArrangementLayers ABORT: project is nil")
+            return 
+        }
         
         // Use overrides if provided (for smooth zooming), otherwise use current state
         let currentPPB = pixelsPerBeatOverride ?? pixelsPerBeat
         // Use override rect if provided, otherwise standard visibleRect
         let currentVisibleRect = visibleRectOverride ?? visibleRect
         
+        if currentVisibleRect.width <= 0 || currentVisibleRect.height <= 0 {
+            NSLog("[TimelineCanvasView] updateArrangementLayers SKIPPED: visibleRect is zero: \(currentVisibleRect)")
+        }
+
         CATransaction.begin()
         // ...
         CATransaction.setDisableActions(true)
@@ -591,29 +602,11 @@ public final class TimelineCanvasView: NSView {
         
         // GPU BATCH RENDERING:
         // Match the Metal layer to the visible viewport.
-        // To prevent flickering/jitter during scroll, we attach it to the superview (ClipView)
-        // so it stays fixed relative to the user, and we only update its contents.
-        if metalArrangementLayer.superlayer == nil, let clipView = self.superview?.layer {
-            clipView.addSublayer(metalArrangementLayer)
-        }
-        
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         
-        // The frame should be the bounds of the ClipView (the viewport)
-        if let clipView = self.superview {
-            metalArrangementLayer.frame = clipView.bounds
-            
-            // JITTER FIX: Attach titleContainerLayer to viewport as well to sync heavily with Metal
-            if titleContainerLayer.superlayer != clipView.layer {
-                clipView.layer?.addSublayer(titleContainerLayer)
-                titleContainerLayer.zPosition = 5 // Above Metal (2) and clips (3)
-            }
-            titleContainerLayer.frame = clipView.bounds
-        } else {
-            metalArrangementLayer.frame = currentVisibleRect
-            titleContainerLayer.frame = currentVisibleRect
-        }
+        metalArrangementLayer.frame = currentVisibleRect
+        titleContainerLayer.frame = currentVisibleRect
         
         let scale = self.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
         metalArrangementLayer.contentsScale = scale
@@ -661,6 +654,10 @@ public final class TimelineCanvasView: NSView {
             // Audio Clips
             let targetVisibleRect = visibleRectOverride ?? visibleRect
             let ppb = pixelsPerBeatOverride ?? pixelsPerBeat
+            
+            if !track.clips.isEmpty {
+                // NSLog("[TimelineCanvasView] Track \(track.name) has \(track.clips.count) audio clips")
+            }
             
             for clip in track.clips {
                 let clipX = CGFloat(clip.position.beats) * ppb

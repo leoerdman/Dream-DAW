@@ -142,13 +142,13 @@ public final class MetalTimelineRenderer {
         renderPassDescriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0.0)
         renderPassDescriptor.colorAttachments[0].storeAction = .store
         
-        guard let commandBuffer = commandQueue.makeCommandBuffer(),
-              let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else { return }
-        
         guard let waveformCache = waveformCache else {
             print("Metal: Error - waveformCache is NIL")
             return
         }
+
+        guard let commandBuffer = commandQueue.makeCommandBuffer(),
+              let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else { return }
         
         renderEncoder.setRenderPipelineState(pipelineState)
         

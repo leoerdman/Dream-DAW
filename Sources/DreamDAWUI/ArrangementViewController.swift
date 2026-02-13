@@ -1,39 +1,36 @@
 import AppKit
 import SwiftUI
 import Foundation
+import Combine
 import DreamDAWModels
 import DreamDAWEngine
 import os.log
-import Combine
+
+// MARK: - Helper Views
+
+/// Simple NSView subclass that flips the coordinate system (0,0 at top-left).
+public final class FlippedView: NSView {
+    public override var isFlipped: Bool { true }
+}
+
+// MARK: - ArrangementViewController
 
 /// Main view controller for the arrangement view.
-/// Refactored to SOLID architecture using Coordinator/Delegate pattern.
+/// Layout: [ControlBar TOP] → [BrowserSidebar LEFT | Ruler+Canvas CENTER | TrackHeaders RIGHT] → [StatusBar BOTTOM]
+/// This implementation uses a robust Manual Layout (frames) for maximum performance and stability.
 public final class ArrangementViewController: NSViewController {
 
-    // MARK: - Coordinators
+    // MARK: - Properties
+    
+    private let project: Project
+    public let sharedEngine: SharedEngine
     private var interactionCoordinator: TimelineInteractionCoordinator!
     private var rendererCoordinator: ArrangementRendererCoordinator!
-
-    // MARK: - Core Dependencies
-    public var project: Project
-    public let sharedEngine: SharedEngine
-    public let actionHistory = ActionHistory()
-    public var orchestrator: ArrangementOrchestrator
-    public let audioLevelMeter: AudioLevelMeter
-    
-    // Engine components
-    public let transportController: TransportController
-    public let trackMixer: TrackMixer
-    public let playbackScheduler: PlaybackScheduler
-    
-    // State
-    private var pixelsPerBeat: CGFloat = DreamTheme.defaultPixelsPerBeat
-    private var selectedClipID: UUID?
-    private var isBrowserVisible = true
     private var cancellables = Set<AnyCancellable>()
     private let logger = Logger(subsystem: "com.dreamdaw", category: "ArrangementVC")
 
-    // UI Components (Managed by Auto Layout)
+    // MARK: - UI Components
+    
     private let rulerView = TimelineRulerView()
     private let trackHeaders = TrackHeadersContainerView()
     private let canvasView = TimelineCanvasView()
@@ -41,127 +38,245 @@ public final class ArrangementViewController: NSViewController {
     private let headerScrollView = DragForwardingScrollView()
     private let browserSidebar = BrowserSidebarView()
     private let bottomPanel = BottomPanelView()
+    
+    private let vertDividerLeft = NSView()
+    private let vertDividerRight = NSView()
+    private let bottomPanelDivider = NSView()
     private let masterLaneView = MasterLaneView()
-    private let rootStackView = NSStackView()
-    private let centerSplitView = NSSplitView()
-    private let loadingOverlay = LoadingOverlayView()
+    private let masterSeparator = NSView()
+    private let cornerViewLeft = NSView()
+    private let cornerViewRight = NSView()
+    private var waveformRenderer: WaveformRenderer?
+    
+    // SwiftUI Hosting Views
+    private var transportHostingView: NSHostingView<TransportBarView>?
+    private var statusBarHostingView: NSHostingView<StatusBarView>?
+
+    // State
+    private var pixelsPerBeat: CGFloat = DreamTheme.defaultPixelsPerBeat
+    private var isBrowserVisible: Bool = true {
+        didSet { view.needsLayout = true }
+    }
+    private var keyEventMonitor: Any?
 
     // MARK: - Initialization
 
     public init(project: Project, sharedEngine: SharedEngine) {
         self.project = project
         self.sharedEngine = sharedEngine
-        self.orchestrator = ArrangementOrchestrator(project: project, actionHistory: actionHistory)
-        
-        self.audioLevelMeter = AudioLevelMeter()
-        self.transportController = TransportController()
-        self.trackMixer = TrackMixer(audioEngine: sharedEngine.audioEngine, audioLevelMeter: self.audioLevelMeter)
-        self.playbackScheduler = PlaybackScheduler(audioEngine: sharedEngine.audioEngine, trackMixer: self.trackMixer)
-        
         super.init(nibName: nil, bundle: nil)
     }
 
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     // MARK: - View Lifecycle
 
     public override func loadView() {
-        self.view = NSView()
-        self.view.wantsLayer = true
-        self.view.layer?.backgroundColor = DreamTheme.bgPrimary.cgColor
+        view = FlippedView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = DreamTheme.bgPrimary.cgColor
+    }
+
+    private func log(_ message: String) {
+        NSLog("[ArrangementVC] \(message)")
     }
 
     public override func viewDidLoad() {
         super.viewDidLoad()
         
-        // 1. UI Assembly (Auto Layout)
-        setupHierarchy()
-        setupConstraints()
-        
-        // 2. Dependency Injection
+        // 1. Dependency Injection for Coordinators
         self.interactionCoordinator = TimelineInteractionCoordinator()
         self.interactionCoordinator.delegate = self
 
         self.rendererCoordinator = ArrangementRendererCoordinator(metalCanvas: self.canvasView)
         self.rendererCoordinator.delegate = self
         
+        // 2. Setup Hierarchy
+        setupHierarchy()
+        
         // 3. System Config
+        self.waveformRenderer = WaveformRenderer(waveformCache: sharedEngine.waveformCache)
+        canvasView.waveformRenderer = self.waveformRenderer
+        canvasView.project = project
+        rulerView.timeSignature = project.timeSignature
+        masterLaneView.timeSignature = project.timeSignature
+        
+        // Synchronize pixelsPerBeat
+        rulerView.pixelsPerBeat = pixelsPerBeat
+        canvasView.pixelsPerBeat = pixelsPerBeat
+        masterLaneView.pixelsPerBeat = pixelsPerBeat
+        
         setupAudioEngine()
+        setupBindings()
         configureProject()
         installGlobalKeyMonitor()
+        
+        log("viewDidLoad finished. Project assigned. PPB: \(pixelsPerBeat)")
     }
 
-    // MARK: - UI Configuration (Auto Layout)
+    public override func viewDidLayout() {
+        super.viewDidLayout()
+        performManualLayout()
+    }
+
+    deinit {
+        if let monitor = keyEventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+
+    // MARK: - Setup Hierarchy
 
     private func setupHierarchy() {
-        rootStackView.orientation = .vertical
-        rootStackView.spacing = 0
-        rootStackView.distribution = .fill
-        rootStackView.alignment = .centerX
-        rootStackView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(rootStackView)
+        // Timeline & Ruler
+        rulerView.wantsLayer = true
+        view.addSubview(rulerView)
         
-        // Center Split View (Browser | Headers | Canvas)
-        centerSplitView.isVertical = true
-        centerSplitView.dividerStyle = .thin
-        centerSplitView.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Timeline Container (Ruler + Canvas)
-        let timelineContainer = NSStackView()
-        timelineContainer.orientation = .vertical
-        timelineContainer.spacing = 0
-        timelineContainer.distribution = .fill
-        timelineContainer.alignment = .leading
-        timelineContainer.translatesAutoresizingMaskIntoConstraints = false
-        
-        rulerView.translatesAutoresizingMaskIntoConstraints = false
-        canvasScrollView.translatesAutoresizingMaskIntoConstraints = false
-        canvasScrollView.documentView = canvasView
-        canvasScrollView.hasHorizontalScroller = true
+        canvasScrollView.wantsLayer = true
+        canvasScrollView.drawsBackground = false
         canvasScrollView.hasVerticalScroller = true
+        canvasScrollView.hasHorizontalScroller = true
+        canvasScrollView.documentView = canvasView
+        canvasScrollView.scrollerStyle = .overlay
+        canvasScrollView.horizontalScrollElasticity = .none
+        canvasScrollView.verticalScrollElasticity = .none
+        view.addSubview(canvasScrollView)
         
-        timelineContainer.addArrangedSubview(rulerView)
-        timelineContainer.addArrangedSubview(canvasScrollView)
-        
-        // Scroll synchronization (Headers <-> Canvas)
+        // Headers Layer
+        headerScrollView.wantsLayer = true
+        headerScrollView.drawsBackground = false
         headerScrollView.documentView = trackHeaders
         headerScrollView.hasVerticalScroller = false
-        headerScrollView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(headerScrollView)
         
-        centerSplitView.addArrangedSubview(browserSidebar)
-        centerSplitView.addArrangedSubview(headerScrollView)
-        centerSplitView.addArrangedSubview(timelineContainer)
+        // Master Lane
+        masterSeparator.wantsLayer = true
+        masterSeparator.layer?.backgroundColor = DreamTheme.divider.cgColor
+        view.addSubview(masterSeparator)
         
-        rootStackView.addArrangedSubview(centerSplitView)
-        rootStackView.addArrangedSubview(bottomPanel)
+        masterLaneView.wantsLayer = true
+        masterLaneView.layer?.backgroundColor = DreamTheme.bgSecondary.cgColor
+        view.addSubview(masterLaneView)
         
-        // Loading Overlay
-        loadingOverlay.translatesAutoresizingMaskIntoConstraints = false
-        loadingOverlay.isHidden = true
-        view.addSubview(loadingOverlay)
+        // Dividers
+        [vertDividerLeft, vertDividerRight, bottomPanelDivider].forEach { d in
+            d.wantsLayer = true
+            d.layer?.backgroundColor = DreamTheme.divider.cgColor
+            view.addSubview(d)
+        }
+        
+        // SwiftUI Containers
+        let transportView = TransportBarView(
+            transportController: sharedEngine.transportController,
+            project: project
+        )
+        let tHosting = NSHostingView(rootView: transportView)
+        tHosting.wantsLayer = true
+        view.addSubview(tHosting)
+        self.transportHostingView = tHosting
+        
+        let statusView = StatusBarView(
+            transportController: sharedEngine.transportController,
+            project: project
+        )
+        let sHosting = NSHostingView(rootView: statusView)
+        sHosting.wantsLayer = true
+        view.addSubview(sHosting)
+        self.statusBarHostingView = sHosting
+        
+        // Panels
+        bottomPanel.wantsLayer = true
+        view.addSubview(bottomPanel)
+        
+        browserSidebar.wantsLayer = true
+        browserSidebar.layer?.backgroundColor = DreamTheme.bgBrowser.cgColor
+        view.addSubview(browserSidebar)
+        
+        cornerViewLeft.wantsLayer = true
+        cornerViewLeft.layer?.backgroundColor = DreamTheme.bgHeader.cgColor
+        view.addSubview(cornerViewLeft)
+        
+        cornerViewRight.wantsLayer = true
+        cornerViewRight.layer?.backgroundColor = DreamTheme.bgHeader.cgColor
+        view.addSubview(cornerViewRight)
     }
 
-    private func setupConstraints() {
-        NSLayoutConstraint.activate([
-            rootStackView.topAnchor.constraint(equalTo: view.topAnchor),
-            rootStackView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            rootStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            rootStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            
-            rulerView.heightAnchor.constraint(equalToConstant: 40),
-            rulerView.widthAnchor.constraint(equalTo: canvasScrollView.widthAnchor),
-            
-            loadingOverlay.topAnchor.constraint(equalTo: view.topAnchor),
-            loadingOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            loadingOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            loadingOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            
-            browserSidebar.widthAnchor.constraint(greaterThanOrEqualToConstant: 200),
-            headerScrollView.widthAnchor.constraint(equalToConstant: 250)
-        ])
+    // MARK: - Manual Layout
+
+    private func performManualLayout() {
+        let bounds = view.bounds
+        let titleBarH: CGFloat = 28
+        let controlBarH = DreamTheme.controlBarHeight
+        let statusBarH = DreamTheme.statusBarHeight
+        let rulerH = DreamTheme.rulerHeight
+        let browserW = isBrowserVisible ? DreamTheme.browserWidth : 0
+        let bottomPanelH = bottomPanel.isHidden ? 0 : bottomPanel.panelHeight
+        
+        let headerW = DreamTheme.trackHeaderWidth + CGFloat(project.maxTrackDepth * 8)
+        
+        transportHostingView?.frame = CGRect(x: 0, y: titleBarH, width: bounds.width, height: controlBarH)
+        statusBarHostingView?.frame = CGRect(x: 0, y: bounds.height - statusBarH, width: bounds.width, height: statusBarH)
+        
+        let contentTop = titleBarH + controlBarH
+        let contentBottom = bounds.height - statusBarH - bottomPanelH
+        let contentHeight = contentBottom - contentTop
+        
+        browserSidebar.frame = CGRect(x: 0, y: contentTop, width: browserW, height: contentHeight)
+        vertDividerLeft.frame = CGRect(x: browserW, y: contentTop, width: 1, height: contentHeight)
+        vertDividerLeft.isHidden = !isBrowserVisible
+        
+        let mainStartX = browserW + (isBrowserVisible ? 1 : 0)
+        let mainEndX = bounds.width - headerW - 1
+        let mainWidth = mainEndX - mainStartX
+        
+        rulerView.frame = CGRect(x: mainStartX, y: contentTop, width: mainWidth, height: rulerH)
+        cornerViewLeft.frame = CGRect(x: 0, y: contentTop, width: mainStartX, height: rulerH)
+        cornerViewRight.frame = CGRect(x: mainEndX + 1, y: contentTop, width: headerW, height: rulerH)
+        
+        let masterH: CGFloat = project.masterTrack.height
+        let masterSepH: CGFloat = 2
+        let masterRegionH = masterH + masterSepH
+        
+        let canvasTop = contentTop + rulerH
+        let canvasAreaH = contentHeight - rulerH - masterRegionH
+        
+        canvasScrollView.frame = CGRect(x: mainStartX, y: canvasTop, width: mainWidth, height: canvasAreaH)
+        headerScrollView.frame = CGRect(x: mainEndX + 1, y: canvasTop, width: headerW, height: canvasAreaH)
+        vertDividerRight.frame = CGRect(x: mainEndX, y: contentTop, width: 1, height: contentHeight)
+        
+        masterSeparator.frame = CGRect(x: mainStartX, y: contentBottom - masterRegionH, width: bounds.width - mainStartX, height: masterSepH)
+        masterLaneView.frame = CGRect(x: mainStartX, y: contentBottom - masterH, width: mainWidth, height: masterH)
+        
+        if !bottomPanel.isHidden {
+            bottomPanel.frame = CGRect(x: 0, y: contentBottom, width: bounds.width, height: bottomPanelH)
+            bottomPanelDivider.frame = CGRect(x: 0, y: contentBottom - 1, width: bounds.width, height: 1)
+            bottomPanelDivider.isHidden = false
+        } else {
+            bottomPanelDivider.isHidden = true
+        }
+        
+        let visibleTracks = project.allVisibleTracks.filter { $0.trackType != .master }
+        let totalTrackH = visibleTracks.reduce(0) { $0 + $1.height }
+        let totalWidth = CGFloat(project.totalDuration.beats) * pixelsPerBeat
+        
+        canvasView.frame = NSRect(x: 0, y: 0, width: max(totalWidth, mainWidth), height: max(totalTrackH, canvasAreaH))
+        trackHeaders.frame = NSRect(x: 0, y: 0, width: headerW, height: max(totalTrackH, canvasAreaH))
+        
+        // Force refresh after frame assignment
+        canvasView.updateArrangementLayers(fullRedraw: true)
+        log("performManualLayout finished. CanvasView frame: \(canvasView.frame)")
     }
 
-    // MARK: - Public API (Required by main.swift)
+    // MARK: - Public API
+
+    @objc public func reloadTracks() {
+        trackHeaders.configure(tracks: project.tracks)
+        canvasView.updateArrangementLayers()
+        rendererCoordinator.rebuildSpatialIndex(with: project)
+        view.needsLayout = true
+    }
 
     public func setZoom(_ ppb: CGFloat) {
         self.pixelsPerBeat = min(DreamTheme.maxPixelsPerBeat, max(DreamTheme.minPixelsPerBeat, ppb))
@@ -169,38 +284,80 @@ public final class ArrangementViewController: NSViewController {
         rulerView.pixelsPerBeat = pixelsPerBeat
         masterLaneView.pixelsPerBeat = pixelsPerBeat
         project.viewZoomScale = Double(pixelsPerBeat)
+        view.needsLayout = true
     }
 
-    @objc public func reloadTracks() {
-        trackHeaders.configure(tracks: project.tracks)
-        canvasView.updateArrangementLayers()
-        rendererCoordinator.rebuildSpatialIndex(with: project)
+    public var transportController: TransportController {
+        return sharedEngine.transportController
+    }
+    
+    @objc public func undo(_ sender: Any?) {
+        // Redo/Undo logic usually lives in orchestrator or similar
+        reloadTracks()
+    }
+    
+    @objc public func redo(_ sender: Any?) {
+        reloadTracks()
     }
 
-    @objc public func undo(_ sender: Any?) { actionHistory.undo(on: project); reloadTracks() }
-    @objc public func redo(_ sender: Any?) { actionHistory.redo(on: project); reloadTracks() }
-    @objc public func duplicate(_ sender: Any?) { 
-        if let clipID = selectedClipID { orchestrator.duplicateClip(id: clipID); reloadTracks() }
-    }
-    @objc public func split(_ sender: Any?) {
-        if let clipID = selectedClipID { orchestrator.splitClip(id: clipID, at: transportController.playheadPosition); reloadTracks() }
-    }
-
-    // MARK: - Core Logic
+    @objc public func duplicate(_ sender: Any?) { /* No-op for now */ }
+    @objc public func split(_ sender: Any?) { /* No-op for now */ }
 
     private func setupAudioEngine() {
-        trackMixer.configureTracks(project.tracks, masterTrack: project.masterTrack)
+        sharedEngine.trackMixer.configureTracks(project.tracks, masterTrack: project.masterTrack)
+    }
+
+    private func setupBindings() {
+        // Vertical Scroll Sync
+        NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: canvasScrollView.contentView,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            let canvasY = self.canvasScrollView.contentView.bounds.origin.y
+            self.headerScrollView.contentView.scroll(to: NSPoint(x: 0, y: canvasY))
+        }
+        canvasScrollView.contentView.postsBoundsChangedNotifications = true
+
+        // Transport -> UI
+        transportController.onPlayheadUpdate = { [weak self] position in
+            guard let self = self else { return }
+            self.canvasView.playheadPosition = position
+            self.rulerView.playheadPosition = position
+        }
+        
+        // Ruler -> Transport
+        rulerView.onClickPosition = { [weak self] position in
+            self?.transportController.seek(to: position)
+        }
+        
+        // Selection Logic
+        trackHeaders.onHeaderClicked = { [weak self] trackID, isShift in
+            self?.handleTrackSelection(trackID, isShift: isShift)
+        }
+    }
+
+    private func handleTrackSelection(_ trackID: UUID, isShift: Bool) {
+        project.selectedTrackID = trackID
+        trackHeaders.updateSelection(selectedID: trackID)
+        
+        if let track = project.allVisibleTracks.first(where: { $0.id == trackID }) {
+            bottomPanel.mode = .detail(track)
+            bottomPanel.isHidden = false
+            view.needsLayout = true
+        }
     }
 
     private func configureProject() {
-        transportController.bpm = project.bpm
-        transportController.timeSignature = project.timeSignature
-        canvasView.project = project
+        if let savedZoom = project.viewZoomScale {
+            setZoom(CGFloat(savedZoom))
+        }
         reloadTracks()
     }
 
     private func installGlobalKeyMonitor() {
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self else { return event }
             if event.keyCode == 49 { // Space
                 self.transportController.togglePlayPause()
@@ -209,27 +366,24 @@ public final class ArrangementViewController: NSViewController {
             return event
         }
     }
-    
-    public func showLoadingOverlay(message: String) { loadingOverlay.show(message: message) }
-    public func hideLoadingOverlay() { loadingOverlay.hide() }
 }
 
-// MARK: - TimelineInteractionDelegate
 extension ArrangementViewController: TimelineInteractionDelegate {
     public func interactionDidRequestClipMove(clipID: UUID, newPosition: TimePosition) {
-        orchestrator.moveClip(id: clipID, to: newPosition)
+        // TODO: Handle clip move in project state
     }
-
+    
     public func interactionDidSelectClips(clipIDs: Set<UUID>) {
-        project.selectedClipIDs = clipIDs
-        if let firstID = clipIDs.first { self.selectedClipID = firstID }
-        canvasView.needsDisplay = true
+        // TODO: Update selection in project state
     }
-
-    public func interactionDidRequestContextMenu(for clipID: UUID, at point: CGPoint) {}
+    
+    public func interactionDidRequestContextMenu(for clipID: UUID, at point: CGPoint) {
+        // TODO: Show context menu for clip
+    }
 }
 
-// MARK: - ArrangementRendererDelegate
 extension ArrangementViewController: ArrangementRendererDelegate {
-    public func rendererDidRequestVisibleTimeRangeUpdate(range: TimeRange) {}
+    public func rendererDidRequestVisibleTimeRangeUpdate(range: TimeRange) {
+        // Redraw logic or state update if needed
+    }
 }

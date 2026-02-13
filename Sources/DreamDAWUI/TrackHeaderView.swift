@@ -951,6 +951,13 @@ public final class TrackHeadersContainerView: NSView {
 
     // MARK: - Public API
 
+    /// Update selection visual on all headers.
+    public func updateSelection(selectedID: UUID?) {
+        for header in headerViews {
+            header.isSelected = (header.trackID == selectedID)
+        }
+    }
+
     public func configure(tracks: [Track]) {
         // DISABLE implicit animations (fly-in/out) during layout updates
         CATransaction.begin()

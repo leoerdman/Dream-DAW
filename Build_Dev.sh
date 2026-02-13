@@ -22,7 +22,7 @@ if [ $? -eq 0 ]; then
     
     # 2. Launch binary directly to see all terminal outputs
     # The application is installed to ~/Applications/Dream DAW.app
-    "${HOME}/Applications/Dream DAW.app/Contents/MacOS/DreamDAW"
+    "${HOME}/Applications/Dream DAW.app/Contents/MacOS/DreamDAW" | tee "${SCRIPT_DIR}/app_terminal.log"
 else
     echo "❌ Build failed. Check logs above."
     exit 1

@@ -109,6 +109,17 @@ public final class PlaybackScheduler {
         let sampleRate = audioEngine.sampleRate
         let bpm = project.bpm
         
+        // PHASE 13.3: PulseMap for sample-frame conversions.
+        // NOTE: resetClock is NO LONGER called here. TransportController.start()
+        // already pre-resets renderedSamples synchronously on the main thread
+        // BEFORE the DisplayLink starts. Calling it again here on the BG queue
+        // caused a race condition: the render observer may have already started
+        // incrementing renderedSamples, and a second reset would overwrite those
+        // increments, causing the playhead to jump backwards.
+        let pm = PulseMap(bpm: bpm, sampleRate: sampleRate)
+        let startSampleFrame = pm.sampleFrame(at: position.beats)
+        print("[DIAG-PLAY] PlaybackScheduler.schedulePlayback(BG): position=\(position.beats) beats → startSampleFrame=\(startSampleFrame) renderedSamples(current)=\(audioEngine.renderedSamples.load(ordering: .relaxed)) [NO RESET - TC owns clock]")
+        
         // PHASE 11 (Gating Logic Reset): Ensure fresh timing reference
         teardownRenderObserver()
         playbackStartSampleTime = 0
@@ -124,7 +135,15 @@ public final class PlaybackScheduler {
             guard track.trackType != .master else { continue }
             guard let player = trackMixer.playerNode(for: track.id) else { continue }
 
-            let actualEnd = looping ? loopEnd.beats : max(project.totalDuration.beats, position.beats + 128.0)
+            let actualEndBeats = looping ? loopEnd.beats : max(project.totalDuration.beats, position.beats + 128.0)
+            let actualEndFrame = pm.sampleFrame(at: actualEndBeats)
+            
+            // PHASE 13.1 (Monotonic Sync): Propagate anchor FIRST to all engines
+            if let sampler = trackMixer.getSampler(for: track.id) {
+                sampler.startHostTime = startHostTime
+            } else if let synth = trackMixer.getSynth(for: track.id) {
+                synth.startHostTime = startHostTime
+            }
             
             // 2. Reset player state for fresh queue
             player.stop()
@@ -134,22 +153,31 @@ public final class PlaybackScheduler {
             // 3. Schedule Segment (Playhead to End or Loop End)
             if !looping || position.beats >= loopEnd.beats {
                 // Standard Playback: Schedule until end of project
-                let scheduledCount = scheduleTrackRange(track: track, player: player, start: position, end: TimePosition(beats: actualEnd), bpm: bpm, sampleRate: sampleRate, baseStartTime: baseStartTime)
+                let scheduledCount = scheduleTrackRange(
+                    track: track, 
+                    player: player, 
+                    startFrame: startSampleFrame, 
+                    endFrame: actualEndFrame, 
+                    pm: pm, 
+                    at: baseStartTime
+                )
                 if scheduledCount > 0 { hasContent = true }
             } else {
                 // Looping Playback
                 // First: schedule from playhead to loop end
                 if position.beats < loopEnd.beats {
-                   let actualStart = position.beats
-                    
-                   // Schedule initial chunk
-                   let rangeStart = TimePosition(beats: actualStart)
-                   let rangeEnd = TimePosition(beats: actualEnd)
-                   
-                   let scheduledCount = scheduleTrackRange(track: track, player: player, start: rangeStart, end: rangeEnd, bpm: bpm, sampleRate: sampleRate, baseStartTime: baseStartTime)
+                   let scheduledCount = scheduleTrackRange(
+                       track: track, 
+                       player: player, 
+                       startFrame: startSampleFrame, 
+                       endFrame: actualEndFrame, 
+                       pm: pm, 
+                       at: baseStartTime
+                   )
                    if scheduledCount > 0 { hasContent = true }
                 }
             }
+            
             
             // 4. Arm for playback ONLY if content exists (Strict Gating)
             if hasContent {
@@ -160,94 +188,125 @@ public final class PlaybackScheduler {
             }
         }
         
-        // 5. Setup Real-Time MIDI Observer (Phase 8 + Phase 9.4 Thread Safety)
-        // CRITICAL: Collect snapshot BEFORE starting the render observer.
-        // The snapshot is passed by value into the closure — zero synchronization needed.
-        let midiSnapshot = collectActiveMidiClips(project: project)
-        setupRealTimeObserver(midiSnapshot: midiSnapshot, bpm: bpm, sampleRate: sampleRate)
-        isPlaying = true
-        
-        playbackStartHostTime = startHostTime
-        currentBPM = bpm
-        
+        // 5. Publish transport state BEFORE observer creation to avoid stale capture.
         self.playbackStartBeat = position.beats
         self.looping = looping
         self.loopStart = loopStart.beats
         self.loopEnd = loopEnd.beats
+        playbackStartHostTime = startHostTime
+        currentBPM = bpm
+        isPlaying = true
+
+        // 6. Setup Real-Time MIDI Observer (Phase 11.6 Sync Anchor)
+        let midiSnapshot = collectActiveMidiClips(project: project)
+        setupRealTimeObserver(midiSnapshot: midiSnapshot, bpm: bpm, sampleRate: sampleRate, startHostTime: startHostTime)
         
         return baseStartTime
     }
 
     // MARK: - Range Scheduling (The Core "Stitcher")
 
-    /// Schedules all clips within a specific time range [start, end) onto the player queue.
-    /// Fills gaps with silence to maintain exact timing.
+    /// PHASE 13.1: Strict Sample-Locked Scheduling.
+    /// Each clip is scheduled relative to the provided startFrame/endFrame boundaries.
+    /// All calculations use Int64 to prevent floating-point drift over time.
     @discardableResult
     private func scheduleTrackRange(
-        track: Track, player: AVAudioPlayerNode,
-        start: TimePosition, end: TimePosition,
-        bpm: Double, sampleRate: Double,
-        baseStartTime: AVAudioTime
+        track: Track, 
+        player: AVAudioPlayerNode,
+        startFrame: Int64, 
+        endFrame: Int64,
+        pm: PulseMap,
+        at baseStartTime: AVAudioTime?
     ) -> Int {
-        let rangeStartBeats = start.beats
-        let rangeEndBeats = end.beats
         var clipsScheduledCount = 0
         var clipsInRange: [AudioClip] = []
         if track.trackType == .audio {
             clipsInRange = track.clips.filter {
-                $0.endPosition.beats > rangeStartBeats && $0.position.beats < rangeEndBeats
+                let clipStartFrame = pm.sampleFrame(at: $0.position.beats)
+                let clipEndFrame = pm.sampleFrame(at: $0.endPosition.beats)
+                return clipEndFrame > startFrame && clipStartFrame < endFrame
             }
         }
         
         // Sort by time
         clipsInRange.sort { $0.position.beats < $1.position.beats }
 
+        // PHASE 13.1 (Int64 Tiling): 
+        // We fill EVERY gap with silence to keep the player node queue saturated.
+        var currentPositionFrame = startFrame
+        var isFirstBufferInRange = true
+
         for clip in clipsInRange {
-            // Calculate clip intersection with the requested range
-            let clipStartBeats = clip.position.beats
-            let clipEndBeats = clip.endPosition.beats
+            let clipStartFrame = pm.sampleFrame(at: clip.position.beats)
+            let clipEndFrame = pm.sampleFrame(at: clip.endPosition.beats)
 
-            let actualStartBeat = max(rangeStartBeats, clipStartBeats)
-            let actualEndBeat = min(rangeEndBeats, clipEndBeats)
+            // 1. Gap before this clip
+            if clipStartFrame > currentPositionFrame {
+                let gapSamples = clipStartFrame - currentPositionFrame
+                
+                // First buffer in the whole range gets the baseStartTime anchor
+                let startTime = isFirstBufferInRange ? baseStartTime : nil
+                scheduleSilence(player: player, frameCount: AVAudioFrameCount(gapSamples), sampleRate: pm.sampleRate, at: startTime)
+                isFirstBufferInRange = false
+            }
+
+            // 2. Schedule the actual clip segment
+            let actualStartFrame = max(startFrame, clipStartFrame)
+            let actualEndFrame = min(endFrame, clipEndFrame)
             
-            let segmentDurationBeats = actualEndBeat - actualStartBeat
-            guard segmentDurationBeats > 0 else { continue }
+            let segmentDurationSamples = actualEndFrame - actualStartFrame
+            guard segmentDurationSamples > 0 else { continue }
 
-            // 1. Calculate the START TIME for this segment relative to the project start
-            let startOffsetBeats = actualStartBeat - rangeStartBeats
-            let startOffsetSeconds = startOffsetBeats / bpm * 60.0
-            
-            // 2. Adjust base audio time for this segment
-            let segmentStartTime = baseStartTime.atSeconds(startOffsetSeconds)
+            // Internal clip offset (if we are starting mid-clip)
+            let offsetInClipSamples = actualStartFrame - clipStartFrame
+            let offsetSeconds = Double(offsetInClipSamples) / pm.sampleRate
 
-            // 3. Calculate internal clip offset (if we are starting mid-clip)
-            let offsetInClipBeats = actualStartBeat - clipStartBeats
-            let offsetSeconds = offsetInClipBeats / bpm * 60.0
-            let durationSeconds = segmentDurationBeats / bpm * 60.0
-
+            let startTime = isFirstBufferInRange ? baseStartTime : nil
             scheduleAudioSegment(
                 player: player, 
                 clip: clip, 
                 offset: offsetSeconds, 
-                duration: durationSeconds, 
-                at: segmentStartTime,
-                bpm: bpm
+                durationSamples: segmentDurationSamples, 
+                at: startTime,
+                pm: pm
             )
+            isFirstBufferInRange = false
             clipsScheduledCount += 1
+            currentPositionFrame = actualEndFrame
+            
+            // PHASE 11.8: Enhanced Diagnostics
+            let hostStr = startTime.map { String($0.hostTime) } ?? "nil"
+            print("[SCHED] Track: \(track.name) | Clip: \(clip.fileURL.lastPathComponent) | Sample: \(actualStartFrame)->\(actualEndFrame) | HostTime: \(hostStr)")
         }
 
-        return clipsScheduledCount
+        // 3. Final Gap after last clip (fill until range end)
+        if currentPositionFrame < endFrame {
+            let finalGapSamples = endFrame - currentPositionFrame
+            let startTime = isFirstBufferInRange ? baseStartTime : nil
+            scheduleSilence(player: player, frameCount: AVAudioFrameCount(finalGapSamples), sampleRate: pm.sampleRate, at: startTime)
+            isFirstBufferInRange = false
+        }
+
+        // Return 1 if we scheduled ANY buffer (including silence) so the player is armed.
+        return isFirstBufferInRange ? 0 : 1
     }
 
     // MARK: - Internal Scheduling Helpers
 
-    private func scheduleAudioSegment(player: AVAudioPlayerNode, clip: AudioClip, offset: Double, duration: Double, at startTime: AVAudioTime, bpm: Double) {
+    private func scheduleAudioSegment(
+        player: AVAudioPlayerNode, 
+        clip: AudioClip, 
+        offset: Double, 
+        durationSamples: Int64, 
+        at startTime: AVAudioTime?, 
+        pm: PulseMap
+    ) {
         do {
             let file = try AVAudioFile(forReading: clip.fileURL)
-            let trimStartSeconds = clip.trimStartOffset.toSeconds(bpm: bpm)
+            let trimStartSeconds = clip.trimStartOffset.toSeconds(bpm: pm.initialBPM)
             let sourceOffsetSeconds = trimStartSeconds + offset
             let fileStartFrame = AVAudioFramePosition(sourceOffsetSeconds * file.fileFormat.sampleRate)
-            let fileFrameCount = AVAudioFrameCount(duration * file.fileFormat.sampleRate)
+            let fileFrameCount = AVAudioFrameCount(durationSamples)
             
             guard fileFrameCount > 0 else { return }
             
@@ -255,6 +314,7 @@ public final class PlaybackScheduler {
             let safeFrameCount = min(fileFrameCount, AVAudioFrameCount(file.length - fileStartFrame))
             guard safeFrameCount > 0 else { return }
 
+            print("[DIAG-AUDIO] Clip: \(clip.fileURL.lastPathComponent) | FileStart: \(fileStartFrame) | Frames: \(safeFrameCount) | HostTime: \(startTime?.hostTime ?? 0)")
             player.scheduleSegment(file, startingFrame: fileStartFrame, frameCount: safeFrameCount, at: startTime)
         } catch {
             logger.error("PlaybackScheduler: Failed to load audio file \(clip.fileURL.lastPathComponent): \(error)")
@@ -285,19 +345,11 @@ public final class PlaybackScheduler {
             }
             
             for clip in track.midiClips {
-                // Use AbsoluteTime when available; fall back to beat→sample conversion
-                let clipStartFrame: Int64
-                let clipDurationFrames: Int64
-                
-                if clip.absolutePosition.sampleFrame != 0 || clip.position.beats == 0 {
-                    clipStartFrame = clip.absolutePosition.sampleFrame
-                    clipDurationFrames = clip.absoluteDuration.sampleFrame
-                } else {
-                    // Backward compatibility: compute from beats
-                    let secondsPerBeat = 60.0 / bpm
-                    clipStartFrame = Int64(clip.position.beats * secondsPerBeat * sampleRate)
-                    clipDurationFrames = Int64(clip.duration.beats * secondsPerBeat * sampleRate)
-                }
+                // Always derive from beat positions here so audio and MIDI scheduling
+                // use the same source of truth even if cached absolute fields are stale.
+                let secondsPerBeat = 60.0 / bpm
+                let clipStartFrame = Int64(clip.position.beats * secondsPerBeat * sampleRate)
+                let clipDurationFrames = Int64(clip.duration.beats * secondsPerBeat * sampleRate)
                 
                 let clipEndFrame = clipStartFrame + clipDurationFrames
                 
@@ -305,7 +357,6 @@ public final class PlaybackScheduler {
                 var noteFrames: [ActiveMidiClip.NoteFrameData] = []
                 noteFrames.reserveCapacity(clip.notes.count)
                 
-                let secondsPerBeat = 60.0 / bpm
                 for note in clip.notes {
                     let noteOffsetFrames = Int64(note.position.beats * secondsPerBeat * sampleRate)
                     let noteDurationFrames = Int64(note.duration.beats * secondsPerBeat * sampleRate)
@@ -348,29 +399,45 @@ public final class PlaybackScheduler {
     /// of floating-point beats. Combined with pre-computed note frame data from
     /// collectActiveMidiClips(), this eliminates ALL floating-point arithmetic
     /// from the audio thread's hot path.
-    private func setupRealTimeObserver(midiSnapshot: [ActiveMidiClip], bpm: Double, sampleRate: Double) {
-        // Pre-compute loop boundaries in sample frames (done once, not per-callback)
-        let loopStartFrame = Int64(self.loopStart * (60.0 / bpm) * sampleRate)
-        let loopEndFrame = Int64(self.loopEnd * (60.0 / bpm) * sampleRate)
-        let playbackStartFrame = Int64(self.playbackStartBeat * (60.0 / bpm) * sampleRate)
+    private func setupRealTimeObserver(midiSnapshot: [ActiveMidiClip], bpm: Double, sampleRate: Double, startHostTime: UInt64) {
+        // PHASE 13.1 (Monotonic Loop Bounds):
+        // Calculate loop frames ONCE using Int64 to prevent drift.
+        let pm = PulseMap(bpm: bpm, sampleRate: sampleRate)
+        let loopStartFrame = pm.sampleFrame(at: self.loopStart)
+        let loopEndFrame = pm.sampleFrame(at: self.loopEnd)
+        let playbackStartFrame = pm.sampleFrame(at: self.playbackStartBeat)
         let isLooping = self.looping
         
         // Create a silent source node to tap into the render cycle.
-        // The midiSnapshot is captured by value here — immutable for the
-        // entire lifetime of this render observer.
         let sourceNode = AVAudioSourceNode { [weak self] _, timeStamp, frameCount, _ -> OSStatus in
             guard let self = self, self.isPlaying else { return noErr }
             
+            let mHostTime = timeStamp.pointee.mHostTime
             let sampleTime = timeStamp.pointee.mSampleTime
+            
+            // PHASE 11.6 (Strict Gating): If we haven't reached the hardware anchor yet, STAY SILENT.
+            // This aligns MIDI perfectly with the 100ms lead-time of Audio Player Nodes.
+            guard mHostTime >= startHostTime else { return noErr }
              
             if self.playbackStartSampleTime == 0 {
                 self.playbackStartSampleTime = Int64(sampleTime)
             }
             
-            // PHASE 9.3: Work entirely in sample frames — zero floating-point conversion.
+            // PHASE 13.1: Work entirely in sample frames — zero floating-point conversion.
             let samplesElapsed = Int64(sampleTime) - self.playbackStartSampleTime
-            let bufferStartFrame = playbackStartFrame + samplesElapsed
+            var bufferStartFrame = playbackStartFrame + samplesElapsed
             let bufferFrameCount = Int64(frameCount)
+            
+            // PHASE 13.1 (Monotonic Correction): 
+            // If looping is enabled, we MUST map the monotonic hardware counter
+            // back to the loop range so we hit the correct pre-computed clip frames.
+            if isLooping && loopEndFrame > loopStartFrame {
+                let loopLength = loopEndFrame - loopStartFrame
+                if bufferStartFrame >= loopEndFrame {
+                    let overshoot = bufferStartFrame - loopStartFrame
+                    bufferStartFrame = loopStartFrame + (overshoot % loopLength)
+                }
+            }
             
             // PHASE 10 Audit: Handle loop boundary straddling (Split Dispatch).
             // A single buffer might start before loopEndFrame and end after it.
@@ -412,6 +479,9 @@ public final class PlaybackScheduler {
                     currentBufferPosition = loopStartFrame
                 }
             }
+            
+            // PHASE 13.0: Update Master Clock
+            self.audioEngine.renderedSamples.wrappingIncrement(by: Int64(frameCount), ordering: .relaxed)
             
             return noErr
         }
@@ -578,11 +648,12 @@ public final class PlaybackScheduler {
     }
 
 
-    private func scheduleSilence(player: AVAudioPlayerNode, duration: Double, sampleRate: Double) {
-        guard duration > 0.001 else { return } // Skip micro-silence
-        let frameCount = AVAudioFrameCount(duration * sampleRate)
+    private func scheduleSilence(player: AVAudioPlayerNode, frameCount: AVAudioFrameCount, sampleRate: Double, at startTime: AVAudioTime?) {
+        guard frameCount > 0 else { return }
+        print("[DIAG-SILENCE] Frames: \(frameCount) | HostTime: \(startTime?.hostTime ?? 0)")
         if let buffer = createSilenceBuffer(frameCount: frameCount, sampleRate: sampleRate) {
-            player.scheduleBuffer(buffer, at: nil)
+            // PHASE 13.0: Remove .interrupts. Default is gapless append when at: nil.
+            player.scheduleBuffer(buffer, at: startTime, options: [])
         }
     }
 

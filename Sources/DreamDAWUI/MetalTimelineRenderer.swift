@@ -251,6 +251,47 @@ public final class MetalTimelineRenderer: MetalCanvasRenderer {
             if instances.count >= maxClips { break }
         }
         
+        // MARK: Sprint 3 - Ghost Mix for Collapsed Group Tracks
+        // When a group track is collapsed, render its children's clips as semi-transparent
+        // "ghost" overlays at the group track's row position. This gives a visual summary
+        // of all audio inside the folder without expanding it.
+        for (trackIndex, track) in visibleTracks.enumerated() {
+            guard track.trackType == .group && !track.isExpanded else { continue }
+            guard instances.count < maxClips else { break }
+            
+            let groupY = Float(layoutEngine.yPosition(forTrackIndex: trackIndex))
+            let groupH = Float(track.height - 4)
+            
+            // Collect all child clips recursively
+            for childID in track.childTrackIDs {
+                guard let childTrack = project.tracks.first(where: { $0.id == childID }) else { continue }
+                
+                for clip in childTrack.clips {
+                    guard clip.absolutePosition.sampleFrame + clip.absoluteDuration.sampleFrame >= visibleSampleRange.lowerBound,
+                          clip.absolutePosition.sampleFrame <= visibleSampleRange.upperBound else { continue }
+                    
+                    let x = viewport.pixelX(for: clip.absolutePosition.sampleFrame)
+                    let w = viewport.pixelWidth(forSamples: clip.absoluteDuration.sampleFrame)
+                    let y = viewport.pixelY(forDocumentY: groupY + 2)
+                    
+                    // Ghost clip: child's color at 25% alpha, no selection state
+                    var ghostColor = childTrack.color.simdColor
+                    ghostColor.w = 0.25 // Ghost opacity
+                    
+                    instances.append(ClipInstance(
+                        rect: simd_float4(x, y, w, groupH),
+                        color: ghostColor,
+                        stateFlags: simd_float4(0.0, 0.0, 3.0, 0.0), // Smaller corner radius for ghost
+                        waveformOffset: -1,
+                        waveformCount: 0,
+                        isMidi: 0.0
+                    ))
+                    if instances.count >= maxClips { break }
+                }
+                if instances.count >= maxClips { break }
+            }
+        }
+        
         // 3. Upload and Draw
         if !instances.isEmpty {
             let bufferPointer = instanceBuffer.contents().assumingMemoryBound(to: ClipInstance.self)

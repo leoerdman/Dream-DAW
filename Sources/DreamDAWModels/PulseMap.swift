@@ -83,7 +83,7 @@ public struct PulseMap: Sendable {
         let deltaBeats = beats - event.beatPosition
         let deltaSeconds = deltaBeats * (60.0 / event.bpm)
         let deltaSamples = deltaSeconds * sampleRate
-        return event.sampleFrame + Int64(deltaSamples)
+        return event.sampleFrame + Int64(round(deltaSamples))
     }
 
     // MARK: - Seconds Conversion

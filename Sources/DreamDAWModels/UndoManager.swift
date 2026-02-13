@@ -858,3 +858,163 @@ public final class RemoveMidiNoteAction: UndoableAction {
         track.midiClips[clipIdx].notes.insert(note, at: insertAt)
     }
 }
+
+// MARK: - Sprint 3: Elastic Time (Warp/Stretch)
+
+/// Warp (time-stretch) an audio clip. Pure delta: stores only old/new stretchFactor and duration.
+/// Memory cost: 72 bytes per action (vs. entire AudioClip copy at ~400+ bytes).
+public final class WarpClipAction: UndoableAction {
+    public let actionName: String
+    private let trackID: UUID
+    private let clipID: UUID
+    private let oldPosition: TimePosition
+    private let oldDuration: TimePosition
+    private let oldStretchFactor: Double
+    private let newPosition: TimePosition
+    private let newDuration: TimePosition
+    private let newStretchFactor: Double
+
+    public init(
+        trackID: UUID, clipID: UUID,
+        oldPosition: TimePosition, oldDuration: TimePosition, oldStretchFactor: Double,
+        newPosition: TimePosition, newDuration: TimePosition, newStretchFactor: Double
+    ) {
+        self.trackID = trackID
+        self.clipID = clipID
+        self.oldPosition = oldPosition
+        self.oldDuration = oldDuration
+        self.oldStretchFactor = oldStretchFactor
+        self.newPosition = newPosition
+        self.newDuration = newDuration
+        self.newStretchFactor = newStretchFactor
+        self.actionName = "Warp Audio Clip"
+    }
+
+    public func execute(on project: Project) {
+        guard let track = project.tracks.first(where: { $0.id == trackID }),
+              let idx = track.clips.firstIndex(where: { $0.id == clipID }) else { return }
+        track.clips[idx].position = newPosition
+        track.clips[idx].duration = newDuration
+        track.clips[idx].stretchFactor = newStretchFactor
+        track.clips[idx].isWarped = newStretchFactor != 1.0
+        track.clips[idx].synchronize(with: PulseMap(bpm: project.bpm, sampleRate: project.sampleRate))
+    }
+
+    public func undo(on project: Project) {
+        guard let track = project.tracks.first(where: { $0.id == trackID }),
+              let idx = track.clips.firstIndex(where: { $0.id == clipID }) else { return }
+        track.clips[idx].position = oldPosition
+        track.clips[idx].duration = oldDuration
+        track.clips[idx].stretchFactor = oldStretchFactor
+        track.clips[idx].isWarped = oldStretchFactor != 1.0
+        track.clips[idx].synchronize(with: PulseMap(bpm: project.bpm, sampleRate: project.sampleRate))
+    }
+}
+
+// MARK: - Sprint 3: Smart Folders (Group/Ungroup)
+
+/// Group selected tracks into a folder track. Pure delta: stores only track IDs and indices.
+public final class GroupTracksAction: UndoableAction {
+    public let actionName: String = "Group Tracks"
+    private let childTrackIDs: [UUID]
+    private let groupTrackID: UUID
+    private let groupInsertIndex: Int
+    
+    /// Stores each child's previous parentTrackID for undo.
+    private var previousParentIDs: [UUID: UUID?] = [:]
+    /// Stores each child's previous outputDestinationID for undo.
+    private var previousOutputDestinations: [UUID: UUID?] = [:]
+
+    public init(childTrackIDs: [UUID], groupTrackID: UUID, groupInsertIndex: Int) {
+        self.childTrackIDs = childTrackIDs
+        self.groupTrackID = groupTrackID
+        self.groupInsertIndex = groupInsertIndex
+    }
+
+    public func execute(on project: Project) {
+        // 1. Create the group track
+        let groupTrack = Track(
+            id: groupTrackID,
+            name: "Group",
+            trackType: .group,
+            color: .teal
+        )
+        groupTrack.childTrackIDs = childTrackIDs
+        groupTrack.isExpanded = true
+
+        // 2. Snapshot current parent/output state for each child
+        for childID in childTrackIDs {
+            guard let child = project.tracks.first(where: { $0.id == childID }) else { continue }
+            previousParentIDs[childID] = child.parentTrackID
+            previousOutputDestinations[childID] = child.outputDestinationID
+            
+            // 3. Re-parent children to the group
+            child.parentTrackID = groupTrackID
+            child.outputDestinationID = groupTrackID
+        }
+
+        // 4. Insert group track at the correct position
+        let idx = min(groupInsertIndex, project.tracks.count)
+        project.tracks.insert(groupTrack, at: idx)
+    }
+
+    public func undo(on project: Project) {
+        // 1. Restore children's original parent/output
+        for childID in childTrackIDs {
+            guard let child = project.tracks.first(where: { $0.id == childID }) else { continue }
+            child.parentTrackID = previousParentIDs[childID] ?? nil
+            child.outputDestinationID = previousOutputDestinations[childID] ?? nil
+        }
+
+        // 2. Remove the group track
+        project.tracks.removeAll { $0.id == groupTrackID }
+    }
+}
+
+/// Ungroup a folder track, restoring children to top-level. Pure delta: stores parent references.
+public final class UngroupTracksAction: UndoableAction {
+    public let actionName: String = "Ungroup Tracks"
+    private let groupTrackID: UUID
+    private var childTrackIDs: [UUID] = []
+    private var groupTrackIndex: Int = 0
+    private var groupTrackSnapshot: Track?
+
+    public init(groupTrackID: UUID) {
+        self.groupTrackID = groupTrackID
+    }
+
+    public func execute(on project: Project) {
+        guard let groupIdx = project.tracks.firstIndex(where: { $0.id == groupTrackID }) else { return }
+        let groupTrack = project.tracks[groupIdx]
+        
+        // Snapshot for undo
+        groupTrackIndex = groupIdx
+        childTrackIDs = groupTrack.childTrackIDs
+        groupTrackSnapshot = groupTrack
+
+        // Restore children to top-level
+        for childID in childTrackIDs {
+            guard let child = project.tracks.first(where: { $0.id == childID }) else { continue }
+            child.parentTrackID = nil
+            child.outputDestinationID = nil
+        }
+
+        // Remove the group track
+        project.tracks.remove(at: groupIdx)
+    }
+
+    public func undo(on project: Project) {
+        guard let groupTrack = groupTrackSnapshot else { return }
+
+        // Re-insert group track
+        let idx = min(groupTrackIndex, project.tracks.count)
+        project.tracks.insert(groupTrack, at: idx)
+
+        // Re-parent children
+        for childID in childTrackIDs {
+            guard let child = project.tracks.first(where: { $0.id == childID }) else { continue }
+            child.parentTrackID = groupTrackID
+            child.outputDestinationID = groupTrackID
+        }
+    }
+}

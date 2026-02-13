@@ -3,12 +3,6 @@ import DreamDAWModels
 
 // MARK: - Interaction Types
 
-/// The edge being trimmed on a clip.
-public enum TrimEdge: Sendable {
-    case left   // Adjusts clip start (trimStartOffset changes, position changes)
-    case right  // Adjusts clip end (duration changes)
-}
-
 /// Cached original clip bounds used during trimming to compute deltas.
 public struct ClipBounds: Sendable {
     public let clipID: UUID

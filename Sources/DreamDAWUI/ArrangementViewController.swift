@@ -94,6 +94,8 @@ public final class ArrangementViewController: NSViewController {
     private var keyEventMonitor: Any?
     private var meterUpdateTimer: Timer?
     private var pendingHorizontalScrollX: CGFloat?
+    private var playbackScheduleGeneration: UInt64 = 0
+    private var pluginEditorWindows: [UUID: NSWindowController] = [:]
     
     // Bottom Panel Dragging State
     private var isDraggingBottomDivider = false
@@ -163,6 +165,10 @@ public final class ArrangementViewController: NSViewController {
         // Synchronize pixelsPerBeat
         rulerView.pixelsPerBeat = pixelsPerBeat
         canvasView.pixelsPerBeat = pixelsPerBeat
+        
+        // Link transport to project and mixer for diagnostics
+        sharedEngine.transportController.project = project
+        sharedEngine.transportController.trackMixer = sharedEngine.trackMixer
         
         // Sync Absolute Architecture systems with project state
         pulseMap.setConstantTempo(Double(project.bpm))
@@ -505,6 +511,8 @@ public final class ArrangementViewController: NSViewController {
     }
 
     private func setupBindings() {
+        bottomPanel.audioLevelMeter = sharedEngine.audioLevelMeter
+
         // Vertical Scroll Sync
         NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification,
@@ -540,11 +548,16 @@ public final class ArrangementViewController: NSViewController {
         
         // Ruler -> Transport
         rulerView.onClickPosition = { [weak self] position in
-            self?.transportController.seek(to: position)
+            guard let self = self else { return }
+            self.interactionDidRequestSeek(to: position, on: [])
+            self.transportController.seek(to: position)
         }
 
         canvasView.onZoomChanged = { [weak self] newPPB, newScrollX in
             self?.applyZoom(newPPB, anchoredScrollX: newScrollX)
+        }
+        canvasView.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName, fileURL in
+            self?.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName, fileURL: fileURL)
         }
         canvasView.onTrackClicked = { [weak self] trackID in
             self?.handleTrackSelection(trackID, isShift: false)
@@ -601,6 +614,9 @@ public final class ArrangementViewController: NSViewController {
         trackHeaders.onExpansionChanged = { [weak self] in
             self?.handleTrackHeightLayoutUpdate(interactive: false)
         }
+        trackHeaders.onBrowserItemDropped = { [weak self] trackID, nodeType, itemName, fileURL in
+            self?.handleBrowserItemDrop(trackID: trackID, nodeType: nodeType, itemName: itemName, fileURL: fileURL)
+        }
         masterLaneView.trackID = project.masterTrack.id
         masterLaneView.onTrackClicked = { [weak self] in
             guard let self = self else { return }
@@ -609,6 +625,25 @@ public final class ArrangementViewController: NSViewController {
         masterLaneView.onEditCursorChanged = { [weak self] position in
             // Ruler/Master clicks now move Edit Cursor, NOT playhead
             self?.interactionDidRequestSeek(to: position, on: [])
+        }
+
+        bottomPanel.onEffectParameterChanged = { [weak self] trackID in
+            guard let self = self, let track = self.project.allVisibleTracks.first(where: { $0.id == trackID }) else { return }
+            self.sharedEngine.trackMixer.syncEffectParameters(for: track)
+        }
+
+        bottomPanel.onInstrumentParameterChanged = { [weak self] trackID in
+            guard let self = self, let track = self.project.allVisibleTracks.first(where: { $0.id == trackID }) else { return }
+            self.sharedEngine.trackMixer.applyTrackSettings(track)
+        }
+
+        bottomPanel.onSamplerSampleChanged = { [weak self] trackID, _, _ in
+            guard let self = self, let track = self.project.allVisibleTracks.first(where: { $0.id == trackID }) else { return }
+            self.sharedEngine.trackMixer.rebuildEffectChain(for: track)
+        }
+
+        bottomPanel.onPluginEyeClicked = { [weak self] pluginID, effect, instrument in
+            self?.openPluginEditor(pluginID: pluginID, effect: effect, instrument: instrument)
         }
         
         project.$bpm
@@ -620,6 +655,87 @@ public final class ArrangementViewController: NSViewController {
             .store(in: &cancellables)
         
         startHeaderMeteringTimer()
+    }
+
+    private func handleBrowserItemDrop(trackID: UUID, nodeType: String, itemName: String, fileURL: URL?) {
+        guard let track = project.allVisibleTracks.first(where: { $0.id == trackID }) else { return }
+
+        switch nodeType {
+        case BrowserNodeType.vst2.rawValue, BrowserNodeType.vst3.rawValue:
+            let isVST2 = (nodeType == BrowserNodeType.vst2.rawValue)
+            if track.trackType == .midi {
+                let config = track.instrument ?? InstrumentConfig()
+                config.instrumentType = isVST2 ? .vst2 : .vst3
+                config.pluginIdentifier = itemName
+                config.isEnabled = true
+                track.instrument = config
+            } else {
+                let effect = AudioEffectConfig(effectType: isVST2 ? .vst2 : .vst3)
+                effect.pluginIdentifier = itemName
+                track.effects.append(effect)
+            }
+        case BrowserNodeType.audioEffect.rawValue:
+            let effect = AudioEffectConfig(effectType: .eq)
+            track.effects.append(effect)
+        case BrowserNodeType.instrument.rawValue:
+            let config = track.instrument ?? InstrumentConfig()
+            config.instrumentType = .sampler
+            if let fileURL {
+                config.sampleURL = fileURL
+            }
+            track.instrument = config
+        default:
+            break
+        }
+
+        sharedEngine.trackMixer.rebuildEffectChain(for: track, allTracks: project.allVisibleTracks)
+        reloadTracks()
+        bottomPanel.refresh()
+    }
+
+    private func openPluginEditor(pluginID: UUID, effect: AudioEffectConfig?, instrument: InstrumentConfig?) {
+        let hostID: UUID
+        if effect != nil {
+            hostID = pluginID
+        } else {
+            hostID = pluginID
+        }
+
+        guard let unit = PluginHost.shared.getInstance(hostID) else { return }
+
+        PluginHost.shared.requestEditor(for: unit) { [weak self] viewController in
+            guard let self = self, let vc = viewController else { return }
+
+            let title = effect?.computedDisplayName ?? instrument?.computedDisplayName ?? unit.name
+            let windowController: NSWindowController
+            if let existing = self.pluginEditorWindows[hostID] {
+                windowController = existing
+            } else {
+                let window = NSWindow(
+                    contentRect: NSRect(x: 200, y: 180, width: 980, height: 680),
+                    styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                    backing: .buffered,
+                    defer: false
+                )
+                window.isReleasedWhenClosed = false
+                window.title = title
+                window.backgroundColor = DreamTheme.bgPrimary
+                windowController = NSWindowController(window: window)
+                self.pluginEditorWindows[hostID] = windowController
+            }
+
+            if let window = windowController.window {
+                window.title = title
+                window.contentViewController = vc
+                if vc.preferredContentSize.width > 10, vc.preferredContentSize.height > 10 {
+                    let width = max(720, vc.preferredContentSize.width)
+                    let height = max(420, vc.preferredContentSize.height)
+                    window.setContentSize(NSSize(width: width, height: height))
+                }
+            }
+            windowController.showWindow(nil)
+            windowController.window?.makeKeyAndOrderFront(nil)
+        }
     }
 
     private func handleTrackHeightLayoutUpdate(interactive: Bool) {
@@ -727,33 +843,16 @@ public final class ArrangementViewController: NSViewController {
     private func preparePlaybackPosition() {
         // Resume from pause without jumping.
         if transportController.state == .playing { return }
-
-        var startBeats: Double?
-
-        // 1. Check Selected Clips (find earliest start)
-        if !project.selectedClipIDs.isEmpty {
-            var earliest: Double = .greatestFiniteMagnitude
-            for track in project.tracks {
-                for clip in track.clips where project.selectedClipIDs.contains(clip.id) {
-                    earliest = min(earliest, clip.position.beats)
-                }
-                for clip in track.midiClips where project.selectedClipIDs.contains(clip.id) {
-                    earliest = min(earliest, clip.position.beats)
-                }
-            }
-            if earliest != .greatestFiniteMagnitude {
-                startBeats = earliest
-            }
-        }
-
-        // 2. Fallback to Edit Cursor
-        let finalStart = startBeats ?? project.editCursorPosition.beats
-        
-        log("Transport: preparePlaybackPosition seeking to \(finalStart) beats (Priority: \(startBeats != nil ? "Selection" : "Cursor"))")
+        let finalStart = max(0.0, project.playheadPosition.beats)
+        let currentRendered = sharedEngine.audioEngine.renderedSamples.load(ordering: .relaxed)
+        print("[DIAG-PLAY] preparePlaybackPosition: playhead=\(project.playheadPosition.beats) finalStart=\(finalStart) renderedSamples(before seek)=\(currentRendered)")
         
         // PHASE 10.0: Update BOTH project and transport to ensure absolute alignment
         project.playheadPosition = TimePosition(beats: finalStart)
         transportController.seek(to: TimePosition(beats: finalStart))
+        
+        let afterSeek = sharedEngine.audioEngine.renderedSamples.load(ordering: .relaxed)
+        print("[DIAG-PLAY] after seek: absolutePlayhead=\(transportController.absolutePlayhead.sampleFrame) renderedSamples(after seek)=\(afterSeek)")
         
         // Visual confirmation
         canvasView.playheadPosition = TimePosition(beats: finalStart)
@@ -804,9 +903,11 @@ public final class ArrangementViewController: NSViewController {
 
             reschedulePlaybackFromCurrentPosition()
         case .paused:
+            playbackScheduleGeneration &+= 1
             sharedEngine.playbackScheduler.stop()
             sharedEngine.trackMixer.stopAll()
         case .stopped:
+            playbackScheduleGeneration &+= 1
             sharedEngine.playbackScheduler.stop()
             sharedEngine.playbackScheduler.stopAll()
         }
@@ -814,6 +915,10 @@ public final class ArrangementViewController: NSViewController {
 
     private func reschedulePlaybackFromCurrentPosition() {
         let startPosition = transportController.playheadPosition
+        let currentRendered = sharedEngine.audioEngine.renderedSamples.load(ordering: .relaxed)
+        print("[DIAG-PLAY] reschedulePlayback: startPosition=\(startPosition.beats) beats absolutePlayhead=\(transportController.absolutePlayhead.sampleFrame) renderedSamples=\(currentRendered) isLooping=\(transportController.isLooping)")
+        playbackScheduleGeneration &+= 1
+        let generation = playbackScheduleGeneration
         sharedEngine.playbackScheduler.schedulePlaybackAsync(
             project: project,
             from: startPosition,
@@ -821,7 +926,12 @@ public final class ArrangementViewController: NSViewController {
             loopStart: transportController.loopStart,
             loopEnd: transportController.loopEnd
         ) { [weak self] startTime in
-            self?.transportController.start(at: startTime, notify: false)
+            guard let self = self else { return }
+            guard generation == self.playbackScheduleGeneration else { return }
+            guard self.transportController.state == .playing else { return }
+            let afterSchedule = self.sharedEngine.audioEngine.renderedSamples.load(ordering: .relaxed)
+            print("[DIAG-PLAY] schedule completion: renderedSamples(after BG schedule)=\(afterSchedule) startTime.hostTime=\(startTime.hostTime)")
+            self.transportController.start(at: startTime, notify: false)
         }
     }
 
@@ -923,9 +1033,10 @@ extension ArrangementViewController: TimelineInteractionDelegate {
     }
     
     public func interactionDidRequestSeek(to position: TimePosition, on trackIDs: [UUID]) {
-        // PHASE 10.0: Unified Edit Cursor logic.
-        // We do NOT seek the transport here anymore. The playhead stays still.
+        // Keep edit cursor and transport playhead aligned with user click.
         project.editCursorPosition = position
+        project.playheadPosition = position
+        transportController.seek(to: position)
         
         if !trackIDs.isEmpty {
             canvasView.editCursor = EditCursor(trackIDs: Set(trackIDs), position: position)
@@ -939,6 +1050,8 @@ extension ArrangementViewController: TimelineInteractionDelegate {
             canvasView.editCursor = EditCursor(trackIDs: prevTracks, position: position)
         }
         
+        canvasView.playheadPosition = position
+        rulerView.playheadPosition = position
         canvasView.updateArrangementLayers(fullRedraw: false)
     }
     

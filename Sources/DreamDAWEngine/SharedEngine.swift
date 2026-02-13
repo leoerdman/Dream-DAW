@@ -40,7 +40,7 @@ public final class SharedEngine {
         
         // Finalize on Main Actor for TransportController which is MainActor-bound
         return await MainActor.run {
-            let transport = TransportController()
+            let transport = TransportController(audioEngine: engine)
             return SharedEngine(
                 audioEngine: engine,
                 transportController: transport,

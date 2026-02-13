@@ -7,11 +7,12 @@ extension AVAudioTime {
         let frameOffset = AVAudioFramePosition(round(seconds * self.sampleRate))
         let newSampleTime = self.sampleTime + frameOffset
         
-        // PHASE 11 (Timing sync): Correctly offset hostTime using mach_absolute_time frequency.
-        // hostTime is in ticks, not seconds. We must convert seconds to ticks.
+        // PHASE 11.6 (Absolute Sync): Anchor hostTime using system timebase frequency.
+        // hostTime is in ticks (nanoseconds on most Apple Silicon).
         var timebase = mach_timebase_info_data_t()
         mach_timebase_info(&timebase)
         
+        // ticks = seconds * 1e9 * (denom / numer)
         let ticks = UInt64(seconds * 1_000_000_000.0 * Double(timebase.denom) / Double(timebase.numer))
         let newHostTime = self.hostTime + ticks
         

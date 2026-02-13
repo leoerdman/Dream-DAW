@@ -116,6 +116,8 @@ public final class BrowserSidebarView: NSView {
     private let previewToggleButton = NSButton()
     private let previewWaveformView = BrowserPreviewWaveformView()
     private let previewStatusLabel = NSTextField(labelWithString: "No preview")
+    private let filterViewportRows: CGFloat = 2
+    private let filterRowHeight: CGFloat = 22
 
     private let appSettings = AppSettings.shared
     private var categories: [BrowserCategory] = []
@@ -146,6 +148,8 @@ public final class BrowserSidebarView: NSView {
 
     private let categoryPaneWidthDefaultsKey = "DreamDAW.Browser.CategoryPaneWidth.v1"
     private var didApplyInitialCategoryPaneWidth = false
+    private let categoryPaneMinWidth: CGFloat = 120
+    private let resultsPaneMinWidth: CGFloat = 220
 
     public override var isFlipped: Bool { true }
 
@@ -250,6 +254,7 @@ public final class BrowserSidebarView: NSView {
 
         categoriesTableView.delegate = self
         categoriesTableView.dataSource = self
+        categoriesTableView.backgroundColor = DreamTheme.bgBrowser
 
         categoriesScrollView.drawsBackground = false
         categoriesScrollView.wantsLayer = true
@@ -331,8 +336,16 @@ public final class BrowserSidebarView: NSView {
 
         resultCountLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
         resultCountLabel.textColor = DreamTheme.textSecondary
-        resultCountLabel.alignment = .right
+        resultCountLabel.alignment = .left
         filtersContentView.addSubview(resultCountLabel)
+
+        applyFilterControlStyle(typeFilterButton)
+        applyFilterControlStyle(sourceFilterButton)
+        applyFilterControlStyle(formatFilterButton)
+        applyFilterControlStyle(audioRoleFilterButton)
+        applyFilterControlStyle(sortOrderButton)
+        applyFilterControlStyle(clearFiltersButton)
+        applyFilterControlStyle(favoritesOnlyButton)
 
         resultsTableView.headerView = nil
         resultsTableView.rowHeight = 21
@@ -345,6 +358,7 @@ public final class BrowserSidebarView: NSView {
 
         resultsTableView.delegate = self
         resultsTableView.dataSource = self
+        resultsTableView.backgroundColor = DreamTheme.bgBrowser
         resultsTableView.setDraggingSourceOperationMask([.copy, .link], forLocal: false)
         resultsTableView.setDraggingSourceOperationMask([.copy, .link], forLocal: true)
 
@@ -400,12 +414,15 @@ public final class BrowserSidebarView: NSView {
         if splitView.subviews.count >= 2 {
             let splitWidth = splitView.bounds.width
             if splitWidth > 20 {
-                let minLeft: CGFloat = 110
-                let maxLeft: CGFloat = max(minLeft, splitView.bounds.width * 0.7)
+                let minLeft: CGFloat = categoryPaneMinWidth
+                let maxByRatio: CGFloat = splitView.bounds.width * 0.7
+                let maxByRightReserve: CGFloat = splitView.bounds.width - resultsPaneMinWidth - splitView.dividerThickness
+                let maxLeft: CGFloat = max(minLeft, min(maxByRatio, maxByRightReserve))
                 let saved = CGFloat(appSettings.browserCategoryPaneWidth ?? 0)
                 let currentLeftWidth = splitView.subviews[0].frame.width
                 let desired = saved > 0 ? saved : splitWidth * 0.42
-                let needsRecovery = !didApplyInitialCategoryPaneWidth || currentLeftWidth < 60
+                let clampedCurrent = min(maxLeft, max(minLeft, currentLeftWidth))
+                let needsRecovery = !didApplyInitialCategoryPaneWidth || currentLeftWidth < 60 || abs(clampedCurrent - currentLeftWidth) > 0.5
                 if needsRecovery {
                     splitView.setPosition(min(maxLeft, max(minLeft, desired)), ofDividerAt: 0)
                     didApplyInitialCategoryPaneWidth = true
@@ -413,7 +430,8 @@ public final class BrowserSidebarView: NSView {
             }
         }
 
-        let toolbarHeight: CGFloat = 76
+        let filterViewportHeight = (filterRowHeight * filterViewportRows) + 18
+        let toolbarHeight: CGFloat = filterViewportHeight
         let previewHeight: CGFloat = 48
         resultsToolbar.frame = CGRect(x: 0, y: 0, width: resultsContainer.bounds.width, height: toolbarHeight)
         filtersScrollView.frame = CGRect(x: 0, y: 0, width: resultsToolbar.bounds.width, height: toolbarHeight)
@@ -429,7 +447,7 @@ public final class BrowserSidebarView: NSView {
         let previewPad: CGFloat = 8
         let toggleW: CGFloat = 22
         previewToggleButton.frame = CGRect(x: previewPad, y: 13, width: toggleW, height: 22)
-        let showStatus = previewContainer.bounds.width >= 240
+        let showStatus = previewContainer.bounds.width >= 250
         let statusW: CGFloat = showStatus ? 72 : 0
         if showStatus {
             previewStatusLabel.isHidden = false
@@ -444,10 +462,13 @@ public final class BrowserSidebarView: NSView {
         }
         let waveformX = previewToggleButton.frame.maxX + 6
         let waveformRightInset = previewPad + (showStatus ? statusW + 6 : 0)
+        let availableWaveformWidth = previewContainer.bounds.width - waveformX - waveformRightInset
+        let showWaveform = availableWaveformWidth >= 48
+        previewWaveformView.isHidden = !showWaveform
         previewWaveformView.frame = CGRect(
             x: waveformX,
             y: 10,
-            width: max(64, previewContainer.bounds.width - waveformX - waveformRightInset),
+            width: max(0, availableWaveformWidth),
             height: 28
         )
 
@@ -462,6 +483,10 @@ public final class BrowserSidebarView: NSView {
     // MARK: - Data
 
     private func buildCategories() {
+        let normalizedPinnedFolders = normalizedPinnedFoldersList(from: appSettings.browserPinnedFolders)
+        if normalizedPinnedFolders != appSettings.browserPinnedFolders {
+            appSettings.browserPinnedFolders = normalizedPinnedFolders
+        }
         let fixed: [BrowserCategory] = [
             BrowserCategory(id: "section.collections", title: "Collections", icon: "star.fill", kind: .section, folderPath: nil),
             BrowserCategory(id: "favorites", title: "Favorites", icon: "star.fill", kind: .favorites, folderPath: nil),
@@ -483,7 +508,7 @@ public final class BrowserSidebarView: NSView {
             BrowserCategory(id: "samples", title: "Samples", icon: "waveform", kind: .samples, folderPath: nil),
         ]
 
-        let custom = appSettings.browserPinnedFolders.map { path -> BrowserCategory in
+        let custom = normalizedPinnedFolders.map { path -> BrowserCategory in
             let url = URL(fileURLWithPath: path)
             return BrowserCategory(
                 id: "folder:\(path)",
@@ -501,7 +526,8 @@ public final class BrowserSidebarView: NSView {
             var byID: [String: BrowserCategory] = Dictionary(uniqueKeysWithValues: merged.map { ($0.id, $0) })
             var ordered: [BrowserCategory] = []
             for id in savedOrder {
-                if let item = byID.removeValue(forKey: id) {
+                let normalizedID = normalizedCategoryID(id)
+                if let item = byID.removeValue(forKey: normalizedID) {
                     ordered.append(item)
                 }
             }
@@ -1067,6 +1093,11 @@ public final class BrowserSidebarView: NSView {
             .filter { $0.kind != .addFolder }
             .map(\.id)
         appSettings.browserSidebarOrder = ids
+        appSettings.browserPinnedFolders = categories.compactMap { category in
+            guard category.kind == .customFolder, let path = category.folderPath else { return nil }
+            return normalizedPath(path)
+        }
+        appSettings.syncToDisk()
     }
 
     private func canReorderCategory(at row: Int) -> Bool {
@@ -1088,7 +1119,7 @@ public final class BrowserSidebarView: NSView {
     }
 
     private func addPinnedFolder(_ path: String) {
-        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+        let normalized = normalizedPath(path)
         guard FileManager.default.fileExists(atPath: normalized) else { return }
         if appSettings.browserPinnedFolders.contains(normalized) {
             return
@@ -1100,51 +1131,81 @@ public final class BrowserSidebarView: NSView {
     }
 
     private func layoutFiltersContent(width: CGFloat) -> CGFloat {
-        let controls: [(NSView, CGFloat)] = [
-            (typeFilterButton, 96),
-            (sourceFilterButton, 116),
-            (formatFilterButton, 92),
-            (audioRoleFilterButton, 100),
-            (sortOrderButton, 84),
-            (clearFiltersButton, 64),
-            (favoritesOnlyButton, 96),
-            (resultCountLabel, 52)
+        let controls: [NSView] = [
+            typeFilterButton,
+            sourceFilterButton,
+            formatFilterButton,
+            audioRoleFilterButton,
+            favoritesOnlyButton,
+            sortOrderButton,
+            clearFiltersButton,
+            resultCountLabel
         ]
         let padX: CGFloat = 8
         let padY: CGFloat = 6
-        let gapX: CGFloat = 6
         let gapY: CGFloat = 6
-        let rowHeight: CGFloat = 22
-        let lineHeight: CGFloat = 22
-        let usableWidth = max(80, width - (padX * 2))
-
-        var x = padX
+        let usableWidth = max(72, width - (padX * 2))
         var y = padY
 
-        for (view, preferredWidth) in controls {
-            let fitW = max(preferredWidth, view.fittingSize.width + 6)
-            let w = min(max(56, fitW), usableWidth)
-            if x > padX && (x + w > width - padX) {
-                x = padX
-                y += lineHeight + gapY
-            }
-            let h = (view === favoritesOnlyButton) ? 18 : rowHeight
-            let yOffset = (view === favoritesOnlyButton) ? 2 : 0
-            view.frame = CGRect(x: x, y: y + yOffset, width: w, height: h)
-            x += w + gapX
+        for view in controls {
+            let h: CGFloat = (view === favoritesOnlyButton) ? 18 : filterRowHeight
+            let yOffset: CGFloat = (view === favoritesOnlyButton) ? 2 : 0
+            view.frame = CGRect(x: padX, y: y + yOffset, width: usableWidth, height: h)
+            y += h + gapY
         }
-        return y + lineHeight + padY
+        return y - gapY + padY
     }
 
     private func removePinnedFolder(_ path: String) {
-        guard let idx = appSettings.browserPinnedFolders.firstIndex(of: path) else { return }
+        let normalized = normalizedPath(path)
+        guard let idx = appSettings.browserPinnedFolders.firstIndex(where: { normalizedPath($0) == normalized }) else { return }
         appSettings.browserPinnedFolders.remove(at: idx)
-        if selectedCategoryID == "folder:\(path)" {
+        if selectedCategoryID == "folder:\(normalized)" {
             selectedCategoryID = "all"
         }
         buildCategories()
         persistCategoryOrder()
         rebuildData()
+    }
+
+    private func applyFilterControlStyle(_ view: NSView) {
+        if let pop = view as? NSPopUpButton {
+            pop.bezelStyle = .rounded
+            pop.controlSize = .small
+            pop.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+            pop.appearance = NSAppearance(named: .darkAqua)
+            return
+        }
+        if let button = view as? NSButton {
+            if button === favoritesOnlyButton {
+                button.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+                button.contentTintColor = DreamTheme.textSecondary
+            } else {
+                button.bezelStyle = .rounded
+                button.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+            }
+        }
+    }
+
+    private func normalizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    private func normalizedCategoryID(_ id: String) -> String {
+        guard id.hasPrefix("folder:") else { return id }
+        let path = String(id.dropFirst("folder:".count))
+        return "folder:\(normalizedPath(path))"
+    }
+
+    private func normalizedPinnedFoldersList(from raw: [String]) -> [String] {
+        var seen = Set<String>()
+        var normalized: [String] = []
+        for path in raw {
+            let candidate = normalizedPath(path)
+            guard seen.insert(candidate).inserted else { continue }
+            normalized.append(candidate)
+        }
+        return normalized
     }
 }
 
@@ -1253,8 +1314,10 @@ final class BrowserNode: NSObject {
 extension BrowserSidebarView: NSSplitViewDelegate {
     public func splitView(_ splitView: NSSplitView, constrainSplitPosition proposedPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
         guard dividerIndex == 0 else { return proposedPosition }
-        let minLeft: CGFloat = 110
-        let maxLeft: CGFloat = max(minLeft, splitView.bounds.width * 0.7)
+        let minLeft = categoryPaneMinWidth
+        let maxByRatio = splitView.bounds.width * 0.7
+        let maxByRightReserve = splitView.bounds.width - resultsPaneMinWidth - splitView.dividerThickness
+        let maxLeft = max(minLeft, min(maxByRatio, maxByRightReserve))
         return min(maxLeft, max(minLeft, proposedPosition))
     }
 

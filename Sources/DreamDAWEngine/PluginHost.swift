@@ -8,6 +8,10 @@ import CoreAudioKit
 /// Manages instantiation and lifecycle of external VST/AU plugins.
 /// Handles GUI request and parameter synchronization.
 public final class PluginHost {
+    public enum Usage {
+        case instrument
+        case effect
+    }
     
     public static let shared = PluginHost()
     
@@ -19,46 +23,22 @@ public final class PluginHost {
     
     private init() {}
     
-    /// Instantiates a plugin from its path/identifier.
-    /// This is an asynchronous operation.
+    /// Backward-compatible wrapper.
     public func instantiate(identifier: String, type: InstrumentType, completion: @escaping (AVAudioUnit?, Error?) -> Void) {
-        
-        // --- Robust Discovery ---
-        // Instead of guessing description, we search for the component by name or bundle ID
-        // We look for MusicDevice (Instruments), Effect (FX), and MusicEffect (MIDI-enabled FX)
-        let manager = AVAudioUnitComponentManager.shared()
-        let allTypes: [OSType] = [kAudioUnitType_MusicDevice, kAudioUnitType_Effect, kAudioUnitType_MusicEffect]
-        
-        var foundComponent: AVAudioUnitComponent? = nil
-        
-        for type in allTypes {
-            var desc = AudioComponentDescription()
-            desc.componentType = type
-            let components = manager.components(matching: desc)
-            
-            if let component = components.first(where: { cp in
-                let matchesPath = (cp.componentURL?.path == identifier)
-                let nameMatches = (cp.name == identifier)
-                
-                // Fuzzy match: if it's a VST path, try matching the product name
-                let fileName = URL(fileURLWithPath: identifier).deletingPathExtension().lastPathComponent
-                let matchesFileName = !fileName.isEmpty && (cp.name.localizedCaseInsensitiveContains(fileName) || fileName.localizedCaseInsensitiveContains(cp.name))
-                
-                return matchesPath || nameMatches || matchesFileName
-            }) {
-                foundComponent = component
-                self.logger.info("PluginHost: Found component '\(component.name, privacy: .public)' for identifier '\(identifier, privacy: .public)' using type \(type)")
-                break
-            }
-        }
-        
-        guard let targetComponent = foundComponent else {
-            self.logger.error("PluginHost: FAILED to find plugin component for: \(identifier, privacy: .public) across all types.")
+        let usage: Usage = (type == .vst2 || type == .vst3) ? .instrument : .effect
+        instantiate(identifier: identifier, usage: usage, completion: completion)
+    }
+
+    /// Instantiates a plugin from path/name via AU component manager.
+    /// This host path is AU-based (VST bundles are matched to their AU counterparts by name).
+    public func instantiate(identifier: String, usage: Usage, completion: @escaping (AVAudioUnit?, Error?) -> Void) {
+        guard let targetComponent = findBestComponent(for: identifier, usage: usage) else {
+            self.logger.error("PluginHost: FAILED to find plugin component for: \(identifier, privacy: .public)")
             completion(nil, NSError(domain: "PluginHost", code: -1, userInfo: [NSLocalizedDescriptionKey: "Plugin not found: \(identifier)"]))
             return
         }
 
-        AVAudioUnit.instantiate(with: targetComponent.audioComponentDescription, options: []) { unit, error in
+        AVAudioUnit.instantiate(with: targetComponent.audioComponentDescription, options: [.loadOutOfProcess]) { unit, error in
             if let error = error {
                 self.logger.error("PluginHost: FAILED to instantiate \(identifier, privacy: .public): \(error.localizedDescription)")
                 completion(nil, error)
@@ -73,6 +53,84 @@ public final class PluginHost {
                 completion(nil, nil)
             }
         }
+    }
+
+    private func findBestComponent(for identifier: String, usage: Usage) -> AVAudioUnitComponent? {
+        let manager = AVAudioUnitComponentManager.shared()
+        let allTypes: [OSType] = [kAudioUnitType_MusicDevice, kAudioUnitType_MusicEffect, kAudioUnitType_Effect]
+
+        var best: (component: AVAudioUnitComponent, score: Int)?
+        for componentType in allTypes {
+            var desc = AudioComponentDescription()
+            desc.componentType = componentType
+            let components = manager.components(matching: desc)
+            for component in components {
+                let score = componentMatchScore(component, identifier: identifier, usage: usage)
+                guard score > 0 else { continue }
+                if best == nil || score > best!.score {
+                    best = (component, score)
+                }
+            }
+        }
+
+        if let winner = best {
+            self.logger.info("PluginHost: Matched '\(identifier, privacy: .public)' -> '\(winner.component.name, privacy: .public)' score=\(winner.score)")
+            return winner.component
+        }
+        return nil
+    }
+
+    private func componentMatchScore(_ component: AVAudioUnitComponent, identifier: String, usage: Usage) -> Int {
+        let identifierURL = URL(fileURLWithPath: identifier)
+        let identifierPath = identifierURL.standardizedFileURL.path
+        let identifierBase = identifierURL.deletingPathExtension().lastPathComponent
+        let normalizedIdentifier = normalizedToken(identifierBase.isEmpty ? identifier : identifierBase)
+        let normalizedName = normalizedToken(component.name)
+        let normalizedManufacturer = normalizedToken(component.manufacturerName)
+        let normalizedType = normalizedToken(component.typeName)
+        let componentPath = component.componentURL?.standardizedFileURL.path
+        let componentType = component.audioComponentDescription.componentType
+
+        var score = 0
+
+        // Usage-based priority: instrument-like vs effect-like components.
+        switch usage {
+        case .instrument:
+            if componentType == kAudioUnitType_MusicDevice { score += 120 }
+            if componentType == kAudioUnitType_MusicEffect { score += 60 }
+        case .effect:
+            if componentType == kAudioUnitType_Effect { score += 120 }
+            if componentType == kAudioUnitType_MusicEffect { score += 80 }
+        }
+
+        if identifierPath == componentPath { score += 400 }
+        if component.name == identifier { score += 260 }
+        if normalizedIdentifier == normalizedName { score += 220 }
+
+        if !normalizedIdentifier.isEmpty {
+            if normalizedName.contains(normalizedIdentifier) || normalizedIdentifier.contains(normalizedName) {
+                score += 140
+            }
+            if normalizedManufacturer.contains(normalizedIdentifier) || normalizedType.contains(normalizedIdentifier) {
+                score += 60
+            }
+        }
+
+        // If identifier points to a plugin bundle, match by bundle ID where possible.
+        if let requestedBundleID = Bundle(url: identifierURL)?.bundleIdentifier,
+           let componentBundleURL = component.componentURL,
+           let componentBundleID = Bundle(url: componentBundleURL)?.bundleIdentifier,
+           requestedBundleID == componentBundleID {
+            score += 300
+        }
+
+        return score
+    }
+
+    private func normalizedToken(_ input: String) -> String {
+        let folded = input.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+        let filtered = folded.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
+        return String(String.UnicodeScalarView(filtered)).lowercased()
     }
     
     /// Requests the native GUI for a plugin.

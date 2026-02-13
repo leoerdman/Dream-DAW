@@ -54,7 +54,14 @@ public final class TimelineInteractionCoordinator: NSObject {
                 trimStartOffsetSamples: Int64(trim * (project.sampleRate * 60.0 / Double(project.bpm)))
             )
             
-            view.interactionSM.beginTrim(clipID: wrapper.id, edge: edge, originalBounds: bounds, anchorSample: sampleFrame)
+            // Sprint 3: Option-key modifier switches Trim → Warp (Stretch)
+            if event.modifierFlags.contains(.option) && !wrapper.isMidi {
+                // Warp mode: elastic time-stretch preserving pitch
+                view.interactionSM.beginStretch(clipID: wrapper.id, edge: edge, originalBounds: bounds, anchorSample: sampleFrame)
+            } else {
+                // Default: Standard trim (adjusts region start/end without stretching)
+                view.interactionSM.beginTrim(clipID: wrapper.id, edge: edge, originalBounds: bounds, anchorSample: sampleFrame)
+            }
             return
         }
         

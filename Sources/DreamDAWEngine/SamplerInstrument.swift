@@ -97,6 +97,13 @@ public final class SamplerInstrument {
     // State for sample-accurate smoothing
     private var _lastGain: Float = 1.0
     private var _lastCutoff: Double = 22000.0
+    
+    /// PHASE 13.1: Hardware start anchor.
+    /// Initialized to max to ensure gate is strictly CLOSED until anchor is set.
+    public var startHostTime: UInt64 = .max
+    
+    /// PHASE 13.1: Diagnostic state to minimize log spam
+    private var isFirstRenderCycleAfterStart: Bool = true
 
     // Public properties push commands to the queue
     public var gain: Float {
@@ -190,16 +197,34 @@ public final class SamplerInstrument {
     ///   - sampleOffset: Offset in samples from the start of the NEXT buffer process callback.
     ///   - isNoteOn: True for Note On, False for Note Off.
     public func scheduleMidiEvent(pitch: UInt8, velocity: UInt8, sampleOffset: UInt32, isNoteOn: Bool) {
+        print("[DIAG-SAMPLER] MIDI \(isNoteOn ? "ON" : "OFF") | Pitch: \(pitch) | Offset: \(sampleOffset) | Gate: \(startHostTime)")
         let event = MidiEventStruct(pitch: pitch, velocity: velocity, sampleOffset: sampleOffset, isNoteOn: isNoteOn)
         _ = midiEventQueue.push(event)
     }
     
-
     // MARK: - Real-time Rendering
     
     public func createSourceNode() -> AVAudioSourceNode {
-        return AVAudioSourceNode { [weak self] _, _, frameCount, audioBufferList -> OSStatus in
+        return AVAudioSourceNode { [weak self] _, timeStamp, frameCount, audioBufferList -> OSStatus in
             guard let self = self, let head = self.headBuffer else { return noErr }
+            
+            // PHASE 13.0: Hardware Gating.
+            // If we haven't reached the anchor time, exit immediately (zero signal).
+            if timeStamp.pointee.mHostTime < self.startHostTime {
+                if self.isFirstRenderCycleAfterStart {
+                    print("[DIAG-SAMPLER] GATE CLOSED | Host: \(timeStamp.pointee.mHostTime) | Target: \(self.startHostTime)")
+                }
+                let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
+                for ch in 0..<ablPointer.count {
+                    memset(ablPointer[ch].mData, 0, Int(frameCount) * MemoryLayout<Float>.size)
+                }
+                return noErr
+            }
+            
+            if self.isFirstRenderCycleAfterStart {
+                print("[DIAG-SAMPLER] GATE OPEN | Host: \(timeStamp.pointee.mHostTime) | Target: \(self.startHostTime)")
+                self.isFirstRenderCycleAfterStart = false
+            }
             
             // 1. PROCESS COMMANDS (LOCK-FREE)
             while let command = self.commandQueue.pop() {

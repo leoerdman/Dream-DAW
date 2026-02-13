@@ -14,8 +14,10 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     private var project: Project
     public let sharedEngine: SharedEngine
     private var cancellables = Set<AnyCancellable>()
-    private let windowFrameDefaultsKey = "DreamDAW.MainWindow.Frame.v1"
-    private let windowZoomedDefaultsKey = "DreamDAW.MainWindow.Zoomed.v1"
+    
+    // V3 keys — bump version to invalidate any stale/corrupted V1/V2 data
+    private let windowFrameDefaultsKey = "DreamDAW.MainWindow.Frame.v3"
+    private let windowZoomedDefaultsKey = "DreamDAW.MainWindow.Zoomed.v3"
 
     // MARK: - Initialization
 
@@ -40,6 +42,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     }
     
     private func setupWindow() {
+        // Start with a generous initial rect — this will be overridden in showWindow()
         let windowRect = NSRect(x: 0, y: 0, width: 1280, height: 800)
         let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         let window = NSWindow(contentRect: windowRect, styleMask: styleMask, backing: .buffered, defer: false)
@@ -52,16 +55,11 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.titleVisibility = .visible
         window.isMovableByWindowBackground = false
         window.collectionBehavior = [.fullScreenPrimary]
-        window.setFrameAutosaveName("DreamDAWMainWindowFrame")
-        if !restoreWindowGeometry(window) {
-            // Default to full window on launch if no saved frame
-            if let visibleFrame = NSScreen.main?.visibleFrame {
-                window.setFrame(visibleFrame, display: true)
-            } else {
-                window.center()
-            }
-        }
-
+        
+        // NUCLEAR: Explicitly disable ALL AppKit autosave mechanisms.
+        // This prevents the system from secretly overriding our manual persistence.
+        window.setFrameAutosaveName("")
+        
         self.window = window
         window.delegate = self
         
@@ -73,16 +71,30 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     /// Swaps the project instance and re-binds observers.
     public func updateProject(_ newProject: Project) {
-        let currentFrame = window?.frame
         self.project = newProject
         
-        // Update content view
-        if let window = self.window {
-            let arrangementVC = ArrangementViewController(project: newProject, sharedEngine: sharedEngine)
-            window.contentViewController = arrangementVC
-            if let frame = currentFrame {
-                window.setFrame(frame, display: true)
-            }
+        guard let window = self.window else { return }
+        
+        // Snapshot current geometry BEFORE swapping content
+        let savedFrame = window.frame
+        let wasZoomed = window.isZoomed
+        NSLog("[MainWindowController] updateProject: savedFrame=\(savedFrame), wasZoomed=\(wasZoomed)")
+        
+        // Swap the content view controller
+        let arrangementVC = ArrangementViewController(project: newProject, sharedEngine: sharedEngine)
+        window.contentViewController = arrangementVC
+        
+        // Restore exact frame after content swap (contentViewController setter can resize the window)
+        window.setFrame(savedFrame, display: true, animate: false)
+        
+        // Re-apply zoom state if it was zoomed
+        if wasZoomed && !window.isZoomed {
+            window.zoom(nil)
+        }
+        
+        // CRITICAL: Force first responder to the content view, NOT the BPM text field.
+        DispatchQueue.main.async {
+            window.makeFirstResponder(arrangementVC.view)
         }
         
         // Re-bind subscriptions
@@ -132,15 +144,38 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: - Display
 
+    /// Show the main window. The CRITICAL ordering is:
+    /// 1. Show the window on-screen first (makeKeyAndOrderFront)
+    /// 2. THEN apply geometry in an async block (setFrame / zoom only work reliably on visible windows)
     public func showWindow() {
-        window?.makeKeyAndOrderFront(nil)
+        guard let window = self.window else { return }
+        
+        // Show the window FIRST so macOS has a valid display context
+        window.makeKeyAndOrderFront(nil)
+        
+        // Apply geometry AFTER the window is on-screen (async to guarantee visibility)
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let window = self.window else { return }
-            let shouldZoom = UserDefaults.standard.bool(forKey: self.windowZoomedDefaultsKey)
-            if shouldZoom && !window.isZoomed {
-                window.zoom(nil)
+            
+            let hasSavedFrame = self.restoreWindowGeometry(window)
+            
+            if hasSavedFrame {
+                // Restore saved zoom state
+                let shouldZoom = UserDefaults.standard.bool(forKey: self.windowZoomedDefaultsKey)
+                NSLog("[MainWindowController] Restoring saved frame. shouldZoom=\(shouldZoom), isZoomed=\(window.isZoomed)")
+                if shouldZoom && !window.isZoomed {
+                    window.zoom(nil)
+                }
+            } else {
+                // FIRST LAUNCH: Fill the entire visible screen (minus dock + menu bar)
+                NSLog("[MainWindowController] First launch — maximizing to visible screen.")
+                self.maximizeToMainScreen(window)
             }
-            window.makeFirstResponder(window.contentViewController?.view)
+            
+            // CRITICAL: Force first responder to the content view, NOT BPM TextField.
+            if let contentView = window.contentViewController?.view {
+                window.makeFirstResponder(contentView)
+            }
         }
     }
 
@@ -171,19 +206,34 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func persistWindowGeometry(_ window: NSWindow) {
-        UserDefaults.standard.set(window.frameDescriptor, forKey: windowFrameDefaultsKey)
-        UserDefaults.standard.set(window.isZoomed, forKey: windowZoomedDefaultsKey)
+        let frameDesc = window.frameDescriptor
+        let isZoomed = window.isZoomed
+        UserDefaults.standard.set(frameDesc, forKey: windowFrameDefaultsKey)
+        UserDefaults.standard.set(isZoomed, forKey: windowZoomedDefaultsKey)
+        NSLog("[MainWindowController] Persisted geometry: zoomed=\(isZoomed), frame=\(window.frame)")
     }
 
     private func restoreWindowGeometry(_ window: NSWindow) -> Bool {
-        if window.setFrameUsingName("DreamDAWMainWindowFrame", force: true) {
-            return true
-        }
         guard let frameString = UserDefaults.standard.string(forKey: windowFrameDefaultsKey) else {
+            NSLog("[MainWindowController] No saved frame found (key: \(windowFrameDefaultsKey))")
             return false
         }
         window.setFrame(from: frameString)
+        NSLog("[MainWindowController] Restored frame from UserDefaults: \(window.frame)")
         return true
+    }
+
+    /// Fills the entire visible screen area (excluding Dock and Menu Bar).
+    private func maximizeToMainScreen(_ window: NSWindow) {
+        guard let visibleFrame = NSScreen.main?.visibleFrame else {
+            NSLog("[MainWindowController] WARNING: NSScreen.main?.visibleFrame is nil!")
+            return
+        }
+        NSLog("[MainWindowController] Maximizing to visibleFrame: \(visibleFrame)")
+        window.setFrame(visibleFrame, display: true, animate: false)
+        
+        // Persist this maximized state immediately
+        persistWindowGeometry(window)
     }
     
     private func loadAppIcon() {

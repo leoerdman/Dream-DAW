@@ -107,8 +107,12 @@ public final class BottomPanelView: NSView {
     private let pianoRollView = PianoRollView()
     private let detailScrollView = NSScrollView()
     private let detailContentView = NSView()
+    private let pianoEditorContainer = NSView()
+    private let pianoInspectorScrollView = NSScrollView()
+    private let pianoInspectorContentView = NSView()
     private let pianoScrollView = NSScrollView()
     private let gridSnapPopup = NSPopUpButton()
+    private var pianoInspectorWidth: CGFloat = 220
 
     // MARK: - Initialization
 
@@ -168,14 +172,30 @@ public final class BottomPanelView: NSView {
         detailContentView.wantsLayer = true
         detailContentView.layer?.backgroundColor = DreamTheme.bgSecondary.cgColor
 
-        // Piano roll scroll view
+        // Piano roll editor container (left inspector + right editor)
+        pianoEditorContainer.wantsLayer = true
+        pianoEditorContainer.layer?.backgroundColor = DreamTheme.bgSecondary.cgColor
+        addSubview(pianoEditorContainer)
+
+        pianoInspectorScrollView.wantsLayer = true
+        pianoInspectorScrollView.drawsBackground = false
+        pianoInspectorScrollView.hasVerticalScroller = true
+        pianoInspectorScrollView.hasHorizontalScroller = false
+        pianoInspectorScrollView.scrollerStyle = .overlay
+        pianoInspectorScrollView.documentView = pianoInspectorContentView
+        pianoEditorContainer.addSubview(pianoInspectorScrollView)
+
+        pianoInspectorContentView.wantsLayer = true
+        pianoInspectorContentView.layer?.backgroundColor = DreamTheme.bgHeader.withAlphaComponent(0.65).cgColor
+
+        // Piano roll scroll view (right pane)
         pianoScrollView.wantsLayer = true
         pianoScrollView.drawsBackground = false
         pianoScrollView.hasVerticalScroller = true
         pianoScrollView.hasHorizontalScroller = true
         pianoScrollView.documentView = pianoRollView
         pianoScrollView.scrollerStyle = .overlay
-        addSubview(pianoScrollView)
+        pianoEditorContainer.addSubview(pianoScrollView)
 
         // Piano roll note change callback
         pianoRollView.onNotesChanged = { [weak self] clip in
@@ -214,13 +234,27 @@ public final class BottomPanelView: NSView {
         )
 
         detailScrollView.frame = contentFrame
-        pianoScrollView.frame = contentFrame
+        pianoEditorContainer.frame = contentFrame
 
-        // Resize the piano roll document view
-        pianoRollView.frame = NSRect(
-            origin: .zero,
-            size: pianoRollView.intrinsicContentSize
+        let dynamicInspectorMax = max(180, min(320, contentFrame.width * 0.45))
+        pianoInspectorWidth = min(dynamicInspectorMax, max(180, pianoInspectorWidth))
+        pianoInspectorScrollView.frame = CGRect(
+            x: 0,
+            y: 0,
+            width: pianoInspectorWidth,
+            height: contentFrame.height
         )
+        pianoScrollView.frame = CGRect(
+            x: pianoInspectorWidth + 1,
+            y: 0,
+            width: max(0, contentFrame.width - pianoInspectorWidth - 1),
+            height: contentFrame.height
+        )
+
+        updatePianoRollDocumentFrame()
+        if case .pianoRoll(let track, let clip) = mode {
+            updatePianoInspector(track: track, clip: clip)
+        }
     }
 
     // MARK: - Content Update
@@ -253,12 +287,13 @@ public final class BottomPanelView: NSView {
         switch mode {
         case .hidden:
             detailContentView.isHidden = true
-            pianoScrollView.isHidden = true
+            detailScrollView.isHidden = true
+            pianoEditorContainer.isHidden = true
 
         case .detail(let track):
             detailContentView.isHidden = false
             detailScrollView.isHidden = false
-            pianoScrollView.isHidden = true
+            pianoEditorContainer.isHidden = true
             titleLabel.stringValue = track.trackType == .midi
                 ? "\(track.name) — Instrument & Effects Chain"
                 : "\(track.name) — Effects Chain"
@@ -267,16 +302,19 @@ public final class BottomPanelView: NSView {
 
         case .pianoRoll(let track, let clip):
             detailContentView.isHidden = true
-            pianoScrollView.isHidden = false
+            detailScrollView.isHidden = true
+            pianoEditorContainer.isHidden = false
             currentTrackType = track.trackType
             titleLabel.stringValue = "\(track.name) — Piano Roll: \(clip.name)"
             pianoRollView.midiClip = clip
             pianoRollView.track = track
-            pianoRollView.frame = NSRect(origin: .zero, size: pianoRollView.intrinsicContentSize)
+            updatePianoInspector(track: track, clip: clip)
+            updatePianoRollDocumentFrame()
 
         case .audioClip(let track, let clip):
             detailContentView.isHidden = false
-            pianoScrollView.isHidden = true
+            detailScrollView.isHidden = false
+            pianoEditorContainer.isHidden = true
             currentTrackType = track.trackType
             titleLabel.stringValue = "\(track.name) — Sample Editor: \(clip.name)"
             updateAudioClipEditor(track: track, clip: clip)
@@ -296,6 +334,119 @@ public final class BottomPanelView: NSView {
         // Update PianoRollView grid snap
         pianoRollView.gridSnap = values[idx]
         pianoRollView.needsDisplay = true
+        if case .pianoRoll(let track, let clip) = mode {
+            updatePianoInspector(track: track, clip: clip)
+        }
+    }
+
+    @objc private func pianoZoomHorizontalIn() {
+        pianoRollView.pixelsPerBeat = min(320, pianoRollView.pixelsPerBeat * 1.2)
+        updatePianoRollDocumentFrame()
+    }
+
+    @objc private func pianoZoomHorizontalOut() {
+        pianoRollView.pixelsPerBeat = max(16, pianoRollView.pixelsPerBeat / 1.2)
+        updatePianoRollDocumentFrame()
+    }
+
+    @objc private func pianoZoomVerticalIn() {
+        pianoRollView.pitchRowHeight = min(24, pianoRollView.pitchRowHeight * 1.15)
+        updatePianoRollDocumentFrame()
+    }
+
+    @objc private func pianoZoomVerticalOut() {
+        pianoRollView.pitchRowHeight = max(6, pianoRollView.pitchRowHeight / 1.15)
+        updatePianoRollDocumentFrame()
+    }
+
+    private func updatePianoRollDocumentFrame() {
+        let viewportWidth = max(0, pianoScrollView.contentView.bounds.width)
+        pianoRollView.minimumContentWidth = viewportWidth
+        let size = pianoRollView.intrinsicContentSize
+        pianoRollView.frame = NSRect(origin: .zero, size: size)
+    }
+
+    private func updatePianoInspector(track: Track, clip: MidiClip) {
+        pianoInspectorContentView.subviews.forEach { $0.removeFromSuperview() }
+
+        let contentWidth = max(120, pianoInspectorScrollView.bounds.width - 16)
+        let fieldHeight: CGFloat = 18
+        let rowGap: CGFloat = 6
+        var y: CGFloat = 10
+
+        func makeLabel(_ text: String, font: NSFont, color: NSColor) -> NSTextField {
+            let label = NSTextField(labelWithString: text)
+            label.font = font
+            label.textColor = color
+            label.lineBreakMode = .byTruncatingTail
+            return label
+        }
+
+        func addHeader(_ text: String) {
+            let label = makeLabel(text, font: NSFont.systemFont(ofSize: 10, weight: .semibold), color: DreamTheme.textSecondary)
+            label.frame = CGRect(x: 8, y: y, width: contentWidth, height: 14)
+            pianoInspectorContentView.addSubview(label)
+            y += 16
+        }
+
+        func addField(_ title: String, _ value: String) {
+            let titleLabel = makeLabel(title, font: NSFont.systemFont(ofSize: 10, weight: .medium), color: DreamTheme.textMuted)
+            titleLabel.frame = CGRect(x: 8, y: y, width: 70, height: fieldHeight)
+            pianoInspectorContentView.addSubview(titleLabel)
+
+            let valueLabel = makeLabel(value, font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular), color: DreamTheme.textPrimary)
+            valueLabel.frame = CGRect(x: 82, y: y, width: max(40, contentWidth - 74), height: fieldHeight)
+            pianoInspectorContentView.addSubview(valueLabel)
+            y += fieldHeight + 2
+        }
+
+        func addZoomRow(title: String, minusAction: Selector, plusAction: Selector) {
+            let titleLabel = makeLabel(title, font: NSFont.systemFont(ofSize: 10, weight: .medium), color: DreamTheme.textMuted)
+            titleLabel.frame = CGRect(x: 8, y: y + 2, width: 78, height: 16)
+            pianoInspectorContentView.addSubview(titleLabel)
+
+            let minus = NSButton(title: "−", target: self, action: minusAction)
+            minus.bezelStyle = .rounded
+            minus.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+            minus.frame = CGRect(x: 90, y: y, width: 26, height: 20)
+            pianoInspectorContentView.addSubview(minus)
+
+            let plus = NSButton(title: "+", target: self, action: plusAction)
+            plus.bezelStyle = .rounded
+            plus.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+            plus.frame = CGRect(x: 122, y: y, width: 26, height: 20)
+            pianoInspectorContentView.addSubview(plus)
+
+            y += 24
+        }
+
+        addHeader("Clip")
+        addField("Name", clip.name)
+        addField("Track", track.name)
+        addField("Start", formatBeatPosition(clip.position.beats))
+        addField("Length", String(format: "%.2f beats", clip.duration.beats))
+        addField("End", formatBeatPosition(clip.endPosition.beats))
+        addField("Notes", "\(clip.notes.count)")
+
+        y += rowGap
+        addHeader("Editor")
+        addField("Grid", gridSnapPopup.titleOfSelectedItem ?? "1/16 Grid")
+        addField("Time Zoom", String(format: "%.1f px/beat", pianoRollView.pixelsPerBeat))
+        addField("Pitch Zoom", String(format: "%.1f px", pianoRollView.pitchRowHeight))
+        addZoomRow(title: "Time Zoom", minusAction: #selector(pianoZoomHorizontalOut), plusAction: #selector(pianoZoomHorizontalIn))
+        addZoomRow(title: "Pitch Zoom", minusAction: #selector(pianoZoomVerticalOut), plusAction: #selector(pianoZoomVerticalIn))
+
+        let minHeight = pianoInspectorScrollView.bounds.height
+        let contentHeight = max(minHeight, y + 10)
+        pianoInspectorContentView.frame = CGRect(x: 0, y: 0, width: pianoInspectorScrollView.bounds.width, height: contentHeight)
+    }
+
+    private func formatBeatPosition(_ beats: Double) -> String {
+        let beatsPerBar = 4.0
+        let bar = Int(floor(beats / beatsPerBar)) + 1
+        let beatInBar = Int(floor(beats.truncatingRemainder(dividingBy: beatsPerBar))) + 1
+        let sixteenth = Int(floor((beats - floor(beats)) * 4.0)) + 1
+        return "\(bar).\(beatInBar).\(sixteenth)"
     }
 
     private func updateDetailContent(track: Track) {

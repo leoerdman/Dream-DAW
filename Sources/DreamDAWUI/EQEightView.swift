@@ -64,12 +64,12 @@ public final class EQEightView: NSView {
             plotView.topAnchor.constraint(equalTo: topAnchor, constant: 10),
             plotView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             plotView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            plotView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -120),
+            plotView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -78),
             
             controlBar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             controlBar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             controlBar.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
-            controlBar.topAnchor.constraint(equalTo: plotView.bottomAnchor, constant: 10)
+            controlBar.heightAnchor.constraint(equalToConstant: 58)
         ])
         
         plotView.onBandChanged = { [weak self] bandIndex, freq, gain, q in

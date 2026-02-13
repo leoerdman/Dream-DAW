@@ -48,13 +48,18 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
     /// Total duration of the source audio file in seconds.
     public var sourceDurationSeconds: Double
 
-    // MARK: - Warping (Stage 2)
+    // MARK: - Warping & Elastic Time (Sprint 3)
 
     /// Whether the clip has warping enabled.
     public var isWarped: Bool = false
 
     /// List of warp markers for sample-accurate time-stretching.
     public var warpMarkers: [WarpMarker] = []
+
+    /// Time-stretch factor. 1.0 = original speed, 0.5 = 2× slower, 2.0 = 2× faster.
+    /// Connected to `AVAudioUnitTimePitch.rate` via `TrackMixer`.
+    /// Hard limits: 0.25 ... 4.0 (engine safety clamp).
+    public var stretchFactor: Double = 1.0
 
     // MARK: - Initialization
 
@@ -90,7 +95,7 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, name, fileURL, position, duration, trimStartOffset, gain, isSelected, colorOverride, sourceDurationSeconds
-        case isWarped, warpMarkers
+        case isWarped, warpMarkers, stretchFactor
         case absolutePosition, absoluteDuration
     }
 
@@ -115,6 +120,7 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
         
         isWarped = try container.decodeIfPresent(Bool.self, forKey: .isWarped) ?? false
         warpMarkers = try container.decodeIfPresent([WarpMarker].self, forKey: .warpMarkers) ?? []
+        stretchFactor = try container.decodeIfPresent(Double.self, forKey: .stretchFactor) ?? 1.0
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -133,6 +139,7 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
         try container.encode(sourceDurationSeconds, forKey: .sourceDurationSeconds)
         try container.encode(isWarped, forKey: .isWarped)
         try container.encode(warpMarkers, forKey: .warpMarkers)
+        try container.encode(stretchFactor, forKey: .stretchFactor)
     }
 
     // MARK: - Computed
@@ -159,5 +166,61 @@ public struct AudioClip: Identifiable, Codable, Hashable, Sendable {
     public mutating func synchronize(with pulseMap: PulseMap) {
         self.absolutePosition = AbsoluteTime(sampleFrame: pulseMap.sampleFrame(at: position.beats))
         self.absoluteDuration = AbsoluteTime(sampleFrame: pulseMap.durationInSamples(beats: duration.beats, startingAt: absolutePosition.sampleFrame))
+    }
+
+    // MARK: - Trim & Warp (Sprint 3: Elastic Time)
+
+    /// Apply a trim operation (no Option key held).
+    /// Trim reveals/hides the underlying audio without changing playback speed.
+    ///
+    /// - Left edge: shifts timeline start, source offset, and reduces duration.
+    /// - Right edge: extends or reduces duration only.
+    public mutating func applyTrim(deltaBeats: Double, edge: TrimEdge) {
+        switch edge {
+        case .left:
+            // Move start forward/backward + adjust source read offset
+            let newPosition = TimePosition(beats: max(0, position.beats + deltaBeats))
+            let actualDelta = newPosition.beats - position.beats
+            self.position = newPosition
+            self.trimStartOffset = TimePosition(beats: max(0, trimStartOffset.beats + actualDelta))
+            self.duration = TimePosition(beats: max(0.01, duration.beats - actualDelta))
+        case .right:
+            // Only change the visible duration
+            self.duration = TimePosition(beats: max(0.01, duration.beats + deltaBeats))
+        }
+    }
+
+    /// Apply an elastic warp/stretch operation (Option key held).
+    /// Changes the clip's visual duration and playback rate without altering the source offset.
+    /// Pitch is preserved via `AVAudioUnitTimePitch`.
+    ///
+    /// - Parameters:
+    ///   - deltaBeats: Change in beats for the dragged edge.
+    ///   - edge: Which edge is being stretched.
+    ///   - sourceDurationBeats: Total duration of the source file in beats (for rate calculation).
+    public mutating func applyWarp(deltaBeats: Double, edge: TrimEdge, sourceDurationBeats: Double) {
+        let newDurationBeats: Double
+
+        switch edge {
+        case .right:
+            newDurationBeats = max(0.125, duration.beats + deltaBeats) // Minimum 1/8 beat
+        case .left:
+            // Left-edge warp: adjust position and duration inversely
+            let newPosition = TimePosition(beats: max(0, position.beats + deltaBeats))
+            let actualDelta = newPosition.beats - position.beats
+            self.position = newPosition
+            newDurationBeats = max(0.125, duration.beats - actualDelta)
+        }
+
+        // Calculate new stretch factor: original source beats / new visual beats
+        guard sourceDurationBeats > 0 else { return }
+        let newRate = sourceDurationBeats / newDurationBeats
+
+        // Hard limits: protect the audio engine from extreme rates
+        guard newRate >= 0.25 && newRate <= 4.0 else { return }
+
+        self.duration = TimePosition(beats: newDurationBeats)
+        self.stretchFactor = newRate
+        self.isWarped = true
     }
 }

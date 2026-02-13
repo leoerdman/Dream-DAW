@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import os.log
+import Atomics
 import DreamDAWModels
 
 // MARK: - AudioEngine
@@ -17,6 +18,11 @@ public final class AudioEngine: @unchecked Sendable {
     private var lock = os_unfair_lock_s()
     private let logger = Logger(subsystem: "com.dreamdaw", category: "AudioEngine")
 
+    /// PHASE 13.0: Master Sample Clock.
+    /// Thread-safe counter of total samples processed by the hardware.
+    /// Used by TransportController for sample-accurate playhead updates.
+    public let renderedSamples = ManagedAtomic<Int64>(0)
+
     /// Master output mixer node.
     public let masterMixer: AVAudioMixerNode
 
@@ -27,6 +33,7 @@ public final class AudioEngine: @unchecked Sendable {
     /// CPU Usage Simulator thread.
     private var cpuLoadThread: Thread?
     private var isCpuLoadThreadRunning = false
+    
 
     /// The engine's output audio format.
     public var outputFormat: AVAudioFormat {
@@ -53,6 +60,7 @@ public final class AudioEngine: @unchecked Sendable {
         setupTestTone()
         logger.info("AudioEngine initialized")
     }
+
 
     private func setupTestTone() {
         testToneNode = AVAudioSourceNode { [weak self] (_, _, frameCount, audioBufferList) -> OSStatus in
@@ -185,6 +193,13 @@ public final class AudioEngine: @unchecked Sendable {
 
         engine.reset()
         logger.info("AudioEngine: [ENGINE] RESET (All paths cleared)")
+    }
+
+    /// PHASE 13.1 Reset Sequence: Safely reset the master clock.
+    /// Uses sequentially consistent ordering to ensure all threads see the reset.
+    public func resetClock(to frame: Int64 = 0) {
+        renderedSamples.store(frame, ordering: .sequentiallyConsistent)
+        logger.info("AudioEngine: Master clock reset to \(frame)")
     }
 
     // MARK: - Node Management

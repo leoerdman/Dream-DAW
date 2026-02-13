@@ -25,10 +25,28 @@ public final class PianoRollView: NSView {
     public var bpm: Double = 120.0
 
     /// Pixels per beat (horizontal zoom).
-    public var pixelsPerBeat: CGFloat = 40.0
+    public var pixelsPerBeat: CGFloat = 40.0 {
+        didSet {
+            invalidateIntrinsicContentSize()
+            needsDisplay = true
+        }
+    }
 
     /// Height per pitch row in pixels.
-    public var pitchRowHeight: CGFloat = 10.0
+    public var pitchRowHeight: CGFloat = 10.0 {
+        didSet {
+            invalidateIntrinsicContentSize()
+            needsDisplay = true
+        }
+    }
+
+    /// Minimum drawable width so the editor can fill viewport even for short clips.
+    public var minimumContentWidth: CGFloat = 0 {
+        didSet {
+            invalidateIntrinsicContentSize()
+            needsDisplay = true
+        }
+    }
 
     /// Piano keyboard width on the left.
     private let keyboardWidth: CGFloat = 48.0
@@ -445,7 +463,8 @@ public final class PianoRollView: NSView {
 
     public override var intrinsicContentSize: NSSize {
         let height = CGFloat(pitchRangeEnd - pitchRangeStart) * pitchRowHeight
-        let width = CGFloat(midiClip?.duration.beats ?? 16) * pixelsPerBeat + keyboardWidth
+        let clipWidth = CGFloat(midiClip?.duration.beats ?? 16) * pixelsPerBeat + keyboardWidth
+        let width = max(clipWidth, minimumContentWidth)
         return NSSize(width: width, height: height)
     }
 }

@@ -27,6 +27,10 @@ public final class SimpleSynthInstrument {
     /// Accessed only via command queue in real-time.
     private var internalAmplitude: Float = 0.3
     private var _lastAmplitude: Float = 0.3
+    
+    /// PHASE 13.2: Hardware start anchor.
+    /// Initialized to .max to ensure gate is strictly CLOSED until the scheduler sets the anchor.
+    public var startHostTime: UInt64 = .max
 
     public var amplitude: Float {
         get { internalAmplitude }
@@ -69,8 +73,18 @@ public final class SimpleSynthInstrument {
         let sourceNode = AVAudioSourceNode(format: AVAudioFormat(
             standardFormatWithSampleRate: sr,
             channels: 2
-        )!) { [weak self] _, _, frameCount, audioBufferList -> OSStatus in
+        )!) { [weak self] _, timeStamp, frameCount, audioBufferList -> OSStatus in
             guard let self = self else { return noErr }
+            
+            // PHASE 13.1: Hardware Gating.
+            // Stay silent until we reach the hardware anchor.
+            if timeStamp.pointee.mHostTime < self.startHostTime {
+                let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
+                for ch in 0..<ablPointer.count {
+                    memset(ablPointer[ch].mData, 0, Int(frameCount) * MemoryLayout<Float>.size)
+                }
+                return noErr
+            }
 
             // 1. PROCESS COMMANDS (LOCK-FREE)
             while let command = self.commandQueue.pop() {

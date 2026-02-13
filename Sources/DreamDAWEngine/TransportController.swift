@@ -33,13 +33,41 @@ public final class TransportController: ObservableObject {
     private var playbackStartHostTime: UInt64 = 0 // In mach_absolute_time ticks
     private var playbackStartSampleFrame: Int64 = 0
     private var timebaseInfo = mach_timebase_info_data_t()
+    private let audioEngine: AudioEngine
+    /// DIAG: Frame counter for post-play tracing
+    private var diagFrameCounter: Int = 0
 
     // PHASE 9.1: Sample-Accurate Playhead
     // PulseMap is the sole authority for beat↔sample conversion.
     // All internal calculations use Int64 sample frames.
     
     /// The tempo map for this project. Must be set before playback.
+    /// PHASE 13.3: sampleRate is derived from audioEngine at init and synced
+    /// before each play to ensure beat↔sample conversions match the hardware.
     public var pulseMap: PulseMap = PulseMap(bpm: 120, sampleRate: 44100)
+    
+    /// Sync PulseMap sampleRate with the actual audio engine sampleRate.
+    /// Call this before any beat↔sample conversion that must match the hardware.
+    public func syncPulseMap() {
+        let engineRate = audioEngine.sampleRate
+        if pulseMap.sampleRate != engineRate {
+            pulseMap = PulseMap(bpm: pulseMap.initialBPM, sampleRate: engineRate)
+            logger.info("Transport: PulseMap synced to engine sampleRate \(engineRate)")
+        }
+    }
+    
+    /// The project reference for situational diagnostics
+    public var project: Project?
+    
+    /// The track mixer reference for node status diagnostics
+    public var trackMixer: TrackMixer?
+    
+    // MARK: - Sprint 3: Zero-Jitter Playhead
+    
+    /// Interpolates playhead position between audio buffer callbacks for 120 FPS rendering.
+    /// The Metal renderer reads `playheadInterpolator.currentVisualSample()` instead of
+    /// `absolutePlayhead.sampleFrame` to eliminate jitter from MainActor dispatch latency.
+    public let playheadInterpolator = PlayheadInterpolator()
     
     /// Internal source of truth: sample-accurate playhead position.
     @Published public private(set) var absolutePlayhead: AbsoluteTime = AbsoluteTime(sampleFrame: 0)
@@ -91,8 +119,15 @@ public final class TransportController: ObservableObject {
 
     // MARK: - Initialization
 
-    public init() {
+    public init(audioEngine: AudioEngine) {
+        self.audioEngine = audioEngine
         mach_timebase_info(&timebaseInfo)
+        // PHASE 13.3: Initialize PulseMap with engine's actual sampleRate
+        // (engine may not be started yet, so sampleRate could be 0 — will sync again on play)
+        let rate = audioEngine.sampleRate
+        if rate > 0 {
+            pulseMap = PulseMap(bpm: 120, sampleRate: rate)
+        }
     }
 
     deinit {
@@ -112,12 +147,25 @@ public final class TransportController: ObservableObject {
         
         switch state {
         case .stopped, .paused:
-            // PHASE 9.1: Store start position as sample frame (source of truth)
+            // PHASE 13.3: Sync PulseMap with hardware BEFORE computing start frame.
+            // This ensures beat→sampleFrame conversion matches PlaybackScheduler's PulseMap.
+            syncPulseMap()
+            
+            // PHASE 13.2: Store start position as sample frame (source of truth)
             playbackStartSampleFrame = absolutePlayhead.sampleFrame
             playbackStartHostTime = hostTimeAtStart
+            
+            // PHASE 13.2 CRITICAL FIX: Pre-reset the master clock SYNCHRONOUSLY
+            // before the DisplayLink starts. This eliminates the async race where
+            // the DisplayLink reads a stale renderedSamples value from the previous
+            // session while PlaybackScheduler.schedulePlaybackAsync() hasn't called
+            // resetClock() yet on the background queue.
+            audioEngine.resetClock(to: playbackStartSampleFrame)
+            
+            diagFrameCounter = 0 // Reset diagnostic counter
             state = .playing
             startDisplayLink()
-            logger.info("Transport: START at hostTime \(hostTimeAtStart), sampleFrame \(self.absolutePlayhead.sampleFrame)")
+            print("[DIAG-PLAY] TransportController.start() PRE-SYNC: sampleFrame=\(playbackStartSampleFrame) renderedSamples=\(audioEngine.renderedSamples.load(ordering: .relaxed)) hostTime=\(hostTimeAtStart)")
 
         case .playing:
             // Update reference to stay in sync with audio engine's actual hardware start
@@ -140,6 +188,7 @@ public final class TransportController: ObservableObject {
         guard state == .playing else { return }
         state = .paused
         stopDisplayLink()
+        playheadInterpolator.stop()
         logger.info("Transport: PAUSE at beat \(self.playheadPosition.beats)")
         onStateChange?(state)
     }
@@ -148,6 +197,7 @@ public final class TransportController: ObservableObject {
     public func stop() {
         state = .stopped
         stopDisplayLink()
+        playheadInterpolator.stop()
         logger.info("Transport: STOP")
         onStateChange?(state)
     }
@@ -217,25 +267,17 @@ public final class TransportController: ObservableObject {
     private func applyPlayheadUpdates() {
         guard state == .playing else { return }
         
-        let now = mach_absolute_time()
-        
-        // If now is before start time, a fresh start is pending
-        if now < playbackStartHostTime {
-            // Stay at the seeked position until hardware starts
-            self.onPlayheadUpdate?(self.playheadPosition)
-            return
-        }
-
-        // Calculate elapsed seconds using high-precision mach_absolute_time
-        let elapsedTicks = now - playbackStartHostTime
-        let elapsedNano = (elapsedTicks * UInt64(timebaseInfo.numer)) / UInt64(timebaseInfo.denom)
-        let elapsedSeconds = Double(elapsedNano) / 1_000_000_000.0
-        
-        // PHASE 9.1: Convert elapsed seconds → sample frames (integer, no drift)
-        let sampleRate = pulseMap.sampleRate
-        let elapsedSamples = Int64(elapsedSeconds * sampleRate)
-        var currentSampleFrame = playbackStartSampleFrame + elapsedSamples
+        // PHASE 13.0: Master Sample Clock.
+        // We no longer calculate elapsed time from mach_absolute_time (which drifts).
+        // Instead, we read the actual number of samples processed by the hardware.
+        var currentSampleFrame = audioEngine.renderedSamples.load(ordering: .relaxed)
         var didLoopWrap = false
+        
+        // DIAG: Log the first 5 frames to trace any jumps
+        if diagFrameCounter < 5 {
+            print("[DIAG-PLAY] applyPlayheadUpdates frame #\(diagFrameCounter): renderedSamples=\(currentSampleFrame) playbackStartSF=\(playbackStartSampleFrame) isLooping=\(isLooping)")
+            diagFrameCounter += 1
+        }
 
         // Handle looping (convert loop bounds to sample frames)
         if isLooping {
@@ -246,16 +288,42 @@ public final class TransportController: ObservableObject {
             if loopLength > 0 && currentSampleFrame >= loopEndFrame {
                 let overshoot = currentSampleFrame - loopStartFrame
                 currentSampleFrame = loopStartFrame + (overshoot % loopLength)
-                
-                // Perfect loop wrap sync
-                playbackStartSampleFrame = currentSampleFrame
-                playbackStartHostTime = now
                 didLoopWrap = true
             }
         }
 
         self.absolutePlayhead = AbsoluteTime(sampleFrame: currentSampleFrame)
-        self.onPlayheadUpdate?(self.playheadPosition)
+        
+        // Sprint 3: Update interpolator anchor for zero-jitter Metal rendering
+        playheadInterpolator.updateAnchor(
+            sampleFrame: currentSampleFrame,
+            sampleRate: pulseMap.sampleRate,
+            isPlaying: true
+        )
+        
+        let playheadBeats = self.playheadPosition.beats
+        self.onPlayheadUpdate?(TimePosition(beats: playheadBeats))
+
+        // PHASE 11.5: High-Fidelity Diagnostics
+        if let project = self.project {
+            let tracks = project.tracks.map { track in
+                EngineDiagnosticService.TrackSnapshot(
+                    id: track.id,
+                    name: track.name,
+                    type: track.trackType,
+                    hasClipAtPlayhead: track.hasClip(at: TimePosition(beats: playheadBeats)),
+                    isPlayerPlaying: self.trackMixer?.isPlayerPlaying(trackID: track.id) ?? false,
+                    volume: track.effectiveVolume
+                )
+            }
+            let snapshot = EngineDiagnosticService.EngineSnapshot(
+                absolutePlayhead: currentSampleFrame,
+                playheadBeats: playheadBeats,
+                isTransportPlaying: state == .playing,
+                tracks: tracks
+            )
+            EngineDiagnosticService.shared.logSnapshot(snapshot)
+        }
 
         // Re-schedule audio after loop wrap
         if didLoopWrap {

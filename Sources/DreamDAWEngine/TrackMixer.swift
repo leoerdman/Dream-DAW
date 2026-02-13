@@ -46,6 +46,9 @@ public final class TrackMixer: @unchecked Sendable {
     
     /// Set of plugin IDs currently being instantiated to avoid infinite recursion.
     private var loadingPlugins: Set<UUID> = []
+    /// Identifier snapshots for loaded external plugin instances.
+    private var effectPluginIdentifiers: [UUID: String] = [:]
+    private var instrumentPluginIdentifiers: [UUID: String] = [:]
 
     /// Map from Track ID to its instrument instance (for MIDI tracks).
     private var trackSynths: [UUID: SimpleSynthInstrument] = [:]
@@ -59,6 +62,18 @@ public final class TrackMixer: @unchecked Sendable {
     /// Map from Track ID to its PDC (Plugin Delay Compensation) delay node.
     /// This node is placed at the start of the chain to align the track's timing.
     private var trackPDCNodes: [UUID: AVAudioUnitDelay] = [:]
+    
+    // MARK: - Sprint 3: Elastic Time & Smart Folders
+    
+    /// Map from Track ID to its TimePitch node for warped clip playback.
+    /// Connected to `AudioClip.stretchFactor` — preserves pitch while adjusting rate.
+    /// Inserted after PDC in chain: PDC → TimePitch → Effects → OutputMixer.
+    private var trackTimePitchNodes: [UUID: AVAudioUnitTimePitch] = [:]
+    
+    /// Map from Group Track ID to its aggregate bus mixer.
+    /// All child tracks route to their group's aggregate bus instead of master.
+    /// The aggregate bus then routes to master (or its own parent group).
+    private var groupBusMixers: [UUID: AVAudioMixerNode] = [:]
 
     // MARK: - Initialization
 
@@ -98,11 +113,13 @@ public final class TrackMixer: @unchecked Sendable {
     private func setupTrackNodes(track: Track, format: AVAudioFormat) {
         let inputMixer = AVAudioMixerNode()
         let pdcNode = AVAudioUnitDelay()
+        let timePitch = AVAudioUnitTimePitch()
         let outputMixer = AVAudioMixerNode()
         let player = AVAudioPlayerNode()
 
         audioEngine.attach(inputMixer)
         audioEngine.attach(pdcNode)
+        audioEngine.attach(timePitch)
         audioEngine.attach(outputMixer)
         audioEngine.attach(player)
         
@@ -111,14 +128,28 @@ public final class TrackMixer: @unchecked Sendable {
         pdcNode.wetDryMix = 100
         pdcNode.delayTime = 0
         
+        // Configure TimePitch for unity (no change) by default
+        timePitch.rate = 1.0
+        timePitch.pitch = 0.0  // No pitch shift — pure time-stretch
+        timePitch.overlap = 8  // Higher overlap = better quality
+        
         // Setup instrument if applicable (even for Master if user wants generators there)
         if track.trackType == .midi || track.instrument != nil {
             setupInstrumentNode(track: track, format: format)
             logger.info("TrackMixer: [SIGNAL] Setup instrument node for track \(track.name) (ID: \(track.id))")
         }
         
+        // Sprint 3: Setup group bus for folder tracks
+        if track.trackType == .group {
+            let groupBus = AVAudioMixerNode()
+            audioEngine.attach(groupBus)
+            groupBusMixers[track.id] = groupBus
+            logger.info("TrackMixer: [SIGNAL] Created group aggregate bus for \(track.name)")
+        }
+        
         trackInputMixers[track.id] = inputMixer
         trackPDCNodes[track.id] = pdcNode
+        trackTimePitchNodes[track.id] = timePitch
         trackMixerNodes[track.id] = outputMixer
         trackPlayerNodes[track.id] = player
         
@@ -127,59 +158,91 @@ public final class TrackMixer: @unchecked Sendable {
     
     private func setupInstrumentNode(track: Track, format: AVAudioFormat) {
         let instrType = track.instrument?.instrumentType ?? .sineSynth
-        let sourceNode: AVAudioNode
-        
+        var sourceNode: AVAudioNode?
+
         switch instrType {
         case .sineSynth:
             let synth = SimpleSynthInstrument(sampleRate: format.sampleRate)
             sourceNode = synth.createSourceNode()
             trackSynths[track.id] = synth
+            trackSamplers.removeValue(forKey: track.id)
+            instrumentPluginIdentifiers.removeValue(forKey: track.id)
+            PluginHost.shared.removeInstance(track.id)
+
         case .sampler:
             let sampler = SamplerInstrument()
             sourceNode = sampler.createSourceNode()
             trackSamplers[track.id] = sampler
+            trackSynths.removeValue(forKey: track.id)
+            instrumentPluginIdentifiers.removeValue(forKey: track.id)
+            PluginHost.shared.removeInstance(track.id)
+
         case .vst2, .vst3:
-            // Use PluginHost for enterprise-grade VST/AU loading
-            if let identifier = track.instrument?.pluginIdentifier {
-                PluginHost.shared.instantiate(identifier: identifier, type: instrType) { [weak self] unit, error in
-                    DispatchQueue.main.async {
-                        guard let self = self, let unit = unit else {
-                            self?.logger.error("TrackMixer: Failed to load VST \(identifier)")
-                            return
-                        }
-                        
-                        // Detach placeholder/old instrument if any
-                        if let oldInstr = self.trackInstrumentNodes[track.id], oldInstr !== unit {
-                            self.audioEngine.detach(oldInstr)
-                        }
-                        
-                        self.audioEngine.attach(unit)
-                        self.trackInstrumentNodes[track.id] = unit
-                        PluginHost.shared.registerInstance(track.id, unit: unit)
-                        
-                        // Trigger a chain rebuild to include the new plugin
-                        self.rebuildEffectChain(for: track)
-                    }
-                }
-                // Return placeholder during async load
+            guard let identifier = track.instrument?.pluginIdentifier, !identifier.isEmpty else {
                 let synth = SimpleSynthInstrument(sampleRate: format.sampleRate)
                 sourceNode = synth.createSourceNode()
-            } else {
-                let synth = SimpleSynthInstrument(sampleRate: format.sampleRate)
-                sourceNode = synth.createSourceNode()
+                trackSynths[track.id] = synth
+                trackSamplers.removeValue(forKey: track.id)
+                instrumentPluginIdentifiers.removeValue(forKey: track.id)
+                PluginHost.shared.removeInstance(track.id)
+                break
             }
+
+            instrumentPluginIdentifiers[track.id] = identifier
+            trackSynths.removeValue(forKey: track.id)
+            trackSamplers.removeValue(forKey: track.id)
+
+            PluginHost.shared.instantiate(identifier: identifier, usage: .instrument) { [weak self] unit, error in
+                DispatchQueue.main.async {
+                    guard let self = self, let unit = unit else {
+                        self?.logger.error("TrackMixer: Failed to load instrument \(identifier)")
+                        return
+                    }
+                    guard self.instrumentPluginIdentifiers[track.id] == identifier else {
+                        self.logger.info("TrackMixer: Ignoring stale instrument load for \(identifier)")
+                        return
+                    }
+
+                    if let oldInstr = self.trackInstrumentNodes[track.id], oldInstr !== unit {
+                        self.audioEngine.disconnectNodeOutput(oldInstr)
+                        self.audioEngine.detach(oldInstr)
+                    }
+                    if unit.engine == nil {
+                        self.audioEngine.attach(unit)
+                    }
+                    self.trackInstrumentNodes[track.id] = unit
+                    PluginHost.shared.registerInstance(track.id, unit: unit)
+                    self.rebuildEffectChain(for: track)
+                }
+            }
+
+            // Do not install a placeholder synth: keep lane silent until plugin is ready.
+            sourceNode = trackInstrumentNodes[track.id]
+
         @unknown default:
             let synth = SimpleSynthInstrument(sampleRate: format.sampleRate)
             sourceNode = synth.createSourceNode()
+            trackSynths[track.id] = synth
+            trackSamplers.removeValue(forKey: track.id)
+            instrumentPluginIdentifiers.removeValue(forKey: track.id)
+            PluginHost.shared.removeInstance(track.id)
         }
-        
+
+        guard let resolvedNode = sourceNode else {
+            trackInstrumentNodes.removeValue(forKey: track.id)
+            return
+        }
+
         // Ensure old node is detached if we are replacing it synchronously
-        if let previousNode = trackInstrumentNodes[track.id], previousNode !== sourceNode {
+        if let previousNode = trackInstrumentNodes[track.id], previousNode !== resolvedNode {
+            audioEngine.disconnectNodeOutput(previousNode)
             audioEngine.detach(previousNode)
         }
-        
-        audioEngine.attach(sourceNode)
-        trackInstrumentNodes[track.id] = sourceNode
+
+        if resolvedNode.engine == nil {
+            audioEngine.attach(resolvedNode)
+        }
+        trackInstrumentNodes[track.id] = resolvedNode
     }
 
     private func removeTrackNodes(id: UUID) {
@@ -206,6 +269,17 @@ public final class TrackMixer: @unchecked Sendable {
             audioEngine.disconnectNodeOutput(pdc)
             audioEngine.detach(pdc)
         }
+        
+        // Sprint 3: Cleanup TimePitch and Group Bus nodes
+        if let tp = trackTimePitchNodes.removeValue(forKey: id) {
+            audioEngine.disconnectNodeOutput(tp)
+            audioEngine.detach(tp)
+        }
+        
+        if let groupBus = groupBusMixers.removeValue(forKey: id) {
+            audioEngine.disconnectNodeOutput(groupBus)
+            audioEngine.detach(groupBus)
+        }
 
         if let mixer = trackMixerNodes.removeValue(forKey: id) {
             audioEngine.disconnectNodeOutput(mixer)
@@ -229,6 +303,9 @@ public final class TrackMixer: @unchecked Sendable {
         audioEngine.disconnectNodeOutput(player)
         audioEngine.disconnectNodeOutput(inputMixer)
         audioEngine.disconnectNodeOutput(pdcNode)
+        if let tp = trackTimePitchNodes[track.id] {
+            audioEngine.disconnectNodeOutput(tp)
+        }
         audioEngine.disconnectNodeOutput(outputMixer)
         if let synthNode = trackInstrumentNodes[track.id] {
             audioEngine.disconnectNodeOutput(synthNode)
@@ -250,16 +327,18 @@ public final class TrackMixer: @unchecked Sendable {
         for effectConfig in track.effects where effectConfig.isEnabled {
             if effectConfig.effectType == .vst2 || effectConfig.effectType == .vst3 {
                 if let identifier = effectConfig.pluginIdentifier {
+                    let cachedIdentifier = effectPluginIdentifiers[effectConfig.id]
                     // Check if already loaded in PluginHost
-                    if let unit = PluginHost.shared.getInstance(effectConfig.id) {
+                    if let unit = PluginHost.shared.getInstance(effectConfig.id), cachedIdentifier == identifier {
                         if unit.engine == nil { audioEngine.attach(unit) }
                         newChain.append(unit)
                     } else if !loadingPlugins.contains(effectConfig.id) {
+                        PluginHost.shared.removeInstance(effectConfig.id)
                         // Not loaded and not currently loading -> trigger load
                         loadingPlugins.insert(effectConfig.id)
                         
                         self.logger.info("TrackMixer: Triggering async load for VST \(identifier)")
-                        PluginHost.shared.instantiate(identifier: identifier, type: .vst2) { [weak self] unit, error in
+                        PluginHost.shared.instantiate(identifier: identifier, usage: .effect) { [weak self] unit, error in
                             DispatchQueue.main.async {
                                 guard let self = self else { return }
                                 self.loadingPlugins.remove(effectConfig.id)
@@ -270,6 +349,7 @@ public final class TrackMixer: @unchecked Sendable {
                                 }
                                 
                                 PluginHost.shared.registerInstance(effectConfig.id, unit: unit)
+                                self.effectPluginIdentifiers[effectConfig.id] = identifier
                                 // Rebuild again to stitch this new node in (now it will hit the 'getInstance' block above)
                                 self.rebuildEffectChain(for: track)
                             }
@@ -294,8 +374,15 @@ public final class TrackMixer: @unchecked Sendable {
         // PDC node follows inputMixer immediately
         audioEngine.connect(inputMixer, to: pdcNode, format: fmt)
         
+        // Sprint 3: TimePitch node after PDC for elastic time support
+        // Chain: inputMixer → PDC → TimePitch → [Effects] → outputMixer
         let firstEffect = newChain.first ?? outputMixer
-        audioEngine.connect(pdcNode, to: firstEffect, format: fmt)
+        if let tp = trackTimePitchNodes[track.id] {
+            audioEngine.connect(pdcNode, to: tp, format: fmt)
+            audioEngine.connect(tp, to: firstEffect, format: fmt)
+        } else {
+            audioEngine.connect(pdcNode, to: firstEffect, format: fmt)
+        }
         
         var lastNode: AVAudioNode = firstEffect
         if !newChain.isEmpty {
@@ -442,9 +529,11 @@ public final class TrackMixer: @unchecked Sendable {
             if node == nil {
                 needsRebuild = true
             } else if config.instrumentType == .vst2 || config.instrumentType == .vst3 {
-                // For VST, check if identifier matches what's registered
+                // For VST, check if identifier and instance match what's loaded
                 let registered = PluginHost.shared.getInstance(track.id)
-                if registered == nil || registered !== node {
+                let expectedIdentifier = config.pluginIdentifier
+                let loadedIdentifier = instrumentPluginIdentifiers[track.id]
+                if registered == nil || registered !== node || expectedIdentifier != loadedIdentifier {
                     needsRebuild = true
                 }
             } else if config.instrumentType == .sampler {
@@ -469,6 +558,7 @@ public final class TrackMixer: @unchecked Sendable {
         }
         trackSynths.removeValue(forKey: id)
         trackSamplers.removeValue(forKey: id)
+        instrumentPluginIdentifiers.removeValue(forKey: id)
         PluginHost.shared.removeInstance(id)
     }
 
@@ -668,6 +758,34 @@ public final class TrackMixer: @unchecked Sendable {
     public func stopPlayer(for trackID: UUID) {
         trackPlayerNodes[trackID]?.stop()
     }
+    
+    // MARK: - Sprint 3: TimePitch Rate API
+    
+    /// Updates the TimePitch node rate for a track to match `AudioClip.stretchFactor`.
+    /// Called by PlaybackScheduler before scheduling warped clips.
+    /// - Parameters:
+    ///   - trackID: The track containing the warped clip.
+    ///   - rate: The stretch rate (1.0 = normal, 0.5 = half speed, 2.0 = double speed).
+    public func updateTimePitchRate(trackID: UUID, rate: Float) {
+        guard let tp = trackTimePitchNodes[trackID] else { return }
+        // Clamp to safe range matching AudioClip.applyWarp limits
+        let clampedRate = max(0.25, min(4.0, rate))
+        tp.rate = clampedRate
+        tp.pitch = 0.0  // Always preserve pitch — pure time-stretch
+        logger.debug("TrackMixer: [WARP] Track \(trackID) TimePitch rate set to \(clampedRate)")
+    }
+    
+    /// Resets TimePitch to unity (1.0) for a track. Called when clip is no longer warped.
+    public func resetTimePitch(trackID: UUID) {
+        guard let tp = trackTimePitchNodes[trackID] else { return }
+        tp.rate = 1.0
+        tp.pitch = 0.0
+    }
+    
+    /// Returns the group bus mixer for a folder track, for external routing queries.
+    public func groupBusMixer(for groupTrackID: UUID) -> AVAudioMixerNode? {
+        groupBusMixers[groupTrackID]
+    }
 
     /// Apply master track volume/pan to the engine's master mixer node.
     public func applyMasterSettings(_ masterTrack: Track) {
@@ -727,5 +845,10 @@ public final class TrackMixer: @unchecked Sendable {
         trackPlayerNodes.removeAll()
         trackEffectChains.removeAll()
         logger.info("All track mixer nodes removed")
+    }
+
+    /// Checks if the player node for a given track is currently playing. (Phase 11.5 Diagnostics)
+    public func isPlayerPlaying(trackID: UUID) -> Bool {
+        trackPlayerNodes[trackID]?.isPlaying ?? false
     }
 }

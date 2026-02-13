@@ -259,4 +259,17 @@ public final class Track: ObservableObject, Identifiable, Codable {
         let midiEnd = midiClips.map(\.endPosition).max() ?? .zero
         return max(audioEnd, midiEnd)
     }
+
+    /// Checks if any clip exists at the given position.
+    public func hasClip(at position: TimePosition) -> Bool {
+        let beat = position.beats
+        switch trackType {
+        case .audio:
+            return clips.contains { beat >= $0.position.beats && beat <= $0.endPosition.beats }
+        case .midi:
+            return midiClips.contains { beat >= $0.position.beats && beat <= $0.endPosition.beats }
+        default:
+            return false
+        }
+    }
 }

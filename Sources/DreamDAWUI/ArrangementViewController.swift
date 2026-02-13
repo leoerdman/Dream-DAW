@@ -13,6 +13,37 @@ public final class FlippedView: NSView {
     public override var isFlipped: Bool { true }
 }
 
+/// Dedicated drag handle to resize browser width without conflicting with timeline selection gestures.
+public final class BrowserResizeHandleView: NSView {
+    public var onDragStart: (() -> Void)?
+    public var onDragDeltaX: ((CGFloat) -> Void)?
+    public var onDragEnd: (() -> Void)?
+
+    private var startX: CGFloat = 0
+    private var dragging = false
+
+    public override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    public override func mouseDown(with event: NSEvent) {
+        dragging = true
+        startX = event.locationInWindow.x
+        onDragStart?()
+    }
+
+    public override func mouseDragged(with event: NSEvent) {
+        guard dragging else { return }
+        onDragDeltaX?(event.locationInWindow.x - startX)
+    }
+
+    public override func mouseUp(with event: NSEvent) {
+        guard dragging else { return }
+        dragging = false
+        onDragEnd?()
+    }
+}
+
 // MARK: - ArrangementViewController
 
 /// Main view controller for the arrangement view.
@@ -44,6 +75,7 @@ public final class ArrangementViewController: NSViewController {
     
     private let vertDividerLeft = NSView()
     private let vertDividerRight = NSView()
+    private let browserResizeHandle = BrowserResizeHandleView()
     private let bottomPanelDivider = NSView()
     private let cornerViewLeft = NSView()
     private let cornerViewRight = NSView()
@@ -196,6 +228,24 @@ public final class ArrangementViewController: NSViewController {
             d.layer?.backgroundColor = DreamTheme.divider.cgColor
             view.addSubview(d)
         }
+        browserResizeHandle.wantsLayer = true
+        browserResizeHandle.layer?.backgroundColor = NSColor.clear.cgColor
+        browserResizeHandle.onDragStart = { [weak self] in
+            guard let self = self else { return }
+            self.initialBrowserWidth = self.browserWidth
+        }
+        browserResizeHandle.onDragDeltaX = { [weak self] deltaX in
+            guard let self = self else { return }
+            let newWidth = self.initialBrowserWidth + deltaX
+            self.browserWidth = min(DreamTheme.browserMaxWidth, max(DreamTheme.browserMinWidth, newWidth))
+            self.project.viewBrowserWidth = Double(self.browserWidth)
+            self.view.needsLayout = true
+        }
+        browserResizeHandle.onDragEnd = { [weak self] in
+            guard let self = self else { return }
+            self.project.viewBrowserWidth = Double(self.browserWidth)
+        }
+        view.addSubview(browserResizeHandle)
         
         // SwiftUI Containers
         let transportView = TransportBarView(
@@ -300,13 +350,20 @@ public final class ArrangementViewController: NSViewController {
         browserSidebar.isHidden = !isBrowserVisible
         vertDividerLeft.frame = CGRect(x: browserW, y: contentTop, width: 1, height: contentHeight)
         vertDividerLeft.isHidden = !isBrowserVisible
+        browserResizeHandle.frame = CGRect(x: browserW - 3, y: contentTop, width: 7, height: contentHeight)
+        browserResizeHandle.isHidden = !isBrowserVisible
         
         let mainStartX = browserW + (isBrowserVisible ? 1 : 0)
         let mainEndX = bounds.width - headerW - 1
         let mainWidth = mainEndX - mainStartX
         
         rulerView.frame = CGRect(x: mainStartX, y: contentTop, width: mainWidth, height: rulerH)
-        cornerViewLeft.frame = CGRect(x: 0, y: contentTop, width: mainStartX, height: rulerH)
+        if isBrowserVisible {
+            cornerViewLeft.isHidden = true
+        } else {
+            cornerViewLeft.isHidden = false
+            cornerViewLeft.frame = CGRect(x: 0, y: contentTop, width: mainStartX, height: rulerH)
+        }
         cornerViewRight.frame = CGRect(x: mainEndX + 1, y: contentTop, width: headerW, height: rulerH)
         
         let canvasTop = contentTop + rulerH
@@ -333,11 +390,16 @@ public final class ArrangementViewController: NSViewController {
         
         viewportMatrix.viewportWidth = Double(mainWidth)
         viewportMatrix.viewportHeight = Double(scrollAreaH)
+        viewportMatrix.visibleStartY = Double(canvasScrollView.contentView.bounds.origin.y)
         canvasView.viewportMatrix = self.viewportMatrix
         canvasView.interactionSM = self.interactionSM
 
+        let totalBeats = project.totalDuration.beats
+        let contentBeats = max(totalBeats + 16.0, 128.0) // At least 32 bars or 16 beats after last clip
+        let pm = PulseMap(bpm: project.bpm, sampleRate: project.sampleRate)
+        let totalSamples = pm.sampleFrame(at: contentBeats)
+        let canvasW = CGFloat(Double(totalSamples) / viewportMatrix.samplesPerPixel)
         let totalTrackH = layoutEngine.totalHeight
-        let canvasW = CGFloat(viewportMatrix.visibleEndSample / viewportMatrix.samplesPerPixel)
         
         canvasView.frame = NSRect(x: 0, y: 0, width: max(canvasW, mainWidth), height: max(totalTrackH, scrollAreaH))
         trackHeaders.frame = NSRect(x: 0, y: 0, width: headerW, height: max(totalTrackH, scrollAreaH))
@@ -532,8 +594,17 @@ public final class ArrangementViewController: NSViewController {
             self.handleTrackSelection(self.project.masterTrack.id, isShift: false)
         }
         masterLaneView.onEditCursorChanged = { [weak self] position in
-            self?.transportController.seek(to: position)
+            // Ruler/Master clicks now move Edit Cursor, NOT playhead
+            self?.interactionDidRequestSeek(to: position, on: [])
         }
+        
+        project.$bpm
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] newBPM in
+                self?.handleBPMChange(newBPM)
+            }
+            .store(in: &cancellables)
         
         startHeaderMeteringTimer()
     }
@@ -550,7 +621,17 @@ public final class ArrangementViewController: NSViewController {
     }
 
     private func handleTrackSelection(_ trackID: UUID, isShift: Bool) {
-        project.selectedTrackID = trackID
+        if isShift {
+            project.selectedTrackIDs.insert(trackID)
+            project.primarySelectedTrackID = trackID
+        } else {
+            project.selectedTrackID = trackID
+        }
+        
+        // Sync Edit Cursor with track selection
+        let currentPos = canvasView.editCursor?.position ?? project.editCursorPosition
+        canvasView.editCursor = EditCursor(trackIDs: project.selectedTrackIDs, position: currentPos)
+
         trackHeaders.updateSelection(selectedID: trackID)
         masterHeaderView?.isSelected = (trackID == project.masterTrack.id)
         masterLaneView.isSelected = (trackID == project.masterTrack.id)
@@ -588,6 +669,28 @@ public final class ArrangementViewController: NSViewController {
         }
     }
 
+    private func handleBPMChange(_ newBPM: Double) {
+        log("BPM changed to \(newBPM). Synchronizing all clips...")
+        
+        // 1. Update engine
+        transportController.bpm = newBPM
+        
+        // 2. Synchronize all clips with the new PulseMap
+        let pm = PulseMap(bpm: newBPM, sampleRate: project.sampleRate)
+        for i in 0..<project.tracks.count {
+            for j in 0..<project.tracks[i].clips.count {
+                project.tracks[i].clips[j].synchronize(with: pm)
+            }
+            for j in 0..<project.tracks[i].midiClips.count {
+                project.tracks[i].midiClips[j].synchronize(with: pm)
+            }
+        }
+        
+        // 3. Refresh UI
+        reloadTracks()
+        canvasView.updateArrangementLayers(fullRedraw: true)
+    }
+
     private func setBottomPanelMode(_ mode: BottomPanelView.PanelMode) {
         bottomPanel.mode = mode
         switch mode {
@@ -612,8 +715,29 @@ public final class ArrangementViewController: NSViewController {
         // Resume from pause without jumping.
         guard transportController.state == .stopped else { return }
 
-        // Deterministic start point: edit cursor.
-        transportController.seek(to: project.editCursorPosition)
+        var startBeats: Double?
+
+        // 1. Check Selected Clips (find earliest start)
+        if !project.selectedClipIDs.isEmpty {
+            var earliest: Double = .greatestFiniteMagnitude
+            for track in project.tracks {
+                for clip in track.clips where project.selectedClipIDs.contains(clip.id) {
+                    earliest = min(earliest, clip.position.beats)
+                }
+                for clip in track.midiClips where project.selectedClipIDs.contains(clip.id) {
+                    earliest = min(earliest, clip.position.beats)
+                }
+            }
+            if earliest != .greatestFiniteMagnitude {
+                startBeats = earliest
+            }
+        }
+
+        // 2. Fallback to Edit Cursor
+        let finalStart = startBeats ?? project.editCursorPosition.beats
+        
+        log("Transport: preparePlaybackPosition seeking to \(finalStart) beats (Priority: \(startBeats != nil ? "Selection" : "Cursor"))")
+        transportController.seek(to: TimePosition(beats: finalStart))
     }
 
     private func startHeaderMeteringTimer() {
@@ -778,12 +902,24 @@ extension ArrangementViewController: TimelineInteractionDelegate {
         handleTrackSelection(id, isShift: isShift)
     }
     
-    public func interactionDidRequestSeek(to position: TimePosition, on trackID: UUID?) {
-        transportController.seek(to: position)
+    public func interactionDidRequestSeek(to position: TimePosition, on trackIDs: [UUID]) {
+        // PHASE 10.0: Unified Edit Cursor logic.
+        // We do NOT seek the transport here anymore. The playhead stays still.
         project.editCursorPosition = position
-        if let id = trackID {
-            project.primarySelectedTrackID = id
+        
+        if !trackIDs.isEmpty {
+            canvasView.editCursor = EditCursor(trackIDs: Set(trackIDs), position: position)
+            // Sync primary selection for detail panel if single track clicked
+            if trackIDs.count == 1 {
+                project.primarySelectedTrackID = trackIDs[0]
+            }
+        } else {
+            // Ruler clicks: move position but preserve existing tracks
+            let prevTracks = canvasView.editCursor?.trackIDs ?? []
+            canvasView.editCursor = EditCursor(trackIDs: prevTracks, position: position)
         }
+        
+        canvasView.updateArrangementLayers(fullRedraw: false)
     }
     
     public func interactionDidUpdateSelection(clipIDs: [UUID], isShift: Bool) {
@@ -911,14 +1047,6 @@ extension ArrangementViewController {
 
     public override func mouseDown(with event: NSEvent) {
         let location = view.convert(event.locationInWindow, from: nil)
-
-        // Hit test for browser divider (right edge of browser panel).
-        if isBrowserVisible && abs(location.x - vertDividerLeft.frame.midX) <= 4 {
-            isDraggingBrowserDivider = true
-            dragStartX = location.x
-            initialBrowserWidth = browserWidth
-            return
-        }
         
         // Hit test for bottom divider
         if !bottomPanel.isHidden && abs(location.y - bottomPanelDivider.frame.midY) <= 4 {
@@ -930,16 +1058,6 @@ extension ArrangementViewController {
     }
 
     public override func mouseDragged(with event: NSEvent) {
-        if isDraggingBrowserDivider {
-            let location = view.convert(event.locationInWindow, from: nil)
-            let deltaX = location.x - dragStartX
-            let newWidth = initialBrowserWidth + deltaX
-            browserWidth = min(DreamTheme.browserMaxWidth, max(DreamTheme.browserMinWidth, newWidth))
-            project.viewBrowserWidth = Double(browserWidth)
-            view.needsLayout = true
-            return
-        }
-
         if isDraggingBottomDivider {
             let location = view.convert(event.locationInWindow, from: nil)
             let deltaY = location.y - dragStartY
@@ -957,10 +1075,6 @@ extension ArrangementViewController {
     }
 
     public override func mouseUp(with event: NSEvent) {
-        if isDraggingBrowserDivider {
-            isDraggingBrowserDivider = false
-            project.viewBrowserWidth = Double(browserWidth)
-        }
         isDraggingBottomDivider = false
     }
 
@@ -987,9 +1101,7 @@ extension ArrangementViewController {
 
     public override func mouseMoved(with event: NSEvent) {
         let location = view.convert(event.locationInWindow, from: nil)
-        if isBrowserVisible && abs(location.x - vertDividerLeft.frame.midX) <= 4 {
-            NSCursor.resizeLeftRight.set()
-        } else if !bottomPanel.isHidden && abs(location.y - bottomPanelDivider.frame.midY) <= 4 {
+        if !bottomPanel.isHidden && abs(location.y - bottomPanelDivider.frame.midY) <= 4 {
             NSCursor.resizeUpDown.set()
         } else {
             NSCursor.arrow.set()

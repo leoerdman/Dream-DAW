@@ -77,7 +77,8 @@ public final class TimelineInteractionCoordinator: NSObject {
             // Future: Double click to insert clip?
         } else {
             // Seek and start Marquee
-            delegate?.interactionDidRequestSeek(to: TimePosition(beats: beat), on: nil)
+            let trackID = visibleTracks[trackIndex].id
+            delegate?.interactionDidRequestSeek(to: TimePosition(beats: beat), on: [trackID])
             view.interactionSM.beginMarquee(startPixelX: Float(location.x), startPixelY: location.y)
         }
     }
@@ -145,7 +146,7 @@ public final class TimelineInteractionCoordinator: NSObject {
         }
 
         rulerDragTarget = .none
-        delegate?.interactionDidRequestSeek(to: TimePosition(beats: snapBeat), on: nil)
+        delegate?.interactionDidRequestSeek(to: TimePosition(beats: snapBeat), on: [])
     }
 
     public func mouseDraggedRuler(
@@ -165,7 +166,7 @@ public final class TimelineInteractionCoordinator: NSObject {
             let clamped = max(beat, loopStart + 1.0)
             delegate?.interactionDidRequestLoopEndChange(to: TimePosition(beats: clamped))
         case .none:
-            delegate?.interactionDidRequestSeek(to: TimePosition(beats: beat), on: nil)
+            delegate?.interactionDidRequestSeek(to: TimePosition(beats: beat), on: [])
         }
     }
 }

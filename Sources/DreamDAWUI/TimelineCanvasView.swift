@@ -556,6 +556,16 @@ public final class TimelineCanvasView: NSView {
             sampleRate: project.sampleRate
         )
         
+        // SYNC VIEWPORT MATRIX:
+        // The ViewportMatrix is the "source of truth" for Metal rendering.
+        // It must match the current pixelsPerBeat and visible rect.
+        let samplesPerBeat = (60.0 / project.bpm) * project.sampleRate
+        viewportMatrix.samplesPerPixel = samplesPerBeat / Double(currentPPB)
+        viewportMatrix.visibleStartSample = Double(currentVisibleRect.origin.x) * viewportMatrix.samplesPerPixel
+        viewportMatrix.visibleStartY = Double(currentVisibleRect.origin.y)
+        viewportMatrix.viewportWidth = Double(currentVisibleRect.width)
+        viewportMatrix.viewportHeight = Double(currentVisibleRect.height)
+        
         // GPU BATCH RENDERING:
         // Match the Metal layer to the visible viewport.
         CATransaction.begin()
@@ -848,7 +858,7 @@ public final class TimelineCanvasView: NSView {
     }
     
     private func updateCursorLayer(project: Project, pixelsPerBeatOverride: CGFloat? = nil) {
-        guard let cursor = editCursor else {
+        guard let cursor = editCursor, !cursor.trackIDs.isEmpty else {
             cursorLayer.isHidden = true
             cursorHandleLayer.isHidden = true
             return
@@ -857,17 +867,18 @@ public final class TimelineCanvasView: NSView {
         cursorLayer.isHidden = false
         cursorHandleLayer.isHidden = false
         
-        // Find track Y position
-        var yOffset: CGFloat = 0
-        var trackHeight: CGFloat = 0
+        // Find track Y range to span all selected tracks
+        var minY: CGFloat = .greatestFiniteMagnitude
+        var maxY: CGFloat = -.greatestFiniteMagnitude
         var found = false
         
+        var yOffset: CGFloat = 0
         let visibleTracks = project.allVisibleTracks
         for track in visibleTracks {
-            if track.id == cursor.trackID {
-                trackHeight = track.height
+            if cursor.trackIDs.contains(track.id) {
+                minY = min(minY, yOffset)
+                maxY = max(maxY, yOffset + track.height)
                 found = true
-                break
             }
             yOffset += track.height
         }
@@ -884,13 +895,13 @@ public final class TimelineCanvasView: NSView {
         // Update frames (use CATransaction to disable implicit animations for position/bounds)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        cursorLayer.frame = CGRect(x: x - 0.75, y: yOffset, width: 1.5, height: trackHeight)
+        cursorLayer.frame = CGRect(x: x - 0.75, y: minY, width: 1.5, height: maxY - minY)
         
-        // Triangle Handle
+        // Triangle Handle (At the top of the spanning range)
         let path = CGMutablePath()
-        path.move(to: CGPoint(x: x - 4, y: yOffset))
-        path.addLine(to: CGPoint(x: x + 4, y: yOffset))
-        path.addLine(to: CGPoint(x: x, y: yOffset + 5))
+        path.move(to: CGPoint(x: x - 4, y: minY))
+        path.addLine(to: CGPoint(x: x + 4, y: minY))
+        path.addLine(to: CGPoint(x: x, y: minY + 5))
         path.closeSubpath()
         cursorHandleLayer.path = path
         CATransaction.commit()
@@ -1210,12 +1221,8 @@ public final class TimelineCanvasView: NSView {
         var didSplit = false
 
         for track in project.allVisibleTracks {
-            // Only affect the track with the cursor? Or all tracks?
-            // User said "strip on selected track". Implicitly focused editing.
-            // Let's restrict split to the cursor track if no specific selection exists?
-            // Actually, safe bet: Split ALL tracks at this time? No, that's destructive.
-            // Split clips on the TRACK where the cursor is.
-            guard track.id == cursor.trackID else { continue }
+            // Split clips on the TRACKS where the cursor is.
+            guard cursor.trackIDs.contains(track.id) else { continue }
             
             // Split audio clips
             var newAudioClips: [AudioClip] = []
@@ -1245,6 +1252,7 @@ public final class TimelineCanvasView: NSView {
                 didSplit = true
             }
             track.clips.append(contentsOf: newAudioClips)
+            synchronizeClips(on: track)
 
             // Split MIDI clips
             var newMidiClips: [MidiClip] = []
@@ -1394,6 +1402,9 @@ public final class TimelineCanvasView: NSView {
                 track.midiClips.append(pasted)
             }
         }
+        for track in project.allVisibleTracks {
+            synchronizeClips(on: track)
+        }
         refreshUI()
         onClipsModified?()
     }
@@ -1485,6 +1496,10 @@ public final class TimelineCanvasView: NSView {
                 )
                 track.midiClips.append(dupe)
             }
+        }
+        
+        for track in project.allVisibleTracks {
+            synchronizeClips(on: track)
         }
         
         project.isDirty = true
@@ -1689,9 +1704,22 @@ public final class TimelineCanvasView: NSView {
             track.clips.append(clip)
             beatPosition += clip.duration.beats
         }
+        
+        synchronizeClips(on: track)
 
         self.updateArrangementLayers()
         return true
+    }
+
+    private func synchronizeClips(on track: Track) {
+        guard let project = project else { return }
+        let pm = PulseMap(bpm: project.bpm, sampleRate: project.sampleRate)
+        for i in 0..<track.clips.count {
+            track.clips[i].synchronize(with: pm)
+        }
+        for i in 0..<track.midiClips.count {
+            track.midiClips[i].synchronize(with: pm)
+        }
     }
 }
 

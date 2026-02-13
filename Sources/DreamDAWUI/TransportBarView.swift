@@ -52,22 +52,22 @@ public struct TransportBarView: View {
             
             // Loop toggle
             loopSection
-            
-            Spacer()
-            
+
             thinDivider
-            
-            // Right: Key selector
+
+            // Mid-left: Key selector
             keySection
-            
+
             thinDivider
-            
-            // Right: Position display (compact)
+
+            // Mid-left: Position display (compact)
             positionSection
-            
+
+            Spacer()
+
             thinDivider
-            
-            // Right: MIDI, CPU
+
+            // Right edge: MIDI, CPU
             rightSection
         }
         .frame(height: DreamTheme.controlBarHeight)

@@ -181,7 +181,7 @@ public final class MetalTimelineRenderer: MetalCanvasRenderer {
                 let x = viewport.pixelX(for: clip.absolutePosition.sampleFrame)
                 let w = viewport.pixelWidth(forSamples: clip.absoluteDuration.sampleFrame)
                 let h = Float(track.height - 4) // 2px padding top/bottom
-                let y = trackY + 2
+                let y = viewport.pixelY(forDocumentY: trackY + 2)
                 
                 let isSelected = clip.isSelected
                 let isPhantom = phantom.isActive && phantom.clipIDs.contains(clip.id)
@@ -231,7 +231,7 @@ public final class MetalTimelineRenderer: MetalCanvasRenderer {
                 let x = viewport.pixelX(for: clip.absolutePosition.sampleFrame)
                 let w = viewport.pixelWidth(forSamples: clip.absoluteDuration.sampleFrame)
                 let h = Float(track.height - 4)
-                let y = trackY + 2
+                let y = viewport.pixelY(forDocumentY: trackY + 2)
                 
                 let isSelected = clip.isSelected
                 let isPhantom = phantom.isActive && phantom.clipIDs.contains(clip.id)
@@ -328,7 +328,7 @@ public final class MetalTimelineRenderer: MetalCanvasRenderer {
                     let usableH = track.height - headerH - 4
                     let pitchRatio = CGFloat(127 - note.pitch) / 128.0
                     let pitchOffset = pitchRatio * usableH
-                    let noteY = Float(trackY + Float(headerH) + 2 + Float(pitchOffset))
+                    let noteY = viewport.pixelY(forDocumentY: trackY + Float(headerH) + 2 + Float(pitchOffset))
                     let noteH = Float(max(1.0, usableH / 128.0))
                     
                     noteInstances.append(MidiNoteInstance(

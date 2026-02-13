@@ -8,11 +8,11 @@ import DreamDAWModels
 /// - trackID: The track where the cursor is located (for vertical drawing/pasting).
 /// - position: The time position on the grid.
 public struct EditCursor: Equatable {
-    public let trackID: UUID
+    public let trackIDs: Set<UUID>
     public let position: TimePosition
     
-    public init(trackID: UUID, position: TimePosition) {
-        self.trackID = trackID
+    public init(trackIDs: Set<UUID>, position: TimePosition) {
+        self.trackIDs = trackIDs
         self.position = position
     }
 }

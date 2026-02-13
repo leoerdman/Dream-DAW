@@ -34,6 +34,9 @@ public struct ViewportMatrix: Sendable {
     /// - `44100 * 3600` = 1 pixel per hour (maximum zoom out)
     public var samplesPerPixel: Double = 441.0
 
+    /// The vertical scroll offset in pixels (top edge).
+    public var visibleStartY: Double = 0
+
     /// The width of the viewport in pixels.
     public var viewportWidth: Double = 1258.0
 
@@ -53,11 +56,13 @@ public struct ViewportMatrix: Sendable {
     public init(
         visibleStartSample: Double = 0,
         samplesPerPixel: Double = 441.0,
+        visibleStartY: Double = 0,
         viewportWidth: Double = 1258.0,
         viewportHeight: Double = 800.0
     ) {
         self.visibleStartSample = visibleStartSample
         self.samplesPerPixel = samplesPerPixel
+        self.visibleStartY = visibleStartY
         self.viewportWidth = viewportWidth
         self.viewportHeight = viewportHeight
     }
@@ -115,6 +120,12 @@ public struct ViewportMatrix: Sendable {
     @inlinable
     public func pixelWidth(forSamples samples: Int64) -> Float {
         Float(Double(samples) / samplesPerPixel)
+    }
+
+    /// Converts a document-relative Y position to a viewport-relative Y pixel position.
+    @inlinable
+    public func pixelY(forDocumentY documentY: Float) -> Float {
+        documentY - Float(visibleStartY)
     }
 
     // MARK: - Beat-Based Convenience (for Grid/UI)

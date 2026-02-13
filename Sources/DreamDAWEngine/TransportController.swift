@@ -232,7 +232,8 @@ public final class TransportController: ObservableObject {
         let elapsedSeconds = Double(elapsedNano) / 1_000_000_000.0
         
         // PHASE 9.1: Convert elapsed seconds → sample frames (integer, no drift)
-        let elapsedSamples = Int64(elapsedSeconds * pulseMap.sampleRate)
+        let sampleRate = pulseMap.sampleRate
+        let elapsedSamples = Int64(elapsedSeconds * sampleRate)
         var currentSampleFrame = playbackStartSampleFrame + elapsedSamples
         var didLoopWrap = false
 

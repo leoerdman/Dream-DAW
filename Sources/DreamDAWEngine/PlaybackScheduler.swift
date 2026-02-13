@@ -123,6 +123,8 @@ public final class PlaybackScheduler {
             guard track.trackType != .master else { continue }
             guard let player = trackMixer.playerNode(for: track.id) else { continue }
 
+            let actualEnd = looping ? loopEnd.beats : max(project.totalDuration.beats, position.beats + 128.0)
+            
             // 2. Reset player state for fresh queue
             player.stop()
 
@@ -130,25 +132,20 @@ public final class PlaybackScheduler {
 
             // 3. Schedule Segment (Playhead to End or Loop End)
             if !looping || position.beats >= loopEnd.beats {
-                // Standard Playback: Schedule until end of project (max 300s to avoid memory bloat if huge)
-                let projectEndBeats = project.totalDuration.beats
-                let maxBeats = position.beats + (300.0 * bpm / 60.0)
-                let actualEnd = min(projectEndBeats, maxBeats)
-                
-                _ = scheduleTrackRange(track: track, player: player, start: position, end: TimePosition(beats: actualEnd), bpm: bpm, sampleRate: sampleRate)
+                // Standard Playback: Schedule until end of project
+                _ = scheduleTrackRange(track: track, player: player, start: position, end: TimePosition(beats: actualEnd), bpm: bpm, sampleRate: sampleRate, baseStartTime: baseStartTime!)
                 hasContent = true 
             } else {
                 // Looping Playback
                 // First: schedule from playhead to loop end
                 if position.beats < loopEnd.beats {
-                   let actualEnd = loopEnd.beats
                    let actualStart = position.beats
                     
                    // Schedule initial chunk
                    let rangeStart = TimePosition(beats: actualStart)
                    let rangeEnd = TimePosition(beats: actualEnd)
                    
-                   _ = scheduleTrackRange(track: track, player: player, start: rangeStart, end: rangeEnd, bpm: bpm, sampleRate: sampleRate)
+                   _ = scheduleTrackRange(track: track, player: player, start: rangeStart, end: rangeEnd, bpm: bpm, sampleRate: sampleRate, baseStartTime: baseStartTime!)
                    hasContent = true
                 }
             }
@@ -186,87 +183,61 @@ public final class PlaybackScheduler {
         track: Track, player: AVAudioPlayerNode,
         start: TimePosition, end: TimePosition,
         bpm: Double, sampleRate: Double,
-        accumulatedError: Double = 0
+        baseStartTime: AVAudioTime
     ) -> Double {
         let rangeStartBeats = start.beats
         let rangeEndBeats = end.beats
-        let rangeDurationBeats = rangeEndBeats - rangeStartBeats
-
-        guard rangeDurationBeats > 0 else { return accumulatedError }
 
         // Filter clips touching this range
-        var clipsInRange: [(Any, Double, Double, Double)] = [] // (ClipObject, StartBeat, EndBeat, Duration)
-
+        var clipsInRange: [AudioClip] = []
         if track.trackType == .audio {
-            for clip in track.clips {
-                if clip.endPosition.beats > rangeStartBeats && clip.position.beats < rangeEndBeats {
-                    clipsInRange.append((clip, clip.position.beats, clip.endPosition.beats, clip.duration.beats))
-                }
-            }
-        } else if track.trackType == .midi {
-            for clip in track.midiClips {
-                if clip.endPosition.beats > rangeStartBeats && clip.position.beats < rangeEndBeats {
-                    clipsInRange.append((clip, clip.position.beats, clip.endPosition.beats, clip.duration.beats))
-                }
+            clipsInRange = track.clips.filter {
+                $0.endPosition.beats > rangeStartBeats && $0.position.beats < rangeEndBeats
             }
         }
-
+        
         // Sort by time
-        clipsInRange.sort { $0.1 < $1.1 }
+        clipsInRange.sort { $0.position.beats < $1.position.beats }
 
-        var cursorSeconds: Double = 0
-        let rangeStartAbsSeconds = rangeStartBeats / bpm * 60.0
+        for clip in clipsInRange {
+            // Calculate clip intersection with the requested range
+            let clipStartBeats = clip.position.beats
+            let clipEndBeats = clip.endPosition.beats
 
-        for (clipObj, cStart, _, _) in clipsInRange {
-            // 1. Handle Gaps before clip
-            let clipStartAbsSeconds = cStart / bpm * 60.0
-            let relativeStartSeconds = max(0, clipStartAbsSeconds - rangeStartAbsSeconds)
-
-            if relativeStartSeconds > cursorSeconds {
-                let gapDuration = relativeStartSeconds - cursorSeconds
-                scheduleSilence(player: player, duration: gapDuration, sampleRate: sampleRate)
-                cursorSeconds += gapDuration
-            }
-
-            // 2. Schedule Clip Segment
-            let clipStartBeats = cStart
-            let clipDurationBeats = (clipObj as? AudioClip)?.duration.beats ?? (clipObj as? MidiClip)?.duration.beats ?? 0
-            let clipEndBeats = clipStartBeats + clipDurationBeats
-
-            // Truncate to range boundaries
             let actualStartBeat = max(rangeStartBeats, clipStartBeats)
             let actualEndBeat = min(rangeEndBeats, clipEndBeats)
             
             let segmentDurationBeats = actualEndBeat - actualStartBeat
             guard segmentDurationBeats > 0 else { continue }
 
+            // 1. Calculate the START TIME for this segment relative to the project start
+            let startOffsetBeats = actualStartBeat - rangeStartBeats
+            let startOffsetSeconds = startOffsetBeats / bpm * 60.0
+            
+            // 2. Adjust base audio time for this segment
+            let segmentStartTime = baseStartTime.atSeconds(startOffsetSeconds)
+
+            // 3. Calculate internal clip offset (if we are starting mid-clip)
             let offsetInClipBeats = actualStartBeat - clipStartBeats
             let offsetSeconds = offsetInClipBeats / bpm * 60.0
             let durationSeconds = segmentDurationBeats / bpm * 60.0
 
-            if let audioClip = clipObj as? AudioClip {
-                scheduleAudioSegment(player: player, clip: audioClip, offset: offsetSeconds, duration: durationSeconds, bpm: bpm)
-            } 
-            // MIDI clips are now handled by Real-Time Dispatcher (Phase 8 Order #2)
-            
-            cursorSeconds = max(cursorSeconds, relativeStartSeconds + durationSeconds)
+            scheduleAudioSegment(
+                player: player, 
+                clip: clip, 
+                offset: offsetSeconds, 
+                duration: durationSeconds, 
+                at: segmentStartTime,
+                bpm: bpm
+            )
         }
 
-        // 3. Fill trailing gap
-        let totalRangeSeconds = rangeDurationBeats / bpm * 60.0
-        if cursorSeconds < totalRangeSeconds {
-            let finalGap = totalRangeSeconds - cursorSeconds
-            scheduleSilence(player: player, duration: finalGap, sampleRate: sampleRate)
-            cursorSeconds += finalGap
-        }
-
-        // Return timing drift to maintain phase across range boundaries (e.g. for loops)
-        return cursorSeconds - totalRangeSeconds
+        return 0 // Drift no longer relevant with absolute timing
     }
 
     // MARK: - Internal Scheduling Helpers
 
-    private func scheduleAudioSegment(player: AVAudioPlayerNode, clip: AudioClip, offset: Double, duration: Double, bpm: Double) {
+    private func scheduleAudioSegment(player: AVAudioPlayerNode, clip: AudioClip, offset: Double, duration: Double, at startTime: AVAudioTime, bpm: Double) {
         do {
             let file = try AVAudioFile(forReading: clip.fileURL)
             let trimStartSeconds = clip.trimStartOffset.toSeconds(bpm: bpm)
@@ -280,7 +251,7 @@ public final class PlaybackScheduler {
             let safeFrameCount = min(fileFrameCount, AVAudioFrameCount(file.length - fileStartFrame))
             guard safeFrameCount > 0 else { return }
 
-            player.scheduleSegment(file, startingFrame: fileStartFrame, frameCount: safeFrameCount, at: nil)
+            player.scheduleSegment(file, startingFrame: fileStartFrame, frameCount: safeFrameCount, at: startTime)
         } catch {
             logger.error("PlaybackScheduler: Failed to load audio file \(clip.fileURL.lastPathComponent): \(error)")
         }

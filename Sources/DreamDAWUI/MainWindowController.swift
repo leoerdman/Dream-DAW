@@ -54,7 +54,12 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.collectionBehavior = [.fullScreenPrimary]
         window.setFrameAutosaveName("DreamDAWMainWindowFrame")
         if !restoreWindowGeometry(window) {
-            window.center()
+            // Default to full window on launch if no saved frame
+            if let visibleFrame = NSScreen.main?.visibleFrame {
+                window.setFrame(visibleFrame, display: true)
+            } else {
+                window.center()
+            }
         }
 
         self.window = window
@@ -68,12 +73,16 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     /// Swaps the project instance and re-binds observers.
     public func updateProject(_ newProject: Project) {
+        let currentFrame = window?.frame
         self.project = newProject
         
         // Update content view
         if let window = self.window {
             let arrangementVC = ArrangementViewController(project: newProject, sharedEngine: sharedEngine)
             window.contentViewController = arrangementVC
+            if let frame = currentFrame {
+                window.setFrame(frame, display: true)
+            }
         }
         
         // Re-bind subscriptions

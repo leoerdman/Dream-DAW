@@ -5,7 +5,7 @@ import DreamDAWModels
 // MARK: - Interaction Delegate
 public protocol TimelineInteractionDelegate: AnyObject {
     /// Request to set the playhead/seek position.
-    func interactionDidRequestSeek(to position: TimePosition, on trackID: UUID?)
+    func interactionDidRequestSeek(to position: TimePosition, on trackIDs: [UUID])
     
     /// Update selection state for clips.
     func interactionDidUpdateSelection(clipIDs: [UUID], isShift: Bool)

@@ -1,0 +1,39 @@
+{
+    "productName": "Dream DAW",
+    "version": "0.1.0",
+    "identifier": "com.dreamdaw.app",
+    "build": {
+        "frontendDist": "../../frontend/ui_app/dist",
+        "devUrl": "http://localhost:5173",
+        "beforeDevCommand": "pnpm --filter ui_app dev",
+        "beforeBuildCommand": "pnpm --filter ui_app build"
+    },
+    "app": {
+        "windows": [
+            {
+                "title": "Dream DAW",
+                "width": 1400,
+                "height": 900,
+                "minWidth": 900,
+                "minHeight": 600,
+                "resizable": true,
+                "fullscreen": false,
+                "decorations": true
+            }
+        ],
+        "security": {
+            "csp": null
+        }
+    },
+    "bundle": {
+        "active": true,
+        "targets": "all",
+        "icon": [
+            "icons/32x32.png",
+            "icons/128x128.png",
+            "icons/128x128@2x.png",
+            "icons/icon.icns",
+            "icons/icon.ico"
+        ]
+    }
+}

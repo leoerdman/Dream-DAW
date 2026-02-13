@@ -1,0 +1,11 @@
+{
+    "identifier": "default",
+    "description": "Default capability granting core DAW IPC commands",
+    "windows": [
+        "main"
+    ],
+    "permissions": [
+        "core:default",
+        "shell:allow-open"
+    ]
+}

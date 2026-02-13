@@ -1,195 +1,120 @@
-/* 
-   ULTRA DEEP SERVICE — CORE DESIGN TOKENS 
-   Section 2: Spacing, Typography, Colors, Shadows, Radii, Z-Index, Transitions
-*/
+/* ═══════════════════════════════════════════════════════════════
+   DREAM DAW — DESIGN TOKENS v1.0
+   PURGED: All SaaS/web/marketing tokens removed.
+   SOURCE: Ultra Deep Service tokens.css (Semantic Transplantation)
+   ═════════════════════════════════════════════════════════════ */
 
 :root {
     /* ─────────────────────────────────────────────────────────────
-     SPACING (base: 4px) - Theme Independent
+     SPACING (base: 4px) — Theme Independent
      ───────────────────────────────────────────────────────────── */
     --space-0: 0;
+    --space-px: 1px;
+    --space-0-5: 2px;
     --space-1: 4px;
+    --space-1-5: 6px;
     --space-2: 8px;
+    --space-2-5: 10px;
     --space-3: 12px;
+    --space-3-5: 14px;
     --space-4: 16px;
     --space-5: 20px;
     --space-6: 24px;
     --space-7: 28px;
     --space-8: 32px;
-    --space-9: 36px;
     --space-10: 40px;
-    --space-11: 44px;
     --space-12: 48px;
-    --space-13: 52px;
-    --space-14: 56px;
-    --space-15: 60px;
     --space-16: 64px;
-    --space-17: 68px;
     --space-20: 80px;
-    --space-22: 88px;
     --space-24: 96px;
-    --space-25: 100px;
-    --space-26: 104px;
-    --space-30: 120px;
-    --space-32: 128px;
-    --space-35: 140px;
-    --space-38: 152px;
-    --space-40: 160px;
-    --space-42: 168px;
-    --space-45: 180px;
-    --space-47: 188px;
-    --space-50: 200px;
-    --space-55: 220px;
-    --space-60: 240px;
-    --space-70: 280px;
-    --space-75: 300px;
-    --space-80: 320px;
-    --space-88: 352px;
-    --space-90: 360px;
-    --space-95: 380px;
-    --space-100: 400px;
-    --space-105: 420px;
-    --space-120: 480px;
-    --space-125: 500px;
-    --space-130: 520px;
-    --space-150: 600px;
-    --space-162: 648px;
-    --space-215: 860px;
-    --space-dropdown-gap: 16px;
-
-    /* Half-step spacing */
-    --space-0-5: 2px;
-    --space-0-75: 3px;
-    --space-1-5: 6px;
-    --space-2-25: 9px;
-    --space-2-5: 10px;
-    --space-3-5: 14px;
-    --space-4-5: 18px;
-    --space-5-5: 22px;
-    --space-6-5: 26px;
-    --space-8-5: 34px;
-    --space-9-5: 38px;
-    --space-10-5: 42px;
-    --space-12-5: 50px;
-    --space-px: 1px;
 
     /* ─────────────────────────────────────────────────────────────
-     LAYOUT DIMENSIONS
+     DAW LAYOUT DIMENSIONS
      ───────────────────────────────────────────────────────────── */
-    --layout-header-height: 60px;
-    --layout-sidebar-width: 60px;
-    --layout-sidebar-width-expanded: 256px;
-    --duration-sidebar: 0.2s;
-    --ease-sidebar: cubic-bezier(0.2, 0, 0, 1);
-    --layout-page-padding-top: 32px;
-    --layout-page-padding-bottom: 32px;
-    --layout-page-padding-x: 32px;
-    --layout-page-padding-y: 32px;
-    --layout-canvas-controls-offset: 16px;
-    --layout-canvas-controls-height: 44px;
+    --daw-transport-height: 60px;
+    --daw-sidebar-width: 280px;
+    --daw-inspector-width: 280px;
+    --daw-device-rack-height: 30vh;
+    --daw-device-rack-min-height: 250px;
+    --daw-panel-gap: 16px;
 
-    /* Z-Indices */
-    --z-negative: -1;
-    --z-0: 0;
-    --z-1: 1;
-    --z-10: 10;
-    --z-fixed: 50;
-    --z-header: 100;
-    --z-sidebar: 101;
-    --z-sticky: 100;
-    --z-dropdown: 1000;
+    /* ─────────────────────────────────────────────────────────────
+     Z-INDICES (DAW Layer Stack)
+     ───────────────────────────────────────────────────────────── */
+    --z-canvas: 0;
+    /* WebGPU timeline */
+    --z-ui-overlay: 10;
+    /* React UI layer */
+    --z-panels: 40;
+    /* Side panels */
+    --z-transport: 50;
+    /* Transport bar */
     --z-modal: 1000;
+    /* Modals */
     --z-tooltip: 2000;
-    --z-overlay: 2000;
+    /* Tooltips */
 
     /* ─────────────────────────────────────────────────────────────
      TYPOGRAPHY
      ───────────────────────────────────────────────────────────── */
     --font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
 
     --font-size-2xs: 10px;
     --font-size-xs: 11px;
-    --font-size-small: 13px;
     --font-size-sm: 13px;
-    --font-size-body: 15px;
-    --font-size-h5: 16px;
-    --font-size-h4: 18px;
-    --font-size-h3: 24px;
-    --font-size-xl: 24px;
-    --font-size-h2: 32px;
-    --font-size-2xl: 32px;
-    --font-size-3xl: 30px;
-    /* Legacy override in dump, kept for consistency */
-    --font-size-4xl: 36px;
-    --font-size-h1: 48px;
-    --font-size-5xl: 48px;
-    --font-size-6xl: 60px;
+    --font-size-base: 14px;
+    --font-size-md: 15px;
+    --font-size-lg: 16px;
+    --font-size-xl: 18px;
+    --font-size-2xl: 24px;
+    --font-size-3xl: 32px;
+    --font-size-4xl: 48px;
 
     --font-weight-regular: 400;
     --font-weight-medium: 500;
     --font-weight-semibold: 600;
-    --font-weight-bold: 600;
-    --font-weight-extrabold: 800;
+    --font-weight-bold: 700;
 
-    --line-height-heading: 1.2;
-    --line-height-body: 1.6;
-    --line-height-tight: 1.4;
-    --line-height-snug: 1.25;
+    --line-height-tight: 1.2;
     --line-height-normal: 1.5;
     --line-height-relaxed: 1.625;
-    --line-height-loose: 2;
 
-    --letter-spacing-heading: -0.02em;
-    --letter-spacing-body: 0;
-    --letter-spacing-uppercase: 0.05em;
     --letter-spacing-tight: -0.025em;
     --letter-spacing-normal: 0;
-    --letter-spacing-wide: 0.025em;
+    --letter-spacing-wide: 0.05em;
 
     /* ─────────────────────────────────────────────────────────────
-     RADI & BLUR
+     RADII
      ───────────────────────────────────────────────────────────── */
-    --radius-2xs: 2px;
     --radius-xs: 4px;
-    --radius-small: 6px;
     --radius-sm: 6px;
     --radius-md: 8px;
     --radius-lg: 12px;
     --radius-xl: 16px;
     --radius-2xl: 20px;
     --radius-full: 9999px;
-    --radius-pill: 9999px;
 
-    --glass-radius: 16px;
-    --glass-radius-inner: 12px;
-    --button-border-radius: 8px;
-    --card-radius: 12px;
+    /* Device Rack Node radii (from UDS .flow-node) */
+    --node-border-radius: 12px;
+    --node-border-radius-inner: 10px;
 
+    /* ─────────────────────────────────────────────────────────────
+     BLUR & EFFECTS
+     ───────────────────────────────────────────────────────────── */
     --blur-sm: 4px;
     --blur-md: 10px;
     --blur-lg: 20px;
     --blur-xl: 40px;
-    --blur-3xl: 64px;
-
-    --backdrop-blur-sm: 4px;
-    --backdrop-blur-lg: 16px;
-    --backdrop-blur-xl: 24px;
-    --glass-blur: 12px;
 
     /* ─────────────────────────────────────────────────────────────
      SHADOWS
      ───────────────────────────────────────────────────────────── */
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
-    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
-    /* --color-overlay-dark resolved */
-    --shadow-xl: 0 12px 32px rgba(0, 0, 0, 0.25);
-    --shadow-2xl: 0 16px 50px rgba(0, 0, 0, 0.35);
-    --shadow-menu: 0 8px 32px rgba(0, 0, 0, 0.7);
-    /* --color-overlay-modal resolved */
-    --shadow-header: 0 1px 0 rgba(255, 255, 255, 0.03);
-    --shadow-sidebar: inset -1px 0 0 rgba(255, 255, 255, 0.04);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.25);
+    --shadow-xl: 0 12px 32px rgba(0, 0, 0, 0.35);
+    --shadow-panel: 0 8px 32px rgba(0, 0, 0, 0.5);
 
     /* ─────────────────────────────────────────────────────────────
      TRANSITIONS
@@ -197,134 +122,125 @@
     --transition-fast: 0.15s ease;
     --transition-normal: 0.25s ease;
     --transition-slow: 0.4s ease;
-    --transition-bounce: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    --duration-fast: 0.15s;
-    --duration-normal: 0.25s;
-    --duration-slow: 0.4s;
-    --duration-spin: 1s;
     --ease-out: cubic-bezier(0.0, 0.0, 0.2, 1);
     --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 
     /* ─────────────────────────────────────────────────────────────
-     ATOMIC TOKENS
+     OPACITY
      ───────────────────────────────────────────────────────────── */
     --opacity-disabled: 0.5;
     --opacity-dim: 0.6;
-    --opacity-faint: 0.15;
     --opacity-medium: 0.8;
     --opacity-hover: 0.9;
-    --opacity-low: 0.3;
-    --opacity-high: 0.9;
 
     --border-width-1: 1px;
     --border-width-2: 2px;
-    --border-width-3: 3px;
 }
+
 
 /* ═══════════════════════════════════════════════════════════════
    DARK THEME (DEFAULT)
    ═══════════════════════════════════════════════════════════════ */
 :root,
 :root[data-theme="dark"] {
-    /* Backgrounds */
+    /* ── Application Backgrounds ── */
     --color-bg-app: #0f0f0f;
-    --color-bg-page: #161616;
     --color-bg-canvas: #151515;
-    --color-bg-node: #323232;
-    --color-bg-node-translucent: rgba(50, 50, 50, 0.7);
-    --color-bg-header: #1e1e1e;
-    --color-bg-input: #181818;
+    --color-bg-panel: rgba(20, 20, 20, 0.85);
     --color-bg-elevated: #1e1e1e;
+    --color-bg-header: #1a1a1a;
+    --color-bg-input: #181818;
     --color-bg-hover: #2a2a2a;
-    --color-bg-panel-adjacent: rgba(20, 20, 20, 0.8);
-    --color-bg-container: #1a1a1a;
-    --color-bg-card: #1e1e1e;
-    --color-bg-modal: #181818;
-    --color-bg-tooltip: #2a2a2a;
     --color-bg-active: #2d2d2d;
 
-    /* Borders */
-    --color-border-subtle: #222;
+    /* ── Node Backgrounds (Device Rack) ── */
+    --color-bg-node: #2a2a2a;
+    --color-bg-node-header: #1e1e1e;
+    --color-bg-node-body: #242424;
+
+    /* ── Borders ── */
+    --color-border-subtle: rgba(255, 255, 255, 0.06);
     --color-border-default: #262626;
-    --color-border-highlight: #4facfe;
-    /* implied */
+    --color-border-highlight: rgba(79, 172, 254, 0.5);
     --color-border-selected: rgba(255, 255, 255, 0.85);
 
-    /* Text */
+    /* ── Texts ── */
     --color-text-primary: rgba(255, 255, 255, 0.95);
-    --color-text-secondary: rgba(255, 255, 255, 0.75);
-    --color-text-tertiary: rgba(255, 255, 255, 0.5);
+    --color-text-secondary: rgba(255, 255, 255, 0.65);
+    --color-text-tertiary: rgba(255, 255, 255, 0.4);
     --color-text-inverse: #000000;
-    --color-text-on-overlay: #ffffff;
 
-    /* Accents */
+    /* ── Accent (Brand Blue) ── */
     --color-accent-primary: #4facfe;
     --color-accent-primary-hover: #60b5ff;
-    --color-accent-primary-light: rgba(79, 172, 254, 0.15);
     --color-accent-primary-glow: rgba(79, 172, 254, 0.35);
     --color-accent-primary-dim: rgba(79, 172, 254, 0.12);
-    --color-accent-primary-border: rgba(79, 172, 254, 0.25);
 
-    --color-accent-blue: var(--color-accent-primary);
-    --color-accent-purple: #b794f6;
-    --color-accent-green: #22c55e;
-    --color-accent-orange: #eab308;
-    --color-accent-red: #ef4444;
-    --color-accent-cyan: #00f2ff;
+    /* ── Status Colors (Transport/Metering) ── */
+    --color-status-success: #22c55e;
+    --color-status-error: #ef4444;
+    --color-status-warning: #eab308;
+    --color-status-record: #ef4444;
 
-    /* Glass */
-    --glass-bg: rgba(20, 20, 20, 0.8);
-    --glass-bg-hover: rgba(30, 30, 30, 0.9);
+    /* ── Port Colors (Audio Signal Types) ── */
+    --color-port-audio: #4facfe;
+    --color-port-midi: #b794f6;
+    --color-port-sidechain: #ff8c00;
+
+    /* ── Glass (Panels & Overlays) ── */
+    --glass-bg: rgba(18, 18, 18, 0.85);
+    --glass-bg-hover: rgba(28, 28, 28, 0.92);
     --glass-border: rgba(255, 255, 255, 0.06);
-    --glass-border-hover: rgba(255, 255, 255, 0.1);
+    --glass-border-hover: rgba(255, 255, 255, 0.12);
+    --glass-blur: 16px;
+    --glass-radius: 16px;
 
-    /* Overlays */
+    /* ── Overlays ── */
     --color-overlay-light: rgba(0, 0, 0, 0.2);
     --color-overlay-medium: rgba(0, 0, 0, 0.4);
     --color-overlay-dark: rgba(0, 0, 0, 0.6);
     --color-overlay-modal: rgba(0, 0, 0, 0.7);
 
-    /* Gradients */
-    --gradient-primary: linear-gradient(135deg, var(--color-accent-primary) 0%, #60b5ff 100%);
-    --gradient-purple: linear-gradient(135deg, #667eea, #764ba2);
+    /* ── Gradients ── */
+    --gradient-primary: linear-gradient(135deg, #4facfe 0%, #60b5ff 100%);
+    --gradient-meter: linear-gradient(to top, #22c55e 0%, #eab308 70%, #ef4444 100%);
 }
+
 
 /* ═══════════════════════════════════════════════════════════════
    LIGHT THEME
    ═══════════════════════════════════════════════════════════════ */
 :root[data-theme="light"] {
-    --color-bg-app: #fafafa;
-    --color-bg-page: #f5f5f5;
+    --color-bg-app: #f5f5f5;
     --color-bg-canvas: #e5e7eb;
-    --color-bg-node: #f5f5f5;
+    --color-bg-panel: rgba(255, 255, 255, 0.92);
+    --color-bg-elevated: #ffffff;
     --color-bg-header: #eeeff1;
     --color-bg-input: #ffffff;
-    --color-bg-elevated: #ffffff;
     --color-bg-hover: #e8e9eb;
-    --color-bg-panel-adjacent: rgba(245, 245, 245, 0.9);
-    --color-bg-tooltip: #1f2937;
-    --color-bg-card: #ffffff;
+    --color-bg-active: #dfe0e2;
 
-    --color-border-subtle: #d1d5db;
-    --color-border-default: #b5b9bf;
-    --color-border-highlight: #8b92a0;
+    --color-bg-node: #f0f0f0;
+    --color-bg-node-header: #e5e5e5;
+    --color-bg-node-body: #ebebeb;
+
+    --color-border-subtle: rgba(0, 0, 0, 0.08);
+    --color-border-default: #c5c7cc;
+    --color-border-highlight: rgba(37, 99, 235, 0.5);
     --color-border-selected: #1e293b;
 
     --color-text-primary: #111827;
     --color-text-secondary: #4b5563;
-    --color-text-tertiary: #6b7280;
+    --color-text-tertiary: #9ca3af;
     --color-text-inverse: #ffffff;
-    --color-text-on-overlay: #000000;
 
     --color-accent-primary: #3b82f6;
-    /* Adjusted for light mode contrast */
     --color-accent-primary-hover: #2563eb;
+    --color-accent-primary-glow: rgba(37, 99, 235, 0.3);
+    --color-accent-primary-dim: rgba(37, 99, 235, 0.1);
 
-    --glass-bg: rgba(255, 255, 255, 0.95);
-    --glass-bg-hover: rgba(255, 255, 255, 0.98);
-    --glass-border: rgba(0, 0, 0, 0.1);
-    --glass-border-hover: rgba(0, 0, 0, 0.15);
-
-    --color-overlay-light: rgba(0, 0, 0, 0.05);
-    --color-overlay-medium: rgba(0, 0, 0, 0.1);
+    --glass-bg: rgba(255, 255, 255, 0.92);
+    --glass-bg-hover: rgba(255, 255, 255, 0.97);
+    --glass-border: rgba(0, 0, 0, 0.08);
+    --glass-border-hover: rgba(0, 0, 0, 0.14);
 }

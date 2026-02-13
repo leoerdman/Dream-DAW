@@ -1,0 +1,3 @@
+packages:
+  - "frontend/ui_app"
+  - "apps/desktop_host"

@@ -5,6 +5,7 @@ members = [
     "core/dream_graph",
     "core/dream_dsp",
     "core/dream_engine",
+    "apps/desktop_host",
 ]
 resolver = "3"
 

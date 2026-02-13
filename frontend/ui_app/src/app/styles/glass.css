@@ -1,0 +1,97 @@
+/* ═══════════════════════════════════════════════════════════════
+   DREAM DAW — GLASSMORPHISM SYSTEM
+   Reusable glass panel utilities for DAW panels.
+   Source: Ultra Deep Service glass tokens (purged)
+   ═════════════════════════════════════════════════════════════ */
+
+/* ── Base Glass Panel ── */
+.glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: var(--border-width-1) solid var(--glass-border);
+    border-radius: var(--glass-radius);
+    transition:
+        background var(--transition-normal),
+        border-color var(--transition-normal);
+}
+
+.glass-panel:hover {
+    background: var(--glass-bg-hover);
+    border-color: var(--glass-border-hover);
+}
+
+/* ── Glass Pill (Transport Controls) ── */
+.glass-pill {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: var(--border-width-1) solid var(--glass-border);
+    border-radius: var(--glass-radius);
+    display: inline-flex;
+    align-items: center;
+    padding: 0 var(--space-4);
+    gap: var(--space-3);
+    transition: all var(--transition-normal);
+}
+
+.glass-pill:hover {
+    background: var(--glass-bg-hover);
+    border-color: var(--glass-border-hover);
+}
+
+/* ── Glass Divider (inside pills) ── */
+.glass-divider {
+    width: var(--border-width-1);
+    height: var(--space-8);
+    background: var(--glass-border);
+    flex-shrink: 0;
+}
+
+/* ── Ghost Button (used across panels) ── */
+.btn-ghost {
+    background: transparent;
+    color: var(--color-text-secondary);
+    padding: var(--space-2);
+    border-radius: var(--radius-md);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
+}
+
+.btn-ghost:hover {
+    background: var(--color-bg-hover);
+    color: var(--color-text-primary);
+}
+
+/* ── Panel Tab System (Asset Browser) ── */
+.panel-tabs {
+    display: flex;
+    border-bottom: var(--border-width-1) solid var(--color-border-subtle);
+}
+
+.panel-tab {
+    flex: 1;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: color var(--transition-fast), background var(--transition-fast);
+    border-bottom: 2px solid transparent;
+}
+
+.panel-tab:hover {
+    color: var(--color-text-primary);
+    background: var(--color-bg-hover);
+}
+
+.panel-tab.active {
+    color: var(--color-text-primary);
+    border-bottom-color: var(--color-accent-primary);
+}

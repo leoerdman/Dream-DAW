@@ -21,3 +21,17 @@ Dream DAW - Main Folder
 *.swp
 *.swo
 *~
+
+# ── Node / pnpm ──────────────────────────────────────────────
+node_modules/
+dist/
+.pnpm-store/
+pnpm-debug.log*
+
+# ── Tauri ────────────────────────────────────────────────────
+.tauri/
+src-tauri/target/
+*.app
+*.dmg
+*.deb
+*.AppImage

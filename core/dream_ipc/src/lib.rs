@@ -18,6 +18,8 @@ use std::sync::atomic::{AtomicI64, Ordering};
 // ── Re-export rtrb types for consumers of this crate ────────────────────
 pub use rtrb;
 
+pub mod metering;
+
 // ── Engine Commands ─────────────────────────────────────────────────────
 
 /// Commands dispatched from the non-real-time UI thread to the audio callback.

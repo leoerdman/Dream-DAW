@@ -1015,3 +1015,163 @@ Yes, via `[workspace.dependencies]`. All crates use `workspace = true`. **✅ PA
 ### Q68-Q70. Are serde, ts-rs, uuid properly configured?
 
 `serde` with derive, `ts-rs` with serde-compat, `uuid` with v4+serde. **✅ PASS**
+
+### Q71. Does dream_models contain ANY logic?
+
+Minimal — only computed accessors: `total_latency_frames()`, `end_position()`, `overlaps()`. True data-only crate. **✅ PASS**
+
+### Q72. How are Uuid fields mapped to TypeScript?
+
+Manual override: `#[ts(type = "string")]`. UUID serializes as string in JSON. **✅ PASS**
+
+### Q73. Is desktop_host properly separated from core logic?
+
+Yes. 190 LOC total — only Tauri glue: `AudioEngineHandle`, 4 commands, `run()`. **✅ PASS**
+
+### Q74. Does the Tauri `_stream` field serve a purpose?
+
+Yes — keeps cpal stream alive via RAII. Dropping it stops audio. **✅ PASS**
+
+### Q75. Is `log` used consistently?
+
+Yes, all crates use `log` facade. `env_logger` initialized once in app entry. **✅ PASS**
+
+### Q76. Are there any `unsafe` blocks?
+
+Only in `bytemuck` derives (macro-generated). Zero hand-written `unsafe`. **✅ PASS**
+
+### Q77. Are all test modules gated with `#[cfg(test)]`?
+
+Yes, every module. Tests excluded from release builds. **✅ PASS**
+
+### Q78. Does the project support mobile builds?
+
+Yes: `#[cfg_attr(mobile, tauri::mobile_entry_point)]`. **✅ PASS**
+
+### Q79. Is the Windows subsystem correctly hidden?
+
+Yes: `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]`. **✅ PASS**
+
+### Q80. Does bytemuck have the derive feature?
+
+Yes: `bytemuck = { version = "1.21", features = ["derive"] }`. **✅ PASS**
+
+---
+
+## Block 5: Production Readiness & Edge Cases (Q81–Q100)
+
+---
+
+### Q81. Is there any `unwrap()` in non-test production code?
+
+Minimal — `from_events` uses `assert!` (panics on empty), `topological_order` uses `.expect()` (unreachable after validation). **⚠️ WARN** — Should return `Result` instead.
+
+### Q82. Are there any `todo!()` or `unimplemented!()` macros?
+
+None found in any source file. **✅ PASS**
+
+### Q83. Is there proper error typing?
+
+Mixed: `driver.rs` uses `Result<_, String>` ⚠️, but `AudioReadError`, `ResampleError`, `PluginError` all use proper enums ✅. **⚠️ WARN** — `dream_engine` needs `EngineError` enum.
+
+### Q84. Does the project file save atomically?
+
+**No.** Uses direct `std::fs::write(path, json)`. A power loss during write corrupts the file. **❌ FAIL** — Must use write-to-temp + `fs::rename`.
+
+### Q85. Is there any `log::info!` in the audio callback?
+
+The callback itself has none, but `TransportController::process_command` does: `log::info!("Transport: Playing")`. This runs on the audio thread. `env_logger` acquires a lock on stderr. **⚠️ WARN** — RT violation. Should use lock-free logger or defer.
+
+### Q86. Does FadeCache pre-compute at startup?
+
+Yes — one-time allocation. Audio thread reads cached slices only. **✅ PASS**
+
+### Q87. Does peak cache handle mono vs stereo?
+
+Channel-agnostic — operates on `&[f32]` slices. Caller passes individual channels. **✅ PASS**
+
+### Q88. Is frequency validation on Tauri side correct?
+
+Yes: `!(20.0..=20000.0).contains(&freq)` — rejects NaN too. **✅ PASS**
+
+### Q89. Does EngineCommand fit in a cache line?
+
+~8 bytes total. Easily fits in 64-byte cache line. **✅ PASS**
+
+### Q90. Is the ring buffer capacity sufficient?
+
+256 commands. At ~86 callbacks/sec → ~3 seconds of backlog. **✅ PASS**
+
+### Q91. Does the audio callback handle stereo correctly?
+
+Writes mono to both channels (Phase 1 limitation). `clock.advance(data.len() / 2)` assumes stereo. **⚠️ WARN** — Should derive channel count from cpal config.
+
+### Q92. Are there panicking indexing in hot paths?
+
+`.first().unwrap()` / `.last().unwrap()` in `evaluate()` are guarded by prior `is_empty()` check. **✅ PASS**
+
+### Q93. Does PulseMap::from_events validate sort order?
+
+No — only asserts non-empty. Assumes events are pre-sorted. **⚠️ WARN** — Should validate or sort.
+
+### Q94. Is the meter's RMS calculation correct?
+
+Standard: `sqrt(sum(x²) / N)`. **✅ PASS**
+
+### Q95. Does the plugin scanner handle missing directories?
+
+Yes: `if !path.exists() { continue; }`. **✅ PASS**
+
+### Q96. Is Project::move_track bounds-safe?
+
+Yes: `if from < len && to < len`. No-op for invalid indices. **✅ PASS**
+
+### Q97. Does Project::any_solo exclude master track?
+
+Yes: filters `t.track_type != TrackType::Master`. **✅ PASS**
+
+### Q98. Are all `#[inline]` annotations appropriate?
+
+Yes — on small, hot-path methods (getters, arithmetic, evaluation). LTO would inline anyway. **✅ PASS**
+
+### Q99. Is there any global mutable state?
+
+No. All state is struct-owned, `Arc<Atomic>`, `ArcSwap`, or Tauri-managed. **✅ PASS**
+
+### Q100. Overall production readiness assessment?
+
+| Category | Score | Notes |
+|----------|-------|-------|
+| Real-Time Safety | 9/10 | `log::info!` in transport processing |
+| Lock-Free Design | 10/10 | rtrb + arc-swap, zero locks in hot path |
+| Memory Safety | 10/10 | Zero unsafe, no raw pointers |
+| Architecture | 10/10 | Clean crate DAG, single responsibility |
+| Build System | 10/10 | Fat LTO, panic=abort, centralized deps |
+| Test Coverage | 8/10 | Every module tested, no integration tests |
+| Error Handling | 7/10 | Mixed String/enum errors, no atomic save |
+| Edge Cases | 8/10 | Most handled, some WARN items above |
+
+**Critical Issues (Must Fix)**:
+1. ❌ **Q84**: Non-atomic project file save
+2. ⚠️ **Q85**: `log::info!` on audio thread (RT violation)
+3. ⚠️ **Q6**: Hardcoded 44100 sample rate in callback
+
+**Recommended Improvements**:
+- Q19: Pre-allocate clip scheduler output buffer
+- Q44: Flush MIDI + plugin state on Panic
+- Q46: Snap playhead into loop region on enable
+- Q49: Rename "Exponential" to "Quadratic" or implement true exp
+- Q55: Allow Playing → Recording transition (punch-in)
+- Q56: Add `bpm.is_finite()` guard + raise minimum to 20
+- Q81: Replace `expect` with `Result` in `topological_order`
+- Q83: Define `EngineError` enum in `dream_engine`
+- Q93: Validate tempo event sort order in `from_events`
+
+**Overall Verdict**: **PRODUCTION-READY WITH CAVEATS** — 1 FAIL, 14 WARN, 85 PASS.
+
+The architecture is enterprise-grade. The identified issues are fixable in a single sprint.
+
+---
+
+> *End of Rust Core Dump — 100 questions audited across 13 crates, ~6000+ LOC.*
+

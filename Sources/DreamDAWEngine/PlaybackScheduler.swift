@@ -58,6 +58,12 @@ public final class PlaybackScheduler {
     private var loopStart: Double = 0.0
     private var loopEnd: Double = 0.0
     
+    // SPRINT 5 (Pillar 1): Möbius Loop — Ahead-of-Time seamless looping state
+    private var isNextLoopScheduled: Bool = false
+    private var aotLoopTimer: DispatchSourceTimer?
+    private var activeProject: Project?  // Captured for AoT re-scheduling
+    private var isRTElevated: Bool = false
+    
     /// Dedicated background queue for scheduling logic to avoid UI freezes.
     private let schedulingQueue = DispatchQueue(label: "com.dreamdaw.scheduling", qos: .userInitiated)
 
@@ -84,6 +90,16 @@ public final class PlaybackScheduler {
     ) {
         schedulingQueue.async { [weak self] in
             guard let self = self else { return }
+            
+            // SPRINT 5 (Pillar 5): Elevate scheduling thread to Mach RT priority
+            if !self.isRTElevated {
+                MachThreadConfigurator.elevateToRealTime(
+                    sampleRate: self.audioEngine.sampleRate,
+                    bufferSize: 256
+                )
+                self.isRTElevated = true
+            }
+            
             let startTime = self.schedulePlayback(
                 project: project,
                 from: position,
@@ -127,7 +143,10 @@ public final class PlaybackScheduler {
         // 1. Prepare base start time (common for all nodes for sync)
         // CRITICAL: We correlate hostTime and sampleTime: 0 here so all player nodes
         // anchored to this time start exactly at their first scheduled segment.
-        let delay: Double = 0.1 // 100ms lead time for hardware setup
+        // SPRINT 4 (Pillar 1): Reduced from 100ms to 20ms.
+        // 20ms is the minimum safe lead time for CoreAudio pipeline fill.
+        // The previous 100ms caused user-perceptible play latency.
+        let delay: Double = 0.02
         let startHostTime = mach_absolute_time() + secondsToTicks(delay, timebaseInfo: &timebaseInfo)
         let baseStartTime = AVAudioTime(hostTime: startHostTime, sampleTime: 0, atRate: sampleRate)
 
@@ -201,6 +220,11 @@ public final class PlaybackScheduler {
         let midiSnapshot = collectActiveMidiClips(project: project)
         setupRealTimeObserver(midiSnapshot: midiSnapshot, bpm: bpm, sampleRate: sampleRate, startHostTime: startHostTime)
         
+        // SPRINT 5 (Pillar 1): Start AoT loop pre-scheduling timer
+        if looping && self.loopEnd > self.loopStart {
+            startAoTLoopTimer(project: project)
+        }
+        
         return baseStartTime
     }
 
@@ -256,17 +280,36 @@ public final class PlaybackScheduler {
             
             let segmentDurationSamples = actualEndFrame - actualStartFrame
             guard segmentDurationSamples > 0 else { continue }
+            
+            // SPRINT 4 (Pillar 4): Warp FrameCount Correction.
+            // When a clip is time-stretched (stretchFactor > 1.0 = faster),
+            // AVAudioUnitTimePitch will CONSUME source frames at `rate` speed.
+            // We must read FEWER source frames: duration / stretchFactor.
+            // Without this, accelerated clips read past EOF and go silent.
+            let stretchFactor = clip.stretchFactor
+            let warpCorrectedSamples: Int64
+            if stretchFactor != 1.0 && stretchFactor > 0.0 {
+                warpCorrectedSamples = Int64(Double(segmentDurationSamples) / stretchFactor)
+                // Set the TimePitch node rate for this track
+                trackMixer.updateTimePitchRate(trackID: track.id, rate: Float(stretchFactor))
+            } else {
+                warpCorrectedSamples = segmentDurationSamples
+                // Reset TimePitch to unity for non-warped clips
+                trackMixer.resetTimePitch(trackID: track.id)
+            }
 
             // Internal clip offset (if we are starting mid-clip)
             let offsetInClipSamples = actualStartFrame - clipStartFrame
-            let offsetSeconds = Double(offsetInClipSamples) / pm.sampleRate
+            let warpCorrectedOffset = stretchFactor != 1.0 && stretchFactor > 0.0
+                ? Double(offsetInClipSamples) / (pm.sampleRate * stretchFactor)
+                : Double(offsetInClipSamples) / pm.sampleRate
 
             let startTime = isFirstBufferInRange ? baseStartTime : nil
             scheduleAudioSegment(
                 player: player, 
                 clip: clip, 
-                offset: offsetSeconds, 
-                durationSamples: segmentDurationSamples, 
+                offset: warpCorrectedOffset, 
+                durationSamples: warpCorrectedSamples, 
                 at: startTime,
                 pm: pm
             )
@@ -276,7 +319,7 @@ public final class PlaybackScheduler {
             
             // PHASE 11.8: Enhanced Diagnostics
             let hostStr = startTime.map { String($0.hostTime) } ?? "nil"
-            print("[SCHED] Track: \(track.name) | Clip: \(clip.fileURL.lastPathComponent) | Sample: \(actualStartFrame)->\(actualEndFrame) | HostTime: \(hostStr)")
+            print("[SCHED] Track: \(track.name) | Clip: \(clip.fileURL.lastPathComponent) | Sample: \(actualStartFrame)->\(actualEndFrame) | Warp: \(stretchFactor) | HostTime: \(hostStr)")
         }
 
         // 3. Final Gap after last clip (fill until range end)
@@ -293,6 +336,9 @@ public final class PlaybackScheduler {
 
     // MARK: - Internal Scheduling Helpers
 
+    // SPRINT 5 (Pillar 2): Buffer-based scheduling with QuantumDSP micro-fades.
+    // Instead of scheduling file segments directly (which gives no access to samples),
+    // we read into a buffer, apply Hann window fades, then schedule the buffer.
     private func scheduleAudioSegment(
         player: AVAudioPlayerNode, 
         clip: AudioClip, 
@@ -302,7 +348,14 @@ public final class PlaybackScheduler {
         pm: PulseMap
     ) {
         do {
-            let file = try AVAudioFile(forReading: clip.fileURL)
+            // SPRINT 5 (Pillar 5): Check buffer pool first for short samples
+            let file: AVAudioFile
+            if let pooledFile = try? AudioBufferPool.shared.getFile(for: clip.fileURL) {
+                file = pooledFile
+            } else {
+                file = try AVAudioFile(forReading: clip.fileURL)
+            }
+            
             let trimStartSeconds = clip.trimStartOffset.toSeconds(bpm: pm.initialBPM)
             let sourceOffsetSeconds = trimStartSeconds + offset
             let fileStartFrame = AVAudioFramePosition(sourceOffsetSeconds * file.fileFormat.sampleRate)
@@ -311,11 +364,23 @@ public final class PlaybackScheduler {
             guard fileFrameCount > 0 else { return }
             
             // Note: Clipping support (offset + count <= length)
-            let safeFrameCount = min(fileFrameCount, AVAudioFrameCount(file.length - fileStartFrame))
+            let safeFrameCount = min(fileFrameCount, AVAudioFrameCount(max(0, file.length - fileStartFrame)))
             guard safeFrameCount > 0 else { return }
+            
+            // Read audio into buffer for micro-fade processing
+            file.framePosition = fileStartFrame
+            guard let buffer = AVAudioPCMBuffer(
+                pcmFormat: file.processingFormat,
+                frameCapacity: safeFrameCount
+            ) else { return }
+            
+            try file.read(into: buffer, frameCount: safeFrameCount)
+            
+            // SPRINT 5 (Pillar 2): Apply vectorized Hann micro-fades to kill trim clicks
+            QuantumDSP.applyMicroFades(to: buffer, sampleRate: file.fileFormat.sampleRate)
 
-            print("[DIAG-AUDIO] Clip: \(clip.fileURL.lastPathComponent) | FileStart: \(fileStartFrame) | Frames: \(safeFrameCount) | HostTime: \(startTime?.hostTime ?? 0)")
-            player.scheduleSegment(file, startingFrame: fileStartFrame, frameCount: safeFrameCount, at: startTime)
+            print("[DIAG-AUDIO] Clip: \(clip.fileURL.lastPathComponent) | FileStart: \(fileStartFrame) | Frames: \(safeFrameCount) | MicroFade: ON | HostTime: \(startTime?.hostTime ?? 0)")
+            player.scheduleBuffer(buffer, at: startTime)
         } catch {
             logger.error("PlaybackScheduler: Failed to load audio file \(clip.fileURL.lastPathComponent): \(error)")
         }
@@ -618,25 +683,118 @@ public final class PlaybackScheduler {
         }
     }
     
-    /// HOTFIX 8.5: Offset type changed from UInt32 to Int64 (AUEventSampleTime).
-    /// CoreAudio's AUScheduleMIDIEventBlock uses AUEventSampleTime (Int64),
-    /// so passing UInt32 was a silent truncation risk on top of the underflow bug.
+    /// SPRINT 4 (Pillar 3): Zero-Allocation MIDI Dispatch.
+    /// - Uses a C-tuple `(UInt8, UInt8, UInt8)` instead of `[UInt8]` to avoid heap allocation (malloc) on the real-time audio thread.
+    /// - Uses exact `AUEventSampleTime(offset)` instead of `AUEventSampleTimeImmediate` for sample-accurate plugin timing.
     private func sendMidiEvent(activeClip: ActiveMidiClip, status: UInt8, data1: UInt8, data2: UInt8, offset: Int64, isNoteOn: Bool) {
         if let sampler = activeClip.sampler {
             // Internal Sampler — convert to UInt32 with safe cast (clamped above)
             sampler.scheduleMidiEvent(pitch: data1, velocity: data2, sampleOffset: UInt32(clamping: offset), isNoteOn: isNoteOn)
         } else if let block = activeClip.midiBlock {
-            // AUv3 Plugin — native Int64 (AUEventSampleTime)
-            let bytes: [UInt8] = [status, data1, data2]
-            block(AUEventSampleTimeImmediate + AUEventSampleTime(offset), 0, 3, bytes)
+            // SPRINT 4: Zero-allocation C-tuple (lives on stack, 0 bytes heap)
+            var midiBytes: (UInt8, UInt8, UInt8) = (status, data1, data2)
+            withUnsafePointer(to: &midiBytes) { ptr in
+                ptr.withMemoryRebound(to: UInt8.self, capacity: 3) { bytePtr in
+                    // Exact sample time — no more AUEventSampleTimeImmediate jitter
+                    block(AUEventSampleTime(offset), 0, 3, bytePtr)
+                }
+            }
         }
     }
     
     public func stop() {
         isPlaying = false
+        stopAoTTimer()
+        isNextLoopScheduled = false
+        activeProject = nil
         teardownRenderObserver()
         playbackStartSampleTime = 0
         trackMixer.stopAll()
+    }
+    
+    // MARK: - SPRINT 5 (Pillar 1): Möbius Loop — AoT Seamless Looping
+    
+    /// Starts the Ahead-of-Time loop polling timer.
+    /// Called from schedulePlayback when looping is enabled.
+    /// Polls every 50ms — if we're within 200ms of the loop end,
+    /// pre-schedules the next loop iteration into the player's C-queue.
+    public func startAoTLoopTimer(project: Project) {
+        stopAoTTimer()
+        self.activeProject = project
+        self.isNextLoopScheduled = false
+        
+        let timer = DispatchSource.makeTimerSource(queue: schedulingQueue)
+        timer.schedule(deadline: .now() + 0.05, repeating: 0.05) // 50ms polling
+        timer.setEventHandler { [weak self] in
+            self?.processAoTLooping()
+        }
+        timer.resume()
+        aotLoopTimer = timer
+        logger.info("PlaybackScheduler: AoT loop timer started (50ms poll, 200ms lookahead)")
+    }
+    
+    private func stopAoTTimer() {
+        aotLoopTimer?.cancel()
+        aotLoopTimer = nil
+    }
+    
+    /// Core AoT logic: pre-schedules the next loop iteration 200ms before the
+    /// current one ends. CoreAudio's internal C-queue bit-perfectly stitches
+    /// the buffers — zero gap, zero click.
+    ///
+    /// **Key insight:** We do NOT call player.stop(). We simply enqueue more
+    /// audio at the exact sample time when the current loop ends. CoreAudio
+    /// plays them back-to-back with zero discontinuity.
+    private func processAoTLooping() {
+        guard looping, let project = activeProject else { return }
+        
+        let sampleRate = audioEngine.sampleRate
+        let bpm = project.bpm
+        let pm = PulseMap(bpm: bpm, sampleRate: sampleRate)
+        
+        let loopStartSample = pm.sampleFrame(at: loopStart)
+        let loopEndSample = pm.sampleFrame(at: loopEnd)
+        guard loopEndSample > loopStartSample else { return }
+        
+        // Read current playhead position from the hardware sample counter
+        let currentSample = audioEngine.renderedSamples.load(ordering: .relaxed)
+        let lookaheadSamples = Int64(0.2 * sampleRate) // 200ms lookahead
+        
+        // Check if we're approaching the loop boundary
+        if (currentSample + lookaheadSamples >= loopEndSample) && !isNextLoopScheduled {
+            // Calculate the exact host time when the loop end will be reached
+            let samplesUntilEnd = max(0, loopEndSample - currentSample)
+            let exactLoopEndHostTime = mach_absolute_time() + secondsToTicks(
+                Double(samplesUntilEnd) / sampleRate,
+                timebaseInfo: &timebaseInfo
+            )
+            let seamlessStartTime = AVAudioTime(hostTime: exactLoopEndHostTime)
+            
+            // Enqueue the ENTIRE next loop pass — no player.stop()!
+            for track in project.tracks {
+                guard track.trackType != .master else { continue }
+                guard let player = trackMixer.playerNode(for: track.id) else { continue }
+                
+                // Schedule this track's clips for the loop region
+                scheduleTrackRange(
+                    track: track,
+                    player: player,
+                    startFrame: loopStartSample,
+                    endFrame: loopEndSample,
+                    pm: pm,
+                    at: seamlessStartTime
+                )
+            }
+            
+            isNextLoopScheduled = true
+            logger.debug("PlaybackScheduler: AoT loop pre-scheduled at host \(exactLoopEndHostTime)")
+        }
+        
+        // Reset flag once playhead has wrapped past the loop start
+        // (the TransportController handles the logical position wrap)
+        if isNextLoopScheduled && currentSample < loopEndSample - lookaheadSamples {
+            isNextLoopScheduled = false
+        }
     }
 
     private func teardownRenderObserver() {

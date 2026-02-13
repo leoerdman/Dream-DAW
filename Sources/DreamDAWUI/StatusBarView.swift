@@ -78,7 +78,7 @@ public struct StatusBarView: View {
             HStack(spacing: 12) {
                 // Play indicator
                 Image(systemName: transportController.state == .playing ? "play.fill" : "stop.fill")
-                    .font(.system(size: 8))
+                    .font(.system(size: DreamTheme.fontSizeMicro))
                     .foregroundColor(transportController.state == .playing
                         ? Color(nsColor: DreamTheme.accent)
                         : Color(nsColor: DreamTheme.textMuted))
@@ -92,7 +92,7 @@ public struct StatusBarView: View {
                 // Main output selector
                 HStack(spacing: 2) {
                     Image(systemName: "circle.fill")
-                        .font(.system(size: 4))
+                        .font(.system(size: DreamTheme.fontSizeMicro))
                         .foregroundColor(Color(nsColor: DreamTheme.textMuted))
                     statusText("Main")
                 }
@@ -100,10 +100,10 @@ public struct StatusBarView: View {
                 // Session/Arrangement toggle
                 HStack(spacing: 2) {
                     Image(systemName: "square.split.2x1")
-                        .font(.system(size: 8))
+                        .font(.system(size: DreamTheme.fontSizeMicro))
                         .foregroundColor(Color(nsColor: DreamTheme.textMuted))
                     Image(systemName: "square.split.1x2")
-                        .font(.system(size: 8))
+                        .font(.system(size: DreamTheme.fontSizeMicro))
                         .foregroundColor(Color(nsColor: DreamTheme.textSecondary))
                 }
             }
@@ -123,19 +123,19 @@ public struct StatusBarView: View {
 
     private func statusLabel(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 9, weight: .regular))
+            .font(.system(size: DreamTheme.fontSizeSmall, weight: .regular))
             .foregroundColor(Color(nsColor: DreamTheme.textMuted))
     }
 
     private func statusValue(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .font(.system(size: DreamTheme.fontSizeSmall, weight: .medium, design: .monospaced))
             .foregroundColor(Color(nsColor: DreamTheme.textSecondary))
     }
 
     private func statusText(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 9, weight: .medium))
+            .font(.system(size: DreamTheme.fontSizeSmall, weight: .medium))
             .foregroundColor(Color(nsColor: DreamTheme.textSecondary))
     }
 }

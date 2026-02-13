@@ -44,15 +44,15 @@ public final class PluginSlotView: NSView {
     
     private func setupUI(title: String) {
         wantsLayer = true
-        layer?.backgroundColor = NSColor(white: 0.12, alpha: 1.0).cgColor
-        layer?.cornerRadius = 4
+        layer?.backgroundColor = DreamTheme.meterBackground.cgColor
+        layer?.cornerRadius = DreamTheme.radiusCard
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor(white: 0.22, alpha: 1.0).cgColor
+        layer?.borderColor = DreamTheme.controlBorder.cgColor
         
         // --- Header ---
         headerView.wantsLayer = true
-        headerView.layer?.backgroundColor = NSColor(white: 0.18, alpha: 1.0).cgColor
-        headerView.layer?.cornerRadius = 4
+        headerView.layer?.backgroundColor = DreamTheme.knobFill.cgColor
+        headerView.layer?.cornerRadius = DreamTheme.radiusCard
         headerView.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         addSubview(headerView)
         
@@ -62,14 +62,14 @@ public final class PluginSlotView: NSView {
         powerButton.setButtonType(.pushOnPushOff)
         powerButton.isBordered = false
         powerButton.wantsLayer = true
-        powerButton.layer?.cornerRadius = 5
+        powerButton.layer?.cornerRadius = DreamTheme.radiusCard + 1
         powerButton.target = self
         powerButton.action = #selector(powerToggled)
         headerView.addSubview(powerButton)
         
         // Title
         titleLabel.stringValue = title
-        titleLabel.font = NSFont.systemFont(ofSize: 9, weight: .bold)
+        titleLabel.font = DreamTheme.fontSmall
         titleLabel.textColor = .white
         titleLabel.isEditable = false
         titleLabel.isBezeled = false
@@ -83,7 +83,7 @@ public final class PluginSlotView: NSView {
         settingsButton.wantsLayer = true
         settingsButton.image = NSImage(systemSymbolName: "gearshape.fill", accessibilityDescription: "Settings")
         settingsButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .bold)
-        settingsButton.contentTintColor = NSColor(white: 0.6, alpha: 1.0)
+        settingsButton.contentTintColor = DreamTheme.controlTint
         settingsButton.target = self
         settingsButton.action = #selector(settingsClicked)
         headerView.addSubview(settingsButton)
@@ -95,7 +95,7 @@ public final class PluginSlotView: NSView {
         eyeButton.wantsLayer = true
         eyeButton.image = NSImage(systemSymbolName: "eye.fill", accessibilityDescription: "Open Interface")
         eyeButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .bold)
-        eyeButton.contentTintColor = NSColor(white: 0.6, alpha: 1.0)
+        eyeButton.contentTintColor = DreamTheme.controlTint
         eyeButton.target = self
         eyeButton.action = #selector(eyeClicked)
         headerView.addSubview(eyeButton)
@@ -182,8 +182,8 @@ public final class PluginSlotView: NSView {
     private func updatePowerState() {
         powerButton.state = isEnabled ? .on : .off
         powerButton.layer?.backgroundColor = isEnabled 
-            ? NSColor(red: 0.3, green: 0.9, blue: 0.4, alpha: 1.0).cgColor 
-            : NSColor(white: 0.4, alpha: 1.0).cgColor
+            ? DreamTheme.success.withAlphaComponent(0.9).cgColor 
+            : DreamTheme.textMuted.cgColor
         
         // Dim content when disabled
         bodyContainer.alphaValue = isEnabled ? 1.0 : 0.6

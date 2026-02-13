@@ -150,7 +150,7 @@ struct AboutSettingsView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text(entry.version)
-                                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                .font(.system(size: DreamTheme.fontSizeMonoLarge, weight: .bold, design: .monospaced))
                                 .foregroundColor(DreamTheme.accentSwiftUI)
                             Spacer()
                             Text(entry.date)
@@ -163,7 +163,7 @@ struct AboutSettingsView: View {
                                 HStack(alignment: .top, spacing: 6) {
                                     Text("•").foregroundColor(DreamTheme.accentSwiftUI)
                                     Text(change)
-                                        .font(.system(size: 11))
+                                        .font(.system(size: DreamTheme.fontSizeHeading))
                                 }
                             }
                         }

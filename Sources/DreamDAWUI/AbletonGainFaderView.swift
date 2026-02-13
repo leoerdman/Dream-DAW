@@ -34,8 +34,8 @@ public final class AbletonGainFaderView: NSView {
     
     private func setupUI() {
         wantsLayer = true
-        layer?.cornerRadius = 2
-        layer?.backgroundColor = NSColor(white: 0.15, alpha: 1.0).cgColor
+        layer?.cornerRadius = DreamTheme.radiusSmall
+        layer?.backgroundColor = DreamTheme.faderTrackBg.cgColor
     }
     
     // MARK: - Drawing
@@ -48,7 +48,7 @@ public final class AbletonGainFaderView: NSView {
         let bounds = self.bounds
         
         // Background
-        ctx.setFillColor(NSColor(white: 0.12, alpha: 1.0).cgColor)
+        ctx.setFillColor(DreamTheme.faderGroove.cgColor)
         ctx.fill(bounds)
         
         // Calculate fill width based on dB value
@@ -80,7 +80,7 @@ public final class AbletonGainFaderView: NSView {
         }
         
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .semibold),
+            .font: DreamTheme.fontMonoSmall,
             .foregroundColor: NSColor.white
         ]
         

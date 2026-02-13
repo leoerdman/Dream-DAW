@@ -242,7 +242,7 @@ public final class SamplerView: NSView {
         btn.bezelStyle = .recessed
         btn.setButtonType(.pushOnPushOff)
         btn.controlSize = .small
-        btn.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+        btn.font = DreamTheme.fontBodyMedium
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.heightAnchor.constraint(equalToConstant: 32).isActive = true
         btn.widthAnchor.constraint(equalToConstant: 60).isActive = true
@@ -356,7 +356,7 @@ public final class SamplerView: NSView {
         stack.alignment = .centerX
         
         let label = NSTextField(labelWithString: title)
-        label.font = NSFont.systemFont(ofSize: 8, weight: .bold)
+        label.font = DreamTheme.fontMicro
         label.textColor = NSColor(white: 0.5, alpha: 1.0)
         stack.addArrangedSubview(label)
         
@@ -575,7 +575,7 @@ class WaveformView: NSView {
         } else {
             // Placeholder text
             let attr: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+                .font: DreamTheme.fontMonoLarge,
                 .foregroundColor: NSColor(white: 0.4, alpha: 1.0)
             ]
             let str = NSAttributedString(string: "Drop Sample Here", attributes: attr)
@@ -615,7 +615,7 @@ class DAWKnob: NSView {
         let pStyle = NSMutableParagraphStyle()
         pStyle.alignment = .center
         let attr: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 8, weight: .bold),
+            .font: DreamTheme.fontMicro,
             .foregroundColor: NSColor(white: 0.7, alpha: 1.0),
             .paragraphStyle: pStyle
         ]
@@ -675,7 +675,7 @@ class DAWNumberControl: NSView {
     
     // --- Enterprise Caching & Direct CoreText Rendering ---
     private static let valueAttributes: [NSAttributedString.Key: Any] = {
-        let font = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
+        let font = DreamTheme.fontMonoSmall
         let color = NSColor(red: 0.1, green: 0.8, blue: 0.9, alpha: 1.0)
         return [
             .font: font,
@@ -684,7 +684,7 @@ class DAWNumberControl: NSView {
     }()
     
     private static let labelAttributes: [NSAttributedString.Key: Any] = {
-        let font = NSFont.systemFont(ofSize: 7, weight: .medium)
+        let font = DreamTheme.fontMicro
         let color = NSColor(white: 0.5, alpha: 1.0)
         return [
             .font: font,

@@ -51,7 +51,7 @@ public final class EQEightView: NSView {
     private func setupUI() {
         wantsLayer = true
         layer?.backgroundColor = DreamTheme.bgSecondary.cgColor
-        layer?.cornerRadius = 4
+        layer?.cornerRadius = DreamTheme.radiusCard
         
         // 1. Plot View (Main area)
         plotView.translatesAutoresizingMaskIntoConstraints = false
@@ -101,7 +101,7 @@ public final class EQEightView: NSView {
         let view = NSView()
         view.wantsLayer = true
         view.layer?.backgroundColor = DreamTheme.bgTertiary.cgColor
-        view.layer?.cornerRadius = 2
+        view.layer?.cornerRadius = DreamTheme.radiusSmall
         
         let toggle = NSButton(checkboxWithTitle: "", target: self, action: #selector(bandToggleClicked))
         toggle.tag = index
@@ -174,7 +174,7 @@ internal final class EQPlotView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.withAlphaComponent(0.8).cgColor
-        layer?.cornerRadius = 4
+        layer?.cornerRadius = DreamTheme.radiusCard
         layer?.borderWidth = 1
         layer?.borderColor = DreamTheme.divider.cgColor
     }
@@ -303,7 +303,7 @@ internal final class EQPlotView: NSView {
             
             // Band number
             let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 8, weight: .bold),
+                .font: DreamTheme.fontMicro,
                 .foregroundColor: NSColor.black
             ]
             let label = NSAttributedString(string: "\(i+1)", attributes: attributes)

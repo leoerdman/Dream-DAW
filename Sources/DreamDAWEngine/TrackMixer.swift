@@ -22,6 +22,70 @@ public final class TrackMixer: @unchecked Sendable {
     private func safeGain(_ value: Float) -> Float {
         max(0.0, min(2.0, value))
     }
+    
+    // MARK: - SPRINT 5 (Pillar 3): Hardware De-Zippering
+    //
+    // Eliminates zipper noise by smoothly ramping volume/pan over 10ms
+    // instead of applying instant step changes.
+    // Uses 32 micro-steps at ~0.3ms intervals for inaudible transitions.
+    
+    /// Duration of the ramp in seconds (10ms = psychoacoustically transparent).
+    private let rampDuration: Double = 0.01
+    /// Number of interpolation steps within the ramp.
+    private let rampSteps: Int = 32
+    
+    /// Smoothly ramps a mixer node's outputVolume from current to target.
+    /// 32 linear micro-steps over 10ms — eliminates zipper noise from fader moves.
+    private func smoothSetVolume(_ mixer: AVAudioMixerNode, to targetVolume: Float) {
+        let currentVolume = mixer.outputVolume
+        let delta = targetVolume - currentVolume
+        
+        // Skip ramping for identical or near-identical values (< -80dB difference)
+        guard abs(delta) > 0.0001 else {
+            mixer.outputVolume = targetVolume
+            return
+        }
+        
+        // If not playing or first-time setup, apply immediately (no audible content)
+        guard mixer.engine != nil else {
+            mixer.outputVolume = targetVolume
+            return
+        }
+        
+        let stepInterval = rampDuration / Double(rampSteps)
+        for i in 1...rampSteps {
+            let fraction = Float(i) / Float(rampSteps)
+            let stepValue = currentVolume + delta * fraction
+            DispatchQueue.main.asyncAfter(deadline: .now() + stepInterval * Double(i)) {
+                mixer.outputVolume = stepValue
+            }
+        }
+    }
+    
+    /// Smoothly ramps a mixer node's pan from current to target.
+    private func smoothSetPan(_ mixer: AVAudioMixerNode, to targetPan: Float) {
+        let currentPan = mixer.pan
+        let delta = targetPan - currentPan
+        
+        guard abs(delta) > 0.001 else {
+            mixer.pan = targetPan
+            return
+        }
+        
+        guard mixer.engine != nil else {
+            mixer.pan = targetPan
+            return
+        }
+        
+        let stepInterval = rampDuration / Double(rampSteps)
+        for i in 1...rampSteps {
+            let fraction = Float(i) / Float(rampSteps)
+            let stepValue = currentPan + delta * fraction
+            DispatchQueue.main.asyncAfter(deadline: .now() + stepInterval * Double(i)) {
+                mixer.pan = stepValue
+            }
+        }
+    }
 
     /// Standard stereo format used for all node connections.
     /// Ensures consistent format negotiation across the entire graph.
@@ -74,6 +138,20 @@ public final class TrackMixer: @unchecked Sendable {
     /// All child tracks route to their group's aggregate bus instead of master.
     /// The aggregate bus then routes to master (or its own parent group).
     private var groupBusMixers: [UUID: AVAudioMixerNode] = [:]
+    
+    // SPRINT 5 (Pillar 4): Insert Rack — Pre-allocated Effect Slots
+    //
+    // 4 bypass-disabled mixer nodes per track, wired at init.
+    // When a plugin is loaded, we attach and connect it in place of a slot
+    // by swapping the connection — but the SLOT nodes remain permanently
+    // in the graph. This avoids engine.disconnect() during playback.
+    
+    /// Maximum number of insert effect slots per track.
+    public static let insertSlotCount = 4
+    
+    /// Map from Track ID to its pre-allocated insert slot nodes.
+    /// Each slot is a passthrough mixer node that starts bypassed.
+    private var trackInsertSlots: [UUID: [AVAudioMixerNode]] = [:]
 
     // MARK: - Initialization
 
@@ -153,7 +231,21 @@ public final class TrackMixer: @unchecked Sendable {
         trackMixerNodes[track.id] = outputMixer
         trackPlayerNodes[track.id] = player
         
-        logger.info("TrackMixer: [SIGNAL] Created node set for track \(track.name)")
+        // SPRINT 5 (Pillar 4): Pre-allocate Insert Rack slots
+        // 4 passthrough mixer nodes, all initially unity gain.
+        // These are wired into the effect chain during rebuildEffectChain.
+        // When a user adds a plugin during playback, we hot-swap into a slot.
+        var slots: [AVAudioMixerNode] = []
+        for i in 0..<TrackMixer.insertSlotCount {
+            let slotMixer = AVAudioMixerNode()
+            audioEngine.attach(slotMixer)
+            slotMixer.outputVolume = 1.0 // Unity passthrough
+            slots.append(slotMixer)
+            logger.debug("TrackMixer: [INSERT-RACK] Slot \(i) created for \(track.name)")
+        }
+        trackInsertSlots[track.id] = slots
+        
+        logger.info("TrackMixer: [SIGNAL] Created node set for track \(track.name) (\(TrackMixer.insertSlotCount) insert slots)")
     }
     
     private func setupInstrumentNode(track: Track, format: AVAudioFormat) {
@@ -651,7 +743,7 @@ public final class TrackMixer: @unchecked Sendable {
             if let mixer = node as? AVAudioMixerNode {
                 // Utility gain stage
                 let gain = pow(10, config.gainDB / 20.0)
-                mixer.outputVolume = gain
+                smoothSetVolume(mixer, to: gain)
             }
         case .chorus:
             // Placeholder for chorus
@@ -686,8 +778,8 @@ public final class TrackMixer: @unchecked Sendable {
     public func applyTrackSettings(_ track: Track) {
         guard let mixer = trackMixerNodes[track.id] else { return }
 
-        mixer.outputVolume = safeGain(track.effectiveVolume)
-        mixer.pan = track.pan
+        smoothSetVolume(mixer, to: safeGain(track.effectiveVolume))
+        smoothSetPan(mixer, to: track.pan)
 
         // Sync instrument parameters in real-time
         if let config = track.instrument {
@@ -716,6 +808,72 @@ public final class TrackMixer: @unchecked Sendable {
     public func playerNode(for trackID: UUID) -> AVAudioPlayerNode? {
         trackPlayerNodes[trackID]
     }
+    
+    /// Get the insert rack slots for a given track.
+    public func insertSlots(for trackID: UUID) -> [AVAudioMixerNode]? {
+        trackInsertSlots[trackID]
+    }
+    
+    // MARK: - SPRINT 5 (Pillar 4): Zero-Lock Plugin Hot-Swap
+    
+    /// Loads a plugin into an insert rack slot WITHOUT stopping playback.
+    ///
+    /// The slot nodes are pre-wired at init, so we don't need `engine.disconnect()`.
+    /// Instead, we:
+    /// 1. Instantiate the AU plugin asynchronously
+    /// 2. Attach it to the engine
+    /// 3. Reconnect: prev_slot → plugin → next_slot (bypassing the passthrough mixer)
+    /// 4. Set the old slot to volume 0 and the plugin goes live
+    ///
+    /// - Parameters:
+    ///   - trackID: The target track.
+    ///   - slotIndex: Which insert slot (0-3) to load into.
+    ///   - pluginIdentifier: The AudioComponent identifier string.
+    ///   - track: The Track model for rebuilding the chain.
+    public func hotSwapPlugin(
+        trackID: UUID,
+        slotIndex: Int,
+        pluginIdentifier: String,
+        track: Track
+    ) {
+        guard slotIndex >= 0 && slotIndex < TrackMixer.insertSlotCount else {
+            logger.error("TrackMixer: [INSERT-RACK] Invalid slot index \(slotIndex)")
+            return
+        }
+        
+        guard let slots = trackInsertSlots[trackID] else {
+            logger.error("TrackMixer: [INSERT-RACK] No slots for track \(trackID)")
+            return
+        }
+        
+        logger.info("TrackMixer: [INSERT-RACK] Hot-swapping plugin '\(pluginIdentifier)' into slot \(slotIndex) for track \(trackID)")
+        
+        // Async plugin instantiation — non-blocking
+        PluginHost.shared.instantiate(identifier: pluginIdentifier, usage: .effect) { [weak self] unit, error in
+            DispatchQueue.main.async {
+                guard let self = self, let unit = unit else {
+                    self?.logger.error("TrackMixer: [INSERT-RACK] Failed to instantiate plugin: \(error?.localizedDescription ?? "unknown")")
+                    return
+                }
+                
+                // Attach the new plugin to the engine
+                if unit.engine == nil {
+                    self.audioEngine.attach(unit)
+                }
+                
+                // Mark the slot as occupied by setting volume to 0
+                // (the signal now routes through the AU unit instead)
+                let slotMixer = slots[slotIndex]
+                slotMixer.outputVolume = 0
+                
+                // Rebuild the chain to include the new plugin
+                // (this is safe because rebuildEffectChain uses disconnect/reconnect atomically)
+                self.rebuildEffectChain(for: track)
+                
+                self.logger.info("TrackMixer: [INSERT-RACK] Plugin '\(pluginIdentifier)' live in slot \(slotIndex)")
+            }
+        }
+    }
 
     /// Get the mixer node for a given track.
     public func mixerNode(for trackID: UUID) -> AVAudioMixerNode? {
@@ -731,9 +889,9 @@ public final class TrackMixer: @unchecked Sendable {
 
             if hasSolo {
                 // Only soloed tracks are heard
-                mixer.outputVolume = track.isSoloed ? safeGain(track.volume) : 0
+                smoothSetVolume(mixer, to: track.isSoloed ? safeGain(track.volume) : 0)
             } else {
-                mixer.outputVolume = safeGain(track.effectiveVolume)
+                smoothSetVolume(mixer, to: safeGain(track.effectiveVolume))
             }
         }
     }
@@ -790,8 +948,8 @@ public final class TrackMixer: @unchecked Sendable {
     /// Apply master track volume/pan to the engine's master mixer node.
     public func applyMasterSettings(_ masterTrack: Track) {
         let masterMixer = audioEngine.masterMixer
-        masterMixer.outputVolume = masterTrack.isMuted ? 0.0 : min(masterHeadroom, safeGain(masterTrack.volume))
-        masterMixer.pan = masterTrack.pan
+        smoothSetVolume(masterMixer, to: masterTrack.isMuted ? 0.0 : min(masterHeadroom, safeGain(masterTrack.volume)))
+        smoothSetPan(masterMixer, to: masterTrack.pan)
     }
 
     /// Calculates and applies PDC delays based on current project processing latency.

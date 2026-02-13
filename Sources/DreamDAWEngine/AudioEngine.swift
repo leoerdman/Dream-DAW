@@ -270,6 +270,13 @@ public final class AudioEngine: @unchecked Sendable {
         cpuLoadThread = nil
     }
 
+    /// SPRINT 4 (Pillar 1): Hardware DAC presentation latency in seconds.
+    /// TransportController subtracts this from the visual playhead to ensure
+    /// the red line matches the sound reaching the user's monitors/headphones.
+    public var outputPresentationLatency: Double {
+        engine.outputNode.presentationLatency
+    }
+
     /// Access the underlying AVAudioEngine (use with caution).
     public var avAudioEngine: AVAudioEngine {
         engine

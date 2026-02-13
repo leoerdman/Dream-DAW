@@ -146,7 +146,7 @@ public final class BottomPanelView: NSView {
         addSubview(headerBar)
 
         // Title label
-        titleLabel.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        titleLabel.font = DreamTheme.fontHeading
         titleLabel.textColor = DreamTheme.textSecondary
         titleLabel.isBezeled = false
         titleLabel.isEditable = false
@@ -155,7 +155,7 @@ public final class BottomPanelView: NSView {
 
         // Close button
         closeButton.title = "✕"
-        closeButton.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+        closeButton.font = DreamTheme.fontBodyMedium
         closeButton.isBordered = false
         closeButton.target = self
         closeButton.action = #selector(closePanel)
@@ -207,7 +207,7 @@ public final class BottomPanelView: NSView {
         
         // Grid Snap Popup
         gridSnapPopup.bezelStyle = .recessed
-        gridSnapPopup.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+        gridSnapPopup.font = DreamTheme.fontBodyMedium
         gridSnapPopup.addItems(withTitles: ["1/4 Grid", "1/8 Grid", "1/16 Grid", "1/32 Grid", "Adaptive"])
         gridSnapPopup.target = self
         gridSnapPopup.action = #selector(gridSnapChanged(_:))
@@ -383,37 +383,37 @@ public final class BottomPanelView: NSView {
         }
 
         func addHeader(_ text: String) {
-            let label = makeLabel(text, font: NSFont.systemFont(ofSize: 10, weight: .semibold), color: DreamTheme.textSecondary)
+            let label = makeLabel(text, font: DreamTheme.fontBodyMedium, color: DreamTheme.textSecondary)
             label.frame = CGRect(x: 8, y: y, width: contentWidth, height: 14)
             pianoInspectorContentView.addSubview(label)
             y += 16
         }
 
         func addField(_ title: String, _ value: String) {
-            let titleLabel = makeLabel(title, font: NSFont.systemFont(ofSize: 10, weight: .medium), color: DreamTheme.textMuted)
+            let titleLabel = makeLabel(title, font: DreamTheme.fontBodyMedium, color: DreamTheme.textMuted)
             titleLabel.frame = CGRect(x: 8, y: y, width: 70, height: fieldHeight)
             pianoInspectorContentView.addSubview(titleLabel)
 
-            let valueLabel = makeLabel(value, font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular), color: DreamTheme.textPrimary)
+            let valueLabel = makeLabel(value, font: DreamTheme.fontMonoBody, color: DreamTheme.textPrimary)
             valueLabel.frame = CGRect(x: 82, y: y, width: max(40, contentWidth - 74), height: fieldHeight)
             pianoInspectorContentView.addSubview(valueLabel)
             y += fieldHeight + 2
         }
 
         func addZoomRow(title: String, minusAction: Selector, plusAction: Selector) {
-            let titleLabel = makeLabel(title, font: NSFont.systemFont(ofSize: 10, weight: .medium), color: DreamTheme.textMuted)
+            let titleLabel = makeLabel(title, font: DreamTheme.fontBodyMedium, color: DreamTheme.textMuted)
             titleLabel.frame = CGRect(x: 8, y: y + 2, width: 78, height: 16)
             pianoInspectorContentView.addSubview(titleLabel)
 
             let minus = NSButton(title: "−", target: self, action: minusAction)
             minus.bezelStyle = .rounded
-            minus.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+            minus.font = DreamTheme.fontHeading
             minus.frame = CGRect(x: 90, y: y, width: 26, height: 20)
             pianoInspectorContentView.addSubview(minus)
 
             let plus = NSButton(title: "+", target: self, action: plusAction)
             plus.bezelStyle = .rounded
-            plus.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+            plus.font = DreamTheme.fontHeading
             plus.frame = CGRect(x: 122, y: y, width: 26, height: 20)
             pianoInspectorContentView.addSubview(plus)
 
@@ -485,8 +485,8 @@ public final class BottomPanelView: NSView {
 
         // Input label
         let inputLabel = NSTextField(labelWithString: "IN")
-        inputLabel.font = NSFont.systemFont(ofSize: 7, weight: .bold)
-        inputLabel.textColor = NSColor(white: 0.45, alpha: 1)
+        inputLabel.font = DreamTheme.fontMicro
+        inputLabel.textColor = DreamTheme.textMuted
         inputLabel.alignment = .center
         inputLabel.frame = CGRect(
             x: xOff - meterWidth - meterSpacing,
@@ -548,8 +548,8 @@ public final class BottomPanelView: NSView {
         chainMeters.append(outputMeter)
 
         let outLabel = NSTextField(labelWithString: "OUT")
-        outLabel.font = NSFont.systemFont(ofSize: 7, weight: .bold)
-        outLabel.textColor = NSColor(white: 0.45, alpha: 1)
+        outLabel.font = DreamTheme.fontMicro
+        outLabel.textColor = DreamTheme.textMuted
         outLabel.alignment = .center
         outLabel.frame = CGRect(x: xOff - 4, y: yOff + slotHeight + 1, width: meterWidth + 8, height: 10)
         detailContentView.addSubview(outLabel)
@@ -570,13 +570,13 @@ public final class BottomPanelView: NSView {
         container.autoresizingMask = [.width, .height]
         
         let infoLabel = NSTextField(labelWithString: "AUDIO CLIP: \(clip.name)\nLength: \(String(format: "%.3f", clip.duration.beats)) Beats")
-        infoLabel.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
+        infoLabel.font = DreamTheme.fontMonoLarge
         infoLabel.textColor = DreamTheme.accent
         infoLabel.frame = CGRect(x: 20, y: 40, width: 400, height: 60)
         container.addSubview(infoLabel)
         
         let hintLabel = NSTextField(labelWithString: "Professional Sample Editor coming in next iteration...")
-        hintLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+        hintLabel.font = DreamTheme.fontBodyMedium
         hintLabel.textColor = .lightGray
         hintLabel.frame = CGRect(x: 20, y: 20, width: 400, height: 20)
         container.addSubview(hintLabel)
@@ -690,7 +690,7 @@ public final class BottomPanelView: NSView {
             knob.maxValue = 6.0
             knob.defaultValue = 0.0
             knob.valueSuffix = " dB"
-            knob.arcColor = NSColor(red: 0.95, green: 0.75, blue: 0.25, alpha: 1.0)
+            knob.arcColor = DreamTheme.warning
             knob.onValueChanged = { [weak effect, weak self] newValue in
                 effect?.gainDB = newValue
                 self?.onEffectParameterChanged?(track.id)
@@ -699,8 +699,8 @@ public final class BottomPanelView: NSView {
 
             // "Gain" label
             let gainLabel = NSTextField(labelWithString: "Gain")
-            gainLabel.font = NSFont.systemFont(ofSize: 8, weight: .medium)
-            gainLabel.textColor = NSColor(white: 0.5, alpha: 1)
+            gainLabel.font = DreamTheme.fontMicro
+            gainLabel.textColor = DreamTheme.textSecondary
             gainLabel.alignment = .center
             gainLabel.frame = CGRect(x: 0, y: 2, width: frame.width, height: 10)
             contentWrap.addSubview(gainLabel)
@@ -823,13 +823,13 @@ public final class BottomPanelView: NSView {
                     height: iconSize
                 ))
                 iconView.image = symbolImage.withSymbolConfiguration(config)
-                iconView.contentTintColor = NSColor(white: 0.5, alpha: 1)
+                iconView.contentTintColor = DreamTheme.textSecondary
                 contentWrap.addSubview(iconView)
             }
 
             let typeLabel = NSTextField(labelWithString: effect.effectType.displayName)
-            typeLabel.font = NSFont.systemFont(ofSize: 8, weight: .regular)
-            typeLabel.textColor = NSColor(white: 0.4, alpha: 1)
+            typeLabel.font = DreamTheme.fontMicro
+            typeLabel.textColor = DreamTheme.textMuted
             typeLabel.alignment = .center
             typeLabel.frame = CGRect(x: 0, y: contentH - 14, width: frame.width, height: 12)
             contentWrap.addSubview(typeLabel)
@@ -879,7 +879,7 @@ public final class BottomPanelView: NSView {
                     btn.bezelStyle = .recessed
                     btn.setButtonType(.pushOnPushOff)
                     btn.controlSize = .mini
-                    btn.font = NSFont.systemFont(ofSize: 8, weight: .bold)
+                    btn.font = DreamTheme.fontMicro
                     slot.extraHeaderStack.addArrangedSubview(btn)
                 }
                 editTab.state = .on
@@ -919,7 +919,7 @@ public final class BottomPanelView: NSView {
                     height: iconSize
                 ))
                 iconView.image = symbolImage.withSymbolConfiguration(config)
-                iconView.contentTintColor = NSColor(red: 0.95, green: 0.70, blue: 0.25, alpha: 1)
+                iconView.contentTintColor = DreamTheme.warning
                 
                 let wrap = NSView(frame: CGRect(x: 0, y: 0, width: frame.width, height: frame.height - 18))
                 wrap.addSubview(iconView)
@@ -930,15 +930,15 @@ public final class BottomPanelView: NSView {
             // Enterprise "Add Instrument" Placeholder
             let slot = NSView(frame: frame)
             slot.wantsLayer = true
-            slot.layer?.cornerRadius = 4
-            slot.layer?.backgroundColor = NSColor(white: 0.1, alpha: 0.4).cgColor
+            slot.layer?.cornerRadius = DreamTheme.radiusCard
+            slot.layer?.backgroundColor = DreamTheme.bgBase.withAlphaComponent(0.4).cgColor
             
             // Dashed border (layer-backed for performance)
             let dashLayer = CAShapeLayer()
-            dashLayer.strokeColor = NSColor(white: 0.3, alpha: 0.6).cgColor
+            dashLayer.strokeColor = DreamTheme.meterSilent.withAlphaComponent(0.6).cgColor
             dashLayer.fillColor = nil
             dashLayer.lineDashPattern = [4, 4]
-            dashLayer.path = NSBezierPath(roundedRect: slot.bounds.insetBy(dx: 4, dy: 4), xRadius: 4, yRadius: 4).asCGPath
+            dashLayer.path = NSBezierPath(roundedRect: slot.bounds.insetBy(dx: 4, dy: 4), xRadius: DreamTheme.radiusCard, yRadius: DreamTheme.radiusCard).asCGPath
             slot.layer?.addSublayer(dashLayer)
 
             let stack = NSStackView(frame: slot.bounds)
@@ -952,12 +952,12 @@ public final class BottomPanelView: NSView {
             iconView.contentTintColor = NSColor.systemOrange.withAlphaComponent(0.6)
             
             let label = NSTextField(labelWithString: "Add Instrument")
-            label.font = NSFont.systemFont(ofSize: 10, weight: .bold)
-            label.textColor = NSColor(white: 0.5, alpha: 1)
+            label.font = DreamTheme.fontBodyMedium
+            label.textColor = DreamTheme.textSecondary
             
             let hint = NSTextField(labelWithString: "Drop from Browser")
-            hint.font = NSFont.systemFont(ofSize: 8, weight: .medium)
-            hint.textColor = NSColor(white: 0.35, alpha: 1)
+            hint.font = DreamTheme.fontMicro
+            hint.textColor = DreamTheme.textMuted
             
             stack.addArrangedSubview(iconView)
             stack.addArrangedSubview(label)
@@ -992,8 +992,8 @@ public final class BottomPanelView: NSView {
         knob.onValueChanged = onChanged
         
         let labelField = NSTextField(labelWithString: label)
-        labelField.font = NSFont.systemFont(ofSize: 8, weight: .medium)
-        labelField.textColor = NSColor(white: 0.5, alpha: 1)
+        labelField.font = DreamTheme.fontMicro
+        labelField.textColor = DreamTheme.textSecondary
         labelField.alignment = .center
         labelField.frame = CGRect(x: x, y: y - 10, width: size, height: 10)
         // Note: Slot builder will handle adding labels if needed, 
@@ -1021,13 +1021,13 @@ public final class BottomPanelView: NSView {
     /// Returns a header color for effect types.
     private func effectHeaderColor(for type: AudioEffectType) -> NSColor {
         switch type {
-        case .eq:         return NSColor(red: 0.35, green: 0.55, blue: 0.85, alpha: 1.0)  // Blue
-        case .utility:    return NSColor(red: 0.50, green: 0.50, blue: 0.50, alpha: 1.0)  // Gray
-        case .compressor: return NSColor(red: 0.70, green: 0.40, blue: 0.25, alpha: 1.0)  // Warm brown
-        case .delay:      return NSColor(red: 0.40, green: 0.65, blue: 0.45, alpha: 1.0)  // Green
-        case .reverb:     return NSColor(red: 0.55, green: 0.40, blue: 0.75, alpha: 1.0)  // Purple
-        case .chorus:     return NSColor(red: 0.65, green: 0.50, blue: 0.30, alpha: 1.0)  // Gold-brown
-        case .vst2, .vst3: return NSColor(red: 0.20, green: 0.60, blue: 0.40, alpha: 1.0) // Teal for VST
+        case .eq:         return DreamTheme.effectEQ
+        case .utility:    return DreamTheme.effectUtility
+        case .compressor: return DreamTheme.effectCompressor
+        case .delay:      return DreamTheme.effectDelay
+        case .reverb:     return DreamTheme.effectReverb
+        case .chorus:     return DreamTheme.effectChorus
+        case .vst2, .vst3: return DreamTheme.effectVST
         }
     }
 

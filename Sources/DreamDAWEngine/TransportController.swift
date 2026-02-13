@@ -270,7 +270,16 @@ public final class TransportController: ObservableObject {
         // PHASE 13.0: Master Sample Clock.
         // We no longer calculate elapsed time from mach_absolute_time (which drifts).
         // Instead, we read the actual number of samples processed by the hardware.
-        var currentSampleFrame = audioEngine.renderedSamples.load(ordering: .relaxed)
+        let rawSampleFrame = audioEngine.renderedSamples.load(ordering: .relaxed)
+        
+        // SPRINT 4 (Pillar 1): Compensate DAC hardware latency.
+        // The audio hardware has a physical pipeline delay (presentationLatency).
+        // The engine's renderedSamples counts what has been SUBMITTED to the DAC,
+        // but sound exits the speakers `latencySamples` later. We pull the visual
+        // playhead back so the red line matches what the user actually HEARS.
+        let latencySeconds = audioEngine.outputPresentationLatency
+        let latencySamples = Int64(latencySeconds * pulseMap.sampleRate)
+        var currentSampleFrame = max(0, rawSampleFrame - latencySamples)
         var didLoopWrap = false
         
         // DIAG: Log the first 5 frames to trace any jumps

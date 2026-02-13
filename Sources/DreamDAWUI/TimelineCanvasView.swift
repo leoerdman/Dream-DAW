@@ -679,7 +679,7 @@ public final class TimelineCanvasView: NSView {
         let textLayer = CATextLayer()
         textLayer.string = name
         textLayer.fontSize = 12 // Slightly larger
-        textLayer.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        textLayer.font = DreamTheme.fontMonoLarge
         
         // DYNAMIC CONTRAST LOGIC (Fixed for Yellow/Light clips)
         // 0.2126*R + 0.7152*G + 0.0722*B

@@ -34,10 +34,10 @@ public final class KnobView: NSView {
     public var valueSuffix: String = " dB"
 
     /// Knob arc color.
-    public var arcColor: NSColor = NSColor(red: 0.95, green: 0.75, blue: 0.25, alpha: 1.0)
+    public var arcColor: NSColor = DreamTheme.warning
 
     /// Inactive arc color.
-    public var inactiveArcColor: NSColor = NSColor(white: 0.25, alpha: 1.0)
+    public var inactiveArcColor: NSColor = DreamTheme.knobArcInactive
 
     /// Callback when value changes.
     public var onValueChanged: ((Float) -> Void)?
@@ -111,7 +111,7 @@ public final class KnobView: NSView {
 
         // --- Draw center circle ---
         let innerRadius: CGFloat = knobRadius * 0.35
-        ctx.setFillColor(NSColor(white: 0.18, alpha: 1.0).cgColor)
+        ctx.setFillColor(DreamTheme.knobFill.cgColor)
         ctx.fillEllipse(in: CGRect(x: centerX - innerRadius, y: centerY - innerRadius,
                                    width: innerRadius * 2, height: innerRadius * 2))
 
@@ -124,8 +124,8 @@ public final class KnobView: NSView {
         }
 
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium),
-            .foregroundColor: NSColor(white: 0.7, alpha: 1.0)
+            .font: DreamTheme.fontMonoSmall,
+            .foregroundColor: DreamTheme.knobValueText
         ]
         let attrStr = NSAttributedString(string: labelStr, attributes: attrs)
         let textSize = attrStr.size()

@@ -28,7 +28,7 @@ public final class MiniEQCurveView: NSView {
         let midY = h / 2
 
         // Background grid lines
-        ctx.setStrokeColor(NSColor(white: 0.2, alpha: 1.0).cgColor)
+        ctx.setStrokeColor(DreamTheme.divider.cgColor)
         ctx.setLineWidth(0.5)
         // Center line (0 dB)
         ctx.move(to: CGPoint(x: 0, y: midY))
@@ -41,7 +41,7 @@ public final class MiniEQCurveView: NSView {
         let enabledBands = bands.filter { $0.isEnabled }
         guard !enabledBands.isEmpty else {
             // All bands disabled — draw flat line
-            ctx.setStrokeColor(NSColor(red: 0.35, green: 0.55, blue: 0.85, alpha: 0.6).cgColor)
+            ctx.setStrokeColor(DreamTheme.effectEQ.withAlphaComponent(0.6).cgColor)
             ctx.setLineWidth(1.5)
             ctx.move(to: CGPoint(x: 0, y: midY))
             ctx.addLine(to: CGPoint(x: w, y: midY))
@@ -90,12 +90,12 @@ public final class MiniEQCurveView: NSView {
         fillPath.addLine(to: CGPoint(x: 0, y: midY))
         fillPath.closeSubpath()
         ctx.addPath(fillPath)
-        ctx.setFillColor(NSColor(red: 0.35, green: 0.55, blue: 0.85, alpha: 0.15).cgColor)
+        ctx.setFillColor(DreamTheme.effectEQ.withAlphaComponent(0.15).cgColor)
         ctx.fillPath()
 
         // Stroke the curve
         ctx.addPath(path)
-        ctx.setStrokeColor(NSColor(red: 0.35, green: 0.55, blue: 0.85, alpha: 0.8).cgColor)
+        ctx.setStrokeColor(DreamTheme.effectEQ.withAlphaComponent(0.8).cgColor)
         ctx.setLineWidth(1.5)
         ctx.setLineCap(.round)
         ctx.setLineJoin(.round)
@@ -108,7 +108,7 @@ public final class MiniEQCurveView: NSView {
             let dotGain = CGFloat(band.gain)
             let dotY = midY - (dotGain / maxGain) * (h / 2 - 2)
 
-            ctx.setFillColor(NSColor(red: 0.5, green: 0.7, blue: 1.0, alpha: 0.9).cgColor)
+            ctx.setFillColor(DreamTheme.accent.withAlphaComponent(0.9).cgColor)
             ctx.fillEllipse(in: CGRect(x: dotX - 2, y: dotY - 2, width: 4, height: 4))
         }
     }

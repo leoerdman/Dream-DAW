@@ -209,7 +209,7 @@ public final class BrowserSidebarView: NSView {
         addSubview(searchContainer)
 
         searchField.placeholderString = "Search (Cmd+F)"
-        searchField.font = NSFont.systemFont(ofSize: 12, weight: .regular)
+        searchField.font = DreamTheme.fontMonoLarge
         searchField.focusRingType = .none
         searchField.isBezeled = true
         searchField.isBordered = true
@@ -291,50 +291,50 @@ public final class BrowserSidebarView: NSView {
 
         typeFilterButton.addItems(withTitles: ResultTypeFilter.allCases.map { $0.rawValue })
         typeFilterButton.controlSize = .small
-        typeFilterButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        typeFilterButton.font = DreamTheme.fontHeading
         typeFilterButton.target = self
         typeFilterButton.action = #selector(typeFilterChanged)
         filtersContentView.addSubview(typeFilterButton)
 
         sourceFilterButton.addItems(withTitles: SourceFilter.allCases.map { $0.rawValue })
         sourceFilterButton.controlSize = .small
-        sourceFilterButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        sourceFilterButton.font = DreamTheme.fontHeading
         sourceFilterButton.target = self
         sourceFilterButton.action = #selector(sourceFilterChanged)
         filtersContentView.addSubview(sourceFilterButton)
 
         formatFilterButton.addItems(withTitles: FormatFilter.allCases.map { $0.rawValue })
         formatFilterButton.controlSize = .small
-        formatFilterButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        formatFilterButton.font = DreamTheme.fontHeading
         formatFilterButton.target = self
         formatFilterButton.action = #selector(formatFilterChanged)
         filtersContentView.addSubview(formatFilterButton)
 
         audioRoleFilterButton.addItems(withTitles: AudioRoleFilter.allCases.map { $0.rawValue })
         audioRoleFilterButton.controlSize = .small
-        audioRoleFilterButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        audioRoleFilterButton.font = DreamTheme.fontHeading
         audioRoleFilterButton.target = self
         audioRoleFilterButton.action = #selector(audioRoleFilterChanged)
         filtersContentView.addSubview(audioRoleFilterButton)
 
-        favoritesOnlyButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        favoritesOnlyButton.font = DreamTheme.fontHeading
         favoritesOnlyButton.target = self
         favoritesOnlyButton.action = #selector(favoritesOnlyChanged)
         filtersContentView.addSubview(favoritesOnlyButton)
 
         sortOrderButton.bezelStyle = .rounded
-        sortOrderButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        sortOrderButton.font = DreamTheme.fontHeading
         sortOrderButton.target = self
         sortOrderButton.action = #selector(toggleSortOrder)
         filtersContentView.addSubview(sortOrderButton)
 
         clearFiltersButton.bezelStyle = .rounded
-        clearFiltersButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        clearFiltersButton.font = DreamTheme.fontHeading
         clearFiltersButton.target = self
         clearFiltersButton.action = #selector(resetFilters)
         filtersContentView.addSubview(clearFiltersButton)
 
-        resultCountLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
+        resultCountLabel.font = DreamTheme.fontMonoBody
         resultCountLabel.textColor = DreamTheme.textSecondary
         resultCountLabel.alignment = .left
         filtersContentView.addSubview(resultCountLabel)
@@ -381,7 +381,7 @@ public final class BrowserSidebarView: NSView {
 
         previewToggleButton.title = ""
         previewToggleButton.bezelStyle = .texturedRounded
-        previewToggleButton.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        previewToggleButton.font = DreamTheme.fontMonoLarge
         previewToggleButton.image = NSImage(systemSymbolName: "headphones", accessibilityDescription: "Preview")
         previewToggleButton.imagePosition = .imageOnly
         previewToggleButton.target = self
@@ -394,7 +394,7 @@ public final class BrowserSidebarView: NSView {
         previewWaveformView.layer?.backgroundColor = DreamTheme.bgSecondary.cgColor
         previewContainer.addSubview(previewWaveformView)
 
-        previewStatusLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+        previewStatusLabel.font = DreamTheme.fontBodyMedium
         previewStatusLabel.textColor = DreamTheme.textSecondary
         previewStatusLabel.alignment = .right
         previewContainer.addSubview(previewStatusLabel)
@@ -1172,17 +1172,17 @@ public final class BrowserSidebarView: NSView {
         if let pop = view as? NSPopUpButton {
             pop.bezelStyle = .rounded
             pop.controlSize = .small
-            pop.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+            pop.font = DreamTheme.fontHeading
             pop.appearance = NSAppearance(named: .darkAqua)
             return
         }
         if let button = view as? NSButton {
             if button === favoritesOnlyButton {
-                button.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+                button.font = DreamTheme.fontHeading
                 button.contentTintColor = DreamTheme.textSecondary
             } else {
                 button.bezelStyle = .rounded
-                button.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+                button.font = DreamTheme.fontHeading
             }
         }
     }
@@ -1230,7 +1230,7 @@ final class BrowserPreviewWaveformView: NSView {
 
         if samples.isEmpty {
             let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+                .font: DreamTheme.fontBodyMedium,
                 .foregroundColor: DreamTheme.textMuted
             ]
             let str = NSAttributedString(string: placeholderText, attributes: attrs)
@@ -1396,8 +1396,8 @@ extension BrowserSidebarView: NSTableViewDataSource, NSTableViewDelegate {
 
             cell.textField?.stringValue = category.title
             cell.textField?.font = category.kind == .section
-                ? NSFont.systemFont(ofSize: 11, weight: .semibold)
-                : NSFont.systemFont(ofSize: 12, weight: .regular)
+                ? DreamTheme.fontHeading
+                : DreamTheme.fontMonoLarge
             cell.textField?.textColor = category.kind == .section
                 ? NSColor(red: 0.55, green: 0.50, blue: 0.40, alpha: 1.0)
                 : DreamTheme.textPrimary
@@ -1461,7 +1461,7 @@ extension BrowserSidebarView: NSTableViewDataSource, NSTableViewDelegate {
 
         let isFav = favoriteKeys.contains(favoriteKey(for: node))
         cell.textField?.stringValue = isFav ? "★ \(node.name)" : node.name
-        cell.textField?.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+        cell.textField?.font = DreamTheme.fontHeading
         cell.textField?.textColor = DreamTheme.textPrimary
 
         if let image = NSImage(systemSymbolName: node.icon, accessibilityDescription: nil) {

@@ -178,7 +178,7 @@ public final class TrackHeaderView: NSView {
 
         // Solo button (S)
         soloButton.title = "S"
-        soloButton.font = NSFont.systemFont(ofSize: 8, weight: .bold)
+        soloButton.font = DreamTheme.fontMicro
         soloButton.isBordered = false
         soloButton.wantsLayer = true
         soloButton.target = self
@@ -208,7 +208,7 @@ public final class TrackHeaderView: NSView {
 
         // VU Meters setup
         vuMeterBarL.wantsLayer = true
-        vuMeterBarL.layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
+        vuMeterBarL.layer?.backgroundColor = DreamTheme.meterBackground.cgColor
         vuMeterBarL.layer?.cornerRadius = 1
         vuMeterBarL.translatesAutoresizingMaskIntoConstraints = false
         addSubview(vuMeterBarL)
@@ -220,7 +220,7 @@ public final class TrackHeaderView: NSView {
         vuMeterBarL.addSubview(vuMeterFillL)
 
         vuMeterBarR.wantsLayer = true
-        vuMeterBarR.layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
+        vuMeterBarR.layer?.backgroundColor = DreamTheme.meterBackground.cgColor
         vuMeterBarR.layer?.cornerRadius = 1
         vuMeterBarR.translatesAutoresizingMaskIntoConstraints = false
         addSubview(vuMeterBarR)
@@ -235,10 +235,10 @@ public final class TrackHeaderView: NSView {
 
         // Track enable/disable button (shows track number, light green when on, gray when off)
         enableButton.title = "\(trackIndex + 1)"
-        enableButton.font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold)
+        enableButton.font = DreamTheme.fontSmall
         enableButton.isBordered = false
         enableButton.wantsLayer = true
-        enableButton.layer?.cornerRadius = 3
+        enableButton.layer?.cornerRadius = DreamTheme.radiusSmall
         enableButton.target = self
         enableButton.action = #selector(enableToggled)
         enableButton.translatesAutoresizingMaskIntoConstraints = false
@@ -454,7 +454,7 @@ public final class TrackHeaderView: NSView {
         
         let fillColor: NSColor
         if isMuted {
-            fillColor = NSColor(white: 0.2, alpha: 0.5)
+            fillColor = DreamTheme.meterSilent.withAlphaComponent(0.5)
         } else if isMidiNoInstrument {
             fillColor = DreamTheme.midiIndicator
         } else {
@@ -472,7 +472,7 @@ public final class TrackHeaderView: NSView {
             // Muted: show gray empty bars
             vuMeterFillL.frame = CGRect(x: 0, y: vuMeterBarL.bounds.height, width: vuMeterBarL.bounds.width, height: 0)
             vuMeterFillR.frame = CGRect(x: 0, y: vuMeterBarR.bounds.height, width: vuMeterBarR.bounds.width, height: 0)
-            peakIndicator.layer?.backgroundColor = NSColor(white: 0.3, alpha: 1).cgColor
+            peakIndicator.layer?.backgroundColor = DreamTheme.meterSilent.cgColor
             return
         }
 
@@ -508,18 +508,18 @@ public final class TrackHeaderView: NSView {
             if rmsDB > minDB + 3 {
                 meterColor = DreamTheme.midiIndicator
             } else {
-                meterColor = NSColor(white: 0.3, alpha: 1)
+                meterColor = DreamTheme.meterSilent
             }
         } else {
             // Audio Signal (Green -> Yellow -> Red)
             if rmsDB > 0 {
-                meterColor = NSColor(red: 1.0, green: 0.2, blue: 0.2, alpha: 1)  // Clipping
+                meterColor = DreamTheme.meterClip
             } else if rmsDB > -6 {
-                meterColor = NSColor(red: 1.0, green: 0.8, blue: 0.1, alpha: 1)  // Hot
+                meterColor = DreamTheme.meterHot
             } else if rmsDB > minDB + 3 {
                 meterColor = DreamTheme.accentGreen  // Normal
             } else {
-                meterColor = NSColor(white: 0.3, alpha: 1)  // Near-silence
+                meterColor = DreamTheme.meterSilent
             }
         }
         vuMeterFillL.layer?.backgroundColor = meterColor.cgColor
@@ -542,11 +542,11 @@ public final class TrackHeaderView: NSView {
 
         // Standardized Button Style (Genius Grade)
         soloButton.wantsLayer = true
-        soloButton.layer?.cornerRadius = 3
+        soloButton.layer?.cornerRadius = DreamTheme.radiusSmall
         soloButton.isBordered = false
         
         enableButton.wantsLayer = true
-        enableButton.layer?.cornerRadius = 3
+        enableButton.layer?.cornerRadius = DreamTheme.radiusSmall
         enableButton.isBordered = false
 
         // Solo button: Blue when active, gray when inactive
@@ -555,14 +555,14 @@ public final class TrackHeaderView: NSView {
             soloButton.layer?.backgroundColor = DreamTheme.soloButton.cgColor
         } else {
             // Brighter off-state: Light gray text, medium dark gray bg
-            soloButton.contentTintColor = NSColor(white: 0.85, alpha: 1.0)
-            soloButton.layer?.backgroundColor = NSColor(white: 0.35, alpha: 1.0).cgColor
+            soloButton.contentTintColor = DreamTheme.textPrimary
+            soloButton.layer?.backgroundColor = DreamTheme.controlBgActive.cgColor
         }
 
         // Enable (On/Off) button: Green when active, gray when inactive
         if track.isMuted {
             enableButton.contentTintColor = DreamTheme.textMuted
-            enableButton.layer?.backgroundColor = NSColor(white: 0.25, alpha: 1).cgColor
+            enableButton.layer?.backgroundColor = DreamTheme.controlBg.cgColor
             nameBackgroundView.alphaValue = 0.4
             nameLabel.alphaValue = 0.4
         } else {
@@ -589,7 +589,7 @@ public final class TrackHeaderView: NSView {
             // Selected: brighter background, WHITE border (Ableton style)
             layer?.backgroundColor = DreamTheme.bgTrackHeader.blended(withFraction: 0.1, of: .white)?.cgColor
             layer?.borderWidth = 2.0
-            layer?.borderColor = NSColor.white.cgColor
+            layer?.borderColor = DreamTheme.textBright.cgColor
         } else {
             // Unselected: default background, no border
             layer?.backgroundColor = DreamTheme.bgTrackHeader.cgColor

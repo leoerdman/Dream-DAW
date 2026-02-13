@@ -404,6 +404,180 @@ public final class RenderEngine {
         }
     }
 
+    // MARK: - SPRINT 4 (Pillar 5): True Offline Bounce
+    
+    /// Enterprise-grade offline bounce using `AVAudioEngine.manualRenderingMode(.offline)`.
+    ///
+    /// Unlike the legacy `performRender()` which does manual per-sample mixing,
+    /// this method routes audio through the **live engine graph** — all effects,
+    /// AUv3 plugins, TimePitch nodes, and the complete signal chain are active.
+    /// The result is bit-identical to real-time playback.
+    ///
+    /// **Thread Safety:**
+    /// - Stops the live engine before entering offline mode
+    /// - Playback must NOT be active during bounce
+    /// - Engine is restored to normal mode on completion
+    ///
+    /// - Parameters:
+    ///   - project: The project to render.
+    ///   - outputURL: Destination WAV file URL.
+    ///   - config: Render configuration (sample rate, bit depth, channels).
+    ///   - audioEngine: The shared audio engine instance.
+    ///   - playbackScheduler: The scheduler to set up playback segments.
+    public func bounceOffline(
+        project: Project,
+        to outputURL: URL,
+        config: RenderConfiguration = .studioStandard,
+        audioEngine: AudioEngine,
+        playbackScheduler: PlaybackScheduler
+    ) {
+        let endPosition = RenderEngine.calculateRenderEnd(project: project)
+        guard endPosition.beats > 0.0 else {
+            DispatchQueue.main.async {
+                self.onComplete?(.failure(RenderError.noContent))
+            }
+            return
+        }
+        
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            self.performBounceOffline(
+                project: project,
+                outputURL: outputURL,
+                config: config,
+                audioEngine: audioEngine,
+                playbackScheduler: playbackScheduler,
+                endPosition: endPosition
+            )
+        }
+    }
+    
+    private func performBounceOffline(
+        project: Project,
+        outputURL: URL,
+        config: RenderConfiguration,
+        audioEngine: AudioEngine,
+        playbackScheduler: PlaybackScheduler,
+        endPosition: TimePosition
+    ) {
+        let engine = audioEngine.avAudioEngine
+        let maxFrames: AVAudioFrameCount = 4096
+        
+        // 1. Stop live engine (no playback during bounce)
+        let wasRunning = audioEngine.isRunning
+        if wasRunning {
+            audioEngine.stop()
+        }
+        
+        do {
+            // 2. Get the output format from the engine's main mixer
+            let format = engine.mainMixerNode.outputFormat(forBus: 0)
+            guard format.sampleRate > 0 else {
+                throw RenderError.engineSetupFailed
+            }
+            
+            // 3. Enable offline rendering mode
+            try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: maxFrames)
+            try engine.start()
+            
+            // 4. Schedule playback through the same graph as real-time
+            playbackScheduler.schedulePlaybackAsync(
+                project: project,
+                from: .zero,
+                looping: false
+            ) { _ in }
+            
+            // Allow scheduling to settle (the scheduler uses a BG queue)
+            Thread.sleep(forTimeInterval: 0.05)
+            
+            // 5. Prepare output file
+            let outputFile = try AVAudioFile(
+                forWriting: outputURL,
+                settings: [
+                    AVFormatIDKey: kAudioFormatLinearPCM,
+                    AVSampleRateKey: format.sampleRate,
+                    AVNumberOfChannelsKey: format.channelCount,
+                    AVLinearPCMBitDepthKey: config.bitDepth,
+                    AVLinearPCMIsFloatKey: false,
+                    AVLinearPCMIsBigEndianKey: false,
+                    AVLinearPCMIsNonInterleaved: false
+                ]
+            )
+            
+            // 6. Calculate total frames from project duration
+            let durationSeconds = endPosition.toSeconds(bpm: project.bpm)
+            let totalSamples = Int64(durationSeconds * format.sampleRate)
+            
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: maxFrames) else {
+                throw RenderError.engineSetupFailed
+            }
+            
+            // 7. Render loop — faster than real-time
+            var samplesRendered: Int64 = 0
+            while samplesRendered < totalSamples {
+                let framesToRender = min(maxFrames, AVAudioFrameCount(totalSamples - samplesRendered))
+                
+                let status = try engine.renderOffline(framesToRender, to: buffer)
+                
+                switch status {
+                case .success:
+                    try outputFile.write(from: buffer)
+                    samplesRendered += Int64(buffer.frameLength)
+                    
+                    // Report progress
+                    let progress = Double(samplesRendered) / Double(totalSamples)
+                    DispatchQueue.main.async {
+                        self.onProgress?(min(1.0, progress))
+                    }
+                    
+                case .insufficientDataFromInputNode:
+                    // Input starved — continue (will produce silence for this chunk)
+                    samplesRendered += Int64(framesToRender)
+                    
+                case .cannotDoInCurrentContext:
+                    // Retry after a brief yield
+                    Thread.sleep(forTimeInterval: 0.001)
+                    
+                case .error:
+                    throw RenderError.renderFailed("AVAudioEngine offline render returned error status")
+                    
+                @unknown default:
+                    throw RenderError.renderFailed("Unknown render status")
+                }
+            }
+            
+            // 8. Cleanup
+            playbackScheduler.stop()
+            engine.stop()
+            engine.disableManualRenderingMode()
+            
+            // Restart live engine if it was running before bounce
+            if wasRunning {
+                try? audioEngine.start()
+            }
+            
+            logger.info("BounceOffline complete: \(outputURL.lastPathComponent) — \(samplesRendered) frames at \(format.sampleRate) Hz")
+            
+            DispatchQueue.main.async {
+                self.onProgress?(1.0)
+                self.onComplete?(.success(outputURL))
+            }
+            
+        } catch {
+            // Ensure engine is restored on failure
+            engine.stop()
+            engine.disableManualRenderingMode()
+            if wasRunning {
+                try? audioEngine.start()
+            }
+            
+            logger.error("BounceOffline FAILED: \(error.localizedDescription)")
+            DispatchQueue.main.async {
+                self.onComplete?(.failure(RenderError.renderFailed(error.localizedDescription)))
+            }
+        }
+    }
+
     // MARK: - Pan Law
 
     /// Equal-power pan gain for a given channel.

@@ -79,7 +79,7 @@ public final class SignalMeterView: NSView {
         let meterBottom: CGFloat = pad
 
         // Background groove
-        ctx.setFillColor(NSColor(white: 0.10, alpha: 1.0).cgColor)
+        ctx.setFillColor(DreamTheme.meterBackground.cgColor)
         let grooveRect = CGRect(x: meterX, y: meterBottom, width: meterWidth, height: meterH)
         let groovePath = CGPath(roundedRect: grooveRect, cornerWidth: meterWidth / 2,
                                 cornerHeight: meterWidth / 2, transform: nil)

@@ -94,7 +94,7 @@ public struct TransportBarView: View {
             TextField("BPM", text: $bpmText, onCommit: {
                 commitBpm()
             })
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .font(.system(size: DreamTheme.fontSizeHeading, weight: .medium, design: .monospaced))
             .foregroundColor(Color(nsColor: DreamTheme.textPrimary))
             .textFieldStyle(.plain)
             .frame(width: 52)
@@ -109,13 +109,13 @@ public struct TransportBarView: View {
             // Time signature
             HStack(spacing: 1) {
                 Text("\(project.timeSignature.numerator)")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(.system(size: DreamTheme.fontSizeBody, weight: .medium, design: .monospaced))
                     .foregroundColor(Color(nsColor: DreamTheme.textPrimary))
                 Text("/")
-                    .font(.system(size: 9, weight: .regular))
+                    .font(.system(size: DreamTheme.fontSizeSmall, weight: .regular))
                     .foregroundColor(Color(nsColor: DreamTheme.textMuted))
                 Text("\(project.timeSignature.denominator)")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(.system(size: DreamTheme.fontSizeBody, weight: .medium, design: .monospaced))
                     .foregroundColor(Color(nsColor: DreamTheme.textPrimary))
             }
             .padding(.horizontal, 4)
@@ -125,7 +125,7 @@ public struct TransportBarView: View {
             // Quantize selector — click to cycle
             Button(action: { cycleQuantize() }) {
                 Text(Self.quantizeValues[quantizeIndex])
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(.system(size: DreamTheme.fontSizeBody, weight: .medium, design: .monospaced))
                     .foregroundColor(quantizeIndex == Self.quantizeValues.count - 1
                         ? Color(nsColor: DreamTheme.textMuted)
                         : Color(nsColor: DreamTheme.textSecondary))
@@ -229,7 +229,7 @@ public struct TransportBarView: View {
     
     private var positionSection: some View {
         Text(compactPositionString(transportController.playheadPosition))
-            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+            .font(.system(size: DreamTheme.fontSizeMono, weight: .semibold, design: .monospaced))
             .foregroundColor(Color(nsColor: DreamTheme.textPrimary))
             .frame(minWidth: 86, alignment: .trailing)
             .padding(.horizontal, 8)
@@ -247,7 +247,7 @@ public struct TransportBarView: View {
         HStack(spacing: 4) {
             Button(action: { transportController.isLooping.toggle() }) {
                 Image(systemName: "repeat")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: DreamTheme.fontSizeBody, weight: .medium))
                     .foregroundColor(
                         transportController.isLooping
                             ? Color(nsColor: DreamTheme.accentSecondary)
@@ -274,7 +274,7 @@ public struct TransportBarView: View {
                 project.keySignatureEnabled.toggle()
             }) {
                 Image(systemName: project.keySignatureEnabled ? "music.note" : "music.note.slash")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: DreamTheme.fontSizeBody, weight: .semibold))
                     .foregroundColor(
                         project.keySignatureEnabled
                         ? Color(nsColor: DreamTheme.accentSecondary)
@@ -325,7 +325,7 @@ public struct TransportBarView: View {
             // MIDI indicator
             HStack(spacing: 2) {
                 Text("MIDI")
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: DreamTheme.fontSizeSmall, weight: .medium))
                     .foregroundColor(Color(nsColor: DreamTheme.midiIndicator))
             }
             
@@ -334,10 +334,10 @@ public struct TransportBarView: View {
             // CPU meter
             HStack(spacing: 3) {
                 Image(systemName: "cpu")
-                    .font(.system(size: 9))
+                    .font(.system(size: DreamTheme.fontSizeSmall))
                     .foregroundColor(Color(nsColor: DreamTheme.textMuted))
                 Text("--")
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .font(.system(size: DreamTheme.fontSizeSmall, weight: .medium, design: .monospaced))
                     .foregroundColor(Color(nsColor: DreamTheme.textMuted))
             }
         }
@@ -356,13 +356,13 @@ public struct TransportBarView: View {
     private func keyTokenLabel(_ title: String, width: CGFloat) -> some View {
         HStack(spacing: 4) {
             Text(title)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: DreamTheme.fontSizeBody, weight: .semibold))
                 .foregroundColor(Color(nsColor: DreamTheme.textPrimary))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
             Image(systemName: "chevron.down")
-                .font(.system(size: 8, weight: .medium))
+                .font(.system(size: DreamTheme.fontSizeMicro, weight: .medium))
                 .foregroundColor(Color(nsColor: DreamTheme.textMuted))
         }
         .padding(.horizontal, 6)
@@ -394,7 +394,7 @@ struct AbletonTransportBtn: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: DreamTheme.fontSizeHeading, weight: .medium))
                 .foregroundColor(isActive ? activeColor : Color(nsColor: DreamTheme.textMuted))
                 .frame(width: 24, height: 24)
                 .background(
@@ -415,7 +415,7 @@ struct ControlBarButton: View {
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: DreamTheme.fontSizeBody, weight: .medium))
                 .foregroundColor(Color(nsColor: DreamTheme.textSecondary))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)

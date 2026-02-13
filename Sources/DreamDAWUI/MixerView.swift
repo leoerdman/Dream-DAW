@@ -61,7 +61,7 @@ struct ChannelStripView: View {
         VStack(spacing: 4) {
             // Track name
             Text(track.name)
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: DreamTheme.fontSizeSmall, weight: .semibold))
                 .foregroundColor(.white)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
@@ -70,18 +70,18 @@ struct ChannelStripView: View {
             // Track type badge
             if !isMaster {
                 Text(track.trackType.displayName)
-                    .font(.system(size: 7, weight: .medium))
+                    .font(.system(size: DreamTheme.fontSizeMicro, weight: .medium))
                     .foregroundColor(.white.opacity(0.5))
                     .padding(.horizontal, 4)
                     .padding(.vertical, 1)
                     .background(track.color.color.opacity(0.3))
-                    .cornerRadius(3)
+                    .cornerRadius(DreamTheme.radiusSmall)
             }
 
             Spacer()
 
             // VU meter placeholder (colored bar)
-            RoundedRectangle(cornerRadius: 2)
+            RoundedRectangle(cornerRadius: DreamTheme.radiusSmall)
                 .fill(
                     LinearGradient(
                         colors: [.green, .yellow, .red],
@@ -98,7 +98,7 @@ struct ChannelStripView: View {
             if !isMaster || true {
                 HStack(spacing: 2) {
                     Text("L")
-                        .font(.system(size: 7))
+                        .font(.system(size: DreamTheme.fontSizeMicro))
                         .foregroundColor(.white.opacity(0.4))
                     Slider(value: Binding(
                         get: { Double(track.pan) },
@@ -106,7 +106,7 @@ struct ChannelStripView: View {
                     ), in: -1...1)
                     .frame(width: 50)
                     Text("R")
-                        .font(.system(size: 7))
+                        .font(.system(size: DreamTheme.fontSizeMicro))
                         .foregroundColor(.white.opacity(0.4))
                 }
             }
@@ -123,7 +123,7 @@ struct ChannelStripView: View {
                 // dB label
                 let db = track.volume > 0 ? 20 * log10(track.volume) : -Float.infinity
                 Text(db > -60 ? String(format: "%.1f", db) : "-∞")
-                    .font(.system(size: 8, design: .monospaced))
+                    .font(.system(size: DreamTheme.fontSizeMicro + 1, design: .monospaced))
                     .foregroundColor(.white.opacity(0.6))
             }
 
@@ -134,11 +134,11 @@ struct ChannelStripView: View {
                     onChanged?()
                 }) {
                     Text("M")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: DreamTheme.fontSizeSmall, weight: .bold))
                         .foregroundColor(track.isMuted ? .black : .white.opacity(0.6))
                         .frame(width: 22, height: 18)
                         .background(track.isMuted ? Color.orange : Color.white.opacity(0.1))
-                        .cornerRadius(3)
+                        .cornerRadius(DreamTheme.radiusSmall)
                 }
                 .buttonStyle(.plain)
 
@@ -148,11 +148,11 @@ struct ChannelStripView: View {
                         onChanged?()
                     }) {
                         Text("S")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: DreamTheme.fontSizeSmall, weight: .bold))
                             .foregroundColor(track.isSoloed ? .black : .white.opacity(0.6))
                             .frame(width: 22, height: 18)
                             .background(track.isSoloed ? Color.yellow : Color.white.opacity(0.1))
-                            .cornerRadius(3)
+                            .cornerRadius(DreamTheme.radiusSmall)
                     }
                     .buttonStyle(.plain)
                 }

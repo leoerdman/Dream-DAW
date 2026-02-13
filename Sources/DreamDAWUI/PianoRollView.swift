@@ -129,13 +129,13 @@ public final class PianoRollView: NSView {
 
             // Key background
             let keyColor = isBlack
-                ? NSColor(white: 0.18, alpha: 1.0)
-                : NSColor(white: 0.28, alpha: 1.0)
+                ? DreamTheme.pianoBlackKey
+                : DreamTheme.pianoWhiteKey
             ctx.setFillColor(keyColor.cgColor)
             ctx.fill(CGRect(x: 0, y: y, width: keyboardWidth, height: pitchRowHeight))
 
             // Separator line
-            ctx.setStrokeColor(NSColor(white: 0.15, alpha: 1.0).cgColor)
+            ctx.setStrokeColor(DreamTheme.pianoSeparator.cgColor)
             ctx.setLineWidth(0.5)
             ctx.move(to: CGPoint(x: 0, y: y))
             ctx.addLine(to: CGPoint(x: keyboardWidth, y: y))
@@ -146,7 +146,7 @@ public final class PianoRollView: NSView {
                 let octave = (pitch / 12) - 1
                 let label = "C\(octave)" as NSString
                 let attrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: 8, weight: .medium),
+                    .font: DreamTheme.fontMicro,
                     .foregroundColor: DreamTheme.textSecondary
                 ]
                 label.draw(at: CGPoint(x: 4, y: y + 1), withAttributes: attrs)
@@ -171,8 +171,8 @@ public final class PianoRollView: NSView {
             let isC = noteIndex == 0
 
             ctx.setStrokeColor(
-                isC ? NSColor(white: 0.25, alpha: 1.0).cgColor
-                    : NSColor(white: 0.16, alpha: 1.0).cgColor
+                isC ? DreamTheme.pianoGridC.cgColor
+                    : DreamTheme.pianoGridLine.cgColor
             )
             ctx.setLineWidth(isC ? 1.0 : 0.5)
             ctx.move(to: CGPoint(x: rect.minX, y: y))
@@ -194,13 +194,13 @@ public final class PianoRollView: NSView {
             let isBeat = beat.truncatingRemainder(dividingBy: 1.0) == 0
 
             if isBar {
-                ctx.setStrokeColor(NSColor(white: 0.3, alpha: 1.0).cgColor)
+                ctx.setStrokeColor(DreamTheme.pianoBarLine.cgColor)
                 ctx.setLineWidth(1.0)
             } else if isBeat {
-                ctx.setStrokeColor(NSColor(white: 0.2, alpha: 1.0).cgColor)
+                ctx.setStrokeColor(DreamTheme.pianoBeatLine.cgColor)
                 ctx.setLineWidth(0.5)
             } else {
-                ctx.setStrokeColor(NSColor(white: 0.14, alpha: 0.5).cgColor)
+                ctx.setStrokeColor(DreamTheme.pianoSubLine.cgColor)
                 ctx.setLineWidth(0.5)
             }
 

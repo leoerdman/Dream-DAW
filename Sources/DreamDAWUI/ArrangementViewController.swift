@@ -277,6 +277,7 @@ public final class ArrangementViewController: NSViewController {
         let contentHeight = contentBottom - contentTop
         
         browserSidebar.frame = CGRect(x: 0, y: contentTop, width: browserW, height: contentHeight)
+        browserSidebar.isHidden = !isBrowserVisible
         vertDividerLeft.frame = CGRect(x: browserW, y: contentTop, width: 1, height: contentHeight)
         vertDividerLeft.isHidden = !isBrowserVisible
         
@@ -435,6 +436,7 @@ public final class ArrangementViewController: NSViewController {
         // Transport -> UI
         transportController.onPlayheadUpdate = { [weak self] position in
             guard let self = self else { return }
+            self.project.playheadPosition = position
             self.canvasView.playheadPosition = position
             self.rulerView.playheadPosition = position
         }
@@ -577,12 +579,14 @@ public final class ArrangementViewController: NSViewController {
     }
 
     private func configureProject() {
+        isBrowserVisible = true
         if let savedZoom = project.viewZoomScale {
             setZoom(CGFloat(savedZoom))
         }
         if let savedScroll = project.viewScrollPosition {
             pendingHorizontalScrollX = CGFloat(savedScroll)
         }
+        transportController.seek(to: project.playheadPosition)
         reloadTracks()
     }
 

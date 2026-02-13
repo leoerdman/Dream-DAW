@@ -7,15 +7,16 @@ import simd
 
 /// A unified Metal renderer that handles batch drawing for the entire arrangement timeline.
 /// Replaces the "one-layer-per-clip" bottleneck with a single GPU pipeline.
-public final class MetalTimelineRenderer {
+///
+/// **PHASE 9.6**: Now inherits from `MetalCanvasRenderer` for shared GPU infrastructure.
+/// Adds arrangement-specific pipelines (clip waveforms, MIDI note overlays).
+public final class MetalTimelineRenderer: MetalCanvasRenderer {
     
     // MARK: - Constants
     private let maxClips = 10000 // Enterprise scale
     
-    // MARK: - Properties
-    public let device: MTLDevice
-    private let commandQueue: MTLCommandQueue
-    private var pipelineState: MTLRenderPipelineState?
+    // MARK: - Arrangement-Specific Properties
+    private var clipPipelineState: MTLRenderPipelineState?
     private var notePipelineState: MTLRenderPipelineState? // Secondary pass
     
     // Buffers
@@ -28,25 +29,28 @@ public final class MetalTimelineRenderer {
     public var waveformCache: WaveformCache?
     
     // MARK: - Initialization
-    public init?() {
-        print("Metal: Initializing renderer...")
+    
+    /// Creates the timeline renderer, inheriting device + queue from MetalCanvasRenderer.
+    public convenience init?() {
+        print("Metal: Initializing timeline renderer...")
         guard let device = MTLCreateSystemDefaultDevice() else { 
             print("Metal: Failed to create device")
             return nil 
         }
-        self.device = device
-        guard let commandQueue = device.makeCommandQueue() else { 
-            print("Metal: Failed to create command queue")
-            return nil 
-        }
-        self.commandQueue = commandQueue
-        
-        setupPipeline()
-        setupBuffers()
-        print("Metal: Initialization complete")
+        self.init(device: device, maxInstances: 10000)
     }
     
-    private func setupPipeline() {
+    public override init?(device: MTLDevice, maxInstances: Int = 10000) {
+        super.init(device: device, maxInstances: maxInstances)
+        
+        setupArrangementPipelines()
+        setupArrangementBuffers()
+        print("Metal: Timeline renderer initialization complete")
+    }
+    
+    // MARK: - Pipeline Setup
+    
+    private func setupArrangementPipelines() {
         // 1. Locate the .metal source file
         let candidates = [
             Bundle.main.resourceURL?.appendingPathComponent("DreamDAW_DreamDAWUI.bundle"),
@@ -71,11 +75,11 @@ public final class MetalTimelineRenderer {
         }
         
         // 2. Compile at Runtime (Synchronous for startup reliability)
-        print("Metal: Compiling shaders at runtime...")
+        print("Metal: Compiling arrangement shaders at runtime...")
         do {
             let lib = try device.makeLibrary(source: source, options: nil)
             
-            // 1. Clip Pipeline
+            // 1. Clip Pipeline (with waveform rendering)
             let pipelineDescriptor = MTLRenderPipelineDescriptor()
             pipelineDescriptor.vertexFunction = lib.makeFunction(name: "timeline_vertex")
             pipelineDescriptor.fragmentFunction = lib.makeFunction(name: "timeline_fragment")
@@ -84,7 +88,7 @@ public final class MetalTimelineRenderer {
             pipelineDescriptor.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
             pipelineDescriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
             
-            self.pipelineState = try self.device.makeRenderPipelineState(descriptor: pipelineDescriptor)
+            self.clipPipelineState = try self.device.makeRenderPipelineState(descriptor: pipelineDescriptor)
             
             // 2. Note Pipeline (Opaque pass)
             let noteDescriptor = MTLRenderPipelineDescriptor()
@@ -103,7 +107,7 @@ public final class MetalTimelineRenderer {
         }
     }
     
-    private func setupBuffers() {
+    private func setupArrangementBuffers() {
         // Pre-allocate buffer for clip instances
         clipInstanceBuffer = device.makeBuffer(length: MemoryLayout<ClipInstance>.stride * maxClips, options: .storageModeShared)
         noteInstanceBuffer = device.makeBuffer(length: MemoryLayout<MidiNoteInstance>.stride * Self.maxNotes, options: .storageModeShared)
@@ -127,8 +131,8 @@ public final class MetalTimelineRenderer {
             // Silently return instead of spamming logs.
             return 
         }
-        guard let pipelineState = pipelineState else {
-            print("Metal: Error - pipelineState is NIL")
+        guard let pipelineState = clipPipelineState else {
+            print("Metal: Error - clipPipelineState is NIL")
             return
         }
         guard let instanceBuffer = clipInstanceBuffer else {

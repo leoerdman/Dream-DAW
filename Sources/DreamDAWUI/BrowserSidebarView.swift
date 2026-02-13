@@ -24,6 +24,7 @@ public final class BrowserSidebarView: NSView {
     }
 
     private let searchField = NSSearchField()
+    private let searchContainer = NSView()
     private let backgroundView = NSView()
     private let outlineScrollView = NSScrollView()
     private let outlineView = NSOutlineView()
@@ -91,6 +92,12 @@ public final class BrowserSidebarView: NSView {
         addSubview(backgroundView)
 
         // Search field — explicit visible panel for reliable UX.
+        searchContainer.wantsLayer = true
+        searchContainer.layer?.backgroundColor = DreamTheme.bgHeader.cgColor
+        searchContainer.layer?.borderColor = DreamTheme.divider.cgColor
+        searchContainer.layer?.borderWidth = 1
+        addSubview(searchContainer)
+
         searchField.placeholderString = "Search"
         searchField.font = NSFont.systemFont(ofSize: 11, weight: .regular)
         searchField.focusRingType = .none
@@ -103,7 +110,7 @@ public final class BrowserSidebarView: NSView {
         searchField.sendsSearchStringImmediately = true
         searchField.target = self
         searchField.action = #selector(searchChanged(_:))
-        addSubview(searchField)
+        searchContainer.addSubview(searchField)
 
         // Outline view — Ableton-style compact tree
         outlineView.headerView = nil
@@ -139,13 +146,14 @@ public final class BrowserSidebarView: NSView {
     public override func layout() {
         super.layout()
         backgroundView.frame = bounds
-        let searchAreaH: CGFloat = 28
+        let searchAreaH: CGFloat = 32
         let hPad: CGFloat = 8
         let topPad: CGFloat = 5
+        searchContainer.frame = CGRect(x: 0, y: 0, width: bounds.width, height: searchAreaH)
         searchField.frame = CGRect(
             x: hPad,
             y: topPad,
-            width: bounds.width - hPad * 2,
+            width: searchContainer.bounds.width - hPad * 2,
             height: searchAreaH - topPad * 2
         )
 

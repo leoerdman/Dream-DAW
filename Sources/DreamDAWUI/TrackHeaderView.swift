@@ -242,7 +242,7 @@ public final class TrackHeaderView: NSView {
             nameBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             nameLabel.trailingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor, constant: -2),
-            nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -6),
+            nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
             trackTypeLabel.leadingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor, constant: 4),
             trackTypeLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -6),
@@ -250,10 +250,10 @@ public final class TrackHeaderView: NSView {
             routingLabel.leadingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor, constant: 4),
             routingLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 6),
 
-            soloButton.trailingAnchor.constraint(equalTo: enableButton.leadingAnchor, constant: -2),
-            soloButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            soloButton.widthAnchor.constraint(equalToConstant: 20),
-            soloButton.heightAnchor.constraint(equalToConstant: 18),
+            soloButton.trailingAnchor.constraint(equalTo: vuMeterBarL.leadingAnchor, constant: -4),
+            soloButton.topAnchor.constraint(equalTo: topAnchor, constant: 3),
+            soloButton.widthAnchor.constraint(equalToConstant: 18),
+            soloButton.heightAnchor.constraint(equalToConstant: 13),
 
             collapseButton.trailingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor, constant: -4),
             collapseButton.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -261,12 +261,12 @@ public final class TrackHeaderView: NSView {
             collapseButton.heightAnchor.constraint(equalToConstant: 12),
 
             enableButton.trailingAnchor.constraint(equalTo: vuMeterBarL.leadingAnchor, constant: -4),
-            enableButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            enableButton.widthAnchor.constraint(equalToConstant: 22),
-            enableButton.heightAnchor.constraint(equalToConstant: 18),
+            enableButton.topAnchor.constraint(equalTo: soloButton.bottomAnchor, constant: 2),
+            enableButton.widthAnchor.constraint(equalToConstant: 18),
+            enableButton.heightAnchor.constraint(equalToConstant: 13),
 
             vuMeterBarL.trailingAnchor.constraint(equalTo: vuMeterBarR.leadingAnchor, constant: -2),
-            vuMeterBarL.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            vuMeterBarL.topAnchor.constraint(equalTo: topAnchor, constant: 3),
             vuMeterBarL.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             vuMeterBarL.widthAnchor.constraint(equalToConstant: 4),
 
@@ -306,7 +306,6 @@ public final class TrackHeaderView: NSView {
         let isMini = bounds.height < 45
         routingLabel.isHidden = isMini
         trackTypeLabel.isHidden = isMini
-        soloButton.isHidden = isMini
         
         // Adjust nameLabel position if mini
         if isMini {
@@ -739,6 +738,7 @@ public final class TrackHeaderView: NSView {
     // MARK: - Actions
 
     @objc private func soloToggled() {
+        guard track.trackType != .master else { return }
         track.isSoloed.toggle()
         updateButtonStates()
         onTrackChanged?(track)
@@ -786,6 +786,7 @@ public final class TrackHeaderView: NSView {
     }
 
     @objc private func enableToggled() {
+        guard track.trackType != .master else { return }
         track.isMuted.toggle()
         updateButtonStates()
         updateVolumeFill()

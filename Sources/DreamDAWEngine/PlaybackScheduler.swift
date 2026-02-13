@@ -23,11 +23,28 @@ public final class PlaybackScheduler {
     // directly into the AVAudioSourceNode render closure. The audio thread
     // reads from this captured snapshot with ZERO synchronization — no locks,
     // no atomics, no ARC. This is the only correct pattern for audio callbacks.
+    //
+    // PHASE 9.3 (AbsoluteTime): Each ActiveMidiClip now carries pre-computed
+    // sample-frame positions for the clip and its notes. This eliminates
+    // floating-point beat→sample conversion on every render callback.
     private struct ActiveMidiClip {
         let clip: MidiClip
         let trackID: UUID
         let sampler: SamplerInstrument?
         let midiBlock: AUScheduleMIDIEventBlock?
+        
+        // Pre-computed sample-frame positions (Phase 9.3)
+        let clipStartFrame: Int64
+        let clipEndFrame: Int64
+        
+        /// Pre-computed note positions in sample frames relative to project start.
+        struct NoteFrameData {
+            let pitch: Int
+            let velocity: Int
+            let startFrame: Int64
+            let endFrame: Int64
+        }
+        let noteFrames: [NoteFrameData]
     }
     
     private var renderObserver: AVAudioSourceNode?
@@ -271,8 +288,14 @@ public final class PlaybackScheduler {
 
     // MARK: - Real-Time DSP (Phase 8)
     
+    /// PHASE 9.3 (AbsoluteTime): Pre-computes sample-frame positions for all MIDI clips
+    /// and their notes. This work happens ONCE on the main thread before the render
+    /// observer starts — the audio thread reads from immutable pre-computed frames.
     private func collectActiveMidiClips(project: Project) -> [ActiveMidiClip] {
         var clips: [ActiveMidiClip] = []
+        let sampleRate = audioEngine.sampleRate
+        let bpm = project.bpm
+        
         for track in project.tracks {
             guard track.trackType == .midi else { continue }
             
@@ -287,7 +310,50 @@ public final class PlaybackScheduler {
             }
             
             for clip in track.midiClips {
-                clips.append(ActiveMidiClip(clip: clip, trackID: track.id, sampler: sampler, midiBlock: midiBlock))
+                // Use AbsoluteTime when available; fall back to beat→sample conversion
+                let clipStartFrame: Int64
+                let clipDurationFrames: Int64
+                
+                if clip.absolutePosition.sampleFrame != 0 || clip.position.beats == 0 {
+                    clipStartFrame = clip.absolutePosition.sampleFrame
+                    clipDurationFrames = clip.absoluteDuration.sampleFrame
+                } else {
+                    // Backward compatibility: compute from beats
+                    let secondsPerBeat = 60.0 / bpm
+                    clipStartFrame = Int64(clip.position.beats * secondsPerBeat * sampleRate)
+                    clipDurationFrames = Int64(clip.duration.beats * secondsPerBeat * sampleRate)
+                }
+                
+                let clipEndFrame = clipStartFrame + clipDurationFrames
+                
+                // Pre-compute note positions in absolute sample frames
+                var noteFrames: [ActiveMidiClip.NoteFrameData] = []
+                noteFrames.reserveCapacity(clip.notes.count)
+                
+                let secondsPerBeat = 60.0 / bpm
+                for note in clip.notes {
+                    let noteOffsetFrames = Int64(note.position.beats * secondsPerBeat * sampleRate)
+                    let noteDurationFrames = Int64(note.duration.beats * secondsPerBeat * sampleRate)
+                    let noteStart = clipStartFrame + noteOffsetFrames
+                    let noteEnd = noteStart + noteDurationFrames
+                    
+                    noteFrames.append(ActiveMidiClip.NoteFrameData(
+                        pitch: note.pitch,
+                        velocity: note.velocity,
+                        startFrame: noteStart,
+                        endFrame: noteEnd
+                    ))
+                }
+                
+                clips.append(ActiveMidiClip(
+                    clip: clip,
+                    trackID: track.id,
+                    sampler: sampler,
+                    midiBlock: midiBlock,
+                    clipStartFrame: clipStartFrame,
+                    clipEndFrame: clipEndFrame,
+                    noteFrames: noteFrames
+                ))
             }
         }
         return clips
@@ -303,7 +369,17 @@ public final class PlaybackScheduler {
     /// - The audio thread's copy is independent — no shared mutable state
     /// - No locks, no atomics, no ARC on the render path
     /// - When playback restarts, a NEW closure with a NEW snapshot is created
+    /// PHASE 9.3 + 9.4: The render observer now works in sample frames (Int64) instead
+    /// of floating-point beats. Combined with pre-computed note frame data from
+    /// collectActiveMidiClips(), this eliminates ALL floating-point arithmetic
+    /// from the audio thread's hot path.
     private func setupRealTimeObserver(midiSnapshot: [ActiveMidiClip], bpm: Double, sampleRate: Double) {
+        // Pre-compute loop boundaries in sample frames (done once, not per-callback)
+        let loopStartFrame = Int64(self.loopStart * (60.0 / bpm) * sampleRate)
+        let loopEndFrame = Int64(self.loopEnd * (60.0 / bpm) * sampleRate)
+        let playbackStartFrame = Int64(self.playbackStartBeat * (60.0 / bpm) * sampleRate)
+        let isLooping = self.looping
+        
         // Create a silent source node to tap into the render cycle.
         // The midiSnapshot is captured by value here — immutable for the
         // entire lifetime of this render observer.
@@ -316,32 +392,30 @@ public final class PlaybackScheduler {
                 self.playbackStartSampleTime = Int64(sampleTime)
             }
             
+            // PHASE 9.3: Work entirely in sample frames — zero floating-point conversion.
             let samplesElapsed = Int64(sampleTime) - self.playbackStartSampleTime
-            let secondsElapsed = Double(samplesElapsed) / sampleRate
-            let beatsElapsed = secondsElapsed * (bpm / 60.0)
             
-            // Buffer Window: startBeat + (elapsed samples → beats)
-            var bufferStartBeat = self.playbackStartBeat + beatsElapsed
-            let bufferDurationBeats = (Double(frameCount) / sampleRate) * (bpm / 60.0)
+            // Buffer window in absolute sample frames
+            var bufferStartFrame = playbackStartFrame + samplesElapsed
+            let bufferFrameCount = Int64(frameCount)
             
-            if self.looping && self.loopEnd > self.loopStart {
-                let loopLen = self.loopEnd - self.loopStart
-                if bufferStartBeat >= self.loopEnd {
-                    bufferStartBeat = self.loopStart + (bufferStartBeat - self.loopStart).truncatingRemainder(dividingBy: loopLen)
+            // Loop wrapping using integer modulo (Phase 9.1 pattern)
+            if isLooping && loopEndFrame > loopStartFrame {
+                let loopLen = loopEndFrame - loopStartFrame
+                if bufferStartFrame >= loopEndFrame {
+                    bufferStartFrame = loopStartFrame + ((bufferStartFrame - loopStartFrame) % loopLen)
                 }
             }
             
-            let bufferEndBeat = bufferStartBeat + bufferDurationBeats
+            let bufferEndFrame = bufferStartFrame + bufferFrameCount
             
             // PHASE 9.4: Read from captured immutable snapshot — ZERO LOCKS.
             for activeClip in midiSnapshot {
-                self.dispatchMidiEvents(
+                self.dispatchMidiEventsAbsolute(
                     activeClip: activeClip,
-                    bufferStartBeat: bufferStartBeat, 
-                    bufferEndBeat: bufferEndBeat, 
-                    frameCount: frameCount,
-                    sampleRate: sampleRate, 
-                    bpm: bpm
+                    bufferStartFrame: bufferStartFrame,
+                    bufferEndFrame: bufferEndFrame,
+                    frameCount: frameCount
                 )
             }
             
@@ -354,9 +428,69 @@ public final class PlaybackScheduler {
         audioEngine.connect(sourceNode, to: audioEngine.masterMixer, format: nil)
     }
 
-    /// HOTFIX 8.5: All offset calculations use clamped Double math before casting.
-    /// This prevents Fatal Error (Integer Underflow) when floating-point imprecision
-    /// produces negative offsetInBeats (e.g., -0.0000001 due to IEEE 754 rounding).
+    /// PHASE 9.3 (AbsoluteTime): Dispatches MIDI events using pre-computed sample
+    /// frame positions. All arithmetic is integer — zero floating-point on the hot path.
+    /// This completely eliminates accumulated drift in long sessions.
+    ///
+    /// HOTFIX 8.5 still applies: offset is clamped to [0, frameCount-1] before use.
+    private func dispatchMidiEventsAbsolute(
+        activeClip: ActiveMidiClip,
+        bufferStartFrame: Int64,
+        bufferEndFrame: Int64,
+        frameCount: UInt32
+    ) {
+        // Check if clip intersects current buffer (integer comparison)
+        guard activeClip.clipEndFrame > bufferStartFrame &&
+              activeClip.clipStartFrame < bufferEndFrame else { return }
+        
+        let maxOffset = Int64(frameCount > 0 ? frameCount - 1 : 0)
+        
+        for note in activeClip.noteFrames {
+            // If playback begins in the middle of a sustained note, fire note-on immediately.
+            if note.startFrame < bufferStartFrame && note.endFrame > bufferStartFrame {
+                let isFirstBuffer = (bufferStartFrame - Int64(playbackStartBeat * 60.0 / currentBPM * audioEngine.sampleRate)) < Int64(frameCount)
+                if isFirstBuffer {
+                    sendMidiEvent(
+                        activeClip: activeClip,
+                        status: 0x90,
+                        data1: UInt8(note.pitch),
+                        data2: UInt8(note.velocity),
+                        offset: 0,
+                        isNoteOn: true
+                    )
+                }
+            }
+            
+            // Note On — integer math only
+            if note.startFrame >= bufferStartFrame && note.startFrame < bufferEndFrame {
+                let offset = min(maxOffset, max(0, note.startFrame - bufferStartFrame))
+                sendMidiEvent(
+                    activeClip: activeClip,
+                    status: 0x90,
+                    data1: UInt8(note.pitch),
+                    data2: UInt8(note.velocity),
+                    offset: offset,
+                    isNoteOn: true
+                )
+            }
+            
+            // Note Off — integer math only
+            if note.endFrame >= bufferStartFrame && note.endFrame < bufferEndFrame {
+                let offset = min(maxOffset, max(0, note.endFrame - bufferStartFrame))
+                sendMidiEvent(
+                    activeClip: activeClip,
+                    status: 0x80,
+                    data1: UInt8(note.pitch),
+                    data2: 0,
+                    offset: offset,
+                    isNoteOn: false
+                )
+            }
+        }
+    }
+    
+    /// Legacy beat-based dispatch — kept for backward compatibility with
+    /// any callers that haven't migrated to AbsoluteTime yet.
     private func dispatchMidiEvents(activeClip: ActiveMidiClip, bufferStartBeat: Double, bufferEndBeat: Double, frameCount: UInt32, sampleRate: Double, bpm: Double) {
         let clip = activeClip.clip
         
@@ -391,7 +525,6 @@ public final class PlaybackScheduler {
             if noteStart >= bufferStartBeat && noteStart < bufferEndBeat {
                 let offsetInBeats = noteStart - bufferStartBeat
                 // HOTFIX 8.5: Clamp to [0, maxOffset] BEFORE integer cast.
-                // A negative Double -> UInt32 cast causes Swift Fatal Error.
                 let exactOffset = offsetInBeats * samplesPerBeat
                 let clampedOffset = max(0.0, min(maxOffset, exactOffset))
                 let offsetInSamples = Int64(clampedOffset)

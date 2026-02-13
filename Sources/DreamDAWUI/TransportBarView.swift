@@ -5,7 +5,7 @@ import DreamDAWEngine
 // MARK: - TransportBarView (Ableton-Style Top Control Bar)
 
 /// Compact top control bar matching Ableton Live 11 layout.
-/// Layout: [Tap | BPM | TimeSig | Quantize] | [◀ Play ▶ Stop ● Rec] | [Position Counter] | [Loop] | [Key] [MIDI] [CPU]
+/// Layout: [Tap | BPM | TimeSig | Quantize] | [◀ Play ▶ Stop ● Rec] | [Loop] ... [Key On/Off | Note | Mode] | [Position] | [MIDI] [CPU]
 public struct TransportBarView: View {
 
     @ObservedObject var transportController: TransportController
@@ -50,11 +50,6 @@ public struct TransportBarView: View {
             
             thinDivider
             
-            // Position display
-            positionSection
-            
-            thinDivider
-            
             // Loop toggle
             loopSection
             
@@ -62,7 +57,17 @@ public struct TransportBarView: View {
             
             thinDivider
             
-            // Right: Key, MIDI, CPU
+            // Right: Key selector
+            keySection
+            
+            thinDivider
+            
+            // Right: Position display (compact)
+            positionSection
+            
+            thinDivider
+            
+            // Right: MIDI, CPU
             rightSection
         }
         .frame(height: DreamTheme.controlBarHeight)
@@ -223,16 +228,17 @@ public struct TransportBarView: View {
     // MARK: - Position Display
     
     private var positionSection: some View {
-        HStack(spacing: 8) {
-            // Bars.Beats.Ticks
-            Text(transportController.playheadPosition.displayString(
-                beatsPerBar: transportController.timeSignature.beatsPerBar
-            ))
-            .font(.system(size: 14, weight: .semibold, design: .monospaced))
-            .foregroundColor(Color(nsColor: DreamTheme.accent))
-            .frame(minWidth: 90, alignment: .trailing)
-        }
-        .padding(.horizontal, 10)
+        Text(compactPositionString(transportController.playheadPosition))
+            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+            .foregroundColor(Color(nsColor: DreamTheme.textPrimary))
+            .frame(minWidth: 86, alignment: .trailing)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color(nsColor: DreamTheme.bgSurface).opacity(0.65))
+            )
+            .padding(.horizontal, 8)
     }
     
     // MARK: - Loop Section
@@ -261,14 +267,61 @@ public struct TransportBarView: View {
     }
     
     // MARK: - Right Section (Indicators)
+
+    private var keySection: some View {
+        HStack(spacing: 4) {
+            Button(action: {
+                project.keySignatureEnabled.toggle()
+            }) {
+                Image(systemName: project.keySignatureEnabled ? "music.note" : "music.note.slash")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(
+                        project.keySignatureEnabled
+                        ? Color(nsColor: DreamTheme.accentSecondary)
+                        : Color(nsColor: DreamTheme.textMuted)
+                    )
+                    .frame(width: 20, height: 20)
+                    .background(
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(
+                                project.keySignatureEnabled
+                                ? Color(nsColor: DreamTheme.accentSecondary).opacity(0.15)
+                                : Color(nsColor: DreamTheme.bgSurface).opacity(0.35)
+                            )
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("Enable Key")
+            
+            Menu {
+                ForEach(ProjectKeyTonic.allCases, id: \.self) { tonic in
+                    Button(tonic.rawValue) {
+                        project.keySignatureTonic = tonic
+                    }
+                }
+            } label: {
+                keyTokenLabel(project.keySignatureTonic.rawValue, width: 68)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            
+            Menu {
+                ForEach(ProjectKeyMode.allCases, id: \.self) { mode in
+                    Button(mode.rawValue) {
+                        project.keySignatureMode = mode
+                    }
+                }
+            } label: {
+                keyTokenLabel(project.keySignatureMode.rawValue, width: 92)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .padding(.horizontal, 8)
+    }
     
     private var rightSection: some View {
         HStack(spacing: 8) {
-            // Key indicator
-            Text("Key")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(Color(nsColor: DreamTheme.textMuted))
-            
             // MIDI indicator
             HStack(spacing: 2) {
                 Text("MIDI")
@@ -289,6 +342,35 @@ public struct TransportBarView: View {
             }
         }
         .padding(.horizontal, 8)
+    }
+
+    private func compactPositionString(_ position: TimePosition) -> String {
+        let beatsPerBar = max(1, transportController.timeSignature.beatsPerBar)
+        let bars = Int(position.beats) / beatsPerBar
+        let beatOffset = position.beats - Double(bars * beatsPerBar)
+        let wholeBeat = Int(floor(beatOffset))
+        let subBeat = max(0, min(99, Int(round((beatOffset - floor(beatOffset)) * 100.0))))
+        return String(format: "%d.%d.%02d", bars + 1, wholeBeat + 1, subBeat)
+    }
+
+    private func keyTokenLabel(_ title: String, width: CGFloat) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(Color(nsColor: DreamTheme.textPrimary))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 8, weight: .medium))
+                .foregroundColor(Color(nsColor: DreamTheme.textMuted))
+        }
+        .padding(.horizontal, 6)
+        .frame(width: width, height: 20)
+        .background(
+            RoundedRectangle(cornerRadius: 2)
+                .fill(Color(nsColor: DreamTheme.bgSurface).opacity(0.7))
+        )
     }
     
     // MARK: - Helpers

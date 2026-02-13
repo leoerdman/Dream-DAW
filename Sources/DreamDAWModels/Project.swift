@@ -61,6 +61,33 @@ public struct TimeSignature: Codable, Hashable, Sendable {
     }
 }
 
+// MARK: - Musical Key
+
+public enum ProjectKeyTonic: String, Codable, CaseIterable, Sendable {
+    case c = "C"
+    case cSharpDFlat = "C#/Db"
+    case d = "D"
+    case dSharpEFlat = "D#/Eb"
+    case e = "E"
+    case f = "F"
+    case fSharpGFlat = "F#/Gb"
+    case g = "G"
+    case gSharpAFlat = "G#/Ab"
+    case a = "A"
+    case aSharpBFlat = "A#/Bb"
+    case b = "B"
+}
+
+public enum ProjectKeyMode: String, Codable, CaseIterable, Sendable {
+    case major = "Major"
+    case minor = "Minor"
+    case dorian = "Dorian"
+    case phrygian = "Phrygian"
+    case lydian = "Lydian"
+    case mixolydian = "Mixolydian"
+    case locrian = "Locrian"
+}
+
 // MARK: - Project
 
 /// Root model for a Dream DAW project file.
@@ -108,6 +135,14 @@ public final class Project: ObservableObject, Identifiable, Codable {
     
     /// Current edit cursor position (insertion marker).
     @Published public var editCursorPosition: TimePosition = .zero
+
+    /// Persisted transport playhead position.
+    @Published public var playheadPosition: TimePosition = .zero
+
+    /// Project key selector state (UI-only for now, persisted in project file).
+    @Published public var keySignatureEnabled: Bool
+    @Published public var keySignatureTonic: ProjectKeyTonic
+    @Published public var keySignatureMode: ProjectKeyMode
     
     /// Backward compatibility alias. Uses `primarySelectedTrackID` for reads,
     /// sets single-selection for writes.
@@ -144,6 +179,9 @@ public final class Project: ObservableObject, Identifiable, Codable {
         self.sampleRate = sampleRate
         self.tracks = tracks
         self.isLooping = false
+        self.keySignatureEnabled = false
+        self.keySignatureTonic = .c
+        self.keySignatureMode = .major
         self.masterTrack = Track(
             name: "Master",
             trackType: .master,
@@ -157,6 +195,7 @@ public final class Project: ObservableObject, Identifiable, Codable {
     private enum CodingKeys: String, CodingKey {
         case id, name, bpm, timeSignature, sampleRate, tracks, isLooping, loopStart, loopEnd, masterTrack
         case viewZoomScale, viewScrollPosition
+        case playheadPosition, keySignatureEnabled, keySignatureTonic, keySignatureMode
     }
 
     public convenience init(from decoder: Decoder) throws {
@@ -179,6 +218,10 @@ public final class Project: ObservableObject, Identifiable, Codable {
         
         self.viewZoomScale = try container.decodeIfPresent(Double.self, forKey: .viewZoomScale)
         self.viewScrollPosition = try container.decodeIfPresent(Double.self, forKey: .viewScrollPosition)
+        self.playheadPosition = try container.decodeIfPresent(TimePosition.self, forKey: .playheadPosition) ?? .zero
+        self.keySignatureEnabled = try container.decodeIfPresent(Bool.self, forKey: .keySignatureEnabled) ?? false
+        self.keySignatureTonic = try container.decodeIfPresent(ProjectKeyTonic.self, forKey: .keySignatureTonic) ?? .c
+        self.keySignatureMode = try container.decodeIfPresent(ProjectKeyMode.self, forKey: .keySignatureMode) ?? .major
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -195,6 +238,10 @@ public final class Project: ObservableObject, Identifiable, Codable {
         try container.encode(masterTrack, forKey: .masterTrack)
         try container.encodeIfPresent(viewZoomScale, forKey: .viewZoomScale)
         try container.encodeIfPresent(viewScrollPosition, forKey: .viewScrollPosition)
+        try container.encode(playheadPosition, forKey: .playheadPosition)
+        try container.encode(keySignatureEnabled, forKey: .keySignatureEnabled)
+        try container.encode(keySignatureTonic, forKey: .keySignatureTonic)
+        try container.encode(keySignatureMode, forKey: .keySignatureMode)
     }
 
     // MARK: - Factory

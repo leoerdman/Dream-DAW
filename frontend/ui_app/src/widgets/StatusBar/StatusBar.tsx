@@ -2,6 +2,7 @@
  * StatusBar — Bottom status bar (Ableton Live style).
  *
  * Ported from StatusBarView.swift (142 lines).
+ * NOW WIRED to Zustand engine store for live playhead data.
  *
  * Layout:
  *   [Arrangement] [Position: 1.1.24] [End: 48.1.00] [Length: 2:28.430]
@@ -9,23 +10,33 @@
  *   [▶/■] [9 tracks] [44100 Hz] [Main ▾]
  */
 
+import { useEngineStore } from '@/shared/stores/useEngineStore';
+
 interface StatusBarProps {
-    position?: string;
     projectEnd?: string;
     duration?: string;
     trackCount?: number;
-    sampleRate?: number;
-    isPlaying?: boolean;
 }
 
 export const StatusBar = ({
-    position = '1.1.24',
     projectEnd = '48.1.00',
     duration = '2:28.430',
     trackCount = 9,
-    sampleRate = 44100,
-    isPlaying = false,
 }: StatusBarProps) => {
+    // Live engine data
+    const isPlaying = useEngineStore((s) => s.transport.is_playing);
+    const positionSeconds = useEngineStore((s) => s.transport.position_seconds);
+    const bpm = useEngineStore((s) => s.transport.bpm);
+    const connected = useEngineStore((s) => s.connected);
+
+    // Compute bar.beat.sub from live playhead
+    const bar = Math.floor((positionSeconds / 60) * bpm / 4) + 1;
+    const beat = Math.floor(((positionSeconds / 60) * bpm) % 4) + 1;
+    const sub = Math.floor((((positionSeconds / 60) * bpm) % 1) * 96);
+    const position = `${bar}.${beat}.${sub.toString().padStart(2, '0')}`;
+
+    const sampleRate = 44100; // TODO: read from engine state when available
+
     return (
         <div style={{
             display: 'flex',
@@ -70,6 +81,15 @@ export const StatusBar = ({
                 alignItems: 'center',
                 gap: 12,
             }}>
+                <span
+                    title={connected ? 'Engine connected' : 'Engine disconnected'}
+                    style={{
+                        width: 6, height: 6,
+                        borderRadius: '50%',
+                        background: connected ? 'var(--color-status-success)' : 'var(--color-status-error)',
+                        flexShrink: 0,
+                    }}
+                />
                 <span style={{
                     color: isPlaying ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
                     fontSize: 10,

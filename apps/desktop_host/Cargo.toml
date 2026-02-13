@@ -29,3 +29,10 @@ rtrb = { workspace = true }
 dream_models = { path = "../../core/dream_models" }
 dream_ipc = { path = "../../core/dream_ipc" }
 dream_engine = { path = "../../core/dream_engine" }
+dream_io = { path = "../../core/dream_io" }
+dream_clip_engine = { path = "../../core/dream_clip_engine" }
+
+# Project management
+uuid = { workspace = true }
+dirs = "5"
+tauri-plugin-dialog = "2"

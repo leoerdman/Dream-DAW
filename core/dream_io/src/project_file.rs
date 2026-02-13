@@ -13,6 +13,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 
 use dream_models::project::Project;
@@ -48,7 +49,11 @@ impl From<std::io::Error> for ProjectFileError {
 pub struct ProjectFile;
 
 impl ProjectFile {
-    /// Saves a project to a JSON file.
+    /// Saves a project to a JSON file using atomic write.
+    ///
+    /// Strategy: write → fsync → backup → rename
+    /// This ensures crash-safety: if the process dies at any point,
+    /// either the old file or the new file is complete on disk.
     ///
     /// # Arguments
     /// - `project`: The project to save.
@@ -64,10 +69,33 @@ impl ProjectFile {
             fs::create_dir_all(parent)?;
         }
 
-        fs::write(path, json.as_bytes())?;
+        // ── Step 1: Write to temp file ──────────────────────────────
+        let tmp_path = path.with_extension("tmp");
+        {
+            let mut file = fs::File::create(&tmp_path)?;
+            file.write_all(json.as_bytes())?;
+            // ── Step 2: fsync — flush to disk before rename ─────────
+            file.sync_all()?;
+        }
+
+        // ── Step 3: Backup existing file (non-fatal if fails) ──────
+        if path.exists() {
+            let bak_path = path.with_extension("bak");
+            if let Err(e) = fs::rename(path, &bak_path) {
+                log::warn!(
+                    "Could not create backup {}: {}",
+                    bak_path.display(),
+                    e
+                );
+                // Fall through — still try to save
+            }
+        }
+
+        // ── Step 4: Atomic rename temp → target ────────────────────
+        fs::rename(&tmp_path, path)?;
 
         log::info!(
-            "Project saved: {} ({} bytes)",
+            "Project saved (atomic): {} ({} bytes)",
             path.display(),
             json.len()
         );

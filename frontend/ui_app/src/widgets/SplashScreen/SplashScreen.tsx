@@ -9,17 +9,9 @@
    ═════════════════════════════════════════════════════════════ */
 
 import { useState, useEffect, useCallback } from 'react'
+import { useEngineStore } from '@/shared/stores/useEngineStore'
+import * as engineApi from '@/shared/api/engine'
 import './SplashScreen.css'
-
-// Tauri v2 invoke — dynamic import to avoid bundling issues
-const invoke = async (cmd: string) => {
-    try {
-        const { invoke: tauriInvoke } = await import('@tauri-apps/api/core')
-        await tauriInvoke(cmd)
-    } catch (e) {
-        console.warn('[Splash] Tauri invoke unavailable (browser dev?):', e)
-    }
-}
 
 interface SplashScreenProps {
     /** Minimum display duration in ms (prevents flash on fast loads) */
@@ -32,17 +24,26 @@ export function SplashScreen({ minDuration = 2400, onComplete }: SplashScreenPro
     const [status, setStatus] = useState('Initializing Audio Engine...')
     const [phase, setPhase] = useState<'visible' | 'fading' | 'done'>('visible')
 
+    const startTelemetryLoop = useEngineStore((s) => s.startTelemetryLoop)
+
     const dismiss = useCallback(async () => {
-        // First expand the window to full DAW size
-        await invoke('expand_window')
+        // Expand the window to full DAW size
+        try {
+            await engineApi.expandWindow()
+        } catch (e) {
+            console.warn('[Splash] expand_window unavailable (browser dev?):', e)
+        }
+
+        // Start the 60fps telemetry loop — the DAW comes alive
+        startTelemetryLoop()
 
         // Then fade out the overlay
         setPhase('fading')
         setTimeout(() => {
             setPhase('done')
             onComplete?.()
-        }, 600) // matches CSS transition duration
-    }, [onComplete])
+        }, 600)
+    }, [onComplete, startTelemetryLoop])
 
     useEffect(() => {
         const steps = [

@@ -22,6 +22,9 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use dream_clip_engine::pool::ClipPool;
+use dream_engine::driver::SharedClipSnapshot;
+use dream_ipc::metering::MeterBank;
 use dream_ipc::{self, EngineCommand, MasterClock};
 
 fn main() {
@@ -38,10 +41,20 @@ fn main() {
     // ── Create the lock-free bridge ─────────────────────────────────
     let (mut producer, consumer) = dream_ipc::create_command_queue();
     let clock = Arc::new(MasterClock::new());
+    let meter_bank = Arc::new(MeterBank::new(64));
+    let clip_pool = Arc::new(std::sync::Mutex::new(ClipPool::new()));
+    let clip_snapshot = Arc::new(SharedClipSnapshot::new());
 
     // ── Start the audio thread ──────────────────────────────────────
     let clock_for_audio = Arc::clone(&clock);
-    let _stream_handle = match dream_engine::driver::start_audio_thread(consumer, clock_for_audio) {
+    let meter_for_audio = Arc::clone(&meter_bank);
+    let _stream_handle = match dream_engine::driver::start_audio_thread(
+        consumer,
+        clock_for_audio,
+        meter_for_audio,
+        clip_pool,
+        clip_snapshot,
+    ) {
         Ok(handle) => {
             log::info!("✅ Audio driver initialized");
             handle

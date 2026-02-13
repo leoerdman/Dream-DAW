@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 
 /**
  * TrackInspector — Right-side track list following Ableton Live layout exactly.
@@ -75,13 +76,48 @@ export const TrackInspector = ({ selectedTrackId, onSelectTrack }: TrackInspecto
     const [tracks, setTracks] = useState(DEMO_TRACKS);
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
-    const toggleMute = useCallback((id: string) => {
-        setTracks(prev => prev.map(t => t.id === id ? { ...t, isMuted: !t.isMuted } : t));
+    // Engine store actions for real IPC
+    const engineSetTrackMute = useEngineStore((s) => s.setTrackMute);
+    const engineSetTrackSolo = useEngineStore((s) => s.setTrackSolo);
+    const engineSetTrackVolume = useEngineStore((s) => s.setTrackVolume);
+    const meterTracks = useEngineStore((s) => s.meters.tracks);
+
+    // Helper: get engine track index from track id
+    const getTrackIndex = useCallback((id: string): number => {
+        return DEMO_TRACKS.findIndex(t => t.id === id);
     }, []);
 
+    const toggleMute = useCallback((id: string) => {
+        setTracks(prev => {
+            const track = prev.find(t => t.id === id);
+            if (track) {
+                const idx = getTrackIndex(id);
+                if (idx >= 0) engineSetTrackMute(idx, !track.isMuted);
+            }
+            return prev.map(t => t.id === id ? { ...t, isMuted: !t.isMuted } : t);
+        });
+    }, [getTrackIndex, engineSetTrackMute]);
+
     const toggleSolo = useCallback((id: string) => {
-        setTracks(prev => prev.map(t => t.id === id ? { ...t, isSoloed: !t.isSoloed } : t));
-    }, []);
+        setTracks(prev => {
+            const track = prev.find(t => t.id === id);
+            if (track) {
+                const idx = getTrackIndex(id);
+                if (idx >= 0) engineSetTrackSolo(idx, !track.isSoloed);
+            }
+            return prev.map(t => t.id === id ? { ...t, isSoloed: !t.isSoloed } : t);
+        });
+    }, [getTrackIndex, engineSetTrackSolo]);
+
+    const handleVolumeChange = useCallback((id: string, volume: number) => {
+        setTracks(prev => prev.map(t => t.id === id ? { ...t, volume } : t));
+        const idx = getTrackIndex(id);
+        // Convert dB to linear gain for the engine: gain = 10^(dB/20)
+        if (idx >= 0) {
+            const linearGain = Math.pow(10, volume / 20);
+            engineSetTrackVolume(idx, linearGain);
+        }
+    }, [getTrackIndex, engineSetTrackVolume]);
 
     const toggleArm = useCallback((id: string) => {
         setTracks(prev => prev.map(t => t.id === id ? { ...t, isArmed: !t.isArmed } : t));

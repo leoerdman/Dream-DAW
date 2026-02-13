@@ -5,6 +5,8 @@
 // This file contains the shared Tauri application setup, including:
 //   - Audio engine lifecycle management (init on launch, teardown on close)
 //   - IPC command handlers (transport, metering, track control, project state)
+//   - Project management (new, save, open, recent projects)
+//   - Application settings (get/update, persisted to settings.json)
 //   - Thread-safe state management via Tauri's managed state
 //
 // Architecture:
@@ -15,10 +17,17 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use dream_ipc::metering::{MeterBank, linear_to_db};
+use dream_clip_engine::pool::{ClipAudio, ClipPool};
+use dream_engine::driver::SharedClipSnapshot;
+use dream_io::audio_reader::AudioReader;
+use dream_io::project_file::ProjectFile;
+use dream_ipc::metering::MeterBank;
 use dream_ipc::{EngineCommand, MasterClock};
+use dream_models::project::{AudioClip, Project, Track};
+use dream_models::time::AbsoluteTime;
 use dream_models::PlaybackState;
 use tauri::Manager;
 use rtrb;
@@ -46,6 +55,215 @@ struct AudioEngineHandle {
 
     /// Handle to the audio stream (kept alive to prevent drop).
     _stream: Mutex<Option<Box<dyn std::any::Any + Send>>>,
+}
+
+// ── Project State (managed by Tauri) ──────────────────────────────────
+
+/// Thread-safe handle to the current project's state.
+///
+/// The project is independently managed from the audio engine.
+/// Changes to the project trigger serialization and engine re-sync.
+struct ProjectState {
+    /// The currently loaded project.
+    project: Mutex<Project>,
+
+    /// Path to the current project file on disk. `None` if unsaved.
+    file_path: Mutex<Option<PathBuf>>,
+
+    /// Whether the project has unsaved changes.
+    is_dirty: Mutex<bool>,
+}
+
+impl ProjectState {
+    fn new() -> Self {
+        Self {
+            project: Mutex::new(Project::default()),
+            file_path: Mutex::new(None),
+            is_dirty: Mutex::new(false),
+        }
+    }
+}
+
+// ── Clip Pool State (shared between UI and audio thread) ────────────
+
+/// Thread-safe handle to the shared clip pool and project clip snapshot.
+///
+/// The clip pool stores decoded audio data (pre-loaded into RAM).
+/// The clip snapshot provides a lock-free view of project clips for
+/// the audio thread.
+struct ClipPoolState {
+    /// Decoded audio samples (UI thread writes, audio thread reads via Arc).
+    pool: Arc<Mutex<ClipPool>>,
+
+    /// Atomic snapshot of per-track clips (lock-free audio thread access).
+    snapshot: Arc<SharedClipSnapshot>,
+}
+
+impl ClipPoolState {
+    fn new() -> Self {
+        Self {
+            pool: Arc::new(Mutex::new(ClipPool::new())),
+            snapshot: Arc::new(SharedClipSnapshot::new()),
+        }
+    }
+
+    /// Rebuilds the clip snapshot from the current project state.
+    ///
+    /// Called after any project mutation (import, delete, etc.).
+    /// The audio thread will pick up the new snapshot on the next buffer.
+    fn rebuild_snapshot(&self, project: &Project) {
+        let clips_per_track: Vec<Vec<AudioClip>> = project
+            .tracks
+            .iter()
+            .map(|track| track.clips.clone())
+            .collect();
+        self.snapshot.swap(clips_per_track);
+    }
+}
+
+// ── Application Settings State ────────────────────────────────────────
+
+/// Persisted application settings.
+///
+/// Mirrors the Swift `AppSettings` — stored as `settings.json` in the
+/// application data directory.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AppSettings {
+    language: String,
+    startup_behavior: String,
+    waveform_style: String,
+    driver_type: String,
+    output_device: String,
+    input_device: String,
+    sample_rate: u32,
+    buffer_size: u32,
+    driver_error_compensation: f64,
+    test_tone_enabled: bool,
+    test_tone_volume: f64,
+    test_tone_frequency: f64,
+    cpu_usage_simulator: bool,
+    sr_pitch_conversion: bool,
+    user_folder_path: String,
+    samples_path: String,
+    vst2_path: String,
+    vst3_path: String,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        let home = dirs::home_dir().unwrap_or_default();
+        let music_dir = home.join("Music").join("Dream DAW");
+        Self {
+            language: "English".into(),
+            startup_behavior: "new".into(),
+            waveform_style: "colored".into(),
+            driver_type: "CoreAudio".into(),
+            output_device: "Default Output".into(),
+            input_device: "Default Input".into(),
+            sample_rate: 44100,
+            buffer_size: 512,
+            driver_error_compensation: 0.0,
+            test_tone_enabled: false,
+            test_tone_volume: -20.0,
+            test_tone_frequency: 440.0,
+            cpu_usage_simulator: false,
+            sr_pitch_conversion: true,
+            user_folder_path: music_dir.display().to_string(),
+            samples_path: music_dir.join("Samples").display().to_string(),
+            vst2_path: "/Library/Audio/Plug-Ins/VST".into(),
+            vst3_path: "/Library/Audio/Plug-Ins/VST3".into(),
+        }
+    }
+}
+
+/// Thread-safe settings state.
+struct SettingsState {
+    settings: Mutex<AppSettings>,
+}
+
+impl SettingsState {
+    fn load_from_disk(app_data_dir: &std::path::Path) -> Self {
+        let settings_path = app_data_dir.join("settings.json");
+        let settings = if settings_path.exists() {
+            match std::fs::read_to_string(&settings_path) {
+                Ok(json) => serde_json::from_str(&json).unwrap_or_default(),
+                Err(_) => AppSettings::default(),
+            }
+        } else {
+            AppSettings::default()
+        };
+        Self {
+            settings: Mutex::new(settings),
+        }
+    }
+
+    fn save_to_disk(&self, app_data_dir: &std::path::Path) -> Result<(), String> {
+        let settings = self.settings.lock().map_err(|e| e.to_string())?;
+        let json = serde_json::to_string_pretty(&*settings)
+            .map_err(|e| e.to_string())?;
+        let settings_path = app_data_dir.join("settings.json");
+        std::fs::create_dir_all(app_data_dir).map_err(|e| e.to_string())?;
+        std::fs::write(&settings_path, json).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
+
+// ── Recent Projects Tracker ───────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RecentProject {
+    name: String,
+    path: String,
+    last_opened: String, // ISO 8601
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct RecentProjects {
+    projects: Vec<RecentProject>,
+}
+
+impl RecentProjects {
+    fn load(app_data_dir: &std::path::Path) -> Self {
+        let path = app_data_dir.join("recent_projects.json");
+        if path.exists() {
+            match std::fs::read_to_string(&path) {
+                Ok(json) => serde_json::from_str(&json).unwrap_or_default(),
+                Err(_) => Self::default(),
+            }
+        } else {
+            Self::default()
+        }
+    }
+
+    fn save(&self, app_data_dir: &std::path::Path) -> Result<(), String> {
+        let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(app_data_dir).map_err(|e| e.to_string())?;
+        std::fs::write(app_data_dir.join("recent_projects.json"), json)
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn add(&mut self, name: String, path: String) {
+        // Remove existing entry for same path
+        self.projects.retain(|p| p.path != path);
+        // Add to front
+        self.projects.insert(0, RecentProject {
+            name,
+            path,
+            last_opened: chrono_now(),
+        });
+        // Keep max 20 recent projects
+        self.projects.truncate(20);
+    }
+}
+
+/// Returns current UTC time as ISO 8601 string (no chrono dependency).
+fn chrono_now() -> String {
+    use std::time::SystemTime;
+    let since_epoch = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+    format!("{}s", since_epoch.as_secs())
 }
 
 // ── IPC Response Types ─────────────────────────────────────────────────
@@ -430,6 +648,128 @@ fn set_frequency(freq: f32, handle: tauri::State<'_, AudioEngineHandle>) -> Resu
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Tauri Commands — Audio Import
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Import response sent back to frontend.
+#[derive(Debug, Clone, Serialize)]
+struct ImportAudioResponse {
+    clip_id: String,
+    clip_name: String,
+    duration_seconds: f64,
+    sample_rate: u32,
+    channels: usize,
+    frames: usize,
+}
+
+/// Imports an audio file, decodes it into the clip pool, and places
+/// a clip on the specified track at the current playhead position.
+///
+/// # Performance
+/// Decoding happens on the Tauri async thread pool — NOT the audio thread.
+/// The decoded samples are inserted into the shared ClipPool, and the
+/// project clip snapshot is atomically swapped for the audio thread.
+#[tauri::command]
+async fn import_audio_file(
+    path: String,
+    track_index: u16,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    project_state: tauri::State<'_, ProjectState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<ImportAudioResponse, String> {
+    let file_path = PathBuf::from(&path);
+
+    // Validate file exists
+    if !file_path.exists() {
+        return Err(format!("File not found: {}", file_path.display()));
+    }
+
+    // Validate extension
+    let ext = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    if !matches!(ext.as_str(), "wav" | "mp3" | "flac" | "aiff" | "aif" | "ogg" | "m4a" | "aac") {
+        return Err(format!("Unsupported audio format: .{ext}"));
+    }
+
+    // Decode audio file (NOT real-time safe — runs on async thread pool)
+    let decoded = AudioReader::read(&file_path)
+        .map_err(|e| format!("Failed to decode audio: {e}"))?;
+
+    let clip_name = file_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Untitled")
+        .to_string();
+
+    let sample_rate = decoded.sample_rate;
+    let num_frames = decoded.num_frames;
+    let num_channels = decoded.channels.len();
+    let duration_seconds = num_frames as f64 / sample_rate as f64;
+
+    // Convert AudioBuffer → ClipAudio for the pool
+    let clip_audio = ClipAudio {
+        source_path: path.clone(),
+        channels: decoded.channels,
+        sample_rate,
+        num_frames,
+    };
+
+    // Insert into pool
+    {
+        let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+        pool.insert(clip_audio);
+    }
+
+    // Get playhead position for clip placement
+    let playhead_frames = handle.master_clock.position();
+
+    // Create AudioClip in the project
+    let clip = AudioClip::new(
+        &clip_name,
+        &path,
+        AbsoluteTime::new(playhead_frames),
+        AbsoluteTime::new(num_frames as i64),
+    );
+    let clip_id = clip.id.to_string();
+
+    // Add clip to the specified track (create track if needed)
+    {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+        let idx = track_index as usize;
+        while project.tracks.len() <= idx {
+            let track_num = project.tracks.len() + 1;
+            project.add_track(Track::new(format!("Track {track_num}")));
+        }
+
+        project.tracks[idx].clips.push(clip);
+
+        // Mark project dirty
+        *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+
+        // Rebuild clip snapshot for audio thread
+        clip_pool_state.rebuild_snapshot(&project);
+    }
+
+    log::info!(
+        "[IPC] import_audio_file: '{}' → track {} ({} frames, {:.1}s, {}Hz, {}ch)",
+        clip_name, track_index, num_frames, duration_seconds, sample_rate, num_channels
+    );
+
+    Ok(ImportAudioResponse {
+        clip_id,
+        clip_name,
+        duration_seconds,
+        sample_rate,
+        channels: num_channels,
+        frames: num_frames,
+    })
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Splash Screen → Main Window Transition
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -474,6 +814,178 @@ fn expand_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Project Management Commands
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Creates a new empty project and replaces the current one.
+#[tauri::command]
+fn new_project(
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<Project, String> {
+    let new = Project::default();
+    *project_state.project.lock().map_err(|e| e.to_string())? = new.clone();
+    *project_state.file_path.lock().map_err(|e| e.to_string())? = None;
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
+
+    // Update window title
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_title(&format!("Dream DAW — {}", new.name));
+    }
+
+    log::info!("New project created: '{}'", new.name);
+    Ok(new)
+}
+
+/// Saves the current project to its existing path (or fails if unsaved).
+#[tauri::command]
+fn save_project(
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<String, String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let file_path = project_state.file_path.lock().map_err(|e| e.to_string())?;
+
+    let path = file_path
+        .as_ref()
+        .ok_or("No file path set. Use Save As first.")?;
+
+    ProjectFile::save(&project, path)
+        .map_err(|e| e.to_string())?;
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
+
+    log::info!("Project saved: '{}' → {}", project.name, path.display());
+    Ok(path.display().to_string())
+}
+
+/// Saves the project to a specific path.
+#[tauri::command]
+fn save_project_as(
+    path: String,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let file_path = PathBuf::from(&path);
+
+    ProjectFile::save(&project, &file_path)
+        .map_err(|e| e.to_string())?;
+
+    *project_state.file_path.lock().map_err(|e| e.to_string())? = Some(file_path.clone());
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
+
+    // Track in recent projects
+    if let Ok(app_data_dir) = app.path().app_data_dir() {
+        let mut recent = RecentProjects::load(&app_data_dir);
+        recent.add(project.name.clone(), path.clone());
+        let _ = recent.save(&app_data_dir);
+    }
+
+    // Update window title
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_title(&format!("Dream DAW — {}", project.name));
+    }
+
+    log::info!("Project saved as: '{}' → {}", project.name, file_path.display());
+    Ok(path)
+}
+
+/// Opens a project from a file path.
+#[tauri::command]
+fn open_project(
+    path: String,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<Project, String> {
+    let file_path = PathBuf::from(&path);
+
+    let loaded = ProjectFile::load(&file_path)
+        .map_err(|e| e.to_string())?;
+
+    *project_state.project.lock().map_err(|e| e.to_string())? = loaded.clone();
+    *project_state.file_path.lock().map_err(|e| e.to_string())? = Some(file_path);
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
+
+    // Track in recent projects
+    if let Ok(app_data_dir) = app.path().app_data_dir() {
+        let mut recent = RecentProjects::load(&app_data_dir);
+        recent.add(loaded.name.clone(), path);
+        let _ = recent.save(&app_data_dir);
+    }
+
+    // Update window title
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_title(&format!("Dream DAW — {}", loaded.name));
+    }
+
+    log::info!("Project opened: '{}' ({} tracks)", loaded.name, loaded.track_count());
+    Ok(loaded)
+}
+
+/// Returns the list of recently opened projects.
+#[tauri::command]
+fn get_recent_projects(
+    app: tauri::AppHandle,
+) -> Result<Vec<RecentProject>, String> {
+    let app_data_dir = app.path().app_data_dir()
+        .map_err(|e| e.to_string())?;
+    let recent = RecentProjects::load(&app_data_dir);
+    Ok(recent.projects)
+}
+
+/// Returns the current project state.
+#[tauri::command]
+fn get_project(
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<Project, String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    Ok(project.clone())
+}
+
+/// Returns whether the project has unsaved changes and the current file path.
+#[tauri::command]
+fn get_project_status(
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<serde_json::Value, String> {
+    let is_dirty = *project_state.is_dirty.lock().map_err(|e| e.to_string())?;
+    let file_path = project_state.file_path.lock().map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "isDirty": is_dirty,
+        "filePath": file_path.as_ref().map(|p| p.display().to_string()),
+    }))
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Settings Commands
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Returns the current application settings.
+#[tauri::command]
+fn get_settings(
+    settings_state: tauri::State<'_, SettingsState>,
+) -> Result<AppSettings, String> {
+    let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+    Ok(settings.clone())
+}
+
+/// Updates application settings and persists to disk.
+#[tauri::command]
+fn update_settings(
+    new_settings: AppSettings,
+    settings_state: tauri::State<'_, SettingsState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    *settings_state.settings.lock().map_err(|e| e.to_string())? = new_settings;
+
+    if let Ok(app_data_dir) = app.path().app_data_dir() {
+        settings_state.save_to_disk(&app_data_dir)?;
+    }
+
+    log::info!("Settings updated and persisted");
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Application Setup
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -489,10 +1001,22 @@ pub fn run() {
     let master_clock = Arc::new(MasterClock::new());
     let meter_bank = Arc::new(MeterBank::new(64)); // 64 tracks max
 
+    // Create shared clip pool and snapshot
+    let clip_pool_state = ClipPoolState::new();
+    let clip_pool_for_engine = Arc::clone(&clip_pool_state.pool);
+    let snapshot_for_engine = Arc::clone(&clip_pool_state.snapshot);
+
     // Start the audio engine on a dedicated thread
     let clock_for_engine = Arc::clone(&master_clock);
-    let stream = dream_engine::driver::start_audio_thread(consumer, clock_for_engine)
-        .expect("Fatal: failed to start audio engine");
+    let meter_for_engine = Arc::clone(&meter_bank);
+    let stream = dream_engine::driver::start_audio_thread(
+        consumer,
+        clock_for_engine,
+        meter_for_engine,
+        clip_pool_for_engine,
+        snapshot_for_engine,
+    )
+    .expect("Fatal: failed to start audio engine");
 
     let engine_handle = AudioEngineHandle {
         producer: Mutex::new(producer),
@@ -502,9 +1026,19 @@ pub fn run() {
         _stream: Mutex::new(Some(Box::new(stream))),
     };
 
+    // Load settings from disk
+    let app_data_dir_for_settings = dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("com.dreamdaw.app");
+    let settings_state = SettingsState::load_from_disk(&app_data_dir_for_settings);
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(engine_handle)
+        .manage(ProjectState::new())
+        .manage(clip_pool_state)
+        .manage(settings_state)
         .invoke_handler(tauri::generate_handler![
             // Transport
             play,
@@ -524,16 +1058,29 @@ pub fn run() {
             get_state,
             get_transport,
             get_meters,
+            // Project Management
+            new_project,
+            save_project,
+            save_project_as,
+            open_project,
+            get_recent_projects,
+            get_project,
+            get_project_status,
+            // Settings
+            get_settings,
+            update_settings,
             // Splash
             expand_window,
             // Legacy
             set_frequency,
+            // Audio Import
+            import_audio_file,
         ])
         .setup(|app| {
             log::info!(
                 "Dream DAW v{} — Audio engine initialized ({} IPC commands registered)",
                 app.package_info().version,
-                16
+                25
             );
             Ok(())
         })

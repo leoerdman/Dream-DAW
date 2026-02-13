@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 
 /**
  * TransportBar — Full Ableton-style top control bar.
@@ -19,18 +20,25 @@ interface TransportBarProps {
 }
 
 export const TransportBar = ({ onSettingsClick }: TransportBarProps) => {
-    // Transport state
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [isRecording, setIsRecording] = useState(false);
-    const [isLooping, setIsLooping] = useState(false);
+    // ── Engine Store (REAL IPC) ──────────────────────────────────────
+    const isPlaying = useEngineStore((s) => s.transport.is_playing);
+    const bpm = useEngineStore((s) => s.transport.bpm);
+    const isLooping = useEngineStore((s) => s.transport.loop_enabled);
+    const positionSeconds = useEngineStore((s) => s.transport.position_seconds);
+    const togglePlay = useEngineStore((s) => s.togglePlay);
+    const engineStop = useEngineStore((s) => s.stop);
+    const engineSetBpm = useEngineStore((s) => s.setBpm);
+    const engineSetLoop = useEngineStore((s) => s.setLoop);
 
-    // Tempo state
-    const [bpm, setBpm] = useState(128.0);
+    // Local-only UI state (not engine-connected yet)
+    const [isRecording, setIsRecording] = useState(false);
+
+    // Tempo editing
     const [bpmEditing, setBpmEditing] = useState(false);
-    const [bpmText, setBpmText] = useState('128.00');
+    const [bpmText, setBpmText] = useState(bpm.toFixed(2));
     const bpmRef = useRef<HTMLInputElement>(null);
 
-    // Time signature
+    // Time signature (local until engine supports it)
     const [timeSigNum] = useState(4);
     const [timeSigDen] = useState(4);
 
@@ -42,8 +50,14 @@ export const TransportBar = ({ onSettingsClick }: TransportBarProps) => {
     const [keyTonic, setKeyTonic] = useState(0);
     const [keyMode, setKeyMode] = useState(0);
 
-    // Position (bar.beat.sub)
-    const [position] = useState({ bar: 1, beat: 1, sub: 24 });
+    // Position — computed from engine's live playhead
+    const position = (() => {
+        const totalBeats = (positionSeconds / 60) * bpm;
+        const bar = Math.floor(totalBeats / timeSigNum) + 1;
+        const beat = Math.floor(totalBeats % timeSigNum) + 1;
+        const sub = Math.floor((totalBeats % 1) * 96);
+        return { bar, beat, sub };
+    })();
 
     // Tap tempo
     const tapTimestamps = useRef<number[]>([]);
@@ -65,7 +79,7 @@ export const TransportBar = ({ onSettingsClick }: TransportBarProps) => {
             const avg = total / (taps.length - 1);
             const detected = Math.min(999, Math.max(20, 60000 / avg));
             const rounded = Math.round(detected * 100) / 100;
-            setBpm(rounded);
+            engineSetBpm(rounded);
             setBpmText(rounded.toFixed(2));
         }
     }, []);
@@ -73,8 +87,9 @@ export const TransportBar = ({ onSettingsClick }: TransportBarProps) => {
     const commitBpm = () => {
         const val = parseFloat(bpmText);
         if (!isNaN(val) && val >= 20 && val <= 999) {
-            setBpm(Math.round(val * 100) / 100);
-            setBpmText((Math.round(val * 100) / 100).toFixed(2));
+            const rounded = Math.round(val * 100) / 100;
+            engineSetBpm(rounded);
+            setBpmText(rounded.toFixed(2));
         } else {
             setBpmText(bpm.toFixed(2));
         }
@@ -169,12 +184,12 @@ export const TransportBar = ({ onSettingsClick }: TransportBarProps) => {
                     title="Play"
                     isActive={isPlaying}
                     activeColor="var(--color-status-success)"
-                    onClick={() => setIsPlaying(!isPlaying)}
+                    onClick={togglePlay}
                 />
                 <TransportBtn
                     icon="■"
                     title="Stop"
-                    onClick={() => { setIsPlaying(false); setIsRecording(false); }}
+                    onClick={() => { engineStop(); setIsRecording(false); }}
                 />
                 <TransportBtn
                     icon="●"
@@ -191,7 +206,7 @@ export const TransportBar = ({ onSettingsClick }: TransportBarProps) => {
             {/* ── LOOP ── */}
             <Section>
                 <button
-                    onClick={() => setIsLooping(!isLooping)}
+                    onClick={() => engineSetLoop(!isLooping, 0, 0)}
                     title="Loop"
                     style={{
                         background: isLooping ? 'var(--color-accent-primary-dim)' : 'transparent',

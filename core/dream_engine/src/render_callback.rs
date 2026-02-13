@@ -16,6 +16,8 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+use dream_clip_engine::pool::ClipPool;
+use dream_clip_engine::reader::ClipReader;
 use dream_clip_engine::scheduler::{ClipScheduler, LoopRegion as ClipLoopRegion};
 use dream_dsp::fades::FadeCache;
 use dream_mixer::{ChannelStrip, SummingBus};
@@ -144,6 +146,7 @@ impl RenderContext {
     /// # Arguments
     /// - `output`: The interleaved output buffer to fill (`[L, R, L, R, ...]`).
     /// - `clips_per_track`: Per-track clip lists. Index matches track index.
+    /// - `clip_pool`: Pre-loaded audio data for zero-copy sample access.
     ///
     /// # Real-Time Safety
     /// Zero allocations. Zero locks. Zero I/O. Zero panics.
@@ -153,6 +156,7 @@ impl RenderContext {
         &mut self,
         output: &mut [f32],
         clips_per_track: &[&[dream_models::project::AudioClip]],
+        clip_pool: &ClipPool,
     ) {
         let frame_count = output.len() / self.channels;
         let playhead_pos = self.playhead.position();
@@ -183,17 +187,23 @@ impl RenderContext {
             let slot = &mut self.track_slots[track_idx];
             slot.active = true;
 
-            // ── 3. Sum clip audio into track buffer ─────────────────
-            // In a full implementation, this would read decoded audio
-            // from the clip reader pool. For now, we mark the slot as
-            // active and the framework for clip scheduling is in place.
-            //
-            // The actual audio read pipeline:
-            //   ClipReader::read(active_clip) → FadeCache → track buffer
-            //
-            // This integration point will be connected when the
-            // AsyncFileReader pool is wired up.
-            let _ = active_clips; // Acknowledge usage (no-op until file reader is connected)
+            // ── 3. Read clip audio into track buffer ────────────────
+            // ClipScheduler told us which clips overlap. Now read their
+            // decoded samples from ClipPool (pre-loaded, zero-copy Arc).
+            for ac in &active_clips {
+                if let Some(audio) = clip_pool.get(&ac.clip.file_path) {
+                    ClipReader::read_stereo_into(
+                        audio.left(),
+                        audio.right(),
+                        ac.source_start_frame as usize,
+                        &mut slot.buf_left,
+                        &mut slot.buf_right,
+                        ac.buffer_offset,
+                        ac.frames_to_read,
+                        ac.clip.gain as f32,
+                    );
+                }
+            }
         }
 
         // ── 4. Process channel strips (gain + pan) per track ────────
@@ -307,11 +317,12 @@ mod tests {
     fn render_silence_produces_silence() {
         let meter_bank = Arc::new(MeterBank::new(8));
         let mut ctx = RenderContext::new(8, 44100.0, 2, meter_bank);
+        let pool = ClipPool::new();
 
         let mut output = vec![1.0_f32; 512]; // Fill with 1.0 first
         let no_clips: Vec<&[dream_models::project::AudioClip]> = Vec::new();
 
-        ctx.render(&mut output, &no_clips);
+        ctx.render(&mut output, &no_clips, &pool);
 
         // All output should be zero (no clips = silence)
         assert!(

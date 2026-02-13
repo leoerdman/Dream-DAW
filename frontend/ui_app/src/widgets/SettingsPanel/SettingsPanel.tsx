@@ -427,7 +427,7 @@ const overlayStyle: React.CSSProperties = {
 };
 
 const modalStyle: React.CSSProperties = {
-    width: 680, maxHeight: '80vh',
+    width: 680, height: 720,
     background: 'var(--color-bg-surface)',
     borderRadius: 12, border: '1px solid var(--color-divider)',
     display: 'flex', overflow: 'hidden',

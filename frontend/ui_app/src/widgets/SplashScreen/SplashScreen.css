@@ -1,0 +1,187 @@
+/* ═══════════════════════════════════════════════════════════════
+   Dream DAW — Splash Screen Styles
+   Port of Swift SplashScreenController + SplashScreenView
+   ═════════════════════════════════════════════════════════════ */
+
+/* ── Full-screen overlay ───────────────────────────────────── */
+.splash-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  opacity: 1;
+  transition: opacity 600ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.splash-overlay.splash-fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── Card: 450×450 centered square ──────────────────────────── */
+.splash-card {
+  position: relative;
+  width: 450px;
+  height: 450px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  animation: splash-scale-in 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes splash-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ── Gradient background ────────────────────────────────────── */
+.splash-gradient {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    #0f0f0f 0%,
+    #1a1a1a 50%,
+    #0f0f0f 100%
+  );
+  border-radius: 0; /* Perfectly square per user request */
+}
+
+/* ── Logo: 180×180 circular with glow ───────────────────────── */
+.splash-logo-container {
+  position: relative;
+  width: 180px;
+  height: 180px;
+  flex-shrink: 0;
+  margin-bottom: 24px;
+}
+
+.splash-logo-glow {
+  position: absolute;
+  inset: -20px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    var(--color-accent-primary-glow, rgba(99, 102, 241, 0.3)) 0%,
+    transparent 70%
+  );
+  animation: splash-glow-pulse 2.5s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+@keyframes splash-glow-pulse {
+  from { opacity: 0.5; transform: scale(0.95); }
+  to   { opacity: 1;   transform: scale(1.05); }
+}
+
+.splash-logo {
+  position: relative;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  object-fit: cover;
+  /* Hardware-accelerated compositing */
+  will-change: transform;
+  filter: drop-shadow(0 0 24px var(--color-accent-primary-glow, rgba(99, 102, 241, 0.3)));
+}
+
+/* ── Title ──────────────────────────────────────────────────── */
+.splash-title {
+  position: relative;
+  margin: 0 0 6px;
+  font-family: var(--font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: #ffffff;
+  text-align: center;
+}
+
+/* ── Version badge ──────────────────────────────────────────── */
+.splash-version {
+  position: relative;
+  font-family: var(--font-mono, 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-accent-primary, #6366f1);
+  letter-spacing: 1px;
+  margin-bottom: 0;
+}
+
+/* ── Status bar (bottom of card) ───────────────────────────── */
+.splash-status-container {
+  position: absolute;
+  bottom: 28px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.splash-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--color-accent-primary, #6366f1);
+  border-radius: 50%;
+  animation: splash-spin 800ms linear infinite;
+}
+
+@keyframes splash-spin {
+  to { transform: rotate(360deg); }
+}
+
+.splash-status {
+  font-family: var(--font-family, -apple-system, BlinkMacSystemFont, sans-serif);
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.45);
+  transition: opacity 200ms ease;
+}
+
+/* ── Border (premium 1px edge) ──────────────────────────────── */
+.splash-border {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+
+/* ── Responsive: shrink on very small windows ───────────────── */
+@media (max-width: 500px), (max-height: 500px) {
+  .splash-card {
+    width: 320px;
+    height: 320px;
+  }
+
+  .splash-logo-container {
+    width: 120px;
+    height: 120px;
+  }
+
+  .splash-logo {
+    width: 120px;
+    height: 120px;
+  }
+
+  .splash-title {
+    font-size: 24px;
+    letter-spacing: 3px;
+  }
+
+  .splash-version {
+    font-size: 12px;
+  }
+}

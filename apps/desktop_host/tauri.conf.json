@@ -11,14 +11,14 @@
     "app": {
         "windows": [
             {
+                "label": "main",
                 "title": "Dream DAW",
-                "width": 1400,
-                "height": 900,
-                "minWidth": 900,
-                "minHeight": 600,
-                "resizable": true,
+                "width": 450,
+                "height": 450,
+                "resizable": false,
                 "fullscreen": false,
-                "decorations": true
+                "decorations": false,
+                "center": true
             }
         ],
         "security": {

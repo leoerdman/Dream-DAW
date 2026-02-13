@@ -20,6 +20,7 @@ use std::sync::{Arc, Mutex};
 use dream_ipc::metering::{MeterBank, linear_to_db};
 use dream_ipc::{EngineCommand, MasterClock};
 use dream_models::PlaybackState;
+use tauri::Manager;
 use rtrb;
 use serde::{Deserialize, Serialize};
 
@@ -429,6 +430,50 @@ fn set_frequency(freq: f32, handle: tauri::State<'_, AudioEngineHandle>) -> Resu
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Splash Screen → Main Window Transition
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Expands the main window from splash mode (450×450) to full DAW mode.
+///
+/// Called from the React splash screen after the loading animation completes.
+/// This provides the native "small window → big window" UX identical to
+/// the original Swift implementation.
+///
+/// Transitions:
+///   450×450 borderless → 1400×900 with decorations + resizable
+#[tauri::command]
+fn expand_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or("Main window not found")?;
+
+    // Enable decorations (title bar, traffic lights)
+    window.set_decorations(true)
+        .map_err(|e| format!("Failed to set decorations: {e}"))?;
+
+    // Resize to full DAW dimensions
+    let size = tauri::LogicalSize::new(1400.0_f64, 900.0_f64);
+    window.set_size(size)
+        .map_err(|e| format!("Failed to resize: {e}"))?;
+
+    // Set minimum size
+    let min_size = tauri::LogicalSize::new(900.0_f64, 600.0_f64);
+    window.set_min_size(Some(min_size))
+        .map_err(|e| format!("Failed to set min size: {e}"))?;
+
+    // Enable resizing
+    window.set_resizable(true)
+        .map_err(|e| format!("Failed to set resizable: {e}"))?;
+
+    // Center the resized window
+    window.center()
+        .map_err(|e| format!("Failed to center: {e}"))?;
+
+    log::info!("[Splash] Window expanded to full DAW mode (1400×900)");
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Application Setup
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -479,6 +524,8 @@ pub fn run() {
             get_state,
             get_transport,
             get_meters,
+            // Splash
+            expand_window,
             // Legacy
             set_frequency,
         ])

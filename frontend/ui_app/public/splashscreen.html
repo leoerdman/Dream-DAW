@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dream DAW</title>
+  <style>
+    /* ═══════════════════════════════════════════════════════════════
+       Dream DAW — Splash Screen (Standalone HTML)
+       Native 450×450 borderless window, matches Swift SplashScreenView
+       ═════════════════════════════════════════════════════════════ */
+    
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+      cursor: default;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(180deg, #0f0f0f 0%, #1a1a1a 50%, #0f0f0f 100%);
+    }
+
+    .splash {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      position: relative;
+      opacity: 0;
+      animation: fadeIn 600ms cubic-bezier(0.16, 1, 0.3, 1) 100ms forwards;
+    }
+
+    @keyframes fadeIn {
+      to { opacity: 1; }
+    }
+
+    /* ── Logo ──────────────────────────────────────────────────── */
+    .logo-container {
+      position: relative;
+      width: 180px;
+      height: 180px;
+      margin-bottom: 24px;
+    }
+
+    .logo-glow {
+      position: absolute;
+      inset: -24px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(99, 102, 241, 0.35) 0%, transparent 70%);
+      animation: glowPulse 2.5s ease-in-out infinite alternate;
+    }
+
+    @keyframes glowPulse {
+      from { opacity: 0.5; transform: scale(0.95); }
+      to   { opacity: 1;   transform: scale(1.08); }
+    }
+
+    .logo {
+      position: relative;
+      width: 180px;
+      height: 180px;
+      border-radius: 50%;
+      object-fit: cover;
+      filter: drop-shadow(0 0 28px rgba(99, 102, 241, 0.35));
+    }
+
+    /* ── Title ─────────────────────────────────────────────────── */
+    .title {
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: 4px;
+      color: #ffffff;
+      margin-bottom: 6px;
+    }
+
+    /* ── Version ───────────────────────────────────────────────── */
+    .version {
+      font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+      font-size: 14px;
+      font-weight: 600;
+      color: #6366f1;
+      letter-spacing: 1px;
+    }
+
+    /* ── Status (bottom) ───────────────────────────────────────── */
+    .status-bar {
+      position: absolute;
+      bottom: 28px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255, 255, 255, 0.12);
+      border-top-color: #6366f1;
+      border-radius: 50%;
+      animation: spin 800ms linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .status-text {
+      font-size: 12px;
+      font-weight: 500;
+      color: rgba(255, 255, 255, 0.4);
+      transition: opacity 200ms ease;
+    }
+
+    /* ── Border ─────────────────────────────────────────────────── */
+    .border-frame {
+      position: absolute;
+      inset: 0;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      pointer-events: none;
+    }
+
+    /* ── Fade out ───────────────────────────────────────────────── */
+    .splash.fade-out {
+      animation: fadeOut 500ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    }
+
+    @keyframes fadeOut {
+      to { opacity: 0; transform: scale(0.96); }
+    }
+
+    /* ── Drag region (move window by dragging) ──────────────────── */
+    .drag-region {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 100%;
+      -webkit-app-region: drag;
+    }
+  </style>
+</head>
+<body>
+  <div class="drag-region"></div>
+  
+  <div class="splash" id="splash">
+    <div class="logo-container">
+      <div class="logo-glow"></div>
+      <img src="/appicon.png" alt="Dream DAW" class="logo" draggable="false" />
+    </div>
+
+    <div class="title">DREAM DAW</div>
+    <div class="version" id="version">v0.1.0</div>
+
+    <div class="status-bar">
+      <div class="spinner"></div>
+      <span class="status-text" id="status">Initializing Audio Engine...</span>
+    </div>
+
+    <div class="border-frame"></div>
+  </div>
+
+  <script>
+    // ── Status animation ────────────────────────────────────────
+    const statusEl = document.getElementById('status');
+    const steps = [
+      { text: 'Loading Core Modules...', delay: 600 },
+      { text: 'Initializing DSP Pipeline...', delay: 1200 },
+      { text: 'Preparing Workspace...', delay: 1800 },
+      { text: 'Ready', delay: 2200 },
+    ];
+
+    steps.forEach(({ text, delay }) => {
+      setTimeout(() => { statusEl.textContent = text; }, delay);
+    });
+
+    // ── Close splash and show main window ───────────────────────
+    async function closeSplash() {
+      const splash = document.getElementById('splash');
+      splash.classList.add('fade-out');
+
+      // Wait for fade-out animation
+      await new Promise(r => setTimeout(r, 500));
+
+      // Call Tauri command to close splash + show main
+      try {
+        const { invoke } = window.__TAURI__.core;
+        await invoke('close_splashscreen');
+      } catch (e) {
+        console.warn('Tauri invoke not available (dev mode?):', e);
+      }
+    }
+
+    // Trigger after minimum display time
+    setTimeout(closeSplash, 2500);
+  </script>
+</body>
+</html>

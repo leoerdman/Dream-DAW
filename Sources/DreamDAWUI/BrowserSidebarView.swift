@@ -5,6 +5,7 @@ import DreamDAWEngine
 
 extension NSPasteboard.PasteboardType {
     static let browserItem = NSPasteboard.PasteboardType("com.dreamdaw.browser-item")
+    static let browserCategoryRow = NSPasteboard.PasteboardType("com.dreamdaw.browser-category-row")
 }
 
 public final class BrowserSidebarView: NSView {
@@ -25,11 +26,15 @@ public final class BrowserSidebarView: NSView {
             case samples
             case userLibrary
             case currentProject
+            case customFolder
+            case addFolder
         }
 
+        let id: String
         let title: String
         let icon: String
         let kind: Kind
+        let folderPath: String?
     }
 
     private enum ResultTypeFilter: String, CaseIterable {
@@ -106,8 +111,9 @@ public final class BrowserSidebarView: NSView {
     private let previewWaveformView = BrowserPreviewWaveformView()
     private let previewStatusLabel = NSTextField(labelWithString: "No preview")
 
+    private let appSettings = AppSettings.shared
     private var categories: [BrowserCategory] = []
-    private var selectedCategoryKind: BrowserCategory.Kind = .all
+    private var selectedCategoryID: String = "all"
     private var allLeafNodes: [BrowserNode] = []
     private var resultItems: [BrowserNode] = []
 
@@ -130,6 +136,7 @@ public final class BrowserSidebarView: NSView {
 
     private let browserContextMenu = NSMenu(title: "Browser")
     private var contextMenuNode: BrowserNode?
+    private var contextMenuCategory: BrowserCategory?
 
     private let categoryPaneWidthDefaultsKey = "DreamDAW.Browser.CategoryPaneWidth.v1"
     private var didApplyInitialCategoryPaneWidth = false
@@ -143,6 +150,7 @@ public final class BrowserSidebarView: NSView {
         buildCategories()
         rebuildData()
         observeSettings()
+        refreshPreviewControls()
     }
 
     required init?(coder: NSCoder) {
@@ -171,6 +179,7 @@ public final class BrowserSidebarView: NSView {
     public func stopPreview() {
         previewPlayer?.stop()
         previewPlayer = nil
+        refreshPreviewControls()
     }
 
     // MARK: - UI
@@ -223,6 +232,9 @@ public final class BrowserSidebarView: NSView {
         categoriesTableView.intercellSpacing = NSSize(width: 0, height: 0)
         categoriesTableView.allowsEmptySelection = false
         categoriesTableView.allowsMultipleSelection = false
+        categoriesTableView.registerForDraggedTypes([.browserCategoryRow])
+        categoriesTableView.setDraggingSourceOperationMask(.move, forLocal: true)
+        categoriesTableView.setDraggingSourceOperationMask([], forLocal: false)
 
         let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("category"))
         col.isEditable = false
@@ -250,21 +262,29 @@ public final class BrowserSidebarView: NSView {
         resultsContainer.addSubview(resultsToolbar)
 
         typeFilterButton.addItems(withTitles: ResultTypeFilter.allCases.map { $0.rawValue })
+        typeFilterButton.controlSize = .small
+        typeFilterButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         typeFilterButton.target = self
         typeFilterButton.action = #selector(typeFilterChanged)
         resultsToolbar.addSubview(typeFilterButton)
 
         sourceFilterButton.addItems(withTitles: SourceFilter.allCases.map { $0.rawValue })
+        sourceFilterButton.controlSize = .small
+        sourceFilterButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         sourceFilterButton.target = self
         sourceFilterButton.action = #selector(sourceFilterChanged)
         resultsToolbar.addSubview(sourceFilterButton)
 
         formatFilterButton.addItems(withTitles: FormatFilter.allCases.map { $0.rawValue })
+        formatFilterButton.controlSize = .small
+        formatFilterButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         formatFilterButton.target = self
         formatFilterButton.action = #selector(formatFilterChanged)
         resultsToolbar.addSubview(formatFilterButton)
 
         audioRoleFilterButton.addItems(withTitles: AudioRoleFilter.allCases.map { $0.rawValue })
+        audioRoleFilterButton.controlSize = .small
+        audioRoleFilterButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         audioRoleFilterButton.target = self
         audioRoleFilterButton.action = #selector(audioRoleFilterChanged)
         resultsToolbar.addSubview(audioRoleFilterButton)
@@ -351,9 +371,9 @@ public final class BrowserSidebarView: NSView {
         splitView.frame = CGRect(x: 0, y: searchHeight, width: bounds.width, height: max(0, bounds.height - searchHeight))
 
         if splitView.subviews.count >= 2 && !didApplyInitialCategoryPaneWidth {
-            let minLeft: CGFloat = 170
+            let minLeft: CGFloat = 110
             let maxLeft: CGFloat = max(minLeft, splitView.bounds.width * 0.7)
-            let saved = CGFloat(UserDefaults.standard.double(forKey: categoryPaneWidthDefaultsKey))
+            let saved = CGFloat(appSettings.browserCategoryPaneWidth ?? 0)
             let desired = saved > 0 ? saved : splitView.bounds.width * 0.42
             splitView.setPosition(min(maxLeft, max(minLeft, desired)), ofDividerAt: 0)
             didApplyInitialCategoryPaneWidth = true
@@ -427,36 +447,63 @@ public final class BrowserSidebarView: NSView {
     // MARK: - Data
 
     private func buildCategories() {
-        categories = [
-            BrowserCategory(title: "Collections", icon: "star.fill", kind: .section),
-            BrowserCategory(title: "Favorites", icon: "star.fill", kind: .favorites),
+        let fixed: [BrowserCategory] = [
+            BrowserCategory(id: "section.collections", title: "Collections", icon: "star.fill", kind: .section, folderPath: nil),
+            BrowserCategory(id: "favorites", title: "Favorites", icon: "star.fill", kind: .favorites, folderPath: nil),
 
-            BrowserCategory(title: "Library", icon: "folder.fill", kind: .section),
-            BrowserCategory(title: "All", icon: "line.3.horizontal.decrease", kind: .all),
-            BrowserCategory(title: "Sounds", icon: "music.note", kind: .sounds),
-            BrowserCategory(title: "Drums", icon: "music.quarternote.3", kind: .drums),
-            BrowserCategory(title: "Instruments", icon: "pianokeys", kind: .instruments),
-            BrowserCategory(title: "Audio Effects", icon: "wand.and.stars", kind: .audioEffects),
-            BrowserCategory(title: "MIDI Effects", icon: "sparkles", kind: .midiEffects),
-            BrowserCategory(title: "Plug-Ins", icon: "puzzlepiece.fill", kind: .plugins),
-            BrowserCategory(title: "Clips", icon: "film", kind: .clips),
-            BrowserCategory(title: "Templates", icon: "doc.text", kind: .templates),
+            BrowserCategory(id: "section.library", title: "Library", icon: "folder.fill", kind: .section, folderPath: nil),
+            BrowserCategory(id: "all", title: "All", icon: "line.3.horizontal.decrease", kind: .all, folderPath: nil),
+            BrowserCategory(id: "sounds", title: "Sounds", icon: "music.note", kind: .sounds, folderPath: nil),
+            BrowserCategory(id: "drums", title: "Drums", icon: "square.grid.2x2", kind: .drums, folderPath: nil),
+            BrowserCategory(id: "instruments", title: "Instruments", icon: "pianokeys", kind: .instruments, folderPath: nil),
+            BrowserCategory(id: "audioEffects", title: "Audio Effects", icon: "wand.and.stars", kind: .audioEffects, folderPath: nil),
+            BrowserCategory(id: "midiEffects", title: "MIDI Effects", icon: "sparkles", kind: .midiEffects, folderPath: nil),
+            BrowserCategory(id: "plugins", title: "Plug-Ins", icon: "puzzlepiece.fill", kind: .plugins, folderPath: nil),
+            BrowserCategory(id: "clips", title: "Clips", icon: "film", kind: .clips, folderPath: nil),
+            BrowserCategory(id: "templates", title: "Templates", icon: "doc.text", kind: .templates, folderPath: nil),
 
-            BrowserCategory(title: "Places", icon: "externaldrive.fill", kind: .section),
-            BrowserCategory(title: "User Library", icon: "person.crop.circle", kind: .userLibrary),
-            BrowserCategory(title: "Current Project", icon: "doc.fill", kind: .currentProject),
-            BrowserCategory(title: "Samples", icon: "waveform", kind: .samples),
+            BrowserCategory(id: "section.places", title: "Places", icon: "externaldrive.fill", kind: .section, folderPath: nil),
+            BrowserCategory(id: "userLibrary", title: "User Library", icon: "person.crop.circle", kind: .userLibrary, folderPath: nil),
+            BrowserCategory(id: "currentProject", title: "Current Project", icon: "doc.fill", kind: .currentProject, folderPath: nil),
+            BrowserCategory(id: "samples", title: "Samples", icon: "waveform", kind: .samples, folderPath: nil),
         ]
+
+        let custom = appSettings.browserPinnedFolders.map { path -> BrowserCategory in
+            let url = URL(fileURLWithPath: path)
+            return BrowserCategory(
+                id: "folder:\(path)",
+                title: url.lastPathComponent.isEmpty ? path : url.lastPathComponent,
+                icon: "folder",
+                kind: .customFolder,
+                folderPath: path
+            )
+        }
+        let addFolder = BrowserCategory(id: "addFolder", title: "Add Folder...", icon: "plus.square.on.square", kind: .addFolder, folderPath: nil)
+
+        var merged = fixed + custom
+        let savedOrder = appSettings.browserSidebarOrder
+        if !savedOrder.isEmpty {
+            var byID: [String: BrowserCategory] = Dictionary(uniqueKeysWithValues: merged.map { ($0.id, $0) })
+            var ordered: [BrowserCategory] = []
+            for id in savedOrder {
+                if let item = byID.removeValue(forKey: id) {
+                    ordered.append(item)
+                }
+            }
+            ordered.append(contentsOf: byID.values.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending })
+            merged = ordered
+        }
+        categories = merged + [addFolder]
     }
 
     private func rebuildData() {
         allLeafNodes = buildLeafNodes()
         categoriesTableView.reloadData()
 
-        if let idx = categories.firstIndex(where: { $0.kind == selectedCategoryKind }) {
+        if let idx = categories.firstIndex(where: { $0.id == selectedCategoryID }) {
             categoriesTableView.selectRowIndexes(IndexSet(integer: idx), byExtendingSelection: false)
-        } else if let idx = categories.firstIndex(where: { $0.kind == .all }) {
-            selectedCategoryKind = .all
+        } else if let idx = categories.firstIndex(where: { $0.id == "all" }) {
+            selectedCategoryID = "all"
             categoriesTableView.selectRowIndexes(IndexSet(integer: idx), byExtendingSelection: false)
         }
 
@@ -505,6 +552,11 @@ public final class BrowserSidebarView: NSView {
         if let samplesRoot = loadSamplesFolderNode() {
             roots.append(contentsOf: flattenLeafs(from: samplesRoot))
         }
+        for path in appSettings.browserPinnedFolders {
+            if let customRoot = loadCustomFolderNode(path: path) {
+                roots.append(contentsOf: flattenLeafs(from: customRoot))
+            }
+        }
 
         return dedupe(roots)
     }
@@ -534,12 +586,29 @@ public final class BrowserSidebarView: NSView {
         let rootURL = URL(fileURLWithPath: samplesPath)
         guard FileManager.default.fileExists(atPath: samplesPath) else { return nil }
 
-        let root = BrowserNode(name: "Samples", icon: "waveform", isGroup: true, source: .samples)
-        root.children = scanDirectory(url: rootURL, depth: 0, maxDepth: 8)
+        let root = BrowserNode(name: "Samples", icon: "waveform", isGroup: true, source: .samples, categoryID: "samples")
+        root.children = scanDirectory(url: rootURL, depth: 0, maxDepth: 8, source: .samples, categoryID: "samples")
         return root
     }
 
-    private func scanDirectory(url: URL, depth: Int, maxDepth: Int) -> [BrowserNode] {
+    private func loadCustomFolderNode(path: String) -> BrowserNode? {
+        guard !path.isEmpty else { return nil }
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        let rootURL = URL(fileURLWithPath: path)
+        let categoryID = "folder:\(path)"
+        let title = rootURL.lastPathComponent.isEmpty ? path : rootURL.lastPathComponent
+        let root = BrowserNode(name: title, icon: "folder", isGroup: true, source: .customFolder, categoryID: categoryID)
+        root.children = scanDirectory(url: rootURL, depth: 0, maxDepth: 8, source: .customFolder, categoryID: categoryID)
+        return root
+    }
+
+    private func scanDirectory(
+        url: URL,
+        depth: Int,
+        maxDepth: Int,
+        source: BrowserSource,
+        categoryID: String
+    ) -> [BrowserNode] {
         guard depth < maxDepth else { return [] }
 
         let audioExt = Set(["wav", "aiff", "aif", "mp3", "m4a", "flac", "ogg", "caf"])
@@ -557,11 +626,11 @@ public final class BrowserSidebarView: NSView {
         for item in sorted {
             let isDir = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
             if isDir {
-                let folder = BrowserNode(name: item.lastPathComponent, icon: "folder.fill", isGroup: true, source: .samples)
-                folder.children = scanDirectory(url: item, depth: depth + 1, maxDepth: maxDepth)
+                let folder = BrowserNode(name: item.lastPathComponent, icon: "folder.fill", isGroup: true, source: source, categoryID: categoryID)
+                folder.children = scanDirectory(url: item, depth: depth + 1, maxDepth: maxDepth, source: source, categoryID: categoryID)
                 if !folder.children.isEmpty { nodes.append(folder) }
             } else if audioExt.contains(item.pathExtension.lowercased()) {
-                let file = BrowserNode(name: item.lastPathComponent, icon: "waveform", nodeType: .audioFile, source: .samples)
+                let file = BrowserNode(name: item.lastPathComponent, icon: "waveform", nodeType: .audioFile, source: source, categoryID: categoryID)
                 file.fileURL = item
                 nodes.append(file)
             }
@@ -573,7 +642,14 @@ public final class BrowserSidebarView: NSView {
     private func updateResults() {
         var base = allLeafNodes
 
-        switch selectedCategoryKind {
+        guard let selectedCategory = categories.first(where: { $0.id == selectedCategoryID }) else {
+            resultItems = []
+            resultCountLabel.stringValue = "0"
+            resultsTableView.reloadData()
+            return
+        }
+
+        switch selectedCategory.kind {
         case .section:
             resultItems = []
             resultCountLabel.stringValue = "0"
@@ -609,6 +685,14 @@ public final class BrowserSidebarView: NSView {
             base = base.filter { $0.nodeType == .audioFile }
         case .currentProject:
             base = base.filter { $0.nodeType == .audioFile }
+        case .customFolder:
+            if let categoryID = selectedCategory.folderPath.map({ "folder:\($0)" }) {
+                base = base.filter { $0.categoryID == categoryID && $0.nodeType == .audioFile }
+            } else {
+                base = []
+            }
+        case .addFolder:
+            base = []
         }
 
         if favoritesOnly {
@@ -650,7 +734,7 @@ public final class BrowserSidebarView: NSView {
         case .library:
             return input.filter { $0.source == .library }
         case .samples:
-            return input.filter { $0.source == .samples }
+            return input.filter { $0.source == .samples || $0.source == .customFolder }
         case .plugins:
             return input.filter { $0.source == .plugins }
         }
@@ -729,11 +813,18 @@ public final class BrowserSidebarView: NSView {
     }
 
     private func loadFavorites() {
-        favoriteKeys = Set(UserDefaults.standard.stringArray(forKey: favoritesDefaultsKey) ?? [])
+        let persisted = appSettings.browserFavorites
+        if persisted.isEmpty {
+            favoriteKeys = Set(UserDefaults.standard.stringArray(forKey: favoritesDefaultsKey) ?? [])
+        } else {
+            favoriteKeys = Set(persisted)
+        }
     }
 
     private func saveFavorites() {
-        UserDefaults.standard.set(Array(favoriteKeys).sorted(), forKey: favoritesDefaultsKey)
+        let sorted = Array(favoriteKeys).sorted()
+        appSettings.browserFavorites = sorted
+        UserDefaults.standard.set(sorted, forKey: favoritesDefaultsKey)
     }
 
     private func toggleFavorite(_ node: BrowserNode) {
@@ -805,7 +896,94 @@ public final class BrowserSidebarView: NSView {
         updateResults()
     }
 
+    @objc private func togglePreviewEnabled() {
+        previewEnabled.toggle()
+        if !previewEnabled {
+            stopPreview()
+        } else if let url = currentPreviewFileURL {
+            playPreview(url: url)
+        }
+        refreshPreviewControls()
+    }
+
+    private func refreshPreviewControls() {
+        previewToggleButton.contentTintColor = previewEnabled
+            ? DreamTheme.accentSecondary
+            : DreamTheme.textMuted
+        if currentPreviewFileURL == nil {
+            previewStatusLabel.stringValue = previewEnabled ? "No preview" : "Preview Off"
+        } else if let url = currentPreviewFileURL {
+            previewStatusLabel.stringValue = previewEnabled ? url.pathExtension.uppercased() : "Preview Off"
+        }
+    }
+
+    private func loadWaveformPreview(from url: URL?) {
+        guard let url = url else {
+            currentPreviewFileURL = nil
+            previewWaveformView.samples = []
+            previewWaveformView.placeholderText = "No sample selected"
+            refreshPreviewControls()
+            return
+        }
+
+        currentPreviewFileURL = url
+        refreshPreviewControls()
+        do {
+            let file = try AVAudioFile(forReading: url)
+            let frameCount = Int(file.length)
+            let channelCount = Int(file.processingFormat.channelCount)
+            guard frameCount > 0, channelCount > 0 else {
+                previewWaveformView.samples = []
+                previewWaveformView.placeholderText = "Empty sample"
+                return
+            }
+
+            guard let buffer = AVAudioPCMBuffer(
+                pcmFormat: file.processingFormat,
+                frameCapacity: AVAudioFrameCount(frameCount)
+            ) else {
+                previewWaveformView.samples = []
+                previewWaveformView.placeholderText = "Preview unavailable"
+                return
+            }
+            try file.read(into: buffer)
+            guard let channels = buffer.floatChannelData else {
+                previewWaveformView.samples = []
+                previewWaveformView.placeholderText = "Preview unavailable"
+                return
+            }
+
+            let validFrames = Int(buffer.frameLength)
+            let targetPoints = 280
+            let step = max(1, validFrames / targetPoints)
+            var output: [CGFloat] = []
+            output.reserveCapacity(targetPoints)
+            var i = 0
+            while i < validFrames {
+                let end = min(validFrames, i + step)
+                var peak: Float = 0
+                for sampleIndex in i..<end {
+                    var mixed: Float = 0
+                    for ch in 0..<channelCount {
+                        mixed += abs(channels[ch][sampleIndex])
+                    }
+                    mixed /= Float(channelCount)
+                    if mixed > peak { peak = mixed }
+                }
+                output.append(CGFloat(min(1.0, peak)))
+                i += step
+            }
+
+            previewWaveformView.samples = output
+            previewWaveformView.placeholderText = output.isEmpty ? "No waveform data" : ""
+        } catch {
+            previewWaveformView.samples = []
+            previewWaveformView.placeholderText = "Preview error"
+        }
+    }
+
     private func playPreview(url: URL) {
+        guard previewEnabled else { return }
         previewPlayer?.stop()
         do {
             previewPlayer = try AVAudioPlayer(contentsOf: url)
@@ -868,9 +1046,108 @@ public final class BrowserSidebarView: NSView {
 
         return nil
     }
+
+    private func persistCategoryOrder() {
+        let ids = categories
+            .filter { $0.kind != .addFolder }
+            .map(\.id)
+        appSettings.browserSidebarOrder = ids
+    }
+
+    private func canReorderCategory(at row: Int) -> Bool {
+        guard row >= 0, row < categories.count else { return false }
+        return categories[row].kind != .addFolder
+    }
+
+    private func openAddFolderPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        panel.prompt = "Add Folder"
+        panel.message = "Choose a folder to pin in the browser."
+        if panel.runModal() == .OK, let url = panel.url {
+            addPinnedFolder(url.path)
+        }
+    }
+
+    private func addPinnedFolder(_ path: String) {
+        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+        guard FileManager.default.fileExists(atPath: normalized) else { return }
+        if appSettings.browserPinnedFolders.contains(normalized) {
+            return
+        }
+        appSettings.browserPinnedFolders.append(normalized)
+        buildCategories()
+        persistCategoryOrder()
+        rebuildData()
+    }
+
+    private func removePinnedFolder(_ path: String) {
+        guard let idx = appSettings.browserPinnedFolders.firstIndex(of: path) else { return }
+        appSettings.browserPinnedFolders.remove(at: idx)
+        if selectedCategoryID == "folder:\(path)" {
+            selectedCategoryID = "all"
+        }
+        buildCategories()
+        persistCategoryOrder()
+        rebuildData()
+    }
 }
 
 // MARK: - Node Model
+
+final class BrowserPreviewWaveformView: NSView {
+    var samples: [CGFloat] = [] {
+        didSet { needsDisplay = true }
+    }
+    var placeholderText: String = "No preview" {
+        didSet { needsDisplay = true }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+
+        ctx.setFillColor(DreamTheme.bgSurface.cgColor)
+        ctx.fill(bounds)
+
+        if samples.isEmpty {
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+                .foregroundColor: DreamTheme.textMuted
+            ]
+            let str = NSAttributedString(string: placeholderText, attributes: attrs)
+            let size = str.size()
+            let pt = CGPoint(
+                x: max(4, (bounds.width - size.width) * 0.5),
+                y: max(2, (bounds.height - size.height) * 0.5)
+            )
+            str.draw(at: pt)
+            return
+        }
+
+        ctx.setStrokeColor(DreamTheme.accentSecondary.cgColor)
+        ctx.setLineWidth(1)
+        let midY = bounds.midY
+        let width = max(1, Int(bounds.width))
+        let sampleStep = max(1, samples.count / width)
+        var x: CGFloat = 0
+        var sampleIndex = 0
+        while x <= bounds.width, sampleIndex < samples.count {
+            let amp = min(1, max(0, samples[sampleIndex]))
+            let half = amp * (bounds.height * 0.46)
+            ctx.move(to: CGPoint(x: x, y: midY - half))
+            ctx.addLine(to: CGPoint(x: x, y: midY + half))
+            x += 1
+            sampleIndex += sampleStep
+        }
+        ctx.strokePath()
+    }
+}
 
 enum BrowserNodeType: String {
     case generic
@@ -885,6 +1162,7 @@ enum BrowserNodeType: String {
 enum BrowserSource {
     case library
     case samples
+    case customFolder
     case plugins
 }
 
@@ -894,6 +1172,7 @@ final class BrowserNode: NSObject {
     let isGroup: Bool
     let nodeType: BrowserNodeType
     let source: BrowserSource
+    var categoryID: String?
     var children: [BrowserNode] = []
     var fileURL: URL?
 
@@ -903,6 +1182,7 @@ final class BrowserNode: NSObject {
         isGroup: Bool = false,
         nodeType: BrowserNodeType = .generic,
         source: BrowserSource = .library,
+        categoryID: String? = nil,
         fileURL: URL? = nil
     ) {
         self.name = name
@@ -910,6 +1190,7 @@ final class BrowserNode: NSObject {
         self.isGroup = isGroup
         self.nodeType = nodeType
         self.source = source
+        self.categoryID = categoryID
         self.fileURL = fileURL
         super.init()
     }
@@ -920,14 +1201,26 @@ final class BrowserNode: NSObject {
 extension BrowserSidebarView: NSSplitViewDelegate {
     public func splitView(_ splitView: NSSplitView, constrainSplitPosition proposedPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
         guard dividerIndex == 0 else { return proposedPosition }
-        let minLeft: CGFloat = 170
+        let minLeft: CGFloat = 110
         let maxLeft: CGFloat = max(minLeft, splitView.bounds.width * 0.7)
         return min(maxLeft, max(minLeft, proposedPosition))
     }
 
+    public func splitView(
+        _ splitView: NSSplitView,
+        effectiveRect proposedEffectiveRect: NSRect,
+        forDrawnRect drawnRect: NSRect,
+        ofDividerAt dividerIndex: Int
+    ) -> NSRect {
+        guard dividerIndex == 0 else { return proposedEffectiveRect }
+        return drawnRect.insetBy(dx: -4, dy: 0)
+    }
+
     public func splitViewDidResizeSubviews(_ notification: Notification) {
         guard splitView.subviews.count >= 2 else { return }
-        UserDefaults.standard.set(Double(splitView.subviews[0].frame.width), forKey: categoryPaneWidthDefaultsKey)
+        let width = Double(splitView.subviews[0].frame.width)
+        appSettings.browserCategoryPaneWidth = width
+        UserDefaults.standard.set(width, forKey: categoryPaneWidthDefaultsKey)
     }
 }
 
@@ -964,6 +1257,11 @@ extension BrowserSidebarView: NSTableViewDataSource, NSTableViewDelegate {
                 cell.addSubview(text)
                 cell.textField = text
 
+                let dragHandle = NSImageView()
+                dragHandle.translatesAutoresizingMaskIntoConstraints = false
+                dragHandle.tag = 9001
+                cell.addSubview(dragHandle)
+
                 NSLayoutConstraint.activate([
                     icon.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 6),
                     icon.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
@@ -971,8 +1269,13 @@ extension BrowserSidebarView: NSTableViewDataSource, NSTableViewDelegate {
                     icon.heightAnchor.constraint(equalToConstant: 14),
 
                     text.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 6),
-                    text.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+                    text.trailingAnchor.constraint(equalTo: dragHandle.leadingAnchor, constant: -4),
                     text.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+
+                    dragHandle.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
+                    dragHandle.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                    dragHandle.widthAnchor.constraint(equalToConstant: 10),
+                    dragHandle.heightAnchor.constraint(equalToConstant: 10),
                 ])
             }
 
@@ -988,6 +1291,16 @@ extension BrowserSidebarView: NSTableViewDataSource, NSTableViewDelegate {
                 let cfg = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
                 cell.imageView?.image = image.withSymbolConfiguration(cfg)
                 cell.imageView?.contentTintColor = iconTint(for: category)
+            }
+
+            if let handle = cell.viewWithTag(9001) as? NSImageView {
+                if category.kind == .section || category.kind == .addFolder {
+                    handle.image = nil
+                } else {
+                    let cfg = NSImage.SymbolConfiguration(pointSize: 8, weight: .regular)
+                    handle.image = NSImage(systemSymbolName: "line.3.horizontal", accessibilityDescription: nil)?.withSymbolConfiguration(cfg)
+                    handle.contentTintColor = DreamTheme.textMuted
+                }
             }
 
             return cell
@@ -1057,7 +1370,15 @@ extension BrowserSidebarView: NSTableViewDataSource, NSTableViewDelegate {
         if notification.object as AnyObject? === categoriesTableView {
             let row = categoriesTableView.selectedRow
             guard row >= 0, row < categories.count else { return }
-            selectedCategoryKind = categories[row].kind
+            let category = categories[row]
+            if category.kind == .addFolder {
+                openAddFolderPanel()
+                if let previousIndex = categories.firstIndex(where: { $0.id == selectedCategoryID }) {
+                    categoriesTableView.selectRowIndexes(IndexSet(integer: previousIndex), byExtendingSelection: false)
+                }
+                return
+            }
+            selectedCategoryID = category.id
             updateResults()
             return
         }
@@ -1066,21 +1387,72 @@ extension BrowserSidebarView: NSTableViewDataSource, NSTableViewDelegate {
             let row = resultsTableView.selectedRow
             guard row >= 0, row < resultItems.count else {
                 stopPreview()
+                loadWaveformPreview(from: nil)
                 return
             }
             let node = resultItems[row]
             if let fileURL = node.fileURL, node.nodeType == .audioFile {
+                loadWaveformPreview(from: fileURL)
                 playPreview(url: fileURL)
             } else {
                 stopPreview()
+                loadWaveformPreview(from: nil)
             }
         }
     }
 
     public func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
-        guard tableView === resultsTableView,
-              row >= 0, row < resultItems.count else { return nil }
-        return pasteboardWriter(for: resultItems[row])
+        if tableView === resultsTableView {
+            guard row >= 0, row < resultItems.count else { return nil }
+            return pasteboardWriter(for: resultItems[row])
+        }
+        if tableView === categoriesTableView {
+            guard canReorderCategory(at: row) else { return nil }
+            let item = NSPasteboardItem()
+            item.setString(String(row), forType: .browserCategoryRow)
+            return item
+        }
+        return nil
+    }
+
+    public func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
+        guard tableView === categoriesTableView else { return [] }
+        tableView.setDropRow(row, dropOperation: .above)
+        guard info.draggingSource as AnyObject? === tableView else { return [] }
+        return .move
+    }
+
+    public func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
+        guard tableView === categoriesTableView else { return false }
+        guard let text = info.draggingPasteboard.string(forType: .browserCategoryRow),
+              let fromRow = Int(text),
+              canReorderCategory(at: fromRow) else {
+            return false
+        }
+
+        var toRow = max(0, min(row, categories.count - 1))
+        if categories.indices.contains(toRow), categories[toRow].kind == .addFolder {
+            toRow = categories.count - 1
+        }
+        if fromRow == toRow { return false }
+
+        var reordered = categories
+        let moved = reordered.remove(at: fromRow)
+        if toRow > fromRow { toRow -= 1 }
+        reordered.insert(moved, at: max(0, min(toRow, reordered.count)))
+
+        if let addIndex = reordered.firstIndex(where: { $0.kind == .addFolder }) {
+            let addRow = reordered.remove(at: addIndex)
+            reordered.append(addRow)
+        }
+
+        categories = reordered
+        persistCategoryOrder()
+        categoriesTableView.reloadData()
+        if let selected = categories.firstIndex(where: { $0.id == selectedCategoryID }) {
+            categoriesTableView.selectRowIndexes(IndexSet(integer: selected), byExtendingSelection: false)
+        }
+        return true
     }
 }
 
@@ -1089,6 +1461,26 @@ extension BrowserSidebarView: NSTableViewDataSource, NSTableViewDelegate {
 extension BrowserSidebarView: NSMenuDelegate {
     public func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        contextMenuNode = nil
+        contextMenuCategory = nil
+
+        if categoriesTableView.clickedRow >= 0 || categoriesTableView.window?.firstResponder === categoriesTableView {
+            let row = categoriesTableView.clickedRow >= 0 ? categoriesTableView.clickedRow : categoriesTableView.selectedRow
+            guard row >= 0, row < categories.count else { return }
+            let category = categories[row]
+            contextMenuCategory = category
+
+            if category.kind == .customFolder, category.folderPath != nil {
+                let remove = NSMenuItem(title: "Remove Folder", action: #selector(removePinnedFolderFromMenu), keyEquivalent: "")
+                remove.target = self
+                menu.addItem(remove)
+                menu.addItem(.separator())
+            }
+            let add = NSMenuItem(title: "Add Folder...", action: #selector(addFolderFromMenu), keyEquivalent: "")
+            add.target = self
+            menu.addItem(add)
+            return
+        }
 
         let row = resultsTableView.clickedRow >= 0 ? resultsTableView.clickedRow : resultsTableView.selectedRow
         guard row >= 0, row < resultItems.count else { return }
@@ -1118,5 +1510,14 @@ extension BrowserSidebarView: NSMenuDelegate {
     @objc private func revealInFinderFromMenu() {
         guard let url = contextMenuNode?.fileURL else { return }
         NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    @objc private func addFolderFromMenu() {
+        openAddFolderPanel()
+    }
+
+    @objc private func removePinnedFolderFromMenu() {
+        guard let path = contextMenuCategory?.folderPath else { return }
+        removePinnedFolder(path)
     }
 }

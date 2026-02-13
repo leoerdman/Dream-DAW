@@ -73,6 +73,11 @@ public final class AppSettings: ObservableObject, Codable {
         static let startupBehavior = "dreamdaw.settings.startupBehavior"
         static let vst2Path = "dreamdaw.settings.vst2Path"
         static let vst3Path = "dreamdaw.settings.vst3Path"
+        static let audioBufferSize = "dreamdaw.settings.audioBufferSize"
+        static let browserSidebarOrder = "dreamdaw.settings.browserSidebarOrder"
+        static let browserPinnedFolders = "dreamdaw.settings.browserPinnedFolders"
+        static let browserCategoryPaneWidth = "dreamdaw.settings.browserCategoryPaneWidth"
+        static let browserFavorites = "dreamdaw.settings.browserFavorites"
     }
 
     // MARK: - General
@@ -161,11 +166,59 @@ public final class AppSettings: ObservableObject, Codable {
             }
         }
     }
+
+    @Published public var audioBufferSize: Int {
+        didSet {
+            defaults.set(audioBufferSize, forKey: Keys.audioBufferSize)
+            if !isInitializing {
+                syncToDisk()
+            }
+        }
+    }
+
+    // MARK: - Browser
+
+    @Published public var browserSidebarOrder: [String] {
+        didSet {
+            defaults.set(browserSidebarOrder, forKey: Keys.browserSidebarOrder)
+            if !isInitializing {
+                syncToDisk()
+            }
+        }
+    }
+
+    @Published public var browserPinnedFolders: [String] {
+        didSet {
+            defaults.set(browserPinnedFolders, forKey: Keys.browserPinnedFolders)
+            if !isInitializing {
+                syncToDisk()
+            }
+        }
+    }
+
+    @Published public var browserCategoryPaneWidth: Double? {
+        didSet {
+            defaults.set(browserCategoryPaneWidth, forKey: Keys.browserCategoryPaneWidth)
+            if !isInitializing {
+                syncToDisk()
+            }
+        }
+    }
+
+    @Published public var browserFavorites: [String] {
+        didSet {
+            defaults.set(browserFavorites, forKey: Keys.browserFavorites)
+            if !isInitializing {
+                syncToDisk()
+            }
+        }
+    }
     
     // MARK: - Codable (Manual implementation for @Published)
     
     enum CodingKeys: String, CodingKey {
-        case language, waveformStyle, startupBehavior, userFolderPath, samplesPath, vst2Path, vst3Path, audioOutputDeviceUID
+        case language, waveformStyle, startupBehavior, userFolderPath, samplesPath, vst2Path, vst3Path, audioOutputDeviceUID, audioBufferSize
+        case browserSidebarOrder, browserPinnedFolders, browserCategoryPaneWidth, browserFavorites
     }
 
     public init(from decoder: Decoder) throws {
@@ -178,6 +231,11 @@ public final class AppSettings: ObservableObject, Codable {
         vst2Path = try container.decode(String.self, forKey: .vst2Path)
         vst3Path = try container.decode(String.self, forKey: .vst3Path)
         audioOutputDeviceUID = try container.decodeIfPresent(String.self, forKey: .audioOutputDeviceUID)
+        audioBufferSize = try container.decodeIfPresent(Int.self, forKey: .audioBufferSize) ?? 512
+        browserSidebarOrder = try container.decodeIfPresent([String].self, forKey: .browserSidebarOrder) ?? []
+        browserPinnedFolders = try container.decodeIfPresent([String].self, forKey: .browserPinnedFolders) ?? []
+        browserCategoryPaneWidth = try container.decodeIfPresent(Double.self, forKey: .browserCategoryPaneWidth)
+        browserFavorites = try container.decodeIfPresent([String].self, forKey: .browserFavorites) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -190,6 +248,11 @@ public final class AppSettings: ObservableObject, Codable {
         try container.encode(vst2Path, forKey: .vst2Path)
         try container.encode(vst3Path, forKey: .vst3Path)
         try container.encode(audioOutputDeviceUID, forKey: .audioOutputDeviceUID)
+        try container.encode(audioBufferSize, forKey: .audioBufferSize)
+        try container.encode(browserSidebarOrder, forKey: .browserSidebarOrder)
+        try container.encode(browserPinnedFolders, forKey: .browserPinnedFolders)
+        try container.encodeIfPresent(browserCategoryPaneWidth, forKey: .browserCategoryPaneWidth)
+        try container.encode(browserFavorites, forKey: .browserFavorites)
     }
 
     // MARK: - Persistence
@@ -211,6 +274,11 @@ public final class AppSettings: ObservableObject, Codable {
         self.vst2Path = "/Library/Audio/Plug-Ins/VST"
         self.vst3Path = "/Library/Audio/Plug-Ins/VST3"
         self.audioOutputDeviceUID = nil
+        self.audioBufferSize = 512
+        self.browserSidebarOrder = []
+        self.browserPinnedFolders = []
+        self.browserCategoryPaneWidth = nil
+        self.browserFavorites = []
 
         // 3. Load from JSON if available (Centralized Source of Truth)
         loadFromDisk()
@@ -237,6 +305,23 @@ public final class AppSettings: ObservableObject, Codable {
         if let startupRaw = defaults.string(forKey: Keys.startupBehavior), let behavior = StartupBehavior(rawValue: startupRaw) {
             self.startupBehavior = behavior
         }
+        if let savedOrder = defaults.stringArray(forKey: Keys.browserSidebarOrder) {
+            self.browserSidebarOrder = savedOrder
+        }
+        if let savedFolders = defaults.stringArray(forKey: Keys.browserPinnedFolders) {
+            self.browserPinnedFolders = savedFolders
+        }
+        if defaults.object(forKey: Keys.browserCategoryPaneWidth) != nil {
+            self.browserCategoryPaneWidth = defaults.double(forKey: Keys.browserCategoryPaneWidth)
+        }
+        if let savedFavorites = defaults.stringArray(forKey: Keys.browserFavorites) {
+            self.browserFavorites = savedFavorites
+        }
+        
+        let savedBufferSize = defaults.integer(forKey: Keys.audioBufferSize)
+        if savedBufferSize > 0 {
+            self.audioBufferSize = savedBufferSize
+        }
         
         self.isInitializing = false
     }
@@ -257,6 +342,11 @@ public final class AppSettings: ObservableObject, Codable {
             self.vst2Path = decoded.vst2Path
             self.vst3Path = decoded.vst3Path
             self.audioOutputDeviceUID = decoded.audioOutputDeviceUID
+            self.audioBufferSize = decoded.audioBufferSize
+            self.browserSidebarOrder = decoded.browserSidebarOrder
+            self.browserPinnedFolders = decoded.browserPinnedFolders
+            self.browserCategoryPaneWidth = decoded.browserCategoryPaneWidth
+            self.browserFavorites = decoded.browserFavorites
             // userFolderPath is ignored from JSON as the JSON location defines itself
         } catch {
             print("AppSettings: Failed to load from JSON: \(error)")

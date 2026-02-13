@@ -23,8 +23,10 @@ public final class TimelineInteractionCoordinator: NSObject {
         let location = view.convert(event.locationInWindow, from: nil)
         
         // 1. Identify track and timing
-        let beat = Double(location.x) / Double(view.pixelsPerBeat)
-        let sampleFrame = Int64(beat * (project.sampleRate * 60.0 / Double(project.bpm))) // Simplified for now, should ideally use PulseMap
+        let rawBeat = Double(location.x) / Double(view.pixelsPerBeat)
+        let beat = view.snapToGrid(beats: rawBeat)
+        
+        let sampleFrame = Int64(beat * (project.sampleRate * 60.0 / Double(project.bpm)))
         
         var trackIndex: Int = 0
         var currentY: CGFloat = 0
@@ -79,7 +81,7 @@ public final class TimelineInteractionCoordinator: NSObject {
             // Seek and start Marquee
             let trackID = visibleTracks[trackIndex].id
             delegate?.interactionDidRequestSeek(to: TimePosition(beats: beat), on: [trackID])
-            view.interactionSM.beginMarquee(startPixelX: Float(location.x), startPixelY: location.y)
+            view.interactionSM.beginMarquee(startPixelX: Float(location.x), startPixelY: CGFloat(trackIndex))
         }
     }
 
@@ -87,7 +89,8 @@ public final class TimelineInteractionCoordinator: NSObject {
         guard let project = view.project else { return }
         let location = view.convert(event.locationInWindow, from: nil)
         
-        let beat = Double(location.x) / Double(view.pixelsPerBeat)
+        let rawBeat = Double(location.x) / Double(view.pixelsPerBeat)
+        let beat = view.snapToGrid(beats: rawBeat)
         let sampleFrame = Int64(beat * (project.sampleRate * 60.0 / Double(project.bpm)))
         
         var trackIndex: Int = 0

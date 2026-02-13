@@ -418,6 +418,9 @@ public final class ArrangementViewController: NSViewController {
         canvasScrollView.reflectScrolledClipView(canvasScrollView.contentView)
         headerScrollView.contentView.scroll(to: NSPoint(x: 0, y: clampedY))
         headerScrollView.reflectScrolledClipView(headerScrollView.contentView)
+        
+        // Sync scroll offsets
+        rulerView.scrollOffset = clampedX
         masterLaneView.scrollOffset = clampedX
         
         // Force refresh after frame assignment
@@ -511,9 +514,19 @@ public final class ArrangementViewController: NSViewController {
             guard let self = self else { return }
             let canvasX = self.canvasScrollView.contentView.bounds.origin.x
             let canvasY = self.canvasScrollView.contentView.bounds.origin.y
+            
+            // PHASE 12.0: Atomic Horizontal Sync
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            
             self.project.viewScrollPosition = Double(canvasX)
+            self.rulerView.scrollOffset = canvasX
             self.masterLaneView.scrollOffset = canvasX
+            
+            // Vertical sync for headers
             self.headerScrollView.contentView.scroll(to: NSPoint(x: 0, y: canvasY))
+            
+            CATransaction.commit()
         }
         canvasScrollView.contentView.postsBoundsChangedNotifications = true
 
@@ -713,7 +726,7 @@ public final class ArrangementViewController: NSViewController {
     
     private func preparePlaybackPosition() {
         // Resume from pause without jumping.
-        guard transportController.state == .stopped else { return }
+        if transportController.state == .playing { return }
 
         var startBeats: Double?
 
@@ -737,7 +750,14 @@ public final class ArrangementViewController: NSViewController {
         let finalStart = startBeats ?? project.editCursorPosition.beats
         
         log("Transport: preparePlaybackPosition seeking to \(finalStart) beats (Priority: \(startBeats != nil ? "Selection" : "Cursor"))")
+        
+        // PHASE 10.0: Update BOTH project and transport to ensure absolute alignment
+        project.playheadPosition = TimePosition(beats: finalStart)
         transportController.seek(to: TimePosition(beats: finalStart))
+        
+        // Visual confirmation
+        canvasView.playheadPosition = TimePosition(beats: finalStart)
+        rulerView.playheadPosition = TimePosition(beats: finalStart)
     }
 
     private func startHeaderMeteringTimer() {
@@ -754,7 +774,7 @@ public final class ArrangementViewController: NSViewController {
         let meter = sharedEngine.audioLevelMeter
         for header in trackHeaders.headerViews {
             guard let track = project.tracks.first(where: { $0.id == header.trackID }) else { continue }
-            if track.trackType == .midi && track.instrument == nil {
+            if track.trackType == TrackType.midi && track.instrument == nil {
                 let midi = meter.midiLevel(for: track.id)
                 header.updateMeterLevel(rms: midi, peak: midi)
             } else {

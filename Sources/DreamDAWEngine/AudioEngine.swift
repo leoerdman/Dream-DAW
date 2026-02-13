@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import os.log
+import DreamDAWModels
 
 // MARK: - AudioEngine
 
@@ -86,6 +87,12 @@ public final class AudioEngine: @unchecked Sendable {
         // Even if connected in init, some state changes can break the connection.
         let format = engine.mainMixerNode.outputFormat(forBus: 0)
         engine.connect(masterMixer, to: engine.mainMixerNode, format: format)
+        
+        // PHASE 10.0: Apply user's preferred buffer size to output hardware
+        let preferredBuffer = AppSettings.shared.audioBufferSize
+        if let outputDeviceUID = AppSettings.shared.audioOutputDeviceUID {
+            AudioDeviceEnumerator.setBufferSizeForDevice(uid: outputDeviceUID, size: UInt32(preferredBuffer))
+        }
         
         engine.prepare()
         

@@ -34,8 +34,7 @@ public final class TrackHeaderView: NSView {
     private let nameLabel = NSTextField(labelWithString: "")
     private let trackTypeLabel = NSTextField(labelWithString: "")
     private let routingLabel = NSTextField(labelWithString: "")
-    private let volumeSlider = NSSlider(value: 0, minValue: Double(Track.minFaderDecibels), maxValue: Double(Track.maxFaderDecibels), target: nil, action: nil)
-    private let volumeDbLabel = NSTextField(labelWithString: "0.0")
+    private let volumeFader = AbletonGainFaderView()
     private let soloButton = NSButton()
     private let collapseButton = NSButton()
     private let enableButton = NSButton()     // Track enable/disable (shows track number)
@@ -168,19 +167,14 @@ public final class TrackHeaderView: NSView {
         let gesture = NSClickGestureRecognizer(target: self, action: #selector(routingClicked))
         routingClickView.addGestureRecognizer(gesture)
 
-        // Volume fader (dB) + value label
-        volumeSlider.target = self
-        volumeSlider.action = #selector(volumeFaderChanged)
-        volumeSlider.isContinuous = true
-        volumeSlider.controlSize = .mini
-        volumeSlider.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(volumeSlider)
-
-        volumeDbLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .semibold)
-        volumeDbLabel.textColor = DreamTheme.textSecondary
-        volumeDbLabel.alignment = .right
-        volumeDbLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(volumeDbLabel)
+        // Volume fader (Ableton Style)
+        volumeFader.onValueChanged = { [weak self] newValue in
+            guard let self = self else { return }
+            self.track.volumeDecibels = Float(newValue)
+            self.onTrackChanged?(self.track)
+        }
+        volumeFader.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(volumeFader)
 
         // Solo button (S)
         soloButton.title = "S"
@@ -266,14 +260,10 @@ public final class TrackHeaderView: NSView {
             routingLabel.leadingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor, constant: 4),
             routingLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 6),
 
-            volumeDbLabel.trailingAnchor.constraint(equalTo: soloButton.leadingAnchor, constant: -4),
-            volumeDbLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 7),
-            volumeDbLabel.widthAnchor.constraint(equalToConstant: 32),
-
-            volumeSlider.leadingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor, constant: 4),
-            volumeSlider.trailingAnchor.constraint(equalTo: volumeDbLabel.leadingAnchor, constant: -3),
-            volumeSlider.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 7),
-            volumeSlider.heightAnchor.constraint(equalToConstant: 12),
+            volumeFader.leadingAnchor.constraint(equalTo: nameBackgroundView.trailingAnchor, constant: 4),
+            volumeFader.trailingAnchor.constraint(equalTo: soloButton.leadingAnchor, constant: -4),
+            volumeFader.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 7),
+            volumeFader.heightAnchor.constraint(equalToConstant: 16),
 
             soloButton.trailingAnchor.constraint(equalTo: vuMeterBarL.leadingAnchor, constant: -4),
             soloButton.topAnchor.constraint(equalTo: topAnchor, constant: 3),
@@ -331,8 +321,7 @@ public final class TrackHeaderView: NSView {
         let isMini = bounds.height < 45
         routingLabel.isHidden = isMini
         trackTypeLabel.isHidden = isMini
-        volumeSlider.isHidden = false
-        volumeDbLabel.isHidden = false
+        volumeFader.isHidden = false
         
         // Adjust nameLabel position if mini
         if isMini {
@@ -353,21 +342,13 @@ public final class TrackHeaderView: NSView {
         updateRoutingLabel()
 
         enableButton.title = "\(trackIndex + 1)"
-        volumeSlider.doubleValue = Double(track.volumeDecibels)
-        updateVolumeDbLabel()
+        volumeFader.value = Double(track.volumeDecibels)
         updateButtonStates()
         updateVolumeFill()
         updateCollapseButtonState()
     }
 
-    private func updateVolumeDbLabel() {
-        let db = track.volumeDecibels
-        if db <= Track.minFaderDecibels + 0.1 {
-            volumeDbLabel.stringValue = "-inf"
-        } else {
-            volumeDbLabel.stringValue = String(format: "%.1f", db)
-        }
-    }
+
 
     public func configure(maxDepth: Int, depth: Int, isLastInGroup: Bool) {
         self.maxDepth = maxDepth
@@ -573,8 +554,9 @@ public final class TrackHeaderView: NSView {
             soloButton.contentTintColor = .white
             soloButton.layer?.backgroundColor = DreamTheme.soloButton.cgColor
         } else {
-            soloButton.contentTintColor = DreamTheme.textMuted
-            soloButton.layer?.backgroundColor = NSColor(white: 0.25, alpha: 1).cgColor
+            // Brighter off-state: Light gray text, medium dark gray bg
+            soloButton.contentTintColor = NSColor(white: 0.85, alpha: 1.0)
+            soloButton.layer?.backgroundColor = NSColor(white: 0.35, alpha: 1.0).cgColor
         }
 
         // Enable (On/Off) button: Green when active, gray when inactive
@@ -844,11 +826,6 @@ public final class TrackHeaderView: NSView {
         onTrackChanged?(track)
     }
 
-    @objc private func volumeFaderChanged() {
-        track.volumeDecibels = Float(volumeSlider.doubleValue)
-        updateVolumeDbLabel()
-        onTrackChanged?(track)
-    }
 
     @objc private func toggleCollapse() {
         track.isExpanded.toggle()

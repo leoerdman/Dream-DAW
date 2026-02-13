@@ -13,6 +13,7 @@ internal class MasterLaneView: NSView {
     var scrollOffset: CGFloat = 0 {
         didSet {
             gridLayer.scrollOffset = scrollOffset
+            gridLayer.setNeedsDisplay()
         }
     }
     

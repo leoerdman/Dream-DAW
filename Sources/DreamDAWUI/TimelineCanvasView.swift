@@ -91,6 +91,15 @@ public final class TimelineCanvasView: NSView {
         
         setupCursorAnimation()
         setupDropIndicator()
+        
+        // PHASE 10.0: Set up grid snapping callback for the state machine
+        interactionSM.snapToGrid = { [weak self] sampleFrame in
+            guard let self = self, let project = self.project else { return sampleFrame }
+            let beats = Double(sampleFrame) / (project.sampleRate * 60.0 / Double(project.bpm))
+            let snappedBeats = self.snapToGrid(beats: beats)
+            return Int64(snappedBeats * (project.sampleRate * 60.0 / Double(project.bpm)))
+        }
+        
         NSLog("[TimelineCanvasView] setup complete")
     }
 
@@ -1118,10 +1127,22 @@ public final class TimelineCanvasView: NSView {
     private func updateMarqueeLayer(pixelsPerBeatOverride: CGFloat? = nil) {
         if case .marqueeSelecting(let startX, let currentX, let startY, let currentY) = interactionSM.currentState {
             selectionRectLayer.isHidden = false
+            
+            // Apply grid snapping to visual marquee
+            let ppb = pixelsPerBeatOverride ?? pixelsPerBeat
+            let beat1 = Double(startX) / Double(ppb)
+            let beat2 = Double(currentX) / Double(ppb)
+            
+            let snappedBeat1 = snapToGrid(beats: beat1)
+            let snappedBeat2 = snapToGrid(beats: beat2)
+            
+            let x1 = CGFloat(snappedBeat1) * ppb
+            let x2 = CGFloat(snappedBeat2) * ppb
+            
             let rect = CGRect(
-                x: CGFloat(min(startX, currentX)),
+                x: min(x1, x2),
                 y: min(startY, currentY),
-                width: CGFloat(abs(startX - currentX)),
+                width: abs(x1 - x2),
                 height: abs(startY - currentY)
             )
             selectionRectLayer.path = CGPath(rect: rect, transform: nil)
@@ -1129,6 +1150,26 @@ public final class TimelineCanvasView: NSView {
             selectionRectLayer.isHidden = true
             selectionRectLayer.path = nil
         }
+    }
+
+    // MARK: - Grid Snapping Helpers
+
+    /// Returns the current grid resolution in beats based on zoom level.
+    public func calculateCurrentGridResolution() -> Double {
+        if pixelsPerBeat > 40 {
+            return 0.25 // 16th notes
+        } else if pixelsPerBeat > 12 {
+            return 1.0  // Quarter notes
+        } else {
+            guard let project = project else { return 4.0 }
+            return Double(project.timeSignature.beatsPerBar) // Bars
+        }
+    }
+
+    /// Snaps a beat value to the current grid resolution.
+    public func snapToGrid(beats: Double) -> Double {
+        let res = calculateCurrentGridResolution()
+        return (beats / res).rounded() * res
     }
     // [LEGACY LOGIC REMOVED]
 
@@ -1949,16 +1990,16 @@ internal class AudioClipLayer: CALayer {
 
         ctx.restoreGState()
 
-        // Clip border
+        // Clip border (Standard)
         ctx.setStrokeColor(trackColor.withAlphaComponent(0.5).cgColor)
         ctx.setLineWidth(0.5)
         ctx.addPath(clipPath)
         ctx.strokePath()
 
-        // Selection border
+        // Selection border (Enterprise Glow)
         if clip.isSelected {
-            ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.55).cgColor)
-            ctx.setLineWidth(1.5)
+            ctx.setStrokeColor(NSColor.white.cgColor)
+            ctx.setLineWidth(2.0)
             ctx.addPath(clipPath)
             ctx.strokePath()
         }
@@ -2032,15 +2073,16 @@ internal class MidiClipLayer: CALayer {
 
         ctx.restoreGState()
 
-        // Clip border
+        // Clip border (Standard)
         ctx.setStrokeColor(color.withAlphaComponent(0.5).cgColor)
         ctx.setLineWidth(0.5)
         ctx.addPath(clipPath)
         ctx.strokePath()
 
+        // Selection border (Enterprise Glow)
         if clip.isSelected {
-            ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.55).cgColor)
-            ctx.setLineWidth(1.5)
+            ctx.setStrokeColor(NSColor.white.cgColor)
+            ctx.setLineWidth(2.0)
             ctx.addPath(clipPath)
             ctx.strokePath()
         }

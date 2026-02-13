@@ -14,5 +14,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+pub mod biquad;
 pub mod fades;
 pub mod resampler;
+pub mod svf;

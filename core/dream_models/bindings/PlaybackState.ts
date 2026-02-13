@@ -22,4 +22,20 @@ bpm: number,
 /**
  * Test tone frequency in Hz (Phase 1 only — replaced by graph routing later).
  */
-test_tone_freq: number, };
+test_tone_freq: number, 
+/**
+ * Audio sample rate (Hz).
+ */
+sample_rate: number, 
+/**
+ * Whether loop mode is enabled.
+ */
+loop_enabled: boolean, 
+/**
+ * Loop start position in sample frames.
+ */
+loop_start: bigint, 
+/**
+ * Loop end position in sample frames.
+ */
+loop_end: bigint, };

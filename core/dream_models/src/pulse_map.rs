@@ -191,6 +191,9 @@ impl PulseMap {
     // ── Internal: Binary Search ────────────────────────────────────
 
     /// Finds the active tempo event at a given sample frame.
+    ///
+    /// Uses `partition_point` (stdlib binary search) for O(log N) lookup.
+    /// Returns the last event whose `sample_frame <= sample_frame`.
     #[inline]
     fn active_event_at_sample(&self, sample_frame: i64) -> &TempoEvent {
         // Fast path: constant tempo (single event) — no search needed.
@@ -198,21 +201,20 @@ impl PulseMap {
             return &self.tempo_events[0];
         }
 
-        // Binary search for the last event at or before `sample_frame`.
-        let mut lo = 0usize;
-        let mut hi = self.tempo_events.len() - 1;
-        while lo < hi {
-            let mid = lo + (hi - lo + 1) / 2;
-            if self.tempo_events[mid].sample_frame <= sample_frame {
-                lo = mid;
-            } else {
-                hi = mid - 1;
-            }
-        }
-        &self.tempo_events[lo]
+        // partition_point returns the first index where predicate is false.
+        // We want the last event at or before sample_frame.
+        let idx = self
+            .tempo_events
+            .partition_point(|e| e.sample_frame <= sample_frame);
+        // idx is the first event AFTER sample_frame, so we want idx - 1.
+        // Clamp to 0 for the case where sample_frame is before all events.
+        &self.tempo_events[idx.saturating_sub(1)]
     }
 
     /// Finds the active tempo event at a given beat position.
+    ///
+    /// Uses `partition_point` (stdlib binary search) for O(log N) lookup.
+    /// Returns the last event whose `beat_position <= beat`.
     #[inline]
     fn active_event_at_beat(&self, beat: f64) -> &TempoEvent {
         // Fast path: constant tempo.
@@ -220,17 +222,10 @@ impl PulseMap {
             return &self.tempo_events[0];
         }
 
-        let mut lo = 0usize;
-        let mut hi = self.tempo_events.len() - 1;
-        while lo < hi {
-            let mid = lo + (hi - lo + 1) / 2;
-            if self.tempo_events[mid].beat_position <= beat {
-                lo = mid;
-            } else {
-                hi = mid - 1;
-            }
-        }
-        &self.tempo_events[lo]
+        let idx = self
+            .tempo_events
+            .partition_point(|e| e.beat_position <= beat);
+        &self.tempo_events[idx.saturating_sub(1)]
     }
 }
 

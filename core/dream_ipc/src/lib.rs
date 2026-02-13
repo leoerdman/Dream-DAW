@@ -30,13 +30,44 @@ pub mod metering;
 /// - Queue capacity (1024) guarantees no backpressure under normal use.
 #[derive(Debug, Clone, Copy)]
 pub enum EngineCommand {
+    // ── Transport ────────────────────────────────────────────────────
     /// Start or stop playback. `true` = play, `false` = stop.
     SetPlay(bool),
 
+    /// Seek to a specific sample frame position.
+    Seek(i64),
+
+    /// Change the engine's BPM (affects tempo-synced processing).
+    SetBpm(f64),
+
+    /// Enable or disable loop mode.
+    SetLoopEnabled(bool),
+
+    /// Set the loop region (start_sample, end_sample).
+    SetLoopRegion { start: i64, end: i64 },
+
+    // ── Track Control ────────────────────────────────────────────────
+    /// Set a track's volume (linear gain, 0.0–2.0). `track_index` is 0-based.
+    SetTrackVolume { track_index: u16, volume: f32 },
+
+    /// Set a track's pan position (-1.0 = hard left, 0.0 = center, 1.0 = hard right).
+    SetTrackPan { track_index: u16, pan: f32 },
+
+    /// Mute or unmute a track.
+    SetTrackMute { track_index: u16, muted: bool },
+
+    /// Solo or unsolo a track.
+    SetTrackSolo { track_index: u16, soloed: bool },
+
+    // ── Test / Legacy ────────────────────────────────────────────────
     /// Smoothly transition the test tone to a new frequency (Hz).
     /// The audio callback applies per-sample exponential smoothing
     /// to eliminate discontinuity clicks during frequency changes.
     SetFreq(f32),
+
+    // ── Engine Lifecycle ─────────────────────────────────────────────
+    /// Request the engine to stop and clean up all resources.
+    Shutdown,
 }
 
 // ── Master Clock ────────────────────────────────────────────────────────

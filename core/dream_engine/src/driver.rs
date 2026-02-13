@@ -127,6 +127,17 @@ pub fn start_audio_thread(
                         EngineCommand::SetFreq(freq) => {
                             target_freq = freq.clamp(20.0, 20_000.0);
                         }
+                        // Phase 2+ commands — accepted but not yet processed
+                        // in the Phase 1 test-tone driver.
+                        EngineCommand::Seek(_)
+                        | EngineCommand::SetBpm(_)
+                        | EngineCommand::SetLoopEnabled(_)
+                        | EngineCommand::SetLoopRegion { .. }
+                        | EngineCommand::SetTrackVolume { .. }
+                        | EngineCommand::SetTrackPan { .. }
+                        | EngineCommand::SetTrackMute { .. }
+                        | EngineCommand::SetTrackSolo { .. }
+                        | EngineCommand::Shutdown => {}
                     }
                 }
 

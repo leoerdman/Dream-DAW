@@ -871,8 +871,12 @@ name = "dream_engine"
 version = "0.1.0"
 dependencies = [
  "cpal",
+ "dream_clip_engine",
+ "dream_dsp",
  "dream_ipc",
+ "dream_mixer",
  "dream_models",
+ "dream_transport",
  "env_logger",
  "log",
  "rtrb",

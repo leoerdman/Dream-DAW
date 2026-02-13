@@ -43,6 +43,18 @@ pub struct PlaybackState {
 
     /// Test tone frequency in Hz (Phase 1 only — replaced by graph routing later).
     pub test_tone_freq: f32,
+
+    /// Audio sample rate (Hz).
+    pub sample_rate: f64,
+
+    /// Whether loop mode is enabled.
+    pub loop_enabled: bool,
+
+    /// Loop start position in sample frames.
+    pub loop_start: i64,
+
+    /// Loop end position in sample frames.
+    pub loop_end: i64,
 }
 
 impl Default for PlaybackState {
@@ -51,6 +63,10 @@ impl Default for PlaybackState {
             is_playing: false,
             bpm: 120.0,
             test_tone_freq: 440.0,
+            sample_rate: 44100.0,
+            loop_enabled: false,
+            loop_start: 0,
+            loop_end: 0,
         }
     }
 }
@@ -68,6 +84,7 @@ mod tests {
         assert!(json.contains("\"is_playing\":false"));
         assert!(json.contains("\"bpm\":120.0"));
         assert!(json.contains("\"test_tone_freq\":440.0"));
+        assert!(json.contains("\"sample_rate\":44100.0"));
     }
 
     #[test]
@@ -76,12 +93,18 @@ mod tests {
             is_playing: true,
             bpm: 140.5,
             test_tone_freq: 880.0,
+            sample_rate: 48000.0,
+            loop_enabled: true,
+            loop_start: 44100,
+            loop_end: 88200,
         };
         let json = serde_json::to_string(&state).expect("serialize");
         let deserialized: PlaybackState = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(deserialized.is_playing, true);
         assert!((deserialized.bpm - 140.5).abs() < f64::EPSILON);
         assert!((deserialized.test_tone_freq - 880.0).abs() < f32::EPSILON);
+        assert_eq!(deserialized.loop_enabled, true);
+        assert_eq!(deserialized.loop_start, 44100);
     }
 
     /// This test exercises ts-rs export. When run, it generates the
@@ -93,3 +116,4 @@ mod tests {
         PlaybackState::export_all(&config).expect("ts-rs export failed");
     }
 }
+

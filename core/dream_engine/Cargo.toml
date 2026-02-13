@@ -8,6 +8,10 @@ license.workspace = true
 [dependencies]
 dream_ipc = { path = "../dream_ipc" }
 dream_models = { path = "../dream_models" }
+dream_dsp = { path = "../dream_dsp" }
+dream_mixer = { path = "../dream_mixer" }
+dream_transport = { path = "../dream_transport" }
+dream_clip_engine = { path = "../dream_clip_engine" }
 cpal = { workspace = true }
 rtrb = { workspace = true }
 log = { workspace = true }

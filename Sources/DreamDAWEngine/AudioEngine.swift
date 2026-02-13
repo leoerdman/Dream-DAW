@@ -88,10 +88,17 @@ public final class AudioEngine: @unchecked Sendable {
         let format = engine.mainMixerNode.outputFormat(forBus: 0)
         engine.connect(masterMixer, to: engine.mainMixerNode, format: format)
         
-        // PHASE 10.0: Apply user's preferred buffer size to output hardware
+        // PHASE 10.0: Apply user's preferred buffer size and sample rate to output hardware
         let preferredBuffer = AppSettings.shared.audioBufferSize
+        let preferredRate = AppSettings.shared.audioSampleRate
+        
         if let outputDeviceUID = AppSettings.shared.audioOutputDeviceUID {
+            AudioDeviceEnumerator.setSampleRateForDevice(uid: outputDeviceUID, rate: preferredRate)
             AudioDeviceEnumerator.setBufferSizeForDevice(uid: outputDeviceUID, size: UInt32(preferredBuffer))
+            
+            // Safety: Give Core Audio a moment to settle after hardware changes
+            // This prevents "clapping/clicking" during engine start
+            Thread.sleep(forTimeInterval: 0.1)
         }
         
         engine.prepare()

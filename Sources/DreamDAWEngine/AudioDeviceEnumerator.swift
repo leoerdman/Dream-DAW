@@ -184,6 +184,25 @@ public enum AudioDeviceEnumerator {
             print("AudioDeviceEnumerator: Failed to set buffer size for device \(uid): \(status)")
         }
     }
+
+    /// Set the sample rate for a device by UID.
+    public static func setSampleRateForDevice(uid: String, rate: Double) {
+        guard let deviceID = deviceIDForUID(uid) else { return }
+
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        var sampleRate = Float64(rate)
+        let dataSize = UInt32(MemoryLayout<Float64>.size)
+
+        let status = AudioObjectSetPropertyData(deviceID, &propertyAddress, 0, nil, dataSize, &sampleRate)
+        if status != noErr {
+            print("AudioDeviceEnumerator: Failed to set sample rate for device \(uid): \(status)")
+        }
+    }
     
     private static func deviceIDForUID(_ uid: String) -> AudioDeviceID? {
         var propertyAddress = AudioObjectPropertyAddress(

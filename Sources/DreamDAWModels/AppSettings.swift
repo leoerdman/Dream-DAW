@@ -78,6 +78,7 @@ public final class AppSettings: ObservableObject, Codable {
         static let browserPinnedFolders = "dreamdaw.settings.browserPinnedFolders"
         static let browserCategoryPaneWidth = "dreamdaw.settings.browserCategoryPaneWidth"
         static let browserFavorites = "dreamdaw.settings.browserFavorites"
+        static let audioSampleRate = "dreamdaw.settings.audioSampleRate"
     }
 
     // MARK: - General
@@ -176,6 +177,15 @@ public final class AppSettings: ObservableObject, Codable {
         }
     }
 
+    @Published public var audioSampleRate: Double {
+        didSet {
+            defaults.set(audioSampleRate, forKey: Keys.audioSampleRate)
+            if !isInitializing {
+                syncToDisk()
+            }
+        }
+    }
+
     // MARK: - Browser
 
     @Published public var browserSidebarOrder: [String] {
@@ -217,7 +227,7 @@ public final class AppSettings: ObservableObject, Codable {
     // MARK: - Codable (Manual implementation for @Published)
     
     enum CodingKeys: String, CodingKey {
-        case language, waveformStyle, startupBehavior, userFolderPath, samplesPath, vst2Path, vst3Path, audioOutputDeviceUID, audioBufferSize
+        case language, waveformStyle, startupBehavior, userFolderPath, samplesPath, vst2Path, vst3Path, audioOutputDeviceUID, audioBufferSize, audioSampleRate
         case browserSidebarOrder, browserPinnedFolders, browserCategoryPaneWidth, browserFavorites
     }
 
@@ -232,6 +242,7 @@ public final class AppSettings: ObservableObject, Codable {
         vst3Path = try container.decode(String.self, forKey: .vst3Path)
         audioOutputDeviceUID = try container.decodeIfPresent(String.self, forKey: .audioOutputDeviceUID)
         audioBufferSize = try container.decodeIfPresent(Int.self, forKey: .audioBufferSize) ?? 512
+        audioSampleRate = try container.decodeIfPresent(Double.self, forKey: .audioSampleRate) ?? 48000.0
         browserSidebarOrder = try container.decodeIfPresent([String].self, forKey: .browserSidebarOrder) ?? []
         browserPinnedFolders = try container.decodeIfPresent([String].self, forKey: .browserPinnedFolders) ?? []
         browserCategoryPaneWidth = try container.decodeIfPresent(Double.self, forKey: .browserCategoryPaneWidth)
@@ -249,6 +260,7 @@ public final class AppSettings: ObservableObject, Codable {
         try container.encode(vst3Path, forKey: .vst3Path)
         try container.encode(audioOutputDeviceUID, forKey: .audioOutputDeviceUID)
         try container.encode(audioBufferSize, forKey: .audioBufferSize)
+        try container.encode(audioSampleRate, forKey: .audioSampleRate)
         try container.encode(browserSidebarOrder, forKey: .browserSidebarOrder)
         try container.encode(browserPinnedFolders, forKey: .browserPinnedFolders)
         try container.encodeIfPresent(browserCategoryPaneWidth, forKey: .browserCategoryPaneWidth)
@@ -275,6 +287,7 @@ public final class AppSettings: ObservableObject, Codable {
         self.vst3Path = "/Library/Audio/Plug-Ins/VST3"
         self.audioOutputDeviceUID = nil
         self.audioBufferSize = 512
+        self.audioSampleRate = 48000.0
         self.browserSidebarOrder = []
         self.browserPinnedFolders = []
         self.browserCategoryPaneWidth = nil
@@ -322,6 +335,11 @@ public final class AppSettings: ObservableObject, Codable {
         if savedBufferSize > 0 {
             self.audioBufferSize = savedBufferSize
         }
+
+        let savedSampleRate = defaults.double(forKey: Keys.audioSampleRate)
+        if savedSampleRate > 0 {
+            self.audioSampleRate = savedSampleRate
+        }
         
         self.isInitializing = false
     }
@@ -343,6 +361,7 @@ public final class AppSettings: ObservableObject, Codable {
             self.vst3Path = decoded.vst3Path
             self.audioOutputDeviceUID = decoded.audioOutputDeviceUID
             self.audioBufferSize = decoded.audioBufferSize
+            self.audioSampleRate = decoded.audioSampleRate
             self.browserSidebarOrder = decoded.browserSidebarOrder
             self.browserPinnedFolders = decoded.browserPinnedFolders
             self.browserCategoryPaneWidth = decoded.browserCategoryPaneWidth

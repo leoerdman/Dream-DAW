@@ -8,6 +8,10 @@ extension NSPasteboard.PasteboardType {
     static let browserCategoryRow = NSPasteboard.PasteboardType("com.dreamdaw.browser-category-row")
 }
 
+private final class BrowserFlippedView: NSView {
+    override var isFlipped: Bool { true }
+}
+
 public final class BrowserSidebarView: NSView {
 
     private struct BrowserCategory {
@@ -93,7 +97,7 @@ public final class BrowserSidebarView: NSView {
     private let categoriesScrollView = NSScrollView()
     private let categoriesTableView = NSTableView()
 
-    private let resultsContainer = NSView()
+    private let resultsContainer = BrowserFlippedView()
     private let resultsToolbar = NSView()
     private let typeFilterButton = NSPopUpButton(frame: .zero, pullsDown: false)
     private let sourceFilterButton = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -370,13 +374,20 @@ public final class BrowserSidebarView: NSView {
 
         splitView.frame = CGRect(x: 0, y: searchHeight, width: bounds.width, height: max(0, bounds.height - searchHeight))
 
-        if splitView.subviews.count >= 2 && !didApplyInitialCategoryPaneWidth {
-            let minLeft: CGFloat = 110
-            let maxLeft: CGFloat = max(minLeft, splitView.bounds.width * 0.7)
-            let saved = CGFloat(appSettings.browserCategoryPaneWidth ?? 0)
-            let desired = saved > 0 ? saved : splitView.bounds.width * 0.42
-            splitView.setPosition(min(maxLeft, max(minLeft, desired)), ofDividerAt: 0)
-            didApplyInitialCategoryPaneWidth = true
+        if splitView.subviews.count >= 2 {
+            let splitWidth = splitView.bounds.width
+            if splitWidth > 20 {
+                let minLeft: CGFloat = 110
+                let maxLeft: CGFloat = max(minLeft, splitView.bounds.width * 0.7)
+                let saved = CGFloat(appSettings.browserCategoryPaneWidth ?? 0)
+                let currentLeftWidth = splitView.subviews[0].frame.width
+                let desired = saved > 0 ? saved : splitWidth * 0.42
+                let needsRecovery = !didApplyInitialCategoryPaneWidth || currentLeftWidth < 60
+                if needsRecovery {
+                    splitView.setPosition(min(maxLeft, max(minLeft, desired)), ofDividerAt: 0)
+                    didApplyInitialCategoryPaneWidth = true
+                }
+            }
         }
 
         let toolbarHeight: CGFloat = 56

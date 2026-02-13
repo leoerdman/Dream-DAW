@@ -254,8 +254,18 @@ struct AudioSettingsView: View {
                 HStack {
                     Text("Sample Rate")
                     Spacer()
-                    Text("\(Int(currentSampleRate)) Hz")
-                        .foregroundStyle(.secondary)
+                    Picker("", selection: $settings.audioSampleRate) {
+                        ForEach([44100.0, 48000.0, 88200.0, 96000.0], id: \.self) { rate in
+                            Text("\(Int(rate)) Hz").tag(rate)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(width: 100)
+                    .onChange(of: settings.audioSampleRate) { newRate in
+                        AudioDeviceEnumerator.setSampleRateForDevice(uid: selectedDeviceUID, rate: newRate)
+                        currentSampleRate = newRate
+                    }
                 }
                 
                 HStack {
@@ -314,8 +324,8 @@ struct AudioSettingsView: View {
         // Load current sample rate
         currentSampleRate = AudioDeviceEnumerator.sampleRateForDevice(uid: selectedDeviceUID) ?? 44100.0
         
-        // PHASE 10.0: Apply user's preferred buffer size to hardware on load to ensure sync
         if !selectedDeviceUID.isEmpty {
+            AudioDeviceEnumerator.setSampleRateForDevice(uid: selectedDeviceUID, rate: settings.audioSampleRate)
             AudioDeviceEnumerator.setBufferSizeForDevice(uid: selectedDeviceUID, size: UInt32(settings.audioBufferSize))
         }
         

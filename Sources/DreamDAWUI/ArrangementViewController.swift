@@ -59,6 +59,7 @@ public final class ArrangementViewController: NSViewController {
     }
     private var keyEventMonitor: Any?
     private var meterUpdateTimer: Timer?
+    private var pendingHorizontalScrollX: CGFloat?
 
     // MARK: - Initialization
 
@@ -298,6 +299,20 @@ public final class ArrangementViewController: NSViewController {
         masterLaneView.pixelsPerBeat = pixelsPerBeat
         masterLaneView.timeSignature = project.timeSignature
         masterLaneView.scrollOffset = canvasScrollView.contentView.bounds.origin.x
+
+        // Keep horizontal anchor stable during zoom/layout.
+        let requestedX = pendingHorizontalScrollX ?? CGFloat(project.viewScrollPosition ?? Double(canvasScrollView.contentView.bounds.origin.x))
+        let maxScrollX = max(0, canvasView.frame.width - canvasScrollView.contentView.bounds.width)
+        let clampedX = min(max(0, requestedX), maxScrollX)
+        let currentY = canvasScrollView.contentView.bounds.origin.y
+        let maxScrollY = max(0, canvasView.frame.height - canvasScrollView.contentView.bounds.height)
+        let clampedY = min(max(0, currentY), maxScrollY)
+        canvasScrollView.contentView.scroll(to: NSPoint(x: clampedX, y: clampedY))
+        canvasScrollView.reflectScrolledClipView(canvasScrollView.contentView)
+        headerScrollView.contentView.scroll(to: NSPoint(x: 0, y: clampedY))
+        headerScrollView.reflectScrolledClipView(headerScrollView.contentView)
+        masterLaneView.scrollOffset = clampedX
+        pendingHorizontalScrollX = nil
         
         // Force refresh after frame assignment
         canvasView.updateArrangementLayers(fullRedraw: true)
@@ -318,10 +333,19 @@ public final class ArrangementViewController: NSViewController {
     }
 
     public func setZoom(_ ppb: CGFloat) {
+        applyZoom(ppb, anchoredScrollX: nil)
+    }
+
+    private func applyZoom(_ ppb: CGFloat, anchoredScrollX: CGFloat?) {
         self.pixelsPerBeat = min(DreamTheme.maxPixelsPerBeat, max(DreamTheme.minPixelsPerBeat, ppb))
         canvasView.pixelsPerBeat = pixelsPerBeat
         rulerView.pixelsPerBeat = pixelsPerBeat
+        masterLaneView.pixelsPerBeat = pixelsPerBeat
         project.viewZoomScale = Double(pixelsPerBeat)
+        if let x = anchoredScrollX {
+            pendingHorizontalScrollX = x
+            project.viewScrollPosition = Double(x)
+        }
         view.needsLayout = true
     }
 
@@ -380,6 +404,7 @@ public final class ArrangementViewController: NSViewController {
             guard let self = self else { return }
             let canvasX = self.canvasScrollView.contentView.bounds.origin.x
             let canvasY = self.canvasScrollView.contentView.bounds.origin.y
+            self.project.viewScrollPosition = Double(canvasX)
             self.masterLaneView.scrollOffset = canvasX
             self.headerScrollView.contentView.scroll(to: NSPoint(x: 0, y: canvasY))
         }
@@ -395,6 +420,10 @@ public final class ArrangementViewController: NSViewController {
         // Ruler -> Transport
         rulerView.onClickPosition = { [weak self] position in
             self?.transportController.seek(to: position)
+        }
+
+        canvasView.onZoomChanged = { [weak self] newPPB, newScrollX in
+            self?.applyZoom(newPPB, anchoredScrollX: newScrollX)
         }
         
         // Selection Logic
@@ -511,6 +540,9 @@ public final class ArrangementViewController: NSViewController {
     private func configureProject() {
         if let savedZoom = project.viewZoomScale {
             setZoom(CGFloat(savedZoom))
+        }
+        if let savedScroll = project.viewScrollPosition {
+            pendingHorizontalScrollX = CGFloat(savedScroll)
         }
         reloadTracks()
     }

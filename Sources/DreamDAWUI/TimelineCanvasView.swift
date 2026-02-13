@@ -995,6 +995,9 @@ public final class TimelineCanvasView: NSView {
         let isCommand = modifierFlags.contains(.command)
         if isCommand, let chars = event.charactersIgnoringModifiers?.lowercased() {
             switch chars {
+            case "x":
+                cut(nil)
+                return
             case "c":
                 copy(nil)
                 return
@@ -1949,6 +1952,12 @@ public final class TimelineCanvasView: NSView {
         }
     }
 
+    /// Cut selected clips (or marquee area): copy to clipboard and remove from timeline.
+    public func cutSelection() {
+        copySelection()
+        deleteSelection()
+    }
+
     /// Paste clipboard clips at the current edit cursor position.
     public func pasteClipsAtEditCursor() {
         guard let project = project, let cursor = editCursor else { return }
@@ -2100,6 +2109,10 @@ public final class TimelineCanvasView: NSView {
 
     @objc public func paste(_ sender: Any?) {
         pasteClipsAtEditCursor()
+    }
+
+    @objc public func cut(_ sender: Any?) {
+        cutSelection()
     }
 
     @objc public func duplicate(_ sender: Any?) {

@@ -1,0 +1,12 @@
+[package]
+name = "dream_graph"
+description = "Dream DAW — Audio Graph Topology, RCU Swap & Plugin Delay Compensation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dream_ipc = { path = "../dream_ipc" }
+petgraph = "0.8"
+arc-swap = "1.8"
+log = { workspace = true }

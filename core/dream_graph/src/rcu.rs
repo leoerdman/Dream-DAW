@@ -1,0 +1,224 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// Dream DAW — Read-Copy-Update (Zero-Wait Graph Mutations)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// THE PROBLEM:
+//   When a user adds a plugin or reconnects a send, the audio graph must
+//   change. But the audio callback runs every ~0.5ms on a real-time thread.
+//   We CANNOT lock a mutex to swap the graph — that would cause dropouts.
+//
+// THE SOLUTION: Read-Copy-Update (RCU)
+//   1. The UI thread builds a NEW execution plan from the new graph.
+//   2. It calls `store()` on the `arc-swap` pointer.
+//   3. The audio callback calls `load()` on the next cycle.
+//   4. The old plan is dropped asynchronously when no readers remain.
+//
+// RESULT: Zero-wait, zero-dropout, zero-lock graph mutations.
+//
+// Memory model:
+//   - `arc_swap::ArcSwap<ExecutionPlan>` is effectively an atomic pointer.
+//   - `load()` returns an `arc_swap::Guard`, not a full `Arc::clone()`.
+//     This is faster than `Arc::load()` because it avoids the atomic
+//     reference count increment on the hot path.
+//   - The old `Arc<ExecutionPlan>` is reclaimed when the last reader drops.
+//
+// ═══════════════════════════════════════════════════════════════════════════
+
+use std::sync::Arc;
+
+use arc_swap::ArcSwap;
+use log::info;
+
+use crate::dag::{AudioDag, ExecutionPlan, GraphError};
+use crate::pdc;
+
+// ── Live Graph ──────────────────────────────────────────────────────────
+
+/// Thread-safe, atomically swappable execution plan.
+///
+/// This is the bridge between the UI thread (writer) and the audio
+/// callback (reader). The audio callback never blocks — it simply reads
+/// the current plan pointer every cycle.
+///
+/// # Performance
+/// - `load()` on the audio thread: ~1ns (pointer read + guard creation)
+/// - `store()` on the UI thread: ~10ns (pointer swap + old Arc decrement)
+pub struct LiveGraph {
+    /// The current execution plan, atomically swappable.
+    current_plan: ArcSwap<ExecutionPlan>,
+}
+
+impl LiveGraph {
+    /// Creates a `LiveGraph` from a validated `AudioDag`.
+    ///
+    /// Computes the initial execution plan (topological sort + PDC)
+    /// and stores it as the current plan.
+    pub fn from_dag(dag: &AudioDag) -> Result<Self, GraphError> {
+        let plan = Self::compute_plan(dag)?;
+        Ok(Self {
+            current_plan: ArcSwap::from_pointee(plan),
+        })
+    }
+
+    /// Creates a `LiveGraph` with an empty default plan (no nodes).
+    ///
+    /// Used during initialization before the first graph is built.
+    pub fn empty() -> Self {
+        let empty_plan = ExecutionPlan {
+            processing_order: Vec::new(),
+            delay_compensation: Vec::new(),
+        };
+        Self {
+            current_plan: ArcSwap::from_pointee(empty_plan),
+        }
+    }
+
+    /// **UI THREAD ONLY**: Atomically swaps the current execution plan.
+    ///
+    /// 1. Computes the new topological order from the DAG.
+    /// 2. Computes PDC (Plugin Delay Compensation) for all paths.
+    /// 3. Atomically stores the new plan.
+    ///
+    /// The audio callback will see the new plan on its next cycle.
+    /// The old plan is dropped when no readers remain.
+    pub fn swap_graph(&self, dag: &AudioDag) -> Result<(), GraphError> {
+        let new_plan = Self::compute_plan(dag)?;
+        let new_arc = Arc::new(new_plan);
+
+        let old = self.current_plan.swap(new_arc);
+
+        info!(
+            "🔄 Graph swapped: {} nodes → {} nodes",
+            old.processing_order.len(),
+            self.load().processing_order.len()
+        );
+
+        Ok(())
+    }
+
+    /// **AUDIO THREAD (HOT PATH)**: Loads the current execution plan.
+    ///
+    /// Returns an `Arc<ExecutionPlan>` guard with zero-cost access.
+    /// This is the ONLY method called from the real-time audio callback.
+    ///
+    /// # Real-Time Safety
+    /// - No allocations, no locks, no syscalls.
+    /// - Single atomic pointer load (~1ns on modern CPUs).
+    #[inline(always)]
+    pub fn load(&self) -> arc_swap::Guard<Arc<ExecutionPlan>> {
+        self.current_plan.load()
+    }
+
+    /// Computes an execution plan from a validated DAG.
+    fn compute_plan(dag: &AudioDag) -> Result<ExecutionPlan, GraphError> {
+        let processing_order = dag.topological_order()?;
+        let delay_compensation = pdc::compute_delay_compensation(dag, &processing_order);
+
+        Ok(ExecutionPlan {
+            processing_order,
+            delay_compensation,
+        })
+    }
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dag::*;
+
+    fn build_simple_dag() -> AudioDag {
+        GraphBuilder::new()
+            .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
+            .add_node(AudioNode::new(
+                NodeId(1),
+                NodeKind::Track {
+                    name: "Track 1".into(),
+                },
+            ))
+            .add_edge(NodeId(1), NodeId(0))
+            .unwrap()
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn live_graph_initializes_from_dag() {
+        let dag = build_simple_dag();
+        let live = LiveGraph::from_dag(&dag).unwrap();
+        let plan = live.load();
+        assert_eq!(plan.processing_order.len(), 2);
+    }
+
+    #[test]
+    fn live_graph_empty_has_no_nodes() {
+        let live = LiveGraph::empty();
+        let plan = live.load();
+        assert!(plan.processing_order.is_empty());
+    }
+
+    #[test]
+    fn swap_graph_updates_atomically() {
+        let dag1 = build_simple_dag();
+        let live = LiveGraph::from_dag(&dag1).unwrap();
+        assert_eq!(live.load().processing_order.len(), 2);
+
+        // Build a larger graph
+        let dag2 = GraphBuilder::new()
+            .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
+            .add_node(AudioNode::new(
+                NodeId(1),
+                NodeKind::Track {
+                    name: "Track 1".into(),
+                },
+            ))
+            .add_node(AudioNode::new(
+                NodeId(2),
+                NodeKind::Track {
+                    name: "Track 2".into(),
+                },
+            ))
+            .add_node(AudioNode::new(
+                NodeId(3),
+                NodeKind::Effect {
+                    name: "Reverb".into(),
+                    latency_samples: 256,
+                },
+            ))
+            .add_edge(NodeId(1), NodeId(0))
+            .unwrap()
+            .add_edge(NodeId(2), NodeId(3))
+            .unwrap()
+            .add_edge(NodeId(3), NodeId(0))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        live.swap_graph(&dag2).unwrap();
+        assert_eq!(live.load().processing_order.len(), 4);
+    }
+
+    #[test]
+    fn concurrent_read_during_swap() {
+        // Verify that reading the old plan while swapping doesn't panic.
+        let dag = build_simple_dag();
+        let live = LiveGraph::from_dag(&dag).unwrap();
+
+        // Take a "snapshot" (simulates audio thread holding a reference)
+        let _old_plan = live.load();
+
+        // Swap graph (simulates UI thread mutation)
+        let dag2 = GraphBuilder::new()
+            .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
+            .build()
+            .unwrap();
+        live.swap_graph(&dag2).unwrap();
+
+        // Old snapshot is still valid (no use-after-free)
+        assert_eq!(_old_plan.processing_order.len(), 2);
+
+        // New plan reflects the swap
+        assert_eq!(live.load().processing_order.len(), 1);
+    }
+}

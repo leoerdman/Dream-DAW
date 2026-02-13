@@ -1,0 +1,14 @@
+# ══════════════════════════════════════════════════════════════════════════
+# Dream DAW — LLVM Compiler Flags
+# ══════════════════════════════════════════════════════════════════════════
+# These flags instruct the Rust compiler (via LLVM) to generate machine code
+# optimized for the EXACT CPU architecture of the build machine.
+#
+# `target-cpu=native` enables use of all available SIMD instruction sets:
+#   macOS Apple Silicon → NEON (128-bit vectors)
+#   Intel/AMD           → AVX2/AVX-512 (256/512-bit vectors)
+#
+# This is critical for DSP performance in dream_dsp (Phase 2+).
+
+[build]
+rustflags = ["-C", "target-cpu=native"]

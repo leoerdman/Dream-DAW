@@ -1,0 +1,9 @@
+[package]
+name = "dream_ipc"
+description = "Dream DAW — Lock-Free Inter-Thread Communication"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rtrb = { workspace = true }

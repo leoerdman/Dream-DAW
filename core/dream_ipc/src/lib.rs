@@ -1,39 +1,40 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — Lock-Free Communication Layer
+// Dream DAW — Lock-Free Inter-Thread Communication
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// This module defines the ONLY permitted communication channel between the
-// non-real-time world (UI/Tauri thread) and the real-time world (cpal audio
-// callback). All data crosses this boundary via lock-free, wait-free SPSC
-// ring buffers. NO mutexes, NO allocations, NO syscalls on the hot path.
+// This crate is the ONLY bridge between the non-real-time world (UI/Tauri)
+// and the real-time world (cpal audio callback). Every byte of data that
+// crosses this boundary does so via lock-free, wait-free SPSC ring buffers.
 //
 // Architecture:
 //   UI Thread ──[rtrb::Producer]──▶ Audio Callback ──[rtrb::Consumer]──▶
+//
+// Forbidden on the audio side: Mutex, RwLock, condvar, malloc, syscalls.
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
 use std::sync::atomic::{AtomicI64, Ordering};
 
+// ── Re-export rtrb types for consumers of this crate ────────────────────
+pub use rtrb;
+
 // ── Engine Commands ─────────────────────────────────────────────────────
 
-/// Commands dispatched from the non-real-time thread to the audio callback.
+/// Commands dispatched from the non-real-time UI thread to the audio callback.
 ///
 /// # Safety Contract
 /// - All variants are `Copy` — no heap data ever crosses the RT boundary.
 /// - The audio callback processes these in O(1) with zero allocations.
-/// - Command queue capacity (1024) guarantees no backpressure under normal use.
+/// - Queue capacity (1024) guarantees no backpressure under normal use.
 #[derive(Debug, Clone, Copy)]
 pub enum EngineCommand {
-    /// Start audio playback from the current position.
-    Play,
-
-    /// Stop playback. Resets the phase accumulator to zero.
-    Stop,
+    /// Start or stop playback. `true` = play, `false` = stop.
+    SetPlay(bool),
 
     /// Smoothly transition the test tone to a new frequency (Hz).
-    /// The audio callback applies exponential smoothing per-sample
+    /// The audio callback applies per-sample exponential smoothing
     /// to eliminate discontinuity clicks during frequency changes.
-    SetTestToneFrequency(f32),
+    SetFreq(f32),
 }
 
 // ── Master Clock ────────────────────────────────────────────────────────
@@ -76,43 +77,27 @@ impl MasterClock {
         self.frames_rendered.load(Ordering::Relaxed)
     }
 
-    /// Resets the clock to zero. Called from the UI thread only
-    /// (e.g., on project load or transport reset).
-    #[allow(dead_code)]
+    /// Resets the clock to zero. Non-RT only (project load, transport reset).
     pub fn reset(&self) {
         self.frames_rendered.store(0, Ordering::Relaxed);
     }
 }
 
-// ── Audio Bridge ────────────────────────────────────────────────────────
+// ── Command Queue Factory ───────────────────────────────────────────────
 
-/// The split communication channel between UI and audio worlds.
+/// Default command queue capacity.
 ///
-/// Created once at engine startup, then split:
-/// - `producer` stays on the UI/Tauri thread (sends commands).
-/// - `consumer` moves into the cpal audio callback (receives commands).
-/// - `clock` is shared via `Arc` between both worlds.
-pub struct AudioBridge {
-    pub producer: rtrb::Producer<EngineCommand>,
-    pub consumer: rtrb::Consumer<EngineCommand>,
-    pub clock: MasterClock,
-}
+/// At 48kHz / 512-sample buffers, callback fires ~94 times/sec.
+/// At 144fps UI with 10 commands/frame = 1440 commands/sec.
+/// 1024 slots per callback cycle is more than sufficient.
+pub const COMMAND_QUEUE_CAPACITY: usize = 1024;
 
-impl AudioBridge {
-    /// Creates a new bridge with the specified command queue capacity.
-    ///
-    /// # Capacity Sizing
-    /// At 48kHz / 512-sample buffers, the callback fires ~94 times/sec.
-    /// At 144fps UI with 10 commands/frame = 1440 commands/sec.
-    /// Capacity of 1024 per callback cycle is more than sufficient.
-    pub fn new(capacity: usize) -> Self {
-        let (producer, consumer) = rtrb::RingBuffer::new(capacity);
-        Self {
-            producer,
-            consumer,
-            clock: MasterClock::new(),
-        }
-    }
+/// Creates a new lock-free command queue, returning the split halves.
+///
+/// - `Producer` stays on the UI/Tauri thread (sends commands).
+/// - `Consumer` moves into the cpal audio callback (receives commands).
+pub fn create_command_queue() -> (rtrb::Producer<EngineCommand>, rtrb::Consumer<EngineCommand>) {
+    rtrb::RingBuffer::new(COMMAND_QUEUE_CAPACITY)
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────
@@ -145,46 +130,39 @@ mod tests {
 
     #[test]
     fn command_queue_fifo_ordering() {
-        let bridge = AudioBridge::new(64);
-        let mut producer = bridge.producer;
-        let mut consumer = bridge.consumer;
+        let (mut producer, mut consumer) = create_command_queue();
 
-        // Push 3 commands
-        assert!(producer.push(EngineCommand::Play).is_ok());
-        assert!(producer.push(EngineCommand::SetTestToneFrequency(880.0)).is_ok());
-        assert!(producer.push(EngineCommand::Stop).is_ok());
+        assert!(producer.push(EngineCommand::SetPlay(true)).is_ok());
+        assert!(producer.push(EngineCommand::SetFreq(880.0)).is_ok());
+        assert!(producer.push(EngineCommand::SetPlay(false)).is_ok());
 
-        // Verify FIFO order
         match consumer.pop() {
-            Ok(EngineCommand::Play) => {}
-            other => panic!("Expected Play, got {:?}", other),
+            Ok(EngineCommand::SetPlay(true)) => {}
+            other => panic!("Expected SetPlay(true), got {:?}", other),
         }
         match consumer.pop() {
-            Ok(EngineCommand::SetTestToneFrequency(f)) => {
+            Ok(EngineCommand::SetFreq(f)) => {
                 assert!((f - 880.0).abs() < f32::EPSILON);
             }
-            other => panic!("Expected SetTestToneFrequency(880.0), got {:?}", other),
+            other => panic!("Expected SetFreq(880.0), got {:?}", other),
         }
         match consumer.pop() {
-            Ok(EngineCommand::Stop) => {}
-            other => panic!("Expected Stop, got {:?}", other),
+            Ok(EngineCommand::SetPlay(false)) => {}
+            other => panic!("Expected SetPlay(false), got {:?}", other),
         }
 
-        // Queue should be empty now
+        // Queue empty
         assert!(consumer.pop().is_err());
     }
 
     #[test]
-    fn command_queue_handles_capacity() {
-        let bridge = AudioBridge::new(4);
-        let mut producer = bridge.producer;
+    fn command_queue_handles_full_capacity() {
+        let (mut producer, _consumer) = rtrb::RingBuffer::<EngineCommand>::new(4);
 
-        // Fill the queue
         for _ in 0..4 {
-            assert!(producer.push(EngineCommand::Play).is_ok());
+            assert!(producer.push(EngineCommand::SetPlay(true)).is_ok());
         }
-
-        // Next push should fail (queue full) — no panic, no block
-        assert!(producer.push(EngineCommand::Play).is_err());
+        // Next push should fail — no panic, no block
+        assert!(producer.push(EngineCommand::SetPlay(true)).is_err());
     }
 }

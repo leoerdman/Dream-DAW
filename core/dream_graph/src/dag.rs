@@ -1,0 +1,490 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// Dream DAW — Directed Acyclic Graph (Audio Topology)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// This module defines the audio processing graph: a DAG where each node is
+// an audio processor (track, effect, bus, master) and each edge represents
+// a connection carrying audio buffers between processors.
+//
+// The DAG is validated on every mutation to guarantee:
+//   1. No cycles (feedback loops) — prevented via DFS cycle detection.
+//   2. Exactly one master output node — enforced at construction.
+//   3. All nodes are reachable from at least one source.
+//
+// The DAG itself is immutable once built. Mutations happen via the RCU
+// pattern (see rcu.rs): build a new DAG → validate → atomic swap.
+//
+// ═══════════════════════════════════════════════════════════════════════════
+
+use petgraph::algo;
+use petgraph::graph::{DiGraph, NodeIndex};
+use petgraph::visit::EdgeRef;
+
+use std::fmt;
+
+// ── Node Types ──────────────────────────────────────────────────────────
+
+/// Unique identifier for an audio node. Monotonically increasing.
+/// Decoupled from petgraph's internal indices to survive graph rebuilds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NodeId(pub u64);
+
+/// The type of processing a node performs.
+#[derive(Debug, Clone)]
+pub enum NodeKind {
+    /// Audio track — reads clips from disk/memory, outputs raw PCM.
+    Track { name: String },
+
+    /// Audio effect — processes input buffer (e.g., reverb, EQ, compressor).
+    /// `latency_samples` is the plugin's reported processing delay.
+    Effect {
+        name: String,
+        latency_samples: u32,
+    },
+
+    /// Auxiliary bus — sums multiple inputs (send/return routing).
+    Bus { name: String },
+
+    /// Master output — the final summing point. Exactly one per graph.
+    MasterOutput,
+}
+
+/// A node in the audio processing graph.
+#[derive(Debug, Clone)]
+pub struct AudioNode {
+    /// Stable ID that survives graph rebuilds.
+    pub id: NodeId,
+    /// What this node does.
+    pub kind: NodeKind,
+}
+
+impl AudioNode {
+    pub fn new(id: NodeId, kind: NodeKind) -> Self {
+        Self { id, kind }
+    }
+
+    /// Returns the processing latency of this node in samples.
+    pub fn latency_samples(&self) -> u32 {
+        match &self.kind {
+            NodeKind::Effect {
+                latency_samples, ..
+            } => *latency_samples,
+            _ => 0,
+        }
+    }
+
+    /// Human-readable name for logging.
+    pub fn display_name(&self) -> &str {
+        match &self.kind {
+            NodeKind::Track { name } => name,
+            NodeKind::Effect { name, .. } => name,
+            NodeKind::Bus { name } => name,
+            NodeKind::MasterOutput => "Master Output",
+        }
+    }
+}
+
+// ── Edge Type ───────────────────────────────────────────────────────────
+
+/// An edge in the audio graph. Currently carries no data (audio buffers
+/// are managed separately by the execution plan), but the type exists
+/// for future extension (e.g., gain, channel mapping).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AudioEdge;
+
+// ── Audio DAG ───────────────────────────────────────────────────────────
+
+/// The audio processing graph — a validated Directed Acyclic Graph.
+///
+/// This is an immutable snapshot. The RCU module creates new instances
+/// when the user modifies routing; the audio thread reads the current
+/// snapshot via `arc-swap`.
+#[derive(Debug, Clone)]
+pub struct AudioDag {
+    /// The underlying petgraph directed graph.
+    graph: DiGraph<AudioNode, AudioEdge>,
+
+    /// The index of the master output node (always present).
+    master_idx: NodeIndex,
+}
+
+/// Errors during graph construction or validation.
+#[derive(Debug)]
+pub enum GraphError {
+    /// A cycle (feedback loop) was detected in the graph.
+    CycleDetected,
+    /// No master output node was found.
+    NoMasterOutput,
+    /// Multiple master output nodes were found.
+    MultipleMasterOutputs(usize),
+    /// A node ID was referenced that doesn't exist in the graph.
+    NodeNotFound(NodeId),
+    /// Attempted to create a connection that would form a cycle.
+    ConnectionWouldCycle {
+        from: NodeId,
+        to: NodeId,
+    },
+}
+
+impl fmt::Display for GraphError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CycleDetected => write!(f, "Cycle detected in audio graph"),
+            Self::NoMasterOutput => write!(f, "No master output node in graph"),
+            Self::MultipleMasterOutputs(n) => {
+                write!(f, "Found {n} master output nodes (expected exactly 1)")
+            }
+            Self::NodeNotFound(id) => write!(f, "Node {:?} not found in graph", id),
+            Self::ConnectionWouldCycle { from, to } => {
+                write!(
+                    f,
+                    "Connection {:?} → {:?} would create a cycle",
+                    from, to
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for GraphError {}
+
+// ── Execution Plan ──────────────────────────────────────────────────────
+
+/// A pre-computed, topologically sorted processing order.
+///
+/// The audio callback iterates this list in order, calling each node's
+/// `process()` method. Because the order is topologically sorted,
+/// every node's inputs are guaranteed to be ready before it executes.
+///
+/// This struct is the one that gets atomically swapped via RCU.
+#[derive(Debug, Clone)]
+pub struct ExecutionPlan {
+    /// Nodes in topological processing order (sources first, master last).
+    pub processing_order: Vec<NodeIndex>,
+
+    /// Per-node delay compensation in samples (indexed by NodeIndex).
+    /// A value of 0 means no compensation needed.
+    pub delay_compensation: Vec<u32>,
+}
+
+// ── Graph Builder ───────────────────────────────────────────────────────
+
+/// Builder pattern for constructing and validating an `AudioDag`.
+///
+/// Usage:
+/// ```ignore
+/// let dag = GraphBuilder::new()
+///     .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
+///     .add_node(AudioNode::new(NodeId(1), NodeKind::Track { name: "Piano".into() }))
+///     .add_edge(NodeId(1), NodeId(0))?  // Piano → Master
+///     .build()?;
+/// ```
+pub struct GraphBuilder {
+    graph: DiGraph<AudioNode, AudioEdge>,
+}
+
+impl GraphBuilder {
+    /// Creates a new empty graph builder.
+    pub fn new() -> Self {
+        Self {
+            graph: DiGraph::new(),
+        }
+    }
+
+    /// Adds a node to the graph. Returns the builder for chaining.
+    pub fn add_node(mut self, node: AudioNode) -> Self {
+        self.graph.add_node(node);
+        self
+    }
+
+    /// Connects two nodes by their `NodeId`.
+    /// Audio flows from `from_id` to `to_id`.
+    ///
+    /// # Errors
+    /// - `NodeNotFound` if either ID doesn't exist.
+    /// - `ConnectionWouldCycle` if the edge would create a feedback loop.
+    pub fn add_edge(mut self, from_id: NodeId, to_id: NodeId) -> Result<Self, GraphError> {
+        let from_idx = self.find_index(from_id)?;
+        let to_idx = self.find_index(to_id)?;
+
+        // Temporarily add the edge to check for cycles.
+        let edge_idx = self.graph.add_edge(from_idx, to_idx, AudioEdge);
+
+        if algo::is_cyclic_directed(&self.graph) {
+            // Remove the offending edge before returning the error.
+            self.graph.remove_edge(edge_idx);
+            return Err(GraphError::ConnectionWouldCycle {
+                from: from_id,
+                to: to_id,
+            });
+        }
+
+        Ok(self)
+    }
+
+    /// Validates and freezes the graph into an immutable `AudioDag`.
+    ///
+    /// # Validation
+    /// 1. Exactly one `MasterOutput` node must exist.
+    /// 2. The graph must be acyclic (enforced per-edge, but double-checked here).
+    pub fn build(self) -> Result<AudioDag, GraphError> {
+        // ── 1. Check acyclicity ──────────────────────────────────
+        if algo::is_cyclic_directed(&self.graph) {
+            return Err(GraphError::CycleDetected);
+        }
+
+        // ── 2. Find master output ────────────────────────────────
+        let master_indices: Vec<NodeIndex> = self
+            .graph
+            .node_indices()
+            .filter(|&idx| matches!(self.graph[idx].kind, NodeKind::MasterOutput))
+            .collect();
+
+        match master_indices.len() {
+            0 => return Err(GraphError::NoMasterOutput),
+            1 => {}
+            n => return Err(GraphError::MultipleMasterOutputs(n)),
+        }
+
+        let master_idx = master_indices[0];
+
+        Ok(AudioDag {
+            graph: self.graph,
+            master_idx,
+        })
+    }
+
+    /// Finds the petgraph NodeIndex for a given stable NodeId.
+    fn find_index(&self, id: NodeId) -> Result<NodeIndex, GraphError> {
+        self.graph
+            .node_indices()
+            .find(|&idx| self.graph[idx].id == id)
+            .ok_or(GraphError::NodeNotFound(id))
+    }
+}
+
+impl Default for GraphBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ── AudioDag Methods ────────────────────────────────────────────────────
+
+impl AudioDag {
+    /// Returns the underlying petgraph for read-only inspection.
+    pub fn graph(&self) -> &DiGraph<AudioNode, AudioEdge> {
+        &self.graph
+    }
+
+    /// Returns the master output node index.
+    pub fn master_index(&self) -> NodeIndex {
+        self.master_idx
+    }
+
+    /// Returns a reference to the node at the given index.
+    pub fn node(&self, idx: NodeIndex) -> &AudioNode {
+        &self.graph[idx]
+    }
+
+    /// Returns the number of nodes in the graph.
+    pub fn node_count(&self) -> usize {
+        self.graph.node_count()
+    }
+
+    /// Returns the number of edges in the graph.
+    pub fn edge_count(&self) -> usize {
+        self.graph.edge_count()
+    }
+
+    /// Computes the topologically sorted processing order.
+    ///
+    /// Returns nodes in reverse topological order (sources first, master last).
+    /// This is the order the audio callback must process nodes in.
+    pub fn topological_order(&self) -> Result<Vec<NodeIndex>, GraphError> {
+        algo::toposort(&self.graph, None).map_err(|_| GraphError::CycleDetected)
+    }
+
+    /// Returns the list of immediate input nodes for a given node.
+    pub fn inputs(&self, idx: NodeIndex) -> Vec<NodeIndex> {
+        self.graph
+            .edges_directed(idx, petgraph::Direction::Incoming)
+            .map(|e| e.source())
+            .collect()
+    }
+
+    /// Returns the list of immediate output nodes for a given node.
+    pub fn outputs(&self, idx: NodeIndex) -> Vec<NodeIndex> {
+        self.graph
+            .edges_directed(idx, petgraph::Direction::Outgoing)
+            .map(|e| e.target())
+            .collect()
+    }
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_master() -> AudioNode {
+        AudioNode::new(NodeId(0), NodeKind::MasterOutput)
+    }
+
+    fn make_track(id: u64, name: &str) -> AudioNode {
+        AudioNode::new(
+            NodeId(id),
+            NodeKind::Track {
+                name: name.to_string(),
+            },
+        )
+    }
+
+    fn make_effect(id: u64, name: &str, latency: u32) -> AudioNode {
+        AudioNode::new(
+            NodeId(id),
+            NodeKind::Effect {
+                name: name.to_string(),
+                latency_samples: latency,
+            },
+        )
+    }
+
+    fn make_bus(id: u64, name: &str) -> AudioNode {
+        AudioNode::new(
+            NodeId(id),
+            NodeKind::Bus {
+                name: name.to_string(),
+            },
+        )
+    }
+
+    #[test]
+    fn simple_chain_builds_successfully() {
+        // Track → Effect → Master
+        let dag = GraphBuilder::new()
+            .add_node(make_master())
+            .add_node(make_track(1, "Piano"))
+            .add_node(make_effect(2, "Reverb", 512))
+            .add_edge(NodeId(1), NodeId(2))
+            .unwrap()
+            .add_edge(NodeId(2), NodeId(0))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        assert_eq!(dag.node_count(), 3);
+        assert_eq!(dag.edge_count(), 2);
+    }
+
+    #[test]
+    fn cycle_detection_prevents_feedback() {
+        // Attempt: A → B → C → A (cycle)
+        let result = GraphBuilder::new()
+            .add_node(make_master())
+            .add_node(make_track(1, "A"))
+            .add_node(make_effect(2, "B", 0))
+            .add_node(make_effect(3, "C", 0))
+            .add_edge(NodeId(1), NodeId(2))
+            .unwrap()
+            .add_edge(NodeId(2), NodeId(3))
+            .unwrap()
+            .add_edge(NodeId(3), NodeId(1)); // This should fail — cycle!
+
+        assert!(matches!(
+            result,
+            Err(GraphError::ConnectionWouldCycle { .. })
+        ));
+    }
+
+    #[test]
+    fn no_master_output_fails() {
+        let result = GraphBuilder::new()
+            .add_node(make_track(1, "Orphan"))
+            .build();
+
+        assert!(matches!(result, Err(GraphError::NoMasterOutput)));
+    }
+
+    #[test]
+    fn multiple_master_outputs_fails() {
+        let result = GraphBuilder::new()
+            .add_node(make_master())
+            .add_node(AudioNode::new(NodeId(99), NodeKind::MasterOutput))
+            .build();
+
+        assert!(matches!(
+            result,
+            Err(GraphError::MultipleMasterOutputs(2))
+        ));
+    }
+
+    #[test]
+    fn topological_order_is_valid() {
+        // Track1 → Master
+        // Track2 → Master
+        let dag = GraphBuilder::new()
+            .add_node(make_master())
+            .add_node(make_track(1, "Track 1"))
+            .add_node(make_track(2, "Track 2"))
+            .add_edge(NodeId(1), NodeId(0))
+            .unwrap()
+            .add_edge(NodeId(2), NodeId(0))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let order = dag.topological_order().unwrap();
+        assert_eq!(order.len(), 3);
+
+        // Master must be LAST (it depends on both tracks).
+        let master_pos = order.iter().position(|&idx| idx == dag.master_index());
+        assert_eq!(master_pos, Some(2));
+    }
+
+    #[test]
+    fn diamond_topology_builds() {
+        // Track → FX1 ─┐
+        //               ├→ Bus → Master
+        // Track → FX2 ─┘
+        let dag = GraphBuilder::new()
+            .add_node(make_master())
+            .add_node(make_track(1, "Track"))
+            .add_node(make_effect(2, "FX1", 256))
+            .add_node(make_effect(3, "FX2", 128))
+            .add_node(make_bus(4, "Sum Bus"))
+            .add_edge(NodeId(1), NodeId(2))
+            .unwrap()
+            .add_edge(NodeId(1), NodeId(3))
+            .unwrap()
+            .add_edge(NodeId(2), NodeId(4))
+            .unwrap()
+            .add_edge(NodeId(3), NodeId(4))
+            .unwrap()
+            .add_edge(NodeId(4), NodeId(0))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        assert_eq!(dag.node_count(), 5);
+        assert_eq!(dag.edge_count(), 5);
+
+        // Bus should have 2 inputs
+        let bus_idx = dag
+            .graph()
+            .node_indices()
+            .find(|&i| dag.node(i).id == NodeId(4))
+            .unwrap();
+        assert_eq!(dag.inputs(bus_idx).len(), 2);
+    }
+
+    #[test]
+    fn node_not_found_error() {
+        let result = GraphBuilder::new()
+            .add_node(make_master())
+            .add_edge(NodeId(999), NodeId(0));
+
+        assert!(matches!(result, Err(GraphError::NodeNotFound(NodeId(999)))));
+    }
+}

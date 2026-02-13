@@ -99,6 +99,8 @@ public final class BrowserSidebarView: NSView {
 
     private let resultsContainer = BrowserFlippedView()
     private let resultsToolbar = NSView()
+    private let filtersScrollView = NSScrollView()
+    private let filtersContentView = BrowserFlippedView()
     private let typeFilterButton = NSPopUpButton(frame: .zero, pullsDown: false)
     private let sourceFilterButton = NSPopUpButton(frame: .zero, pullsDown: false)
     private let formatFilterButton = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -220,6 +222,8 @@ public final class BrowserSidebarView: NSView {
 
         splitView.isVertical = true
         splitView.dividerStyle = .thin
+        splitView.wantsLayer = true
+        splitView.layer?.backgroundColor = DreamTheme.bgBrowser.cgColor
         splitView.delegate = self
         splitView.addArrangedSubview(categoriesScrollView)
         splitView.addArrangedSubview(resultsContainer)
@@ -248,6 +252,8 @@ public final class BrowserSidebarView: NSView {
         categoriesTableView.dataSource = self
 
         categoriesScrollView.drawsBackground = false
+        categoriesScrollView.wantsLayer = true
+        categoriesScrollView.layer?.backgroundColor = DreamTheme.bgBrowser.cgColor
         categoriesScrollView.hasVerticalScroller = true
         categoriesScrollView.hasHorizontalScroller = false
         categoriesScrollView.scrollerStyle = .overlay
@@ -258,62 +264,75 @@ public final class BrowserSidebarView: NSView {
     private func setupResultsPane() {
         resultsContainer.wantsLayer = true
         resultsContainer.layer?.backgroundColor = DreamTheme.bgBrowser.cgColor
+        resultsContainer.layer?.masksToBounds = true
 
         resultsToolbar.wantsLayer = true
         resultsToolbar.layer?.backgroundColor = DreamTheme.bgHeader.cgColor
         resultsToolbar.layer?.borderColor = DreamTheme.divider.cgColor
         resultsToolbar.layer?.borderWidth = 1
+        resultsToolbar.layer?.masksToBounds = true
         resultsContainer.addSubview(resultsToolbar)
+
+        filtersScrollView.drawsBackground = false
+        filtersScrollView.hasVerticalScroller = true
+        filtersScrollView.hasHorizontalScroller = false
+        filtersScrollView.scrollerStyle = .overlay
+        filtersScrollView.autohidesScrollers = true
+        filtersScrollView.documentView = filtersContentView
+        resultsToolbar.addSubview(filtersScrollView)
+
+        filtersContentView.wantsLayer = true
+        filtersContentView.layer?.backgroundColor = DreamTheme.bgHeader.cgColor
 
         typeFilterButton.addItems(withTitles: ResultTypeFilter.allCases.map { $0.rawValue })
         typeFilterButton.controlSize = .small
         typeFilterButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         typeFilterButton.target = self
         typeFilterButton.action = #selector(typeFilterChanged)
-        resultsToolbar.addSubview(typeFilterButton)
+        filtersContentView.addSubview(typeFilterButton)
 
         sourceFilterButton.addItems(withTitles: SourceFilter.allCases.map { $0.rawValue })
         sourceFilterButton.controlSize = .small
         sourceFilterButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         sourceFilterButton.target = self
         sourceFilterButton.action = #selector(sourceFilterChanged)
-        resultsToolbar.addSubview(sourceFilterButton)
+        filtersContentView.addSubview(sourceFilterButton)
 
         formatFilterButton.addItems(withTitles: FormatFilter.allCases.map { $0.rawValue })
         formatFilterButton.controlSize = .small
         formatFilterButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         formatFilterButton.target = self
         formatFilterButton.action = #selector(formatFilterChanged)
-        resultsToolbar.addSubview(formatFilterButton)
+        filtersContentView.addSubview(formatFilterButton)
 
         audioRoleFilterButton.addItems(withTitles: AudioRoleFilter.allCases.map { $0.rawValue })
         audioRoleFilterButton.controlSize = .small
         audioRoleFilterButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         audioRoleFilterButton.target = self
         audioRoleFilterButton.action = #selector(audioRoleFilterChanged)
-        resultsToolbar.addSubview(audioRoleFilterButton)
+        filtersContentView.addSubview(audioRoleFilterButton)
 
         favoritesOnlyButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         favoritesOnlyButton.target = self
         favoritesOnlyButton.action = #selector(favoritesOnlyChanged)
-        resultsToolbar.addSubview(favoritesOnlyButton)
+        filtersContentView.addSubview(favoritesOnlyButton)
 
         sortOrderButton.bezelStyle = .rounded
         sortOrderButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         sortOrderButton.target = self
         sortOrderButton.action = #selector(toggleSortOrder)
-        resultsToolbar.addSubview(sortOrderButton)
+        filtersContentView.addSubview(sortOrderButton)
 
         clearFiltersButton.bezelStyle = .rounded
         clearFiltersButton.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         clearFiltersButton.target = self
         clearFiltersButton.action = #selector(resetFilters)
-        resultsToolbar.addSubview(clearFiltersButton)
+        filtersContentView.addSubview(clearFiltersButton)
 
         resultCountLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
         resultCountLabel.textColor = DreamTheme.textSecondary
         resultCountLabel.alignment = .right
-        resultsToolbar.addSubview(resultCountLabel)
+        filtersContentView.addSubview(resultCountLabel)
 
         resultsTableView.headerView = nil
         resultsTableView.rowHeight = 21
@@ -330,6 +349,8 @@ public final class BrowserSidebarView: NSView {
         resultsTableView.setDraggingSourceOperationMask([.copy, .link], forLocal: true)
 
         resultsScrollView.drawsBackground = false
+        resultsScrollView.wantsLayer = true
+        resultsScrollView.layer?.backgroundColor = DreamTheme.bgBrowser.cgColor
         resultsScrollView.hasVerticalScroller = true
         resultsScrollView.hasHorizontalScroller = false
         resultsScrollView.scrollerStyle = .overlay
@@ -338,9 +359,10 @@ public final class BrowserSidebarView: NSView {
         resultsContainer.addSubview(resultsScrollView)
 
         previewContainer.wantsLayer = true
-        previewContainer.layer?.backgroundColor = DreamTheme.bgHeader.cgColor
+        previewContainer.layer?.backgroundColor = DreamTheme.bgBrowser.cgColor
         previewContainer.layer?.borderColor = DreamTheme.divider.cgColor
         previewContainer.layer?.borderWidth = 1
+        previewContainer.layer?.masksToBounds = true
         resultsContainer.addSubview(previewContainer)
 
         previewToggleButton.title = ""
@@ -355,6 +377,7 @@ public final class BrowserSidebarView: NSView {
         previewWaveformView.wantsLayer = true
         previewWaveformView.layer?.cornerRadius = 3
         previewWaveformView.layer?.masksToBounds = true
+        previewWaveformView.layer?.backgroundColor = DreamTheme.bgSecondary.cgColor
         previewContainer.addSubview(previewWaveformView)
 
         previewStatusLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium)
@@ -390,42 +413,12 @@ public final class BrowserSidebarView: NSView {
             }
         }
 
-        let toolbarHeight: CGFloat = 56
+        let toolbarHeight: CGFloat = 76
         let previewHeight: CGFloat = 48
         resultsToolbar.frame = CGRect(x: 0, y: 0, width: resultsContainer.bounds.width, height: toolbarHeight)
-
-        let rowPadding: CGFloat = 8
-        let gap: CGFloat = 6
-        let rowHeight: CGFloat = 22
-        let availableWidth = max(240, resultsToolbar.bounds.width - (rowPadding * 2))
-        let firstColumnW = min(112, max(78, floor((availableWidth - gap * 3) * 0.26)))
-        let secondColumnW = min(118, max(78, floor((availableWidth - gap * 3) * 0.26)))
-        let thirdColumnW = min(102, max(70, floor((availableWidth - gap * 3) * 0.22)))
-        let fourthColumnW = max(70, availableWidth - firstColumnW - secondColumnW - thirdColumnW - gap * 3)
-
-        typeFilterButton.frame = CGRect(x: rowPadding, y: 4, width: firstColumnW, height: rowHeight)
-        sourceFilterButton.frame = CGRect(x: typeFilterButton.frame.maxX + gap, y: 4, width: secondColumnW, height: rowHeight)
-        formatFilterButton.frame = CGRect(x: sourceFilterButton.frame.maxX + gap, y: 4, width: thirdColumnW, height: rowHeight)
-        audioRoleFilterButton.frame = CGRect(x: formatFilterButton.frame.maxX + gap, y: 4, width: fourthColumnW, height: rowHeight)
-
-        let secondRowY: CGFloat = 30
-        let countWidth: CGFloat = 84
-        let sortWidth: CGFloat = 88
-        let resetWidth: CGFloat = 70
-        sortOrderButton.frame = CGRect(x: rowPadding, y: secondRowY, width: sortWidth, height: rowHeight)
-        clearFiltersButton.frame = CGRect(x: sortOrderButton.frame.maxX + gap, y: secondRowY, width: resetWidth, height: rowHeight)
-        favoritesOnlyButton.frame = CGRect(
-            x: clearFiltersButton.frame.maxX + gap,
-            y: secondRowY + 2,
-            width: max(84, resultsToolbar.bounds.width - (clearFiltersButton.frame.maxX + gap + countWidth + rowPadding)),
-            height: 18
-        )
-        resultCountLabel.frame = CGRect(
-            x: resultsToolbar.bounds.width - rowPadding - countWidth,
-            y: secondRowY + 3,
-            width: countWidth,
-            height: 16
-        )
+        filtersScrollView.frame = CGRect(x: 0, y: 0, width: resultsToolbar.bounds.width, height: toolbarHeight)
+        let filtersHeight = layoutFiltersContent(width: filtersScrollView.bounds.width)
+        filtersContentView.frame = CGRect(x: 0, y: 0, width: filtersScrollView.bounds.width, height: filtersHeight)
 
         previewContainer.frame = CGRect(
             x: 0,
@@ -433,18 +426,29 @@ public final class BrowserSidebarView: NSView {
             width: resultsContainer.bounds.width,
             height: previewHeight
         )
-        previewToggleButton.frame = CGRect(x: 8, y: 13, width: 22, height: 22)
+        let previewPad: CGFloat = 8
+        let toggleW: CGFloat = 22
+        previewToggleButton.frame = CGRect(x: previewPad, y: 13, width: toggleW, height: 22)
+        let showStatus = previewContainer.bounds.width >= 240
+        let statusW: CGFloat = showStatus ? 72 : 0
+        if showStatus {
+            previewStatusLabel.isHidden = false
+            previewStatusLabel.frame = CGRect(
+                x: previewContainer.bounds.width - previewPad - statusW,
+                y: 16,
+                width: statusW,
+                height: 16
+            )
+        } else {
+            previewStatusLabel.isHidden = true
+        }
+        let waveformX = previewToggleButton.frame.maxX + 6
+        let waveformRightInset = previewPad + (showStatus ? statusW + 6 : 0)
         previewWaveformView.frame = CGRect(
-            x: 36,
+            x: waveformX,
             y: 10,
-            width: max(120, previewContainer.bounds.width - 124),
+            width: max(64, previewContainer.bounds.width - waveformX - waveformRightInset),
             height: 28
-        )
-        previewStatusLabel.frame = CGRect(
-            x: previewContainer.bounds.width - 82,
-            y: 16,
-            width: 72,
-            height: 16
         )
 
         resultsScrollView.frame = CGRect(
@@ -1093,6 +1097,43 @@ public final class BrowserSidebarView: NSView {
         buildCategories()
         persistCategoryOrder()
         rebuildData()
+    }
+
+    private func layoutFiltersContent(width: CGFloat) -> CGFloat {
+        let controls: [(NSView, CGFloat)] = [
+            (typeFilterButton, 96),
+            (sourceFilterButton, 116),
+            (formatFilterButton, 92),
+            (audioRoleFilterButton, 100),
+            (sortOrderButton, 84),
+            (clearFiltersButton, 64),
+            (favoritesOnlyButton, 96),
+            (resultCountLabel, 52)
+        ]
+        let padX: CGFloat = 8
+        let padY: CGFloat = 6
+        let gapX: CGFloat = 6
+        let gapY: CGFloat = 6
+        let rowHeight: CGFloat = 22
+        let lineHeight: CGFloat = 22
+        let usableWidth = max(80, width - (padX * 2))
+
+        var x = padX
+        var y = padY
+
+        for (view, preferredWidth) in controls {
+            let fitW = max(preferredWidth, view.fittingSize.width + 6)
+            let w = min(max(56, fitW), usableWidth)
+            if x > padX && (x + w > width - padX) {
+                x = padX
+                y += lineHeight + gapY
+            }
+            let h = (view === favoritesOnlyButton) ? 18 : rowHeight
+            let yOffset = (view === favoritesOnlyButton) ? 2 : 0
+            view.frame = CGRect(x: x, y: y + yOffset, width: w, height: h)
+            x += w + gapX
+        }
+        return y + lineHeight + padY
     }
 
     private func removePinnedFolder(_ path: String) {

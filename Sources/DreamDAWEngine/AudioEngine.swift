@@ -20,6 +20,14 @@ public final class AudioEngine: @unchecked Sendable {
     /// Master output mixer node.
     public let masterMixer: AVAudioMixerNode
 
+    /// Test tone generator node.
+    private var testToneNode: AVAudioSourceNode?
+    private var testTonePhase: Float = 0
+    
+    /// CPU Usage Simulator thread.
+    private var cpuLoadThread: Thread?
+    private var isCpuLoadThreadRunning = false
+
     /// The engine's output audio format.
     public var outputFormat: AVAudioFormat {
         engine.outputNode.outputFormat(forBus: 0)
@@ -42,7 +50,39 @@ public final class AudioEngine: @unchecked Sendable {
         self.masterMixer = AVAudioMixerNode()
         setupGraph()
         setupObservers()
+        setupTestTone()
         logger.info("AudioEngine initialized")
+    }
+
+    private func setupTestTone() {
+        testToneNode = AVAudioSourceNode { [weak self] (_, _, frameCount, audioBufferList) -> OSStatus in
+            guard let self = self, AppSettings.shared.testToneEnabled else { return noErr }
+            
+            let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            let phaseStep = Float(AppSettings.shared.testToneFrequency) / Float(self.sampleRate) * .pi * 2.0
+            let amplitude = pow(10.0, Float(AppSettings.shared.testToneVolume) / 20.0)
+            
+            for frame in 0..<Int(frameCount) {
+                let val = sin(self.testTonePhase) * amplitude
+                self.testTonePhase += phaseStep
+                if self.testTonePhase > .pi * 2.0 {
+                    self.testTonePhase -= .pi * 2.0
+                }
+                
+                for buffer in ablPointer {
+                    if let ptr = buffer.mData?.assumingMemoryBound(to: Float.self) {
+                        ptr[frame] = val
+                    }
+                }
+            }
+            return noErr
+        }
+        
+        if let node = testToneNode {
+            engine.attach(node)
+            // Connect to master mixer
+            engine.connect(node, to: masterMixer, format: nil)
+        }
     }
 
     private func setupGraph() {
@@ -106,6 +146,7 @@ public final class AudioEngine: @unchecked Sendable {
         do {
             try engine.start()
             isRunning = true
+            startCpuSimulator()
             logger.info("AudioEngine: STARTED successfully — sample rate: \(self.sampleRate) Hz")
         } catch {
             logger.error("AudioEngine: FAILED to start: \(error.localizedDescription)")
@@ -122,6 +163,7 @@ public final class AudioEngine: @unchecked Sendable {
 
         engine.stop()
         isRunning = false
+        stopCpuSimulator()
         logger.info("AudioEngine stopped")
     }
 
@@ -173,6 +215,44 @@ public final class AudioEngine: @unchecked Sendable {
         os_unfair_lock_lock(&lock)
         defer { os_unfair_lock_unlock(&lock) }
         engine.disconnectNodeOutput(node)
+    }
+
+    // MARK: - Performance Simulation
+
+    private func startCpuSimulator() {
+        guard !isCpuLoadThreadRunning else { return }
+        isCpuLoadThreadRunning = true
+        
+        cpuLoadThread = Thread { [weak self] in
+            while let self = self, self.isCpuLoadThreadRunning {
+                let load = AppSettings.shared.cpuUsageSimulator // 0-100
+                if load > 0 {
+                    let totalMs: Double = 10.0
+                    let loadMs = totalMs * (Double(load) / 100.0)
+                    let idleMs = totalMs - loadMs
+                    
+                    let startTime = CACurrentMediaTime()
+                    while (CACurrentMediaTime() - startTime) < (loadMs / 1000.0) {
+                        // Busy wait to simulate CPU load
+                        _ = sqrt(Double.random(in: 0...1000000))
+                    }
+                    
+                    if idleMs > 0 {
+                        Thread.sleep(forTimeInterval: idleMs / 1000.0)
+                    }
+                } else {
+                    Thread.sleep(forTimeInterval: 0.1)
+                }
+            }
+        }
+        cpuLoadThread?.name = "com.dreamdaw.cpu-simulator"
+        cpuLoadThread?.qualityOfService = .userInitiated
+        cpuLoadThread?.start()
+    }
+
+    private func stopCpuSimulator() {
+        isCpuLoadThreadRunning = false
+        cpuLoadThread = nil
     }
 
     /// Access the underlying AVAudioEngine (use with caution).

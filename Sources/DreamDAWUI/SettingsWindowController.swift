@@ -222,9 +222,11 @@ struct AppearanceSettingsView: View {
 
 struct AudioSettingsView: View {
     @ObservedObject var settings: AppSettings
+    @State private var inputDevices: [(name: String, uid: String)] = []
     @State private var outputDevices: [(name: String, uid: String)] = []
-    @State private var selectedDeviceUID: String = ""
-    @State private var currentSampleRate: Double = 44100.0
+    @State private var selectedInputUID: String = ""
+    @State private var selectedOutputUID: String = ""
+    @State private var currentSampleRate: Double = 48000.0
     @State private var currentBufferSize: Int = 512
     
     var body: some View {
@@ -233,18 +235,41 @@ struct AudioSettingsView: View {
                 HStack {
                     Text("Driver Type")
                     Spacer()
-                    Text("CoreAudio")
-                        .foregroundStyle(.secondary)
+                    Picker("", selection: .constant("CoreAudio")) {
+                        Text("CoreAudio").tag("CoreAudio")
+                    }
+                    .labelsHidden()
+                    .frame(width: 150)
                 }
                 
-                Picker("Audio Output Device", selection: $selectedDeviceUID) {
+                Picker("Audio Input Device", selection: $selectedInputUID) {
+                    Text("No Device").tag("")
+                    ForEach(inputDevices, id: \.uid) { device in
+                        Text(device.name).tag(device.uid)
+                    }
+                }
+                .onChange(of: selectedInputUID) { newUID in
+                    settings.audioInputDeviceUID = newUID.isEmpty ? nil : newUID
+                }
+                
+                Picker("Audio Output Device", selection: $selectedOutputUID) {
                     ForEach(outputDevices, id: \.uid) { device in
                         Text(device.name).tag(device.uid)
                     }
                 }
-                .pickerStyle(.menu)
-                .onChange(of: selectedDeviceUID) { newUID in
+                .onChange(of: selectedOutputUID) { newUID in
                     settings.audioOutputDeviceUID = newUID
+                }
+                
+                HStack {
+                    Text("Channel Configuration")
+                    Spacer()
+                    HStack(spacing: 8) {
+                        Button("Input Config") {}
+                            .buttonStyle(.bordered)
+                        Button("Output Config") {}
+                            .buttonStyle(.bordered)
+                    }
                 }
             } header: {
                 Text("Audio Device")
@@ -252,43 +277,61 @@ struct AudioSettingsView: View {
             
             Section {
                 HStack {
-                    Text("Sample Rate")
+                    Text("In/Out Sample Rate")
                     Spacer()
                     Picker("", selection: $settings.audioSampleRate) {
                         ForEach([44100.0, 48000.0, 88200.0, 96000.0], id: \.self) { rate in
-                            Text("\(Int(rate)) Hz").tag(rate)
+                            Text("\(Int(rate))").tag(rate)
                         }
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
                     .frame(width: 100)
                     .onChange(of: settings.audioSampleRate) { newRate in
-                        AudioDeviceEnumerator.setSampleRateForDevice(uid: selectedDeviceUID, rate: newRate)
+                        AudioDeviceEnumerator.setSampleRateForDevice(uid: selectedOutputUID, rate: newRate)
                         currentSampleRate = newRate
                     }
                 }
                 
                 HStack {
+                    Text("Default SR & Pitch Conversion")
+                    Spacer()
+                    Toggle(isOn: $settings.srPitchConversionHighQuality) {
+                        Text(settings.srPitchConversionHighQuality ? "High Quality" : "Normal")
+                    }
+                    .toggleStyle(.button)
+                    .tint(Color(nsColor: NSColor(red: 1.0, green: 0.6, blue: 0.2, alpha: 1.0)))
+                }
+            } header: {
+                Text("Sample Rate")
+            }
+            
+            Section {
+                HStack {
                     Text("Buffer Size")
                     Spacer()
                     Picker("", selection: $settings.audioBufferSize) {
                         ForEach([64, 128, 256, 512, 1024, 2048], id: \.self) { size in
-                            Text("\(size)").tag(size)
+                            Text("\(size) Samples").tag(size)
                         }
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
-                    .frame(width: 100)
+                    .frame(width: 120)
                     .onChange(of: settings.audioBufferSize) { newSize in
-                        AudioDeviceEnumerator.setBufferSizeForDevice(uid: selectedDeviceUID, size: UInt32(newSize))
+                        AudioDeviceEnumerator.setBufferSizeForDevice(uid: selectedOutputUID, size: UInt32(newSize))
                         currentBufferSize = newSize
                     }
                 }
                 
+                let inputMs = Double(currentBufferSize) / currentSampleRate * 1000.0
+                let outputMs = Double(currentBufferSize) / currentSampleRate * 1000.0
+                let compensation = settings.driverErrorCompensation
+                let overall = inputMs + outputMs + compensation
+                
                 HStack {
                     Text("Input Latency")
                     Spacer()
-                    let inputMs = Double(currentBufferSize) / currentSampleRate * 1000.0
                     Text(String(format: "%.1f ms", inputMs))
                         .foregroundStyle(.secondary)
                 }
@@ -296,12 +339,104 @@ struct AudioSettingsView: View {
                 HStack {
                     Text("Output Latency")
                     Spacer()
-                    let outputMs = Double(currentBufferSize) / currentSampleRate * 1000.0
                     Text(String(format: "%.1f ms", outputMs))
+                        .foregroundStyle(.secondary)
+                }
+                
+                HStack {
+                    Text("Driver Error Compensation")
+                    Spacer()
+                    HStack(spacing: 0) {
+                        TextField("", value: $settings.driverErrorCompensation, format: .number)
+                            .textFieldStyle(.plain)
+                            .multilineTextAlignment(.center)
+                            .frame(width: 60)
+                            .background(Color(white: 0.2))
+                        Text("ms")
+                            .font(.caption)
+                            .padding(.horizontal, 4)
+                            .background(Color(nsColor: NSColor(red: 1.0, green: 0.6, blue: 0.2, alpha: 1.0)))
+                            .foregroundColor(.black)
+                    }
+                    .cornerRadius(2)
+                }
+                
+                HStack {
+                    Text("Overall Latency")
+                    Spacer()
+                    Text(String(format: "%.1f ms", overall))
                         .foregroundStyle(.secondary)
                 }
             } header: {
                 Text("Latency")
+            }
+            
+            Section {
+                HStack {
+                    Text("Test Tone")
+                    Spacer()
+                    Toggle(isOn: $settings.testToneEnabled) {
+                        Text(settings.testToneEnabled ? "On" : "Off")
+                    }
+                    .toggleStyle(.button)
+                    .tint(settings.testToneEnabled ? .cyan : .gray)
+                }
+                
+                HStack {
+                    Text("Tone Volume")
+                    Spacer()
+                    HStack(spacing: 0) {
+                        TextField("", value: $settings.testToneVolume, format: .number)
+                            .textFieldStyle(.plain)
+                            .multilineTextAlignment(.center)
+                            .frame(width: 60)
+                            .background(Color(white: 0.2))
+                        Text("dB")
+                            .font(.caption)
+                            .padding(.horizontal, 4)
+                            .background(Color.cyan.opacity(0.8))
+                            .foregroundColor(.black)
+                    }
+                    .cornerRadius(2)
+                }
+                
+                HStack {
+                    Text("Tone Frequency")
+                    Spacer()
+                    HStack(spacing: 0) {
+                        TextField("", value: $settings.testToneFrequency, format: .number)
+                            .textFieldStyle(.plain)
+                            .multilineTextAlignment(.center)
+                            .frame(width: 60)
+                            .background(Color(white: 0.2))
+                        Text("Hz")
+                            .font(.caption)
+                            .padding(.horizontal, 4)
+                            .background(Color.cyan.opacity(0.8))
+                            .foregroundColor(.black)
+                    }
+                    .cornerRadius(2)
+                }
+                
+                HStack {
+                    Text("CPU Usage Simulator")
+                    Spacer()
+                    HStack(spacing: 0) {
+                        TextField("", value: $settings.cpuUsageSimulator, format: .number)
+                            .textFieldStyle(.plain)
+                            .multilineTextAlignment(.center)
+                            .frame(width: 60)
+                            .background(Color(white: 0.2))
+                        Text("%")
+                            .font(.caption)
+                            .padding(.horizontal, 4)
+                            .background(Color.cyan.opacity(0.8))
+                            .foregroundColor(.black)
+                    }
+                    .cornerRadius(2)
+                }
+            } header: {
+                Text("Test")
             }
         }
         .formStyle(.grouped)
@@ -311,25 +446,31 @@ struct AudioSettingsView: View {
     }
     
     private func loadAudioDevices() {
+        inputDevices = AudioDeviceEnumerator.listInputDevices()
         outputDevices = AudioDeviceEnumerator.listOutputDevices()
         
         // Select currently saved or default device
         if let savedUID = settings.audioOutputDeviceUID,
            outputDevices.contains(where: { $0.uid == savedUID }) {
-            selectedDeviceUID = savedUID
+            selectedOutputUID = savedUID
         } else if let defaultUID = AudioDeviceEnumerator.defaultOutputDeviceUID() {
-            selectedDeviceUID = defaultUID
+            selectedOutputUID = defaultUID
+        }
+        
+        if let savedInputUID = settings.audioInputDeviceUID,
+           inputDevices.contains(where: { $0.uid == savedInputUID }) {
+            selectedInputUID = savedInputUID
         }
         
         // Load current sample rate
-        currentSampleRate = AudioDeviceEnumerator.sampleRateForDevice(uid: selectedDeviceUID) ?? 44100.0
+        currentSampleRate = AudioDeviceEnumerator.sampleRateForDevice(uid: selectedOutputUID) ?? 48000.0
         
-        if !selectedDeviceUID.isEmpty {
-            AudioDeviceEnumerator.setSampleRateForDevice(uid: selectedDeviceUID, rate: settings.audioSampleRate)
-            AudioDeviceEnumerator.setBufferSizeForDevice(uid: selectedDeviceUID, size: UInt32(settings.audioBufferSize))
+        if !selectedOutputUID.isEmpty {
+            AudioDeviceEnumerator.setSampleRateForDevice(uid: selectedOutputUID, rate: settings.audioSampleRate)
+            AudioDeviceEnumerator.setBufferSizeForDevice(uid: selectedOutputUID, size: UInt32(settings.audioBufferSize))
         }
         
-        currentBufferSize = AudioDeviceEnumerator.bufferSizeForDevice(uid: selectedDeviceUID) ?? 512
+        currentBufferSize = AudioDeviceEnumerator.bufferSizeForDevice(uid: selectedOutputUID) ?? 512
     }
 }
 

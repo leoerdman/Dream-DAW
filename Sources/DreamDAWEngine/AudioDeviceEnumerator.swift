@@ -4,6 +4,122 @@ import CoreAudio
 /// Enumerates CoreAudio output devices on macOS.
 public enum AudioDeviceEnumerator {
     
+    /// List all available input audio devices.
+    public static func listInputDevices() -> [(name: String, uid: String)] {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        var dataSize: UInt32 = 0
+        var status = AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0, nil,
+            &dataSize
+        )
+        guard status == noErr else { return [] }
+        
+        let deviceCount = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
+        var deviceIDs = [AudioDeviceID](repeating: 0, count: deviceCount)
+        
+        status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0, nil,
+            &dataSize,
+            &deviceIDs
+        )
+        guard status == noErr else { return [] }
+        
+        var devices: [(name: String, uid: String)] = []
+        
+        for deviceID in deviceIDs {
+            // Check if device has input channels
+            var inputAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyStreamConfiguration,
+                mScope: kAudioObjectPropertyScopeInput,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            
+            var inputSize: UInt32 = 0
+            status = AudioObjectGetPropertyDataSize(deviceID, &inputAddress, 0, nil, &inputSize)
+            guard status == noErr, inputSize > 0 else { continue }
+            
+            let bufferListPtr = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: 1)
+            defer { bufferListPtr.deallocate() }
+            
+            status = AudioObjectGetPropertyData(deviceID, &inputAddress, 0, nil, &inputSize, bufferListPtr)
+            guard status == noErr else { continue }
+            
+            let bufferList = UnsafePointer(bufferListPtr).pointee
+            let inputChannels = bufferList.mBuffers.mNumberChannels
+            guard inputChannels > 0 else { continue }
+            
+            // Get device name
+            var nameAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyDeviceNameCFString,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            
+            var nameRef: CFString = "" as CFString
+            var nameSize = UInt32(MemoryLayout<CFString>.size)
+            status = AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &nameRef)
+            let name = status == noErr ? nameRef as String : "Unknown Device"
+            
+            // Get device UID
+            var uidAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyDeviceUID,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            
+            var uidRef: CFString = "" as CFString
+            var uidSize = UInt32(MemoryLayout<CFString>.size)
+            status = AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, &uidRef)
+            let uid = status == noErr ? uidRef as String : ""
+            
+            if !uid.isEmpty {
+                // Get input channel count
+                var inChannelCount: UInt32 = 0
+                let audioBuffers = UnsafeMutableAudioBufferListPointer(bufferListPtr)
+                for buf in audioBuffers {
+                    inChannelCount += buf.mNumberChannels
+                }
+                
+                // Also get output channel count for the same device to show "N In, M Out"
+                var outputAddress = AudioObjectPropertyAddress(
+                    mSelector: kAudioDevicePropertyStreamConfiguration,
+                    mScope: kAudioObjectPropertyScopeOutput,
+                    mElement: kAudioObjectPropertyElementMain
+                )
+                var outChannelCount: UInt32 = 0
+                var outputSize: UInt32 = 0
+                status = AudioObjectGetPropertyDataSize(deviceID, &outputAddress, 0, nil, &outputSize)
+                if status == noErr && outputSize > 0 {
+                    let outBufferListPtr = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: 1)
+                    defer { outBufferListPtr.deallocate() }
+                    status = AudioObjectGetPropertyData(deviceID, &outputAddress, 0, nil, &outputSize, outBufferListPtr)
+                    if status == noErr {
+                        let outAudioBuffers = UnsafeMutableAudioBufferListPointer(outBufferListPtr)
+                        for buf in outAudioBuffers {
+                            outChannelCount += buf.mNumberChannels
+                        }
+                    }
+                }
+
+                devices.append((
+                    name: "\(name) (\(inChannelCount) In, \(outChannelCount) Out)",
+                    uid: uid
+                ))
+            }
+        }
+        
+        return devices
+    }
+
     /// List all available output audio devices.
     public static func listOutputDevices() -> [(name: String, uid: String)] {
         var propertyAddress = AudioObjectPropertyAddress(

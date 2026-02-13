@@ -108,16 +108,17 @@ public final class PlaybackScheduler {
     ) -> AVAudioTime {
         let sampleRate = audioEngine.sampleRate
         let bpm = project.bpm
-        var baseStartTime: AVAudioTime?
-
-        // Reset observer timing context before every fresh schedule.
+        
+        // PHASE 11 (Gating Logic Reset): Ensure fresh timing reference
         teardownRenderObserver()
         playbackStartSampleTime = 0
         
         // 1. Prepare base start time (common for all nodes for sync)
+        // CRITICAL: We correlate hostTime and sampleTime: 0 here so all player nodes
+        // anchored to this time start exactly at their first scheduled segment.
         let delay: Double = 0.1 // 100ms lead time for hardware setup
         let startHostTime = mach_absolute_time() + secondsToTicks(delay, timebaseInfo: &timebaseInfo)
-        baseStartTime = AVAudioTime(hostTime: startHostTime)
+        let baseStartTime = AVAudioTime(hostTime: startHostTime, sampleTime: 0, atRate: sampleRate)
 
         for track in project.tracks {
             guard track.trackType != .master else { continue }
@@ -133,8 +134,8 @@ public final class PlaybackScheduler {
             // 3. Schedule Segment (Playhead to End or Loop End)
             if !looping || position.beats >= loopEnd.beats {
                 // Standard Playback: Schedule until end of project
-                _ = scheduleTrackRange(track: track, player: player, start: position, end: TimePosition(beats: actualEnd), bpm: bpm, sampleRate: sampleRate, baseStartTime: baseStartTime!)
-                hasContent = true 
+                let scheduledCount = scheduleTrackRange(track: track, player: player, start: position, end: TimePosition(beats: actualEnd), bpm: bpm, sampleRate: sampleRate, baseStartTime: baseStartTime)
+                if scheduledCount > 0 { hasContent = true }
             } else {
                 // Looping Playback
                 // First: schedule from playhead to loop end
@@ -145,14 +146,17 @@ public final class PlaybackScheduler {
                    let rangeStart = TimePosition(beats: actualStart)
                    let rangeEnd = TimePosition(beats: actualEnd)
                    
-                   _ = scheduleTrackRange(track: track, player: player, start: rangeStart, end: rangeEnd, bpm: bpm, sampleRate: sampleRate, baseStartTime: baseStartTime!)
-                   hasContent = true
+                   let scheduledCount = scheduleTrackRange(track: track, player: player, start: rangeStart, end: rangeEnd, bpm: bpm, sampleRate: sampleRate, baseStartTime: baseStartTime)
+                   if scheduledCount > 0 { hasContent = true }
                 }
             }
             
-            // 4. Arm for playback
+            // 4. Arm for playback ONLY if content exists (Strict Gating)
             if hasContent {
                 player.play(at: baseStartTime)
+            } else {
+                // If it was playing before, Ensure it's dead silent.
+                player.stop()
             }
         }
         
@@ -171,7 +175,7 @@ public final class PlaybackScheduler {
         self.loopStart = loopStart.beats
         self.loopEnd = loopEnd.beats
         
-        return baseStartTime ?? AVAudioTime(hostTime: mach_absolute_time() + 1000)
+        return baseStartTime
     }
 
     // MARK: - Range Scheduling (The Core "Stitcher")
@@ -184,11 +188,10 @@ public final class PlaybackScheduler {
         start: TimePosition, end: TimePosition,
         bpm: Double, sampleRate: Double,
         baseStartTime: AVAudioTime
-    ) -> Double {
+    ) -> Int {
         let rangeStartBeats = start.beats
         let rangeEndBeats = end.beats
-
-        // Filter clips touching this range
+        var clipsScheduledCount = 0
         var clipsInRange: [AudioClip] = []
         if track.trackType == .audio {
             clipsInRange = track.clips.filter {
@@ -230,9 +233,10 @@ public final class PlaybackScheduler {
                 at: segmentStartTime,
                 bpm: bpm
             )
+            clipsScheduledCount += 1
         }
 
-        return 0 // Drift no longer relevant with absolute timing
+        return clipsScheduledCount
     }
 
     // MARK: - Internal Scheduling Helpers
@@ -562,7 +566,7 @@ public final class PlaybackScheduler {
         isPlaying = false
         teardownRenderObserver()
         playbackStartSampleTime = 0
-        // ... existing logic ...
+        trackMixer.stopAll()
     }
 
     private func teardownRenderObserver() {

@@ -79,6 +79,13 @@ public final class AppSettings: ObservableObject, Codable {
         static let browserCategoryPaneWidth = "dreamdaw.settings.browserCategoryPaneWidth"
         static let browserFavorites = "dreamdaw.settings.browserFavorites"
         static let audioSampleRate = "dreamdaw.settings.audioSampleRate"
+        static let audioInputDeviceUID = "dreamdaw.settings.audioInputDeviceUID"
+        static let driverErrorCompensation = "dreamdaw.settings.driverErrorCompensation"
+        static let testToneEnabled = "dreamdaw.settings.testToneEnabled"
+        static let testToneVolume = "dreamdaw.settings.testToneVolume"
+        static let testToneFrequency = "dreamdaw.settings.testToneFrequency"
+        static let cpuUsageSimulator = "dreamdaw.settings.cpuUsageSimulator"
+        static let srPitchConversionHighQuality = "dreamdaw.settings.srPitchConversionHighQuality"
     }
 
     // MARK: - General
@@ -186,6 +193,69 @@ public final class AppSettings: ObservableObject, Codable {
         }
     }
 
+    @Published public var audioInputDeviceUID: String? {
+        didSet {
+            defaults.set(audioInputDeviceUID, forKey: Keys.audioInputDeviceUID)
+            if !isInitializing {
+                syncToDisk()
+            }
+        }
+    }
+
+    @Published public var driverErrorCompensation: Double {
+        didSet {
+            defaults.set(driverErrorCompensation, forKey: Keys.driverErrorCompensation)
+            if !isInitializing {
+                syncToDisk()
+            }
+        }
+    }
+
+    @Published public var testToneEnabled: Bool {
+        didSet {
+            defaults.set(testToneEnabled, forKey: Keys.testToneEnabled)
+            if !isInitializing {
+                syncToDisk()
+            }
+        }
+    }
+
+    @Published public var testToneVolume: Double {
+        didSet {
+            defaults.set(testToneVolume, forKey: Keys.testToneVolume)
+            if !isInitializing {
+                syncToDisk()
+            }
+        }
+    }
+
+    @Published public var testToneFrequency: Double {
+        didSet {
+            defaults.set(testToneFrequency, forKey: Keys.testToneFrequency)
+            if !isInitializing {
+                syncToDisk()
+            }
+        }
+    }
+
+    @Published public var cpuUsageSimulator: Int {
+        didSet {
+            defaults.set(cpuUsageSimulator, forKey: Keys.cpuUsageSimulator)
+            if !isInitializing {
+                syncToDisk()
+            }
+        }
+    }
+
+    @Published public var srPitchConversionHighQuality: Bool {
+        didSet {
+            defaults.set(srPitchConversionHighQuality, forKey: Keys.srPitchConversionHighQuality)
+            if !isInitializing {
+                syncToDisk()
+            }
+        }
+    }
+
     // MARK: - Browser
 
     @Published public var browserSidebarOrder: [String] {
@@ -228,6 +298,7 @@ public final class AppSettings: ObservableObject, Codable {
     
     enum CodingKeys: String, CodingKey {
         case language, waveformStyle, startupBehavior, userFolderPath, samplesPath, vst2Path, vst3Path, audioOutputDeviceUID, audioBufferSize, audioSampleRate
+        case audioInputDeviceUID, driverErrorCompensation, testToneEnabled, testToneVolume, testToneFrequency, cpuUsageSimulator, srPitchConversionHighQuality
         case browserSidebarOrder, browserPinnedFolders, browserCategoryPaneWidth, browserFavorites
     }
 
@@ -243,6 +314,13 @@ public final class AppSettings: ObservableObject, Codable {
         audioOutputDeviceUID = try container.decodeIfPresent(String.self, forKey: .audioOutputDeviceUID)
         audioBufferSize = try container.decodeIfPresent(Int.self, forKey: .audioBufferSize) ?? 512
         audioSampleRate = try container.decodeIfPresent(Double.self, forKey: .audioSampleRate) ?? 48000.0
+        audioInputDeviceUID = try container.decodeIfPresent(String.self, forKey: .audioInputDeviceUID)
+        driverErrorCompensation = try container.decodeIfPresent(Double.self, forKey: .driverErrorCompensation) ?? 0.0
+        testToneEnabled = try container.decodeIfPresent(Bool.self, forKey: .testToneEnabled) ?? false
+        testToneVolume = try container.decodeIfPresent(Double.self, forKey: .testToneVolume) ?? -36.0
+        testToneFrequency = try container.decodeIfPresent(Double.self, forKey: .testToneFrequency) ?? 440.0
+        cpuUsageSimulator = try container.decodeIfPresent(Int.self, forKey: .cpuUsageSimulator) ?? 0
+        srPitchConversionHighQuality = try container.decodeIfPresent(Bool.self, forKey: .srPitchConversionHighQuality) ?? true
         browserSidebarOrder = try container.decodeIfPresent([String].self, forKey: .browserSidebarOrder) ?? []
         browserPinnedFolders = try container.decodeIfPresent([String].self, forKey: .browserPinnedFolders) ?? []
         browserCategoryPaneWidth = try container.decodeIfPresent(Double.self, forKey: .browserCategoryPaneWidth)
@@ -261,6 +339,13 @@ public final class AppSettings: ObservableObject, Codable {
         try container.encode(audioOutputDeviceUID, forKey: .audioOutputDeviceUID)
         try container.encode(audioBufferSize, forKey: .audioBufferSize)
         try container.encode(audioSampleRate, forKey: .audioSampleRate)
+        try container.encode(audioInputDeviceUID, forKey: .audioInputDeviceUID)
+        try container.encode(driverErrorCompensation, forKey: .driverErrorCompensation)
+        try container.encode(testToneEnabled, forKey: .testToneEnabled)
+        try container.encode(testToneVolume, forKey: .testToneVolume)
+        try container.encode(testToneFrequency, forKey: .testToneFrequency)
+        try container.encode(cpuUsageSimulator, forKey: .cpuUsageSimulator)
+        try container.encode(srPitchConversionHighQuality, forKey: .srPitchConversionHighQuality)
         try container.encode(browserSidebarOrder, forKey: .browserSidebarOrder)
         try container.encode(browserPinnedFolders, forKey: .browserPinnedFolders)
         try container.encodeIfPresent(browserCategoryPaneWidth, forKey: .browserCategoryPaneWidth)
@@ -288,6 +373,13 @@ public final class AppSettings: ObservableObject, Codable {
         self.audioOutputDeviceUID = nil
         self.audioBufferSize = 512
         self.audioSampleRate = 48000.0
+        self.audioInputDeviceUID = nil
+        self.driverErrorCompensation = 0.0
+        self.testToneEnabled = false
+        self.testToneVolume = -36.0
+        self.testToneFrequency = 440.0
+        self.cpuUsageSimulator = 0
+        self.srPitchConversionHighQuality = true
         self.browserSidebarOrder = []
         self.browserPinnedFolders = []
         self.browserCategoryPaneWidth = nil
@@ -341,6 +433,32 @@ public final class AppSettings: ObservableObject, Codable {
             self.audioSampleRate = savedSampleRate
         }
         
+        if let input = defaults.string(forKey: Keys.audioInputDeviceUID) {
+            self.audioInputDeviceUID = input
+        }
+        
+        if defaults.object(forKey: Keys.driverErrorCompensation) != nil {
+            self.driverErrorCompensation = defaults.double(forKey: Keys.driverErrorCompensation)
+        }
+        
+        self.testToneEnabled = defaults.bool(forKey: Keys.testToneEnabled)
+        
+        if defaults.object(forKey: Keys.testToneVolume) != nil {
+            self.testToneVolume = defaults.double(forKey: Keys.testToneVolume)
+        }
+        
+        if defaults.object(forKey: Keys.testToneFrequency) != nil {
+            self.testToneFrequency = defaults.double(forKey: Keys.testToneFrequency)
+        }
+        
+        self.cpuUsageSimulator = defaults.integer(forKey: Keys.cpuUsageSimulator)
+        
+        if defaults.object(forKey: Keys.srPitchConversionHighQuality) != nil {
+            self.srPitchConversionHighQuality = defaults.bool(forKey: Keys.srPitchConversionHighQuality)
+        } else {
+            self.srPitchConversionHighQuality = true
+        }
+
         self.isInitializing = false
     }
 
@@ -362,6 +480,13 @@ public final class AppSettings: ObservableObject, Codable {
             self.audioOutputDeviceUID = decoded.audioOutputDeviceUID
             self.audioBufferSize = decoded.audioBufferSize
             self.audioSampleRate = decoded.audioSampleRate
+            self.audioInputDeviceUID = decoded.audioInputDeviceUID
+            self.driverErrorCompensation = decoded.driverErrorCompensation
+            self.testToneEnabled = decoded.testToneEnabled
+            self.testToneVolume = decoded.testToneVolume
+            self.testToneFrequency = decoded.testToneFrequency
+            self.cpuUsageSimulator = decoded.cpuUsageSimulator
+            self.srPitchConversionHighQuality = decoded.srPitchConversionHighQuality
             self.browserSidebarOrder = decoded.browserSidebarOrder
             self.browserPinnedFolders = decoded.browserPinnedFolders
             self.browserCategoryPaneWidth = decoded.browserCategoryPaneWidth

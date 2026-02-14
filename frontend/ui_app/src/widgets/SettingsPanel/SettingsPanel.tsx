@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
+import * as engine from '@/shared/api/engine';
 
 /**
  * SettingsPanel — 5-tab modal settings window.
@@ -23,6 +24,20 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
     const updateSetting = useSettingsStore(s => s.updateSetting);
     const pickAndSetFolder = useSettingsStore(s => s.pickAndSetFolder);
     const [rescanningPlugins, setRescanningPlugins] = useState(false);
+
+    // ── Audio Device Enumeration (real hardware from cpal) ──
+    const [audioDevices, setAudioDevices] = useState<engine.AudioDevices>({ outputs: [], inputs: [] });
+    const [devicesLoading, setDevicesLoading] = useState(false);
+
+    // Fetch real devices when Audio tab is opened
+    useEffect(() => {
+        if (tab !== 'audio') return;
+        setDevicesLoading(true);
+        engine.getAudioDevices()
+            .then(devices => setAudioDevices(devices))
+            .catch(err => console.error('[SettingsPanel] Failed to enumerate devices:', err))
+            .finally(() => setDevicesLoading(false));
+    }, [tab]);
 
     // ⌘, shortcut
     useEffect(() => {
@@ -137,16 +152,23 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                             <SettingRow label="Output Device">
                                 <Select
                                     value={settings.outputDevice}
-                                    options={['MacBook Pro Speakers', 'External Headphones', 'Universal Audio Arrow', 'Focusrite Scarlett 2i2']}
-                                    onChange={v => updateSetting('outputDevice', v)}
+                                    options={audioDevices.outputs.length > 0 ? audioDevices.outputs : [settings.outputDevice]}
+                                    onChange={v => {
+                                        updateSetting('outputDevice', v);
+                                        engine.setAudioDevice(v).catch(err =>
+                                            console.error('[SettingsPanel] setAudioDevice failed:', err)
+                                        );
+                                    }}
                                 />
+                                {devicesLoading && <span style={{ ...valueStyle, marginLeft: 4 }}>⏳</span>}
                             </SettingRow>
                             <SettingRow label="Input Device">
                                 <Select
                                     value={settings.inputDevice}
-                                    options={['MacBook Pro Microphone', 'No Input', 'External Microphone', 'Universal Audio Arrow', 'Focusrite Scarlett 2i2']}
+                                    options={audioDevices.inputs.length > 0 ? audioDevices.inputs : [settings.inputDevice]}
                                     onChange={v => updateSetting('inputDevice', v)}
                                 />
+                                {devicesLoading && <span style={{ ...valueStyle, marginLeft: 4 }}>⏳</span>}
                             </SettingRow>
                             <SettingRow label="Sample Rate">
                                 <Select

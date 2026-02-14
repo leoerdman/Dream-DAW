@@ -2120,13 +2120,16 @@ pub fn run() {
                     loop {
                         std::thread::sleep(Duration::from_millis(33)); // ~30fps
 
+                        // Access managed state via cloned AppHandle
+                        let handle: tauri::State<'_, AudioEngineHandle> = telemetry_app.state();
+
                         // Build transport snapshot
                         let transport_json = {
-                            let state = match telemetry_playback.lock() {
+                            let state = match handle.playback_state.lock() {
                                 Ok(s) => s,
                                 Err(_) => continue,
                             };
-                            let frames = telemetry_clock.position();
+                            let frames = handle.master_clock.position();
                             let seconds = frames as f64 / state.sample_rate;
                             serde_json::json!({
                                 "is_playing": state.is_playing,
@@ -2139,13 +2142,14 @@ pub fn run() {
                             })
                         };
 
-                        // Build meter snapshot
-                        let mut tracks = Vec::with_capacity(telemetry_meters.track_count());
-                        for i in 0..telemetry_meters.track_count() {
-                            if let Some((left, right)) = telemetry_meters.track(i) {
+                        // Build meter snapshot (lock-free reads)
+                        let meter_bank = &handle.meter_bank;
+                        let mut tracks = Vec::with_capacity(meter_bank.track_count());
+                        for i in 0..meter_bank.track_count() {
+                            if let Some((left, right)) = meter_bank.track(i) {
                                 tracks.push(serde_json::json!([
-                                    { "rms": left.rms(), "peak": left.peak(), "clipping": left.is_clipping() },
-                                    { "rms": right.rms(), "peak": right.peak(), "clipping": right.is_clipping() },
+                                    { "rms": left.load_rms(), "peak": left.load_peak(), "clipping": left.is_clipping() },
+                                    { "rms": right.load_rms(), "peak": right.load_peak(), "clipping": right.is_clipping() },
                                 ]));
                             }
                         }
@@ -2153,14 +2157,14 @@ pub fn run() {
                         let meters_json = serde_json::json!({
                             "tracks": tracks,
                             "master_left": {
-                                "rms": telemetry_meters.master_left().rms(),
-                                "peak": telemetry_meters.master_left().peak(),
-                                "clipping": telemetry_meters.master_left().is_clipping(),
+                                "rms": meter_bank.master_left().load_rms(),
+                                "peak": meter_bank.master_left().load_peak(),
+                                "clipping": meter_bank.master_left().is_clipping(),
                             },
                             "master_right": {
-                                "rms": telemetry_meters.master_right().rms(),
-                                "peak": telemetry_meters.master_right().peak(),
-                                "clipping": telemetry_meters.master_right().is_clipping(),
+                                "rms": meter_bank.master_right().load_rms(),
+                                "peak": meter_bank.master_right().load_peak(),
+                                "clipping": meter_bank.master_right().is_clipping(),
                             },
                         });
 

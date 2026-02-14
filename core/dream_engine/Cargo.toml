@@ -12,6 +12,8 @@ dream_dsp = { path = "../dream_dsp" }
 dream_mixer = { path = "../dream_mixer" }
 dream_transport = { path = "../dream_transport" }
 dream_clip_engine = { path = "../dream_clip_engine" }
+dream_graph = { path = "../dream_graph" }
+dream_plugins = { path = "../dream_plugins" }
 cpal = { workspace = true }
 rtrb = { workspace = true }
 log = { workspace = true }

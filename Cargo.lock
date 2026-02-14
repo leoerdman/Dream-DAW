@@ -907,9 +907,11 @@ dependencies = [
  "cpal",
  "dream_clip_engine",
  "dream_dsp",
+ "dream_graph",
  "dream_ipc",
  "dream_mixer",
  "dream_models",
+ "dream_plugins",
  "dream_transport",
  "env_logger",
  "log",
@@ -970,6 +972,7 @@ name = "dream_plugins"
 version = "0.1.0"
 dependencies = [
  "dream_models",
+ "libloading 0.8.9",
  "log",
  "serde",
  "serde_json",

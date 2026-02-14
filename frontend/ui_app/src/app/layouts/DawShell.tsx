@@ -15,6 +15,7 @@ import { DragOverlay } from '@/widgets/DragOverlay/DragOverlay';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
+import { ExportDialog } from '@/widgets/ExportDialog/ExportDialog';
 import * as engineApi from '@/shared/api/engine';
 
 /** Supported audio file extensions for drag-and-drop import. */
@@ -58,6 +59,7 @@ export const DawShell = () => {
     const [selectedTrackId, setSelectedTrackId] = useState('g-drums');
     const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
     const [isDragOver, setIsDragOver] = useState(false);
+    const [exportOpen, setExportOpen] = useState(false);
     const importFile = useEngineStore(s => s.importFile);
     const createMidiClip = useEngineStore(s => s.createMidiClip);
     const togglePlay = useEngineStore(s => s.togglePlay);
@@ -412,6 +414,17 @@ export const DawShell = () => {
             )}
             {/* Store-based drag overlay — floating label following cursor */}
             <DragOverlay />
+
+            {/* ── Export Dialog ── */}
+            <ExportDialog
+                isOpen={exportOpen}
+                onClose={() => setExportOpen(false)}
+                onExport={(settings) => {
+                    console.log('[DawShell] Exporting with settings:', settings);
+                    setExportOpen(false);
+                }}
+                projectName="My Project"
+            />
         </div>
     );
 };

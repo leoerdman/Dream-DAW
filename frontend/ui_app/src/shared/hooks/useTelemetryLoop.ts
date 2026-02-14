@@ -1,26 +1,27 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — Zero-Render Telemetry Loop
+// Dream DAW — Push-Based Telemetry (Event-Driven)
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// This hook updates the playhead line and VU meters at 60fps by writing
-// directly to DOM style properties — completely bypassing React's
-// reconciliation cycle.
-//
-// Why: Calling `setState()` 60 times/second would cause React to re-render
-// the entire Timeline (hundreds of DOM nodes). Direct DOM manipulation
-// keeps React's virtual DOM untouched while the visual elements move
-// fluidly.
+// LEVIATHAN Epic 1: Replaced the requestAnimationFrame polling loop with
+// a Tauri event listener. The Rust backend now pushes `telemetry_tick`
+// events at 30fps containing transport state + meter readings.
 //
 // Architecture:
-//   1. `requestAnimationFrame` loop polls Rust via `getTransport()`
-//   2. Playhead position → `transform: translateX(px)` on a ref
-//   3. Meter levels → `transform: scaleY(rms)` on meter bar refs
-//   4. Loop never touches React state — zero re-renders
+//   1. Rust thread sleeps 33ms, builds transport+meters snapshot, emits event
+//   2. Frontend `listen('telemetry_tick')` receives the payload
+//   3. Playhead position → `transform: translateX(px)` on a ref
+//   4. Meter levels → `transform: scaleY(rms)` on meter bar refs
+//   5. Loop never touches React state — zero re-renders
+//
+// Benefits over rAF + invoke():
+//   - Zero IPC invoke() overhead per frame (was 2 invokes × 60fps = 120 IPC/s)
+//   - Rust controls the tick rate (30fps), frontend is purely reactive
+//   - CPU savings: no requestAnimationFrame spin when tab is hidden
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useRef, useCallback } from 'react';
-import * as engine from '@/shared/api/engine';
+import { useEffect, useRef } from 'react';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -49,10 +50,34 @@ export interface TelemetryConfig {
     scrollOffsetPx?: number;
 }
 
+/** Shape of the telemetry_tick event payload from Rust. */
+interface TelemetryPayload {
+    transport: {
+        is_playing: boolean;
+        position_frames: number;
+        position_seconds: number;
+        bpm: number;
+        loop_enabled: boolean;
+        loop_start: number;
+        loop_end: number;
+    };
+    meters: {
+        tracks: [
+            { rms: number; peak: number; clipping: boolean },
+            { rms: number; peak: number; clipping: boolean },
+        ][];
+        master_left: { rms: number; peak: number; clipping: boolean };
+        master_right: { rms: number; peak: number; clipping: boolean };
+    };
+}
+
 // ── Hook ────────────────────────────────────────────────────────────────
 
 /**
- * Zero-render telemetry loop for playhead and meter animation.
+ * Push-based telemetry hook: subscribes to `telemetry_tick` events from Rust.
+ *
+ * Directly mutates DOM via refs — zero React re-renders.
+ * The Rust backend pushes transport + meter data at ~30fps.
  *
  * Usage:
  * ```tsx
@@ -67,47 +92,46 @@ export function useTelemetryLoop(
     refs: TelemetryRefs,
     config: TelemetryConfig,
 ) {
-    const rafId = useRef<number | null>(null);
-    const isRunning = useRef(false);
-
-    // Store config in ref to avoid re-creating the loop on config changes
+    // Store config/refs in refs to avoid re-subscribing on every render
     const configRef = useRef(config);
     configRef.current = config;
 
     const refsRef = useRef(refs);
     refsRef.current = refs;
 
-    const loop = useCallback(async () => {
-        if (!isRunning.current) return;
+    useEffect(() => {
+        const enabled = config.enabled !== false;
+        if (!enabled) return;
 
-        try {
-            const transport = await engine.getTransport();
+        let unlisten: UnlistenFn | null = null;
 
-            // ── Update Playhead Position ──────────────────────────
-            const playheadEl = refsRef.current.playheadRef.current;
-            if (playheadEl) {
-                const { bpm, pixelsPerBeat, scrollOffsetPx = 0 } = configRef.current;
+        const setup = async () => {
+            unlisten = await listen<TelemetryPayload>('telemetry_tick', (event) => {
+                const { transport, meters } = event.payload;
 
-                // Convert seconds → beats → pixels
-                const beatsPerSecond = bpm / 60;
-                const positionBeats = transport.position_seconds * beatsPerSecond;
-                const positionPx = positionBeats * pixelsPerBeat - scrollOffsetPx;
+                // ── Update Playhead Position ──────────────────────────
+                const playheadEl = refsRef.current.playheadRef.current;
+                if (playheadEl) {
+                    const { bpm, pixelsPerBeat, scrollOffsetPx = 0 } = configRef.current;
 
-                playheadEl.style.transform = `translateX(${positionPx}px)`;
+                    // Convert seconds → beats → pixels
+                    const beatsPerSecond = bpm / 60;
+                    const positionBeats = transport.position_seconds * beatsPerSecond;
+                    const positionPx = positionBeats * pixelsPerBeat - scrollOffsetPx;
 
-                // Show/hide based on visibility
-                if (positionPx < -2 || positionPx > window.innerWidth) {
-                    playheadEl.style.opacity = '0';
-                } else {
-                    playheadEl.style.opacity = '1';
+                    playheadEl.style.transform = `translateX(${positionPx}px)`;
+
+                    // Show/hide based on visibility
+                    if (positionPx < -2 || positionPx > window.innerWidth) {
+                        playheadEl.style.opacity = '0';
+                    } else {
+                        playheadEl.style.opacity = '1';
+                    }
                 }
-            }
 
-            // ── Update VU Meters ─────────────────────────────────
-            const meterEls = refsRef.current.meterRefs?.current;
-            if (meterEls && meterEls.length > 0) {
-                try {
-                    const meters = await engine.getMeters();
+                // ── Update VU Meters ─────────────────────────────────
+                const meterEls = refsRef.current.meterRefs?.current;
+                if (meterEls && meterEls.length > 0 && meters.tracks) {
                     const tracks = meters.tracks;
 
                     for (let i = 0; i < meterEls.length && i < tracks.length; i++) {
@@ -118,8 +142,11 @@ export function useTelemetryLoop(
                         const [left, right] = tracks[i];
                         const level = Math.max(left.rms, right.rms);
 
-                        // Clamp to [0, 1] and apply
-                        const clamped = Math.min(1, Math.max(0, level));
+                        // Convert from dB to linear (0-1 range)
+                        // dB range: -60 to 0, map to 0 to 1
+                        const dbMin = -60;
+                        const clamped = Math.min(1, Math.max(0, (level - dbMin) / -dbMin));
+
                         el.style.transform = `scaleY(${clamped})`;
                         el.style.transformOrigin = 'bottom';
 
@@ -132,34 +159,14 @@ export function useTelemetryLoop(
                             el.style.backgroundColor = '#38a169';
                         }
                     }
-                } catch {
-                    // Meters unavailable — skip this frame
                 }
-            }
-        } catch {
-            // Transport unavailable — skip this frame
-        }
+            });
+        };
 
-        // Continue loop
-        if (isRunning.current) {
-            rafId.current = requestAnimationFrame(loop);
-        }
-    }, []);
-
-    useEffect(() => {
-        const enabled = config.enabled !== false;
-
-        if (enabled) {
-            isRunning.current = true;
-            rafId.current = requestAnimationFrame(loop);
-        }
+        setup();
 
         return () => {
-            isRunning.current = false;
-            if (rafId.current !== null) {
-                cancelAnimationFrame(rafId.current);
-                rafId.current = null;
-            }
+            unlisten?.();
         };
-    }, [config.enabled, loop]);
+    }, [config.enabled]);
 }

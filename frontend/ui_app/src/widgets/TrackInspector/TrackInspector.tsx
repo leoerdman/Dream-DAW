@@ -1,6 +1,8 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
+import { useAutomationStore } from '@/shared/stores/useAutomationStore';
+import * as engineApi from '@/shared/api/engine';
 
 /**
  * TrackInspector — Right-side panel showing all tracks.
@@ -428,6 +430,13 @@ const TrackRow = ({
     const isChild = depth > 0;
     const [isHovered, setIsHovered] = useState(false);
 
+    // Automation store
+    const toggleAutomation = useAutomationStore((s) => s.toggleTrackAutomation);
+    const expandedTracks = useAutomationStore((s) => s.expandedTracks);
+    const addLane = useAutomationStore((s) => s.addLane);
+    const getLanesForTrack = useAutomationStore((s) => s.getLanesForTrack);
+    const isAutoExpanded = expandedTracks.has(`track-${displayNum !== undefined ? displayNum - 1 : 0}`);
+
     // Master fixed at bottom — distinct darker styling
     const masterBg = isSelected
         ? '#2a2a2e'
@@ -536,30 +545,63 @@ const TrackRow = ({
                     {track.name}
                 </span>
 
-                {/* Routing Dropdown */}
+                {/* ── Routing Selectors: Audio To / Audio From ── */}
                 {!isMasterFixed && (
-                    <select
-                        onClick={e => e.stopPropagation()}
-                        value={track.routing}
-                        onChange={() => {/* read-only demo */ }}
-                        style={{
-                            fontSize: 8,
-                            fontWeight: 500,
-                            color: 'var(--color-text-primary)',
-                            background: 'var(--color-control-bg)',
-                            border: '1px solid var(--color-control-border)',
-                            borderRadius: 2,
-                            padding: '1px 2px',
-                            cursor: 'pointer',
-                            maxWidth: 55,
-                            minWidth: 36,
-                            flexShrink: 0,
-                            appearance: 'auto' as React.CSSProperties['appearance'],
-                        }}
-                    >
-                        <option>{track.routing || 'Main'}</option>
-                        <option>Main</option>
-                    </select>
+                    <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 1,
+                        flexShrink: 0,
+                    }}>
+                        {/* Audio To (output routing) */}
+                        <select
+                            onClick={e => e.stopPropagation()}
+                            value={track.output || 'master'}
+                            onChange={(e) => {
+                                e.stopPropagation();
+                                const targetId = e.target.value;
+                                engineApi.setTrackRouting(track.id, targetId).catch(err =>
+                                    console.error('[TrackInspector] setTrackRouting failed:', err)
+                                );
+                            }}
+                            title="Audio To"
+                            style={routingSelectStyle}
+                        >
+                            <option value="master">→ Master</option>
+                            {allTracks
+                                .filter(t => t.id !== track.id && t.type !== 'master')
+                                .map(t => (
+                                    <option key={t.id} value={t.id}>
+                                        → {t.name}
+                                    </option>
+                                ))}
+                        </select>
+                        {/* Audio From (input routing) */}
+                        <select
+                            onClick={e => e.stopPropagation()}
+                            value={track.input || 'none'}
+                            onChange={(e) => {
+                                e.stopPropagation();
+                                const inputId = e.target.value;
+                                engineApi.setTrackInput(track.id, inputId).catch(err =>
+                                    console.error('[TrackInspector] setTrackInput failed:', err)
+                                );
+                            }}
+                            title="Audio From"
+                            style={routingSelectStyle}
+                        >
+                            <option value="none">← No Input</option>
+                            <option value="ext-1">← Ext. In 1</option>
+                            <option value="ext-2">← Ext. In 2</option>
+                            {allTracks
+                                .filter(t => t.id !== track.id && t.type !== 'master')
+                                .map(t => (
+                                    <option key={t.id} value={t.id}>
+                                        ← {t.name}
+                                    </option>
+                                ))}
+                        </select>
+                    </div>
                 )}
 
                 {/* Master: show "Main" label instead of dropdown */}
@@ -617,6 +659,37 @@ const TrackRow = ({
                     }}>
                         {displayNum}
                     </span>
+                )}
+
+                {/* Automation toggle button */}
+                {!isMaster && !isGroup && (
+                    <button
+                        onClick={e => {
+                            e.stopPropagation();
+                            const trackId = `track-${displayNum !== undefined ? displayNum - 1 : 0}`;
+                            // Create default Volume lane if none exist
+                            if (getLanesForTrack(trackId).length === 0) {
+                                addLane(trackId, 'Volume', 'volume', track.color);
+                            }
+                            toggleAutomation(trackId);
+                        }}
+                        title="Toggle Automation"
+                        style={{
+                            width: 16, height: 16,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: isAutoExpanded ? '#58a6ff22' : 'transparent',
+                            color: isAutoExpanded ? '#58a6ff' : 'var(--color-text-tertiary)',
+                            border: isAutoExpanded ? '1px solid #58a6ff44' : '1px solid var(--color-control-border)',
+                            borderRadius: 2,
+                            fontSize: 8,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                            transition: 'all 0.15s ease',
+                        }}
+                    >
+                        A
+                    </button>
                 )}
 
                 {/* Solo button */}

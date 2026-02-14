@@ -339,3 +339,120 @@ export const splitClip = (clipId: string, splitFrame: number) =>
 /** Delete a clip by UUID. */
 export const deleteClip = (clipId: string) =>
     invoke<void>('delete_clip_cmd', { clipId });
+
+// ── Audio Device Management ─────────────────────────────────────────────
+
+/** Available audio devices on the system. */
+export interface AudioDevices {
+    outputs: string[];
+    inputs: string[];
+}
+
+/** List all available audio input and output devices (real hardware). */
+export const getAudioDevices = () =>
+    invoke<AudioDevices>('get_audio_devices');
+
+/** Request engine to switch to a named audio device. */
+export const setAudioDevice = (deviceName: string) =>
+    invoke<void>('set_audio_device', { deviceName });
+
+// ── Plugin Window Management ────────────────────────────────────────────
+
+/** Open the native VST/AU plugin GUI window (OS-level C++ window, not webview).
+ *  The Rust host creates a platform-native parent window and embeds the plugin
+ *  editor view inside it. Window lifecycle is managed by the host. */
+export const openPluginWindow = (pluginId: string) =>
+    invoke<void>('open_plugin_window', { pluginId });
+
+/** Close an open plugin window. */
+export const closePluginWindow = (pluginId: string) =>
+    invoke<void>('close_plugin_window', { pluginId });
+
+// ── Track Routing (DAG Topology) ────────────────────────────────────────
+
+/** Routing target descriptor. */
+export interface RoutingTarget {
+    trackId: string;
+    trackName: string;
+    trackType: string;
+}
+
+/** Get available routing targets for a track. */
+export const getRoutingTargets = (trackId: string) =>
+    invoke<RoutingTarget[]>('get_routing_targets', { trackId });
+
+/** Set the audio output routing for a track.
+ *  This triggers an ATOMIC rebuild of the audio DAG on the Rust side.
+ *  Passing 'master' routes directly to the master bus. */
+export const setTrackRouting = (trackId: string, targetId: string) =>
+    invoke<void>('set_track_routing_cmd', { trackId, targetId });
+
+/** Set the audio input source for a track (for sidechain / recording input). */
+export const setTrackInput = (trackId: string, inputId: string) =>
+    invoke<void>('set_track_input_cmd', { trackId, inputId });
+
+// ── Clip Fades ──────────────────────────────────────────────────────────
+
+/** Set fade-in and fade-out durations for a clip (in sample frames). */
+export const setClipFades = (clipId: string, fadeInFrames: number, fadeOutFrames: number) =>
+    invoke<void>('set_clip_fades_cmd', { clipId, fadeInFrames, fadeOutFrames });
+
+/** Set source offset for a clip (slip editing — waveform slides inside clip frame). */
+export const setClipSourceOffset = (clipId: string, sourceOffsetFrames: number) =>
+    invoke<void>('set_clip_source_offset_cmd', { clipId, sourceOffsetFrames });
+
+// ── Export / Bounce ─────────────────────────────────────────────────────
+
+/** Export settings passed to the offline render pipeline. */
+export interface ExportSettings {
+    outputPath: string;
+    sampleRate: 44100 | 48000 | 96000;
+    bitDepth: 16 | 24 | 32;
+    /** 'full' renders entire project, 'loop' renders only the loop region. */
+    range: 'full' | 'loop';
+    normalize: boolean;
+    tailMs: number;
+}
+
+/** Kick off an offline bounce/export. Rust disables the realtime cpal timer
+ *  and spins the render loop at max CPU speed. Progress is emitted via
+ *  'bounce_progress' Tauri event (payload: { progress: number 0..100 }). */
+export const exportMix = (settings: ExportSettings) =>
+    invoke<void>('export_mix_cmd', { settings });
+
+// ── Recording ───────────────────────────────────────────────────────────
+
+/** Arm a track for recording and start recording on play. */
+export const armTrack = (trackIndex: number, armed: boolean) =>
+    invoke<void>('arm_track_cmd', { trackIndex, armed });
+
+/** Start recording on all armed tracks. Creates clips and streams audio.
+ *  Live audio peaks are pushed via 'live_audio_peaks' event. */
+export const startRecording = () =>
+    invoke<void>('start_recording_cmd');
+
+/** Stop recording and finalize the recorded clips. */
+export const stopRecording = () =>
+    invoke<void>('stop_recording_cmd');
+
+// ── Media Offline / File Resolution ─────────────────────────────────────
+
+/** Resolve a missing/offline media file by providing a new path. */
+export const resolveMissingFile = (clipId: string, newPath: string) =>
+    invoke<void>('resolve_missing_file_cmd', { clipId, newPath });
+
+// ── Automation ──────────────────────────────────────────────────────────
+
+/** A single automation breakpoint sent to the engine. */
+export interface AutomationPoint {
+    beat: number;
+    value: number;
+    curveType: 'linear' | 'bezier' | 'step';
+    /** Control point offset for Bézier curves (0..1 tension). */
+    tension?: number;
+}
+
+/** Push automation breakpoints to the engine for a specific parameter.
+ *  MUST be called through lodash.throttle(fn, 16) to cap at 60 IPC/s. */
+export const setAutomationPoints = (trackId: string, paramId: string, points: AutomationPoint[]) =>
+    invoke<void>('set_automation_points_cmd', { trackId, paramId, points });

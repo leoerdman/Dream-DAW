@@ -9,6 +9,7 @@ license.workspace = true
 serde = { workspace = true }
 uuid = { workspace = true }
 log = { workspace = true }
+libloading = { workspace = true }
 
 dream_models = { path = "../dream_models" }
 

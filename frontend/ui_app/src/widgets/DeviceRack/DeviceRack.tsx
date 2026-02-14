@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import * as engineApi from '@/shared/api/engine';
 
 /**
  * DeviceRack — Bottom panel: instrument & effects signal chain.
@@ -140,6 +141,11 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
                             key={device.id}
                             device={device}
                             onToggle={() => toggleDevice(device.id)}
+                            onOpenGUI={() => {
+                                engineApi.openPluginWindow(device.id).catch(err =>
+                                    console.error('[DeviceRack] Failed to open plugin window:', err)
+                                );
+                            }}
                         />
                     ))
                 ) : (
@@ -213,10 +219,11 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
 // ── DeviceNode ──────────────────────────────────────────
 
 const DeviceNode = ({
-    device, onToggle,
+    device, onToggle, onOpenGUI,
 }: {
     device: DeviceSlot;
     onToggle: () => void;
+    onOpenGUI?: () => void;
 }) => {
     const vuWidthPercent = Math.min(100, Math.max(0, device.vuLevel * 100));
     const vuColor = device.vuLevel > 0.85 ? 'var(--color-meter-clip)' : device.vuLevel > 0.6 ? 'var(--color-meter-hot)' : 'var(--color-meter-normal)';
@@ -296,6 +303,23 @@ const DeviceNode = ({
                 }}>
                     {device.name}
                 </span>
+                <button
+                    onClick={(e) => { e.stopPropagation(); onOpenGUI?.(); }}
+                    title="Open Plugin GUI"
+                    style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--color-text-tertiary)',
+                        fontSize: 8,
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                        padding: '0 2px',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent-primary)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-text-tertiary)'; }}
+                >
+                    GUI
+                </button>
                 <span style={{
                     fontSize: 9,
                     color: 'var(--color-text-tertiary)',

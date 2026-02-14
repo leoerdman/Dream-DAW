@@ -1,6 +1,9 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ClipRenderer } from './ClipRenderer';
+import { ClipFadeHandles } from './ClipFadeHandles';
+import { AutomationLane } from './AutomationLane';
 import { useGridStore } from '@/shared/stores/useGridStore';
+import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { computeGridLines } from '@/shared/lib/gridSnap';
 
 /**
@@ -37,6 +40,10 @@ export interface TimelineClip {
     durationSamples?: number;
     /** Source offset in samples (for trimmed clips). */
     sourceOffset?: number;
+    /** Fade-in duration (0..1, fraction of clip width). */
+    fadeIn?: number;
+    /** Fade-out duration (0..1, fraction of clip width). */
+    fadeOut?: number;
 }
 
 /** Data transferred when dragging from AssetBrowser. */
@@ -603,8 +610,48 @@ export const Timeline = ({
                                         <MidiNoteFallback width={width} height={trackHeight - 16} />
                                     )}
                                 </div>
+
+                                {/* Fade handles + Resize edges + Slip edit */}
+                                <ClipFadeHandles
+                                    width={Math.max(2, width - 1)}
+                                    height={trackHeight - 4}
+                                    fadeIn={clip.fadeIn ?? 0}
+                                    fadeOut={clip.fadeOut ?? 0}
+                                    isSelected={isSelected}
+                                    color={clip.color}
+                                />
                             </div>
                         );
+                    })}
+
+                    {/* ── Automation Lanes (SVG overlays per track) ── */}
+                    {Array.from({ length: trackCount }, (_, trackIdx) => {
+                        const trackId = `track-${trackIdx}`;
+                        const expanded = useAutomationStore.getState().expandedTracks.has(trackId);
+                        if (!expanded) return null;
+                        const lanes = useAutomationStore.getState().getLanesForTrack(trackId);
+                        return lanes.filter(l => l.visible).map(lane => (
+                            <div
+                                key={lane.id}
+                                style={{
+                                    position: 'absolute',
+                                    left: 0,
+                                    top: trackIdx * trackHeight,
+                                    width: canvasWidth,
+                                    height: trackHeight,
+                                    zIndex: 12,
+                                    pointerEvents: 'none',
+                                }}
+                            >
+                                <AutomationLane
+                                    lane={lane}
+                                    width={canvasWidth}
+                                    height={trackHeight}
+                                    pixelsPerBeat={pixelsPerBeat}
+                                    scrollOffsetBeats={scrollLeft / pixelsPerBeat}
+                                />
+                            </div>
+                        ));
                     })}
 
                     {/* ── Drop target indicator ── */}

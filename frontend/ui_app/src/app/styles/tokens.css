@@ -203,6 +203,18 @@
     --color-bg-surface: #303030;
     /* surface: alias for panel */
 
+    /* ── Semantic Tokens v2 (UI surface/text/accent) ── */
+    --surface-1: #1e1e1e;
+    --surface-2: #2a2a2a;
+    --surface-3: #303030;
+    --surface-elevated: #353535;
+    --text-primary: #e0e0e0;
+    --text-secondary: #999999;
+    --text-muted: #666666;
+    --accent: #4a9eff;
+    --accent-weak: rgba(74, 158, 255, 0.18);
+    --accent-strong: #57b4ff;
+
     /* ── Node Backgrounds (Device Rack) ── */
     --color-bg-node: #303030;
     /* same as bgSurface */
@@ -212,12 +224,12 @@
     /* same as bgTertiary */
 
     /* ── Text (from DarkTheme) ── */
-    --color-text-primary: #e0e0e0;
-    /* white 0.88 */
-    --color-text-secondary: #999999;
-    /* white 0.60 */
-    --color-text-tertiary: #666666;
-    /* white 0.40 (muted) */
+    --color-text-primary: rgba(255, 255, 255, 0.9);
+    /* primary text */
+    --color-text-secondary: rgba(255, 255, 255, 0.5);
+    /* secondary text */
+    --color-text-tertiary: rgba(255, 255, 255, 0.2);
+    /* disabled / low-emphasis text */
     --color-text-bright: #f5f5f5;
     /* white 0.96 */
     --color-text-inverse: #0d0d0d;
@@ -411,6 +423,18 @@
     --color-bg-active: #e5e5e5;
     --color-bg-sidebar: #eaeaea;
     --color-bg-surface: #f0f0f0;
+
+    /* ── Semantic Tokens v2 (light) ── */
+    --surface-1: #ffffff;
+    --surface-2: #f6f6f6;
+    --surface-3: #f0f0f0;
+    --surface-elevated: #e7e7e7;
+    --text-primary: #1f1f1f;
+    --text-secondary: #585858;
+    --text-muted: #777777;
+    --accent: #2a78ff;
+    --accent-weak: rgba(42, 120, 255, 0.16);
+    --accent-strong: #2e84ff;
 
     --color-bg-node: #f0f0f0;
     --color-bg-node-header: #e5e5e5;

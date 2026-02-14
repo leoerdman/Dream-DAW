@@ -10,42 +10,7 @@ import type { TimelineClipData } from '@/shared/lib/CanvasClipRenderer';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
-
-// ── Types (exported for DawShell compatibility) ───────────────────────────
-
-export interface TimelineClip {
-    id: string;
-    name: string;
-    trackIndex: number;
-    startBeat: number;
-    durationBeats: number;
-    type: 'audio' | 'midi';
-    color: string;
-    selected?: boolean;
-    filePath?: string;
-    durationSamples?: number;
-    sourceOffset?: number;
-    fadeIn?: number;
-    fadeOut?: number;
-    isOffline?: boolean;
-    midiNotes?: Array<{
-        id?: string;
-        pitch: number;
-        startBeat: number;
-        durationBeats: number;
-        velocity: number;
-    }>;
-}
-
-/** Data transferred when dragging from AssetBrowser. */
-export interface BrowserDragItem {
-    id: string;
-    name: string;
-    type: string;
-    path: string;
-    durationSeconds?: number;
-    slotHint?: 'instrument' | 'effect' | 'auto';
-}
+import type { BrowserDragItem, TimelineClip } from '@/shared/types/Arrangement';
 
 interface TimelineProps {
     bpm?: number;

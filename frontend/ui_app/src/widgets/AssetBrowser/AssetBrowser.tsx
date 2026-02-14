@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import type { AudioFileEntry, BrowserFileEntry, PeakPair } from '@/shared/api/engine';
 import { useDragStore } from '@/shared/stores/useDragStore';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 
 /**
  * AssetBrowser — Ableton-style two-pane vertical-split sidebar browser.
@@ -77,6 +78,7 @@ interface BrowserItem {
     isDirectory?: boolean;
     slotHint?: 'instrument' | 'effect' | 'auto';
     durationSeconds?: number;
+    sizeBytes?: number;
 }
 
 // ── Static Categories ────────────────────────────────────
@@ -100,6 +102,8 @@ const STATIC_CATEGORIES: BrowserCategory[] = [
 const SOURCE_FILTERS = ['Source: All', 'Source: Library', 'Source: Samples', 'Source: Plug-ins'] as const;
 const FORMAT_FILTERS = ['Format: All', 'WAV', 'AIFF', 'MP3', 'FLAC'] as const;
 const AUDIO_FILTERS = ['Audio: All', 'Loops', 'One Shot', 'Drums', 'Vocals'] as const;
+const SORT_FILTERS = ['Sort: Name ↑', 'Sort: Name ↓', 'Sort: Size ↑', 'Sort: Size ↓'] as const;
+const SIZE_FILTERS = ['Filter: All', '< 1 MB', '≥ 1 MB'] as const;
 
 const INTERNAL_INSTRUMENT_ITEMS: BrowserItem[] = [
     {
@@ -162,8 +166,11 @@ export const AssetBrowser = () => {
     const [sourceFilter, setSourceFilter] = useState(0);
     const [formatFilter, setFormatFilter] = useState(0);
     const [audioFilter, setAudioFilter] = useState(0);
+    const [sortFilter, setSortFilter] = useState(0);
+    const [sizeFilter, setSizeFilter] = useState(0);
     const [previewEnabled, setPreviewEnabled] = useState(true);
     const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+    const projectTracks = useEngineStore((s) => s.projectTracks);
 
     // Preview waveform state
     const [previewPeaks, setPreviewPeaks] = useState<PeakPair[] | null>(null);
@@ -353,6 +360,7 @@ export const AssetBrowser = () => {
                 meta: sizeLabel,
                 path: f.path,
                 durationSeconds: f.duration_seconds ?? undefined,
+                sizeBytes: f.size_bytes,
             };
         });
     }, [realFiles]);
@@ -367,6 +375,7 @@ export const AssetBrowser = () => {
             meta: f.extension,
             path: f.path,
             slotHint: 'auto' as const,
+            sizeBytes: f.size_bytes,
         }));
     }, [pluginFiles]);
 
@@ -381,10 +390,11 @@ export const AssetBrowser = () => {
                 name: f.name,
                 type: fileTypeToItemType(f.file_type),
                 format: f.extension || undefined,
-                meta: f.is_directory ? 'Folder' : `${f.extension} · ${sizeLabel}`,
+                meta: f.is_directory ? 'Folder' : sizeLabel,
                 path: f.path,
                 isDirectory: f.is_directory,
                 durationSeconds: f.duration_seconds ?? undefined,
+                sizeBytes: f.size_bytes,
             };
         });
     }, [folderItems]);
@@ -443,8 +453,24 @@ export const AssetBrowser = () => {
             base = base.filter(i => i.name.toLowerCase().includes(q));
         }
 
+        if (sizeFilter === 1) {
+            base = base.filter((i) => (i.sizeBytes ?? 0) < 1024 * 1024);
+        } else if (sizeFilter === 2) {
+            base = base.filter((i) => (i.sizeBytes ?? 0) >= 1024 * 1024);
+        }
+
+        if (sortFilter === 0) {
+            base = [...base].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+        } else if (sortFilter === 1) {
+            base = [...base].sort((a, b) => b.name.toLowerCase().localeCompare(a.name.toLowerCase()));
+        } else if (sortFilter === 2) {
+            base = [...base].sort((a, b) => (a.sizeBytes ?? 0) - (b.sizeBytes ?? 0));
+        } else {
+            base = [...base].sort((a, b) => (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0));
+        }
+
         return base;
-    }, [selectedCategoryId, searchQuery, realBrowserItems, pluginBrowserItems, folderBrowserItems, activeCategory, folderStack]);
+    }, [selectedCategoryId, searchQuery, realBrowserItems, pluginBrowserItems, folderBrowserItems, activeCategory, folderStack, sizeFilter, sortFilter]);
 
     // ── Progressive rendering: show items in batches to avoid 10K DOM nodes ──
     const RENDER_BATCH = 200;
@@ -498,6 +524,30 @@ export const AssetBrowser = () => {
         setFolderScanPath(null); // Force re-scan
     }, []);
 
+    const resolveSelectedTrackId = useCallback((): string | null => {
+        const selected = window.__dreamSelectedTrackId;
+        if (selected && selected !== 'master') return selected;
+        const firstUsable = projectTracks.find((t) => t.track_type !== 'Master');
+        return firstUsable?.id ?? null;
+    }, [projectTracks]);
+
+    const handleItemEnter = useCallback(async (item: BrowserItem | null) => {
+        if (!item) return;
+        if (item.type !== 'plugin') return;
+        if (!item.path) return;
+
+        const trackId = resolveSelectedTrackId();
+        if (!trackId) return;
+
+        const slot: 'instrument' | 'effect' | 'auto' = item.slotHint ?? 'auto';
+        try {
+            await engineApi.addPluginToTrack(trackId, item.path, item.name, slot);
+            await useEngineStore.getState().fetchProject();
+        } catch (err) {
+            console.error('[AssetBrowser] addPluginToTrack via Enter failed:', err);
+        }
+    }, [resolveSelectedTrackId]);
+
     // Track current section for collapse logic
     let currentSection: string | null = null;
 
@@ -529,14 +579,20 @@ export const AssetBrowser = () => {
                         }
                         setVisibleCount(RENDER_BATCH);
                     }}
+                    onKeyDown={(e) => {
+                        if (e.key !== 'Enter') return;
+                        e.preventDefault();
+                        const selected = items.find((it) => it.id === selectedItemId) ?? visibleItems[0] ?? null;
+                        void handleItemEnter(selected);
+                    }}
                     style={{
                         width: '100%',
-                        padding: '4px 8px',
+                        padding: '6px 10px',
                         background: 'var(--color-bg-input)',
                         color: 'var(--color-text-primary)',
                         border: '1px solid var(--color-border-subtle)',
                         borderRadius: 'var(--radius-xs)',
-                        fontSize: 'var(--font-size-xs)',
+                        fontSize: 'var(--font-size-sm)',
                         fontFamily: 'var(--font-mono)',
                         outline: 'none',
                     }}
@@ -580,12 +636,13 @@ export const AssetBrowser = () => {
                                         padding: '5px 6px 3px',
                                         background: 'none',
                                         border: 'none',
-                                        color: 'var(--color-text-secondary)',
-                                        fontSize: 9,
+                                        color: 'var(--color-text-primary)',
+                                        fontSize: 11,
                                         fontWeight: 700,
                                         textTransform: 'uppercase',
                                         letterSpacing: '0.04em',
                                         cursor: 'pointer',
+                                        opacity: 0.9,
                                     }}
                                 >
                                     <span style={{
@@ -620,12 +677,13 @@ export const AssetBrowser = () => {
                                         background: 'transparent',
                                         border: 'none',
                                         color: 'var(--color-accent-primary)',
-                                        fontSize: 10,
+                                        fontSize: 12,
+                                        fontWeight: 600,
                                         textAlign: 'left',
                                         cursor: 'pointer',
                                         transition: 'background var(--transition-fast)',
-                                        lineHeight: 1.6,
-                                        opacity: 0.8,
+                                        lineHeight: 1.9,
+                                        opacity: 0.95,
                                     }}
                                 >
                                     <span style={{ width: 13, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
@@ -658,15 +716,16 @@ export const AssetBrowser = () => {
                                     background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
                                     border: 'none',
                                     color: isSelected ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                                    fontSize: 10,
+                                    fontSize: 12,
+                                    fontWeight: isSelected ? 600 : 500,
                                     textAlign: 'left',
                                     cursor: 'pointer',
                                     transition: 'background var(--transition-fast)',
-                                    lineHeight: 1.6,
+                                    lineHeight: 1.9,
                                 }}
                             >
-                                <span style={{ width: 13, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
-                                    <BrowserGlyph name={cat.icon} size={11} />
+                                <span style={{ width: 14, display: 'inline-flex', justifyContent: 'center', flexShrink: 0, color: 'var(--color-text-primary)' }}>
+                                    <BrowserGlyph name={cat.icon} size={12} />
                                 </span>
                                 <span style={{
                                     whiteSpace: 'nowrap',
@@ -731,6 +790,16 @@ export const AssetBrowser = () => {
                                     options={AUDIO_FILTERS as unknown as string[]}
                                     value={audioFilter}
                                     onChange={setAudioFilter}
+                                />
+                                <FilterPill
+                                    options={SORT_FILTERS as unknown as string[]}
+                                    value={sortFilter}
+                                    onChange={setSortFilter}
+                                />
+                                <FilterPill
+                                    options={SIZE_FILTERS as unknown as string[]}
+                                    value={sizeFilter}
+                                    onChange={setSizeFilter}
                                 />
                             </>
                         )}
@@ -890,7 +959,7 @@ export const AssetBrowser = () => {
                                     style={{
                                         display: 'flex',
                                         flexDirection: 'column',
-                                        padding: '2px 6px',
+                                        padding: '4px 8px',
                                         cursor: item.isDirectory ? 'pointer' : (isDraggable ? 'grab' : 'default'),
                                         background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
                                         borderBottom: '1px solid var(--color-divider-light)',
@@ -911,8 +980,8 @@ export const AssetBrowser = () => {
                                         )}
                                         <span style={{
                                             color: 'var(--color-text-primary)',
-                                            fontSize: 10,
-                                            fontWeight: 400,
+                                            fontSize: 12,
+                                            fontWeight: 500,
                                             overflow: 'hidden',
                                             textOverflow: 'ellipsis',
                                             whiteSpace: 'nowrap',
@@ -933,9 +1002,9 @@ export const AssetBrowser = () => {
                                     </div>
                                     {item.meta && !item.isDirectory && (
                                         <span style={{
-                                            color: 'var(--color-text-tertiary)',
-                                            fontSize: 9,
-                                            paddingLeft: 14,
+                                            color: 'var(--color-text-secondary)',
+                                            fontSize: 10,
+                                            paddingLeft: 16,
                                         }}>
                                             {item.meta}
                                         </span>
@@ -977,29 +1046,29 @@ export const AssetBrowser = () => {
                 <div style={{
                     display: 'flex',
                     alignItems: 'center',
-                    padding: '3px 8px',
-                    gap: 6,
+                    padding: '4px 8px',
+                    gap: 5,
                     fontSize: 'var(--font-size-2xs)',
-                    color: 'var(--color-text-tertiary)',
+                    color: 'var(--color-text-secondary)',
                 }}>
                     <div style={{
                         flex: 1,
                         minWidth: 0,
-                        height: 18,
+                        height: 16,
                         borderRadius: 4,
                         border: '1px solid var(--color-border-subtle)',
-                        background: 'rgba(0,0,0,0.24)',
+                        background: 'rgba(0,0,0,0.18)',
                         overflow: 'hidden',
                         display: 'flex',
                         alignItems: 'center',
                         padding: '0 4px',
                     }}>
                         {previewPeaks ? (
-                            <PreviewWaveform peaks={previewPeaks} height={14} />
+                            <PreviewWaveform peaks={previewPeaks} height={12} />
                         ) : (
                             <div style={{
                                 width: '100%',
-                                height: 10,
+                                height: 8,
                                 borderRadius: 2,
                                 background: 'rgba(255,255,255,0.04)',
                             }} />
@@ -1021,22 +1090,22 @@ export const AssetBrowser = () => {
                         }}
                         title={previewEnabled ? 'Preview on' : 'Preview off'}
                         style={{
-                            width: 20,
-                            height: 20,
-                            minWidth: 20,
+                            width: 16,
+                            height: 16,
+                            minWidth: 16,
                             borderRadius: '50%',
                             border: '1px solid var(--color-border-subtle)',
-                            background: previewEnabled ? 'var(--color-accent-primary-dim)' : 'var(--color-control-bg)',
-                            color: previewEnabled ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)',
+                            background: previewEnabled ? 'var(--color-control-bg-active)' : 'var(--color-control-bg)',
+                            color: previewEnabled ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
                             cursor: 'pointer',
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            fontSize: 10,
+                            fontSize: 9,
                         }}
                         aria-pressed={previewEnabled}
                     >
-                        <BrowserGlyph name="headphones" size={11} />
+                        <BrowserGlyph name="headphones" size={9} />
                     </button>
                 </div>
             </div>
@@ -1059,15 +1128,15 @@ const itemTypeToIcon: Record<BrowserItem['type'], BrowserIconName> = {
 };
 
 const itemTypeToColor: Record<BrowserItem['type'], string> = {
-    audio: 'var(--color-browser-audio)',
-    instrument: 'var(--color-browser-midi)',
-    audioEffect: 'var(--color-browser-plugin)',
-    midiEffect: 'var(--color-browser-preset)',
-    plugin: 'var(--color-browser-plugin)',
-    folder: '#b7934c',
-    project: '#6ecf9f',
-    preset: '#c4a7e7',
-    other: 'var(--color-text-tertiary)',
+    audio: 'var(--color-text-primary)',
+    instrument: 'var(--color-text-primary)',
+    audioEffect: 'var(--color-text-primary)',
+    midiEffect: 'var(--color-text-primary)',
+    plugin: 'var(--color-text-primary)',
+    folder: 'var(--color-text-primary)',
+    project: 'var(--color-text-primary)',
+    preset: 'var(--color-text-primary)',
+    other: 'var(--color-text-secondary)',
 };
 
 const TypeIcon = ({ type }: { type: BrowserItem['type'] }) => (
@@ -1160,14 +1229,14 @@ const FilterPill = ({
     <button
         onClick={() => onChange((value + 1) % options.length)}
         style={{
-            background: value > 0 ? 'var(--color-accent-primary-dim)' : 'var(--color-control-bg)',
-            color: value > 0 ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)',
+            background: value > 0 ? 'var(--color-control-bg-active)' : 'var(--color-control-bg)',
+            color: value > 0 ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
             border: 'none',
             borderRadius: 'var(--radius-xs)',
-            padding: '2px 5px',
-            fontSize: 9,
+            padding: '3px 6px',
+            fontSize: 10,
             cursor: 'pointer',
-            fontWeight: 500,
+            fontWeight: 600,
             whiteSpace: 'nowrap',
         }}
     >

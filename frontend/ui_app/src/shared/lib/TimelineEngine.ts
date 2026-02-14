@@ -545,7 +545,7 @@ export class TimelineEngine {
                         clipOriginalDuration: 0,
                     };
                 } else {
-                    // Start ruler scrub (seek playhead)
+                    // Ruler click = set edit cursor (deferred seek on play).
                     const snapped = this._snapBeat(hit.beat);
                     this._drag = {
                         mode: DragMode.RulerScrub,
@@ -558,7 +558,7 @@ export class TimelineEngine {
                         clipOriginalTrack: 0,
                         clipOriginalDuration: 0,
                     };
-                    this.onPlayheadSeek?.(snapped);
+                    this.onEditCursorChange?.(snapped, this._editCursorTrack);
                 }
                 break;
             }
@@ -683,8 +683,9 @@ export class TimelineEngine {
 
         switch (this._drag.mode) {
             case DragMode.RulerScrub: {
+                // Ruler drag = continuous edit-cursor repositioning (no live scrub).
                 const snapped = this._snapBeat(Math.max(0, beat));
-                this.onPlayheadSeek?.(snapped);
+                this.onEditCursorChange?.(snapped, this._editCursorTrack);
                 break;
             }
 

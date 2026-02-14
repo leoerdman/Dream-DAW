@@ -24,35 +24,7 @@ import type {
     MeteringSnapshot,
     ImportAudioResponse,
 } from '@/shared/api/engine';
-
-// ── Timeline Clip Type (used by Timeline widget) ─────────────────────────
-
-export interface TimelineClip {
-    id: string;
-    name: string;
-    trackIndex: number;
-    startBeat: number;
-    durationBeats: number;
-    type: 'audio' | 'midi';
-    color: string;
-    selected?: boolean;
-    /** Absolute path to source audio file (for waveform rendering). */
-    filePath?: string;
-    /** Duration in samples (for waveform rendering). */
-    durationSamples?: number;
-    /** Source offset in samples (for trimmed clips). */
-    sourceOffset?: number;
-    /** Backend flagged clip as unresolved media. */
-    isOffline?: boolean;
-    /** MIDI notes relative to clip start (beats). */
-    midiNotes?: Array<{
-        id: string;
-        pitch: number;
-        startBeat: number;
-        durationBeats: number;
-        velocity: number;
-    }>;
-}
+import type { TimelineClip } from '@/shared/types/Arrangement';
 
 /** Track info from Rust project. */
 export interface ProjectTrack {

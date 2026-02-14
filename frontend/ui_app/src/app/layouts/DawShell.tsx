@@ -12,12 +12,13 @@ import { TrackInspector } from '@/widgets/TrackInspector/TrackInspector';
 import { StatusBar } from '@/widgets/StatusBar/StatusBar';
 import { Timeline } from '@/widgets/Timeline/Timeline';
 import { ClipRenderer } from '@/widgets/Timeline/ClipRenderer';
-import type { BrowserDragItem } from '@/widgets/Timeline/Timeline';
+import type { BrowserDragItem } from '@/shared/types/Arrangement';
 import { SettingsPanel } from '@/widgets/SettingsPanel/SettingsPanel';
 import { PianoRoll, type MidiNote } from '@/widgets/PianoRoll/PianoRoll';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { ExportModal } from '@/widgets/ExportModal/ExportModal';
 import * as engineApi from '@/shared/api/engine';
+import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
 
 /** Supported audio file extensions for drag-and-drop import. */
 const AUDIO_EXTENSIONS = new Set([
@@ -236,6 +237,15 @@ export const DawShell = () => {
         }
     }, [projectTracks, selectedTrackId]);
 
+    useEffect(() => {
+        window.__dreamSelectedTrackId = selectedTrackId;
+        return () => {
+            if (window.__dreamSelectedTrackId === selectedTrackId) {
+                delete window.__dreamSelectedTrackId;
+            }
+        };
+    }, [selectedTrackId]);
+
     // Use position_beats directly from engine (single-source, no float round-trip)
     const playheadBeat = transport.position_beats ?? 0;
 
@@ -375,12 +385,11 @@ export const DawShell = () => {
         const clampedBeat = Math.max(0, beat);
         setEditCursorBeat(clampedBeat);
         setEditCursorTrackIndex(Math.max(0, trackIndex));
-        // Hard separation: edit cursor NEVER forces playhead reposition while transport is running.
-        // Use latest store state (not render-time closure) to avoid race on play-toggle boundary.
-        if (!useEngineStore.getState().transport.is_playing) {
-            queuedStartBeatRef.current = clampedBeat;
-            void engineApi.seekToBeat(clampedBeat);
-        }
+        // Mutual exclusivity: edit cursor ⇒ deselect clips.
+        setSelectedClipId(null);
+        setSelectedClipIds([]);
+        // Queue the position — playhead jumps here when transport starts.
+        queuedStartBeatRef.current = clampedBeat;
     }, []);
 
     // Start playback from the edit cursor position.
@@ -401,42 +410,29 @@ export const DawShell = () => {
     const handleClipSelect = useCallback((clipId: string) => {
         setSelectedClipId(clipId);
         setSelectedClipIds([clipId]);
+        // Mutual exclusivity: clip selection ⇒ hide edit cursor.
+        setEditCursorBeat(-1);
     }, []);
 
     // Drop from AssetBrowser → Timeline
+    const {
+        dropBrowserItemOnTimeline,
+        dropPluginOnTrack,
+        addDefaultDeviceToTrack,
+    } = useBrowserDnDOrchestrator({
+        projectTracks,
+        projectBpm,
+        transportBpm: transport.bpm || 120,
+        projectSampleRate: useEngineStore.getState().projectSampleRate || 44100,
+        importFile,
+        fetchProject,
+    });
+
     const handleBrowserDrop = useCallback((item: BrowserDragItem, trackIndex: number, beat: number) => {
         console.log('[DawShell] handleBrowserDrop', { item, trackIndex, beat });
-        if (item.type === 'plugin') {
-            const targetTrack = projectTracks[Math.max(0, Math.min(projectTracks.length - 1, trackIndex))];
-            if (!targetTrack || !item.path) return;
-            const slot: 'instrument' | 'effect' =
-                item.slotHint === 'instrument'
-                    ? 'instrument'
-                    : item.slotHint === 'effect'
-                        ? 'effect'
-                        : targetTrack.track_type === 'Midi' && !targetTrack.instrument
-                            ? 'instrument'
-                            : 'effect';
-            void engineApi.addPluginToTrack(targetTrack.id, item.path, item.name, slot)
-                .then(fetchProject)
-                .catch((err) => console.error('[DawShell] addPluginToTrack (timeline drop) failed:', err));
-            return;
-        }
-        if (item.type !== 'audio' && item.type !== 'midi') {
-            return;
-        }
-        if (item.path) {
-            // Convert drop beat → sample frames so the clip lands at the exact drop position
-            // Use authoritative projectBpm (from PulseMap), fall back to transport
-            const bpm = projectBpm || transport.bpm || 120;
-            const sr = useEngineStore.getState().projectSampleRate || 44100;
-            const posSeconds = beat / (bpm / 60);
-            const positionFrames = Math.round(posSeconds * sr);
-            importFile(item.path, trackIndex, positionFrames);
-        } else {
-            console.error(`[DawShell] Cannot import '${item.name}': no file path (demo items are not real files)`);
-        }
-    }, [importFile, projectBpm, transport.bpm, projectTracks, fetchProject]);
+        void dropBrowserItemOnTimeline(item, trackIndex, beat)
+            .catch((err) => console.error('[DawShell] browser drop failed:', err));
+    }, [dropBrowserItemOnTimeline]);
 
     // Double-click on track lane → create 1-bar MIDI clip
     const handleDoubleClickTrack = useCallback((trackIndex: number, beat: number) => {
@@ -625,6 +621,8 @@ export const DawShell = () => {
                                 onClipSelectionChange={(ids) => {
                                     setSelectedClipIds(ids);
                                     setSelectedClipId(ids[ids.length - 1] ?? null);
+                                    // Mutual exclusivity: clip selection ⇒ hide edit cursor.
+                                    if (ids.length > 0) setEditCursorBeat(-1);
                                 }}
                                 onClipMove={handleClipMove}
                                 onClipResize={handleClipResize}
@@ -673,7 +671,11 @@ export const DawShell = () => {
                 >
                     {bottomPanelMode === 'rack' ? (
                         <ErrorBoundary module="Device Rack">
-                            <DeviceRack selectedTrackId={selectedTrackId} />
+                            <DeviceRack
+                                selectedTrackId={selectedTrackId}
+                                onDropPluginToTrack={(item, trackId) => dropPluginOnTrack(item, trackId)}
+                                onAddDefaultDeviceToTrack={(trackId) => addDefaultDeviceToTrack(trackId)}
+                            />
                         </ErrorBoundary>
                     ) : (
                         <ErrorBoundary module="Clip Editor">

@@ -739,6 +739,7 @@ export class CanvasClipRenderer {
         track: number,
         theme: TimelineTheme,
     ): void {
+        if (beat < 0) return; // Hidden when clip is selected (mutual exclusivity)
         const x = vp.beatsToScreenX(beat);
         if (x < -2 || x > vp.viewportWidth + 2) return;
 

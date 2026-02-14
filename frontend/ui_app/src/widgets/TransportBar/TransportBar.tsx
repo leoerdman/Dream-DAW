@@ -1,12 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
-import { useGridStore } from '@/shared/stores/useGridStore';
-import { ALL_DIVISIONS } from '@/shared/lib/gridSnap';
 import * as engineApi from '@/shared/api/engine';
 import {
-    Magnet,
-    ChevronDown,
     Play,
     Square,
     Circle,
@@ -14,18 +10,8 @@ import {
     RotateCcw,
     ArrowRight,
     Music,
-    Settings
+    Settings,
 } from 'lucide-react';
-
-/**
- * TransportBar — Full Ableton-style top control bar.
- * 
- * Layout (from TransportBarView.swift):
- * [File | Tap | BPM | TimeSig | Quantize] | [◀ ▶ ■ ● Rec] | [Loop] | [Key On/Off | Note | Mode] | [Position] ... [MIDI] [CPU]
- *
- * Height: 32px (controlBarHeight from DreamTheme.swift)
- * Background: bgElevated with bottom divider
- */
 
 const KEY_TONICS = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'] as const;
 const KEY_MODES = ['Major', 'Minor', 'Dorian', 'Mixolydian', 'Phrygian', 'Lydian'] as const;
@@ -45,7 +31,6 @@ export const TransportBar = ({
     followPlayhead = false,
     onFollowPlayheadChange,
 }: TransportBarProps) => {
-    // ── Engine Store (REAL IPC) ──────────────────────────────────────
     const isPlaying = useEngineStore((s) => s.transport.is_playing);
     const bpm = useEngineStore((s) => s.transport.bpm);
     const isLooping = useEngineStore((s) => s.transport.loop_enabled);
@@ -59,35 +44,17 @@ export const TransportBar = ({
     const engineSetLoop = useEngineStore((s) => s.setLoop);
     const projectTracks = useEngineStore((s) => s.projectTracks);
 
-    // Local-only UI state (not engine-connected yet)
     const [isRecording, setIsRecording] = useState(false);
-
-    // Tempo editing
     const [bpmEditing, setBpmEditing] = useState(false);
     const [bpmText, setBpmText] = useState(bpm.toFixed(2));
     const bpmRef = useRef<HTMLInputElement>(null);
 
-    // Time signature (local until engine supports it)
     const [timeSigNum] = useState(4);
     const [timeSigDen] = useState(4);
-
-    // Quantize — from global grid store
-    const gridDivision = useGridStore((s) => s.division);
-    const gridTriplet = useGridStore((s) => s.triplet);
-    const setGridDivision = useGridStore((s) => s.setDivision);
-    const snapEnabled = useGridStore((s) => s.snapEnabled);
-    const setSnapEnabled = useGridStore((s) => s.setSnapEnabled);
-
-    // Grid dropdown
-    const [gridDropdownOpen, setGridDropdownOpen] = useState(false);
-    const gridDropdownRef = useRef<HTMLDivElement>(null);
-
-    // Key signature
     const [keyEnabled, setKeyEnabled] = useState(false);
     const [keyTonic, setKeyTonic] = useState(0);
     const [keyMode, setKeyMode] = useState(0);
 
-    // Position — computed from engine's live playhead beats (single source of truth)
     const position = (() => {
         const bar = Math.floor(posBeats / timeSigNum) + 1;
         const beat = Math.floor(posBeats % timeSigNum) + 1;
@@ -95,10 +62,7 @@ export const TransportBar = ({
         return { bar, beat, sub };
     })();
 
-    // Tap tempo
     const tapTimestamps = useRef<number[]>([]);
-
-    // CPU simulation
     const [cpuPercent] = useState(4);
     const midiLedRef = useRef<HTMLSpanElement>(null);
     const midiLedTimerRef = useRef<number | null>(null);
@@ -134,22 +98,8 @@ export const TransportBar = ({
         setBpmEditing(false);
     };
 
-    const quantizeLabel = gridDivision === 'ADAPTIVE' ? 'Auto' : gridTriplet ? `${gridDivision}T` : gridDivision;
-    const cycleKeyTonic = () => setKeyTonic(i => (i + 1) % KEY_TONICS.length);
-    const cycleKeyMode = () => setKeyMode(i => (i + 1) % KEY_MODES.length);
-
-    // Close grid dropdown on outside click
-    useEffect(() => {
-        if (!gridDropdownOpen) return;
-        const handler = (e: MouseEvent) => {
-            if (gridDropdownRef.current && !gridDropdownRef.current.contains(e.target as Node)) {
-                setGridDropdownOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
-    }, [gridDropdownOpen]);
-
+    const cycleKeyTonic = () => setKeyTonic((i) => (i + 1) % KEY_TONICS.length);
+    const cycleKeyMode = () => setKeyMode((i) => (i + 1) % KEY_MODES.length);
     const posString = `${position.bar}.${position.beat}.${position.sub.toString().padStart(2, '0')}`;
 
     const handleRecordToggle = useCallback(async () => {
@@ -192,44 +142,32 @@ export const TransportBar = ({
                 window.clearTimeout(midiLedTimerRef.current);
                 midiLedTimerRef.current = null;
             }
-            if (unlisten) {
-                unlisten();
-            }
+            if (unlisten) unlisten();
         };
     }, []);
 
     return (
-        <div
-            className="glass-pill"
-            style={{
-                height: 'var(--daw-transport-height)',
-                zIndex: 'var(--z-transport)',
-                fontSize: 'var(--font-size-xs)',
-            }}
-        >
-
-            {/* ── LEFT: Tap + BPM + TimeSig + Quantize ── */}
-            <Section>
+        <div className="glass-pill" style={{ height: 'var(--daw-transport-height)', zIndex: 'var(--z-transport)' }}>
+            <PillSection>
                 <ControlButton label="Tap" onClick={handleTapTempo} />
-
                 {bpmEditing ? (
                     <input
                         ref={bpmRef}
                         type="text"
                         value={bpmText}
-                        onChange={e => setBpmText(e.target.value)}
+                        onChange={(e) => setBpmText(e.target.value)}
                         onBlur={commitBpm}
-                        onKeyDown={e => e.key === 'Enter' && commitBpm()}
+                        onKeyDown={(e) => e.key === 'Enter' && commitBpm()}
                         autoFocus
                         style={{
-                            width: 52,
+                            width: 56,
                             background: 'var(--color-bg-input)',
                             color: 'var(--color-text-primary)',
                             border: '1px solid var(--color-accent-primary)',
                             borderRadius: 'var(--radius-xs)',
                             fontFamily: 'var(--font-mono)',
                             fontSize: 'var(--font-size-sm)',
-                            fontWeight: 500,
+                            fontWeight: 600,
                             textAlign: 'center',
                             padding: '1px 4px',
                             outline: 'none',
@@ -245,132 +183,25 @@ export const TransportBar = ({
                             color: 'var(--color-text-primary)',
                             fontFamily: 'var(--font-mono)',
                             fontSize: 'var(--font-size-sm)',
-                            fontWeight: 600,
-                            padding: '1px 6px',
+                            fontWeight: 700,
+                            padding: '1px 8px',
                             cursor: 'pointer',
-                            minWidth: 52,
+                            minWidth: 56,
                             textAlign: 'center',
                         }}
                     >
                         {bpm.toFixed(2)}
                     </button>
                 )}
-
-                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)', fontWeight: 500, padding: '0 4px' }}>
-                    {timeSigNum}<span style={{ color: 'var(--color-text-tertiary)', margin: '0 1px' }}>/</span>{timeSigDen}
+                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)', fontWeight: 600, padding: '0 4px' }}>
+                    {timeSigNum}<span style={{ color: 'var(--color-text-secondary)', margin: '0 1px' }}>/</span>{timeSigDen}
                 </span>
+            </PillSection>
 
-                <button
-                    onClick={() => setSnapEnabled(!snapEnabled)}
-                    title={snapEnabled ? 'Snap enabled (click to disable)' : 'Snap disabled (click to enable)'}
-                    style={{
-                        background: snapEnabled ? 'rgba(74, 158, 255, 0.2)' : 'transparent',
-                        border: snapEnabled ? '1px solid rgba(74, 158, 255, 0.45)' : '1px solid transparent',
-                        color: snapEnabled ? '#4a9eff' : 'var(--color-text-quaternary)',
-                        borderRadius: 'var(--radius-xs)',
-                        padding: '2px 4px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        transition: 'all 0.15s ease',
-                    }}
-                >
-                    <Magnet size={14} style={{ transform: snapEnabled ? 'none' : 'rotate(-15deg)', transition: 'transform 0.2s' }} />
-                </button>
-
-                {/* Grid dropdown */}
-                <div ref={gridDropdownRef} style={{ position: 'relative' }}>
-                    <button
-                        onClick={() => setGridDropdownOpen(!gridDropdownOpen)}
-                        className="btn-control"
-                        style={{
-                            fontFamily: 'var(--font-mono)',
-                            opacity: gridDivision === 'OFF' ? 0.45 : 1,
-                            minWidth: 44,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            justifyContent: 'center',
-                        }}
-                        title="Grid Division"
-                    >
-                        {quantizeLabel}
-                        <ChevronDown size={11} style={{ opacity: 0.5 }} />
-                    </button>
-
-                    {gridDropdownOpen && (
-                        <div
-                            style={{
-                                position: 'absolute',
-                                top: '100%',
-                                left: 0,
-                                marginTop: 4,
-                                background: 'rgba(30, 30, 40, 0.96)',
-                                backdropFilter: 'blur(16px)',
-                                border: '1px solid rgba(255, 255, 255, 0.08)',
-                                borderRadius: 'var(--radius-sm)',
-                                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
-                                padding: '4px 0',
-                                zIndex: 9999,
-                                minWidth: 110,
-                            }}
-                        >
-                            {ALL_DIVISIONS.map((div) => {
-                                const isActive = gridDivision === div;
-                                const label = div === 'ADAPTIVE' ? '✨ Adaptive' : div;
-                                return (
-                                    <button
-                                        key={div}
-                                        onClick={() => {
-                                            setGridDivision(div);
-                                            setGridDropdownOpen(false);
-                                        }}
-                                        style={{
-                                            display: 'block',
-                                            width: '100%',
-                                            padding: '5px 12px',
-                                            background: isActive
-                                                ? 'rgba(74, 158, 255, 0.18)'
-                                                : 'transparent',
-                                            border: 'none',
-                                            color: isActive
-                                                ? '#4a9eff'
-                                                : 'var(--color-text-secondary)',
-                                            fontFamily: 'var(--font-mono)',
-                                            fontSize: 'var(--font-size-xs)',
-                                            fontWeight: isActive ? 600 : 400,
-                                            textAlign: 'left',
-                                            cursor: 'pointer',
-                                            transition: 'background 0.1s ease',
-                                        }}
-                                        onMouseEnter={e =>
-                                            !isActive && (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)')
-                                        }
-                                        onMouseLeave={e =>
-                                            !isActive && (e.currentTarget.style.background = 'transparent')
-                                        }
-                                    >
-                                        {label}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
-            </Section>
-
-            <Divider />
-
-            {/* ── CENTER: Transport Controls ── */}
-            <Section>
+            <PillSection>
+                <TransportBtn icon={<Rewind size={14} fill="currentColor" />} title="Rewind" onClick={() => {}} />
                 <TransportBtn
-                    icon={<Rewind size={14} fill="currentColor" />}
-                    title="Rewind"
-                    onClick={() => { }}
-                />
-                <TransportBtn
-                    icon={<Play size={14} fill={isPlaying ? "currentColor" : "none"} />}
+                    icon={<Play size={14} fill={isPlaying ? 'currentColor' : 'none'} />}
                     title="Play"
                     isActive={isPlaying}
                     activeColor="var(--color-status-success)"
@@ -382,9 +213,7 @@ export const TransportBar = ({
                     onClick={() => {
                         engineStop();
                         if (isRecording) {
-                            engineApi.stopRecording().catch((err) =>
-                                console.error('[TransportBar] stopRecording failed:', err),
-                            );
+                            engineApi.stopRecording().catch((err) => console.error('[TransportBar] stopRecording failed:', err));
                             setIsRecording(false);
                             onRecordingStateChange?.({
                                 active: false,
@@ -394,24 +223,21 @@ export const TransportBar = ({
                     }}
                 />
                 <TransportBtn
-                    icon={<Circle size={12} fill={isRecording ? "currentColor" : "none"} />}
+                    icon={<Circle size={12} fill={isRecording ? 'currentColor' : 'none'} />}
                     title="Record"
                     isActive={isRecording}
                     activeColor="var(--color-status-record)"
                     className={isRecording ? 'animate-pulse-record' : ''}
                     onClick={() => { void handleRecordToggle(); }}
                 />
-            </Section>
-
-            <Divider />
-
-            {/* ── LOOP ── */}
-            <Section>
-                <button
+                <TransportBtn
+                    icon={<RotateCcw size={14} />}
+                    title="Toggle Loop"
+                    isActive={isLooping}
+                    activeColor="var(--color-accent-primary)"
                     onClick={() => {
                         const newEnabled = !isLooping;
                         if (newEnabled && loopStartFrames === 0 && loopEndFrames === 0) {
-                            // First-time enable: set 4-beat loop from current position
                             const sr = sampleRate || 44100;
                             const currentBpm = bpm || 120;
                             const framesPerBeat = sr * 60 / currentBpm;
@@ -422,112 +248,48 @@ export const TransportBar = ({
                             void engineSetLoop(newEnabled, loopStartFrames, loopEndFrames);
                         }
                     }}
-                    title="Toggle Loop"
-                    style={{
-                        background: isLooping ? 'rgba(30, 120, 255, 0.25)' : 'transparent',
-                        border: isLooping ? '1px solid rgba(30, 120, 255, 0.5)' : '1px solid transparent',
-                        color: isLooping ? '#3b9eff' : 'var(--color-text-tertiary)',
-                        borderRadius: 'var(--radius-xs)',
-                        padding: '2px 4px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        transition: 'all 0.15s ease',
-                    }}
-                >
-                    <RotateCcw size={14} style={{ transform: isLooping ? 'none' : 'rotate(-45deg)', transition: 'transform 0.3s' }} />
-                </button>
-
-                <Divider />
-
-                <button
-                    onClick={() => onFollowPlayheadChange?.(!followPlayhead)}
+                />
+                <TransportBtn
+                    icon={<ArrowRight size={14} strokeWidth={followPlayhead ? 3 : 2} />}
                     title="Follow Playhead"
-                    style={{
-                        background: followPlayhead ? 'var(--color-accent-primary-dim)' : 'transparent',
-                        border: 'none',
-                        color: followPlayhead ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
-                        borderRadius: 'var(--radius-xs)',
-                        padding: '2px 4px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                    }}
-                >
-                    <ArrowRight size={14} strokeWidth={followPlayhead ? 3 : 2} />
-                </button>
-            </Section>
-
-            <Divider />
-
-            {/* ── KEY SIGNATURE ── */}
-            <Section>
-                <button
-                    onClick={() => setKeyEnabled(!keyEnabled)}
-                    style={{
-                        background: keyEnabled ? 'var(--color-accent-primary-dim)' : 'transparent',
-                        border: 'none',
-                        color: keyEnabled ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
-                        borderRadius: 'var(--radius-xs)',
-                        padding: '2px 4px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                    }}
-                    title="Enable Key"
-                >
-                    <Music size={13} fill={keyEnabled ? "currentColor" : "none"} />
-                </button>
-                <ControlButton
-                    label={KEY_TONICS[keyTonic]}
-                    onClick={cycleKeyTonic}
-                    dimmed={!keyEnabled}
+                    isActive={followPlayhead}
+                    activeColor="var(--color-accent-primary)"
+                    onClick={() => onFollowPlayheadChange?.(!followPlayhead)}
                 />
-                <ControlButton
-                    label={KEY_MODES[keyMode]}
-                    onClick={cycleKeyMode}
-                    dimmed={!keyEnabled}
-                />
-            </Section>
-
-            <Divider />
-
-            {/* ── POSITION ── */}
-            <Section>
                 <span
                     style={{
                         fontFamily: 'var(--font-mono)',
                         fontSize: 'var(--font-size-sm)',
-                        fontWeight: 600,
+                        fontWeight: 700,
                         color: 'var(--color-text-primary)',
                         background: 'var(--color-bg-input)',
                         borderRadius: 'var(--radius-xs)',
                         padding: '2px 8px',
-                        minWidth: 72,
+                        minWidth: 74,
                         textAlign: 'right',
                         display: 'inline-block',
                     }}
                 >
                     {posString}
                 </span>
-            </Section>
+            </PillSection>
 
-            {/* ── SPACER ── */}
+            <PillSection>
+                <TransportBtn
+                    icon={<Music size={13} fill={keyEnabled ? 'currentColor' : 'none'} />}
+                    title="Enable Key"
+                    isActive={keyEnabled}
+                    activeColor="var(--color-accent-primary)"
+                    onClick={() => setKeyEnabled(!keyEnabled)}
+                />
+                <ControlButton label={KEY_TONICS[keyTonic]} onClick={cycleKeyTonic} dimmed={!keyEnabled} />
+                <ControlButton label={KEY_MODES[keyMode]} onClick={cycleKeyMode} dimmed={!keyEnabled} />
+            </PillSection>
+
             <div style={{ flex: 1 }} />
 
-            <Divider />
-
-            <Section>
+            <PillSection>
                 <ControlButton label="Bounce" onClick={() => onOpenExport?.()} />
-            </Section>
-
-            <Divider />
-
-            {/* ── RIGHT: MIDI + CPU ── */}
-            <Section>
                 <span
                     ref={midiLedRef}
                     style={{
@@ -538,74 +300,53 @@ export const TransportBar = ({
                         opacity: 0.35,
                         boxShadow: '0 0 8px rgba(51, 209, 122, 0.75)',
                         transition: 'opacity 40ms linear',
-                        marginRight: 4,
                     }}
                 />
-                <span style={{
-                    fontSize: 'var(--font-size-2xs)',
-                    fontWeight: 500,
-                    color: 'var(--color-midi-indicator)',
-                }}>
-                    MIDI
-                </span>
-            </Section>
-
-            <Divider />
-
-            <Section style={{ paddingRight: 4 }}>
-                <span style={{
-                    fontSize: 'var(--font-size-2xs)',
-                    color: 'var(--color-text-tertiary)',
-                    fontFamily: 'var(--font-mono)',
-                    fontWeight: 500,
-                }}>
+                <span style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 600, color: 'var(--color-midi-indicator)' }}>MIDI</span>
+                <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
                     CPU {cpuPercent}%
                 </span>
-            </Section>
-
-            <Divider />
-
-            {/* Settings Gear */}
-            <Section style={{ paddingRight: 8 }}>
                 <button
                     onClick={onSettingsClick}
                     title="Settings (⌘,)"
                     style={{
-                        width: 24, height: 24,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        width: 24,
+                        height: 24,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                         background: 'transparent',
                         border: 'none',
                         borderRadius: 'var(--radius-xs)',
-                        color: 'var(--color-text-tertiary)',
+                        color: 'var(--color-text-secondary)',
                         cursor: 'pointer',
-                        transition: 'color var(--transition-fast)',
                     }}
-                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-text-primary)')}
-                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-text-tertiary)')}
                 >
                     <Settings size={15} />
                 </button>
-            </Section>
-        </div >
+            </PillSection>
+        </div>
     );
 };
 
-
-// ── Sub-components ──────────────────────────────────────────
-
-const Section = ({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) => (
-    <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 2,
-        padding: '0 var(--section-pad-h)',
-        ...style,
-    }}>
+const PillSection = ({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) => (
+    <div
+        style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            padding: '0 8px',
+            margin: '0 4px',
+            height: 26,
+            borderRadius: 'var(--radius-md)',
+            background: 'color-mix(in srgb, var(--color-bg-panel) 80%, transparent)',
+            border: '1px solid var(--color-divider)',
+            ...style,
+        }}
+    >
         {children}
     </div>
 );
-
-const Divider = () => <div className="glass-divider" />;
 
 const ControlButton = ({ label, onClick, dimmed }: { label: string; onClick: () => void; dimmed?: boolean }) => (
     <button
@@ -613,7 +354,7 @@ const ControlButton = ({ label, onClick, dimmed }: { label: string; onClick: () 
         className="btn-control"
         style={{
             fontFamily: 'var(--font-mono)',
-            opacity: dimmed ? 0.45 : 1,
+            opacity: dimmed ? 0.35 : 1,
         }}
     >
         {label}
@@ -621,22 +362,34 @@ const ControlButton = ({ label, onClick, dimmed }: { label: string; onClick: () 
 );
 
 const TransportBtn = ({
-    icon, title, isActive, activeColor, onClick, className,
+    icon,
+    title,
+    isActive,
+    activeColor,
+    onClick,
+    className,
 }: {
-    icon: React.ReactNode; title: string; isActive?: boolean; activeColor?: string; onClick: () => void; className?: string;
+    icon: React.ReactNode;
+    title: string;
+    isActive?: boolean;
+    activeColor?: string;
+    onClick: () => void;
+    className?: string;
 }) => (
     <button
         onClick={onClick}
         title={title}
         className={className}
         style={{
-            width: 24, height: 24,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 24,
+            height: 24,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
             background: isActive ? `color-mix(in srgb, ${activeColor} 15%, transparent)` : 'transparent',
             border: 'none',
             borderRadius: 'var(--radius-xs)',
-            color: isActive ? activeColor : 'var(--color-text-tertiary)',
-            fontSize: 'var(--font-size-sm)',
+            color: isActive ? activeColor : 'var(--color-text-secondary)',
             cursor: 'pointer',
             transition: 'all var(--transition-fast)',
         }}

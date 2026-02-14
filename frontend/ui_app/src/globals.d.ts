@@ -8,6 +8,7 @@ declare const __APP_VERSION__: string
 interface Window {
     __dreamInAppDrag?: boolean;
     __dreamFlushPendingEdits?: () => Promise<void>;
+    __dreamSelectedTrackId?: string;
 }
 
 declare module 'lodash.throttle' {

@@ -14,6 +14,9 @@
 
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
+import { useGridStore } from '@/shared/stores/useGridStore';
+import { ALL_DIVISIONS } from '@/shared/lib/gridSnap';
+import { useState, useRef, useEffect } from 'react';
 
 interface StatusBarProps {
     projectEnd?: string;
@@ -41,12 +44,29 @@ export const StatusBar = ({
     // Live values from engine store
     const sampleRate = projectSampleRate || 44100;
     const trackCount = projectTracks.length;
+    const gridDivision = useGridStore((s) => s.division);
+    const gridTriplet = useGridStore((s) => s.triplet);
+    const setGridDivision = useGridStore((s) => s.setDivision);
+    const [gridOpen, setGridOpen] = useState(false);
+    const gridRef = useRef<HTMLDivElement | null>(null);
 
     // Compute bar.beat.sub from live playhead
     const bar = Math.floor((positionSeconds / 60) * bpm / 4) + 1;
     const beat = Math.floor(((positionSeconds / 60) * bpm) % 4) + 1;
     const sub = Math.floor((((positionSeconds / 60) * bpm) % 1) * 96);
     const position = `${bar}.${beat}.${sub.toString().padStart(2, '0')}`;
+    const gridLabel = gridDivision === 'ADAPTIVE' ? 'Auto' : gridTriplet ? `${gridDivision}T` : gridDivision;
+
+    useEffect(() => {
+        if (!gridOpen) return;
+        const onDown = (e: MouseEvent) => {
+            if (gridRef.current && !gridRef.current.contains(e.target as Node)) {
+                setGridOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [gridOpen]);
 
     return (
         <div style={{ flexShrink: 0 }}>
@@ -123,6 +143,68 @@ export const StatusBar = ({
                             background: 'var(--color-text-tertiary)',
                         }} />
                         <StatusText>Main</StatusText>
+                    </div>
+                    <div ref={gridRef} style={{ position: 'relative' }}>
+                        <button
+                            onClick={() => setGridOpen((v) => !v)}
+                            style={{
+                                border: '1px solid var(--color-control-border)',
+                                borderRadius: 4,
+                                background: 'var(--color-control-bg)',
+                                color: 'var(--color-text-primary)',
+                                fontSize: 10,
+                                fontFamily: 'var(--font-mono)',
+                                fontWeight: 600,
+                                padding: '2px 6px',
+                                cursor: 'pointer',
+                            }}
+                            title="Grid Size"
+                        >
+                            Grid {gridLabel}
+                        </button>
+                        {gridOpen && (
+                            <div
+                                style={{
+                                    position: 'absolute',
+                                    right: 0,
+                                    bottom: 22,
+                                    minWidth: 100,
+                                    background: 'var(--color-bg-elevated)',
+                                    border: '1px solid var(--color-divider)',
+                                    borderRadius: 4,
+                                    boxShadow: '0 8px 18px rgba(0,0,0,0.35)',
+                                    zIndex: 1200,
+                                    padding: '4px 0',
+                                }}
+                            >
+                                {ALL_DIVISIONS.map((div) => {
+                                    const active = gridDivision === div;
+                                    const label = div === 'ADAPTIVE' ? 'Auto' : div;
+                                    return (
+                                        <button
+                                            key={div}
+                                            onClick={() => {
+                                                setGridDivision(div);
+                                                setGridOpen(false);
+                                            }}
+                                            style={{
+                                                width: '100%',
+                                                textAlign: 'left',
+                                                border: 'none',
+                                                background: active ? 'var(--color-accent-primary-dim)' : 'transparent',
+                                                color: active ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                                                fontSize: 10,
+                                                fontFamily: 'var(--font-mono)',
+                                                padding: '4px 8px',
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            {label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

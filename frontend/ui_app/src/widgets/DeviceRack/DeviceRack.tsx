@@ -5,6 +5,7 @@ import { useDragStore } from '@/shared/stores/useDragStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import * as engineApi from '@/shared/api/engine';
 import { PluginWindow } from '@/widgets/PluginWindow/PluginWindow';
+import type { BrowserDragItem } from '@/shared/types/Arrangement';
 
 /**
  * DeviceRack — Bottom panel: instrument & effects signal chain.
@@ -144,9 +145,15 @@ function errorMessage(err: unknown): string {
 
 interface DeviceRackProps {
     selectedTrackId: string;
+    onDropPluginToTrack?: (item: BrowserDragItem, trackId: string) => Promise<void>;
+    onAddDefaultDeviceToTrack?: (trackId: string) => Promise<void>;
 }
 
-export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
+export const DeviceRack = ({
+    selectedTrackId,
+    onDropPluginToTrack,
+    onAddDefaultDeviceToTrack,
+}: DeviceRackProps) => {
     const [localBypass, setLocalBypass] = useState<Record<string, boolean>>({});
     const [localParams, setLocalParams] = useState<Record<string, number>>({});
     const [pluginCapability, setPluginCapability] = useState<
@@ -461,23 +468,27 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
                 return;
             }
 
-            const hint = dragging.slotHint ?? 'auto';
-            const slot: 'instrument' | 'effect' =
-                hint === 'instrument'
-                    ? 'instrument'
-                    : hint === 'effect'
-                        ? 'effect'
-                        : targetTrack.track_type === 'Midi' && !targetTrack.instrument
-                            ? 'instrument'
-                            : 'effect';
             try {
-                await engineApi.addPluginToTrack(
-                    targetTrack.id,
-                    dragging.path,
-                    dragging.name,
-                    slot,
-                );
-                await fetchProject();
+                if (onDropPluginToTrack) {
+                    await onDropPluginToTrack(dragging, targetTrack.id);
+                } else {
+                    const hint = dragging.slotHint ?? 'auto';
+                    const slot: 'instrument' | 'effect' =
+                        hint === 'instrument'
+                            ? 'instrument'
+                            : hint === 'effect'
+                                ? 'effect'
+                                : targetTrack.track_type === 'Midi' && !targetTrack.instrument
+                                    ? 'instrument'
+                                    : 'effect';
+                    await engineApi.addPluginToTrack(
+                        targetTrack.id,
+                        dragging.path,
+                        dragging.name,
+                        slot,
+                    );
+                    await fetchProject();
+                }
                 statusClear();
             } catch (err) {
                 console.error('[DeviceRack] addPluginToTrack failed:', err);
@@ -494,7 +505,7 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
             window.removeEventListener('mousemove', onMouseMove);
             window.removeEventListener('mouseup', onMouseUp, true);
         };
-    }, [isDropActive, isMaster, selectedTrack, projectTracks, fetchProject, statusClear, statusError]);
+    }, [isDropActive, isMaster, selectedTrack, projectTracks, fetchProject, statusClear, statusError, onDropPluginToTrack]);
 
     return (
         <>
@@ -689,12 +700,16 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
                                 statusError('No target track selected.');
                                 return;
                             }
-                            const addInstrument = targetTrack.track_type === 'Midi' && !targetTrack.instrument;
-                            const pluginId = addInstrument ? 'internal://instrument/sampler' : 'internal://effect/utility';
-                            const pluginName = addInstrument ? 'Sampler' : 'Utility';
-                            const slot: 'instrument' | 'effect' = addInstrument ? 'instrument' : 'effect';
                             try {
-                                await engineApi.addPluginToTrack(targetTrack.id, pluginId, pluginName, slot);
+                                if (onAddDefaultDeviceToTrack) {
+                                    await onAddDefaultDeviceToTrack(targetTrack.id);
+                                } else {
+                                    const addInstrument = targetTrack.track_type === 'Midi' && !targetTrack.instrument;
+                                    const pluginId = addInstrument ? 'internal://instrument/sampler' : 'internal://effect/utility';
+                                    const pluginName = addInstrument ? 'Sampler' : 'Utility';
+                                    const slot: 'instrument' | 'effect' = addInstrument ? 'instrument' : 'effect';
+                                    await engineApi.addPluginToTrack(targetTrack.id, pluginId, pluginName, slot);
+                                }
                                 await fetchProject();
                                 statusClear();
                             } catch (err) {
@@ -1134,9 +1149,9 @@ const PluginGuiSurface = ({
                 gridTemplateRows: '78px auto',
                 height: '100%',
                 gap: 4,
-                border: '1px solid #49505d',
+                border: '1px solid color-mix(in srgb, var(--surface-3) 80%, #49505d)',
                 borderRadius: 6,
-                background: 'linear-gradient(180deg, #2c313a 0%, #262b33 100%)',
+                background: 'linear-gradient(180deg, color-mix(in srgb, var(--surface-3) 84%, #2f4058) 0%, color-mix(in srgb, var(--surface-2) 88%, #1c2735) 100%)',
                 overflow: 'hidden',
             }}>
                 <div
@@ -1156,14 +1171,14 @@ const PluginGuiSurface = ({
                     <div style={{
                         position: 'absolute',
                         inset: 0,
-                        background: 'linear-gradient(180deg, rgba(18, 21, 28, 0.96) 0%, rgba(12, 15, 22, 0.96) 100%)',
+                        background: 'linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 90%, #0f1622) 0%, color-mix(in srgb, var(--surface-1) 90%, #0a101a) 100%)',
                     }} />
                     <svg
                         viewBox="0 0 1000 90"
                         preserveAspectRatio="none"
                         style={{ position: 'absolute', left: 8, right: 8, top: 20, height: 40, width: 'calc(100% - 16px)' }}
                     >
-                        <rect x="0" y="0" width="1000" height="90" fill="#191f2b" />
+                        <rect x="0" y="0" width="1000" height="90" fill="color-mix(in srgb, var(--surface-1) 88%, #14213a)" />
                         {Array.from({ length: 18 }).map((_, i) => (
                             <line
                                 key={`g-${i}`}
@@ -1288,9 +1303,9 @@ const PluginGuiSurface = ({
         return (
             <div style={{ display: 'grid', gridTemplateRows: '96px auto', height: '100%', gap: 8 }}>
                 <div style={{
-                    border: '1px solid #4d4d4d',
+                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
                     borderRadius: 6,
-                    background: 'linear-gradient(180deg, #101010 0%, #0a0a0a 100%)',
+                    background: 'linear-gradient(180deg, var(--surface-1) 0%, color-mix(in srgb, var(--surface-1) 86%, #000) 100%)',
                     overflow: 'hidden',
                 }}>
                     <svg width="100%" height="100%" viewBox="0 0 480 92" preserveAspectRatio="none">
@@ -1323,9 +1338,9 @@ const PluginGuiSurface = ({
         return (
             <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
                 <div style={{
-                    border: '1px solid #4d4d4d',
+                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
                     borderRadius: 6,
-                    background: 'linear-gradient(180deg, #121212 0%, #0d0d0d 100%)',
+                    background: 'linear-gradient(180deg, var(--surface-1) 0%, color-mix(in srgb, var(--surface-1) 88%, #000) 100%)',
                     padding: '8px 10px',
                     display: 'grid',
                     gridTemplateColumns: '1fr 1fr',

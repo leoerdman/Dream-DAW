@@ -475,6 +475,22 @@ export const markDirty = () => invoke<void>('mark_dirty_cmd');
 /** Sync the window title with the current dirty state (adds/removes *). */
 export const syncTitle = () => invoke<void>('sync_title_cmd');
 
+/** Persist arrangement/editor grid settings in project metadata. */
+export const setArrangementGrid = (
+    numerator: number,
+    denominator: number,
+    ntoles: number,
+    snapToGrid: boolean,
+    fixed: boolean,
+) =>
+    invoke<void>('set_arrangement_grid_cmd', {
+        numerator,
+        denominator,
+        ntoles,
+        snapToGrid,
+        fixed,
+    });
+
 // ── Settings ─────────────────────────────────────────────────────────────
 
 /** Get current application settings. */

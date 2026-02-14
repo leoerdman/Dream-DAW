@@ -62,7 +62,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         action: async () => {
             try {
                 await engineApi.newProject();
-                await fetchProject();
+                await fetchProject('native-menu:new');
                 onProjectChange?.();
                 console.log('[NativeMenu] New project created');
             } catch (err) {
@@ -80,7 +80,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 const path = await engineApi.pickProjectFile();
                 if (!path) return;
                 await engineApi.openProject(path);
-                await fetchProject();
+                await fetchProject('native-menu:open');
                 onProjectChange?.();
                 console.log('[NativeMenu] Opened project:', path);
             } catch (err) {
@@ -138,7 +138,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         action: async () => {
             try {
                 await engineApi.undo();
-                await fetchProject();
+                await fetchProject('native-menu:undo');
                 onProjectChange?.();
                 console.log('[NativeMenu] Undo');
             } catch (err) {
@@ -154,7 +154,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         action: async () => {
             try {
                 await engineApi.redo();
-                await fetchProject();
+                await fetchProject('native-menu:redo');
                 onProjectChange?.();
                 console.log('[NativeMenu] Redo');
             } catch (err) {
@@ -212,7 +212,7 @@ async function handleSaveAs() {
 }
 
 async function buildRecentSubmenu(
-    fetchProject: () => Promise<void>,
+    fetchProject: (reason?: string) => Promise<void>,
     onProjectChange?: () => void,
 ): Promise<Submenu> {
     const recentItems: (MenuItem | PredefinedMenuItem)[] = [];
@@ -229,7 +229,7 @@ async function buildRecentSubmenu(
                         action: async () => {
                             try {
                                 await engineApi.openProject(rp.path);
-                                await fetchProject();
+                                await fetchProject('native-menu:open-recent');
                                 onProjectChange?.();
                                 console.log('[NativeMenu] Opened recent:', rp.path);
                             } catch (err) {

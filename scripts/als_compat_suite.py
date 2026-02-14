@@ -42,9 +42,16 @@ def map_internal(plugin_id: str, plugin_name: str) -> tuple[str, str] | None:
         or "wavesynth" in compact
         or "instrumentvector" in compact
         or "stringstudio" in compact
+        or "ultraanalog" in compact
+        or "collision" in compact
+        or "tension" in compact
+        or "electricpiano" in compact
+        or "instrumentmeld" in compact
+        or "mxdeviceinstrument" in compact
+        or "loungelizard" in compact
     ):
         return ("internal://instrument/wave-synth", "Wave Synth")
-    if "sampler" in merged or "simpler" in merged or "multisampler" in compact:
+    if "sampler" in merged or "simpler" in merged or "multisampler" in compact or "drumcell" in compact:
         return ("internal://instrument/sampler", "Sampler")
 
     if "eq" in merged or "channeleq" in compact:
@@ -54,6 +61,7 @@ def map_internal(plugin_id: str, plugin_name: str) -> tuple[str, str] | None:
         or "glue" in merged
         or "multibanddynamics" in compact
         or "drumbuss" in compact
+        or "compressor2" in compact
     ):
         return ("internal://effect/compressor", "Compressor")
     if (
@@ -73,9 +81,9 @@ def map_internal(plugin_id: str, plugin_name: str) -> tuple[str, str] | None:
         or "spectralresonator" in compact
     ):
         return ("internal://effect/reverb", "Reverb")
-    if "autofilter" in compact:
+    if "autofilter" in compact or "autofilter2" in compact:
         return ("internal://effect/auto-filter", "Auto Filter")
-    if "autopan" in compact:
+    if "autopan" in compact or "autopan2" in compact:
         return ("internal://effect/auto-pan", "Auto Pan")
     if "midipitcher" in compact:
         return ("internal://midi-fx/pitch", "MIDI Pitch")
@@ -83,8 +91,14 @@ def map_internal(plugin_id: str, plugin_name: str) -> tuple[str, str] | None:
         return ("internal://midi-fx/scale", "MIDI Scale")
     if "mxdevicevelocity" in compact or compact == "velocity":
         return ("internal://midi-fx/velocity", "MIDI Velocity")
+    if "midivelocity" in compact:
+        return ("internal://midi-fx/velocity", "MIDI Velocity")
+    if "midichord" in compact:
+        return ("internal://midi-fx/scale", "MIDI Chord")
     if "mxdevicerandom" in compact or compact == "random" or "midirandom" in compact:
         return ("internal://midi-fx/random", "MIDI Random")
+    if "midiarpeggiator" in compact:
+        return ("internal://midi-fx/random", "MIDI Arp")
     if "midinotelength" in compact:
         return ("internal://midi-fx/velocity", "MIDI Note Length")
     if "stereogain" in compact or "utility" in merged:
@@ -96,19 +110,22 @@ def map_internal(plugin_id: str, plugin_name: str) -> tuple[str, str] | None:
         or "spectral" in compact
         or "shifter" in compact
         or "frequencyshifter" in compact
+        or "autoshift" in compact
     ):
         return ("internal://effect/utility", "Utility")
-    if "saturator" in merged or "dynamictube" in compact or "tube" == compact:
+    if "saturator" in merged or "dynamictube" in compact or compact == "tube":
         return ("internal://effect/saturator", "Saturator")
     if "phaser" in merged or "phasernew" in compact:
         return ("internal://effect/phaser", "Phaser")
     if "flanger" in merged:
         return ("internal://effect/flanger", "Flanger")
-    if "chorus" in merged:
+    if "chorus" in merged or "chorus2" in compact:
         return ("internal://effect/chorus", "Chorus")
+    if "spectrum" in merged or "spectrumanalyzer" in compact:
+        return ("internal://effect/spectrum", "Spectrum")
     if "limiter" in merged:
         return ("internal://effect/limiter", "Limiter")
-    if "gate" in merged:
+    if "gate" in merged and "bitcrusher" not in merged:
         return ("internal://effect/gate", "Gate")
     if "redux" in compact or "bitcrusher" in merged:
         return ("internal://effect/bitcrusher", "Bitcrusher")
@@ -122,12 +139,12 @@ def map_internal(plugin_id: str, plugin_name: str) -> tuple[str, str] | None:
         or "vocoder" in merged
         or "vinyl" in merged
         or "shaper" in merged
+        or "transmute" in merged
+        or "roar" in compact
     ):
         return ("internal://effect/distortion", "Distortion")
     if "hybrid" in compact:
         return ("internal://effect/reverb", "Reverb")
-    if "roar" in compact:
-        return ("internal://effect/distortion", "Distortion")
 
     return None
 

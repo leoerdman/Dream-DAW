@@ -14,6 +14,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { create } from 'zustand';
+import * as engine from '@/shared/api/engine';
 import {
     type GridDivision,
     divisionToInterval,
@@ -31,6 +32,15 @@ export interface GridState {
 
     /** Whether magnetic snap is enabled (magnet toggle). */
     snapEnabled: boolean;
+
+    /** True = fixed grid, false = adaptive grid mode. */
+    fixedMode: boolean;
+
+    /** Persisted fixed-grid numerator (usually 1). */
+    fixedNumerator: number;
+
+    /** Persisted fixed-grid denominator (1,2,4,8,16,32...). */
+    fixedDenominator: number;
 }
 
 export interface GridActions {
@@ -42,6 +52,15 @@ export interface GridActions {
 
     /** Toggle or set magnetic snap on/off. */
     setSnapEnabled: (enabled: boolean) => void;
+
+    /** Apply grid settings loaded from backend project (no write-back). */
+    applyProjectGrid: (cfg: {
+        numerator: number;
+        denominator: number;
+        ntoles: number;
+        snapToGrid: boolean;
+        fixed: boolean;
+    }) => void;
 
     /** Cycle through divisions: 1/4 → 1/8 → 1/16 → 1/32 → OFF → 1/4. */
     cycleDivision: () => void;
@@ -79,25 +98,115 @@ export const useGridStore = create<GridStore>((set, get) => ({
     division: '1/1',
     triplet: false,
     snapEnabled: true,
+    fixedMode: true,
+    fixedNumerator: 1,
+    fixedDenominator: 1,
 
     // ── Actions ────────────────────────────────────────────────────────
 
-    setDivision: (d: GridDivision) => set({ division: d, triplet: false }),
+    setDivision: (d: GridDivision) => {
+        const nextFixed = d !== 'ADAPTIVE';
+        const nextNumerator = d === '1/1' ? 1 : 1;
+        const nextDenominator = d === '1/1'
+            ? 1
+            : d === '1/2'
+                ? 2
+                : d === '1/4'
+                    ? 4
+                    : d === '1/8'
+                        ? 8
+                        : d === '1/16'
+                            ? 16
+                            : d === '1/32'
+                                ? 32
+                                : get().fixedDenominator;
+        set({
+            division: d,
+            triplet: false,
+            fixedMode: nextFixed,
+            fixedNumerator: nextFixed ? nextNumerator : get().fixedNumerator,
+            fixedDenominator: nextFixed ? nextDenominator : get().fixedDenominator,
+        });
+        const st = get();
+        void engine
+            .setArrangementGrid(
+                Math.max(1, Math.round(st.fixedNumerator)),
+                Math.max(1, Math.round(st.fixedDenominator)),
+                st.triplet ? 3 : 2,
+                st.snapEnabled,
+                st.fixedMode,
+            )
+            .catch((err) => console.error('[GridStore] setArrangementGrid(setDivision) failed:', err));
+    },
 
-    setTriplet: (t: boolean) => set({ triplet: t }),
+    setTriplet: (t: boolean) => {
+        set({ triplet: t });
+        const st = get();
+        void engine
+            .setArrangementGrid(
+                Math.max(1, Math.round(st.fixedNumerator)),
+                Math.max(1, Math.round(st.fixedDenominator)),
+                st.triplet ? 3 : 2,
+                st.snapEnabled,
+                st.fixedMode,
+            )
+            .catch((err) => console.error('[GridStore] setArrangementGrid(setTriplet) failed:', err));
+    },
 
-    setSnapEnabled: (enabled: boolean) => set({ snapEnabled: enabled }),
+    setSnapEnabled: (enabled: boolean) => {
+        set({ snapEnabled: enabled });
+        const st = get();
+        void engine
+            .setArrangementGrid(
+                Math.max(1, Math.round(st.fixedNumerator)),
+                Math.max(1, Math.round(st.fixedDenominator)),
+                st.triplet ? 3 : 2,
+                st.snapEnabled,
+                st.fixedMode,
+            )
+            .catch((err) => console.error('[GridStore] setArrangementGrid(setSnapEnabled) failed:', err));
+    },
+
+    applyProjectGrid: (cfg) => {
+        const numerator = Math.max(1, Math.round(cfg.numerator || 1));
+        const denominator = Math.max(1, Math.round(cfg.denominator || 16));
+        const ntoles = Math.max(1, Math.round(cfg.ntoles || 2));
+        const fixed = Boolean(cfg.fixed);
+        const division: GridDivision = !fixed
+            ? 'ADAPTIVE'
+            : denominator === 1
+                ? '1/1'
+                : denominator === 2
+                    ? '1/2'
+                    : denominator === 4
+                        ? '1/4'
+                        : denominator === 8
+                            ? '1/8'
+                            : denominator === 16
+                                ? '1/16'
+                                : denominator === 32
+                                    ? '1/32'
+                                    : '1/16';
+        set({
+            division,
+            triplet: ntoles === 3,
+            snapEnabled: Boolean(cfg.snapToGrid),
+            fixedMode: fixed,
+            fixedNumerator: numerator,
+            fixedDenominator: denominator,
+        });
+    },
 
     cycleDivision: () => {
         const { division, triplet } = get();
         // If triplet is on, first turn it off and keep same division
         if (triplet) {
-            set({ triplet: false });
+            get().setTriplet(false);
             return;
         }
         const idx = CYCLE_ORDER.indexOf(division);
         const next = CYCLE_ORDER[(idx + 1) % CYCLE_ORDER.length];
-        set({ division: next, triplet: false });
+        get().setDivision(next);
     },
 
     snapBeat: (rawBeat: number, beatsPerBar: number = 4, ppb?: number) => {

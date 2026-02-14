@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
+use crate::project::{ClipEnvelope, TrackColor};
 use crate::time::AbsoluteTime;
 
 // ── MIDI Note ──────────────────────────────────────────────────────────
@@ -125,6 +126,78 @@ pub struct MidiClip {
     /// User-defined fade-out length in sample frames.
     #[serde(default)]
     pub fade_out_frames: i64,
+
+    /// Session launch mode code (`LaunchMode` in ALS).
+    #[serde(default)]
+    pub launch_mode: i32,
+
+    /// Session launch quantization code (`LaunchQuantisation`).
+    #[serde(default)]
+    pub launch_quantization: i32,
+
+    /// Follow action enabled flag.
+    #[serde(default)]
+    pub follow_action_enabled: bool,
+
+    /// Follow time value from ALS.
+    #[serde(default)]
+    pub follow_time: f64,
+
+    /// Follow action A code from ALS.
+    #[serde(default)]
+    pub follow_action_a: i32,
+
+    /// Follow action B code from ALS.
+    #[serde(default)]
+    pub follow_action_b: i32,
+
+    /// Follow chance A value from ALS (usually 0..100).
+    #[serde(default)]
+    pub follow_chance_a: f64,
+
+    /// Follow chance B value from ALS (usually 0..100).
+    #[serde(default)]
+    pub follow_chance_b: f64,
+
+    /// Whether clip is marked in-key (`IsInKey`).
+    #[serde(default)]
+    pub is_in_key: bool,
+
+    /// ALS scale root (0..11) when present.
+    #[serde(default)]
+    pub scale_root: Option<u8>,
+
+    /// ALS scale name/id when present.
+    #[serde(default)]
+    pub scale_name: Option<String>,
+
+    /// Clip loop start in beats when present in ALS `<Loop>`.
+    #[serde(default)]
+    pub loop_start_beats: Option<f64>,
+
+    /// Clip loop end in beats when present in ALS `<Loop>`.
+    #[serde(default)]
+    pub loop_end_beats: Option<f64>,
+
+    /// Clip loop enabled flag from ALS.
+    #[serde(default)]
+    pub loop_on: bool,
+
+    /// Optional color override (uses track color when `None`).
+    #[serde(default)]
+    pub color_override: Option<TrackColor>,
+
+    /// Groove template name from ALS (e.g., "MPC 8th Swing 59%").
+    #[serde(default)]
+    pub groove_name: Option<String>,
+
+    /// Groove amount (0.0–1.0 normalized from ALS GrooveAmount).
+    #[serde(default)]
+    pub groove_amount: f64,
+
+    /// Intra-clip automation envelopes.
+    #[serde(default)]
+    pub envelopes: Vec<ClipEnvelope>,
 }
 
 impl MidiClip {
@@ -144,6 +217,24 @@ impl MidiClip {
             is_muted: false,
             fade_in_frames: 0,
             fade_out_frames: 0,
+            launch_mode: 0,
+            launch_quantization: 0,
+            follow_action_enabled: false,
+            follow_time: 0.0,
+            follow_action_a: 0,
+            follow_action_b: 0,
+            follow_chance_a: 0.0,
+            follow_chance_b: 0.0,
+            is_in_key: false,
+            scale_root: None,
+            scale_name: None,
+            loop_start_beats: None,
+            loop_end_beats: None,
+            loop_on: false,
+            color_override: None,
+            groove_name: None,
+            groove_amount: 0.0,
+            envelopes: Vec::new(),
         }
     }
 

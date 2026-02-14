@@ -55,6 +55,7 @@ pub(crate) fn invoke_handler()
         get_recent_projects,
         get_project,
         get_project_status,
+        set_arrangement_grid_cmd,
         // Settings
         get_settings,
         update_settings,

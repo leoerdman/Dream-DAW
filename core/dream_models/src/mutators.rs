@@ -244,18 +244,9 @@ pub fn split_clip(
     // Left half: keeps original UUID, same position, truncated duration
     let left = AudioClip {
         id: original.id,
-        name: original.name.clone(),
-        file_path: original.file_path.clone(),
-        position: original.position,
         duration: AbsoluteTime::new(left_duration),
-        source_offset: original.source_offset,
-        gain: original.gain,
-        fade_in_frames: original.fade_in_frames,
         fade_out_frames: 0,
-        is_offline: original.is_offline,
-        is_selected: original.is_selected,
-        is_muted: original.is_muted,
-        color_override: original.color_override,
+        ..original.clone()
     };
 
     // Right half: new UUID, starts at split point, offset adjusted
@@ -265,17 +256,12 @@ pub fn split_clip(
     let right = AudioClip {
         id: Uuid::new_v4(),
         name: format!("{} (split)", original.name),
-        file_path: original.file_path.clone(),
         position: AbsoluteTime::new(split_frame),
         duration: AbsoluteTime::new(right_duration),
         source_offset: AbsoluteTime::new(right_source_offset),
-        gain: original.gain,
         fade_in_frames: 0,
-        fade_out_frames: original.fade_out_frames,
-        is_offline: original.is_offline,
         is_selected: false,
-        is_muted: original.is_muted,
-        color_override: original.color_override,
+        ..original.clone()
     };
 
     let result = SplitResult {

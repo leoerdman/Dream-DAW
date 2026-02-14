@@ -1,0 +1,691 @@
+{
+  "als_root": "/Users/leoerdman/ABLETON - Main Folder/ABLETON - Projects/160-200 BPM/9. Again",
+  "user_folder": "/Users/leoerdman/ABLETON - Main Folder/ABLETON - User Folder",
+  "generated_at_epoch": 1771109445,
+  "elapsed_seconds": 7.67,
+  "installed_plugins_indexed": 207,
+  "totals": {
+    "files": 15,
+    "audio_tracks": 270,
+    "midi_tracks": 91,
+    "group_tracks": 58,
+    "main_tracks": 15,
+    "audio_clips": 10945,
+    "midi_clips": 1813,
+    "float_events": 4044,
+    "sample_refs": 11508,
+    "native_mapped": 1295,
+    "native_unmapped": 0,
+    "external_resolved": 125,
+    "external_missing": 8
+  },
+  "rates": {
+    "native_mapped_rate": 1.0,
+    "external_resolved_rate": 0.9398496240601504,
+    "overall_compat_rate": 0.9943977591036415
+  },
+  "parse_errors": [],
+  "top": {
+    "device_tags": [
+      [
+        "Eq8",
+        286
+      ],
+      [
+        "Reverb",
+        174
+      ],
+      [
+        "PluginDevice",
+        133
+      ],
+      [
+        "OriginalSimpler",
+        86
+      ],
+      [
+        "StereoGain",
+        85
+      ],
+      [
+        "Erosion",
+        78
+      ],
+      [
+        "Compressor2",
+        78
+      ],
+      [
+        "InstrumentGroupDevice",
+        77
+      ],
+      [
+        "Delay",
+        75
+      ],
+      [
+        "AutoPan",
+        37
+      ],
+      [
+        "Saturator",
+        33
+      ],
+      [
+        "MxDeviceAudioEffect",
+        31
+      ],
+      [
+        "MultibandDynamics",
+        29
+      ],
+      [
+        "Redux2",
+        29
+      ],
+      [
+        "Chorus",
+        28
+      ],
+      [
+        "MidiPitcher",
+        24
+      ],
+      [
+        "AutoFilter",
+        21
+      ],
+      [
+        "DrumGroupDevice",
+        16
+      ],
+      [
+        "Limiter",
+        16
+      ],
+      [
+        "ChannelEq",
+        16
+      ],
+      [
+        "Chorus2",
+        15
+      ],
+      [
+        "InstrumentVector",
+        15
+      ],
+      [
+        "Amp",
+        15
+      ],
+      [
+        "UltraAnalog",
+        14
+      ],
+      [
+        "Redux",
+        14
+      ],
+      [
+        "Phaser",
+        14
+      ],
+      [
+        "StringStudio",
+        14
+      ],
+      [
+        "Drift",
+        14
+      ],
+      [
+        "Echo",
+        14
+      ],
+      [
+        "AutoFilter2",
+        14
+      ],
+      [
+        "AudioEffectGroupDevice",
+        12
+      ],
+      [
+        "MultiSampler",
+        6
+      ],
+      [
+        "MidiNoteLength",
+        5
+      ],
+      [
+        "MidiRandom",
+        4
+      ],
+      [
+        "Roar",
+        2
+      ],
+      [
+        "AutoPan2",
+        2
+      ],
+      [
+        "Hybrid",
+        2
+      ],
+      [
+        "Shifter",
+        2
+      ],
+      [
+        "Tube",
+        2
+      ],
+      [
+        "Operator",
+        1
+      ]
+    ],
+    "mapped_targets": [
+      [
+        "EQ Eight",
+        302
+      ],
+      [
+        "Reverb",
+        176
+      ],
+      [
+        "Utility",
+        118
+      ],
+      [
+        "Compressor",
+        107
+      ],
+      [
+        "Distortion",
+        95
+      ],
+      [
+        "Sampler",
+        92
+      ],
+      [
+        "Delay",
+        89
+      ],
+      [
+        "Wave Synth",
+        58
+      ],
+      [
+        "Bitcrusher",
+        43
+      ],
+      [
+        "Chorus",
+        43
+      ],
+      [
+        "Auto Pan",
+        39
+      ],
+      [
+        "Saturator",
+        35
+      ],
+      [
+        "Auto Filter",
+        35
+      ],
+      [
+        "MIDI Pitch",
+        24
+      ],
+      [
+        "Limiter",
+        16
+      ],
+      [
+        "Phaser",
+        14
+      ],
+      [
+        "MIDI Note Length",
+        5
+      ],
+      [
+        "MIDI Random",
+        4
+      ]
+    ],
+    "unknown_native": [],
+    "missing_external": [
+      [
+        "reastream-standalone",
+        8
+      ]
+    ],
+    "resolved_external": [
+      [
+        "Pro-Q 3",
+        36
+      ],
+      [
+        "ShaperBox 3",
+        15
+      ],
+      [
+        "Serum 2",
+        11
+      ],
+      [
+        "kHs Transient Shaper",
+        10
+      ],
+      [
+        "ValhallaShimmer",
+        10
+      ],
+      [
+        "Ozone 11 Imager",
+        8
+      ],
+      [
+        "FabFilter Pro-Q 4",
+        6
+      ],
+      [
+        "kHs Haas",
+        6
+      ],
+      [
+        "kHs Clipper",
+        5
+      ],
+      [
+        "FabFilter Pro-Q 3",
+        4
+      ],
+      [
+        "Pro-L 2",
+        3
+      ],
+      [
+        "Voxengo SPAN",
+        2
+      ],
+      [
+        "kHs Pitch Shifter",
+        2
+      ],
+      [
+        "ValhallaRoom",
+        1
+      ],
+      [
+        "soothe2",
+        1
+      ],
+      [
+        "FabFilter Pro-DS",
+        1
+      ],
+      [
+        "MWaveShaper",
+        1
+      ],
+      [
+        "Pro-Q 4",
+        1
+      ],
+      [
+        "ADPTR MetricAB",
+        1
+      ],
+      [
+        "MusePlugin",
+        1
+      ]
+    ],
+    "vst3_names": [
+      [
+        "Pro-Q 3",
+        36
+      ],
+      [
+        "ShaperBox 3",
+        15
+      ],
+      [
+        "Serum 2",
+        11
+      ],
+      [
+        "Ozone 11 Imager",
+        8
+      ],
+      [
+        "ValhallaShimmer",
+        8
+      ],
+      [
+        "kHs Clipper",
+        5
+      ],
+      [
+        "Pro-L 2",
+        3
+      ],
+      [
+        "kHs Transient Shaper",
+        2
+      ],
+      [
+        "ValhallaRoom",
+        1
+      ],
+      [
+        "kHs Haas",
+        1
+      ],
+      [
+        "MWaveShaper",
+        1
+      ],
+      [
+        "Pro-Q 4",
+        1
+      ],
+      [
+        "ADPTR MetricAB",
+        1
+      ],
+      [
+        "MusePlugin",
+        1
+      ]
+    ],
+    "vst2_names": [
+      [
+        "reastream-standalone",
+        8
+      ],
+      [
+        "kHs Transient Shaper",
+        8
+      ],
+      [
+        "FabFilter Pro-Q 4",
+        6
+      ],
+      [
+        "kHs Haas",
+        5
+      ],
+      [
+        "FabFilter Pro-Q 3",
+        4
+      ],
+      [
+        "Voxengo SPAN",
+        2
+      ],
+      [
+        "kHs Pitch Shifter",
+        2
+      ],
+      [
+        "ValhallaShimmer",
+        2
+      ],
+      [
+        "soothe2",
+        1
+      ],
+      [
+        "FabFilter Pro-DS",
+        1
+      ]
+    ]
+  },
+  "user_inventory": {
+    "bucket_counts": {},
+    "extension_counts": {},
+    "scanned_files": 0,
+    "max_files_limit": 0,
+    "defaults_root": "/Users/leoerdman/ABLETON - Main Folder/ABLETON - User Folder/User Library/Defaults",
+    "defaults_file_count": 0,
+    "defaults_top_dirs": []
+  },
+  "files": [
+    {
+      "file": "Again - Neuroliquid 1.4 Lesson.als",
+      "audio_tracks": 17,
+      "midi_tracks": 7,
+      "group_tracks": 5,
+      "main_tracks": 1,
+      "audio_clips": 800,
+      "midi_clips": 148,
+      "float_events": 171,
+      "sample_refs": 806,
+      "native_mapped": 77,
+      "native_unmapped": 0,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Again - Neuroliquid 1.4.als",
+      "audio_tracks": 15,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 803,
+      "midi_clips": 104,
+      "float_events": 265,
+      "sample_refs": 809,
+      "native_mapped": 77,
+      "native_unmapped": 0,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Again V112.als",
+      "audio_tracks": 52,
+      "midi_tracks": 19,
+      "group_tracks": 7,
+      "main_tracks": 1,
+      "audio_clips": 723,
+      "midi_clips": 346,
+      "float_events": 726,
+      "sample_refs": 1205,
+      "native_mapped": 236,
+      "native_unmapped": 0,
+      "external_resolved": 125,
+      "external_missing": 0
+    },
+    {
+      "file": "Archieve/DNB 1 Neurofunk.als",
+      "audio_tracks": 12,
+      "midi_tracks": 5,
+      "group_tracks": 1,
+      "main_tracks": 1,
+      "audio_clips": 300,
+      "midi_clips": 69,
+      "float_events": 111,
+      "sample_refs": 305,
+      "native_mapped": 65,
+      "native_unmapped": 0,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Archieve/DNB 1.1 Neurofunk.als",
+      "audio_tracks": 15,
+      "midi_tracks": 5,
+      "group_tracks": 2,
+      "main_tracks": 1,
+      "audio_clips": 505,
+      "midi_clips": 96,
+      "float_events": 155,
+      "sample_refs": 510,
+      "native_mapped": 72,
+      "native_unmapped": 0,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Archieve/DNB 1.2 Neurofunk.als",
+      "audio_tracks": 14,
+      "midi_tracks": 5,
+      "group_tracks": 3,
+      "main_tracks": 1,
+      "audio_clips": 532,
+      "midi_clips": 103,
+      "float_events": 223,
+      "sample_refs": 537,
+      "native_mapped": 73,
+      "native_unmapped": 0,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Archieve/DNB 1.3 Snare Neurofunk.als",
+      "audio_tracks": 16,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 819,
+      "midi_clips": 106,
+      "float_events": 269,
+      "sample_refs": 825,
+      "native_mapped": 78,
+      "native_unmapped": 0,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Again - Neuroliquid 1.4 Lesson [2025-06-12 220754].als",
+      "audio_tracks": 15,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 804,
+      "midi_clips": 104,
+      "float_events": 265,
+      "sample_refs": 810,
+      "native_mapped": 77,
+      "native_unmapped": 0,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Again - Neuroliquid 1.4 Lesson [2025-06-12 222321].als",
+      "audio_tracks": 17,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 809,
+      "midi_clips": 105,
+      "float_events": 265,
+      "sample_refs": 815,
+      "native_mapped": 77,
+      "native_unmapped": 0,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Again - Neuroliquid 1.4 Lesson [2025-06-12 222557].als",
+      "audio_tracks": 17,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 811,
+      "midi_clips": 106,
+      "float_events": 265,
+      "sample_refs": 817,
+      "native_mapped": 77,
+      "native_unmapped": 0,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Again - Neuroliquid 1.4 Lesson [2025-06-12 222622].als",
+      "audio_tracks": 17,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 808,
+      "midi_clips": 106,
+      "float_events": 265,
+      "sample_refs": 814,
+      "native_mapped": 77,
+      "native_unmapped": 0,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Again - Neuroliquid 1.4 Lesson [2025-06-20 161302].als",
+      "audio_tracks": 17,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 806,
+      "midi_clips": 106,
+      "float_events": 265,
+      "sample_refs": 812,
+      "native_mapped": 77,
+      "native_unmapped": 0,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Again - Neuroliquid 1.4 [2025-06-12 213845].als",
+      "audio_tracks": 16,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 819,
+      "midi_clips": 106,
+      "float_events": 269,
+      "sample_refs": 825,
+      "native_mapped": 78,
+      "native_unmapped": 0,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Again - Neuroliquid 1.4 [2025-06-12 213926].als",
+      "audio_tracks": 15,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 803,
+      "midi_clips": 104,
+      "float_events": 265,
+      "sample_refs": 809,
+      "native_mapped": 77,
+      "native_unmapped": 0,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Again - Neuroliquid 1.4 [2025-06-12 214621].als",
+      "audio_tracks": 15,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 803,
+      "midi_clips": 104,
+      "float_events": 265,
+      "sample_refs": 809,
+      "native_mapped": 77,
+      "native_unmapped": 0,
+      "external_resolved": 0,
+      "external_missing": 1
+    }
+  ]
+}

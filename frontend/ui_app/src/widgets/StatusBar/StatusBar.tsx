@@ -31,7 +31,7 @@ export const StatusBar = ({
     // Live engine data
     const isPlaying = useEngineStore((s) => s.transport.is_playing);
     const positionSeconds = useEngineStore((s) => s.transport.position_seconds);
-    const bpm = useEngineStore((s) => s.transport.bpm);
+    const bpm = useEngineStore((s) => s.projectBpm || s.transport.bpm || 120);
     const connected = useEngineStore((s) => s.connected);
     const projectSampleRate = useEngineStore((s) => s.projectSampleRate);
     const projectTracks = useEngineStore((s) => s.projectTracks);

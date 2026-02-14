@@ -58,7 +58,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         setOpen(false);
         try {
             await engineApi.newProject();
-            await fetchProject();
+            await fetchProject('file-menu:new');
             onProjectChange?.();
             console.log('[FileMenu] New project created');
         } catch (err) {
@@ -72,7 +72,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             const path = await engineApi.pickProjectFile();
             if (!path) return; // Cancelled
             await engineApi.openProject(path);
-            await fetchProject();
+            await fetchProject('file-menu:open');
             onProjectChange?.();
             console.log('[FileMenu] Opened project:', path);
         } catch (err) {
@@ -84,7 +84,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         setOpen(false);
         try {
             await engineApi.openProject(path);
-            await fetchProject();
+            await fetchProject('file-menu:open-recent');
             onProjectChange?.();
             console.log('[FileMenu] Opened recent:', path);
         } catch (err) {

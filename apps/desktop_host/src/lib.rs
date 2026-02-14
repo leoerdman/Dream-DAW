@@ -249,6 +249,12 @@ struct SharedProjectSnapshot {
     view_zoom_scale: Option<f64>,
     view_scroll_position: Option<f64>,
     view_browser_width: Option<f64>,
+    arrangement_grid_numerator: u16,
+    arrangement_grid_denominator: u16,
+    arrangement_grid_ntoles: u8,
+    arrangement_snap_to_grid: bool,
+    markers: Vec<dream_models::project::ProjectMarker>,
+    arrangement_grid_fixed: bool,
     playhead_position_frames: i64,
     is_looping: bool,
     loop_start_frames: Option<i64>,
@@ -305,6 +311,12 @@ impl SharedProjectSnapshot {
             view_zoom_scale: project.view_zoom_scale,
             view_scroll_position: project.view_scroll_position,
             view_browser_width: project.view_browser_width,
+            arrangement_grid_numerator: project.arrangement_grid_numerator,
+            arrangement_grid_denominator: project.arrangement_grid_denominator,
+            arrangement_grid_ntoles: project.arrangement_grid_ntoles,
+            arrangement_snap_to_grid: project.arrangement_snap_to_grid,
+            markers: project.markers.clone(),
+            arrangement_grid_fixed: project.arrangement_grid_fixed,
             playhead_position_frames: project.playhead_position_frames,
             is_looping: project.is_looping,
             loop_start_frames: project.loop_start_frames,
@@ -328,6 +340,12 @@ impl SharedProjectSnapshot {
             view_zoom_scale: self.view_zoom_scale,
             view_scroll_position: self.view_scroll_position,
             view_browser_width: self.view_browser_width,
+            arrangement_grid_numerator: self.arrangement_grid_numerator,
+            arrangement_grid_denominator: self.arrangement_grid_denominator,
+            arrangement_grid_ntoles: self.arrangement_grid_ntoles,
+            arrangement_snap_to_grid: self.arrangement_snap_to_grid,
+            markers: self.markers.clone(),
+            arrangement_grid_fixed: self.arrangement_grid_fixed,
             playhead_position_frames: self.playhead_position_frames,
             is_looping: self.is_looping,
             loop_start_frames: self.loop_start_frames,
@@ -864,6 +882,466 @@ fn rebuild_runtime_device_chains_from_project(
     handle: &AudioEngineHandle,
 ) -> Result<(), String> {
     const MAX_DEVICE_SLOTS: u8 = 16;
+    fn first_lane_value(track: &Track, keys: &[&str]) -> Option<f32> {
+        for key in keys {
+            if let Some(lane) = track
+                .automation_lanes
+                .iter()
+                .find(|lane| lane.param_id.eq_ignore_ascii_case(key))
+                && let Some(point) = lane.points.first()
+            {
+                return Some(point.value as f32);
+            }
+        }
+        None
+    }
+
+    fn apply_static_imported_params_for_slot(
+        handle: &AudioEngineHandle,
+        track_index: u16,
+        slot_index: u8,
+        plugin_id: &str,
+        track: &Track,
+    ) -> Result<(), String> {
+        let pid = plugin_id.to_ascii_lowercase();
+
+        // UtilityProcessor params:
+        // 0 gain dB, 1 pan %, 2 width %, 3 mono
+        if pid == "internal://effect/utility" {
+            if let Some(gain_lin) = first_lane_value(track, &["plugin.gain"]) {
+                let gain_db = if gain_lin <= 0.00001 {
+                    -60.0
+                } else {
+                    (20.0 * gain_lin.log10()).clamp(-60.0, 24.0)
+                };
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 0,
+                        value: gain_db,
+                    },
+                )?;
+            }
+            if let Some(pan) = first_lane_value(track, &["plugin.pan"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 1,
+                        value: (pan * 100.0).clamp(-100.0, 100.0),
+                    },
+                )?;
+            }
+            if let Some(width) = first_lane_value(track, &["plugin.width"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 2,
+                        value: width.clamp(0.0, 200.0),
+                    },
+                )?;
+            }
+            if let Some(mono) = first_lane_value(track, &["plugin.mono"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 3,
+                        value: if mono >= 0.5 { 1.0 } else { 0.0 },
+                    },
+                )?;
+            }
+            return Ok(());
+        }
+
+        // EqProcessor param 32 = output gain dB.
+        if pid == "internal://effect/eq-eight" {
+            if let Some(out_gain) = first_lane_value(track, &["effect.eq.global_gain"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 32,
+                        value: out_gain.clamp(-24.0, 24.0),
+                    },
+                )?;
+            }
+            for band in 0..8u8 {
+                if let Some(v) = first_lane_value(track, &[&format!("effect.eq.band{band}.freq")]) {
+                    push_command(
+                        handle,
+                        EngineCommand::SetDeviceParam {
+                            track_index,
+                            slot_index,
+                            param_index: band * 4,
+                            value: v.clamp(20.0, 20_000.0),
+                        },
+                    )?;
+                }
+                if let Some(v) = first_lane_value(track, &[&format!("effect.eq.band{band}.gain")]) {
+                    push_command(
+                        handle,
+                        EngineCommand::SetDeviceParam {
+                            track_index,
+                            slot_index,
+                            param_index: band * 4 + 1,
+                            value: v.clamp(-24.0, 24.0),
+                        },
+                    )?;
+                }
+                if let Some(v) = first_lane_value(track, &[&format!("effect.eq.band{band}.q")]) {
+                    push_command(
+                        handle,
+                        EngineCommand::SetDeviceParam {
+                            track_index,
+                            slot_index,
+                            param_index: band * 4 + 2,
+                            value: v.clamp(0.1, 18.0),
+                        },
+                    )?;
+                }
+                if let Some(v) = first_lane_value(track, &[&format!("effect.eq.band{band}.on")]) {
+                    push_command(
+                        handle,
+                        EngineCommand::SetDeviceParam {
+                            track_index,
+                            slot_index,
+                            param_index: band * 4 + 3,
+                            value: if v >= 0.5 { 1.0 } else { 0.0 },
+                        },
+                    )?;
+                }
+            }
+            return Ok(());
+        }
+
+        // AutoFilterProcessor:
+        // 0 cutoff, 1 resonance %, 5 filter type, 8 drive dB.
+        if pid == "internal://effect/auto-filter" {
+            if let Some(cutoff) = first_lane_value(track, &["effect.auto_filter.cutoff"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 0,
+                        value: cutoff.clamp(20.0, 20_000.0),
+                    },
+                )?;
+            }
+            if let Some(res) = first_lane_value(track, &["effect.auto_filter.resonance"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 1,
+                        value: (res * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            if let Some(ft) = first_lane_value(track, &["effect.auto_filter.type"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 5,
+                        value: ft.round().clamp(0.0, 3.0),
+                    },
+                )?;
+            }
+            if let Some(drive) = first_lane_value(track, &["effect.auto_filter.drive"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 8,
+                        value: drive.clamp(0.0, 24.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.auto_filter.lfo.rate"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 2,
+                        value: v.clamp(0.01, 20.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.auto_filter.lfo.depth"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 3,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.auto_filter.env.amount"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 4,
+                        value: (v * 100.0).clamp(-100.0, 100.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.auto_filter.mix"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 6,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.auto_filter.lfo.shape"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 7,
+                        value: v.round().clamp(0.0, 5.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.auto_filter.env.speed_ms"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 9,
+                        value: v.clamp(1.0, 200.0),
+                    },
+                )?;
+            }
+            return Ok(());
+        }
+
+        // CompressorProcessor:
+        // 0 threshold, 1 ratio, 2 attack, 3 release, 4 knee, 5 makeup, 6 mix%.
+        if pid == "internal://effect/compressor" {
+            if let Some(v) = first_lane_value(track, &["effect.compressor.threshold"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 0,
+                        value: v.clamp(-60.0, 0.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.compressor.ratio"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 1,
+                        value: v.clamp(1.0, 20.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.compressor.attack"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 2,
+                        value: v.clamp(0.1, 100.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.compressor.release"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 3,
+                        value: v.clamp(10.0, 1000.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.compressor.knee"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 4,
+                        value: v.clamp(0.0, 24.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.compressor.makeup"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 5,
+                        value: v.clamp(-12.0, 24.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.compressor.mix"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 6,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            return Ok(());
+        }
+
+        // ReverbProcessor:
+        // 0 size%, 2 mix%, 3 predelay ms.
+        if pid == "internal://effect/reverb" {
+            if let Some(v) = first_lane_value(track, &["effect.reverb.size"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 0,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.reverb.mix"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 2,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.reverb.predelay"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 3,
+                        value: v.clamp(0.0, 200.0),
+                    },
+                )?;
+            }
+            return Ok(());
+        }
+
+        // DelayProcessor:
+        // 0 time L ms, 1 time R ms, 2 feedback%, 3 mix%.
+        if pid == "internal://effect/delay" {
+            if let Some(v) = first_lane_value(track, &["effect.delay.time"]) {
+                let ms = v.clamp(1.0, 2000.0);
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 0,
+                        value: ms,
+                    },
+                )?;
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 1,
+                        value: ms,
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.delay.feedback"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 2,
+                        value: (v * 100.0).clamp(0.0, 95.0),
+                    },
+                )?;
+            }
+            if let Some(v) = first_lane_value(track, &["effect.delay.mix"]) {
+                push_command(
+                    handle,
+                    EngineCommand::SetDeviceParam {
+                        track_index,
+                        slot_index,
+                        param_index: 3,
+                        value: (v * 100.0).clamp(0.0, 100.0),
+                    },
+                )?;
+            }
+            return Ok(());
+        }
+
+        Ok(())
+    }
+
+    fn collect_runtime_internal_effects(
+        nodes: &[DeviceNode],
+        parent_bypassed: bool,
+        out: &mut Vec<(String, bool)>,
+    ) {
+        for node in nodes {
+            match node {
+                DeviceNode::Single(slot) => {
+                    if slot.plugin_id.starts_with("internal://") {
+                        out.push((slot.plugin_id.clone(), parent_bypassed || slot.is_bypassed));
+                    }
+                }
+                DeviceNode::Rack(rack) => {
+                    let rack_bypassed = parent_bypassed || rack.is_bypassed;
+                    // Runtime chain in dream_dsp is currently serial.
+                    // For rack nodes (parallel topology), choose the first audible chain
+                    // deterministically to avoid flattening parallel branches incorrectly.
+                    let has_solo = rack.chains.iter().any(|c| c.is_solo);
+                    let selected_chain = if has_solo {
+                        rack.chains.iter().find(|c| c.is_solo && !c.is_mute)
+                    } else {
+                        rack.chains.iter().find(|c| !c.is_mute)
+                    };
+                    if let Some(chain) = selected_chain {
+                        collect_runtime_internal_effects(&chain.devices, rack_bypassed, out);
+                    }
+                }
+            }
+        }
+    }
 
     // Reset current runtime chains for known tracks/slots.
     for track_index in 0..project.tracks.len() {
@@ -875,11 +1353,21 @@ fn rebuild_runtime_device_chains_from_project(
 
     // Rebuild from persisted internal effect slots.
     for (track_index, track) in project.tracks.iter().enumerate() {
-        for (slot_index, fx) in track.effects.iter().enumerate() {
-            let plugin_id = fx.plugin_id();
-            if !plugin_id.starts_with("internal://") {
-                continue;
-            }
+        let mut internal_effects: Vec<(String, bool)> = Vec::new();
+        collect_runtime_internal_effects(&track.effects, false, &mut internal_effects);
+        if internal_effects.len() > MAX_DEVICE_SLOTS as usize {
+            log::warn!(
+                "[RuntimeChain] track '{}' has {} internal effects; truncating to {} slots",
+                track.name,
+                internal_effects.len(),
+                MAX_DEVICE_SLOTS
+            );
+        }
+        for (slot_index, (plugin_id, bypassed)) in internal_effects
+            .into_iter()
+            .take(MAX_DEVICE_SLOTS as usize)
+            .enumerate()
+        {
             if let Some(effect_type) = builtin_effect_type_from_plugin_id(&plugin_id) {
                 push_command(
                     handle,
@@ -889,7 +1377,7 @@ fn rebuild_runtime_device_chains_from_project(
                         effect_type,
                     },
                 )?;
-                if fx.is_bypassed() {
+                if bypassed {
                     push_command(
                         handle,
                         EngineCommand::BypassDevice {
@@ -899,6 +1387,13 @@ fn rebuild_runtime_device_chains_from_project(
                         },
                     )?;
                 }
+                apply_static_imported_params_for_slot(
+                    handle,
+                    track_index as u16,
+                    slot_index.min(u8::MAX as usize) as u8,
+                    &plugin_id,
+                    track,
+                )?;
             }
         }
     }

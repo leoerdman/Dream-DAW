@@ -27,6 +27,52 @@ use crate::time::AbsoluteTime;
 /// and provide a migration path in `dream_io::project_file`.
 pub const PROJECT_FORMAT_VERSION: u32 = 3;
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct WarpMarkerPoint {
+    pub sec_time: f64,
+    pub beat_time: f64,
+}
+
+/// A project-level marker / locator (imported from ALS `<Locators>`).
+///
+/// Used for arrangement navigation, cue points, and section labels.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ProjectMarker {
+    /// Unique marker identifier.
+    #[ts(type = "string")]
+    pub id: Uuid,
+
+    /// Display name (e.g., "Chorus", "Verse 2").
+    pub name: String,
+
+    /// Position in beats (relative to project start).
+    pub position_beats: f64,
+
+    /// Optional color for visual distinction.
+    #[serde(default)]
+    pub color: Option<TrackColor>,
+}
+
+/// A single automation envelope attached to a clip parameter.
+///
+/// Represents intra-clip automation (e.g., volume fade within a clip).
+/// Distinct from track-level `AutomationLane` which lives at the track scope.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ClipEnvelope {
+    /// ALS PointeeId linking this envelope to a specific parameter.
+    pub pointee_id: i32,
+
+    /// Human-readable parameter identifier (e.g., "volume", "pan").
+    #[serde(default)]
+    pub param_id: String,
+
+    /// Automation breakpoints within the clip's local time.
+    pub points: Vec<AutomationPoint>,
+}
+
 // ── Track Color (16 Ableton-style palette) ─────────────────────────────
 
 /// Predefined track colors matching the Ableton-style palette.
@@ -594,6 +640,86 @@ pub struct AudioClip {
 
     /// Optional color override (uses track color when `None`).
     pub color_override: Option<TrackColor>,
+
+    /// Session launch mode code (`LaunchMode` in ALS).
+    #[serde(default)]
+    pub launch_mode: i32,
+
+    /// Session launch quantization code (`LaunchQuantisation`).
+    #[serde(default)]
+    pub launch_quantization: i32,
+
+    /// Follow action enabled flag.
+    #[serde(default)]
+    pub follow_action_enabled: bool,
+
+    /// Follow time value from ALS.
+    #[serde(default)]
+    pub follow_time: f64,
+
+    /// Follow action A code from ALS.
+    #[serde(default)]
+    pub follow_action_a: i32,
+
+    /// Follow action B code from ALS.
+    #[serde(default)]
+    pub follow_action_b: i32,
+
+    /// Follow chance A value from ALS (usually 0..100).
+    #[serde(default)]
+    pub follow_chance_a: f64,
+
+    /// Follow chance B value from ALS (usually 0..100).
+    #[serde(default)]
+    pub follow_chance_b: f64,
+
+    /// Whether clip is marked in-key (`IsInKey`).
+    #[serde(default)]
+    pub is_in_key: bool,
+
+    /// ALS scale root (0..11) when present.
+    #[serde(default)]
+    pub scale_root: Option<u8>,
+
+    /// ALS scale name/id when present.
+    #[serde(default)]
+    pub scale_name: Option<String>,
+
+    /// Warp enabled state (`IsWarped`).
+    #[serde(default)]
+    pub is_warped: bool,
+
+    /// ALS warp mode numeric code.
+    #[serde(default)]
+    pub warp_mode: Option<i32>,
+
+    /// Parsed warp marker points.
+    #[serde(default)]
+    pub warp_markers: Vec<WarpMarkerPoint>,
+
+    /// Clip loop start in beats when present in ALS `<Loop>`.
+    #[serde(default)]
+    pub loop_start_beats: Option<f64>,
+
+    /// Clip loop end in beats when present in ALS `<Loop>`.
+    #[serde(default)]
+    pub loop_end_beats: Option<f64>,
+
+    /// Clip loop enabled flag from ALS.
+    #[serde(default)]
+    pub loop_on: bool,
+
+    /// Groove template name from ALS (e.g., "MPC 8th Swing 59%").
+    #[serde(default)]
+    pub groove_name: Option<String>,
+
+    /// Groove amount (0.0–1.0 normalized from ALS GrooveAmount).
+    #[serde(default)]
+    pub groove_amount: f64,
+
+    /// Intra-clip automation envelopes.
+    #[serde(default)]
+    pub envelopes: Vec<ClipEnvelope>,
 }
 
 impl AudioClip {
@@ -618,6 +744,26 @@ impl AudioClip {
             is_selected: false,
             is_muted: false,
             color_override: None,
+            launch_mode: 0,
+            launch_quantization: 0,
+            follow_action_enabled: false,
+            follow_time: 0.0,
+            follow_action_a: 0,
+            follow_action_b: 0,
+            follow_chance_a: 0.0,
+            follow_chance_b: 0.0,
+            is_in_key: false,
+            scale_root: None,
+            scale_name: None,
+            is_warped: false,
+            warp_mode: None,
+            warp_markers: Vec::new(),
+            loop_start_beats: None,
+            loop_end_beats: None,
+            loop_on: false,
+            groove_name: None,
+            groove_amount: 0.0,
+            envelopes: Vec::new(),
         }
     }
 
@@ -880,6 +1026,30 @@ pub struct Project {
     #[serde(default)]
     pub view_browser_width: Option<f64>,
 
+    /// Arrangement/editor grid numerator (e.g. 1 in 1/16).
+    #[serde(default = "default_arrangement_grid_numerator")]
+    pub arrangement_grid_numerator: u16,
+
+    /// Arrangement/editor grid denominator (e.g. 16 in 1/16).
+    #[serde(default = "default_arrangement_grid_denominator")]
+    pub arrangement_grid_denominator: u16,
+
+    /// Ableton n-tuple subdivision hint (`Ntoles`).
+    #[serde(default = "default_arrangement_grid_ntoles")]
+    pub arrangement_grid_ntoles: u8,
+
+    /// Whether snap-to-grid is enabled.
+    #[serde(default = "default_arrangement_snap_to_grid")]
+    pub arrangement_snap_to_grid: bool,
+
+    /// Project-level markers / locators imported from ALS.
+    #[serde(default)]
+    pub markers: Vec<ProjectMarker>,
+
+    /// Whether fixed grid mode is enabled.
+    #[serde(default)]
+    pub arrangement_grid_fixed: bool,
+
     // ── Playback State ────────────────────────────────────────────────
 
     /// Persisted transport playhead position (sample frames).
@@ -917,6 +1087,10 @@ pub struct Project {
 
 fn default_key_tonic() -> String { "C".to_string() }
 fn default_key_mode() -> String { "Major".to_string() }
+fn default_arrangement_grid_numerator() -> u16 { 1 }
+fn default_arrangement_grid_denominator() -> u16 { 16 }
+fn default_arrangement_grid_ntoles() -> u8 { 2 }
+fn default_arrangement_snap_to_grid() -> bool { true }
 
 impl Project {
     /// Creates a new empty project with default settings.
@@ -938,6 +1112,12 @@ impl Project {
             view_zoom_scale: None,
             view_scroll_position: None,
             view_browser_width: None,
+            arrangement_grid_numerator: default_arrangement_grid_numerator(),
+            arrangement_grid_denominator: default_arrangement_grid_denominator(),
+            arrangement_grid_ntoles: default_arrangement_grid_ntoles(),
+            arrangement_snap_to_grid: default_arrangement_snap_to_grid(),
+            arrangement_grid_fixed: false,
+            markers: Vec::new(),
             // Playback
             playhead_position_frames: 0,
             // Loop

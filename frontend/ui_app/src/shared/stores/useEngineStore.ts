@@ -25,6 +25,7 @@ import type {
     ImportAudioResponse,
 } from '@/shared/api/engine';
 import type { TimelineClip } from '@/shared/types/Arrangement';
+import { useGridStore } from '@/shared/stores/useGridStore';
 
 /** Track info from Rust project. */
 export interface ProjectTrack {
@@ -106,6 +107,10 @@ const throttledPanSends = new Map<number, (pan: number) => void>();
 const pendingVolumeValues = new Map<number, number>();
 const pendingPanValues = new Map<number, number>();
 let pendingMasterVolume: number | null = null;
+let projectFetchSeq = 0;
+const DEBUG_PROJECT_FETCH =
+    (typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV))
+    || (typeof window !== 'undefined' && (window as Window & { __dreamDebugProjectFetch?: boolean }).__dreamDebugProjectFetch === true);
 const throttledMasterVolumeSend = throttle((volume: number) => {
     void engine.setMasterVolume(volume);
 }, 16);
@@ -201,7 +206,7 @@ interface EngineStore {
     createMidiClip: (trackIndex: number, positionFrames: number, durationFrames: number) => Promise<void>;
 
     /** Fetch project state from Rust and convert to timeline format. */
-    fetchProject: () => Promise<void>;
+    fetchProject: (reason?: string) => Promise<void>;
 
     /** Expand window from splash to full DAW mode. */
     expandWindow: () => Promise<void>;
@@ -318,7 +323,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             // Backend mutates pulse map + retimes persisted project structures.
             // Pull refreshed project snapshot immediately so timeline conversions
             // and clip geometry remain mathematically consistent.
-            await get().fetchProject();
+            await get().fetchProject('setBpm');
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
@@ -458,7 +463,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     addTrack: async (name?: string) => {
         try {
             await engine.addTrack(name);
-            await get().fetchProject();
+            await get().fetchProject('addTrack');
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
@@ -468,7 +473,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     deleteTrack: async (index: number) => {
         try {
             await engine.deleteTrack(index);
-            await get().fetchProject();
+            await get().fetchProject('deleteTrack');
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
@@ -478,7 +483,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     renameTrack: async (index: number, name: string) => {
         try {
             await engine.renameTrack(index, name);
-            await get().fetchProject();
+            await get().fetchProject('renameTrack');
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
@@ -492,7 +497,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 `[Engine] Imported '${response.clip_name}' → track ${trackIndex} (${response.duration_seconds.toFixed(1)}s)`,
             );
             // Refresh project state so Timeline shows the new clip
-            await get().fetchProject();
+            await get().fetchProject('importFile');
             return response;
         } catch (err) {
             const msg = `Import failed: ${err}`;
@@ -508,7 +513,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             console.log(
                 `[Engine] Created MIDI clip '${response.clip_name}' → track ${trackIndex} @ frame ${positionFrames}`,
             );
-            await get().fetchProject();
+            await get().fetchProject('createMidiClip');
         } catch (err) {
             const msg = `Create MIDI clip failed: ${err}`;
             console.error(`[Engine] ${msg}`);
@@ -518,7 +523,11 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     // ── Project Sync ───────────────────────────────────────────────────
 
-    fetchProject: async () => {
+    fetchProject: async (reason: string = 'manual') => {
+        const requestSeq = ++projectFetchSeq;
+        if (DEBUG_PROJECT_FETCH) {
+            console.debug(`[ProjectFetch] start #${requestSeq} reason=${reason}`);
+        }
         try {
             const project = await engine.getProject() as {
                 tracks: Array<{
@@ -571,15 +580,37 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     }>;
                 }>;
                 sample_rate: number;
-                pulse_map: { initial_bpm: number };
+                pulse_map: { tempo_events: Array<{ bpm: number }>; sample_rate: number };
+                arrangement_grid_numerator?: number;
+                arrangement_grid_denominator?: number;
+                arrangement_grid_ntoles?: number;
+                arrangement_snap_to_grid?: boolean;
+                arrangement_grid_fixed?: boolean;
             };
+
+            // Ignore stale/out-of-order responses (e.g. startup fetch resolving
+            // after Open Project fetch). Latest invocation always wins.
+            if (requestSeq !== projectFetchSeq) {
+                if (DEBUG_PROJECT_FETCH) {
+                    console.debug(`[ProjectFetch] stale #${requestSeq} reason=${reason} latest=${projectFetchSeq}`);
+                }
+                return;
+            }
 
             // CRITICAL: Use the project's own PulseMap BPM as the authoritative SSOT
             // for frame↔beat conversion. The telemetry loop's transport.bpm may be
             // stale after open_project (race condition — telemetry hasn't polled yet).
-            const bpm = project.pulse_map?.initial_bpm || get().transport.bpm || 120;
+            const bpm = project.pulse_map?.tempo_events?.[0]?.bpm || get().transport.bpm || 120;
             const sr = project.sample_rate || 44100;
             const beatsPerSecond = bpm / 60;
+
+            useGridStore.getState().applyProjectGrid({
+                numerator: project.arrangement_grid_numerator ?? 1,
+                denominator: project.arrangement_grid_denominator ?? 16,
+                ntoles: project.arrangement_grid_ntoles ?? 2,
+                snapToGrid: project.arrangement_snap_to_grid ?? true,
+                fixed: project.arrangement_grid_fixed ?? false,
+            });
 
             // Convert all clips from sample frames → beats
             const timelineClips: TimelineClip[] = [];
@@ -680,9 +711,27 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 }
             }
 
-            set({ timelineClips, projectTracks, projectSampleRate: sr, projectBpm: bpm });
+            if (requestSeq === projectFetchSeq) {
+                set((s) => ({
+                    timelineClips,
+                    projectTracks,
+                    projectSampleRate: sr,
+                    projectBpm: bpm,
+                    // Keep transport.bpm in sync so TransportBar/StatusBar
+                    // show correct BPM immediately, even before next telemetry poll
+                    transport: { ...s.transport, bpm },
+                }));
+                if (DEBUG_PROJECT_FETCH) {
+                    console.debug(
+                        `[ProjectFetch] apply #${requestSeq} reason=${reason} tracks=${projectTracks.length} clips=${timelineClips.length} bpm=${bpm}`,
+                    );
+                }
+            }
         } catch (e) {
             console.error('[Engine] fetchProject failed:', e);
+            if (DEBUG_PROJECT_FETCH) {
+                console.debug(`[ProjectFetch] error #${requestSeq} reason=${reason}`);
+            }
         }
     },
 
@@ -703,7 +752,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         set({ telemetryRunning: true });
 
         // Fetch project once at startup
-        get().fetchProject();
+        get().fetchProject('telemetry-startup');
 
         const poll = async () => {
             _frameCount++;

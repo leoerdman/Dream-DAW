@@ -365,17 +365,13 @@ async fn merge_clips_cmd(
         let merged = AudioClip {
             id: new_id,
             name: "Merged Clip".to_string(),
-            file_path: first.file_path.clone(),
             position: AbsoluteTime::new(start),
             duration: AbsoluteTime::new((end - start).max(1)),
-            source_offset: first.source_offset,
-            gain: first.gain,
             fade_in_frames: 0,
             fade_out_frames: 0,
-            is_offline: first.is_offline,
             is_selected: false,
             is_muted: false,
-            color_override: first.color_override,
+            ..first.clone()
         };
         let insert_at = track
             .clips

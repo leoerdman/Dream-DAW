@@ -19,17 +19,33 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
         || merged.contains("wave synth")
         || compact.contains("wavesynth")
         || compact.contains("instrumentvector")
+        || compact.contains("stringstudio")
+        || compact.contains("ultraanalog")
+        || compact.contains("collision")
+        || compact.contains("tension")
+        || compact.contains("electricpiano")
+        || compact.contains("instrumentmeld")
+        || compact.contains("mxdeviceinstrument")
+        || compact.contains("loungelizard")
     {
         return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument"));
     }
-    if merged.contains("sampler") || merged.contains("simpler") || compact.contains("multisampler") {
+    if merged.contains("sampler") || merged.contains("simpler") || compact.contains("multisampler") || compact.contains("drumcell") {
         return Some(("internal://instrument/sampler", "Sampler", "instrument"));
     }
 
     if merged.contains("eq") || merged.contains("channel eq") {
         return Some(("internal://effect/eq-eight", "EQ Eight", "effect"));
     }
-    if merged.contains("compressor") || merged.contains("glue") || compact.contains("multibanddynamics") || compact.contains("drumbuss") {
+    if compact.contains("proq") {
+        return Some(("internal://effect/eq-eight", "EQ Eight", "effect"));
+    }
+    if merged.contains("compressor") || merged.contains("glue") || compact.contains("multibanddynamics") || compact.contains("drumbuss")
+        || compact.contains("compressor2")
+    {
+        return Some(("internal://effect/compressor", "Compressor", "effect"));
+    }
+    if compact.contains("prol") || compact.contains("nectar") {
         return Some(("internal://effect/compressor", "Compressor", "effect"));
     }
     if merged.contains("delay") || merged.contains("echo") || merged.contains("ping pong")
@@ -44,13 +60,13 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
     {
         return Some(("internal://effect/reverb", "Reverb", "effect"));
     }
-    if merged.contains("chorus") {
+    if merged.contains("chorus") || compact.contains("chorus2") {
         return Some(("internal://effect/chorus", "Chorus", "effect"));
     }
     if compact.contains("stereogain") {
         return Some(("internal://effect/utility", "Utility", "effect"));
     }
-    if compact.contains("autopan") {
+    if compact.contains("autopan") || compact.contains("autopan2") {
         return Some(("internal://effect/auto-pan", "Auto Pan", "effect"));
     }
     if compact.contains("midipitcher") {
@@ -62,8 +78,17 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
     if compact.contains("mxdevicevelocity") || compact == "velocity" {
         return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
     }
+    if compact.contains("midivelocity") {
+        return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
+    }
+    if compact.contains("midichord") {
+        return Some(("internal://midi-fx/scale", "MIDI Chord", "effect"));
+    }
     if compact.contains("mxdevicerandom") || compact == "random" || compact.contains("midirandom") {
         return Some(("internal://midi-fx/random", "MIDI Random", "effect"));
+    }
+    if compact.contains("midiarpeggiator") {
+        return Some(("internal://midi-fx/random", "MIDI Arp", "effect"));
     }
     if compact.contains("midinotelength") {
         return Some(("internal://midi-fx/velocity", "MIDI Note Length", "effect"));
@@ -71,25 +96,41 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
     if merged.contains("noise machine") || compact.contains("noisemachine") {
         return Some(("internal://effect/noise-machine", "Noise Machine", "effect"));
     }
-    if merged.contains("saturator") || compact.contains("dynamictube") || compact.contains("roar") || compact == "tube" {
+    if merged.contains("saturator") || compact.contains("dynamictube")
+        || compact == "tube"
+    {
         return Some(("internal://effect/saturator", "Saturator", "effect"));
     }
-    if merged.contains("spectrum") {
+    if merged.contains("spectrum") || compact.contains("spectrumanalyzer") {
+        return Some(("internal://effect/spectrum", "Spectrum", "effect"));
+    }
+    if compact.contains("span")
+        || compact.contains("youlean")
+        || compact.contains("loudnessmeter")
+        || compact.contains("psyscope")
+    {
         return Some(("internal://effect/spectrum", "Spectrum", "effect"));
     }
     if merged.contains("utility") || merged.contains("looper") || merged.contains("tuner")
         || compact.contains("frequencyshifter")
         || compact.contains("shifter")
+        || compact.contains("autoshift")
         || compact.contains("pitchhack") || compact.contains("spectral")
         || compact.contains("mxdeviceaudioeffect") || compact.contains("mxdevicemidieffect")
     {
         return Some(("internal://effect/utility", "Utility", "effect"));
     }
+    if compact.contains("reastream") || compact.contains("ozoneimager") {
+        return Some(("internal://effect/utility", "Utility", "effect"));
+    }
     if merged.contains("limiter") {
         return Some(("internal://effect/limiter", "Limiter", "effect"));
     }
-    if merged.contains("gate") {
+    if merged.contains("gate") && !merged.contains("bitcrusher") {
         return Some(("internal://effect/gate", "Gate", "effect"));
+    }
+    if compact.contains("redux") || compact.contains("bitcrusher") {
+        return Some(("internal://effect/bitcrusher", "Bitcrusher", "effect"));
     }
     if merged.contains("auto filter") || merged.contains("autofilter") {
         return Some(("internal://effect/auto-filter", "Auto Filter", "effect"));
@@ -105,19 +146,14 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
     }
     if merged.contains("distortion") || merged.contains("overdrive") || merged.contains("pedal")
         || merged.contains("cabinet") || merged.contains("amp") || merged.contains("shaper")
+        || merged.contains("erosion") || merged.contains("vocoder") || merged.contains("vinyl")
+        || merged.contains("transmute")
+        || compact.contains("roar")
     {
         return Some(("internal://effect/distortion", "Distortion", "effect"));
     }
-    if merged.contains("erosion") || merged.contains("transmute") || merged.contains("vocoder")
-        || merged.contains("vinyl")
-    {
-        return Some(("internal://effect/distortion", "Distortion", "effect"));
-    }
-    if merged.contains("bitcrusher") || merged.contains("redux") || compact.contains("redux2") {
-        return Some(("internal://effect/bitcrusher", "Bitcrusher", "effect"));
-    }
-    if compact.contains("stringstudio") {
-        return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument"));
+    if compact.contains("hybrid") {
+        return Some(("internal://effect/reverb", "Reverb", "effect"));
     }
     None
 }
@@ -147,15 +183,32 @@ fn normalize_internal_plugins_for_import(project: &mut Project) {
             }
         }
         for fx in &mut track.effects {
-            let pid = fx.plugin_id();
-            let pname = fx.name().to_string();
-            if let Some((canonical_id, canonical_name, slot)) =
+            normalize_effect_node(fx);
+        }
+    }
+}
+
+/// Recursively normalize a single `DeviceNode` and all children inside racks.
+fn normalize_effect_node(node: &mut DeviceNode) {
+    match node {
+        DeviceNode::Single(slot) => {
+            let pid = slot.plugin_id.clone();
+            let pname = slot.name.clone();
+            if let Some((canonical_id, canonical_name, _slot_kind)) =
                 canonical_internal_plugin_for_import(&pid, &pname)
-                && slot == "effect"
             {
-                fx.set_plugin_id(canonical_id);
-                if pname.trim().is_empty() || pname.to_lowercase() != canonical_name.to_lowercase() {
-                    fx.set_name(canonical_name);
+                slot.plugin_id = canonical_id.to_string();
+                if pname.trim().is_empty()
+                    || pname.to_lowercase() != canonical_name.to_lowercase()
+                {
+                    slot.name = canonical_name.to_string();
+                }
+            }
+        }
+        DeviceNode::Rack(rack) => {
+            for chain in &mut rack.chains {
+                for device in &mut chain.devices {
+                    normalize_effect_node(device);
                 }
             }
         }
@@ -209,6 +262,318 @@ fn maybe_parse_f64_manual(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<f6
 
 fn maybe_parse_bool_manual(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<bool> {
     node_manual_value(node, tag).as_deref().and_then(parse_bool_value)
+}
+
+fn first_child_value(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<String> {
+    node.children()
+        .find(|c| c.is_element() && c.has_tag_name(tag))
+        .and_then(|n| n.attribute("Value"))
+        .map(|s| s.to_string())
+}
+
+fn first_child_f64(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<f64> {
+    first_child_value(node, tag).as_deref().and_then(parse_f64_value)
+}
+
+fn first_child_i32(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<i32> {
+    first_child_value(node, tag)
+        .as_deref()
+        .and_then(parse_i64_value)
+        .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+}
+
+fn first_child_bool(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<bool> {
+    first_child_value(node, tag).as_deref().and_then(parse_bool_value)
+}
+
+fn semitone_to_tonic(root: u8) -> &'static str {
+    match root % 12 {
+        0 => "C",
+        1 => "C#",
+        2 => "D",
+        3 => "D#",
+        4 => "E",
+        5 => "F",
+        6 => "F#",
+        7 => "G",
+        8 => "G#",
+        9 => "A",
+        10 => "A#",
+        _ => "B",
+    }
+}
+
+fn parse_clip_scale_info(clip_node: roxmltree::Node<'_, '_>) -> (bool, Option<u8>, Option<String>) {
+    let is_in_key = node_child_value(clip_node, "IsInKey")
+        .as_deref()
+        .and_then(parse_bool_value)
+        .unwrap_or(false);
+    let scale_info = clip_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("ScaleInformation"));
+    let scale_root = scale_info
+        .and_then(|n| first_child_value(n, "Root"))
+        .as_deref()
+        .and_then(parse_i64_value)
+        .map(|v| v.rem_euclid(12) as u8);
+    let scale_name = scale_info
+        .and_then(|n| first_child_value(n, "Name"))
+        .filter(|s| !s.trim().is_empty());
+    (is_in_key, scale_root, scale_name)
+}
+
+fn parse_clip_follow_action(
+    clip_node: roxmltree::Node<'_, '_>,
+) -> (bool, f64, i32, i32, f64, f64) {
+    let follow = clip_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("FollowAction"));
+    let Some(follow) = follow else {
+        return (false, 0.0, 0, 0, 0.0, 0.0);
+    };
+    (
+        first_child_bool(follow, "FollowActionEnabled").unwrap_or(false),
+        first_child_f64(follow, "FollowTime").unwrap_or(0.0),
+        first_child_i32(follow, "FollowActionA").unwrap_or(0),
+        first_child_i32(follow, "FollowActionB").unwrap_or(0),
+        first_child_f64(follow, "FollowChanceA").unwrap_or(0.0),
+        first_child_f64(follow, "FollowChanceB").unwrap_or(0.0),
+    )
+}
+
+fn parse_clip_groove(clip_node: roxmltree::Node<'_, '_>) -> (Option<String>, f64) {
+    let groove = clip_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("GrooveSettings"));
+    let Some(groove) = groove else {
+        return (None, 0.0);
+    };
+    let groove_id = first_child_value(groove, "GrooveId")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let groove_amount = first_child_f64(groove, "GrooveAmount")
+        .map(|v| (v / 100.0).clamp(0.0, 1.0))
+        .unwrap_or(0.0);
+    let groove_name = if groove_id.is_empty() || groove_id == "-1" {
+        None
+    } else {
+        Some(format!("Groove {groove_id}"))
+    };
+    (groove_name, groove_amount)
+}
+
+fn parse_clip_launch(clip_node: roxmltree::Node<'_, '_>) -> (i32, i32) {
+    (
+        node_child_value(clip_node, "LaunchMode")
+            .as_deref()
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+            .unwrap_or(0),
+        node_child_value(clip_node, "LaunchQuantisation")
+            .as_deref()
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+            .unwrap_or(0),
+    )
+}
+
+fn parse_clip_loop(clip_node: roxmltree::Node<'_, '_>) -> (Option<f64>, Option<f64>, bool) {
+    let loop_node = clip_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("Loop"));
+    let Some(loop_node) = loop_node else {
+        return (None, None, false);
+    };
+    (
+        first_child_f64(loop_node, "LoopStart"),
+        first_child_f64(loop_node, "LoopEnd"),
+        first_child_bool(loop_node, "LoopOn").unwrap_or(false),
+    )
+}
+
+fn parse_audio_clip_warp(
+    clip_node: roxmltree::Node<'_, '_>,
+) -> (bool, Option<i32>, Vec<dream_models::project::WarpMarkerPoint>) {
+    let is_warped = node_child_value(clip_node, "IsWarped")
+        .as_deref()
+        .and_then(parse_bool_value)
+        .unwrap_or(false);
+    let warp_mode = node_child_value(clip_node, "WarpMode")
+        .as_deref()
+        .and_then(parse_i64_value)
+        .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+    let mut markers = Vec::new();
+    if let Some(warp_markers) = clip_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("WarpMarkers"))
+    {
+        for marker in warp_markers
+            .children()
+            .filter(|n| n.is_element() && n.has_tag_name("WarpMarker"))
+        {
+            let sec_time = marker
+                .attribute("SecTime")
+                .and_then(parse_f64_value)
+                .unwrap_or(0.0);
+            let beat_time = marker
+                .attribute("BeatTime")
+                .and_then(parse_f64_value)
+                .unwrap_or(0.0);
+            markers.push(dream_models::project::WarpMarkerPoint { sec_time, beat_time });
+        }
+    }
+    (is_warped, warp_mode, markers)
+}
+
+fn parse_clip_envelopes(
+    clip_node: roxmltree::Node<'_, '_>,
+    pointee_map: &std::collections::HashMap<String, String>,
+) -> Vec<dream_models::project::ClipEnvelope> {
+    let mut envelopes_out = Vec::new();
+    let envelopes_root = clip_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("Envelopes"))
+        .and_then(|e| e.children().find(|n| n.is_element() && n.has_tag_name("Envelopes")));
+    let Some(envelopes_root) = envelopes_root else {
+        return envelopes_out;
+    };
+    for envelope in envelopes_root
+        .children()
+        .filter(|n| n.is_element() && n.has_tag_name("AutomationEnvelope"))
+    {
+        let pointee_id = envelope
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("PointeeId"))
+            .and_then(|n| n.attribute("Value"))
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+            .unwrap_or(0);
+        if pointee_id == 0 {
+            continue;
+        }
+        let mut points = Vec::new();
+        for event in envelope
+            .descendants()
+            .filter(|n| n.is_element() && n.has_tag_name("FloatEvent"))
+        {
+            let beat = event
+                .attribute("Time")
+                .and_then(parse_f64_value)
+                .unwrap_or(0.0);
+            if beat < -1_000_000.0 {
+                continue;
+            }
+            let value = event
+                .attribute("Value")
+                .and_then(parse_f64_value)
+                .unwrap_or(0.0);
+            points.push(dream_models::project::AutomationPoint {
+                beat,
+                value,
+                curve_type: "linear".to_string(),
+                tension: None,
+            });
+        }
+        if points.is_empty() {
+            continue;
+        }
+        points.sort_by(|a, b| a.beat.total_cmp(&b.beat));
+        let param_id = pointee_map
+            .get(&pointee_id.to_string())
+            .cloned()
+            .unwrap_or_else(|| format!("clip:{pointee_id}"));
+        envelopes_out.push(dream_models::project::ClipEnvelope {
+            pointee_id,
+            param_id,
+            points,
+        });
+    }
+    envelopes_out
+}
+
+fn parse_clip_grid(
+    clip_node: roxmltree::Node<'_, '_>,
+) -> Option<(u16, u16, u8, bool, bool)> {
+    let grid = clip_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("Grid"))?;
+    let numerator = first_child_value(grid, "FixedNumerator")
+        .as_deref()
+        .and_then(parse_i64_value)
+        .map(|v| v.clamp(1, u16::MAX as i64) as u16)
+        .unwrap_or(1);
+    let denominator = first_child_value(grid, "FixedDenominator")
+        .as_deref()
+        .and_then(parse_i64_value)
+        .map(|v| v.clamp(1, u16::MAX as i64) as u16)
+        .unwrap_or(16);
+    let ntoles = first_child_value(grid, "Ntoles")
+        .as_deref()
+        .and_then(parse_i64_value)
+        .map(|v| v.clamp(1, u8::MAX as i64) as u8)
+        .unwrap_or(2);
+    let snap = first_child_bool(grid, "SnapToGrid").unwrap_or(true);
+    let fixed = first_child_bool(grid, "Fixed").unwrap_or(false);
+    Some((numerator, denominator, ntoles, snap, fixed))
+}
+
+fn parse_project_markers(
+    live_set: roxmltree::Node<'_, '_>,
+) -> Vec<dream_models::project::ProjectMarker> {
+    let mut out = Vec::<dream_models::project::ProjectMarker>::new();
+
+    let Some(locators_root) = live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("Locators"))
+        .or_else(|| live_set.descendants().find(|n| n.is_element() && n.has_tag_name("Locators")))
+    else {
+        return out;
+    };
+
+    for (idx, locator) in locators_root
+        .descendants()
+        .filter(|n| n.is_element() && n.has_tag_name("Locator"))
+        .enumerate()
+    {
+        let position_beats = first_child_f64(locator, "Time")
+            .or_else(|| {
+                locator
+                    .children()
+                    .find(|n| n.is_element() && n.has_tag_name("Time"))
+                    .and_then(|n| n.attribute("Value"))
+                    .and_then(parse_f64_value)
+            })
+            .unwrap_or(0.0)
+            .max(0.0);
+
+        let name = first_child_value(locator, "Name")
+            .or_else(|| {
+                locator
+                    .descendants()
+                    .find(|n| n.is_element() && n.has_tag_name("EffectiveName"))
+                    .and_then(|n| n.attribute("Value"))
+                    .map(|s| s.to_string())
+            })
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| format!("Marker {}", idx + 1));
+
+        let color = first_child_value(locator, "Color")
+            .as_deref()
+            .and_then(parse_i64_value)
+            .map(|v| ableton_color_to_track_color(v, idx));
+
+        out.push(dream_models::project::ProjectMarker {
+            id: Uuid::new_v4(),
+            name,
+            position_beats,
+            color,
+        });
+    }
+
+    out.sort_by(|a, b| a.position_beats.total_cmp(&b.position_beats));
+    out
 }
 
 fn direct_manual_value(node: roxmltree::Node<'_, '_>) -> Option<String> {
@@ -788,6 +1153,36 @@ mod als_import_tests {
         assert_eq!(map.get("1003").map(String::as_str), Some("mixer.arm"));
         assert_eq!(map.get("1004").map(String::as_str), Some("send.A"));
     }
+
+    #[test]
+    fn parse_clip_envelopes_uses_pointee_map_param_id() {
+        let xml = r#"
+        <AudioClip>
+          <Envelopes>
+            <Envelopes>
+              <AutomationEnvelope>
+                <EnvelopeTarget><PointeeId Value="42"/></EnvelopeTarget>
+                <Automation>
+                  <Events>
+                    <FloatEvent Time="0" Value="0.5"/>
+                  </Events>
+                </Automation>
+              </AutomationEnvelope>
+            </Envelopes>
+          </Envelopes>
+        </AudioClip>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let clip = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("AudioClip"))
+            .expect("clip");
+        let mut map = std::collections::HashMap::new();
+        map.insert("42".to_string(), "volume".to_string());
+        let env = parse_clip_envelopes(clip, &map);
+        assert_eq!(env.len(), 1);
+        assert_eq!(env[0].param_id, "volume");
+    }
 }
 
 fn infer_device_display_name(device: roxmltree::Node<'_, '_>, fallback_tag: &str) -> String {
@@ -875,6 +1270,8 @@ fn import_track_clips(
     bpm: f64,
     sample_rate: f64,
 ) {
+    let pointee_map = build_pointee_map(track_node);
+
     for clip_node in track_node.descendants().filter(|n| n.is_element() && n.has_tag_name("AudioClip")) {
         let start_beats = node_child_value(clip_node, "CurrentStart")
             .as_deref()
@@ -901,6 +1298,15 @@ fn import_track_clips(
             AbsoluteTime::new(beats_to_frames(start_beats, bpm, sample_rate)),
             AbsoluteTime::new(beats_to_frames(duration_beats, bpm, sample_rate).max(1)),
         );
+
+        // Import clip color from Ableton's per-clip Color index
+        if let Some(color_idx) = node_child_value(clip_node, "Color")
+            .as_deref()
+            .and_then(parse_i64_value)
+        {
+            clip.color_override = Some(ableton_color_to_track_color(color_idx, 0));
+        }
+
         if let Some(sample_volume) = node_child_value(clip_node, "SampleVolume")
             .as_deref()
             .and_then(parse_f64_value)
@@ -926,6 +1332,33 @@ fn import_track_clips(
         {
             clip.is_muted = disabled;
         }
+        let (launch_mode, launch_quantization) = parse_clip_launch(clip_node);
+        clip.launch_mode = launch_mode;
+        clip.launch_quantization = launch_quantization;
+        let (follow_enabled, follow_time, follow_a, follow_b, chance_a, chance_b) =
+            parse_clip_follow_action(clip_node);
+        clip.follow_action_enabled = follow_enabled;
+        clip.follow_time = follow_time;
+        clip.follow_action_a = follow_a;
+        clip.follow_action_b = follow_b;
+        clip.follow_chance_a = chance_a;
+        clip.follow_chance_b = chance_b;
+        let (in_key, scale_root, scale_name) = parse_clip_scale_info(clip_node);
+        clip.is_in_key = in_key;
+        clip.scale_root = scale_root;
+        clip.scale_name = scale_name;
+        let (loop_start_beats, loop_end_beats, loop_on) = parse_clip_loop(clip_node);
+        clip.loop_start_beats = loop_start_beats;
+        clip.loop_end_beats = loop_end_beats;
+        clip.loop_on = loop_on;
+        let (is_warped, warp_mode, warp_markers) = parse_audio_clip_warp(clip_node);
+        clip.is_warped = is_warped;
+        clip.warp_mode = warp_mode;
+        clip.warp_markers = warp_markers;
+        let (groove_name, groove_amount) = parse_clip_groove(clip_node);
+        clip.groove_name = groove_name;
+        clip.groove_amount = groove_amount;
+        clip.envelopes = parse_clip_envelopes(clip_node, &pointee_map);
 
         track.clips.push(clip);
     }
@@ -961,6 +1394,29 @@ fn import_track_clips(
         {
             clip.is_muted = disabled;
         }
+        let (launch_mode, launch_quantization) = parse_clip_launch(clip_node);
+        clip.launch_mode = launch_mode;
+        clip.launch_quantization = launch_quantization;
+        let (follow_enabled, follow_time, follow_a, follow_b, chance_a, chance_b) =
+            parse_clip_follow_action(clip_node);
+        clip.follow_action_enabled = follow_enabled;
+        clip.follow_time = follow_time;
+        clip.follow_action_a = follow_a;
+        clip.follow_action_b = follow_b;
+        clip.follow_chance_a = chance_a;
+        clip.follow_chance_b = chance_b;
+        let (in_key, scale_root, scale_name) = parse_clip_scale_info(clip_node);
+        clip.is_in_key = in_key;
+        clip.scale_root = scale_root;
+        clip.scale_name = scale_name;
+        let (loop_start_beats, loop_end_beats, loop_on) = parse_clip_loop(clip_node);
+        clip.loop_start_beats = loop_start_beats;
+        clip.loop_end_beats = loop_end_beats;
+        clip.loop_on = loop_on;
+        let (groove_name, groove_amount) = parse_clip_groove(clip_node);
+        clip.groove_name = groove_name;
+        clip.groove_amount = groove_amount;
+        clip.envelopes = parse_clip_envelopes(clip_node, &pointee_map);
 
         for key_track in clip_node.descendants().filter(|n| n.is_element() && n.has_tag_name("KeyTrack")) {
             let pitch = key_track
@@ -1059,7 +1515,7 @@ fn parse_als_rack(
     }
 
     // ── Parse MacroControls (up to 16) ──────────────────────────────
-    for macro_node in group_device.descendants().filter(|n| {
+    for macro_node in group_device.children().filter(|n| {
         n.is_element()
             && n.tag_name()
                 .name()
@@ -1165,9 +1621,15 @@ fn parse_als_rack_chains(
         }
 
         // ── Parse chain mute/solo ───────────────────────────────────
-        chain.is_mute = branch
+        chain.is_solo = branch
             .children()
             .find(|n| n.is_element() && n.has_tag_name("IsSoloed"))
+            .and_then(|n| n.attribute("Value"))
+            .and_then(parse_bool_value)
+            .unwrap_or(false);
+        chain.is_mute = branch
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("IsMuted"))
             .and_then(|n| n.attribute("Value"))
             .and_then(parse_bool_value)
             .unwrap_or(false);
@@ -1263,25 +1725,34 @@ fn parse_als_rack_chains(
                             "Unknown Plugin".to_string()
                         };
 
-                        let plugin_id = if !vst2_path.is_empty() {
-                            vst2_path.to_string()
+                        let resolved_plugin_id = if !vst2_path.is_empty() {
+                            Some(vst2_path.to_string())
                         } else if !vst3_path.is_empty() {
-                            vst3_path.to_string()
+                            Some(vst3_path.to_string())
                         } else if !vst3_name.is_empty() {
-                            external_plugins
-                                .resolve_by_name(vst3_name)
-                                .unwrap_or_else(|| format!("missing://{vst3_name}"))
+                            external_plugins.resolve_by_name(vst3_name)
                         } else if !vst2_name.is_empty() {
-                            external_plugins
-                                .resolve_by_name(vst2_name)
-                                .unwrap_or_else(|| format!("missing://{vst2_name}"))
+                            external_plugins.resolve_by_name(vst2_name)
                         } else {
-                            "missing://unknown".to_string()
+                            None
                         };
 
-                        chain
-                            .devices
-                            .push(DeviceNode::Single(PluginSlot::new(preferred_name, plugin_id)));
+                        if let Some(plugin_id) = resolved_plugin_id {
+                            chain.devices.push(DeviceNode::Single(PluginSlot::new(
+                                preferred_name,
+                                plugin_id,
+                            )));
+                        } else if let Some((pid, pname, _)) =
+                            canonical_internal_plugin_for_import("PluginDevice", &preferred_name)
+                        {
+                            chain
+                                .devices
+                                .push(DeviceNode::Single(PluginSlot::new(pname, pid)));
+                        } else {
+                            chain
+                                .devices
+                                .push(make_missing_plugin_slot("external", &preferred_name));
+                        }
                         continue;
                     }
 
@@ -1376,6 +1847,261 @@ fn parse_als_zone_settings(zone_node: roxmltree::Node<'_, '_>) -> dream_models::
     if let Some(v) = cmax { zs.chain_selector_max = v; }
 
     zs
+}
+
+fn collect_device_manual_params(device: roxmltree::Node<'_, '_>) -> std::collections::HashMap<String, f64> {
+    let mut out = std::collections::HashMap::new();
+    for node in device.descendants().filter(|n| n.is_element()) {
+        let key = node.tag_name().name().to_string();
+        let val = node
+            .children()
+            .find(|c| c.is_element() && c.has_tag_name("Manual"))
+            .and_then(|m| m.attribute("Value"))
+            .and_then(parse_f64_value);
+        if let Some(v) = val {
+            out.entry(key).or_insert(v);
+        }
+    }
+    out
+}
+
+fn first_param_value(
+    params: &std::collections::HashMap<String, f64>,
+    keys: &[&str],
+) -> Option<f64> {
+    keys.iter().find_map(|k| params.get(*k).copied())
+}
+
+fn normalize_percent_or_unit(value: f64) -> f64 {
+    if value > 1.0 {
+        (value / 100.0).clamp(0.0, 1.0)
+    } else {
+        value.clamp(0.0, 1.0)
+    }
+}
+
+fn import_internal_device_static_params(
+    track: &mut Track,
+    plugin_id: &str,
+    device: roxmltree::Node<'_, '_>,
+) {
+    let params = collect_device_manual_params(device);
+    let key = plugin_id.to_ascii_lowercase();
+
+    // Common on/off switch where available.
+    if let Some(on) = first_param_value(&params, &["On"]) {
+        upsert_static_import_lane(track, "device.on", if on >= 0.5 { 1.0 } else { 0.0 });
+    }
+
+    if key == "internal://effect/utility" {
+        if let Some(gain) = first_param_value(&params, &["Volume", "Gain", "Output", "GlobalGain"]) {
+            upsert_static_import_lane(track, "plugin.gain", gain.clamp(0.0, 2.0));
+        }
+        if let Some(pan) = first_param_value(&params, &["Pan", "Panorama"]) {
+            upsert_static_import_lane(track, "plugin.pan", pan.clamp(-1.0, 1.0));
+        }
+        if let Some(width) = first_param_value(&params, &["Width", "StereoWidth"]) {
+            let normalized = if width <= 2.0 { width * 100.0 } else { width };
+            upsert_static_import_lane(track, "plugin.width", normalized.clamp(0.0, 200.0));
+        }
+        if let Some(mono) = first_param_value(&params, &["Mono", "BassMono"]) {
+            upsert_static_import_lane(track, "plugin.mono", if mono >= 0.5 { 1.0 } else { 0.0 });
+        }
+        return;
+    }
+
+    if key == "internal://effect/auto-filter" {
+        if let Some(v) = first_param_value(&params, &["Cutoff", "Filter_Frequency"]) {
+            upsert_static_import_lane(track, "effect.auto_filter.cutoff", v.clamp(20.0, 20_000.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Resonance", "Filter_Resonance"]) {
+            upsert_static_import_lane(track, "effect.auto_filter.resonance", v.clamp(0.0, 1.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Drive", "Filter_Drive"]) {
+            upsert_static_import_lane(track, "effect.auto_filter.drive", v.clamp(0.0, 24.0));
+        }
+        if let Some(v) = first_param_value(&params, &["FilterType", "Filter_Type"]) {
+            upsert_static_import_lane(track, "effect.auto_filter.type", v.round().clamp(0.0, 8.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Lfo_Frequency", "LfoRate"]) {
+            upsert_static_import_lane(track, "effect.auto_filter.lfo.rate", v.clamp(0.01, 20.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Lfo_Amount", "LfoAmount"]) {
+            upsert_static_import_lane(track, "effect.auto_filter.lfo.depth", normalize_percent_or_unit(v));
+        }
+        if let Some(v) = first_param_value(&params, &["Envelope_Amount", "EnvAmount"]) {
+            let env = if v.abs() > 1.0 { (v / 100.0).clamp(-1.0, 1.0) } else { v.clamp(-1.0, 1.0) };
+            upsert_static_import_lane(track, "effect.auto_filter.env.amount", env);
+        }
+        if let Some(v) = first_param_value(&params, &["Lfo_Waveform", "LfoShape"]) {
+            upsert_static_import_lane(track, "effect.auto_filter.lfo.shape", v.round().clamp(0.0, 5.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Envelope_Attack", "EnvSpeed"]) {
+            let ms = if v <= 1.0 { v * 1000.0 } else { v };
+            upsert_static_import_lane(track, "effect.auto_filter.env.speed_ms", ms.clamp(1.0, 200.0));
+        }
+        if let Some(v) = first_param_value(&params, &["DryWet", "Mix"]) {
+            upsert_static_import_lane(track, "effect.auto_filter.mix", normalize_percent_or_unit(v));
+        }
+        return;
+    }
+
+    if key == "internal://effect/compressor" {
+        if let Some(v) = first_param_value(&params, &["Threshold"]) {
+            upsert_static_import_lane(track, "effect.compressor.threshold", v.clamp(-80.0, 0.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Ratio", "ExpansionRatio"]) {
+            upsert_static_import_lane(track, "effect.compressor.ratio", v.clamp(1.0, 20.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Attack"]) {
+            upsert_static_import_lane(track, "effect.compressor.attack", v.clamp(0.01, 200.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Release"]) {
+            upsert_static_import_lane(track, "effect.compressor.release", v.clamp(1.0, 1000.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Knee"]) {
+            upsert_static_import_lane(track, "effect.compressor.knee", v.clamp(0.0, 24.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Gain", "GainCompensation"]) {
+            upsert_static_import_lane(track, "effect.compressor.makeup", v.clamp(-24.0, 24.0));
+        }
+        if let Some(v) = first_param_value(&params, &["DryWet"]) {
+            upsert_static_import_lane(track, "effect.compressor.mix", normalize_percent_or_unit(v));
+        }
+        return;
+    }
+
+    if key == "internal://effect/reverb" {
+        if let Some(v) = first_param_value(&params, &["PreDelay", "PreDelay_Time"]) {
+            upsert_static_import_lane(track, "effect.reverb.predelay", v.clamp(0.0, 500.0));
+        }
+        if let Some(v) = first_param_value(&params, &["DecayTime", "Algorithm_Decay"]) {
+            upsert_static_import_lane(track, "effect.reverb.decay", v.clamp(0.1, 60.0));
+        }
+        if let Some(v) = first_param_value(&params, &["RoomSize", "Algorithm_Size"]) {
+            upsert_static_import_lane(track, "effect.reverb.size", normalize_percent_or_unit(v));
+        }
+        if let Some(v) = first_param_value(&params, &["DryWet", "MixDiffuse"]) {
+            upsert_static_import_lane(track, "effect.reverb.mix", normalize_percent_or_unit(v));
+        }
+        return;
+    }
+
+    if key == "internal://effect/delay" {
+        if let Some(v) = first_param_value(&params, &["Time", "DelayTime", "Feedback_FeedbackTime"]) {
+            upsert_static_import_lane(track, "effect.delay.time", v.max(0.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Feedback", "Feedback_FeedbackAmount"]) {
+            upsert_static_import_lane(track, "effect.delay.feedback", normalize_percent_or_unit(v));
+        }
+        if let Some(v) = first_param_value(&params, &["DryWet", "Send"]) {
+            upsert_static_import_lane(track, "effect.delay.mix", normalize_percent_or_unit(v));
+        }
+        return;
+    }
+
+    if key == "internal://effect/eq-eight" {
+        if let Some(v) = first_param_value(&params, &["GlobalGain"]) {
+            upsert_static_import_lane(track, "effect.eq.global_gain", v.clamp(-24.0, 24.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Scale"]) {
+            upsert_static_import_lane(track, "effect.eq.scale", normalize_percent_or_unit(v));
+        }
+        if let Some(v) = first_param_value(&params, &["AdaptiveQ"]) {
+            upsert_static_import_lane(track, "effect.eq.adaptive_q", if v >= 0.5 { 1.0 } else { 0.0 });
+        }
+        for band in 0..8 {
+            let band_tag = format!("Bands.{band}");
+            if let Some(band_node) = device
+                .descendants()
+                .find(|n| n.is_element() && n.tag_name().name() == band_tag)
+            {
+                let param_node = band_node
+                    .children()
+                    .find(|n| n.is_element() && n.tag_name().name() == "ParameterA")
+                    .or_else(|| band_node.children().find(|n| n.is_element()));
+                if let Some(pn) = param_node {
+                    if let Some(v) = maybe_parse_f64_manual(pn, "Freq") {
+                        upsert_static_import_lane(
+                            track,
+                            &format!("effect.eq.band{band}.freq"),
+                            v.clamp(20.0, 20_000.0),
+                        );
+                    }
+                    if let Some(v) = maybe_parse_f64_manual(pn, "Gain") {
+                        upsert_static_import_lane(
+                            track,
+                            &format!("effect.eq.band{band}.gain"),
+                            v.clamp(-24.0, 24.0),
+                        );
+                    }
+                    if let Some(v) = maybe_parse_f64_manual(pn, "Q") {
+                        upsert_static_import_lane(
+                            track,
+                            &format!("effect.eq.band{band}.q"),
+                            v.clamp(0.1, 18.0),
+                        );
+                    }
+                    if let Some(v) = maybe_parse_f64_manual(pn, "IsOn") {
+                        upsert_static_import_lane(
+                            track,
+                            &format!("effect.eq.band{band}.on"),
+                            if v >= 0.5 { 1.0 } else { 0.0 },
+                        );
+                    }
+                    if let Some(v) = maybe_parse_f64_manual(pn, "Mode") {
+                        upsert_static_import_lane(
+                            track,
+                            &format!("effect.eq.band{band}.mode"),
+                            v.round().clamp(0.0, 7.0),
+                        );
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    if key == "internal://instrument/wave-synth" {
+        if let Some(v) = first_param_value(&params, &["Voice_Oscillator1_Pitch_Detune", "Detune"]) {
+            upsert_static_import_lane(track, "synth.detune", v.clamp(-50.0, 50.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Voice_SubOscillator_Gain"]) {
+            upsert_static_import_lane(track, "synth.sub", normalize_percent_or_unit(v));
+        }
+        if let Some(v) = first_param_value(&params, &["Voice_Filter1_Frequency", "Filter_Frequency"]) {
+            upsert_static_import_lane(track, "synth.filter.cutoff", v.clamp(20.0, 20_000.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Voice_Filter1_Resonance", "Filter_Resonance"]) {
+            upsert_static_import_lane(track, "synth.filter.resonance", v.clamp(0.0, 0.99));
+        }
+        if let Some(v) = first_param_value(&params, &["Voice_Filter1_Type", "Filter_Type"]) {
+            upsert_static_import_lane(track, "synth.filter.type", v.round().clamp(0.0, 3.0));
+        }
+
+        if let (Some(osc1), Some(osc2)) = (
+            first_param_value(&params, &["Voice_Oscillator1_Gain"]),
+            first_param_value(&params, &["Voice_Oscillator2_Gain"]),
+        ) {
+            let total = osc1.abs() + osc2.abs();
+            if total > 1e-6 {
+                upsert_static_import_lane(track, "synth.osc.mix", (osc2.abs() / total).clamp(0.0, 1.0));
+            }
+        }
+
+        if let Some(v) = first_param_value(&params, &["Voice_Modulators_AmpEnvelope_Times_Attack", "Attack"]) {
+            upsert_static_import_lane(track, "sampler.attack", v.clamp(0.001, 10.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Voice_Modulators_AmpEnvelope_Times_Decay", "Decay"]) {
+            upsert_static_import_lane(track, "sampler.decay", v.clamp(0.001, 10.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Voice_Modulators_AmpEnvelope_Sustain", "Sustain"]) {
+            upsert_static_import_lane(track, "sampler.sustain", normalize_percent_or_unit(v));
+        }
+        if let Some(v) = first_param_value(&params, &["Voice_Modulators_AmpEnvelope_Times_Release", "Release"]) {
+            upsert_static_import_lane(track, "sampler.release", v.clamp(0.001, 20.0));
+        }
+    }
 }
 
 fn import_track_devices(
@@ -1521,6 +2247,15 @@ fn import_track_devices(
             let is_instrument_slot = track.track_type == TrackType::Midi && track.instrument.is_none();
             let slot = if let Some(plugin_id) = resolved_plugin_id {
                 DeviceNode::Single(PluginSlot::new(preferred_name, plugin_id))
+            } else if let Some((pid, pname, slot_kind)) =
+                canonical_internal_plugin_for_import("PluginDevice", &preferred_name)
+            {
+                import_internal_device_static_params(track, pid, device);
+                if slot_kind == "instrument" && is_instrument_slot {
+                    DeviceNode::Single(PluginSlot::new(pname, pid))
+                } else {
+                    DeviceNode::Single(PluginSlot::new(pname, pid))
+                }
             } else if is_placeholder {
                 make_missing_plugin_slot("external", &preferred_name)
             } else {
@@ -1541,6 +2276,7 @@ fn import_track_devices(
         let is_instrument_slot = track.track_type == TrackType::Midi && track.instrument.is_none();
         if let Some((plugin_id, plugin_name, slot_kind)) = canonical {
             let slot = DeviceNode::Single(PluginSlot::new(plugin_name, plugin_id));
+            import_internal_device_static_params(track, plugin_id, device);
             if slot_kind == "instrument" && is_instrument_slot {
                 track.instrument = Some(slot);
                 if track.sampler.is_none() {
@@ -1967,7 +2703,47 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
     let sample_rate = 44100.0;
     let mut project = Project::new(project_name, tempo, sample_rate);
     project.tracks.clear();
+    project.markers = parse_project_markers(live_set);
 
+    // Import default arrangement/editor grid settings from the first clip
+    // that carries a Grid block.
+    if let Some((num, den, ntoles, snap, fixed)) = live_set
+        .descendants()
+        .filter(|n| n.is_element() && (n.has_tag_name("AudioClip") || n.has_tag_name("MidiClip")))
+        .find_map(parse_clip_grid)
+    {
+        project.arrangement_grid_numerator = num;
+        project.arrangement_grid_denominator = den;
+        project.arrangement_grid_ntoles = ntoles;
+        project.arrangement_snap_to_grid = snap;
+        project.arrangement_grid_fixed = fixed;
+    }
+
+    // Import project key signature hint from the first clip with ScaleInformation.
+    if let Some(first_clip_with_scale) = live_set
+        .descendants()
+        .filter(|n| n.is_element() && (n.has_tag_name("AudioClip") || n.has_tag_name("MidiClip")))
+        .find(|clip| {
+            clip.children()
+                .any(|c| c.is_element() && c.has_tag_name("ScaleInformation"))
+                || node_child_value(*clip, "IsInKey").is_some()
+        })
+    {
+        let (is_in_key, scale_root, scale_name) = parse_clip_scale_info(first_clip_with_scale);
+        if is_in_key || scale_root.is_some() {
+            project.key_sig_enabled = true;
+        }
+        if let Some(root) = scale_root {
+            project.key_sig_tonic = semitone_to_tonic(root).to_string();
+        }
+        if let Some(name) = scale_name {
+            project.key_sig_mode = if name.chars().all(|c| c.is_ascii_digit()) {
+                format!("Scale {name}")
+            } else {
+                name
+            };
+        }
+    }
     // ── Component 2: Time Signature Import ─────────────────────────────
     if let Some(main_track) = live_set.descendants().find(|n| n.is_element() && n.has_tag_name("MainTrack")) {
         // Ableton stores time signature inside MainTrack > TimeSignature
@@ -2080,6 +2856,13 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
                 ));
             }
             static_send_values = parse_track_send_manual_values(mixer);
+        }
+        if let Some(monitoring_mode) = node_child_value(track_node, "MonitoringEnum")
+            .as_deref()
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(0, 2) as f64)
+        {
+            static_mixer_values.push(("mixer.monitoring_mode".to_string(), monitoring_mode));
         }
 
         import_track_devices(track_node, &mut track, &external_plugins, file_path);
@@ -2479,4 +3262,32 @@ fn get_project_status(
         "filePath": file_path.as_ref().map(|p| p.display().to_string()),
         "projectFolder": project_folder.as_ref().map(|p| p.display().to_string()),
     }))
+}
+
+/// Persists arrangement/editor grid settings in the project.
+#[tauri::command]
+fn set_arrangement_grid_cmd(
+    numerator: u16,
+    denominator: u16,
+    ntoles: u8,
+    snap_to_grid: bool,
+    fixed: bool,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let numerator = numerator.max(1);
+    let denominator = denominator.max(1);
+    let ntoles = ntoles.max(1);
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    project.arrangement_grid_numerator = numerator;
+    project.arrangement_grid_denominator = denominator;
+    project.arrangement_grid_ntoles = ntoles;
+    project.arrangement_snap_to_grid = snap_to_grid;
+    project.arrangement_grid_fixed = fixed;
+    let name = project.name.clone();
+    drop(project);
+
+    project_state.mark_dirty(&name, Some(&app))?;
+    Ok(())
 }

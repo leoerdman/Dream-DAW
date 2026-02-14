@@ -42,7 +42,7 @@ export const TransportBar = ({
     onAutomationToggle,
 }: TransportBarProps) => {
     const isPlaying = useEngineStore((s) => s.transport.is_playing);
-    const bpm = useEngineStore((s) => s.transport.bpm);
+    const bpm = useEngineStore((s) => s.projectBpm || s.transport.bpm || 120);
     const isLooping = useEngineStore((s) => s.transport.loop_enabled);
     const loopStartFrames = useEngineStore((s) => s.transport.loop_start);
     const loopEndFrames = useEngineStore((s) => s.transport.loop_end);

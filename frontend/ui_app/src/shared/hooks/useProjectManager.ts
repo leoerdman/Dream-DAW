@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as engineApi from '../../shared/api/engine';
 import type { ProjectStatus } from '../../shared/api/engine';
+import { useEngineStore } from '../../shared/stores/useEngineStore';
 
 /** Auto-backup interval in milliseconds (5 minutes). */
 const AUTO_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
@@ -162,6 +163,9 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 } else {
                     await engineApi.openProject(path);
                 }
+                // Force full store refresh so tracks/clips/tempo update immediately
+                const fetchProject = useEngineStore.getState().fetchProject;
+                await fetchProject('project-manager:open');
                 await refreshStatus();
                 onProjectLoaded?.();
             }

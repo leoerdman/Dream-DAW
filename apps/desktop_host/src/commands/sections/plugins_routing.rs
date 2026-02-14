@@ -241,10 +241,13 @@ fn add_plugin_to_track_cmd(
             || compact.contains("drift")
             || compact.contains("instrumentvector")
             || compact.contains("stringstudio")
+            || compact.contains("instrumentmeld")
+            || compact.contains("mxdeviceinstrument")
+            || compact.contains("loungelizard")
         {
             return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument"));
         }
-        if merged.contains("sampler") || merged.contains("simpler") || compact.contains("multisampler") {
+        if merged.contains("sampler") || merged.contains("simpler") || compact.contains("multisampler") || compact.contains("drumcell") {
             return Some(("internal://instrument/sampler", "Sampler", "instrument"));
         }
 
@@ -279,16 +282,25 @@ fn add_plugin_to_track_cmd(
         if merged.contains("mxdevicevelocity") || merged.contains("midi velocity") {
             return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
         }
+        if compact.contains("midivelocity") {
+            return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
+        }
+        if compact.contains("midichord") {
+            return Some(("internal://midi-fx/scale", "MIDI Chord", "effect"));
+        }
         if merged.contains("mxdevicerandom") || merged.contains("midi random") {
             return Some(("internal://midi-fx/random", "MIDI Random", "effect"));
+        }
+        if compact.contains("midiarpeggiator") {
+            return Some(("internal://midi-fx/random", "MIDI Arp", "effect"));
         }
         if merged.contains("midi note length") || compact.contains("midinotelength") {
             return Some(("internal://midi-fx/velocity", "MIDI Note Length", "effect"));
         }
-        if merged.contains("spectrum") {
+        if merged.contains("spectrum") || compact.contains("spectrumanalyzer") {
             return Some(("internal://effect/spectrum", "Spectrum", "effect"));
         }
-        if merged.contains("tuner") || compact.contains("mxdeviceaudioeffect") || compact.contains("mxdevicemidieffect") {
+        if merged.contains("tuner") || compact.contains("mxdeviceaudioeffect") || compact.contains("mxdevicemidieffect") || compact.contains("autoshift") {
             return Some(("internal://effect/utility", "Utility", "effect"));
         }
         if compact.contains("shifter") || compact.contains("frequencyshifter") {

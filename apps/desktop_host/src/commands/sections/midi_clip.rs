@@ -454,17 +454,10 @@ async fn update_midi_clip_cmd(
                 .position(|c| c.id == uuid && c.file_path.trim().is_empty())
                 .ok_or_else(|| format!("Legacy MIDI clip disappeared during update: {clip_id}"))?;
             let legacy = track.clips.remove(idx);
-            track.midi_clips.push(MidiClip {
-                id: legacy.id,
-                name: legacy.name,
-                position: legacy.position,
-                duration: legacy.duration,
-                notes: normalized,
-                is_selected: false,
-                is_muted: false,
-                fade_in_frames: 0,
-                fade_out_frames: 0,
-            });
+            let mut migrated = MidiClip::new(legacy.name, legacy.position, legacy.duration);
+            migrated.id = legacy.id;
+            migrated.notes = normalized;
+            track.midi_clips.push(migrated);
         }
         UpdateTarget::Noop => {}
     }

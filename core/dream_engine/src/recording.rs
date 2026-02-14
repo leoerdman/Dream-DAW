@@ -388,10 +388,62 @@ pub struct RecordingResult {
 
 // ── Recording Worker (Background Thread) ──────────────────────────────
 
+/// WAV header constants.
+const WAV_HEADER_SIZE: u64 = 44;
+
+/// Writes the 44-byte WAV header to the file at its current position.
+///
+/// `data_size` should be the total number of audio data bytes written so far.
+/// This function can be called multiple times — it seeks to position 0 and
+/// overwrites the header with the current sizes.
+fn write_wav_header(
+    file: &mut std::fs::File,
+    sample_rate: u32,
+    channels: u16,
+    bits_per_sample: u16,
+    data_size: u32,
+) -> std::io::Result<()> {
+    use std::io::{Seek, SeekFrom, Write};
+
+    let block_align = channels * (bits_per_sample / 8);
+    let byte_rate = sample_rate * block_align as u32;
+    let chunk_size = 36 + data_size; // "RIFF" chunk size = 36 + data size
+
+    file.seek(SeekFrom::Start(0))?;
+
+    // RIFF header
+    file.write_all(b"RIFF")?;
+    file.write_all(&chunk_size.to_le_bytes())?;
+    file.write_all(b"WAVE")?;
+
+    // fmt sub-chunk
+    file.write_all(b"fmt ")?;
+    file.write_all(&16u32.to_le_bytes())?;          // SubChunk1Size (16 for PCM/float)
+    file.write_all(&3u16.to_le_bytes())?;            // AudioFormat (3 = IEEE float)
+    file.write_all(&channels.to_le_bytes())?;        // NumChannels
+    file.write_all(&sample_rate.to_le_bytes())?;     // SampleRate
+    file.write_all(&byte_rate.to_le_bytes())?;       // ByteRate
+    file.write_all(&block_align.to_le_bytes())?;     // BlockAlign
+    file.write_all(&bits_per_sample.to_le_bytes())?; // BitsPerSample
+
+    // data sub-chunk
+    file.write_all(b"data")?;
+    file.write_all(&data_size.to_le_bytes())?;
+
+    Ok(())
+}
+
+/// Flush interval: rewrite WAV header every this many samples.
+/// At 48kHz stereo, 96000 samples ≈ 1 second of audio.
+const HEADER_FLUSH_INTERVAL: u64 = 96_000;
+
 /// The background worker that drains the ring buffer and writes to WAV.
 ///
+/// CRASH-SAFE: The WAV header is periodically updated with the current
+/// data size. If the process crashes, the .tmp.wav file is always a valid
+/// WAV with at most ~1 second of missing audio at the tail.
+///
 /// This runs on a dedicated thread — NOT on the audio thread.
-/// It uses `hound::WavWriter` for streaming WAV output.
 fn recording_worker(
     mut consumer: rtrb::Consumer<f32>,
     state: RecordingState,
@@ -400,21 +452,24 @@ fn recording_worker(
     sample_rate: u32,
     channels: usize,
 ) -> Result<PathBuf, RecordingError> {
-    // Create WAV writer for streaming output
-    let spec = hound::WavSpec {
-        channels: channels as u16,
-        sample_rate,
-        bits_per_sample: 32,
-        sample_format: hound::SampleFormat::Float,
-    };
+    use std::io::{Seek, SeekFrom, Write};
 
-    let mut writer = hound::WavWriter::create(&tmp_path, spec).map_err(|e| {
+    let ch = channels as u16;
+    let bits_per_sample: u16 = 32; // IEEE float 32-bit
+
+    // Create file and write initial WAV header with zero data size
+    let mut file = std::fs::File::create(&tmp_path).map_err(|e| {
         RecordingError::IoError(format!("Failed to create {}: {e}", tmp_path.display()))
     })?;
 
-    info!("[RecordingWorker] Writing to {}", tmp_path.display());
+    write_wav_header(&mut file, sample_rate, ch, bits_per_sample, 0).map_err(|e| {
+        RecordingError::IoError(format!("Failed to write WAV header: {e}"))
+    })?;
 
-    let mut frames_written: u64 = 0;
+    info!("[RecordingWorker] Writing to {} (crash-safe mode)", tmp_path.display());
+
+    let mut total_samples_written: u64 = 0;
+    let mut samples_since_last_flush: u64 = 0;
 
     // ── Drain loop ──────────────────────────────────────────────
     loop {
@@ -423,18 +478,49 @@ fn recording_worker(
 
         // Drain all available samples from ring buffer
         while let Ok(sample) = consumer.pop() {
-            writer
-                .write_sample(sample)
+            // Write f32 sample as raw little-endian bytes
+            file.write_all(&sample.to_le_bytes())
                 .map_err(|e| RecordingError::IoError(e.to_string()))?;
             drained += 1;
         }
 
         if drained > 0 {
-            let new_frames = drained as u64 / channels as u64;
-            frames_written += new_frames;
+            total_samples_written += drained as u64;
+            samples_since_last_flush += drained as u64;
+
+            let frames_written = total_samples_written / channels as u64;
             state
                 .frames_captured
                 .store(frames_written, Ordering::Relaxed);
+
+            // ── CRASH-SAFE HEADER FLUSH ─────────────────────────
+            // Every ~1 second of audio, rewrite the WAV header with
+            // current data size. If the process crashes between flushes,
+            // we lose at most ~1 second of audio instead of everything.
+            if samples_since_last_flush >= HEADER_FLUSH_INTERVAL {
+                let data_bytes = total_samples_written * 4; // 4 bytes per f32 sample
+                let current_pos = WAV_HEADER_SIZE + data_bytes;
+
+                // Seek to header, rewrite sizes, seek back to end
+                write_wav_header(
+                    &mut file,
+                    sample_rate,
+                    ch,
+                    bits_per_sample,
+                    data_bytes as u32,
+                )
+                .map_err(|e| RecordingError::IoError(format!("Header flush failed: {e}")))?;
+
+                // Seek back to end of data to continue writing
+                file.seek(SeekFrom::Start(current_pos))
+                    .map_err(|e| RecordingError::IoError(format!("Seek failed: {e}")))?;
+
+                // Flush OS buffers to disk for maximum crash safety
+                file.sync_data()
+                    .map_err(|e| RecordingError::IoError(format!("Sync failed: {e}")))?;
+
+                samples_since_last_flush = 0;
+            }
         }
 
         // If recording stopped AND buffer is fully drained, exit
@@ -449,14 +535,26 @@ fn recording_worker(
     }
 
     // ── Finalize ────────────────────────────────────────────────
-    writer
-        .finalize()
-        .map_err(|e| RecordingError::IoError(e.to_string()))?;
+    // Write final header with exact data size
+    let final_data_bytes = total_samples_written * 4;
+    write_wav_header(
+        &mut file,
+        sample_rate,
+        ch,
+        bits_per_sample,
+        final_data_bytes as u32,
+    )
+    .map_err(|e| RecordingError::IoError(format!("Final header write failed: {e}")))?;
+
+    file.sync_all()
+        .map_err(|e| RecordingError::IoError(format!("Final sync failed: {e}")))?;
+
+    drop(file);
 
     info!(
-        "[RecordingWorker] Finalized {} ({} frames)",
+        "[RecordingWorker] Finalized {} ({} frames, crash-safe)",
         tmp_path.display(),
-        frames_written
+        total_samples_written / channels as u64
     );
 
     // Rename .tmp.wav → .wav (atomic on most filesystems)

@@ -699,8 +699,27 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             _frameCount++;
             try {
                 // Transport state — every frame (60fps)
-                const transport = await engine.getTransport();
-                set({ transport, connected: true, lastError: null });
+                const nextTransport = await engine.getTransport();
+
+                // ── BUG-F5/F10 fix: Shallow comparison ──
+                // Only update Zustand when transport values actually changed.
+                // Without this, set({ transport }) creates a new object ref
+                // every frame, causing every subscriber (DawShell → Timeline →
+                // TransportBar → StatusBar) to re-render at 60fps.
+                const prev = get().transport;
+                const transportChanged =
+                    prev.is_playing !== nextTransport.is_playing ||
+                    prev.position_beats !== nextTransport.position_beats ||
+                    prev.bpm !== nextTransport.bpm ||
+                    prev.loop_enabled !== nextTransport.loop_enabled ||
+                    prev.loop_start !== nextTransport.loop_start ||
+                    prev.loop_end !== nextTransport.loop_end;
+
+                if (transportChanged) {
+                    set({ transport: nextTransport, connected: true, lastError: null });
+                } else if (!get().connected) {
+                    set({ connected: true, lastError: null });
+                }
 
                 // Meters — every other frame (30fps) for performance
                 if (_frameCount % 2 === 0) {

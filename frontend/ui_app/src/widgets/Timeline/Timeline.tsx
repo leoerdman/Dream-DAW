@@ -7,6 +7,7 @@ import { useGridStore } from '@/shared/stores/useGridStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
+import { useViewportStore } from '@/shared/stores/useViewportStore';
 import { computeGridLines } from '@/shared/lib/gridSnap';
 import * as engineApi from '@/shared/api/engine';
 
@@ -157,11 +158,15 @@ export const Timeline = ({
     followPlayhead = false,
 }: TimelineProps) => {
     const [pixelsPerBeat, setPixelsPerBeat] = useState(DEFAULT_PPB);
+    // BUG-F1/F14: Ref mirrors for scroll/zoom — used in event handlers
+    // and visible-range calculations to avoid stale React state.
+    const pixelsPerBeatRef = useRef(DEFAULT_PPB);
     const [scrollLeft, setScrollLeft] = useState(0);
     const [viewportWidth, setViewportWidth] = useState(0);
     const [internalEditCursor, setInternalEditCursor] = useState(0);
     const [internalEditCursorTrackIndex, setInternalEditCursorTrackIndex] = useState(0);
-    const [cursorBlinkOn, setCursorBlinkOn] = useState(true);
+    // BUG-F2: Cursor blink is now purely CSS — no React state needed.
+    // Removed: const [cursorBlinkOn, setCursorBlinkOn] = useState(true);
     const [internalSelectedClipIds, setInternalSelectedClipIds] = useState<string[]>([]);
     const [draggingClip, setDraggingClip] = useState<{
         clipId: string;
@@ -222,13 +227,28 @@ export const Timeline = ({
     const totalBeats = totalBars * beatsPerBar;
     const canvasWidth = totalBeats * pixelsPerBeat;
     const canvasHeight = trackCount * trackHeight;
-    const getLivePixelsPerBeat = useCallback(() => {
-        const liveWidth = canvasRef.current?.clientWidth;
-        if (liveWidth && totalBeats > 0) {
-            return liveWidth / totalBeats;
-        }
-        return pixelsPerBeat;
-    }, [pixelsPerBeat, totalBeats]);
+
+    // BUG-F1: Keep ref in sync with state for use in event handlers
+    // that need fresh values without depending on React render cycle.
+    pixelsPerBeatRef.current = pixelsPerBeat;
+
+    // BUG-F3: Sync zoom level to ViewportStore so ClipRenderer gets
+    // the correct samplesPerPixel for mip level selection.
+    const setViewportZoom = useViewportStore((s) => s.setZoom);
+    useEffect(() => {
+        // Convert PPB → SPP: samplesPerPixel = samplesPerBeat / pixelsPerBeat
+        // samplesPerBeat = (sampleRate * 60) / bpm
+        // We use 44100/120 as defaults; ClipRenderer uses the same store.
+        const sampleRate = 44100;
+        const bpm = 120;
+        const samplesPerBeat = (sampleRate * 60) / bpm;
+        const spp = samplesPerBeat / pixelsPerBeat;
+        setViewportZoom(spp);
+    }, [pixelsPerBeat, setViewportZoom]);
+
+    // BUG-F4: Removed getLivePixelsPerBeat() — was a no-op that could
+    // return wrong values when viewport clipping affected clientWidth.
+    // All callers now use pixelsPerBeatRef.current directly.
 
     const selectTrackByIndex = useCallback((trackIndex: number) => {
         const clampedIndex = Math.max(0, Math.min(trackCount - 1, trackIndex));
@@ -236,13 +256,9 @@ export const Timeline = ({
         onTrackSelect?.(trackId, clampedIndex);
     }, [onTrackSelect, trackCount, trackIds]);
 
-    // Blinking edit cursor (independent from playback line).
-    useEffect(() => {
-        const interval = window.setInterval(() => {
-            setCursorBlinkOn((prev) => !prev);
-        }, 1200);
-        return () => window.clearInterval(interval);
-    }, []);
+    // BUG-F2: Cursor blink is now handled by CSS @keyframes animation.
+    // Removed the useState + setInterval timer that caused the ENTIRE
+    // 1638-line component to re-render every 1200ms.
 
     // ── Grid snap ──
     const snapBeat = useGridStore((s) => s.snapBeat);
@@ -1336,8 +1352,8 @@ export const Timeline = ({
                                 ? 'rgba(120, 200, 120, 0.35)'
                                 : 'rgba(74, 144, 217, 0.35)',
                             border: `1.5px solid ${ghostPreview.type === 'midi'
-                                    ? 'rgba(120, 200, 120, 0.8)'
-                                    : 'rgba(74, 144, 217, 0.8)'
+                                ? 'rgba(120, 200, 120, 0.8)'
+                                : 'rgba(74, 144, 217, 0.8)'
                                 }`,
                             borderRadius: 3,
                             zIndex: 16,

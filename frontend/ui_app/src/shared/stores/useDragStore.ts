@@ -22,6 +22,8 @@ export interface DragBrowserItem {
     type: 'audio' | 'midi' | 'preset' | 'plugin';
     path: string;
     slotHint?: 'instrument' | 'effect' | 'auto';
+    /** Real audio duration (seconds) when available. */
+    durationSeconds?: number;
 }
 
 interface DragState {
@@ -37,6 +39,8 @@ interface DragState {
 
     /** Cancel / end the drag. Stops cursor tracking. */
     endDrag: () => void;
+    /** Patch metadata for active drag item (e.g. resolved duration). */
+    updateDraggingItem: (patch: Partial<DragBrowserItem>) => void;
 }
 
 /** Internal cleanup handle for the global mousemove listener. */
@@ -50,6 +54,7 @@ export const useDragStore = create<DragState>((set) => ({
     startDrag: (item) => {
         console.log('[DragStore] startDrag', item.name);
         set({ draggingItem: item });
+        window.__dreamInAppDrag = true;
 
         // Attach global mousemove to track cursor for ghost preview rendering
         _cleanupMouseMove?.();
@@ -71,5 +76,18 @@ export const useDragStore = create<DragState>((set) => ({
         });
         _cleanupMouseMove?.();
         _cleanupMouseMove = null;
+        window.__dreamInAppDrag = false;
+    },
+
+    updateDraggingItem: (patch) => {
+        set((state) => {
+            if (!state.draggingItem) return state;
+            return {
+                draggingItem: {
+                    ...state.draggingItem,
+                    ...patch,
+                },
+            };
+        });
     },
 }));

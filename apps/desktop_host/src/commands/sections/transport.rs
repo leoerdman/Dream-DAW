@@ -224,7 +224,11 @@ fn set_loop(
             .lock()
             .map_err(|e| format!("Lock poisoned: {e}"))?;
         state.loop_enabled = enabled;
-        if end_frames > start_frames {
+
+        // Enforce: end > start, and minimum gap of ~1 bar at current tempo/SR
+        // Min gap = 4 beats × (60/BPM) × SR  (1 bar in 4/4 at any tempo)
+        let min_gap = ((4.0 * 60.0 / state.bpm) * state.sample_rate) as i64;
+        if end_frames > start_frames && (end_frames - start_frames) >= min_gap {
             state.loop_start = start_frames;
             state.loop_end = end_frames;
         }

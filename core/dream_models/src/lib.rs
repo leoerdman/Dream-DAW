@@ -67,8 +67,10 @@ impl Default for PlaybackState {
             test_tone_freq: 440.0,
             sample_rate: 44100.0,
             loop_enabled: false,
-            loop_start: 0,
-            loop_end: 0,
+            // Default loop region: bars 9–17 (beats 32–64 at 120 BPM / 44100 SR).
+            // At 120 BPM, 1 beat = 0.5 seconds = 22050 frames.
+            loop_start: 32 * 22050, // beat 32 = bar 9 = frame 705600
+            loop_end: 64 * 22050,   // beat 64 = bar 17 = frame 1411200
         }
     }
 }
@@ -97,8 +99,8 @@ mod tests {
             test_tone_freq: 880.0,
             sample_rate: 48000.0,
             loop_enabled: true,
-            loop_start: 44100,
-            loop_end: 88200,
+            loop_start: 705600,
+            loop_end: 1411200,
         };
         let json = serde_json::to_string(&state).expect("serialize");
         let deserialized: PlaybackState = serde_json::from_str(&json).expect("deserialize");
@@ -106,7 +108,7 @@ mod tests {
         assert!((deserialized.bpm - 140.5).abs() < f64::EPSILON);
         assert!((deserialized.test_tone_freq - 880.0).abs() < f32::EPSILON);
         assert!(deserialized.loop_enabled);
-        assert_eq!(deserialized.loop_start, 44100);
+        assert_eq!(deserialized.loop_start, 705600);
     }
 
     /// This test exercises ts-rs export. When run, it generates the

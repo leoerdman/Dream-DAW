@@ -74,25 +74,29 @@ const CLIP_BODY_ALPHA = 0.65;
 const CLIP_HEADER_ALPHA = 1.0;
 const SELECTION_BORDER_WIDTH = 2;
 const SELECTION_GLOW_COLOR = 'rgba(255, 255, 255, 0.9)';
-const PLAYHEAD_COLOR = '#ff3b30';
-const PLAYHEAD_WIDTH = 2;
-const EDIT_CURSOR_COLOR = 'rgba(255, 255, 255, 0.68)';
-const LOOP_OVERLAY_COLOR = 'rgba(100, 149, 237, 0.07)';
-const LOOP_BORDER_COLOR = 'rgba(100, 149, 237, 0.7)';
-const LOOP_MARKER_COLOR = '#4a9eff';
-const DROP_TARGET_COLOR = 'rgba(100, 200, 255, 0.25)';
-const DROP_TARGET_BORDER = 'rgba(100, 200, 255, 0.7)';
+const DROP_TARGET_COLOR = 'rgba(255, 255, 255, 0.2)';
+const DROP_TARGET_BORDER = 'rgba(255, 255, 255, 0.6)';
 const GHOST_CLIP_ALPHA = 0.45;
-const BG_COLOR = '#1a1a2e';
-const RULER_BG = '#141422';
-const RULER_TEXT_COLOR = 'rgba(255, 255, 255, 0.55)';
-const GRID_LINE_COLOR = 'rgba(255, 255, 255, 0.08)';
-const GRID_BAR_COLOR = 'rgba(255, 255, 255, 0.18)';
-const TRACK_DIVIDER_COLOR = 'rgba(255, 255, 255, 0.06)';
 const WAVEFORM_COLOR = 'rgba(255, 255, 255, 0.7)';
 const WAVEFORM_COLOR_SELECTED = 'rgba(255, 255, 255, 0.9)';
 const MIDI_NOTE_COLOR = 'rgba(255, 255, 255, 0.5)';
 const OFFLINE_STRIPE_COLOR = 'rgba(255, 80, 80, 0.3)';
+
+interface TimelineTheme {
+    bg: string;
+    rulerBg: string;
+    gridLine: string;
+    gridBar: string;
+    trackDefault: string;
+    trackSelected: string;
+    playhead: string;
+    playheadGlow: string;
+    editCursor: string;
+    loopFill: string;
+    loopBorder: string;
+    rulerText: string;
+    trackDivider: string;
+}
 
 // ── Class ─────────────────────────────────────────────────────────────────
 
@@ -100,8 +104,34 @@ export class CanvasClipRenderer {
     private readonly _waveformCache: WaveformCache;
     private _bpm = 120;
 
+    private _theme: TimelineTheme | null = null;
+    private _lastThemeSync = 0;
+
     constructor(waveformCache: WaveformCache) {
         this._waveformCache = waveformCache;
+    }
+
+    private _syncTheme(): void {
+        const now = performance.now();
+        if (this._theme && now - this._lastThemeSync < 1000) return; // Sync once per second max
+
+        const s = getComputedStyle(document.documentElement);
+        this._theme = {
+            bg: s.getPropertyValue('--color-timeline-bg').trim() || '#0d0d1a',
+            rulerBg: s.getPropertyValue('--color-timeline-ruler-bg').trim() || '#12121e',
+            gridLine: s.getPropertyValue('--color-timeline-grid-line').trim() || 'rgba(255, 255, 255, 0.06)',
+            gridBar: s.getPropertyValue('--color-timeline-grid-bar').trim() || 'rgba(74, 158, 255, 0.18)',
+            trackDefault: s.getPropertyValue('--color-timeline-track-default').trim() || '#191919',
+            trackSelected: s.getPropertyValue('--color-timeline-track-selected').trim() || '#262626',
+            playhead: s.getPropertyValue('--color-timeline-playhead').trim() || '#ff3b30',
+            playheadGlow: s.getPropertyValue('--color-timeline-playhead-glow').trim() || 'rgba(255, 59, 48, 0.4)',
+            editCursor: s.getPropertyValue('--color-timeline-edit-cursor').trim() || 'rgba(255, 255, 255, 0.75)',
+            loopFill: s.getPropertyValue('--color-timeline-loop-fill').trim() || 'rgba(74, 158, 255, 0.08)',
+            loopBorder: s.getPropertyValue('--color-timeline-loop-border').trim() || 'rgba(74, 158, 255, 0.5)',
+            rulerText: s.getPropertyValue('--color-timeline-ruler-text').trim() || 'rgba(255, 255, 255, 0.5)',
+            trackDivider: s.getPropertyValue('--color-border-subtle').trim() || 'rgba(255, 255, 255, 0.08)',
+        };
+        this._lastThemeSync = now;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -118,11 +148,15 @@ export class CanvasClipRenderer {
         loop: LoopRegion | null,
         beatsPerBar: number,
         snapBeats: number,
+        marquee: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null,
         ghost: GhostClipData | null,
         dropTarget: { track: number; beat: number } | null,
         sampleRate: number,
         bpm: number,
     ): void {
+        this._syncTheme();
+        const theme = this._theme!;
+
         this._bpm = bpm;
         const w = vp.viewportWidth;
         const h = vp.viewportHeight;
@@ -137,7 +171,7 @@ export class CanvasClipRenderer {
         ctx.scale(dpr, dpr);
 
         // Draw background
-        ctx.fillStyle = BG_COLOR;
+        ctx.fillStyle = theme.bg;
         ctx.fillRect(0, 0, w, h);
 
         const range = vp.getVisibleRange();
@@ -148,20 +182,37 @@ export class CanvasClipRenderer {
         ctx.rect(0, vp.rulerHeight, w, h - vp.rulerHeight);
         ctx.clip();
 
-        this._drawGrid(ctx, vp, range, beatsPerBar, snapBeats);
-        this._drawLoopRegion(ctx, vp, loop);
+        this._drawTrackBackgrounds(ctx, vp, theme, editCursorTrack);
+        this._drawGrid(ctx, vp, range, beatsPerBar, snapBeats, theme);
+        this._drawLoopRegion(ctx, vp, loop, theme);
         this._drawClips(ctx, vp, clips, range, sampleRate);
+        this._drawMarquee(ctx, vp, marquee);
         this._drawDropTarget(ctx, vp, dropTarget);
         this._drawGhostClip(ctx, vp, ghost);
-        this._drawPlayhead(ctx, vp, playheadBeat, h);
-        this._drawEditCursor(ctx, vp, editCursorBeat, editCursorTrack);
+        this._drawPlayhead(ctx, vp, playheadBeat, h, theme);
+        this._drawEditCursor(ctx, vp, editCursorBeat, editCursorTrack, theme);
 
         ctx.restore();
 
         // Draw ruler on top (always visible)
-        this._drawRuler(ctx, vp, range, beatsPerBar, playheadBeat, editCursorBeat, loop);
+        this._drawRuler(ctx, vp, range, beatsPerBar, playheadBeat, editCursorBeat, loop, theme);
 
         ctx.restore(); // ← Pop DPR scale (matches ctx.save() above)
+    }
+
+    private _drawTrackBackgrounds(ctx: CanvasRenderingContext2D, vp: ViewportMatrix, theme: TimelineTheme, selectedTrack: number): void {
+        const rulerH = vp.rulerHeight;
+        const trackH = vp.trackHeight;
+        // +1 to include the master track row at the bottom
+        const totalRows = vp.trackCount + 1;
+
+        for (let i = 0; i < totalRows; i++) {
+            const y = rulerH + i * trackH - vp.scrollY;
+            if (y + trackH < rulerH || y > vp.viewportHeight) continue;
+
+            ctx.fillStyle = i === selectedTrack ? theme.trackSelected : theme.trackDefault;
+            ctx.fillRect(0, Math.max(rulerH, y), vp.viewportWidth, trackH);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -174,14 +225,13 @@ export class CanvasClipRenderer {
         range: VisibleRange,
         beatsPerBar: number,
         snapBeats: number,
+        theme: TimelineTheme,
     ): void {
         const ppb = vp.pixelsPerBeat;
         const trackH = vp.trackHeight;
         const rulerH = vp.rulerHeight;
 
         // ── Vertical grid lines ──────────────────────────────────────
-        // If snap is enabled, timeline grid follows the selected musical division immediately.
-        // If snap is OFF, fall back to adaptive visual density.
         let gridStep = snapBeats;
         if (gridStep <= 0) {
             if (ppb < 8) gridStep = beatsPerBar * 4;
@@ -200,7 +250,7 @@ export class CanvasClipRenderer {
 
             const barPhase = beat / beatsPerBar;
             const isBar = Math.abs(barPhase - Math.round(barPhase)) < 1e-6;
-            ctx.strokeStyle = isBar ? GRID_BAR_COLOR : GRID_LINE_COLOR;
+            ctx.strokeStyle = isBar ? theme.gridBar : theme.gridLine;
             ctx.lineWidth = isBar ? 1 : 0.5;
             ctx.beginPath();
             ctx.moveTo(Math.round(x), rulerH);
@@ -209,7 +259,7 @@ export class CanvasClipRenderer {
         }
 
         // ── Horizontal track dividers ─────────────────────────────────
-        ctx.strokeStyle = TRACK_DIVIDER_COLOR;
+        ctx.strokeStyle = theme.trackDivider;
         ctx.lineWidth = 1;
         for (let i = 0; i <= vp.trackCount; i++) {
             const y = rulerH + i * trackH - vp.scrollY;
@@ -233,15 +283,16 @@ export class CanvasClipRenderer {
         playheadBeat: number,
         editCursorBeat: number,
         loop: LoopRegion | null,
+        theme: TimelineTheme,
     ): void {
         const rulerH = vp.rulerHeight;
 
         // Ruler background
-        ctx.fillStyle = RULER_BG;
+        ctx.fillStyle = theme.rulerBg;
         ctx.fillRect(0, 0, vp.viewportWidth, rulerH);
 
         // Bottom border
-        ctx.strokeStyle = TRACK_DIVIDER_COLOR;
+        ctx.strokeStyle = theme.trackDivider;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(0, rulerH);
@@ -253,7 +304,7 @@ export class CanvasClipRenderer {
         if (vp.pixelsPerBeat < 12) markStep = beatsPerBar * 4;
 
         ctx.font = '10px Inter, -apple-system, sans-serif';
-        ctx.fillStyle = RULER_TEXT_COLOR;
+        ctx.fillStyle = theme.rulerText;
         ctx.textBaseline = 'bottom';
         ctx.textAlign = 'center';
 
@@ -269,7 +320,7 @@ export class CanvasClipRenderer {
             ctx.fillText(String(barNumber), x, rulerH - 4);
 
             // Tick mark
-            ctx.strokeStyle = RULER_TEXT_COLOR;
+            ctx.strokeStyle = theme.rulerText;
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(Math.round(x), rulerH - 8);
@@ -280,7 +331,7 @@ export class CanvasClipRenderer {
         // Playhead marker on ruler
         const phX = vp.beatsToScreenX(playheadBeat);
         if (phX >= -5 && phX <= vp.viewportWidth + 5) {
-            ctx.fillStyle = PLAYHEAD_COLOR;
+            ctx.fillStyle = theme.playhead;
             ctx.beginPath();
             ctx.moveTo(phX, rulerH);
             ctx.lineTo(phX - 5, rulerH - 8);
@@ -292,7 +343,7 @@ export class CanvasClipRenderer {
         // Edit cursor marker on ruler (blinking triangle)
         const ecX = vp.beatsToScreenX(editCursorBeat);
         if (ecX >= -5 && ecX <= vp.viewportWidth + 5) {
-            ctx.fillStyle = EDIT_CURSOR_COLOR;
+            ctx.fillStyle = theme.editCursor;
             ctx.beginPath();
             ctx.moveTo(ecX, rulerH);
             ctx.lineTo(ecX - 5, rulerH - 6);
@@ -302,14 +353,15 @@ export class CanvasClipRenderer {
         }
 
         // Loop markers on ruler (triangles with bars)
-        if (loop && loop.enabled) {
+        if (loop) {
             const lStart = vp.beatsToScreenX(loop.start);
             const lEnd = vp.beatsToScreenX(loop.end);
 
-            ctx.fillStyle = LOOP_MARKER_COLOR;
+            ctx.fillStyle = theme.loopBorder;
 
             // Start marker handle (flag-like)
             if (lStart >= -10 && lStart <= vp.viewportWidth + 10) {
+                ctx.save();
                 ctx.beginPath();
                 ctx.moveTo(lStart, 0);
                 ctx.lineTo(lStart + 8, 0);
@@ -318,17 +370,21 @@ export class CanvasClipRenderer {
                 ctx.closePath();
                 ctx.fill();
 
-                // Vertical anchor line on ruler
-                ctx.strokeStyle = LOOP_MARKER_COLOR;
-                ctx.lineWidth = 1.5;
-                ctx.beginPath();
-                ctx.moveTo(lStart, 0);
-                ctx.lineTo(lStart, rulerH);
-                ctx.stroke();
+                if (loop.enabled) {
+                    // Vertical anchor line on ruler
+                    ctx.strokeStyle = theme.loopBorder;
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(lStart, 0);
+                    ctx.lineTo(lStart, rulerH);
+                    ctx.stroke();
+                }
+                ctx.restore();
             }
 
             // End marker handle (flag-like)
             if (lEnd >= -10 && lEnd <= vp.viewportWidth + 10) {
+                ctx.save();
                 ctx.beginPath();
                 ctx.moveTo(lEnd, 0);
                 ctx.lineTo(lEnd - 8, 0);
@@ -337,13 +393,16 @@ export class CanvasClipRenderer {
                 ctx.closePath();
                 ctx.fill();
 
-                // Vertical anchor line on ruler
-                ctx.strokeStyle = LOOP_MARKER_COLOR;
-                ctx.lineWidth = 1.5;
-                ctx.beginPath();
-                ctx.moveTo(lEnd, 0);
-                ctx.lineTo(lEnd, rulerH);
-                ctx.stroke();
+                if (loop.enabled) {
+                    // Vertical anchor line on ruler
+                    ctx.strokeStyle = theme.loopBorder;
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(lEnd, 0);
+                    ctx.lineTo(lEnd, rulerH);
+                    ctx.stroke();
+                }
+                ctx.restore();
             }
         }
     }
@@ -640,14 +699,28 @@ export class CanvasClipRenderer {
         vp: ViewportMatrix,
         playheadBeat: number,
         canvasH: number,
+        theme: TimelineTheme,
     ): void {
         const x = vp.beatsToScreenX(playheadBeat);
-        if (x < -2 || x > vp.viewportWidth + 2) return;
+        if (x < -10 || x > vp.viewportWidth + 10) return;
 
-        ctx.strokeStyle = PLAYHEAD_COLOR;
-        ctx.lineWidth = PLAYHEAD_WIDTH;
+        const rulerH = vp.rulerHeight;
+
+        // Subtle glow/shadow for the playhead line
+        ctx.save();
+        ctx.strokeStyle = theme.playheadGlow;
+        ctx.lineWidth = 4;
         ctx.beginPath();
-        ctx.moveTo(Math.round(x), vp.rulerHeight);
+        ctx.moveTo(Math.round(x), rulerH);
+        ctx.lineTo(Math.round(x), canvasH);
+        ctx.stroke();
+        ctx.restore();
+
+        // Core playhead line
+        ctx.strokeStyle = theme.playhead;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(Math.round(x), rulerH);
         ctx.lineTo(Math.round(x), canvasH);
         ctx.stroke();
     }
@@ -661,6 +734,7 @@ export class CanvasClipRenderer {
         vp: ViewportMatrix,
         beat: number,
         track: number,
+        theme: TimelineTheme,
     ): void {
         const x = vp.beatsToScreenX(beat);
         if (x < -2 || x > vp.viewportWidth + 2) return;
@@ -670,7 +744,7 @@ export class CanvasClipRenderer {
         // Thin white line across selected track with slow, smooth breathing alpha.
         const t = performance.now() / 1000;
         const blink = 0.52 + 0.28 * (0.5 + 0.5 * Math.sin(t * Math.PI * 0.6));
-        ctx.strokeStyle = `rgba(255, 255, 255, ${blink.toFixed(3)})`;
+        ctx.strokeStyle = theme.editCursor.replace(/[\d.]+\)$/, `${blink.toFixed(3)})`); // Dynamic alpha
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 3]);
         ctx.beginPath();
@@ -688,6 +762,7 @@ export class CanvasClipRenderer {
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
         loop: LoopRegion | null,
+        theme: TimelineTheme,
     ): void {
         if (!loop || !loop.enabled) return;
 
@@ -697,11 +772,11 @@ export class CanvasClipRenderer {
         const h = vp.viewportHeight - y;
 
         // Fill overlay
-        ctx.fillStyle = LOOP_OVERLAY_COLOR;
+        ctx.fillStyle = theme.loopFill;
         ctx.fillRect(x1, y, x2 - x1, h);
 
         // Left and right borders
-        ctx.strokeStyle = LOOP_BORDER_COLOR;
+        ctx.strokeStyle = theme.loopBorder;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(Math.round(x1), y);
@@ -737,7 +812,37 @@ export class CanvasClipRenderer {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // 11. GHOST CLIP
+    // 11. MARQUEE SELECTION
+    // ═══════════════════════════════════════════════════════════════════
+
+    private _drawMarquee(
+        ctx: CanvasRenderingContext2D,
+        vp: ViewportMatrix,
+        marquee: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null,
+    ): void {
+        if (!marquee) return;
+
+        const x1 = vp.beatsToScreenX(Math.min(marquee.startBeat, marquee.endBeat));
+        const x2 = vp.beatsToScreenX(Math.max(marquee.startBeat, marquee.endBeat));
+        const minTrack = Math.min(marquee.startTrack, marquee.endTrack);
+        const maxTrack = Math.max(marquee.startTrack, marquee.endTrack);
+        const y1 = vp.rulerHeight + minTrack * vp.trackHeight - vp.scrollY;
+        const y2 = vp.rulerHeight + (maxTrack + 1) * vp.trackHeight - vp.scrollY;
+
+        // Fill
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+        ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+
+        // Dashed border
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+        ctx.setLineDash([]);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 12. GHOST CLIP
     // ═══════════════════════════════════════════════════════════════════
 
     private _drawGhostClip(

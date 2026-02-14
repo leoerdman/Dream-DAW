@@ -6,7 +6,7 @@
 
 import { useRef, useEffect, useCallback } from 'react';
 import { useTimelineEngine, type UseTimelineEngineConfig } from '@/shared/lib/useTimelineEngine';
-import type { TimelineClipData, GhostClipData } from '@/shared/lib/CanvasClipRenderer';
+import type { TimelineClipData } from '@/shared/lib/CanvasClipRenderer';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
@@ -43,6 +43,7 @@ export interface BrowserDragItem {
     name: string;
     type: string;
     path: string;
+    durationSeconds?: number;
 }
 
 interface TimelineProps {
@@ -124,6 +125,7 @@ export const Timeline = (props: TimelineProps) => {
 
     // ── Grid store for dynamic snap ───────────────────────────────────
     const gridInterval = useGridStore((s) => s.gridInterval);
+    const snapEnabled = useGridStore((s) => s.snapEnabled);
     const snapBeatsValue = gridInterval(beatsPerBar);
 
     // ── Engine config ─────────────────────────────────────────────────
@@ -137,9 +139,11 @@ export const Timeline = (props: TimelineProps) => {
         rulerHeight: RULER_HEIGHT,
         initialPpb: DEFAULT_PPB,
         snapBeats: snapBeatsValue,
+        snapEnabled,
     };
 
     const { canvasRef, engineRef } = useTimelineEngine(engineConfig);
+    const rootRef = useRef<HTMLDivElement | null>(null);
     const propsRef = useRef(props);
     propsRef.current = props;
 
@@ -198,6 +202,10 @@ export const Timeline = (props: TimelineProps) => {
 
         engine.onClipMove = (clipId, newBeat, newTrack) => {
             callbacksRef.current.onClipMove?.(clipId, newBeat, newTrack);
+        };
+
+        engine.onClipBoxSelection = (clipIds) => {
+            callbacksRef.current.onClipSelectionChange?.(clipIds);
         };
 
         engine.onClipResize = (clipId, newStartBeat, newDuration) => {
@@ -286,11 +294,12 @@ export const Timeline = (props: TimelineProps) => {
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
-        engine.setLoop(
-            loopEnabled
-                ? { start: loopStart, end: loopEnd, enabled: true }
-                : null,
-        );
+        // Always pass loop markers so handles stay visible/interactive.
+        engine.setLoop({
+            start: loopStart,
+            end: loopEnd,
+            enabled: loopEnabled,
+        });
     }, [loopStart, loopEnd, loopEnabled, engineRef]);
 
     // ── Playhead follow ───────────────────────────────────────────────
@@ -303,6 +312,8 @@ export const Timeline = (props: TimelineProps) => {
 
     // ── Store-based drag overlay (DawShell → Timeline) ────────────────
     const draggingItem = useDragStore(s => s.draggingItem);
+    const dragCursorX = useDragStore(s => s.cursorX);
+    const dragCursorY = useDragStore(s => s.cursorY);
 
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -338,6 +349,10 @@ export const Timeline = (props: TimelineProps) => {
         const track = engine.viewport.screenToTrack(e.clientY, rect);
 
         if (storeDrag) {
+            if (storeDrag.type !== 'audio' && storeDrag.type !== 'midi') {
+                useDragStore.getState().endDrag();
+                return;
+            }
             const browserItem: BrowserDragItem = {
                 id: storeDrag.id,
                 name: storeDrag.name,
@@ -361,24 +376,86 @@ export const Timeline = (props: TimelineProps) => {
         }
     }, [engineRef, canvasRef]);
 
-    // ── Ghost clip for in-app drag ────────────────────────────────────
+    // Store-based DnD (mouse-driven, non-HTML5):
+    // update drop target while dragging and commit on global mouseup.
     useEffect(() => {
         const engine = engineRef.current;
-        if (!engine) return;
+        const root = rootRef.current;
+        if (!engine || !root || !draggingItem) return;
 
-        if (draggingItem) {
-            const ghost: GhostClipData = {
-                trackIndex: 0,
-                beat: 0,
-                widthBeats: 4,
+        const rect = root.getBoundingClientRect();
+        const inside =
+            dragCursorX >= rect.left &&
+            dragCursorX <= rect.right &&
+            dragCursorY >= rect.top &&
+            dragCursorY <= rect.bottom;
+
+        if (inside && (draggingItem.type === 'audio' || draggingItem.type === 'midi')) {
+            const beat = Math.max(0, Math.round(engine.viewport.screenToBeats(dragCursorX, rect)));
+            const track = engine.viewport.screenToTrack(dragCursorY, rect);
+            engine.setDropTarget({ track, beat });
+            const widthBeats = draggingItem.durationSeconds
+                ? Math.max(0.25, draggingItem.durationSeconds * (bpm / 60))
+                : 4;
+            engine.setGhostClip({
+                trackIndex: track,
+                beat,
+                widthBeats,
                 name: draggingItem.name,
-                type: (draggingItem.type as 'audio' | 'midi') ?? 'audio',
-            };
-            engine.setGhostClip(ghost);
+                type: draggingItem.type === 'midi' ? 'midi' : 'audio',
+            });
         } else {
+            engine.setDropTarget(null);
             engine.setGhostClip(null);
         }
+    }, [draggingItem, dragCursorX, dragCursorY, engineRef, bpm]);
+
+    useEffect(() => {
+        if (!draggingItem) return;
+
+        const onMouseUp = (e: MouseEvent) => {
+            const engine = engineRef.current;
+            const root = rootRef.current;
+            if (!engine || !root) {
+                useDragStore.getState().endDrag();
+                return;
+            }
+
+            const rect = root.getBoundingClientRect();
+            const inside =
+                e.clientX >= rect.left &&
+                e.clientX <= rect.right &&
+                e.clientY >= rect.top &&
+                e.clientY <= rect.bottom;
+
+            if (inside && (draggingItem.type === 'audio' || draggingItem.type === 'midi')) {
+                const beat = Math.max(0, Math.round(engine.viewport.screenToBeats(e.clientX, rect)));
+                const track = engine.viewport.screenToTrack(e.clientY, rect);
+                callbacksRef.current.onDropBrowserItem?.(
+                    {
+                        id: draggingItem.id,
+                        name: draggingItem.name,
+                        type: draggingItem.type,
+                        path: draggingItem.path,
+                        durationSeconds: draggingItem.durationSeconds,
+                    },
+                    track,
+                    beat,
+                );
+            }
+
+            engine.setDropTarget(null);
+            engine.setGhostClip(null);
+            useDragStore.getState().endDrag();
+        };
+
+        window.addEventListener('mouseup', onMouseUp, { capture: true });
+        return () => {
+            window.removeEventListener('mouseup', onMouseUp, { capture: true });
+        };
     }, [draggingItem, engineRef]);
+
+    // Ghost clip is handled together with cursor-tracked drop target effect above.
 
     // ═══════════════════════════════════════════════════════════════════
     // RENDER — A single <canvas> element. That's it.
@@ -386,6 +463,7 @@ export const Timeline = (props: TimelineProps) => {
 
     return (
         <div
+            ref={rootRef}
             style={{
                 width: '100%',
                 height: '100%',

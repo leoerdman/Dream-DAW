@@ -407,6 +407,9 @@ export const DawShell = () => {
     // Drop from AssetBrowser → Timeline
     const handleBrowserDrop = useCallback((item: BrowserDragItem, trackIndex: number, beat: number) => {
         console.log('[DawShell] handleBrowserDrop', { item, trackIndex, beat });
+        if (item.type !== 'audio' && item.type !== 'midi') {
+            return;
+        }
         if (item.path) {
             // Convert drop beat → sample frames so the clip lands at the exact drop position
             // Use authoritative projectBpm (from PulseMap), fall back to transport
@@ -437,16 +440,51 @@ export const DawShell = () => {
     const handleClipMove = useCallback((clipId: string, newStartBeat: number, newTrackIndex: number) => {
         const bpm = projectBpm || transport.bpm || 120;
         const sr = useEngineStore.getState().projectSampleRate || 44100;
-        const posSeconds = newStartBeat / (bpm / 60);
-        const newPositionFrames = Math.round(posSeconds * sr);
+        const beatsPerSecond = bpm / 60;
 
-        engineApi.moveClip(clipId, newTrackIndex, newPositionFrames)
+        const dragged = timelineClipsForView.find((c) => c.id === clipId);
+        if (!dragged) return;
+
+        const selectedSet = new Set(selectedClipIds);
+        const moveAsGroup = selectedSet.size > 1 && selectedSet.has(clipId);
+
+        const moveOne = async (id: string, targetBeat: number, targetTrack: number) => {
+            const posSeconds = Math.max(0, targetBeat) / beatsPerSecond;
+            const positionFrames = Math.round(posSeconds * sr);
+            await engineApi.moveClip(id, targetTrack, positionFrames);
+        };
+
+        const run = async () => {
+            if (!moveAsGroup) {
+                await moveOne(clipId, newStartBeat, newTrackIndex);
+                return;
+            }
+
+            const deltaBeat = newStartBeat - dragged.startBeat;
+            const deltaTrack = newTrackIndex - dragged.trackIndex;
+
+            const selectedClips = timelineClipsForView.filter((c) => selectedSet.has(c.id));
+            await Promise.all(
+                selectedClips.map((clip) => {
+                    const targetBeat = Math.max(0, clip.startBeat + deltaBeat);
+                    const targetTrack = Math.max(0, Math.min(trackCount - 1, clip.trackIndex + deltaTrack));
+                    return moveOne(clip.id, targetBeat, targetTrack);
+                }),
+            );
+        };
+
+        run()
             .then(() => {
-                console.log('[DawShell] Clip moved', { clipId, newTrackIndex, newStartBeat, newPositionFrames });
-                fetchProject(); // Refresh project state to reflect new position
+                console.log('[DawShell] Clip move applied', {
+                    clipId,
+                    newTrackIndex,
+                    newStartBeat,
+                    mode: moveAsGroup ? 'group' : 'single',
+                });
+                fetchProject();
             })
             .catch(err => console.error('[DawShell] moveClip failed:', err));
-    }, [projectBpm, transport.bpm, fetchProject]);
+    }, [projectBpm, transport.bpm, fetchProject, timelineClipsForView, selectedClipIds, trackCount]);
 
     // Clip resize → update position and duration in engine
     const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number) => {

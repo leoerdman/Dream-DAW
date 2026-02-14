@@ -58,6 +58,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     vst2Path: '/Library/Audio/Plug-Ins/VST',
     vst3Path: '/Library/Audio/Plug-Ins/VST3',
     openRouterApiKey: '',
+    openRouterModel: 'openai/gpt-4o-mini',
 };
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({

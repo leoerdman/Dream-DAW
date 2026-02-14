@@ -351,6 +351,17 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                                     spellCheck={false}
                                 />
                             </SettingRow>
+                            <SettingRow label="OpenRouter Model">
+                                <input
+                                    type="text"
+                                    placeholder="openai/gpt-4o-mini"
+                                    value={settings.openRouterModel}
+                                    onChange={(e) => updateSetting('openRouterModel', e.target.value)}
+                                    style={{ ...inputStyle, width: 300 }}
+                                    autoComplete="off"
+                                    spellCheck={false}
+                                />
+                            </SettingRow>
                             <div style={{ ...valueStyle, marginTop: 6 }}>
                                 Used by MIDI Clip Editor AI variation.
                             </div>

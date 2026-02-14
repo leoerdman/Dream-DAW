@@ -166,6 +166,7 @@ export const AssetBrowser = () => {
 
     // Preview waveform state
     const [previewPeaks, setPreviewPeaks] = useState<PeakPair[] | null>(null);
+    const audioDurationSecRef = useRef<Record<string, number>>({});
 
     // ── User folders (PLACES section) ──
     const [userFolders, setUserFolders] = useState<string[]>([]);
@@ -812,6 +813,9 @@ export const AssetBrowser = () => {
                                                 engineApi.getWaveformPeaks(item.path)
                                                     .then(peaks => {
                                                         setPreviewPeaks(selectBestPeakLevel(peaks.mip_levels));
+                                                        if (peaks.sample_rate > 0 && peaks.total_samples > 0) {
+                                                            audioDurationSecRef.current[item.path!] = peaks.total_samples / peaks.sample_rate;
+                                                        }
                                                     })
                                                     .catch(() => setPreviewPeaks(null));
                                                 // Autoplay depends on preview toggle state
@@ -843,13 +847,28 @@ export const AssetBrowser = () => {
                                             const dy = me.clientY - startY;
                                             if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
                                                 dragStarted = true;
+                                                const durationSeconds = isAudio
+                                                    ? audioDurationSecRef.current[item.path!]
+                                                    : undefined;
                                                 useDragStore.getState().startDrag({
                                                     id: item.id,
                                                     name: item.name,
                                                     type: isPlugin ? 'plugin' : 'audio',
                                                     path: item.path!,
                                                     slotHint: item.slotHint ?? 'auto',
+                                                    durationSeconds,
                                                 });
+
+                                                if (isAudio && durationSeconds === undefined) {
+                                                    engineApi.getWaveformPeaks(item.path!)
+                                                        .then((peaks) => {
+                                                            if (!(peaks.sample_rate > 0 && peaks.total_samples > 0)) return;
+                                                            const resolved = peaks.total_samples / peaks.sample_rate;
+                                                            audioDurationSecRef.current[item.path!] = resolved;
+                                                            useDragStore.getState().updateDraggingItem({ durationSeconds: resolved });
+                                                        })
+                                                        .catch(() => { });
+                                                }
                                             }
                                         };
                                         const onUp = () => {

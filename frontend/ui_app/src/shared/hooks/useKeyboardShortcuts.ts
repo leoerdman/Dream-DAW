@@ -79,6 +79,7 @@ let clipboard: TimelineClip[] = [];
  * | Cmd/Ctrl + Z | Undo |
  * | Cmd/Ctrl + Shift + Z | Redo |
  * | Cmd/Ctrl + E | Split selected clip at playhead |
+ * | Cmd/Ctrl + L | Loop selection (toggle) |
  * | Backspace / Delete | Delete selected clip |
  *
  * Note: Project shortcuts (Cmd+S/Shift+S/N/O) are handled by
@@ -357,6 +358,68 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 } catch (err) {
                     console.error('[Shortcuts] Delete clip failed:', err);
                 }
+                return;
+            }
+
+            // ── Cmd/Ctrl + L: Loop Selection ─────────────────────────
+            // Selects the bounding box of all selected clips and sets
+            // the loop region to it. Pressing again toggles off.
+            if (isModKey(e) && e.key.toLowerCase() === 'l') {
+                if (inPianoRoll || inDeviceRack) return;
+                e.preventDefault();
+                e.stopPropagation();
+
+                const store = useEngineStore.getState();
+                const transport = store.transport;
+                const bpm = store.projectBpm || transport.bpm || 120;
+                const sr = store.projectSampleRate || transport.sample_rate || 44100;
+
+                // If loop is already on, toggle OFF
+                if (transport.loop_enabled) {
+                    store.setLoop(false, transport.loop_start, transport.loop_end);
+                    return;
+                }
+
+                // Compute bounds from selected clips
+                const targets = selectedClipIds.length > 0
+                    ? selectedClipIds
+                    : (selectedClipId ? [selectedClipId] : []);
+
+                if (targets.length === 0) {
+                    // No selection — just toggle loop with current region
+                    store.setLoop(!transport.loop_enabled, transport.loop_start, transport.loop_end);
+                    return;
+                }
+
+                const targetSet = new Set(targets);
+                const selected = timelineClips.filter(c => targetSet.has(c.id));
+
+                if (selected.length === 0) {
+                    store.setLoop(!transport.loop_enabled, transport.loop_start, transport.loop_end);
+                    return;
+                }
+
+                // Bounding box: earliest start beat → latest end beat
+                let startBeat = Infinity;
+                let endBeat = -Infinity;
+                for (const clip of selected) {
+                    startBeat = Math.min(startBeat, clip.startBeat);
+                    endBeat = Math.max(endBeat, clip.startBeat + clip.durationBeats);
+                }
+
+                // Enforce minimum 4 beats (1 bar in 4/4)
+                if (endBeat - startBeat < 4) {
+                    endBeat = startBeat + 4;
+                }
+
+                // Convert beats → frames
+                const beatsToFrames = (beat: number) =>
+                    Math.round((beat * 60 * sr) / bpm);
+
+                const startFrames = beatsToFrames(startBeat);
+                const endFrames = beatsToFrames(endBeat);
+
+                store.setLoop(true, startFrames, endFrames);
                 return;
             }
         },

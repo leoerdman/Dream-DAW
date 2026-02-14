@@ -865,6 +865,8 @@ struct AppSettings {
     vst3_path: String,
     #[serde(default, alias = "openRouterApiKey")]
     open_router_api_key: String,
+    #[serde(default = "default_open_router_model", alias = "openRouterModel")]
+    open_router_model: String,
 }
 
 fn default_language() -> String { "English".into() }
@@ -888,6 +890,7 @@ fn default_samples_path() -> String {
 }
 fn default_vst2_path() -> String { "/Library/Audio/Plug-Ins/VST".into() }
 fn default_vst3_path() -> String { "/Library/Audio/Plug-Ins/VST3".into() }
+fn default_open_router_model() -> String { "openai/gpt-4o-mini".into() }
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -914,6 +917,7 @@ impl Default for AppSettings {
             vst3_path: "/Library/Audio/Plug-Ins/VST3".into(),
             browser_folders: Vec::new(),
             open_router_api_key: String::new(),
+            open_router_model: default_open_router_model(),
         }
     }
 }

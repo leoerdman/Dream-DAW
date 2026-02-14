@@ -88,6 +88,7 @@ export interface AppSettings {
     vst2Path: string;
     vst3Path: string;
     openRouterApiKey: string;
+    openRouterModel: string;
 }
 
 /** Recent project entry. */

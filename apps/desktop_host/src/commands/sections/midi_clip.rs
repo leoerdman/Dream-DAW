@@ -70,6 +70,25 @@ struct MidiNotePayload {
     duration_frames: i64,
 }
 
+fn normalize_note_payloads(notes: &[MidiNotePayload], clip_len: i64) -> Vec<MidiNote> {
+    let bounded_len = clip_len.max(1);
+    let mut normalized: Vec<MidiNote> = notes
+        .iter()
+        .map(|n| {
+            let start = n.start_frames.max(0).min(bounded_len.saturating_sub(1));
+            let max_duration = (bounded_len - start).max(1);
+            MidiNote::new(
+                n.pitch,
+                n.velocity,
+                start,
+                n.duration_frames.max(1).min(max_duration),
+            )
+        })
+        .collect();
+    normalized.sort_by_key(|n| n.start_frame);
+    normalized
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MidiVariationNotePayload {
@@ -109,12 +128,43 @@ struct GenerateMidiVariationResponse {
 
 fn extract_json_object(raw: &str) -> Result<String, String> {
     let candidate = raw.trim();
+    if candidate.is_empty() {
+        return Err("AI response is empty".to_string());
+    }
+
+    if let Some(start) = candidate.find("```") {
+        let rest = &candidate[start + 3..];
+        if let Some(end) = rest.find("```") {
+            let mut block = rest[..end].trim();
+            if block.starts_with("json") {
+                block = block[4..].trim();
+            }
+            if let (Some(first), Some(last)) = (block.find('{'), block.rfind('}'))
+                && last > first
+            {
+                return Ok(block[first..=last].to_string());
+            }
+        }
+    }
+
     let first = candidate.find('{').ok_or_else(|| "AI response does not contain JSON object".to_string())?;
     let last = candidate.rfind('}').ok_or_else(|| "AI response does not contain JSON object".to_string())?;
     if last <= first {
         return Err("AI response does not contain JSON object".to_string());
     }
     Ok(candidate[first..=last].to_string())
+}
+
+fn json_to_i64(v: Option<&serde_json::Value>, default: i64) -> i64 {
+    v.and_then(|x| x.as_i64())
+        .or_else(|| v.and_then(|x| x.as_f64().map(|n| n.round() as i64)))
+        .unwrap_or(default)
+}
+
+fn json_to_f64(v: Option<&serde_json::Value>, default: f64) -> f64 {
+    v.and_then(|x| x.as_f64())
+        .or_else(|| v.and_then(|x| x.as_i64().map(|n| n as f64)))
+        .unwrap_or(default)
 }
 
 fn normalize_variation_notes(
@@ -126,20 +176,18 @@ fn normalize_variation_notes(
 
     for item in notes {
         let Some(obj) = item.as_object() else { continue };
-        let pitch = obj.get("pitch").and_then(|v| v.as_i64()).unwrap_or(60).clamp(0, 127) as u8;
-        let velocity = obj.get("velocity").and_then(|v| v.as_i64()).unwrap_or(100).clamp(1, 127) as u8;
-        let start_beat = obj
-            .get("startBeat")
-            .or_else(|| obj.get("start_beat"))
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0)
-            .clamp(0.0, (max_beat - 0.0625).max(0.0));
-        let duration_beats = obj
-            .get("durationBeats")
-            .or_else(|| obj.get("duration_beats"))
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.25)
-            .clamp(0.0625, (max_beat - start_beat).max(0.0625));
+        let pitch = json_to_i64(obj.get("pitch"), 60).clamp(0, 127) as u8;
+        let velocity = json_to_i64(obj.get("velocity"), 100).clamp(1, 127) as u8;
+        let start_beat = json_to_f64(
+            obj.get("startBeat").or_else(|| obj.get("start_beat")),
+            0.0,
+        )
+        .clamp(0.0, (max_beat - 0.0625).max(0.0));
+        let duration_beats = json_to_f64(
+            obj.get("durationBeats").or_else(|| obj.get("duration_beats")),
+            0.25,
+        )
+        .clamp(0.0625, (max_beat - start_beat).max(0.0625));
 
         if !start_beat.is_finite() || !duration_beats.is_finite() {
             continue;
@@ -163,9 +211,12 @@ async fn generate_midi_variation_cmd(
     request: GenerateMidiVariationRequest,
     settings_state: tauri::State<'_, SettingsState>,
 ) -> Result<GenerateMidiVariationResponse, String> {
-    let api_key = {
+    let (api_key, default_model) = {
         let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
-        settings.open_router_api_key.trim().to_string()
+        (
+            settings.open_router_api_key.trim().to_string(),
+            settings.open_router_model.trim().to_string(),
+        )
     };
     if api_key.is_empty() {
         return Err("OpenRouter API key is empty. Set it in Settings → MIDI.".to_string());
@@ -176,6 +227,7 @@ async fn generate_midi_variation_cmd(
         .as_deref()
         .map(str::trim)
         .filter(|m| !m.is_empty())
+        .or_else(|| (!default_model.is_empty()).then_some(default_model.as_str()))
         .unwrap_or("openai/gpt-4o-mini");
 
     let clip_duration_beats = request.clip_duration_beats.max(0.125);
@@ -319,76 +371,99 @@ async fn update_midi_clip_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
-    push_undo(&project_state)?;
-
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let mut updated = false;
-
-    for track in &mut project.tracks {
-        if let Some(clip) = track.midi_clips.iter_mut().find(|c| c.id == uuid) {
-            let clip_len = clip.duration.sample_frame.max(1);
-            let mut normalized: Vec<MidiNote> = notes
-                .iter()
-                .map(|n| {
-                    let start = n.start_frames.max(0).min(clip_len.saturating_sub(1));
-                    let max_duration = (clip_len - start).max(1);
-                    MidiNote::new(
-                        n.pitch,
-                        n.velocity,
-                        start,
-                        n.duration_frames.max(1).min(max_duration),
-                    )
-                })
-                .collect();
-            normalized.sort_by_key(|n| n.start_frame);
-            clip.notes = normalized;
-            updated = true;
-            break;
-        }
+    enum UpdateTarget {
+        MidiClip {
+            track_index: usize,
+            normalized: Vec<MidiNote>,
+        },
+        LegacyAudioClip {
+            track_index: usize,
+            normalized: Vec<MidiNote>,
+        },
+        Noop,
     }
 
-    // Compatibility path:
-    // migrate old "MIDI" clips that were historically written into audio clips with empty path.
-    if !updated {
-        for track in &mut project.tracks {
-            if let Some(idx) = track
-                .clips
-                .iter()
-                .position(|c| c.id == uuid && c.file_path.trim().is_empty())
-            {
-                let legacy = track.clips.remove(idx);
-                let clip_len = legacy.duration.sample_frame.max(1);
-                let mut normalized: Vec<MidiNote> = notes
-                    .iter()
-                    .map(|n| {
-                        let start = n.start_frames.max(0).min(clip_len.saturating_sub(1));
-                        let max_duration = (clip_len - start).max(1);
-                        MidiNote::new(
-                            n.pitch,
-                            n.velocity,
-                            start,
-                            n.duration_frames.max(1).min(max_duration),
-                        )
-                    })
-                    .collect();
-                normalized.sort_by_key(|n| n.start_frame);
+    let target = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let mut found: Option<UpdateTarget> = None;
 
-                track.midi_clips.push(MidiClip {
-                    id: legacy.id,
-                    name: legacy.name,
-                    position: legacy.position,
-                    duration: legacy.duration,
-                    notes: normalized,
-                    is_selected: false,
-                });
-                updated = true;
+        for (track_index, track) in project.tracks.iter().enumerate() {
+            if let Some(clip) = track.midi_clips.iter().find(|c| c.id == uuid) {
+                let normalized = normalize_note_payloads(&notes, clip.duration.sample_frame);
+                if clip.notes == normalized {
+                    found = Some(UpdateTarget::Noop);
+                } else {
+                    found = Some(UpdateTarget::MidiClip { track_index, normalized });
+                }
                 break;
             }
         }
+
+        if found.is_none() {
+            for (track_index, track) in project.tracks.iter().enumerate() {
+                if let Some(idx) = track
+                    .clips
+                    .iter()
+                    .position(|c| c.id == uuid && c.file_path.trim().is_empty())
+                {
+                    let legacy = &track.clips[idx];
+                    let normalized = normalize_note_payloads(&notes, legacy.duration.sample_frame);
+                    found = Some(UpdateTarget::LegacyAudioClip { track_index, normalized });
+                    break;
+                }
+            }
+        }
+
+        found.ok_or_else(|| format!("MIDI clip not found: {clip_id}"))?
+    };
+
+    if matches!(target, UpdateTarget::Noop) {
+        return Ok(());
     }
 
-    if !updated {
-        return Err(format!("MIDI clip not found: {clip_id}"));
+    push_undo(&project_state)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    match target {
+        UpdateTarget::MidiClip {
+            track_index,
+            normalized,
+        } => {
+            let track = project
+                .tracks
+                .get_mut(track_index)
+                .ok_or_else(|| format!("Track not found for MIDI clip: {clip_id}"))?;
+            let clip = track
+                .midi_clips
+                .iter_mut()
+                .find(|c| c.id == uuid)
+                .ok_or_else(|| format!("MIDI clip disappeared during update: {clip_id}"))?;
+            clip.notes = normalized;
+        }
+        UpdateTarget::LegacyAudioClip {
+            track_index,
+            normalized,
+        } => {
+            let track = project
+                .tracks
+                .get_mut(track_index)
+                .ok_or_else(|| format!("Track not found for legacy MIDI clip: {clip_id}"))?;
+            let idx = track
+                .clips
+                .iter()
+                .position(|c| c.id == uuid && c.file_path.trim().is_empty())
+                .ok_or_else(|| format!("Legacy MIDI clip disappeared during update: {clip_id}"))?;
+            let legacy = track.clips.remove(idx);
+            track.midi_clips.push(MidiClip {
+                id: legacy.id,
+                name: legacy.name,
+                position: legacy.position,
+                duration: legacy.duration,
+                notes: normalized,
+                is_selected: false,
+            });
+        }
+        UpdateTarget::Noop => {}
     }
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;

@@ -359,6 +359,20 @@
     --color-piano-beat: #333333;
     --color-piano-sub: rgba(36, 36, 36, 0.5);
 
+    /* ── Timeline (Arrangement View) ── */
+    --color-timeline-bg: #141414;
+    --color-timeline-ruler-bg: #232323;
+    --color-timeline-grid-line: rgba(255, 255, 255, 0.07);
+    --color-timeline-grid-bar: rgba(255, 255, 255, 0.15);
+    --color-timeline-track-default: #1e1e1e;
+    --color-timeline-track-selected: #282828;
+    --color-timeline-playhead: #ffffff;
+    --color-timeline-playhead-glow: rgba(255, 255, 255, 0.25);
+    --color-timeline-edit-cursor: rgba(255, 255, 255, 0.8);
+    --color-timeline-loop-fill: rgba(255, 255, 255, 0.06);
+    --color-timeline-loop-border: rgba(255, 255, 255, 0.5);
+    --color-timeline-ruler-text: rgba(255, 255, 255, 0.6);
+
     /* ── Glass (HUD — from DarkTheme) ─────────────────────────── */
     --glass-bg: rgba(18, 18, 18, 0.92);
     --glass-bg-hover: rgba(28, 28, 28, 0.95);

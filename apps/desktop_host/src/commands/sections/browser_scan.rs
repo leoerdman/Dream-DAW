@@ -1,3 +1,5 @@
+use super::*;
+
 // ═══════════════════════════════════════════════════════════════════════
 
 /// A single audio file entry returned by the browser scan.

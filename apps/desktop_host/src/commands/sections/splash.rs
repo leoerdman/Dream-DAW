@@ -1,3 +1,5 @@
+use super::*;
+
 // ═══════════════════════════════════════════════════════════════════════
 
 /// Expands the main window from splash mode (500×500) to full DAW mode.

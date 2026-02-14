@@ -1,3 +1,5 @@
+use super::*;
+
 // ═══════════════════════════════════════════════════════════════════════
 
 /// A file system entry returned by `scan_folder_all`.

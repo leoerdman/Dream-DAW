@@ -1,3 +1,5 @@
+use super::*;
+
 // ═══════════════════════════════════════════════════════════════════════
 
 /// Returns multi-resolution waveform peak data for a given audio file.

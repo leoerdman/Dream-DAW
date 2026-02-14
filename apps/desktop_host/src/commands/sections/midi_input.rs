@@ -1,3 +1,5 @@
+use super::*;
+
 /// Enumerate available MIDI input ports from the OS.
 #[tauri::command]
 fn get_midi_inputs(

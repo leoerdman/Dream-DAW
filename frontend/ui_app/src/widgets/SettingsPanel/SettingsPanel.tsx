@@ -11,7 +11,7 @@ import * as engine from '@/shared/api/engine';
  * Trigger: ⌘, or gear icon
  */
 
-type SettingsTab = 'general' | 'appearance' | 'audio' | 'folders' | 'about';
+type SettingsTab = 'general' | 'appearance' | 'audio' | 'midi' | 'folders' | 'about';
 
 interface SettingsPanelProps {
     isOpen: boolean;
@@ -28,6 +28,10 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
     // ── Audio Device Enumeration (real hardware from cpal) ──
     const [audioDevices, setAudioDevices] = useState<engine.AudioDevices>({ outputs: [], inputs: [] });
     const [devicesLoading, setDevicesLoading] = useState(false);
+    const [restartingEngine, setRestartingEngine] = useState(false);
+    const [midiInputs, setMidiInputs] = useState<engine.MidiInputPort[]>([]);
+    const [midiLoading, setMidiLoading] = useState(false);
+    const [midiConnecting, setMidiConnecting] = useState<string | null>(null);
 
     // Fetch real devices when Audio tab is opened
     useEffect(() => {
@@ -37,6 +41,15 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
             .then(devices => setAudioDevices(devices))
             .catch(err => console.error('[SettingsPanel] Failed to enumerate devices:', err))
             .finally(() => setDevicesLoading(false));
+    }, [tab]);
+
+    useEffect(() => {
+        if (tab !== 'midi') return;
+        setMidiLoading(true);
+        engine.getMidiInputs()
+            .then((ports) => setMidiInputs(ports))
+            .catch((err) => console.error('[SettingsPanel] Failed to enumerate MIDI inputs:', err))
+            .finally(() => setMidiLoading(false));
     }, [tab]);
 
     // ⌘, shortcut
@@ -65,6 +78,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
         { key: 'general', label: 'General', icon: '⚙' },
         { key: 'appearance', label: 'Appearance', icon: '🎨' },
         { key: 'audio', label: 'Audio', icon: '🔊' },
+        { key: 'midi', label: 'MIDI', icon: '🎹' },
         { key: 'folders', label: 'Folders', icon: '📁' },
         { key: 'about', label: 'About', icon: 'ℹ️' },
     ];
@@ -153,14 +167,22 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                                 <Select
                                     value={settings.outputDevice}
                                     options={audioDevices.outputs.length > 0 ? audioDevices.outputs : [settings.outputDevice]}
-                                    onChange={v => {
+                                    onChange={async v => {
                                         updateSetting('outputDevice', v);
-                                        engine.setAudioDevice(v).catch(err =>
-                                            console.error('[SettingsPanel] setAudioDevice failed:', err)
-                                        );
+                                        setRestartingEngine(true);
+                                        try {
+                                            await engine.restartAudioEngine(v);
+                                        } catch (err) {
+                                            console.error('[SettingsPanel] restartAudioEngine failed:', err);
+                                        } finally {
+                                            setRestartingEngine(false);
+                                        }
                                     }}
                                 />
                                 {devicesLoading && <span style={{ ...valueStyle, marginLeft: 4 }}>⏳</span>}
+                                {restartingEngine && (
+                                    <span style={{ ...valueStyle, marginLeft: 6 }}>Restarting Engine...</span>
+                                )}
                             </SettingRow>
                             <SettingRow label="Input Device">
                                 <Select
@@ -263,6 +285,60 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                                     {rescanningPlugins ? '⏳ Scanning…' : '🔄 Rescan Plugins'}
                                 </button>
                             </div>
+                        </div>
+                    )}
+
+                    {tab === 'midi' && (
+                        <div>
+                            <h2 style={titleStyle}>MIDI</h2>
+                            <SettingRow label="MIDI Inputs">
+                                {midiLoading ? (
+                                    <span style={valueStyle}>Scanning…</span>
+                                ) : midiInputs.length === 0 ? (
+                                    <span style={valueStyle}>No MIDI devices found</span>
+                                ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+                                        {midiInputs.map((port) => (
+                                            <div
+                                                key={port.name}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'space-between',
+                                                    gap: 8,
+                                                }}
+                                            >
+                                                <span style={{ ...valueStyle, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {port.name}
+                                                </span>
+                                                <button
+                                                    onClick={async () => {
+                                                        setMidiConnecting(port.name);
+                                                        try {
+                                                            await engine.connectMidiInput(port.name);
+                                                            const refreshed = await engine.getMidiInputs();
+                                                            setMidiInputs(refreshed);
+                                                        } catch (err) {
+                                                            console.error('[SettingsPanel] connectMidiInput failed:', err);
+                                                        } finally {
+                                                            setMidiConnecting(null);
+                                                        }
+                                                    }}
+                                                    style={{
+                                                        ...chipStyle,
+                                                        minWidth: 88,
+                                                        background: port.connected ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
+                                                        color: port.connected ? '#fff' : 'var(--color-text-secondary)',
+                                                    }}
+                                                    disabled={midiConnecting === port.name}
+                                                >
+                                                    {midiConnecting === port.name ? 'Connecting…' : port.connected ? 'Connected' : 'Connect'}
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </SettingRow>
                         </div>
                     )}
 

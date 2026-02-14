@@ -73,13 +73,13 @@ pub struct StreamingWindow {
     total_frames: i64,
 
     /// Number of audio channels in the source.
-    num_channels: usize,
+    _num_channels: usize,
 
     /// Sample rate of the source.
     sample_rate: u32,
 
-    /// Source file path (for logging).
-    source_path: String,
+    /// Source file path (for logging/diagnostics).
+    _source_path: String,
 }
 
 impl StreamingWindow {
@@ -88,9 +88,9 @@ impl StreamingWindow {
         Self {
             chunks: VecDeque::with_capacity(LOOK_AHEAD_CHUNKS + 4),
             total_frames,
-            num_channels,
+            _num_channels: num_channels,
             sample_rate,
-            source_path: source_path.to_string(),
+            _source_path: source_path.to_string(),
         }
     }
 
@@ -156,7 +156,7 @@ impl StreamingWindow {
             return false;
         }
 
-        let mut frames_written = 0usize;
+        let mut _frames_written = 0usize;
         let mut any_hit = false;
 
         // Apply 64-sample micro-fades
@@ -218,7 +218,7 @@ impl StreamingWindow {
                 out_right[dst_idx] += sample_r * fade;
             }
 
-            frames_written += overlap_frames;
+            _frames_written += overlap_frames;
         }
 
         any_hit
@@ -408,7 +408,7 @@ fn disk_io_thread(
     kill: Arc<AtomicBool>,
     _sample_rate: u32,
     total_frames: i64,
-    num_channels: usize,
+    _num_channels: usize,
 ) {
     use symphonia::core::audio::SampleBuffer;
     use symphonia::core::codecs::DecoderOptions;
@@ -416,7 +416,7 @@ fn disk_io_thread(
     use symphonia::core::io::MediaSourceStream;
     use symphonia::core::meta::MetadataOptions;
     use symphonia::core::probe::Hint;
-    use symphonia::core::units::Time;
+    // symphonia::core::units::Time available for future seek-by-time
 
     // ── Open and probe the audio file ───────────────────────────
     let file = match std::fs::File::open(&path) {

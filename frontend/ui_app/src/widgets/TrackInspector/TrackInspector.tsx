@@ -619,9 +619,9 @@ const TrackRow = ({
                         >
                             <option value="master">→ Master</option>
                             {availableRoutingTargets.map(t => (
-                                    <option key={t.id} value={t.id}>
-                                        → {t.name}
-                                    </option>
+                                <option key={t.id} value={t.id}>
+                                    → {t.name}
+                                </option>
                             ))}
                         </select>
                         <span style={{ fontSize: 7, color: 'var(--color-text-tertiary)', lineHeight: '10px' }}>Audio From</span>
@@ -644,9 +644,9 @@ const TrackRow = ({
                             <option value="ext-1">← Ext. In 1</option>
                             <option value="ext-2">← Ext. In 2</option>
                             {availableRoutingTargets.map(t => (
-                                    <option key={t.id} value={t.id}>
-                                        ← {t.name}
-                                    </option>
+                                <option key={t.id} value={t.id}>
+                                    ← {t.name}
+                                </option>
                             ))}
                         </select>
                     </div>
@@ -780,6 +780,32 @@ const TrackRow = ({
                         ●
                     </button>
                 )}
+
+                {/* ── VU Meter Bar (GPU-accelerated scaleY) ── */}
+                <div style={{
+                    width: 4,
+                    height: trackHeight - 8,
+                    background: 'rgba(255,255,255,0.06)',
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                    flexShrink: 0,
+                    position: 'relative',
+                    marginLeft: 2,
+                }}>
+                    <div style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        height: '100%',
+                        background: vuColor(track.vuLevel, track.type === 'midi'),
+                        transform: `scaleY(${vuNorm(track.vuLevel)})`,
+                        transformOrigin: 'bottom',
+                        transition: 'transform 80ms linear, background-color 120ms ease',
+                        borderRadius: 2,
+                        willChange: 'transform',
+                    }} />
+                </div>
             </div>
         </div>
     );

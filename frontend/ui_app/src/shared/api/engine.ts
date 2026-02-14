@@ -46,6 +46,12 @@ export interface MeteringSnapshot {
     master_right: MeterReading;
 }
 
+/** MIDI input port descriptor. */
+export interface MidiInputPort {
+    name: string;
+    connected: boolean;
+}
+
 /** Track state update — mirrors Rust `TrackStateUpdate`. */
 export interface TrackStateUpdate {
     track_index: number;
@@ -189,6 +195,13 @@ interface CreateMidiClipResponse {
     duration_frames: number;
 }
 
+export interface MidiClipNoteUpdate {
+    pitch: number;
+    velocity: number;
+    startFrames: number;
+    durationFrames: number;
+}
+
 /** Create an empty MIDI clip on a track at the given position. */
 export const createMidiClip = (
     trackIndex: number,
@@ -202,6 +215,29 @@ export const createMidiClip = (
         durationFrames,
         name: name ?? null,
     });
+
+/** Replace all notes in a MIDI clip. */
+export const updateMidiClip = (
+    clipId: string,
+    notes: MidiClipNoteUpdate[],
+) =>
+    invoke<void>('update_midi_clip_cmd', {
+        clipId,
+        notes: notes.map((n) => ({
+            pitch: Math.max(0, Math.min(127, Math.round(n.pitch))),
+            velocity: Math.max(1, Math.min(127, Math.round(n.velocity))),
+            start_frames: Math.max(0, Math.round(n.startFrames)),
+            duration_frames: Math.max(1, Math.round(n.durationFrames)),
+        })),
+    });
+
+/** Enumerate available MIDI input devices from backend. */
+export const getMidiInputs = () =>
+    invoke<MidiInputPort[]>('get_midi_inputs');
+
+/** Connect live MIDI input by exact OS port name. */
+export const connectMidiInput = (portName: string) =>
+    invoke<void>('connect_midi_input', { portName });
 
 // ── Audio Preview ────────────────────────────────────────────────────────
 
@@ -277,6 +313,40 @@ export interface AudioFileEntry {
 /** Recursively scan a directory for audio files. */
 export const scanAudioFolder = (path: string) =>
     invoke<AudioFileEntry[]>('scan_audio_folder', { path });
+
+// ── Browser Folder Management ────────────────────────────────────────
+
+/** Classified file entry returned by scan_folder_all. */
+export interface BrowserFileEntry {
+    name: string;
+    path: string;
+    size_bytes: number;
+    modified_at: string;
+    extension: string;
+    /** Semantic type: 'audio' | 'plugin' | 'project' | 'preset' | 'folder' | 'other' */
+    file_type: string;
+    is_directory: boolean;
+}
+
+/** Scan a folder for ALL file types (audio, plugins, projects, presets, folders). */
+export const scanFolderAll = (path: string) =>
+    invoke<BrowserFileEntry[]>('scan_folder_all', { path });
+
+/** Scan system VST2/VST3/AU paths for installed plugins. */
+export const scanPluginFolders = () =>
+    invoke<BrowserFileEntry[]>('scan_plugin_folders');
+
+/** Get user-added browser folder paths from settings. */
+export const getBrowserFolders = () =>
+    invoke<string[]>('get_browser_folders');
+
+/** Open native folder picker, add to browser PLACES, persist. Returns updated list. */
+export const addBrowserFolder = () =>
+    invoke<string[]>('add_browser_folder');
+
+/** Remove a folder from browser PLACES. Returns updated list. */
+export const removeBrowserFolder = (path: string) =>
+    invoke<string[]>('remove_browser_folder', { path });
 
 /** Get resolved samples folder path (lightweight, no mutex). */
 export const getSamplesPath = () =>
@@ -356,6 +426,10 @@ export const getAudioDevices = () =>
 export const setAudioDevice = (deviceName: string) =>
     invoke<void>('set_audio_device', { deviceName });
 
+/** Force hot-restart audio engine on a named output device. */
+export const restartAudioEngine = (deviceName: string) =>
+    invoke<void>('restart_audio_engine', { deviceName });
+
 // ── Plugin Window Management ────────────────────────────────────────────
 
 /** Open the native VST/AU plugin GUI window (OS-level C++ window, not webview).
@@ -404,6 +478,17 @@ export const setTrackRouting = (trackId: string, targetId: string) =>
 export const setTrackInput = (trackId: string, inputId: string) =>
     invoke<void>('set_track_input_cmd', { trackId, inputId });
 
+/** Add plugin to track chain (instrument/effect). */
+export const addPluginToTrack = (
+    trackId: string,
+    pluginId: string,
+    pluginName: string,
+    slot: 'instrument' | 'effect' | 'auto' = 'auto',
+) =>
+    invoke<void>('add_plugin_to_track_cmd', {
+        payload: { trackId, pluginId, pluginName, slot },
+    });
+
 // ── Clip Fades ──────────────────────────────────────────────────────────
 
 /** Set fade-in and fade-out durations for a clip (in sample frames). */
@@ -432,6 +517,10 @@ export interface ExportSettings {
  *  'bounce_progress' Tauri event (payload: { progress: number 0..100 }). */
 export const exportMix = (settings: ExportSettings) =>
     invoke<void>('export_mix_cmd', { settings });
+
+/** Cancel an in-progress export/bounce operation. */
+export const cancelExport = () =>
+    invoke<void>('cancel_export_cmd');
 
 // ── Recording ───────────────────────────────────────────────────────────
 

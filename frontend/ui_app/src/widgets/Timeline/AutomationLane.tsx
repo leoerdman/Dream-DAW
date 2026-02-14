@@ -81,16 +81,27 @@ export const AutomationLane = memo(function AutomationLane({
         };
     }, [pushPointsThrottled]);
 
-    const flushPointsToEngine = useCallback(() => {
+    const buildEnginePoints = useCallback((): engineApi.AutomationPoint[] => {
         const latest = useAutomationStore.getState().lanes[lane.id];
-        const points: engineApi.AutomationPoint[] = (latest?.breakpoints ?? lane.breakpoints).map((bp) => ({
+        return (latest?.breakpoints ?? lane.breakpoints).map((bp) => ({
             beat: bp.beat,
             value: bp.value,
             curveType: bp.curve === 'step' ? 'step' : bp.curve === 'bezier' ? 'bezier' : 'linear',
             tension: bp.curve === 'bezier' ? 0.5 : undefined,
         }));
+    }, [lane.id, lane.breakpoints]);
+
+    const flushPointsToEngine = useCallback(() => {
+        const points = buildEnginePoints();
         pushPointsThrottled(points);
-    }, [lane.id, lane.breakpoints, pushPointsThrottled]);
+    }, [buildEnginePoints, pushPointsThrottled]);
+
+    const pushPointsImmediate = useCallback(() => {
+        const points = buildEnginePoints();
+        engineApi
+            .setAutomationPoints(lane.trackId, lane.paramKey, points)
+            .catch((err) => console.error('[AutomationLane] setAutomationPoints final push failed:', err));
+    }, [buildEnginePoints, lane.trackId, lane.paramKey]);
 
     // ── Coordinate Conversion ──────────────────────────────────────
 
@@ -179,11 +190,13 @@ export const AutomationLane = memo(function AutomationLane({
             const onMove = (ev: MouseEvent) => {
                 const { beat, value } = pxToCoords(ev.clientX, ev.clientY);
                 moveBreakpoint(lane.id, bpId, beat, value);
+                flushPointsToEngine();
             };
 
             const onUp = () => {
                 setDraggingBp(null);
-                flushPointsToEngine();
+                pushPointsThrottled.cancel();
+                pushPointsImmediate();
                 window.removeEventListener('mousemove', onMove);
                 window.removeEventListener('mouseup', onUp);
             };
@@ -191,7 +204,15 @@ export const AutomationLane = memo(function AutomationLane({
             window.addEventListener('mousemove', onMove);
             window.addEventListener('mouseup', onUp);
         },
-        [selectBreakpoint, moveBreakpoint, pxToCoords, lane.id, flushPointsToEngine],
+        [
+            selectBreakpoint,
+            moveBreakpoint,
+            pxToCoords,
+            lane.id,
+            flushPointsToEngine,
+            pushPointsThrottled,
+            pushPointsImmediate,
+        ],
     );
 
     const handleBpDblClick = useCallback(
@@ -215,18 +236,26 @@ export const AutomationLane = memo(function AutomationLane({
                 const dy = ev.clientY - startY;
                 if (Math.abs(dy) > 4) {
                     setBreakpointCurve(lane.id, bpId, 'bezier');
+                    flushPointsToEngine();
                 }
             };
             const onUp = () => {
                 setCurveDragBp(null);
-                flushPointsToEngine();
+                pushPointsThrottled.cancel();
+                pushPointsImmediate();
                 window.removeEventListener('mousemove', onMove);
                 window.removeEventListener('mouseup', onUp);
             };
             window.addEventListener('mousemove', onMove);
             window.addEventListener('mouseup', onUp);
         },
-        [lane.id, setBreakpointCurve, flushPointsToEngine],
+        [
+            lane.id,
+            setBreakpointCurve,
+            flushPointsToEngine,
+            pushPointsThrottled,
+            pushPointsImmediate,
+        ],
     );
 
     // ── Render ──────────────────────────────────────────────────────

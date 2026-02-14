@@ -24,6 +24,8 @@ export const DragOverlay = () => {
 
     if (!draggingItem) return null;
 
+    const icon = draggingItem.type === 'plugin' ? '🧩' : '🎵';
+
     return (
         <div
             style={{
@@ -44,7 +46,7 @@ export const DragOverlay = () => {
                 userSelect: 'none',
             }}
         >
-            🎵 {draggingItem.name}
+            {icon} {draggingItem.name}
         </div>
     );
 };

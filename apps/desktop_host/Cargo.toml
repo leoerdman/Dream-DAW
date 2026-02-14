@@ -38,3 +38,4 @@ dream_plugins = { path = "../../core/dream_plugins" }
 uuid = { workspace = true }
 dirs = "5"
 tauri-plugin-dialog = "2"
+midir = "0.10"

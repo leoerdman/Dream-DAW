@@ -2,10 +2,10 @@
    Dream DAW — Splash Screen (Premium Loading Overlay)
 
    Single-window approach:
-   - App starts as 450×450 borderless window
+   - App starts as 500×500 borderless window
    - This React overlay shows logo + version + status animation
    - On completion, calls Tauri `expand_window` to resize to full DAW
-   - Overlay fades out revealing the Workspace
+   - Overlay fades out revealing the Workspace beneath
    ═════════════════════════════════════════════════════════════ */
 
 import { useState, useEffect, useCallback } from 'react'
@@ -21,44 +21,59 @@ interface SplashScreenProps {
     onComplete?: () => void
 }
 
-export function SplashScreen({ minDuration = 2400, onComplete }: SplashScreenProps) {
+export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenProps) {
     const [status, setStatus] = useState('Initializing Audio Engine...')
     const [phase, setPhase] = useState<'visible' | 'fading' | 'done'>('visible')
 
     const startTelemetryLoop = useEngineStore((s) => s.startTelemetryLoop)
 
     const dismiss = useCallback(async () => {
-        // Load user settings from disk BEFORE expanding to workspace
+        // 1. Load user settings from disk BEFORE expanding to workspace
         try {
             await useSettingsStore.getState().loadSettings()
         } catch (e) {
             console.warn('[Splash] Failed to load settings:', e)
         }
 
-        // Expand the window to full DAW size
+        // 2. Expand the window: hide → configure → maximize → show
+        //    The backend does hide → set decorations/resizable → maximize → show → focus
         try {
             await engineApi.expandWindow()
         } catch (e) {
             console.warn('[Splash] expand_window unavailable (browser dev?):', e)
         }
 
-        // Start the 60fps telemetry loop — the DAW comes alive
+        // 3. Start the 60fps telemetry loop — the DAW comes alive
         startTelemetryLoop()
 
-        // Then fade out the overlay
+        // 4. Await initial project fetch — ensures tracks/clips are in the store
+        //    before the Workspace component mounts after the splash fades
+        const fetchProject = useEngineStore.getState().fetchProject
+        try {
+            await fetchProject()
+        } catch (e) {
+            console.warn('[Splash] fetchProject failed:', e)
+        }
+
+        // 5. Brief pause to let macOS WindowServer finish drawing the expanded frame
+        //    This prevents a flash of unstyled content before the fade-out begins
+        await new Promise(r => setTimeout(r, 120))
+
+        // 5. Fade out the splash overlay to reveal the workspace beneath
         setPhase('fading')
         setTimeout(() => {
             setPhase('done')
             onComplete?.()
-        }, 600)
+        }, 600) // matches CSS transition duration
     }, [onComplete, startTelemetryLoop])
 
     useEffect(() => {
         const steps = [
-            { text: 'Loading Core Modules...', delay: 600 },
-            { text: 'Initializing DSP Pipeline...', delay: 1200 },
-            { text: 'Preparing Workspace...', delay: 1800 },
-            { text: 'Ready', delay: 2200 },
+            { text: 'Loading Core Modules...', delay: 500 },
+            { text: 'Initializing DSP Pipeline...', delay: 1100 },
+            { text: 'Scanning Audio Devices...', delay: 1700 },
+            { text: 'Preparing Workspace...', delay: 2100 },
+            { text: 'Ready', delay: 2400 },
         ]
 
         const timers = steps.map(({ text, delay }) =>

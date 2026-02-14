@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import * as engineApi from '@/shared/api/engine';
-import type { AudioFileEntry, PeakPair } from '@/shared/api/engine';
+import type { AudioFileEntry, BrowserFileEntry, PeakPair } from '@/shared/api/engine';
 import { useDragStore } from '@/shared/stores/useDragStore';
 
 /**
@@ -15,28 +15,15 @@ import { useDragStore } from '@/shared/stores/useDragStore';
  *   │ COLLECTIONS│ Source: All   Format: All   │
  *   │  ★ Fav…    │ Audio: All                  │
  *   │           │──────────────────────────────│
- *   │ LIBRARY    │  Kick_808_Deep.wav          │
- *   │  ≡ All     │  Snare_Tight_02.wav         │
- *   │  ♫ Samples │  HiHat_Closed_01.wav        │
- *   │  ♪ Sounds  │  Clap_Vinyl.wav             │
- *   │  ▪ Drums   │  Bass_Sub_02.wav            │
- *   │  🎹 Instr… │  Pad_Ambient_Dm.wav         │
- *   │  ✦ Audio…  │  Vocal_Chop_Rise.wav        │
+ *   │ LIBRARY    │  Real audio files from disk │
+ *   │  ≡ All     │  Real plugins from system   │
+ *   │  ♫ Samples │  User-added folder contents │
  *   │  🧩 Plug…  │  ...                        │
- *   │  🎬 Clips  │                             │
- *   │  📄 Templ… │                             │
  *   │           │                             │
  *   │ PLACES     │                             │
- *   │  👤 User…  │                             │
- *   │  📋 Curr…  │                             │
+ *   │  📁 MyDir  │  (user-added, removable)    │
  *   │  ＋ Add…   │                             │
- *   ├────────────┴─────────────────────────────┤
- *   │ 12 items          🎧 Preview             │
  *   └──────────────────────────────────────────┘
- *
- * The split mirrors Ableton Live's browser exactly:
- * - Left pane: category tree (Collections, Library, Places)
- * - Right pane: filter toolbar + scrollable file list
  */
 
 // ── Types ──────────────────────────────────────────────────
@@ -46,22 +33,29 @@ interface BrowserCategory {
     title: string;
     icon: string;
     kind: 'section' | 'leaf';
+    /** For user-added folders — the absolute path */
+    folderPath?: string;
+    /** Whether this folder can be removed (user-added) */
+    removable?: boolean;
 }
 
 interface BrowserItem {
     id: string;
     name: string;
-    type: 'audio' | 'instrument' | 'audioEffect' | 'midiEffect' | 'plugin';
+    type: 'audio' | 'instrument' | 'audioEffect' | 'midiEffect' | 'plugin' | 'folder' | 'project' | 'preset' | 'other';
     format?: string;
     meta?: string;
     favorite?: boolean;
     /** Absolute path to file on disk (for drag-and-drop import). */
     path?: string;
+    /** Whether this is a navigable directory */
+    isDirectory?: boolean;
+    slotHint?: 'instrument' | 'effect' | 'auto';
 }
 
-// ── Static Data (matching BrowserSidebarView.swift) ────────
+// ── Static Categories ────────────────────────────────────
 
-const CATEGORIES: BrowserCategory[] = [
+const STATIC_CATEGORIES: BrowserCategory[] = [
     { id: 'sec-collections', title: 'Collections', icon: '★', kind: 'section' },
     { id: 'favorites', title: 'Favorites', icon: '★', kind: 'leaf' },
 
@@ -71,75 +65,55 @@ const CATEGORIES: BrowserCategory[] = [
     { id: 'sounds', title: 'Sounds', icon: '♪', kind: 'leaf' },
     { id: 'drums', title: 'Drums', icon: '▪', kind: 'leaf' },
     { id: 'instruments', title: 'Instruments', icon: '🎹', kind: 'leaf' },
-    { id: 'audioEffects', title: 'Audio E…', icon: '✦', kind: 'leaf' },
-    { id: 'midiEffects', title: 'MIDI Ef…', icon: '✧', kind: 'leaf' },
-    { id: 'maxForLive', title: 'Max for…', icon: '∞', kind: 'leaf' },
     { id: 'plugins', title: 'Plug-Ins', icon: '🧩', kind: 'leaf' },
+    { id: 'audioEffects', title: 'Audio Eff…', icon: '✦', kind: 'leaf' },
     { id: 'clips', title: 'Clips', icon: '🎬', kind: 'leaf' },
     { id: 'grooves', title: 'Grooves', icon: '∿', kind: 'leaf' },
-    { id: 'templates', title: 'Templa…', icon: '📄', kind: 'leaf' },
-
-    { id: 'sec-places', title: 'Places', icon: '💾', kind: 'section' },
-    { id: 'packs', title: 'Packs', icon: '📦', kind: 'leaf' },
-    { id: 'userLibrary', title: 'User Li…', icon: '👤', kind: 'leaf' },
-    { id: 'currentProject', title: 'Current…', icon: '📋', kind: 'leaf' },
-    { id: 'addFolder', title: 'Add Fol…', icon: '＋', kind: 'leaf' },
-];
-
-// Demo browser items
-const DEMO_SAMPLES: BrowserItem[] = [
-    { id: '1', name: 'Kick_808_Deep.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit · 44k' },
-    { id: '2', name: 'Snare_Tight_02.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit · 44k' },
-    { id: '3', name: 'HiHat_Closed_01.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 16bit · 44k' },
-    { id: '4', name: 'Clap_Vinyl.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit · 48k' },
-    { id: '5', name: 'Bass_Sub_02.wav', type: 'audio', format: 'WAV', meta: 'Loop · 130 BPM · 4 bars' },
-    { id: '6', name: 'Pad_Ambient_Dm.wav', type: 'audio', format: 'WAV', meta: 'Loop · 80 BPM · 8 bars' },
-    { id: '7', name: 'Vocal_Chop_Rise.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit · 44k' },
-    { id: '8', name: 'FX_Riser_04.wav', type: 'audio', format: 'WAV', meta: 'FX · 4 bars · 44k' },
-    { id: '9', name: 'Perc_Shaker_Loop.wav', type: 'audio', format: 'WAV', meta: 'Loop · 130 BPM · 2 bars' },
-    { id: '10', name: 'Synth_Lead_Am7.wav', type: 'audio', format: 'WAV', meta: 'Loop · 140 BPM · 4 bars' },
-    { id: '11', name: 'Kick_Acoustic_01.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit · 48k' },
-    { id: '12', name: 'Tom_Low_Room.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit · 48k' },
-    { id: '13', name: 'BASS BUZZ ★★…', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
-    { id: '14', name: 'BASS BUZZ ★…', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
-    { id: '15', name: 'BREAK.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit' },
-    { id: '16', name: 'Drums BUZZ.wav', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
-    { id: '17', name: 'Fill 174 BPM - 1.wav', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
-    { id: '18', name: 'FX Noise.wav', type: 'audio', format: 'WAV', meta: 'FX · 24bit' },
-    { id: '19', name: 'FX-1.wav', type: 'audio', format: 'WAV', meta: 'FX · 24bit' },
-    { id: '20', name: 'FX.wav', type: 'audio', format: 'WAV', meta: 'FX · 24bit' },
-    { id: '21', name: 'HAT.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit' },
-    { id: '22', name: 'INTRO SYNTH.wav', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
-    { id: '23', name: 'KICK.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit' },
-    { id: '24', name: 'MISC BUZZ.wav', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
-    { id: '25', name: 'MISC BUZZ ★★…', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
-    { id: '26', name: 'OPEN HAT.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit' },
-    { id: '27', name: 'PLuCK-1.wav', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
-    { id: '28', name: 'PLuCK.wav', type: 'audio', format: 'WAV', meta: 'Loop · 174 BPM' },
-    { id: '29', name: 'SD.wav', type: 'audio', format: 'WAV', meta: 'One Shot · 24bit' },
-    { id: '30', name: 'VOC 1.wav', type: 'audio', format: 'WAV', meta: 'Vocal · 24bit' },
-    { id: '31', name: 'VOC 2.wav', type: 'audio', format: 'WAV', meta: 'Vocal · 24bit' },
-    { id: '32', name: 'VOC 3.wav', type: 'audio', format: 'WAV', meta: 'Vocal · 24bit' },
-    { id: '33', name: 'VOC FX.wav', type: 'audio', format: 'WAV', meta: 'Vocal FX · 24bit' },
-];
-
-const DEMO_INSTRUMENTS: BrowserItem[] = [
-    { id: 'i1', name: 'Sampler', type: 'instrument', meta: 'Built-in' },
-    { id: 'i2', name: 'Simple Sine Synth', type: 'instrument', meta: 'Built-in' },
-];
-
-const DEMO_FX: BrowserItem[] = [
-    { id: 'fx1', name: 'EQ Eight', type: 'audioEffect', meta: 'Built-in' },
-    { id: 'fx2', name: 'Compressor', type: 'audioEffect', meta: 'Built-in' },
-    { id: 'fx3', name: 'Delay', type: 'audioEffect', meta: 'Built-in' },
-    { id: 'fx4', name: 'Reverb', type: 'audioEffect', meta: 'Built-in' },
-    { id: 'fx5', name: 'Utility', type: 'audioEffect', meta: 'Built-in' },
-    { id: 'fx6', name: 'Plate Reverb', type: 'audioEffect', meta: 'Built-in' },
 ];
 
 const SOURCE_FILTERS = ['Source: All', 'Source: Library', 'Source: Samples', 'Source: Plug-ins'] as const;
 const FORMAT_FILTERS = ['Format: All', 'WAV', 'AIFF', 'MP3', 'FLAC'] as const;
 const AUDIO_FILTERS = ['Audio: All', 'Loops', 'One Shot', 'Drums', 'Vocals'] as const;
+
+const INTERNAL_INSTRUMENT_ITEMS: BrowserItem[] = [
+    {
+        id: 'internal-inst-simple-sine',
+        name: 'Simple Sine Synth',
+        type: 'plugin',
+        meta: 'Internal Instrument',
+        path: 'internal://instrument/simple-sine-synth',
+        slotHint: 'instrument',
+    },
+    {
+        id: 'internal-inst-sampler',
+        name: 'Sampler',
+        type: 'plugin',
+        meta: 'Internal Instrument',
+        path: 'internal://instrument/sampler',
+        slotHint: 'instrument',
+    },
+];
+
+const INTERNAL_EFFECT_ITEMS: BrowserItem[] = [
+    { id: 'internal-fx-eq8', name: 'EQ Eight', type: 'plugin', meta: 'Internal Audio FX', path: 'internal://effect/eq-eight', slotHint: 'effect' },
+    { id: 'internal-fx-compressor', name: 'Compressor', type: 'plugin', meta: 'Internal Audio FX', path: 'internal://effect/compressor', slotHint: 'effect' },
+    { id: 'internal-fx-delay', name: 'Delay', type: 'plugin', meta: 'Internal Audio FX', path: 'internal://effect/delay', slotHint: 'effect' },
+    { id: 'internal-fx-reverb', name: 'Reverb', type: 'plugin', meta: 'Internal Audio FX', path: 'internal://effect/reverb', slotHint: 'effect' },
+    { id: 'internal-fx-utility', name: 'Utility', type: 'plugin', meta: 'Internal Audio FX', path: 'internal://effect/utility', slotHint: 'effect' },
+];
+
+// ── File type helpers ───────────────────────────────────
+
+function fileTypeToItemType(ft: string): BrowserItem['type'] {
+    switch (ft) {
+        case 'audio': return 'audio';
+        case 'plugin': return 'plugin';
+        case 'project': return 'project';
+        case 'preset': return 'preset';
+        case 'folder': return 'folder';
+        default: return 'other';
+    }
+}
 
 // ── Component ──────────────────────────────────────────
 
@@ -158,7 +132,45 @@ export const AssetBrowser = () => {
     const [previewFileName, setPreviewFileName] = useState<string>('');
     const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
 
+    // ── User folders (PLACES section) ──
+    const [userFolders, setUserFolders] = useState<string[]>([]);
+
+    // ── Folder navigation stack (for browsing into subfolders) ──
+    const [folderStack, setFolderStack] = useState<string[]>([]);
+
     const searchRef = useRef<HTMLInputElement>(null);
+
+    // ── Load user folders on mount ──
+    useEffect(() => {
+        engineApi.getBrowserFolders()
+            .then(folders => setUserFolders(folders))
+            .catch(err => console.warn('[Browser] Failed to load folders:', err));
+    }, []);
+
+    // Build dynamic categories (static + user folders)
+    const categories = useMemo<BrowserCategory[]>(() => {
+        const folderCats: BrowserCategory[] = userFolders.map((p, i) => {
+            const name = p.split('/').pop() || p;
+            return {
+                id: `user-folder-${i}`,
+                title: name.length > 10 ? name.slice(0, 9) + '…' : name,
+                icon: '📁',
+                kind: 'leaf' as const,
+                folderPath: p,
+                removable: true,
+            };
+        });
+
+        return [
+            ...STATIC_CATEGORIES,
+            { id: 'sec-places', title: 'Places', icon: '💾', kind: 'section' as const },
+            { id: 'packs', title: 'Packs', icon: '📦', kind: 'leaf' as const },
+            { id: 'userLibrary', title: 'User Lib…', icon: '👤', kind: 'leaf' as const },
+            { id: 'currentProject', title: 'Current…', icon: '📋', kind: 'leaf' as const },
+            ...folderCats,
+            { id: 'addFolder', title: 'Add Fol…', icon: '＋', kind: 'leaf' as const },
+        ];
+    }, [userFolders]);
 
     // Keyboard shortcut
     useEffect(() => {
@@ -182,13 +194,12 @@ export const AssetBrowser = () => {
         });
     }, []);
 
-    // ── Real file scanning (LAZY — only triggers when user views samples) ──
+    // ── Real file scanning (samples) ──
     const [realFiles, setRealFiles] = useState<AudioFileEntry[]>([]);
     const [scanLoading, setScanLoading] = useState(false);
     const [scanError, setScanError] = useState<string | null>(null);
     const scanTriggeredRef = useRef(false);
 
-    // Only scan when user navigates to a samples-related category
     const isSamplesCategory = ['samples', 'all', 'sounds', 'drums', 'clips'].includes(selectedCategoryId);
 
     useEffect(() => {
@@ -196,18 +207,13 @@ export const AssetBrowser = () => {
         scanTriggeredRef.current = true;
 
         let cancelled = false;
-
-        // Defer IPC briefly to avoid blocking initial render
         const timerId = setTimeout(() => {
             if (cancelled) return;
             setScanLoading(true);
             setScanError(null);
 
-            // Chain: generate demo samples (idempotent) → get path → scan folder
             engineApi.generateDemoSamples()
-                .catch(err => {
-                    console.warn('[AssetBrowser] Demo sample generation skipped:', err);
-                })
+                .catch(err => console.warn('[AssetBrowser] Demo sample generation skipped:', err))
                 .then(() => {
                     if (cancelled) return Promise.reject('cancelled');
                     return engineApi.getSamplesPath();
@@ -218,8 +224,6 @@ export const AssetBrowser = () => {
                 })
                 .then(files => {
                     if (!cancelled) {
-                        console.log('[AssetBrowser] Scan complete:', files.length, 'files found');
-                        files.forEach(f => console.log('  -', f.name, f.path));
                         setRealFiles(files);
                         setScanLoading(false);
                     }
@@ -231,17 +235,70 @@ export const AssetBrowser = () => {
                         setScanLoading(false);
                     }
                 });
-        }, 500);
+        }, 300);
 
         return () => {
             cancelled = true;
             clearTimeout(timerId);
-            // Reset ref so React StrictMode re-mount can trigger scan again
             scanTriggeredRef.current = false;
         };
     }, [isSamplesCategory]);
 
-    // Convert real file entries to BrowserItems
+    // ── Plugin scanning ──
+    const [pluginFiles, setPluginFiles] = useState<BrowserFileEntry[]>([]);
+    const [pluginScanDone, setPluginScanDone] = useState(false);
+
+    useEffect(() => {
+        if (selectedCategoryId !== 'plugins' || pluginScanDone) return;
+        setPluginScanDone(true);
+        setScanLoading(true);
+
+        engineApi.scanPluginFolders()
+            .then(files => {
+                setPluginFiles(files);
+                setScanLoading(false);
+            })
+            .catch(err => {
+                console.warn('[Browser] Plugin scan failed:', err);
+                setScanError(String(err));
+                setScanLoading(false);
+            });
+    }, [selectedCategoryId, pluginScanDone]);
+
+    // ── User folder scanning ──
+    const [folderItems, setFolderItems] = useState<BrowserFileEntry[]>([]);
+    const [folderScanPath, setFolderScanPath] = useState<string | null>(null);
+
+    const activeCategory = categories.find(c => c.id === selectedCategoryId);
+    const activeFolderPath = folderStack.length > 0
+        ? folderStack[folderStack.length - 1]
+        : activeCategory?.folderPath || null;
+
+    useEffect(() => {
+        if (!activeFolderPath || activeFolderPath === folderScanPath) return;
+        setFolderScanPath(activeFolderPath);
+        setScanLoading(true);
+
+        engineApi.scanFolderAll(activeFolderPath)
+            .then(files => {
+                setFolderItems(files);
+                setScanLoading(false);
+            })
+            .catch(err => {
+                console.warn('[Browser] Folder scan failed:', err);
+                setScanError(String(err));
+                setScanLoading(false);
+            });
+    }, [activeFolderPath, folderScanPath]);
+
+    // Reset folder state when category changes
+    useEffect(() => {
+        setFolderStack([]);
+        setFolderScanPath(null);
+        setFolderItems([]);
+    }, [selectedCategoryId]);
+
+    // Convert real audio files to BrowserItems
     const realBrowserItems: BrowserItem[] = useMemo(() => {
         return realFiles.map((f, i) => {
             const sizeKb = Math.round(f.size_bytes / 1024);
@@ -258,31 +315,76 @@ export const AssetBrowser = () => {
         });
     }, [realFiles]);
 
+    // Convert plugin files to BrowserItems
+    const pluginBrowserItems: BrowserItem[] = useMemo(() => {
+        return pluginFiles.map((f, i) => ({
+            id: `plugin-${i}`,
+            name: f.name,
+            type: 'plugin' as const,
+            format: f.extension,
+            meta: f.extension,
+            path: f.path,
+            slotHint: 'auto' as const,
+        }));
+    }, [pluginFiles]);
+
+    // Convert folder scan to BrowserItems
+    const folderBrowserItems: BrowserItem[] = useMemo(() => {
+        return folderItems.map((f, i) => {
+            const sizeKb = Math.round(f.size_bytes / 1024);
+            const sizeMb = (f.size_bytes / (1024 * 1024)).toFixed(1);
+            const sizeLabel = f.is_directory ? '' : (sizeKb > 1024 ? `${sizeMb} MB` : `${sizeKb} KB`);
+            return {
+                id: `folder-${i}`,
+                name: f.name,
+                type: fileTypeToItemType(f.file_type),
+                format: f.extension || undefined,
+                meta: f.is_directory ? 'Folder' : `${f.extension} · ${sizeLabel}`,
+                path: f.path,
+                isDirectory: f.is_directory,
+            };
+        });
+    }, [folderItems]);
+
     // Get items based on selected category
     const items = useMemo(() => {
         let base: BrowserItem[] = [];
-        switch (selectedCategoryId) {
-            case 'samples':
-            case 'all':
-            case 'sounds':
-            case 'drums':
-            case 'clips':
-                // Use real files if available, otherwise fall back to demo
-                base = realBrowserItems.length > 0 ? realBrowserItems : DEMO_SAMPLES;
-                break;
-            case 'instruments':
-                base = DEMO_INSTRUMENTS;
-                break;
-            case 'audioEffects':
-            case 'midiEffects':
-            case 'maxForLive':
-                base = DEMO_FX;
-                break;
-            case 'favorites':
-                base = [...(realBrowserItems.length > 0 ? realBrowserItems : DEMO_SAMPLES), ...DEMO_INSTRUMENTS].filter(i => i.favorite);
-                break;
-            default:
-                base = realBrowserItems.length > 0 ? realBrowserItems : DEMO_SAMPLES;
+
+        // Check if this is a user-folder category
+        if (activeCategory?.folderPath || folderStack.length > 0) {
+            base = folderBrowserItems;
+        } else {
+            switch (selectedCategoryId) {
+                case 'samples':
+                case 'all':
+                case 'sounds':
+                case 'drums':
+                case 'clips':
+                    base = realBrowserItems;
+                    break;
+                case 'plugins':
+                    base = pluginBrowserItems;
+                    break;
+                case 'audioEffects':
+                    base = [...INTERNAL_EFFECT_ITEMS, ...pluginBrowserItems];
+                    break;
+                case 'instruments':
+                    base = [
+                        ...INTERNAL_INSTRUMENT_ITEMS,
+                        ...pluginBrowserItems.filter(p =>
+                        /synth|sampl|piano|organ|drum|instrument/i.test(p.name)
+                        ),
+                    ];
+                    if (base.length === INTERNAL_INSTRUMENT_ITEMS.length) {
+                        base = [...INTERNAL_INSTRUMENT_ITEMS, ...pluginBrowserItems];
+                    }
+                    break;
+                case 'favorites':
+                    base = realBrowserItems.filter(i => i.favorite);
+                    break;
+                default:
+                    base = realBrowserItems;
+            }
         }
 
         if (searchQuery.trim()) {
@@ -291,7 +393,45 @@ export const AssetBrowser = () => {
         }
 
         return base;
-    }, [selectedCategoryId, searchQuery, realBrowserItems]);
+    }, [selectedCategoryId, searchQuery, realBrowserItems, pluginBrowserItems, folderBrowserItems, activeCategory, folderStack]);
+
+    // ── Handle Add Folder ──
+    const handleAddFolder = useCallback(() => {
+        engineApi.addBrowserFolder()
+            .then(folders => {
+                setUserFolders(folders);
+                // Select the newly added folder
+                const newIdx = folders.length - 1;
+                if (newIdx >= 0) setSelectedCategoryId(`user-folder-${newIdx}`);
+            })
+            .catch(err => {
+                if (!String(err).includes('Cancelled')) {
+                    console.error('[Browser] Add folder failed:', err);
+                }
+            });
+    }, []);
+
+    // ── Handle Remove Folder ──
+    const handleRemoveFolder = useCallback((path: string) => {
+        engineApi.removeBrowserFolder(path)
+            .then(folders => {
+                setUserFolders(folders);
+                setSelectedCategoryId('samples');
+            })
+            .catch(err => console.error('[Browser] Remove folder failed:', err));
+    }, []);
+
+    // ── Navigate into subfolder ──
+    const navigateInto = useCallback((path: string) => {
+        setFolderStack(prev => [...prev, path]);
+        setFolderScanPath(null); // Force re-scan
+    }, []);
+
+    // ── Navigate back to parent ──
+    const navigateBack = useCallback(() => {
+        setFolderStack(prev => prev.slice(0, -1));
+        setFolderScanPath(null); // Force re-scan
+    }, []);
 
     // Track current section for collapse logic
     let currentSection: string | null = null;
@@ -333,7 +473,6 @@ export const AssetBrowser = () => {
 
             {/* ══════════════════════════════════════════════
                 TWO-PANE VERTICAL SPLIT (Ableton-style)
-                Left: Category tree | Right: Filter + file list
                ══════════════════════════════════════════════ */}
             <div style={{
                 flex: 1,
@@ -352,7 +491,7 @@ export const AssetBrowser = () => {
                         background: 'var(--color-bg-panel)',
                     }}
                 >
-                    {CATEGORIES.map(cat => {
+                    {categories.map(cat => {
                         // Section header
                         if (cat.kind === 'section') {
                             const collapsed = collapsedSections.has(cat.id);
@@ -392,10 +531,46 @@ export const AssetBrowser = () => {
                         if (parentSectionId && collapsedSections.has(parentSectionId)) return null;
 
                         const isSelected = selectedCategoryId === cat.id;
+
+                        // Special: Add Folder button
+                        if (cat.id === 'addFolder') {
+                            return (
+                                <button
+                                    key={cat.id}
+                                    onClick={handleAddFolder}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        width: '100%',
+                                        padding: '2px 4px 2px 12px',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        color: 'var(--color-accent-primary)',
+                                        fontSize: 10,
+                                        textAlign: 'left',
+                                        cursor: 'pointer',
+                                        transition: 'background var(--transition-fast)',
+                                        lineHeight: 1.6,
+                                        opacity: 0.8,
+                                    }}
+                                >
+                                    <span style={{ width: 13, textAlign: 'center', fontSize: 12, flexShrink: 0 }}>{cat.icon}</span>
+                                    <span>Add Fol…</span>
+                                </button>
+                            );
+                        }
+
                         return (
                             <button
                                 key={cat.id}
                                 onClick={() => setSelectedCategoryId(cat.id)}
+                                onContextMenu={cat.removable ? (e) => {
+                                    e.preventDefault();
+                                    if (cat.folderPath && confirm(`Remove "${cat.title}" from browser?`)) {
+                                        handleRemoveFolder(cat.folderPath);
+                                    }
+                                } : undefined}
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
@@ -440,22 +615,59 @@ export const AssetBrowser = () => {
                         borderBottom: '1px solid var(--color-divider)',
                         background: 'var(--color-bg-header)',
                     }}>
-                        <FilterPill
-                            options={SOURCE_FILTERS as unknown as string[]}
-                            value={sourceFilter}
-                            onChange={setSourceFilter}
-                        />
-                        <FilterPill
-                            options={FORMAT_FILTERS as unknown as string[]}
-                            value={formatFilter}
-                            onChange={setFormatFilter}
-                        />
-                        <FilterPill
-                            options={AUDIO_FILTERS as unknown as string[]}
-                            value={audioFilter}
-                            onChange={setAudioFilter}
-                        />
+                        {/* Breadcrumb for folder navigation */}
+                        {folderStack.length > 0 ? (
+                            <button
+                                onClick={navigateBack}
+                                style={{
+                                    background: 'var(--color-accent-primary-dim)',
+                                    color: 'var(--color-accent-primary)',
+                                    border: 'none',
+                                    borderRadius: 'var(--radius-xs)',
+                                    padding: '2px 6px',
+                                    fontSize: 9,
+                                    cursor: 'pointer',
+                                    fontWeight: 600,
+                                }}
+                            >
+                                ← Back
+                            </button>
+                        ) : (
+                            <>
+                                <FilterPill
+                                    options={SOURCE_FILTERS as unknown as string[]}
+                                    value={sourceFilter}
+                                    onChange={setSourceFilter}
+                                />
+                                <FilterPill
+                                    options={FORMAT_FILTERS as unknown as string[]}
+                                    value={formatFilter}
+                                    onChange={setFormatFilter}
+                                />
+                                <FilterPill
+                                    options={AUDIO_FILTERS as unknown as string[]}
+                                    value={audioFilter}
+                                    onChange={setAudioFilter}
+                                />
+                            </>
+                        )}
                     </div>
+
+                    {/* Folder path indicator */}
+                    {folderStack.length > 0 && (
+                        <div style={{
+                            padding: '2px 6px',
+                            fontSize: 9,
+                            color: 'var(--color-text-tertiary)',
+                            borderBottom: '1px solid var(--color-divider-light)',
+                            fontFamily: 'var(--font-mono)',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                        }}>
+                            📁 {folderStack[folderStack.length - 1]?.split('/').pop()}
+                        </div>
+                    )}
 
                     {/* File List */}
                     <div className="scrollbar-hide" style={{
@@ -472,7 +684,7 @@ export const AssetBrowser = () => {
                                 fontSize: 10,
                                 animation: 'pulse 1.5s ease-in-out infinite',
                             }}>
-                                ⏳ Scanning samples folder…
+                                ⏳ Scanning…
                             </div>
                         )}
                         {scanError && !scanLoading && (
@@ -489,10 +701,19 @@ export const AssetBrowser = () => {
                         {items.map(item => {
                             const isSelected = selectedItemId === item.id;
                             const isAudio = item.type === 'audio';
+                            const isPlugin = item.type === 'plugin';
+                            const isDraggable = isAudio || isPlugin;
+
                             return (
                                 <div
                                     key={item.id}
                                     onClick={() => {
+                                        // Folder navigation
+                                        if (item.isDirectory && item.path) {
+                                            navigateInto(item.path);
+                                            return;
+                                        }
+
                                         setSelectedItemId(prev => {
                                             const newId = prev === item.id ? null : item.id;
                                             // Audio preview
@@ -507,7 +728,6 @@ export const AssetBrowser = () => {
                                                 // Fetch waveform peaks for preview panel
                                                 engineApi.getWaveformPeaks(item.path)
                                                     .then(peaks => {
-                                                        // Use the coarsest mip level for the small preview
                                                         const level = peaks.mip_levels[peaks.mip_levels.length - 1];
                                                         setPreviewPeaks(level?.peaks ?? null);
                                                     })
@@ -522,13 +742,11 @@ export const AssetBrowser = () => {
                                         });
                                     }}
                                     onMouseDown={(e) => {
-                                        // Store-based drag: start tracking on mousedown
-                                        // (HTML5 DnD doesn't work in Tauri WebView)
-                                        if (!isAudio || !item.path || e.button !== 0) return;
+                                        if (!isDraggable || !item.path || e.button !== 0) return;
 
                                         const startX = e.clientX;
                                         const startY = e.clientY;
-                                        const DRAG_THRESHOLD = 5; // px before confirming drag
+                                        const DRAG_THRESHOLD = 5;
                                         let dragStarted = false;
 
                                         const onMove = (me: MouseEvent) => {
@@ -539,8 +757,9 @@ export const AssetBrowser = () => {
                                                 useDragStore.getState().startDrag({
                                                     id: item.id,
                                                     name: item.name,
-                                                    type: 'audio',
+                                                    type: isPlugin ? 'plugin' : 'audio',
                                                     path: item.path!,
+                                                    slotHint: item.slotHint ?? 'auto',
                                                 });
                                             }
                                         };
@@ -555,7 +774,7 @@ export const AssetBrowser = () => {
                                         display: 'flex',
                                         flexDirection: 'column',
                                         padding: '2px 6px',
-                                        cursor: isAudio ? 'grab' : 'default',
+                                        cursor: item.isDirectory ? 'pointer' : (isDraggable ? 'grab' : 'default'),
                                         background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
                                         borderBottom: '1px solid var(--color-divider-light)',
                                         transition: 'background var(--transition-fast)',
@@ -566,7 +785,11 @@ export const AssetBrowser = () => {
                                         alignItems: 'center',
                                         gap: 5,
                                     }}>
-                                        <TypeDot type={item.type} />
+                                        {item.isDirectory ? (
+                                            <span style={{ fontSize: 10, flexShrink: 0 }}>📁</span>
+                                        ) : (
+                                            <TypeDot type={item.type} />
+                                        )}
                                         <span style={{
                                             color: 'var(--color-text-primary)',
                                             fontSize: 10,
@@ -577,8 +800,15 @@ export const AssetBrowser = () => {
                                         }}>
                                             {item.name}
                                         </span>
+                                        {item.isDirectory && (
+                                            <span style={{
+                                                marginLeft: 'auto',
+                                                color: 'var(--color-text-tertiary)',
+                                                fontSize: 9,
+                                            }}>›</span>
+                                        )}
                                     </div>
-                                    {item.meta && (
+                                    {item.meta && !item.isDirectory && (
                                         <span style={{
                                             color: 'var(--color-text-tertiary)',
                                             fontSize: 9,
@@ -590,6 +820,16 @@ export const AssetBrowser = () => {
                                 </div>
                             );
                         })}
+                        {!scanLoading && items.length === 0 && (
+                            <div style={{
+                                padding: '20px 12px',
+                                textAlign: 'center',
+                                color: 'var(--color-text-tertiary)',
+                                fontSize: 10,
+                            }}>
+                                No items found
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -696,6 +936,10 @@ const TypeDot = ({ type }: { type: BrowserItem['type'] }) => {
         audioEffect: 'var(--color-browser-plugin)',
         midiEffect: 'var(--color-browser-preset)',
         plugin: 'var(--color-browser-plugin)',
+        project: '#6ecf9f',
+        preset: '#c4a7e7',
+        folder: '#b7934c',
+        other: 'var(--color-text-tertiary)',
     };
     return (
         <span style={{

@@ -42,7 +42,7 @@ use dream_plugins::format::{PluginCategory, PluginFormat};
 use dream_ipc::metering::MeterBank;
 use dream_ipc::{EngineCommand, MasterClock};
 use dream_models::mutators::{self, MutatorError};
-use dream_models::midi::{MidiClip, SamplerConfig};
+use dream_models::midi::{MidiClip, MidiNote, SamplerConfig};
 use dream_models::project::{AudioClip, PluginSlot, Project, TimeSignature, Track, TrackColor, TrackType};
 use dream_models::time::AbsoluteTime;
 use dream_models::PlaybackState;
@@ -50,6 +50,7 @@ use tauri::{Manager, Emitter};
 use rtrb;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use midir::MidiInput;
 
 // ── Audio Engine State ─────────────────────────────────────────────────
 
@@ -79,6 +80,17 @@ struct AudioEngineHandle {
 
     /// Preview playback cursor (frame index × 2 for stereo interleaved).
     preview_cursor: Arc<std::sync::atomic::AtomicUsize>,
+
+    /// Export cancel flag - set to true to abort offline bounce.
+    pub export_cancel: Arc<std::sync::atomic::AtomicBool>,
+
+    /// Shared clip pool snapshot (lock-free) for restarting audio stream.
+    clip_pool: Arc<ArcSwap<ClipPool>>,
+    clip_snapshot: Arc<SharedClipSnapshot>,
+    midi_snapshot: Arc<dream_engine::driver::SharedMidiSnapshot>,
+    routing_snapshot: Arc<SharedRoutingSnapshot>,
+    automation_snapshot: Arc<SharedAutomationSnapshot>,
+    sampler_samples: Arc<dream_engine::driver::SharedSamplerSamples>,
 }
 
 impl AudioEngineHandle {
@@ -458,6 +470,15 @@ fn rebuild_automation_snapshot_from_project(
     automation_runtime.snapshot.swap(lanes);
 }
 
+fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngineHandle) {
+    let clips_per_track: Vec<Vec<MidiClip>> = project
+        .tracks
+        .iter()
+        .map(|track| track.midi_clips.clone())
+        .collect();
+    handle.midi_snapshot.swap(clips_per_track);
+}
+
 // ── Clip Pool State (shared between UI and audio thread) ────────────
 
 /// Thread-safe handle to the shared clip pool and project clip snapshot.
@@ -514,6 +535,101 @@ impl ClipPoolState {
             })
             .collect();
         self.routing_snapshot.swap(routing);
+
+        // Sync decoded audio data to the lock-free ArcSwap pool
+        // so the audio thread can read it without locks.
+        self.sync_pool_to_arc();
+    }
+
+    /// Propagates the Mutex-guarded pool to the lock-free ArcSwap.
+    ///
+    /// Called after any pool mutation (import, delete, project load).
+    /// `ClipPool::clone()` only bumps `Arc` refcounts — no audio data
+    /// is copied, making this O(n) on pool size with negligible cost.
+    fn sync_pool_to_arc(&self) {
+        if let Ok(pool) = self.pool.lock() {
+            let cloned = pool.clone();
+            log::info!(
+                "[ClipPool] synced {} entries ({:.1} MB) to audio thread",
+                cloned.len(),
+                cloned.total_memory_bytes() as f64 / (1024.0 * 1024.0),
+            );
+            self.arc_pool.store(Arc::new(cloned));
+        } else {
+            log::error!("[ClipPool] failed to lock pool for sync — audio thread pool stale");
+        }
+    }
+
+    /// Loads (decodes) all audio files referenced by the project's tracks
+    /// into the shared clip pool. Skips clips that are already loaded,
+    /// have empty paths, or reference missing files.
+    ///
+    /// Called on project open/load to populate the pool for live playback.
+    /// Decoding happens on the calling thread (Tauri command pool) — NOT
+    /// the audio thread.
+    fn load_project_clips(&self, project: &Project) {
+        let mut pool = match self.pool.lock() {
+            Ok(p) => p,
+            Err(e) => {
+                log::error!("[ClipPool] lock failed in load_project_clips: {e}");
+                return;
+            }
+        };
+
+        let mut loaded = 0usize;
+        let mut skipped = 0usize;
+        let mut failed = 0usize;
+
+        for track in &project.tracks {
+            for clip in &track.clips {
+                if clip.file_path.is_empty() {
+                    continue;
+                }
+                // Skip if already in pool (idempotent)
+                if pool.get(&clip.file_path).is_some() {
+                    skipped += 1;
+                    continue;
+                }
+                let path = PathBuf::from(&clip.file_path);
+                if !path.exists() {
+                    log::warn!(
+                        "[ClipPool] file not found, skipping: '{}'",
+                        clip.file_path
+                    );
+                    failed += 1;
+                    continue;
+                }
+                match AudioReader::read(&path) {
+                    Ok(decoded) => {
+                        pool.insert(ClipAudio {
+                            source_path: clip.file_path.clone(),
+                            channels: decoded.channels,
+                            sample_rate: decoded.sample_rate,
+                            num_frames: decoded.num_frames,
+                        });
+                        loaded += 1;
+                    }
+                    Err(e) => {
+                        log::error!(
+                            "[ClipPool] decode failed for '{}': {e}",
+                            clip.file_path
+                        );
+                        failed += 1;
+                    }
+                }
+            }
+        }
+
+        // Release the lock before sync
+        drop(pool);
+
+        log::info!(
+            "[ClipPool] load_project_clips: loaded={}, skipped={}, failed={}",
+            loaded, skipped, failed
+        );
+
+        // Push to the audio thread's lock-free ArcSwap
+        self.sync_pool_to_arc();
     }
 }
 
@@ -532,6 +648,21 @@ impl AutomationRuntime {
     fn new() -> Self {
         Self {
             snapshot: Arc::new(SharedAutomationSnapshot::new()),
+        }
+    }
+}
+
+/// Runtime MIDI input connection state.
+struct MidiInputRuntime {
+    connection: Mutex<Option<midir::MidiInputConnection<()>>>,
+    connected_port: Mutex<Option<String>>,
+}
+
+impl MidiInputRuntime {
+    fn new() -> Self {
+        Self {
+            connection: Mutex::new(None),
+            connected_port: Mutex::new(None),
         }
     }
 }
@@ -636,6 +767,9 @@ struct AppSettings {
     sr_pitch_conversion: bool,
     #[serde(default = "default_user_folder")]
     user_folder_path: String,
+    /// User-added folders shown in the browser PLACES section.
+    #[serde(default)]
+    browser_folders: Vec<String>,
     #[serde(default = "default_samples_path")]
     samples_path: String,
     #[serde(default = "default_vst2_path", alias = "vst2Path")]
@@ -689,6 +823,7 @@ impl Default for AppSettings {
             samples_path: music_dir.join("Samples").display().to_string(),
             vst2_path: "/Library/Audio/Plug-Ins/VST".into(),
             vst3_path: "/Library/Audio/Plug-Ins/VST3".into(),
+            browser_folders: Vec::new(),
         }
     }
 }
@@ -900,6 +1035,15 @@ struct TrackStateUpdate {
     soloed: Option<bool>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AddPluginToTrackPayload {
+    track_id: String,
+    plugin_id: String,
+    plugin_name: String,
+    slot: String, // "instrument" | "effect" | "auto"
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ExportSettingsPayload {
@@ -933,6 +1077,13 @@ struct RoutingTarget {
 struct PluginEditorCapability {
     supported: bool,
     reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MidiInputPortInfo {
+    name: String,
+    connected: bool,
 }
 
 // ── Helper: push command with error handling ───────────────────────────
@@ -1428,14 +1579,15 @@ async fn create_midi_clip_cmd(
     duration_frames: i64,
     name: Option<String>,
     project_state: tauri::State<'_, ProjectState>,
-    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<CreateMidiClipResponse, String> {
     let clip_name = name.unwrap_or_else(|| "MIDI Clip".to_string());
     log::info!("[IPC] create_midi_clip_cmd: '{}' track={} pos={} dur={}", clip_name, track_index, position_frames, duration_frames);
 
-    let clip = AudioClip::new(
+    push_undo(&project_state)?;
+
+    let clip = MidiClip::new(
         &clip_name,
-        "", // empty path = MIDI clip (no audio source file)
         AbsoluteTime::new(position_frames),
         AbsoluteTime::new(duration_frames),
     );
@@ -1450,11 +1602,10 @@ async fn create_midi_clip_cmd(
             project.add_track(Track::new(format!("Track {track_num}")));
         }
 
-        project.tracks[idx].clips.push(clip);
+        project.tracks[idx].midi_clips.push(clip);
 
         *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
-
-        clip_pool_state.rebuild_snapshot(&project);
+        rebuild_midi_snapshot_from_project(&project, &handle);
     }
 
     log::info!(
@@ -1468,6 +1619,102 @@ async fn create_midi_clip_cmd(
         position_frames,
         duration_frames,
     })
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct MidiNotePayload {
+    pitch: u8,
+    velocity: u8,
+    start_frames: i64,
+    duration_frames: i64,
+}
+
+/// Replace all notes in a MIDI clip.
+#[tauri::command]
+async fn update_midi_clip_cmd(
+    clip_id: String,
+    notes: Vec<MidiNotePayload>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
+    push_undo(&project_state)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut updated = false;
+
+    for track in &mut project.tracks {
+        if let Some(clip) = track.midi_clips.iter_mut().find(|c| c.id == uuid) {
+            let clip_len = clip.duration.sample_frame.max(1);
+            let mut normalized: Vec<MidiNote> = notes
+                .iter()
+                .map(|n| {
+                    let start = n.start_frames.max(0).min(clip_len.saturating_sub(1));
+                    let max_duration = (clip_len - start).max(1);
+                    MidiNote::new(
+                        n.pitch,
+                        n.velocity,
+                        start,
+                        n.duration_frames.max(1).min(max_duration),
+                    )
+                })
+                .collect();
+            normalized.sort_by_key(|n| n.start_frame);
+            clip.notes = normalized;
+            updated = true;
+            break;
+        }
+    }
+
+    // Compatibility path:
+    // migrate old "MIDI" clips that were historically written into audio clips with empty path.
+    if !updated {
+        for track in &mut project.tracks {
+            if let Some(idx) = track
+                .clips
+                .iter()
+                .position(|c| c.id == uuid && c.file_path.trim().is_empty())
+            {
+                let legacy = track.clips.remove(idx);
+                let clip_len = legacy.duration.sample_frame.max(1);
+                let mut normalized: Vec<MidiNote> = notes
+                    .iter()
+                    .map(|n| {
+                        let start = n.start_frames.max(0).min(clip_len.saturating_sub(1));
+                        let max_duration = (clip_len - start).max(1);
+                        MidiNote::new(
+                            n.pitch,
+                            n.velocity,
+                            start,
+                            n.duration_frames.max(1).min(max_duration),
+                        )
+                    })
+                    .collect();
+                normalized.sort_by_key(|n| n.start_frame);
+
+                track.midi_clips.push(MidiClip {
+                    id: legacy.id,
+                    name: legacy.name,
+                    position: legacy.position,
+                    duration: legacy.duration,
+                    notes: normalized,
+                    is_selected: false,
+                });
+                updated = true;
+                break;
+            }
+        }
+    }
+
+    if !updated {
+        return Err(format!("MIDI clip not found: {clip_id}"));
+    }
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
+    Ok(())
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1996,7 +2243,12 @@ async fn export_mix_cmd(
         normalize: settings.normalize,
         tail_frames: ((settings.tail_ms as f64 / 1000.0) * settings.sample_rate as f64) as i64,
     };
-    let bouncer = OfflineBouncer::new(cfg);
+    
+    // Reset cancel flag and create bouncer with it
+    handle.export_cancel.store(false, std::sync::atomic::Ordering::SeqCst);
+    let mut bouncer = OfflineBouncer::new(cfg);
+    bouncer.cancel_flag = std::sync::Arc::clone(&handle.export_cancel);
+    
     let app_for_progress = app.clone();
     bouncer
         .bounce(&project, &local_pool, None, move |progress| {
@@ -2010,7 +2262,17 @@ async fn export_mix_cmd(
     Ok(())
 }
 
-// ═══════════════════════════════════════════════════════════════════════
+/// Cancel an in-progress export/bounce operation.
+#[tauri::command]
+async fn cancel_export_cmd(
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    handle.export_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+    log::info!("[Export] Cancel requested");
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Undo / Redo Commands
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -2023,6 +2285,7 @@ async fn undo_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
+    handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
     let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
     let previous = undo.undo_stack.pop()
@@ -2038,6 +2301,7 @@ async fn undo_cmd(
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_automation_snapshot_from_project(&project, &automation_runtime);
+    rebuild_midi_snapshot_from_project(&project, &handle);
     log::info!("[IPC] undo_cmd: restored previous state");
     Ok(())
 }
@@ -2051,6 +2315,7 @@ async fn redo_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
+    handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
     let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
     let next = undo.redo_stack.pop()
@@ -2066,6 +2331,7 @@ async fn redo_cmd(
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_automation_snapshot_from_project(&project, &automation_runtime);
+    rebuild_midi_snapshot_from_project(&project, &handle);
     log::info!("[IPC] redo_cmd: restored redo state");
     Ok(())
 }
@@ -2118,27 +2384,38 @@ fn expand_window(app: tauri::AppHandle) -> Result<(), String> {
         .get_webview_window("main")
         .ok_or("Main window not found")?;
 
-    // 1. Enable decorations FIRST (title bar, traffic lights)
+    // ── Phase 1: Hide the splash window (avoids visual glitch during reconfigure) ──
+    window.hide()
+        .map_err(|e| format!("Failed to hide window: {e}"))?;
+
+    // ── Phase 2: Reconfigure window for DAW mode ──
+    // Enable decorations (title bar with traffic lights: red/yellow/GREEN fullscreen)
     window.set_decorations(true)
         .map_err(|e| format!("Failed to set decorations: {e}"))?;
 
-    // 2. Enable resizing before changing size
+    // Enable resizing (required for green fullscreen button to work on macOS)
     window.set_resizable(true)
         .map_err(|e| format!("Failed to set resizable: {e}"))?;
 
-    // 3. Set minimum size
+    // Minimum size so the DAW doesn't get too small
     let min_size = tauri::LogicalSize::new(900.0_f64, 600.0_f64);
     window.set_min_size(Some(min_size))
         .map_err(|e| format!("Failed to set min size: {e}"))?;
 
-    // 4. Maximize — fills entire screen minus Dock and menu bar
+    // ── Phase 3: Maximize to fill screen (minus Dock & menu bar) ──
     window.maximize()
         .map_err(|e| format!("Failed to maximize: {e}"))?;
 
-    // 5. Re-set decorations after layout to ensure traffic lights render
-    //    (WKWebView sometimes misses the initial set_decorations call)
-    window.set_decorations(true)
-        .map_err(|e| format!("Failed to re-set decorations: {e}"))?;
+    // Brief delay to let macOS window manager finish compositing
+    std::thread::sleep(std::time::Duration::from_millis(80));
+
+    // ── Phase 4: Show the fully-configured DAW window ──
+    window.show()
+        .map_err(|e| format!("Failed to show window: {e}"))?;
+
+    // Focus the window so it's the frontmost app
+    window.set_focus()
+        .map_err(|e| format!("Failed to focus window: {e}"))?;
 
     log::info!("[Splash] Window expanded to maximized DAW mode");
     Ok(())
@@ -2154,6 +2431,7 @@ fn new_project(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
+    handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<Project, String> {
     let mut new = Project::default();
@@ -2165,6 +2443,7 @@ fn new_project(
     *project_state.undo.lock().map_err(|e| e.to_string())? = UndoState::new();
     clip_pool_state.rebuild_snapshot(&new);
     rebuild_automation_snapshot_from_project(&new, &automation_runtime);
+    rebuild_midi_snapshot_from_project(&new, &handle);
 
     // Update window title
     if let Some(window) = app.get_webview_window("main") {
@@ -2179,18 +2458,32 @@ fn new_project(
 #[tauri::command]
 fn save_project(
     project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
 ) -> Result<String, String> {
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let file_path = project_state.file_path.lock().map_err(|e| e.to_string())?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let file_path_guard = project_state.file_path.lock().map_err(|e| e.to_string())?;
 
-    let path = file_path
+    let path = file_path_guard
         .as_ref()
-        .ok_or("No file path set. Use Save As first.")?;
+        .ok_or("No file path set. Use Save As first.")?
+        .clone();
 
-    ProjectFile::save(&project, path)
-        .map_err(|e| e.to_string())?;
+    // Keep project name aligned with the active file name.
+    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+        let normalized = stem.trim_end_matches(".dream").trim();
+        if !normalized.is_empty() && project.name != normalized {
+            project.name = normalized.to_string();
+        }
+    }
+
+    ProjectFile::save(&project, &path).map_err(|e| e.to_string())?;
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
+
+    // Update window title (also clears any dirty marker left from mark_dirty_cmd).
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_title(&format!("Dream DAW — {}", project.name));
+    }
 
     log::info!("Project saved: '{}' → {}", project.name, path.display());
     Ok(path.display().to_string())
@@ -2203,7 +2496,7 @@ fn save_project_as(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let file_path = PathBuf::from(&path);
 
     // Determine if we should create an Ableton-style folder structure.
@@ -2216,6 +2509,11 @@ fn save_project_as(
         .unwrap_or(&project.name)
         .trim_end_matches(".dream")
         .to_string();
+
+    // Save As should establish the active project name from chosen filename.
+    if !project_name.trim().is_empty() {
+        project.name = project_name.trim().to_string();
+    }
 
     let (actual_file_path, folder) = if ProjectManager::is_project_directory(parent_dir) {
         // Already inside a project directory — save in place
@@ -2259,6 +2557,7 @@ fn open_project(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
+    handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<Project, String> {
     let file_path = PathBuf::from(&path);
@@ -2272,7 +2571,9 @@ fn open_project(
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
     *project_state.undo.lock().map_err(|e| e.to_string())? = UndoState::new();
     clip_pool_state.rebuild_snapshot(&loaded);
+    clip_pool_state.load_project_clips(&loaded);
     rebuild_automation_snapshot_from_project(&loaded, &automation_runtime);
+    rebuild_midi_snapshot_from_project(&loaded, &handle);
 
     // Derive project folder from file path
     let folder = ProjectManager::folder_from_file(&file_path);
@@ -2422,6 +2723,21 @@ struct AudioFileEntry {
 /// Audio extensions recognized by the file browser (case-insensitive).
 const AUDIO_EXTENSIONS: &[&str] = &[
     "wav", "wave", "aiff", "aif", "mp3", "m4a", "flac", "ogg", "caf",
+];
+
+/// Plugin bundle extensions recognized by the browser.
+const PLUGIN_EXTENSIONS: &[&str] = &[
+    "vst", "vst3", "component", "au", "aaxplugin",
+];
+
+/// Project file extensions recognized by the browser.
+const PROJECT_EXTENSIONS: &[&str] = &[
+    "ddpj", "als", "flp", "logic", "ptx", "rpp",
+];
+
+/// Preset file extensions recognized by the browser.
+const PRESET_EXTENSIONS: &[&str] = &[
+    "fxp", "fxb", "vstpreset", "aupreset",
 ];
 
 /// Generates a set of demo WAV samples in the Samples folder so the browser
@@ -2643,6 +2959,287 @@ fn scan_directory_recursive(
     Ok(())
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Browser Folder Management — Persistent user folders in PLACES section
+// ═══════════════════════════════════════════════════════════════════════
+
+/// A file system entry returned by `scan_folder_all`.
+/// Classifies files into audio, plugin, project, preset, or other.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BrowserFileEntry {
+    name: String,
+    path: String,
+    size_bytes: u64,
+    modified_at: String,
+    /// File extension (uppercase), e.g. "WAV", "VST3"
+    extension: String,
+    /// Semantic type: "audio", "plugin", "project", "preset", "folder", "other"
+    file_type: String,
+    /// Whether this entry is a directory
+    is_directory: bool,
+}
+
+/// Returns the list of user-added browser folders from settings.
+#[tauri::command]
+fn get_browser_folders(
+    settings_state: tauri::State<'_, SettingsState>,
+) -> Result<Vec<String>, String> {
+    let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+    Ok(settings.browser_folders.clone())
+}
+
+/// Adds a folder to the browser PLACES section (with native picker).
+/// Returns the updated list of browser folders.
+#[tauri::command]
+async fn add_browser_folder(
+    app: tauri::AppHandle,
+    settings_state: tauri::State<'_, SettingsState>,
+) -> Result<Vec<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    app.dialog().file()
+        .pick_folder(move |folder| {
+            let _ = tx.send(folder.map(|p| p.to_string()));
+        });
+
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        rx.recv().map_err(|e| format!("Dialog error: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Join error: {}", e))?
+    .map_err(|e| e.to_string())?
+    .ok_or_else(|| "Cancelled".to_string())?;
+
+    {
+        let mut settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+        // Don't add duplicates
+        if !settings.browser_folders.contains(&picked) {
+            settings.browser_folders.push(picked.clone());
+        }
+    }
+    settings_state.save_to_user_folder()?;
+
+    let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+    log::info!("[Browser] Added folder: '{}' (total: {})", picked, settings.browser_folders.len());
+    Ok(settings.browser_folders.clone())
+}
+
+/// Removes a folder from the browser PLACES section.
+/// Returns the updated list.
+#[tauri::command]
+fn remove_browser_folder(
+    path: String,
+    settings_state: tauri::State<'_, SettingsState>,
+) -> Result<Vec<String>, String> {
+    {
+        let mut settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+        settings.browser_folders.retain(|f| f != &path);
+    }
+    settings_state.save_to_user_folder()?;
+
+    let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+    log::info!("[Browser] Removed folder: '{}' (total: {})", path, settings.browser_folders.len());
+    Ok(settings.browser_folders.clone())
+}
+
+/// Classifies a file extension into a semantic type.
+fn classify_file_type(ext: &str) -> &'static str {
+    let lower = ext.to_lowercase();
+    if AUDIO_EXTENSIONS.contains(&lower.as_str()) {
+        "audio"
+    } else if PLUGIN_EXTENSIONS.contains(&lower.as_str()) {
+        "plugin"
+    } else if PROJECT_EXTENSIONS.contains(&lower.as_str()) {
+        "project"
+    } else if PRESET_EXTENSIONS.contains(&lower.as_str()) {
+        "preset"
+    } else {
+        "other"
+    }
+}
+
+/// Scans a folder for ALL file types (audio, plugins, projects, presets, etc.).
+/// Returns classified entries. Subfolders are also listed as navigable entries.
+#[tauri::command]
+fn scan_folder_all(path: String) -> Result<Vec<BrowserFileEntry>, String> {
+    log::info!("[IPC] scan_folder_all: {}", path);
+    let root = std::path::Path::new(&path);
+    if !root.exists() {
+        return Err(format!("Folder does not exist: {}", path));
+    }
+    if !root.is_dir() {
+        return Err(format!("Path is not a directory: {}", path));
+    }
+
+    let read_dir = std::fs::read_dir(root)
+        .map_err(|e| format!("Cannot read {}: {}", path, e))?;
+
+    let mut entries = Vec::new();
+
+    for entry in read_dir.flatten() {
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        // Skip hidden files
+        if file_name.starts_with('.') {
+            continue;
+        }
+
+        let entry_path = entry.path();
+        let metadata = std::fs::metadata(&entry_path).ok();
+        let size_bytes = metadata.as_ref().map_or(0, |m| m.len());
+        let modified_at = metadata
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_default();
+
+        if entry_path.is_dir() {
+            // Check if it's a plugin bundle (.vst, .vst3, .component, .au)
+            let ext = entry_path.extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            let ext_lower = ext.to_lowercase();
+            if PLUGIN_EXTENSIONS.contains(&ext_lower.as_str()) {
+                entries.push(BrowserFileEntry {
+                    name: file_name,
+                    path: entry_path.to_string_lossy().to_string(),
+                    size_bytes,
+                    modified_at,
+                    extension: ext.to_uppercase(),
+                    file_type: "plugin".to_string(),
+                    is_directory: false, // Treat as file for UX
+                });
+            } else {
+                // Regular subfolder
+                entries.push(BrowserFileEntry {
+                    name: file_name,
+                    path: entry_path.to_string_lossy().to_string(),
+                    size_bytes: 0,
+                    modified_at,
+                    extension: String::new(),
+                    file_type: "folder".to_string(),
+                    is_directory: true,
+                });
+            }
+        } else if let Some(ext) = entry_path.extension().and_then(|e| e.to_str()) {
+            let file_type = classify_file_type(ext);
+            entries.push(BrowserFileEntry {
+                name: file_name,
+                path: entry_path.to_string_lossy().to_string(),
+                size_bytes,
+                modified_at,
+                extension: ext.to_uppercase(),
+                file_type: file_type.to_string(),
+                is_directory: false,
+            });
+        }
+    }
+
+    // Sort: folders first, then by name
+    entries.sort_by(|a, b| {
+        b.is_directory.cmp(&a.is_directory)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+
+    Ok(entries)
+}
+
+/// Scans VST2 and VST3 system paths for installed plugins.
+/// Returns all discovered plugin bundles.
+#[tauri::command]
+fn scan_plugin_folders(
+    settings_state: tauri::State<'_, SettingsState>,
+) -> Result<Vec<BrowserFileEntry>, String> {
+    let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+    let mut entries = Vec::new();
+
+    // Scan each plugin path
+    let au_path = "/Library/Audio/Plug-Ins/Components".to_string();
+    let paths: Vec<(&String, &str)> = vec![
+        (&settings.vst2_path, "VST2"),
+        (&settings.vst3_path, "VST3"),
+        // macOS AU components
+        (&au_path, "AU"),
+    ];
+
+    let home = dirs::home_dir().unwrap_or_default();
+    let user_vst = home.join("Library/Audio/Plug-Ins/VST").to_string_lossy().to_string();
+    let user_vst3 = home.join("Library/Audio/Plug-Ins/VST3").to_string_lossy().to_string();
+    let user_au = home.join("Library/Audio/Plug-Ins/Components").to_string_lossy().to_string();
+
+    let all_paths: Vec<(&str, &str)> = paths.iter()
+        .map(|(p, t)| (p.as_str(), *t))
+        .chain(vec![
+            (user_vst.as_str(), "VST2"),
+            (user_vst3.as_str(), "VST3"),
+            (user_au.as_str(), "AU"),
+        ])
+        .collect();
+
+    let mut seen = std::collections::HashSet::new();
+
+    for (dir_path, plugin_type) in &all_paths {
+        let dir = std::path::Path::new(dir_path);
+        if !dir.exists() || !dir.is_dir() {
+            continue;
+        }
+
+        if let Ok(read_dir) = std::fs::read_dir(dir) {
+            for entry in read_dir.flatten() {
+                let entry_path = entry.path();
+                let file_name = entry.file_name().to_string_lossy().to_string();
+
+                if file_name.starts_with('.') {
+                    continue;
+                }
+
+                // Check if it's a plugin bundle
+                let ext = entry_path.extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                let ext_lower = ext.to_lowercase();
+
+                if PLUGIN_EXTENSIONS.contains(&ext_lower.as_str()) {
+                    let path_str = entry_path.to_string_lossy().to_string();
+                    if seen.contains(&path_str) {
+                        continue;
+                    }
+                    seen.insert(path_str.clone());
+
+                    // Strip extension from display name for cleaner look
+                    let display_name = file_name
+                        .rsplit_once('.')
+                        .map(|(n, _)| n.to_string())
+                        .unwrap_or_else(|| file_name.clone());
+
+                    let metadata = std::fs::metadata(&entry_path).ok();
+                    let size_bytes = metadata.as_ref().map_or(0, |m| m.len());
+                    let modified_at = metadata
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs().to_string())
+                        .unwrap_or_default();
+
+                    entries.push(BrowserFileEntry {
+                        name: display_name,
+                        path: path_str,
+                        size_bytes,
+                        modified_at,
+                        extension: plugin_type.to_string(),
+                        file_type: "plugin".to_string(),
+                        is_directory: false,
+                    });
+                }
+            }
+        }
+    }
+
+    entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    log::info!("[IPC] scan_plugin_folders: found {} plugins", entries.len());
+    Ok(entries)
+}
+
 /// Opens a native folder picker dialog and returns the selected path.
 #[tauri::command]
 async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
@@ -2779,24 +3376,107 @@ fn get_audio_devices() -> Result<serde_json::Value, String> {
     }))
 }
 
-/// Notifies the engine to switch to a different audio device by name.
+/// Switch the live engine to a different audio output device by name.
 ///
-/// This logs the requested device and stores the preference.
-/// Full hot-swap of the audio stream is planned for a future iteration
-/// (requires stopping the stream, rebuilding cpal on the new device, and
-/// restarting — which needs careful synchronization with the audio thread).
+/// This performs a hot-swap:
+/// 1) build a new audio stream on the requested device
+/// 2) atomically replace producer + stream handles
+/// 3) replay transport state into the new callback
 #[tauri::command]
 fn set_audio_device(
     device_name: String,
-    _handle: tauri::State<'_, AudioEngineHandle>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    settings_state: tauri::State<'_, SettingsState>,
+) -> Result<(), String> {
+    restart_audio_engine_impl(device_name, handle, settings_state)
+}
+
+fn restart_audio_engine_impl(
+    device_name: String,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    settings_state: tauri::State<'_, SettingsState>,
 ) -> Result<(), String> {
     log::info!("Audio device change requested: '{}'", device_name);
-    // TODO: implement full hot-swap
-    //   1. Drop _stream  (stops audio callback)
-    //   2. Rebuild cpal on named device
-    //   3. Store new Box<AudioStreamHandle> in _handle._stream
-    // For now, the setting is persisted in SettingsState and applied on next launch.
+
+    // Persist selection immediately.
+    {
+        let mut settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+        settings.output_device = device_name.clone();
+    }
+    settings_state.save_to_user_folder()?;
+
+    // Build a fresh engine ring buffer and stream on requested device.
+    let (new_producer, new_consumer) = rtrb::RingBuffer::<EngineCommand>::new(1024);
+    let new_stream = dream_engine::driver::start_audio_thread_on_device(
+        new_consumer,
+        Arc::clone(&handle.master_clock),
+        Arc::clone(&handle.meter_bank),
+        Arc::clone(&handle.clip_pool),
+        Arc::clone(&handle.clip_snapshot),
+        Arc::clone(&handle.midi_snapshot),
+        Arc::clone(&handle.routing_snapshot),
+        Arc::clone(&handle.automation_snapshot),
+        Arc::clone(&handle.sampler_samples),
+        Arc::clone(&handle.preview_buffer),
+        Arc::clone(&handle.preview_cursor),
+        Some(device_name.as_str()),
+    )
+    .map_err(|e| format!("Failed to restart engine on '{}': {}", device_name, e))?;
+
+    // Atomically replace queue producer first, then stream handle.
+    {
+        let mut producer = handle.producer.lock().map_err(|e| e.to_string())?;
+        *producer = new_producer;
+    }
+    {
+        let mut stream = handle._stream.lock().map_err(|e| e.to_string())?;
+        *stream = Some(Box::new(new_stream));
+    }
+
+    // Re-apply latest transport state to the new callback state machine.
+    let snapshot = handle
+        .playback_state
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+    push_command(
+        &handle,
+        EngineCommand::SetBpm(snapshot.bpm),
+    )?;
+    push_command(
+        &handle,
+        EngineCommand::SetFreq(snapshot.test_tone_freq),
+    )?;
+    push_command(
+        &handle,
+        EngineCommand::SetLoopEnabled(snapshot.loop_enabled),
+    )?;
+    if snapshot.loop_enabled && snapshot.loop_end > snapshot.loop_start {
+        push_command(
+            &handle,
+            EngineCommand::SetLoopRegion {
+                start: snapshot.loop_start,
+                end: snapshot.loop_end,
+            },
+        )?;
+    }
+    push_command(
+        &handle,
+        EngineCommand::SetPlay(snapshot.is_playing),
+    )?;
+
+    log::info!("Audio engine hot-swapped to output device '{}'", device_name);
     Ok(())
+}
+
+/// Explicit hot-restart command for audio engine on selected output device.
+#[tauri::command]
+fn restart_audio_engine(
+    device_name: String,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    settings_state: tauri::State<'_, SettingsState>,
+) -> Result<(), String> {
+    restart_audio_engine_impl(device_name, handle, settings_state)
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -3001,6 +3681,167 @@ fn set_track_input_cmd(track_id: String, input_id: String) -> Result<(), String>
     Ok(())
 }
 
+/// Add a plugin slot to a track (instrument/effect) from frontend DnD.
+#[tauri::command]
+fn add_plugin_to_track_cmd(
+    payload: AddPluginToTrackPayload,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let track_uuid = Uuid::parse_str(&payload.track_id)
+        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
+
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let track = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.id == track_uuid)
+        .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
+
+    let slot = payload.slot.to_lowercase();
+    let use_instrument = match slot.as_str() {
+        "instrument" => true,
+        "effect" => false,
+        _ => track.track_type == TrackType::Midi && track.instrument.is_none(),
+    };
+
+    let plugin_slot = PluginSlot::new(payload.plugin_name.clone(), payload.plugin_id.clone());
+    if use_instrument {
+        track.instrument = Some(plugin_slot);
+    } else {
+        track.effects.push(plugin_slot);
+    }
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    log::info!(
+        "[IPC] add_plugin_to_track_cmd(track={}, plugin='{}', slot={})",
+        payload.track_id,
+        payload.plugin_name,
+        if use_instrument { "instrument" } else { "effect" }
+    );
+    Ok(())
+}
+
+/// Enumerate available MIDI input ports from the OS.
+#[tauri::command]
+fn get_midi_inputs(
+    midi_runtime: tauri::State<'_, MidiInputRuntime>,
+) -> Result<Vec<MidiInputPortInfo>, String> {
+    let midi_in = MidiInput::new("Dream DAW MIDI Input")
+        .map_err(|e| format!("Failed to initialize MIDI input: {e}"))?;
+    let ports = midi_in.ports();
+    let connected = midi_runtime
+        .connected_port
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+
+    let mut out = Vec::with_capacity(ports.len());
+    for port in ports {
+        let name = midi_in
+            .port_name(&port)
+            .unwrap_or_else(|_| "Unknown MIDI Port".to_string());
+        out.push(MidiInputPortInfo {
+            connected: connected.as_deref() == Some(name.as_str()),
+            name,
+        });
+    }
+    Ok(out)
+}
+
+/// Connect to a MIDI input port and stream NoteOn/NoteOff into the engine queue.
+#[tauri::command]
+fn connect_midi_input(
+    app: tauri::AppHandle,
+    port_name: String,
+    midi_runtime: tauri::State<'_, MidiInputRuntime>,
+) -> Result<(), String> {
+    let mut midi_in = MidiInput::new("Dream DAW MIDI Input")
+        .map_err(|e| format!("Failed to initialize MIDI input: {e}"))?;
+    midi_in.ignore(midir::Ignore::None);
+
+    let ports = midi_in.ports();
+    let selected_port = ports
+        .into_iter()
+        .find(|p| midi_in.port_name(p).ok().as_deref() == Some(port_name.as_str()))
+        .ok_or_else(|| format!("MIDI input port not found: {port_name}"))?;
+
+    // Drop previous connection (if any) before reconnecting.
+    if let Some(existing) = midi_runtime.connection.lock().map_err(|e| e.to_string())?.take() {
+        drop(existing);
+    }
+
+    let app_for_cb = app.clone();
+    let conn = midi_in
+        .connect(
+            &selected_port,
+            "Dream DAW MIDI In",
+            move |_timestamp, message, _| {
+                if message.is_empty() {
+                    return;
+                }
+                let status = message[0] & 0xF0;
+                let note = message.get(1).copied().unwrap_or(0);
+                let velocity = message.get(2).copied().unwrap_or(0);
+
+                let _ = app_for_cb.emit(
+                    "midi_event_received",
+                    serde_json::json!({
+                        "status": status,
+                        "note": note,
+                        "velocity": velocity,
+                    }),
+                );
+
+                // Route live MIDI to first armed track (fallback track 0).
+                let target_track = {
+                    let project_state: tauri::State<'_, ProjectState> = app_for_cb.state();
+                    match project_state.project.lock() {
+                        Ok(project) => project
+                            .tracks
+                            .iter()
+                            .position(|t| t.is_armed)
+                            .unwrap_or(0),
+                        Err(_) => 0,
+                    }
+                };
+
+                let engine_handle: tauri::State<'_, AudioEngineHandle> = app_for_cb.state();
+                match status {
+                    0x90 if velocity > 0 => {
+                        let _ = push_command(
+                            &engine_handle,
+                            EngineCommand::SamplerNoteOn {
+                                track_index: target_track as u16,
+                                pitch: note,
+                                velocity,
+                            },
+                        );
+                    }
+                    0x80 | 0x90 => {
+                        let _ = push_command(
+                            &engine_handle,
+                            EngineCommand::SamplerNoteOff {
+                                track_index: target_track as u16,
+                                pitch: note,
+                            },
+                        );
+                    }
+                    _ => {}
+                }
+            },
+            (),
+        )
+        .map_err(|e| format!("Failed to connect MIDI input '{port_name}': {e}"))?;
+
+    *midi_runtime.connection.lock().map_err(|e| e.to_string())? = Some(conn);
+    *midi_runtime.connected_port.lock().map_err(|e| e.to_string())? = Some(port_name.clone());
+    log::info!("[IPC] connect_midi_input({port_name})");
+    Ok(())
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Application Setup
 // ═══════════════════════════════════════════════════════════════════════
@@ -3027,12 +3868,19 @@ pub fn run() {
     // Create shared MIDI snapshot and sampler sample state
     let midi_snapshot = Arc::new(dream_engine::driver::SharedMidiSnapshot::new());
     let automation_runtime = AutomationRuntime::new();
+    let midi_input_runtime = MidiInputRuntime::new();
     rebuild_automation_snapshot_from_project(&bootstrap_project, &automation_runtime);
     let sampler_samples = Arc::new(dream_engine::driver::SharedSamplerSamples::new());
     let routing_snapshot_for_engine = Arc::clone(&clip_pool_state.routing_snapshot);
     let midi_snapshot_for_engine = Arc::clone(&midi_snapshot);
     let automation_snapshot_for_engine = Arc::clone(&automation_runtime.snapshot);
     let sampler_samples_for_engine = Arc::clone(&sampler_samples);
+    let clip_pool_for_handle = Arc::clone(&clip_pool_state.arc_pool);
+    let clip_snapshot_for_handle = Arc::clone(&clip_pool_state.snapshot);
+    let midi_snapshot_for_handle = Arc::clone(&midi_snapshot);
+    let routing_snapshot_for_handle = Arc::clone(&clip_pool_state.routing_snapshot);
+    let automation_snapshot_for_handle = Arc::clone(&automation_runtime.snapshot);
+    let sampler_samples_for_handle = Arc::clone(&sampler_samples);
 
     // Create preview buffer Arcs (shared between engine handle and audio driver)
     let preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>> = Arc::new(ArcSwap::from_pointee(None));
@@ -3066,6 +3914,13 @@ pub fn run() {
         _stream: Mutex::new(Some(Box::new(stream))),
         preview_buffer,
         preview_cursor,
+        export_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        clip_pool: clip_pool_for_handle,
+        clip_snapshot: clip_snapshot_for_handle,
+        midi_snapshot: midi_snapshot_for_handle,
+        routing_snapshot: routing_snapshot_for_handle,
+        automation_snapshot: automation_snapshot_for_handle,
+        sampler_samples: sampler_samples_for_handle,
     };
 
     // Load settings from user folder (primary) or app_data_dir (fallback)
@@ -3088,6 +3943,7 @@ pub fn run() {
         .manage(settings_state)
         .manage(RecordingRuntime::new())
         .manage(automation_runtime)
+        .manage(midi_input_runtime)
         .manage(PluginHostState::new())
         .invoke_handler(tauri::generate_handler![
             // Transport
@@ -3123,6 +3979,11 @@ pub fn run() {
             // File Browser
             generate_demo_samples_cmd,
             scan_audio_folder,
+            scan_folder_all,
+            scan_plugin_folders,
+            get_browser_folders,
+            add_browser_folder,
+            remove_browser_folder,
             preview_audio_file_cmd,
             stop_preview_cmd,
             pick_folder,
@@ -3135,6 +3996,7 @@ pub fn run() {
             // Audio Import
             import_audio_file,
             create_midi_clip_cmd,
+            update_midi_clip_cmd,
             // Waveform
             get_waveform_peaks,
             // Track Management
@@ -3152,12 +4014,17 @@ pub fn run() {
             start_recording_cmd,
             stop_recording_cmd,
             export_mix_cmd,
+            cancel_export_cmd,
             // Undo/Redo
             undo_cmd,
             redo_cmd,
             // Audio Device Management
             get_audio_devices,
             set_audio_device,
+            restart_audio_engine,
+            // MIDI input
+            get_midi_inputs,
+            connect_midi_input,
             // Epic 2: plugin windows + routing
             open_plugin_window,
             can_open_plugin_editor,
@@ -3166,6 +4033,7 @@ pub fn run() {
             get_routing_targets,
             set_track_routing_cmd,
             set_track_input_cmd,
+            add_plugin_to_track_cmd,
             // Project Management (extended)
             create_backup_cmd,
             mark_dirty_cmd,

@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { FileMenu } from '@/widgets/FileMenu/FileMenu';
@@ -72,6 +73,8 @@ export const TransportBar = ({ onSettingsClick, onOpenExport, onRecordingStateCh
 
     // CPU simulation
     const [cpuPercent] = useState(4);
+    const midiLedRef = useRef<HTMLSpanElement>(null);
+    const midiLedTimerRef = useRef<number | null>(null);
 
     const handleTapTempo = useCallback(() => {
         const now = Date.now();
@@ -137,6 +140,35 @@ export const TransportBar = ({ onSettingsClick, onOpenExport, onRecordingStateCh
             console.error('[TransportBar] Recording toggle failed:', err);
         }
     }, [projectTracks, isRecording, onRecordingStateChange]);
+
+    useEffect(() => {
+        let unlisten: UnlistenFn | null = null;
+        void listen<Record<string, unknown>>('midi_event_received', () => {
+            const led = midiLedRef.current;
+            if (!led) return;
+            led.style.opacity = '1';
+            if (midiLedTimerRef.current !== null) {
+                window.clearTimeout(midiLedTimerRef.current);
+            }
+            midiLedTimerRef.current = window.setTimeout(() => {
+                if (midiLedRef.current) midiLedRef.current.style.opacity = '0.35';
+            }, 50);
+        }).then((fn) => {
+            unlisten = fn;
+        }).catch((err) => {
+            console.error('[TransportBar] midi_event_received listener failed:', err);
+        });
+
+        return () => {
+            if (midiLedTimerRef.current !== null) {
+                window.clearTimeout(midiLedTimerRef.current);
+                midiLedTimerRef.current = null;
+            }
+            if (unlisten) {
+                unlisten();
+            }
+        };
+    }, []);
 
     return (
         <div
@@ -344,6 +376,19 @@ export const TransportBar = ({ onSettingsClick, onOpenExport, onRecordingStateCh
 
             {/* ── RIGHT: MIDI + CPU ── */}
             <Section>
+                <span
+                    ref={midiLedRef}
+                    style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        background: '#33d17a',
+                        opacity: 0.35,
+                        boxShadow: '0 0 8px rgba(51, 209, 122, 0.75)',
+                        transition: 'opacity 40ms linear',
+                        marginRight: 4,
+                    }}
+                />
                 <span style={{
                     fontSize: 'var(--font-size-2xs)',
                     fontWeight: 500,

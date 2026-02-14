@@ -31,7 +31,7 @@ use std::sync::Arc;
 use std::thread;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use log::{info, error};
+use log::{error, info};
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -158,11 +158,11 @@ pub struct RecordingSession {
     /// Handle to the background worker thread.
     worker_handle: Option<thread::JoinHandle<Result<PathBuf, RecordingError>>>,
 
-    /// Temporary output file path.
-    tmp_path: PathBuf,
+    /// Temporary output file path (kept for diagnostics).
+    _tmp_path: PathBuf,
 
-    /// Final output file path (after rename).
-    final_path: PathBuf,
+    /// Final output file path (kept for diagnostics).
+    _final_path: PathBuf,
 
     /// Sample rate of the input stream.
     sample_rate: u32,
@@ -198,9 +198,7 @@ impl RecordingSession {
             .default_input_device()
             .ok_or(RecordingError::NoInputDevice)?;
 
-        let device_name = device
-            .name()
-            .unwrap_or_else(|_| "Unknown".to_string());
+        let device_name = device.description().map(|d| d.name().to_string()).unwrap_or_else(|_| "Unknown".to_string());
         info!("[Recording] Input device: {}", device_name);
 
         let supported_config = device
@@ -211,10 +209,7 @@ impl RecordingSession {
         let channels = supported_config.channels() as usize;
         let config: cpal::StreamConfig = supported_config.into();
 
-        info!(
-            "[Recording] Config: {}Hz, {}ch",
-            sample_rate, channels
-        );
+        info!("[Recording] Config: {}Hz, {}ch", sample_rate, channels);
 
         // ── 2. Create ring buffer ────────────────────────────────
         let (producer, consumer) = rtrb::RingBuffer::<f32>::new(RING_BUFFER_CAPACITY);
@@ -224,8 +219,7 @@ impl RecordingSession {
         state.is_recording.store(true, Ordering::SeqCst);
 
         // ── 4. Create file paths ─────────────────────────────────
-        std::fs::create_dir_all(output_dir)
-            .map_err(|e| RecordingError::IoError(e.to_string()))?;
+        std::fs::create_dir_all(output_dir).map_err(|e| RecordingError::IoError(e.to_string()))?;
 
         let tmp_path = output_dir.join(format!("{file_name}.tmp.wav"));
         let final_path = output_dir.join(format!("{file_name}.wav"));
@@ -255,9 +249,7 @@ impl RecordingSession {
                     worker_channels,
                 )
             })
-            .map_err(|e| RecordingError::StreamError(format!(
-                "Failed to spawn worker: {e}"
-            )))?;
+            .map_err(|e| RecordingError::StreamError(format!("Failed to spawn worker: {e}")))?;
 
         // ── 6. Build input stream ────────────────────────────────
         let is_rec = Arc::clone(&state.is_recording);
@@ -316,8 +308,8 @@ impl RecordingSession {
             _stream: stream,
             state,
             worker_handle: Some(worker_handle),
-            tmp_path,
-            final_path,
+            _tmp_path: tmp_path,
+            _final_path: final_path,
             sample_rate,
             channels,
             start_frame,
@@ -416,11 +408,9 @@ fn recording_worker(
         sample_format: hound::SampleFormat::Float,
     };
 
-    let mut writer = hound::WavWriter::create(&tmp_path, spec)
-        .map_err(|e| RecordingError::IoError(format!(
-            "Failed to create {}: {e}",
-            tmp_path.display()
-        )))?;
+    let mut writer = hound::WavWriter::create(&tmp_path, spec).map_err(|e| {
+        RecordingError::IoError(format!("Failed to create {}: {e}", tmp_path.display()))
+    })?;
 
     info!("[RecordingWorker] Writing to {}", tmp_path.display());
 
@@ -470,12 +460,13 @@ fn recording_worker(
     );
 
     // Rename .tmp.wav → .wav (atomic on most filesystems)
-    std::fs::rename(&tmp_path, &final_path)
-        .map_err(|e| RecordingError::IoError(format!(
+    std::fs::rename(&tmp_path, &final_path).map_err(|e| {
+        RecordingError::IoError(format!(
             "Failed to rename {} → {}: {e}",
             tmp_path.display(),
             final_path.display()
-        )))?;
+        ))
+    })?;
 
     Ok(final_path)
 }

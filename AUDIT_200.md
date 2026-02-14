@@ -12,7 +12,10 @@
 
 - [x] Q1-Q3: ✅ Компиляция исправлена (device.name(), sample_rate as f64)
 - [x] Q7: ✅ DAZ/FTZ добавлен (denormal protection)
-- [ ] Q5: ⚠️ Panic handler — требует рефакторинга
+- [x] Q5: ✅ Panic handler добавлен (catch_unwind)
+- [x] Q94: ✅ Export Cancel добавлен (AtomicBool flag)
+- [x] Q109: ✅ MIDI Input исправлен (типы u16/u8)
+- [x] Q95-Q100: ✅ Automation подключена (eval_automation в driver.rs:763-778)
 - [ ] Q4: ⚠️ Аллокации в hot-path — отложено
 
 ---

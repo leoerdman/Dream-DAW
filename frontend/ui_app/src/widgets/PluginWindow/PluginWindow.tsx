@@ -14,7 +14,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { useState, useCallback, useRef, memo } from 'react';
+import { useState, useCallback, useRef, memo, type ReactNode } from 'react';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -42,6 +42,8 @@ interface PluginWindowProps {
     /** Callback for preset navigation. */
     onNextPreset?: () => void;
     onPrevPreset?: () => void;
+    /** Optional custom plugin UI content. */
+    children?: ReactNode;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────
@@ -66,6 +68,7 @@ export const PluginWindow = memo(function PluginWindow({
     presetName = 'Default',
     onNextPreset,
     onPrevPreset,
+    children,
 }: PluginWindowProps) {
     const [position, setPosition] = useState({ x: initialX, y: initialY });
     const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
@@ -235,62 +238,68 @@ export const PluginWindow = memo(function PluginWindow({
                 </button>
             </div>
 
-            {/* ── Plugin Body (parameter grid placeholder) ── */}
+            {/* ── Plugin Body ── */}
             <div style={{
                 flex: 1,
-                display: 'grid',
-                gridTemplateColumns: 'repeat(4, 1fr)',
-                gap: 12,
-                padding: 16,
-                alignContent: 'start',
+                display: 'flex',
+                flexDirection: 'column',
                 opacity: isBypassed ? 0.4 : 1,
                 transition: 'opacity 0.2s ease',
                 overflow: 'auto',
             }}>
-                {/* Placeholder parameter knobs */}
-                {['Gain', 'Frequency', 'Resonance', 'Mix', 'Attack', 'Release', 'Threshold', 'Ratio'].map(param => (
-                    <div key={param} style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: 4,
+                {children ? (
+                    <div style={{ padding: 12, height: '100%' }}>{children}</div>
+                ) : (
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(4, 1fr)',
+                        gap: 12,
+                        padding: 16,
+                        alignContent: 'start',
                     }}>
-                        {/* Knob circle */}
-                        <div style={{
-                            width: 48,
-                            height: 48,
-                            borderRadius: '50%',
-                            background: `conic-gradient(${accentColor} 0deg, ${accentColor} 200deg, #2a2a2e 200deg, #2a2a2e 360deg)`,
-                            border: '2px solid rgba(255,255,255,0.08)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                        }}>
-                            <div style={{
-                                width: 40,
-                                height: 40,
-                                borderRadius: '50%',
-                                background: '#1a1a1e',
+                        {['Gain', 'Frequency', 'Resonance', 'Mix', 'Attack', 'Release', 'Threshold', 'Ratio'].map(param => (
+                            <div key={param} style={{
                                 display: 'flex',
+                                flexDirection: 'column',
                                 alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: 10,
-                                fontWeight: 600,
-                                color: 'var(--color-text-secondary)',
+                                gap: 4,
                             }}>
-                                0.55
+                                <div style={{
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: '50%',
+                                    background: `conic-gradient(${accentColor} 0deg, ${accentColor} 200deg, #2a2a2e 200deg, #2a2a2e 360deg)`,
+                                    border: '2px solid rgba(255,255,255,0.08)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                }}>
+                                    <div style={{
+                                        width: 40,
+                                        height: 40,
+                                        borderRadius: '50%',
+                                        background: '#1a1a1e',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: 10,
+                                        fontWeight: 600,
+                                        color: 'var(--color-text-secondary)',
+                                    }}>
+                                        0.55
+                                    </div>
+                                </div>
+                                <span style={{
+                                    fontSize: 9,
+                                    color: 'var(--color-text-tertiary)',
+                                    textAlign: 'center',
+                                }}>
+                                    {param}
+                                </span>
                             </div>
-                        </div>
-                        {/* Param label */}
-                        <span style={{
-                            fontSize: 9,
-                            color: 'var(--color-text-tertiary)',
-                            textAlign: 'center',
-                        }}>
-                            {param}
-                        </span>
+                        ))}
                     </div>
-                ))}
+                )}
             </div>
         </div>
     );

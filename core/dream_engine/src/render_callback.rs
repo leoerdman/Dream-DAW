@@ -16,13 +16,13 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+use dream_clip_engine::disk_streamer::StreamingWindow;
 use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::reader::ClipReader;
-use dream_clip_engine::disk_streamer::StreamingWindow;
 use dream_clip_engine::scheduler::{ActiveClipInfo, ClipScheduler, LoopRegion as ClipLoopRegion};
 use dream_dsp::fades::FadeCache;
+use dream_ipc::metering::{compute_peak, compute_rms, linear_to_db, MeterBank};
 use dream_mixer::{ChannelStrip, SummingBus};
-use dream_ipc::metering::{MeterBank, compute_rms, compute_peak, linear_to_db};
 use dream_transport::Playhead;
 
 use std::sync::Arc;
@@ -246,8 +246,11 @@ impl RenderContext {
                     );
                 } else {
                     // Diagnostic: neither pool nor streaming — clip not loaded
-                    log::warn!("[Render] Pool MISS for clip '{}' file_path='{}'",
-                        clip.name, clip.file_path);
+                    log::warn!(
+                        "[Render] Pool MISS for clip '{}' file_path='{}'",
+                        clip.name,
+                        clip.file_path
+                    );
                     continue;
                 }
 
@@ -310,14 +313,20 @@ impl RenderContext {
         // Periodic diagnostic logging (once per ~second at 48kHz/1024 buffer)
         {
             let diag_counter = (playhead_pos / (self.sample_rate as i64)) as u64;
-            static LAST_DIAG: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+            static LAST_DIAG: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(u64::MAX);
             let prev = LAST_DIAG.load(std::sync::atomic::Ordering::Relaxed);
             if diag_counter != prev {
                 LAST_DIAG.store(diag_counter, std::sync::atomic::Ordering::Relaxed);
                 let total_clips: usize = clips_per_track.iter().map(|c| c.len()).sum();
                 if total_clips > 0 || _total_active > 0 {
-                    log::info!("[Render] playhead={} total_clips={} active={} pool_hits={}",
-                        playhead_pos, total_clips, _total_active, _total_pool_hits);
+                    log::info!(
+                        "[Render] playhead={} total_clips={} active={} pool_hits={}",
+                        playhead_pos,
+                        total_clips,
+                        _total_active,
+                        _total_pool_hits
+                    );
                 }
             }
         }
@@ -366,8 +375,12 @@ impl RenderContext {
 
         self.meter_bank.master_left().store_rms(m_rms_l);
         self.meter_bank.master_right().store_rms(m_rms_r);
-        self.meter_bank.master_left().store_peak_decay(m_peak_l, 0.99);
-        self.meter_bank.master_right().store_peak_decay(m_peak_r, 0.99);
+        self.meter_bank
+            .master_left()
+            .store_peak_decay(m_peak_l, 0.99);
+        self.meter_bank
+            .master_right()
+            .store_peak_decay(m_peak_r, 0.99);
 
         // Interleave into output [L, R, L, R, ...]
         for i in 0..frame_count {

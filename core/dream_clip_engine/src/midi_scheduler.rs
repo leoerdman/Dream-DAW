@@ -15,7 +15,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use dream_models::midi::{MidiClip, MidiNote};
+use dream_models::midi::MidiClip;
 
 /// A MIDI note event scheduled for the current buffer.
 ///

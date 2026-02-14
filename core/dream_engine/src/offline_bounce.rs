@@ -25,14 +25,15 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use log::info;
 
 use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::scheduler::LoopRegion as ClipLoopRegion;
-use dream_ipc::metering::MeterBank;
 use dream_io::wav_writer::WavWriter;
+use dream_ipc::metering::MeterBank;
 use dream_models::project::{AudioClip, Project};
 
 use crate::render_callback::RenderContext;
@@ -124,12 +125,29 @@ impl std::error::Error for BounceError {}
 /// ```
 pub struct OfflineBouncer {
     config: BounceConfig,
+    /// Cancellation flag - set to true to abort the bounce.
+    /// The bouncer checks this flag during each render iteration.
+    pub cancel_flag: Arc<AtomicBool>,
 }
 
 impl OfflineBouncer {
     /// Creates a new bouncer with the given configuration.
     pub fn new(config: BounceConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            cancel_flag: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Returns a clone of the cancel flag.
+    /// Set to `true` from another thread to abort the bounce.
+    pub fn cancel_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.cancel_flag)
+    }
+
+    /// Resets the cancel flag to false.
+    pub fn reset_cancel(&self) {
+        self.cancel_flag.store(false, Ordering::SeqCst);
     }
 
     /// Executes the offline bounce.
@@ -162,9 +180,7 @@ impl OfflineBouncer {
             ));
         }
 
-        if self.config.bit_depth != 16
-            && self.config.bit_depth != 24
-            && self.config.bit_depth != 32
+        if self.config.bit_depth != 16 && self.config.bit_depth != 24 && self.config.bit_depth != 32
         {
             return Err(BounceError::InvalidConfig(format!(
                 "Unsupported bit depth: {} (use 16, 24, or 32)",
@@ -177,10 +193,7 @@ impl OfflineBouncer {
 
         info!(
             "[Bounce] Starting: {} frames @ {}Hz, {}-bit, output={}",
-            total_frames,
-            self.config.sample_rate,
-            self.config.bit_depth,
-            self.config.output_path
+            total_frames, self.config.sample_rate, self.config.bit_depth, self.config.output_path
         );
 
         // ── Create standalone RenderContext ──────────────────────
@@ -221,6 +234,19 @@ impl OfflineBouncer {
         let mut last_progress: f32 = -1.0;
 
         while frames_rendered < total_frames {
+            // Check cancellation flag
+            if self.cancel_flag.load(Ordering::SeqCst) {
+                info!(
+                    "[Bounce] Cancelled by user at {:.1}%",
+                    (frames_rendered as f32 / total_frames as f32) * 100.0
+                );
+                // Clean up partial file
+                let _ = std::fs::remove_file(&self.config.output_path);
+                return Err(BounceError::RenderError(
+                    "Bounce cancelled by user".to_string(),
+                ));
+            }
+
             let remaining = total_frames - frames_rendered;
             let chunk_frames = remaining.min(OFFLINE_BUFFER_FRAMES);
             let chunk_samples = chunk_frames * OFFLINE_CHANNELS;
@@ -266,7 +292,8 @@ impl OfflineBouncer {
 
             if peak > 0.0 && peak != 1.0 {
                 let gain = 1.0 / peak;
-                info!("[Bounce] Normalizing: peak={:.4}, gain={:.4}dB",
+                info!(
+                    "[Bounce] Normalizing: peak={:.4}, gain={:.4}dB",
                     peak,
                     20.0 * gain.log10()
                 );

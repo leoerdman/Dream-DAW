@@ -50,6 +50,8 @@ interface PianoRollProps {
     totalBars?: number;
     /** Playhead position in beats. */
     playheadBeat?: number;
+    /** Explicit clip length in beats for clamp/snap bounds. */
+    clipLengthBeats?: number;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────
@@ -84,6 +86,7 @@ export const PianoRoll = memo(function PianoRoll({
     timeSignature = [4, 4],
     totalBars = 8,
     playheadBeat,
+    clipLengthBeats,
 }: PianoRollProps) {
     const [pixelsPerBeat, setPixelsPerBeat] = useState(DEFAULT_PPB);
     const [tool, setTool] = useState<PianoRollTool>('draw');
@@ -93,7 +96,7 @@ export const PianoRoll = memo(function PianoRoll({
     const snapBeat = useGridStore((s) => s.snapBeat);
 
     const beatsPerBar = timeSignature[0];
-    const totalBeats = totalBars * beatsPerBar;
+    const totalBeats = Math.max(0.25, clipLengthBeats ?? (totalBars * beatsPerBar));
     const canvasWidth = totalBeats * pixelsPerBeat;
     const canvasHeight = TOTAL_KEYS * NOTE_HEIGHT;
 
@@ -167,13 +170,15 @@ export const PianoRoll = memo(function PianoRoll({
             const pitch = yToPitch(y);
             const rawBeat = x / pixelsPerBeat;
             const beat = snapBeat(rawBeat, beatsPerBar);
+            if (beat >= totalBeats) return;
 
             if (tool === 'draw') {
+                const duration = Math.max(0.125, Math.min(1, totalBeats - beat));
                 const newNote: MidiNote = {
                     id: genNoteId(),
                     pitch,
                     startBeat: beat,
-                    durationBeats: 1,
+                    durationBeats: duration,
                     velocity: 100,
                 };
                 onNotesChange([...notes, newNote]);
@@ -181,7 +186,7 @@ export const PianoRoll = memo(function PianoRoll({
                 setSelectedNotes(new Set());
             }
         },
-        [tool, yToPitch, pixelsPerBeat, snapBeat, beatsPerBar, notes, onNotesChange],
+        [tool, yToPitch, pixelsPerBeat, snapBeat, beatsPerBar, notes, onNotesChange, totalBeats],
     );
 
     const handleNoteClick = useCallback(
@@ -239,15 +244,19 @@ export const PianoRoll = memo(function PianoRoll({
                 const updated = notes.map((n) => {
                     if (n.id !== noteId) return n;
                     if (mode === 'resize-right') {
-                        const nextDuration = Math.max(0.125, snapBeat(startDuration + beatDelta, beatsPerBar));
+                        const maxDur = Math.max(0.125, totalBeats - startBeat);
+                        const nextDuration = Math.min(
+                            maxDur,
+                            Math.max(0.125, snapBeat(startDuration + beatDelta, beatsPerBar)),
+                        );
                         return { ...n, durationBeats: nextDuration };
                     }
                     if (mode === 'resize-left') {
-                        const snappedBeat = Math.max(0, snapBeat(startBeat + beatDelta, beatsPerBar));
+                        const snappedBeat = Math.max(0, Math.min(totalBeats - 0.125, snapBeat(startBeat + beatDelta, beatsPerBar)));
                         const newDur = Math.max(0.125, startDuration + (startBeat - snappedBeat));
                         return { ...n, startBeat: snappedBeat, durationBeats: newDur };
                     }
-                    const newBeat = Math.max(0, snapBeat(startBeat + beatDelta, beatsPerBar));
+                    const newBeat = Math.max(0, Math.min(totalBeats - 0.125, snapBeat(startBeat + beatDelta, beatsPerBar)));
                     const newPitch = Math.max(LOWEST_PITCH, Math.min(LOWEST_PITCH + TOTAL_KEYS - 1, startPitch + pitchDelta));
                     return { ...n, startBeat: newBeat, pitch: newPitch };
                 });
@@ -262,7 +271,7 @@ export const PianoRoll = memo(function PianoRoll({
             window.addEventListener('mousemove', onMove);
             window.addEventListener('mouseup', onUp);
         },
-        [tool, notes, onNotesChange, pixelsPerBeat, snapBeat, beatsPerBar],
+        [tool, notes, onNotesChange, pixelsPerBeat, snapBeat, beatsPerBar, totalBeats],
     );
 
     // ── Velocity change (on velocity lane click) ─────────────────────

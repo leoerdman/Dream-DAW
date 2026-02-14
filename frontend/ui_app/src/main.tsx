@@ -49,7 +49,14 @@ function App() {
 
   return (
     <>
+      {/* Phase 1: Splash overlay fills the small borderless window.
+          When complete, expand_window runs (hide → configure → maximize → show)
+          and telemetry + fetchProject start. Then splash fades and unmounts. */}
       {!splashDone && <SplashScreen onComplete={() => setSplashDone(true)} />}
+
+      {/* Phase 2: Workspace mounts ONLY after splash is done.
+          By this point telemetry is running and fetchProject has been called,
+          so the store already has tracks/clips for DawShell to render. */}
       {splashDone && (
         <ErrorBoundary>
           <Workspace />

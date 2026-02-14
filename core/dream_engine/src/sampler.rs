@@ -19,8 +19,8 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use std::sync::Arc;
 use dream_clip_engine::pool::ClipAudio;
+use std::sync::Arc;
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -50,17 +50,17 @@ pub enum EnvelopeStage {
 pub struct AdsrParams {
     pub attack: f64,
     pub decay: f64,
-    pub sustain: f64,   // level (0.0–1.0)
+    pub sustain: f64, // level (0.0–1.0)
     pub release: f64,
 }
 
 impl Default for AdsrParams {
     fn default() -> Self {
         Self {
-            attack: 0.005,    // 5ms — click-free
+            attack: 0.005, // 5ms — click-free
             decay: 0.1,
             sustain: 1.0,
-            release: 0.05,    // 50ms
+            release: 0.05, // 50ms
         }
     }
 }
@@ -342,8 +342,8 @@ pub struct SamplerEngine {
     /// ADSR parameters shared across all voices.
     adsr_params: AdsrParams,
 
-    /// Engine sample rate.
-    sample_rate: f64,
+    /// Engine sample rate (stored for future use, e.g. resampling).
+    _sample_rate: f64,
 }
 
 impl SamplerEngine {
@@ -356,7 +356,7 @@ impl SamplerEngine {
             volume: 1.0,
             voices,
             adsr_params: AdsrParams::default(),
-            sample_rate,
+            _sample_rate: sample_rate,
         }
     }
 
@@ -392,8 +392,7 @@ impl SamplerEngine {
         }
 
         // First: find an idle voice
-        let slot = self.voices.iter_mut()
-            .find(|v| !v.active);
+        let slot = self.voices.iter_mut().find(|v| !v.active);
 
         if let Some(voice) = slot {
             voice.envelope.set_params(&self.adsr_params);
@@ -402,11 +401,12 @@ impl SamplerEngine {
         }
 
         // No idle voice — steal the one with the lowest envelope level
-        let steal = self.voices.iter_mut()
-            .min_by(|a, b| {
-                a.envelope.level.partial_cmp(&b.envelope.level)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+        let steal = self.voices.iter_mut().min_by(|a, b| {
+            a.envelope
+                .level
+                .partial_cmp(&b.envelope.level)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         if let Some(voice) = steal {
             voice.envelope.set_params(&self.adsr_params);
@@ -515,7 +515,11 @@ mod tests {
             left[i] = (2.0 * std::f64::consts::PI * freq * i as f64 / sample_rate).sin() as f32;
         }
         let right = left.clone();
-        Arc::new(ClipAudio::new("test_sine.wav", vec![left, right], sample_rate as u32))
+        Arc::new(ClipAudio::new(
+            "test_sine.wav",
+            vec![left, right],
+            sample_rate as u32,
+        ))
     }
 
     #[test]
@@ -535,7 +539,11 @@ mod tests {
 
         // Should have non-zero output
         let max_level: f32 = left.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-        assert!(max_level > 0.01, "Expected audible output, got max={}", max_level);
+        assert!(
+            max_level > 0.01,
+            "Expected audible output, got max={}",
+            max_level
+        );
     }
 
     #[test]
@@ -654,7 +662,7 @@ mod tests {
         let sr = 44100.0;
         let mut env = AdsrEnvelope::new(sr);
         env.set_params(&AdsrParams {
-            attack: 0.01,   // ~441 samples
+            attack: 0.01, // ~441 samples
             decay: 0.01,
             sustain: 0.8,
             release: 0.01,
@@ -668,7 +676,9 @@ mod tests {
         let mut max_level = 0.0f32;
         for _ in 0..500 {
             let l = env.process();
-            if l > max_level { max_level = l; }
+            if l > max_level {
+                max_level = l;
+            }
         }
         assert!(max_level > 0.9, "Attack should reach near 1.0");
 

@@ -17,6 +17,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { create } from 'zustand';
+import throttle from 'lodash.throttle';
 import * as engine from '@/shared/api/engine';
 import type {
     TransportState,
@@ -43,6 +44,14 @@ export interface TimelineClip {
     sourceOffset?: number;
     /** Backend flagged clip as unresolved media. */
     isOffline?: boolean;
+    /** MIDI notes relative to clip start (beats). */
+    midiNotes?: Array<{
+        id: string;
+        pitch: number;
+        startBeat: number;
+        durationBeats: number;
+        velocity: number;
+    }>;
 }
 
 /** Track info from Rust project. */
@@ -100,6 +109,11 @@ function resolveTrackColor(color: unknown): string {
     return '#667788';
 }
 
+const throttledVolumeSends = new Map<number, (volume: number) => void>();
+const throttledPanSends = new Map<number, (pan: number) => void>();
+const pendingVolumeValues = new Map<number, number>();
+const pendingPanValues = new Map<number, number>();
+
 // ── Store Types ──────────────────────────────────────────────────────────
 
 interface EngineStore {
@@ -156,6 +170,8 @@ interface EngineStore {
 
     /** Track control: set pan. */
     setTrackPan: (trackIndex: number, pan: number) => Promise<void>;
+    /** Flush final unthrottled track control values (call on mouse/pointer up). */
+    flushTrackControlFinals: () => Promise<void>;
 
     /** Track control: mute/unmute. */
     setTrackMute: (trackIndex: number, muted: boolean) => Promise<void>;
@@ -319,7 +335,18 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     setTrackVolume: async (trackIndex: number, volume: number) => {
         try {
-            await engine.setTrackVolume(trackIndex, volume);
+            pendingVolumeValues.set(trackIndex, volume);
+            if (!throttledVolumeSends.has(trackIndex)) {
+                throttledVolumeSends.set(
+                    trackIndex,
+                    throttle((nextVolume: number) => {
+                        void engine.setTrackVolume(trackIndex, nextVolume).catch((e) => {
+                            set({ lastError: String(e) });
+                        });
+                    }, 16),
+                );
+            }
+            throttledVolumeSends.get(trackIndex)?.(volume);
         } catch (e) {
             set({ lastError: String(e) });
         }
@@ -327,7 +354,36 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     setTrackPan: async (trackIndex: number, pan: number) => {
         try {
-            await engine.setTrackPan(trackIndex, pan);
+            pendingPanValues.set(trackIndex, pan);
+            if (!throttledPanSends.has(trackIndex)) {
+                throttledPanSends.set(
+                    trackIndex,
+                    throttle((nextPan: number) => {
+                        void engine.setTrackPan(trackIndex, nextPan).catch((e) => {
+                            set({ lastError: String(e) });
+                        });
+                    }, 16),
+                );
+            }
+            throttledPanSends.get(trackIndex)?.(pan);
+        } catch (e) {
+            set({ lastError: String(e) });
+        }
+    },
+
+    flushTrackControlFinals: async () => {
+        try {
+            const volumeEntries = Array.from(pendingVolumeValues.entries());
+            const panEntries = Array.from(pendingPanValues.entries());
+
+            await Promise.all([
+                ...volumeEntries.map(([trackIndex, volume]) => engine.setTrackVolume(trackIndex, volume)),
+                ...panEntries.map(([trackIndex, pan]) => engine.setTrackPan(trackIndex, pan)),
+            ]);
+
+            pendingVolumeValues.clear();
+            pendingPanValues.clear();
+            set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
         }
@@ -435,6 +491,12 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         name: string;
                         position: { sample_frame: number };
                         duration: { sample_frame: number };
+                        notes?: Array<{
+                            pitch: number;
+                            velocity: number;
+                            start_frame: number;
+                            duration_frames: number;
+                        }>;
                     }>;
                 }>;
                 sample_rate: number;
@@ -452,6 +514,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             for (let trackIdx = 0; trackIdx < project.tracks.length; trackIdx++) {
                 const track = project.tracks[trackIdx];
                 const trackColor = resolveTrackColor(track.color);
+                const trackTypeRaw = (track.track_type ?? '').toString().toLowerCase();
+                const isMidiTrack = trackTypeRaw === 'midi';
 
                 projectTracks.push({
                     id: track.id,
@@ -478,6 +542,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 for (const clip of track.clips) {
                     const posSeconds = clip.position.sample_frame / sr;
                     const durSeconds = clip.duration.sample_frame / sr;
+                    const hasAudioPath = !!(clip.file_path && clip.file_path.trim().length > 0);
+                    const treatAsMidi = isMidiTrack;
 
                     timelineClips.push({
                         id: clip.id,
@@ -485,14 +551,16 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         trackIndex: trackIdx,
                         startBeat: posSeconds * beatsPerSecond,
                         durationBeats: durSeconds * beatsPerSecond,
-                        type: clip.file_path ? 'audio' : 'midi',
+                        // Editor mode must follow track type:
+                        // MIDI tracks -> piano roll, Audio tracks -> sample editor.
+                        type: treatAsMidi ? 'midi' : 'audio',
                         color: resolveTrackColor(clip.color_override) !== '#667788'
                             ? resolveTrackColor(clip.color_override)
                             : trackColor,
-                        filePath: clip.file_path,
+                        filePath: treatAsMidi ? undefined : clip.file_path,
                         durationSamples: clip.duration.sample_frame,
                         sourceOffset: clip.source_offset?.sample_frame ?? 0,
-                        isOffline: clip.is_offline ?? false,
+                        isOffline: treatAsMidi ? false : (hasAudioPath ? (clip.is_offline ?? false) : false),
                     });
                 }
 
@@ -509,6 +577,13 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         color: trackColor,
                         durationSamples: clip.duration.sample_frame,
                         sourceOffset: 0,
+                        midiNotes: (clip.notes ?? []).map((note, idx) => ({
+                            id: `${clip.id}:${idx}:${note.pitch}:${note.start_frame}`,
+                            pitch: note.pitch,
+                            startBeat: (note.start_frame / sr) * beatsPerSecond,
+                            durationBeats: (note.duration_frames / sr) * beatsPerSecond,
+                            velocity: note.velocity,
+                        })),
                     });
                 }
             }

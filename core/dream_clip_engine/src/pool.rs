@@ -76,6 +76,7 @@ impl ClipAudio {
 /// The pool uses `Arc<ClipAudio>` for zero-copy sharing:
 /// - UI thread: calls `insert()` after loading audio
 /// - Audio thread: calls `get()` for real-time playback
+#[derive(Clone)]
 pub struct ClipPool {
     /// Loaded audio data, keyed by source file path.
     entries: HashMap<String, Arc<ClipAudio>>,

@@ -6,6 +6,8 @@ import { ClipFadeHandles } from './ClipFadeHandles';
 import { AutomationLane } from './AutomationLane';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
+import { useDragStore } from '@/shared/stores/useDragStore';
+import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import { computeGridLines } from '@/shared/lib/gridSnap';
 import * as engineApi from '@/shared/api/engine';
 
@@ -49,6 +51,14 @@ export interface TimelineClip {
     fadeOut?: number;
     /** Source media is missing on disk. */
     isOffline?: boolean;
+    /** MIDI notes relative to clip start (beats). */
+    midiNotes?: Array<{
+        id?: string;
+        pitch: number;
+        startBeat: number;
+        durationBeats: number;
+        velocity: number;
+    }>;
 }
 
 /** Data transferred when dragging from AssetBrowser. */
@@ -123,6 +133,7 @@ export const Timeline = ({
 }: TimelineProps) => {
     const [pixelsPerBeat, setPixelsPerBeat] = useState(DEFAULT_PPB);
     const [scrollLeft, setScrollLeft] = useState(0);
+    const [viewportWidth, setViewportWidth] = useState(0);
     const [internalPlayhead, setInternalPlayhead] = useState(0);
     const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
     const [draggingClip, setDraggingClip] = useState<{
@@ -175,6 +186,64 @@ export const Timeline = ({
         () => computeGridLines(totalBeats, beatsPerBar, pixelsPerBeat),
         [totalBeats, beatsPerBar, pixelsPerBeat],
     );
+
+    // ── Sync layout to shared store (for DawShell drop handler) ──
+    const setTimelineLayout = useTimelineStore((s) => s.setLayout);
+    useEffect(() => {
+        setTimelineLayout({ pixelsPerBeat, trackHeight, scrollLeft, rulerHeight: RULER_HEIGHT });
+    }, [pixelsPerBeat, trackHeight, scrollLeft, setTimelineLayout]);
+
+    // Update canvas bounding rect on scroll/resize
+    useEffect(() => {
+        const el = scrollContainerRef.current;
+        if (!el) return;
+        const updateRect = () => {
+            setTimelineLayout({ canvasRect: el.getBoundingClientRect() });
+        };
+        updateRect();
+        const ro = new ResizeObserver(updateRect);
+        ro.observe(el);
+        el.addEventListener('scroll', updateRect);
+        return () => {
+            ro.disconnect();
+            el.removeEventListener('scroll', updateRect);
+        };
+    }, [setTimelineLayout]);
+
+    // ── Store-based drag ghost preview ──
+    const draggingBrowserItem = useDragStore((s) => s.draggingItem);
+    const dragCursorX = useDragStore((s) => s.cursorX);
+    const dragCursorY = useDragStore((s) => s.cursorY);
+
+    const ghostPreview = useMemo(() => {
+        if (!draggingBrowserItem) return null;
+        const scrollEl = scrollContainerRef.current;
+        if (!scrollEl) return null;
+        const rect = scrollEl.getBoundingClientRect();
+        // Check if cursor is actually over the timeline canvas
+        if (
+            dragCursorX < rect.left || dragCursorX > rect.right ||
+            dragCursorY < rect.top || dragCursorY > rect.bottom
+        ) {
+            return null;
+        }
+        const relX = dragCursorX - rect.left + scrollEl.scrollLeft;
+        const relY = dragCursorY - rect.top + scrollEl.scrollTop;
+        const trackIdx = Math.max(0, Math.min(trackCount - 1, Math.floor(relY / trackHeight)));
+        const rawBeat = relX / pixelsPerBeat;
+        const snappedBeat = Math.max(0, snapBeat(rawBeat, beatsPerBar));
+        // Default ghost clip width = 1 bar (4 beats)
+        const ghostWidthBeats = beatsPerBar;
+        return {
+            trackIndex: trackIdx,
+            beat: snappedBeat,
+            widthPx: ghostWidthBeats * pixelsPerBeat,
+            leftPx: snappedBeat * pixelsPerBeat,
+            topPx: trackIdx * trackHeight,
+            name: draggingBrowserItem.name,
+            type: draggingBrowserItem.type as 'audio' | 'midi',
+        };
+    }, [draggingBrowserItem, dragCursorX, dragCursorY, pixelsPerBeat, trackHeight, trackCount, beatsPerBar, snapBeat]);
 
     const clearLiveLoop = useCallback(() => {
         if (liveRafRef.current !== null) {
@@ -330,8 +399,22 @@ export const Timeline = ({
     const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
         const target = e.currentTarget;
         setScrollLeft(target.scrollLeft);
+        setViewportWidth(target.clientWidth);
         onScrollTop?.(target.scrollTop);
-    }, [onScrollTop]);
+        // Sync both scroll offsets to shared store for drag-drop accuracy
+        setTimelineLayout({ scrollLeft: target.scrollLeft, scrollTop: target.scrollTop });
+    }, [onScrollTop, setTimelineLayout]);
+
+    useEffect(() => {
+        const syncViewport = () => {
+            if (scrollContainerRef.current) {
+                setViewportWidth(scrollContainerRef.current.clientWidth);
+            }
+        };
+        syncViewport();
+        window.addEventListener('resize', syncViewport);
+        return () => window.removeEventListener('resize', syncViewport);
+    }, []);
 
     // ── Zoom (Ctrl+Scroll or pinch) ──
     useEffect(() => {
@@ -482,6 +565,19 @@ export const Timeline = ({
         }
         return marks;
     }, [totalBeats, beatsPerBar]);
+
+    // ── Timeline culling (mount only visible clips + edge buffer) ──
+    const clipRenderBufferPx = 200;
+    const visibleStartPx = scrollLeft - clipRenderBufferPx;
+    const visibleEndPx = scrollLeft + viewportWidth + clipRenderBufferPx;
+    const visibleClips = useMemo(() => {
+        return clips.filter((clip) => {
+            const left = clip.startBeat * pixelsPerBeat;
+            const width = Math.max(1, clip.durationBeats * pixelsPerBeat);
+            const right = left + width;
+            return right >= visibleStartPx && left <= visibleEndPx;
+        });
+    }, [clips, pixelsPerBeat, visibleStartPx, visibleEndPx]);
 
     return (
         <div
@@ -732,7 +828,7 @@ export const Timeline = ({
                     )}
 
                     {/* ── Clips ── */}
-                    {clips.map(clip => {
+                    {visibleClips.map(clip => {
                         const isSelected = selectedClipId === clip.id;
                         const left = clip.startBeat * pixelsPerBeat;
                         const width = clip.durationBeats * pixelsPerBeat;
@@ -747,7 +843,7 @@ export const Timeline = ({
                                 onMouseDown={e => handleClipMouseDown(e, clip)}
                                 onDoubleClick={async (e) => {
                                     e.stopPropagation();
-                                    if (clip.isOffline) {
+                                    if (clip.type === 'audio' && clip.isOffline) {
                                         try {
                                             const file = await open({
                                                 title: 'Resolve Missing Media',
@@ -819,9 +915,14 @@ export const Timeline = ({
                                     ) : clip.type === 'audio' ? (
                                         <AudioWaveformFallback width={width} />
                                     ) : (
-                                        <MidiNoteFallback width={width} height={trackHeight - 16} />
+                                        <MidiNoteFallback
+                                            width={width}
+                                            height={trackHeight - 16}
+                                            notes={clip.midiNotes}
+                                            clipDurationBeats={clip.durationBeats}
+                                        />
                                     )}
-                                    {clip.isOffline && (
+                                    {clip.type === 'audio' && clip.isOffline && (
                                         <div
                                             style={{
                                                 position: 'absolute',
@@ -927,32 +1028,111 @@ export const Timeline = ({
                         ));
                     })}
 
-                    {/* ── Drop target indicator ── */}
+                    {/* ── Drop target indicator (HTML5 DnD) ── */}
                     {dropTargetTrack !== null && (
                         <div style={{
                             position: 'absolute',
-                            left: 0,
-                            top: dropTargetTrack * trackHeight,
-                            width: '100%',
-                            height: trackHeight,
-                            background: 'color-mix(in srgb, var(--color-accent-primary) 15%, transparent)',
-                            border: '1px dashed var(--color-accent-primary)',
-                            borderRadius: 2,
+                            left: (dropTargetBeat ?? 0) * pixelsPerBeat,
+                            top: dropTargetTrack * trackHeight + 2,
+                            width: beatsPerBar * pixelsPerBeat,
+                            height: trackHeight - 4,
+                            background: 'rgba(74, 144, 217, 0.25)',
+                            border: '1.5px dashed var(--color-accent-primary)',
+                            borderRadius: 3,
                             zIndex: 15,
                             pointerEvents: 'none',
-                            animation: 'pulse 1s ease-in-out infinite',
+                            backdropFilter: 'blur(2px)',
+                            transition: 'left 60ms ease-out, top 60ms ease-out',
                         }}>
-                            {dropTargetBeat !== null && (
-                                <div style={{
-                                    position: 'absolute',
-                                    left: dropTargetBeat * pixelsPerBeat,
-                                    top: 2,
-                                    bottom: 2,
-                                    width: 2,
-                                    background: 'var(--color-accent-primary)',
-                                    borderRadius: 1,
-                                }} />
-                            )}
+                            <span style={{
+                                fontSize: 9,
+                                fontWeight: 600,
+                                color: 'var(--color-accent-primary)',
+                                padding: '2px 5px',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                display: 'block',
+                            }}>
+                                Drop here
+                            </span>
+                        </div>
+                    )}
+
+                    {/* ── Store-based drag ghost clip preview ── */}
+                    {ghostPreview && (
+                        <div style={{
+                            position: 'absolute',
+                            left: ghostPreview.leftPx,
+                            top: ghostPreview.topPx + 2,
+                            width: Math.max(20, ghostPreview.widthPx - 1),
+                            height: trackHeight - 4,
+                            background: ghostPreview.type === 'midi'
+                                ? 'rgba(120, 200, 120, 0.35)'
+                                : 'rgba(74, 144, 217, 0.35)',
+                            border: `1.5px solid ${ghostPreview.type === 'midi'
+                                ? 'rgba(120, 200, 120, 0.8)'
+                                : 'rgba(74, 144, 217, 0.8)'
+                                }`,
+                            borderRadius: 3,
+                            zIndex: 16,
+                            pointerEvents: 'none',
+                            backdropFilter: 'blur(2px)',
+                            transition: 'left 50ms ease-out, top 50ms ease-out',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            overflow: 'hidden',
+                        }}>
+                            <span style={{
+                                fontSize: 9,
+                                fontWeight: 600,
+                                color: '#fff',
+                                textShadow: '0 1px 2px rgba(0,0,0,0.5)',
+                                padding: '2px 5px',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                            }}>
+                                {ghostPreview.name}
+                            </span>
+                            {/* Waveform / note preview hint */}
+                            <div style={{
+                                flex: 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                opacity: 0.5,
+                            }}>
+                                <svg width="100%" height="100%" viewBox="0 0 60 20" preserveAspectRatio="none">
+                                    {ghostPreview.type === 'audio'
+                                        ? Array.from({ length: 30 }, (_, i) => {
+                                            const h = 2 + Math.sin(i * 0.5) * 4 + Math.random() * 5;
+                                            return (
+                                                <rect
+                                                    key={i}
+                                                    x={i * 2}
+                                                    y={10 - h / 2}
+                                                    width={1.2}
+                                                    height={h}
+                                                    fill="rgba(255,255,255,0.7)"
+                                                />
+                                            );
+                                        })
+                                        : Array.from({ length: 8 }, (_, i) => (
+                                            <rect
+                                                key={i}
+                                                x={i * 7 + 2}
+                                                y={4 + (i % 3) * 4}
+                                                width={5}
+                                                height={2.5}
+                                                rx={0.5}
+                                                fill="rgba(255,255,255,0.7)"
+                                            />
+                                        ))
+                                    }
+                                </svg>
+                            </div>
                         </div>
                     )}
 
@@ -1004,35 +1184,84 @@ const AudioWaveformFallback = ({ width }: { width: number }) => {
 };
 
 /** MIDI note blocks — compact piano-roll style */
-const MidiNoteFallback = ({ width }: { width: number; height?: number }) => {
-    const noteCount = Math.max(2, Math.floor(width / 8));
-    // Deterministic pseudo-random: seed-based hash so notes don't jump on re-render
-    const seed = (i: number) => {
-        let h = i * 2654435761; // Knuth multiplicative hash
-        h = ((h >>> 16) ^ h) * 0x45d9f3b;
-        h = ((h >>> 16) ^ h) * 0x45d9f3b;
-        h = (h >>> 16) ^ h;
-        return (h & 0xffff) / 0xffff; // 0..1
-    };
+const MidiNoteFallback = ({
+    width,
+    notes,
+    clipDurationBeats,
+}: {
+    width: number;
+    height?: number;
+    notes?: Array<{
+        pitch: number;
+        startBeat: number;
+        durationBeats: number;
+        velocity: number;
+    }>;
+    clipDurationBeats?: number;
+}) => {
+    const hasNotes = (notes?.length ?? 0) > 0;
+    const duration = Math.max(0.001, clipDurationBeats ?? 1);
+    const minPitch = 24;
+    const maxPitch = 96;
+    const pitchSpan = maxPitch - minPitch;
+
+    if (!hasNotes) {
+        const noteCount = Math.max(2, Math.floor(width / 8));
+        const seed = (i: number) => {
+            let h = i * 2654435761;
+            h = ((h >>> 16) ^ h) * 0x45d9f3b;
+            h = ((h >>> 16) ^ h) * 0x45d9f3b;
+            h = (h >>> 16) ^ h;
+            return (h & 0xffff) / 0xffff;
+        };
+        return (
+            <svg
+                width="100%"
+                height="100%"
+                viewBox={`0 0 ${noteCount * 3} 12`}
+                preserveAspectRatio="none"
+                style={{ opacity: 0.5 }}
+            >
+                {Array.from({ length: noteCount }, (_, i) => {
+                    const y = 1 + Math.floor(seed(i) * 9);
+                    const w = 0.8 + seed(i + 1000) * 1.5;
+                    return (
+                        <rect
+                            key={i}
+                            x={i * 3}
+                            y={y}
+                            width={w}
+                            height={1.5}
+                            fill="rgba(255,255,255,0.7)"
+                            rx={0.3}
+                        />
+                    );
+                })}
+            </svg>
+        );
+    }
+
     return (
         <svg
             width="100%"
             height="100%"
-            viewBox={`0 0 ${noteCount * 3} 12`}
+            viewBox="0 0 100 12"
             preserveAspectRatio="none"
-            style={{ opacity: 0.5 }}
+            style={{ opacity: 0.65 }}
         >
-            {Array.from({ length: noteCount }, (_, i) => {
-                const y = 1 + Math.floor(seed(i) * 9);
-                const w = 0.8 + seed(i + 1000) * 1.5;
+            {notes!.map((note, i) => {
+                const x = (note.startBeat / duration) * 100;
+                const w = Math.max(0.8, (note.durationBeats / duration) * 100);
+                const yNorm = (note.pitch - minPitch) / pitchSpan;
+                const y = 10 - Math.max(0, Math.min(1, yNorm)) * 9;
                 return (
                     <rect
-                        key={i}
-                        x={i * 3}
+                        key={`${note.pitch}-${note.startBeat}-${i}`}
+                        x={x}
                         y={y}
                         width={w}
                         height={1.5}
-                        fill="rgba(255,255,255,0.7)"
+                        fill="rgba(255,255,255,0.82)"
                         rx={0.3}
                     />
                 );

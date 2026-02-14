@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import throttle from 'lodash.throttle';
 import { listen } from '@tauri-apps/api/event';
 import { TransportBar } from '@/widgets/TransportBar/TransportBar';
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
@@ -9,6 +10,7 @@ import { DeviceRack } from '@/widgets/DeviceRack/DeviceRack';
 import { TrackInspector } from '@/widgets/TrackInspector/TrackInspector';
 import { StatusBar } from '@/widgets/StatusBar/StatusBar';
 import { Timeline } from '@/widgets/Timeline/Timeline';
+import { ClipRenderer } from '@/widgets/Timeline/ClipRenderer';
 import type { BrowserDragItem } from '@/widgets/Timeline/Timeline';
 import { SettingsPanel } from '@/widgets/SettingsPanel/SettingsPanel';
 import { DragOverlay } from '@/widgets/DragOverlay/DragOverlay';
@@ -16,6 +18,7 @@ import { PianoRoll, type MidiNote } from '@/widgets/PianoRoll/PianoRoll';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
+import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import { ExportModal } from '@/widgets/ExportModal/ExportModal';
 import * as engineApi from '@/shared/api/engine';
 
@@ -56,22 +59,25 @@ const isAudioFile = (path: string): boolean => {
  * - DeviceRack shows the device chain for the currently selected track
  */
 export const DawShell = () => {
+    type BottomPanelMode = 'rack' | 'clip';
     const [settingsOpen, setSettingsOpen] = useState(false);
-    const [selectedTrackId, setSelectedTrackId] = useState('g-drums');
+    const [selectedTrackId, setSelectedTrackId] = useState('');
     const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
     const [isDragOver, setIsDragOver] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
+    const [bottomPanelMode, setBottomPanelMode] = useState<BottomPanelMode>('rack');
     const [recordingState, setRecordingState] = useState<{ active: boolean; trackIndex: number }>({
         active: false,
         trackIndex: 0,
     });
-    const [pianoRollOpen, setPianoRollOpen] = useState(false);
-    const [pianoRollClipId, setPianoRollClipId] = useState<string | null>(null);
     const [midiNotesByClip, setMidiNotesByClip] = useState<Record<string, MidiNote[]>>({});
+    const midiSaveThrottlesRef = useRef<Map<string, (notes: MidiNote[]) => void>>(new Map());
+    const latestMidiNotesRef = useRef<Record<string, MidiNote[]>>({});
     const importFile = useEngineStore(s => s.importFile);
     const createMidiClip = useEngineStore(s => s.createMidiClip);
     const togglePlay = useEngineStore(s => s.togglePlay);
     const fetchProject = useEngineStore(s => s.fetchProject);
+    const flushTrackControlFinals = useEngineStore(s => s.flushTrackControlFinals);
     const importingRef = useRef(false);
     const timelineRef = useRef<HTMLDivElement>(null);
 
@@ -96,6 +102,16 @@ export const DawShell = () => {
             if (e.metaKey && e.key === ',') {
                 e.preventDefault();
                 setSettingsOpen(prev => !prev);
+            }
+            // Shift+Tab: toggle bottom panel between Instrument Rack and Clip Editor.
+            if (e.key === 'Tab' && e.shiftKey) {
+                const target = e.target as HTMLElement | null;
+                const tag = target?.tagName?.toLowerCase();
+                const isTextInput =
+                    tag === 'input' || tag === 'textarea' || target?.isContentEditable;
+                if (isTextInput) return;
+                e.preventDefault();
+                setBottomPanelMode((prev) => (prev === 'rack' ? 'clip' : 'rack'));
             }
         };
         window.addEventListener('keydown', handler);
@@ -128,13 +144,22 @@ export const DawShell = () => {
             const state = useEngineStore.getState();
             const currentTrackCount = state.projectTracks.length || 9;
 
-            // Calculate track index and beat from cursor position
-            const y = e.clientY - rect.top;
-            const x = e.clientX - rect.left;
-            const trackIndex = Math.min(Math.floor(y / TRACK_HEIGHT), currentTrackCount - 1);
+            // Read actual layout from the shared timeline store
+            const tlState = useTimelineStore.getState();
+            const ppb = tlState.pixelsPerBeat;
+            const tlTrackHeight = tlState.trackHeight;
+            const tlRect = tlState.canvasRect;
 
-            // Pixels per beat (synchronized with Timeline's calculation)
-            const ppb = 40; // matches Timeline default pixelsPerBeat
+            // Use the shared canvas rect if available, otherwise fall back to the ref
+            const effectiveRect = tlRect ?? rect;
+
+            // Calculate track index and beat from cursor position
+            // Must add scroll offsets to get absolute position (not just visible area offset)
+            const y = e.clientY - effectiveRect.top + tlState.scrollTop;
+            const x = e.clientX - effectiveRect.left + tlState.scrollLeft;
+            const trackIndex = Math.max(0, Math.min(currentTrackCount - 1, Math.floor(y / tlTrackHeight)));
+
+            // Apply same grid snapping as the ghost preview
             const rawBeat = x / ppb;
             const beat = Math.max(0, useGridStore.getState().snapBeat(rawBeat, 4)); // magnetic snap
 
@@ -143,6 +168,7 @@ export const DawShell = () => {
                 path: dragging.path,
                 trackIndex,
                 beat,
+                ppb,
             });
 
             if (dragging.path && dragging.type === 'audio') {
@@ -221,6 +247,18 @@ export const DawShell = () => {
     const timelineClips = useEngineStore(s => s.timelineClips);
     const projectTracks = useEngineStore(s => s.projectTracks);
 
+    // Keep a valid selected track at all times.
+    useEffect(() => {
+        if (projectTracks.length === 0) {
+            if (selectedTrackId !== 'master') setSelectedTrackId('master');
+            return;
+        }
+        const exists = projectTracks.some((t) => t.id === selectedTrackId);
+        if (!exists) {
+            setSelectedTrackId(projectTracks[0].id);
+        }
+    }, [projectTracks, selectedTrackId]);
+
     // Convert position_seconds → beats using BPM
     const playheadBeat = useMemo(() => {
         const bpm = transport.bpm || 120;
@@ -229,6 +267,59 @@ export const DawShell = () => {
 
     const trackCount = Math.max(projectTracks.length, 8);
     const trackIds = useMemo(() => projectTracks.map((t) => t.id), [projectTracks]);
+    const selectedTimelineClip = useMemo(
+        () => timelineClips.find((c) => c.id === selectedClipId) ?? null,
+        [timelineClips, selectedClipId],
+    );
+    const selectedMidiTotalBars = useMemo(() => {
+        if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return 8;
+        return Math.max(1, Math.ceil(selectedTimelineClip.durationBeats / 4));
+    }, [selectedTimelineClip]);
+
+    useEffect(() => {
+        const incoming: Record<string, MidiNote[]> = {};
+        for (const clip of timelineClips) {
+            if (clip.type !== 'midi') continue;
+            incoming[clip.id] = (clip.midiNotes ?? []).map((n) => ({
+                id: n.id ?? `${clip.id}-${n.pitch}-${n.startBeat}`,
+                pitch: n.pitch,
+                startBeat: n.startBeat,
+                durationBeats: n.durationBeats,
+                velocity: n.velocity,
+            }));
+        }
+        setMidiNotesByClip(incoming);
+    }, [timelineClips]);
+
+    useEffect(() => {
+        latestMidiNotesRef.current = midiNotesByClip;
+    }, [midiNotesByClip]);
+
+    // ── Final unthrottled sends on pointer release ──
+    useEffect(() => {
+        const onPointerUp = () => {
+            void flushTrackControlFinals();
+            const clip = selectedTimelineClip;
+            if (!clip || clip.type !== 'midi') return;
+            const notes = latestMidiNotesRef.current[clip.id] ?? [];
+            const bpm = transport.bpm || 120;
+            const sr = useEngineStore.getState().projectSampleRate || 44100;
+            const beatsPerSecond = bpm / 60;
+            void engineApi
+                .updateMidiClip(
+                    clip.id,
+                    notes.map((n) => ({
+                        pitch: n.pitch,
+                        velocity: n.velocity,
+                        startFrames: Math.max(0, Math.round((n.startBeat / beatsPerSecond) * sr)),
+                        durationFrames: Math.max(1, Math.round((n.durationBeats / beatsPerSecond) * sr)),
+                    })),
+                )
+                .catch((err) => console.error('[DawShell] updateMidiClip final flush failed:', err));
+        };
+        window.addEventListener('pointerup', onPointerUp);
+        return () => window.removeEventListener('pointerup', onPointerUp);
+    }, [flushTrackControlFinals, selectedTimelineClip, transport.bpm]);
 
     // ── Shared layout constants (SSOT for height sync) ──────────────
     const TRACK_HEIGHT = 48;
@@ -296,8 +387,8 @@ export const DawShell = () => {
     }, [transport.bpm, fetchProject]);
 
     const handleOpenMidiClip = useCallback((clipId: string) => {
-        setPianoRollClipId(clipId);
-        setPianoRollOpen(true);
+        setSelectedClipId(clipId);
+        setBottomPanelMode('clip');
     }, []);
 
     return (
@@ -386,7 +477,7 @@ export const DawShell = () => {
                     </aside>
                 </main>
 
-                {/* ── BOTTOM: Device Rack ── */}
+                {/* ── BOTTOM: Rack / Clip Editor (Shift+Tab) ── */}
                 <footer
                     className="shrink-0 z-40 overflow-hidden"
                     style={{
@@ -395,9 +486,51 @@ export const DawShell = () => {
                         borderTop: '1px solid var(--color-divider)',
                     }}
                 >
-                    <ErrorBoundary module="Device Rack">
-                        <DeviceRack selectedTrackId={selectedTrackId} />
-                    </ErrorBoundary>
+                    {bottomPanelMode === 'rack' ? (
+                        <ErrorBoundary module="Device Rack">
+                            <DeviceRack selectedTrackId={selectedTrackId} />
+                        </ErrorBoundary>
+                    ) : (
+                        <ErrorBoundary module="Clip Editor">
+                            {selectedTimelineClip?.type === 'midi' ? (
+                                <PianoRoll
+                                    notes={midiNotesByClip[selectedTimelineClip.id] ?? []}
+                                    onNotesChange={(notes) => {
+                                        const clipId = selectedTimelineClip.id;
+                                        setMidiNotesByClip((prev) => ({ ...prev, [clipId]: notes }));
+                                        const bpm = transport.bpm || 120;
+                                        const sr = useEngineStore.getState().projectSampleRate || 44100;
+                                        const beatsPerSecond = bpm / 60;
+                                        let send = midiSaveThrottlesRef.current.get(clipId);
+                                        if (!send) {
+                                            send = throttle((toSend: MidiNote[]) => {
+                                                void engineApi
+                                                    .updateMidiClip(
+                                                        clipId,
+                                                        toSend.map((n) => ({
+                                                            pitch: n.pitch,
+                                                            velocity: n.velocity,
+                                                            startFrames: Math.max(0, Math.round((n.startBeat / beatsPerSecond) * sr)),
+                                                            durationFrames: Math.max(1, Math.round((n.durationBeats / beatsPerSecond) * sr)),
+                                                        })),
+                                                    )
+                                                    .catch((err) => console.error('[DawShell] updateMidiClip failed:', err));
+                                            }, 80);
+                                            midiSaveThrottlesRef.current.set(clipId, send);
+                                        }
+                                        send(notes);
+                                    }}
+                                    playheadBeat={playheadBeat}
+                                    totalBars={selectedMidiTotalBars}
+                                    clipLengthBeats={selectedTimelineClip.durationBeats}
+                                />
+                            ) : selectedTimelineClip?.type === 'audio' ? (
+                                <SampleClipEditor clip={selectedTimelineClip} />
+                            ) : (
+                                <EmptyClipEditor />
+                            )}
+                        </ErrorBoundary>
+                    )}
                 </footer>
 
                 {/* ── VERY BOTTOM: Status Bar ── */}
@@ -444,45 +577,178 @@ export const DawShell = () => {
                 projectName="My Project"
             />
 
-            {pianoRollOpen && pianoRollClipId && (
-                <div
-                    onClick={() => setPianoRollOpen(false)}
-                    style={{
-                        position: 'fixed',
-                        inset: 0,
-                        zIndex: 9100,
-                        background: 'rgba(0,0,0,0.6)',
-                        backdropFilter: 'blur(6px)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                    }}
-                >
-                    <div
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                            width: 'min(1200px, 92vw)',
-                            height: 'min(760px, 86vh)',
-                            background: '#0f1014',
-                            border: '1px solid var(--color-divider)',
-                            borderRadius: 10,
-                            overflow: 'hidden',
-                            boxShadow: '0 20px 80px rgba(0,0,0,0.55)',
-                        }}
-                    >
-                        <PianoRoll
-                            notes={midiNotesByClip[pianoRollClipId] ?? []}
-                            onNotesChange={(notes) =>
-                                setMidiNotesByClip((prev) => ({ ...prev, [pianoRollClipId]: notes }))
-                            }
-                            playheadBeat={playheadBeat}
-                            totalBars={16}
-                        />
-                    </div>
-                </div>
-            )}
         </div>
     );
 };
 
 export default DawShell;
+
+const EmptyClipEditor = () => (
+    <div style={{
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--color-bg-panel)',
+        color: 'var(--color-text-tertiary)',
+        fontSize: 11,
+        letterSpacing: '0.04em',
+    }}>
+        CLIP EDITOR • Select a clip (Shift+Tab toggles panel)
+    </div>
+);
+
+const SampleClipEditor = ({
+    clip,
+}: {
+    clip: {
+        id: string;
+        name: string;
+        filePath?: string;
+        durationSamples?: number;
+        sourceOffset?: number;
+        isOffline?: boolean;
+    };
+}) => {
+    const sampleRate = useEngineStore((s) => s.projectSampleRate || 44100);
+    const durationSamples = Math.max(0, clip.durationSamples ?? 0);
+    const maxOffset = Math.max(0, durationSamples - 1);
+    const [draftOffset, setDraftOffset] = useState<number>(clip.sourceOffset ?? 0);
+
+    useEffect(() => {
+        setDraftOffset(clip.sourceOffset ?? 0);
+    }, [clip.id, clip.sourceOffset]);
+
+    const commitOffset = useCallback(async (value: number) => {
+        const next = Math.max(0, Math.min(maxOffset, Math.round(value)));
+        setDraftOffset(next);
+        try {
+            await engineApi.setClipSourceOffset(clip.id, next);
+        } catch (err) {
+            console.error('[SampleClipEditor] setClipSourceOffset failed:', err);
+        }
+    }, [clip.id, maxOffset]);
+
+    return (
+        <div style={{
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            background: 'var(--color-bg-panel)',
+        }}>
+            <div style={{
+                height: 24,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+                padding: '0 10px',
+                borderBottom: '1px solid var(--color-divider)',
+                color: 'var(--color-text-secondary)',
+                fontSize: 10,
+                fontWeight: 600,
+                letterSpacing: '0.05em',
+                textTransform: 'uppercase',
+            }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    Sample Editor • {clip.name}
+                </span>
+                <span>
+                    Offset: {(draftOffset / sampleRate).toFixed(3)}s
+                </span>
+            </div>
+
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'auto 1fr auto auto',
+                gap: 8,
+                alignItems: 'center',
+                padding: '6px 10px',
+                borderBottom: '1px solid var(--color-divider)',
+                background: 'color-mix(in srgb, var(--color-bg-panel) 85%, #000)',
+            }}>
+                <button
+                    type="button"
+                    onClick={() => void commitOffset(draftOffset - 1024)}
+                    style={editorButtonStyle}
+                >
+                    -1024
+                </button>
+                <input
+                    type="range"
+                    min={0}
+                    max={Math.max(1, maxOffset)}
+                    value={Math.max(0, Math.min(maxOffset, draftOffset))}
+                    onChange={(e) => setDraftOffset(Number(e.target.value))}
+                    onMouseUp={() => void commitOffset(draftOffset)}
+                    onTouchEnd={() => void commitOffset(draftOffset)}
+                    style={{ width: '100%' }}
+                />
+                <button
+                    type="button"
+                    onClick={() => void commitOffset(draftOffset + 1024)}
+                    style={editorButtonStyle}
+                >
+                    +1024
+                </button>
+                <button
+                    type="button"
+                    onClick={() => void commitOffset(0)}
+                    style={editorButtonStyle}
+                >
+                    Reset
+                </button>
+            </div>
+
+            <div style={{
+                flex: 1,
+                padding: 10,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+            }}>
+                {clip.filePath && durationSamples > 0 && !clip.isOffline ? (
+                    <div style={{
+                        height: '100%',
+                        minHeight: 80,
+                        border: '1px solid var(--color-divider)',
+                        borderRadius: 4,
+                        overflow: 'hidden',
+                        background: 'rgba(5, 10, 18, 0.45)',
+                    }}>
+                        <ClipRenderer
+                            filePath={clip.filePath}
+                            width={Math.max(320, window.innerWidth * 0.4)}
+                            height={Math.max(90, (window.innerHeight * 0.18) | 0)}
+                            durationSamples={durationSamples}
+                            sourceOffset={draftOffset}
+                            isSelected
+                        />
+                    </div>
+                ) : (
+                    <div style={{
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--color-text-tertiary)',
+                        fontSize: 11,
+                    }}>
+                        {clip.isOffline ? 'Media offline — resolve file in timeline (double-click clip).' : 'Audio source unavailable'}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const editorButtonStyle = {
+    border: '1px solid var(--color-divider)',
+    borderRadius: 4,
+    background: 'var(--color-bg-header)',
+    color: 'var(--color-text-secondary)',
+    fontSize: 10,
+    fontWeight: 600,
+    padding: '4px 8px',
+    cursor: 'pointer',
+};

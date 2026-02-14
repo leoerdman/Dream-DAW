@@ -42,7 +42,7 @@ const BP_RADIUS = 5;
 const BP_RADIUS_HOVER = 7;
 const LINE_WIDTH = 1.5;
 const FILL_OPACITY = 0.12;
-const CURVE_TENSION = 0.35; // Bézier control point tension
+const CURVE_TENSION_DEFAULT = 0.35;
 
 // ── Component ────────────────────────────────────────────────────────────
 
@@ -56,6 +56,7 @@ export const AutomationLane = memo(function AutomationLane({
     const addBreakpoint = useAutomationStore((s) => s.addBreakpoint);
     const moveBreakpoint = useAutomationStore((s) => s.moveBreakpoint);
     const setBreakpointCurve = useAutomationStore((s) => s.setBreakpointCurve);
+    const setBreakpointTension = useAutomationStore((s) => s.setBreakpointTension);
     const removeBreakpoint = useAutomationStore((s) => s.removeBreakpoint);
     const selectBreakpoint = useAutomationStore((s) => s.selectBreakpoint);
     const selectedBreakpoints = useAutomationStore((s) => s.selectedBreakpoints);
@@ -87,7 +88,7 @@ export const AutomationLane = memo(function AutomationLane({
             beat: bp.beat,
             value: bp.value,
             curveType: bp.curve === 'step' ? 'step' : bp.curve === 'bezier' ? 'bezier' : 'linear',
-            tension: bp.curve === 'bezier' ? 0.5 : undefined,
+            tension: bp.curve === 'bezier' ? (bp.tension ?? 0.5) : undefined,
         }));
     }, [lane.id, lane.breakpoints]);
 
@@ -151,8 +152,9 @@ export const AutomationLane = memo(function AutomationLane({
                     d += ` L ${curr.x} ${prev.y} L ${curr.x} ${curr.y}`;
                 } else if (prev.curve === 'bezier') {
                     const dx = curr.x - prev.x;
-                    const cp1x = prev.x + dx * CURVE_TENSION;
-                    const cp2x = curr.x - dx * CURVE_TENSION;
+                    const t = Math.max(0.05, Math.min(0.95, prev.tension ?? CURVE_TENSION_DEFAULT));
+                    const cp1x = prev.x + dx * t;
+                    const cp2x = curr.x - dx * t;
                     d += ` C ${cp1x} ${prev.y} ${cp2x} ${curr.y} ${curr.x} ${curr.y}`;
                 } else {
                     d += ` L ${curr.x} ${curr.y}`;
@@ -226,18 +228,18 @@ export const AutomationLane = memo(function AutomationLane({
 
     const handleLineMouseDown = useCallback(
         (e: React.MouseEvent, bpId: string) => {
-            if (!e.altKey) return;
             e.stopPropagation();
             setCurveDragBp(bpId);
             setBreakpointCurve(lane.id, bpId, 'bezier');
 
             const startY = e.clientY;
+            const latest = useAutomationStore.getState().lanes[lane.id];
+            const initial = latest?.breakpoints.find((bp) => bp.id === bpId)?.tension ?? 0.5;
             const onMove = (ev: MouseEvent) => {
                 const dy = ev.clientY - startY;
-                if (Math.abs(dy) > 4) {
-                    setBreakpointCurve(lane.id, bpId, 'bezier');
-                    flushPointsToEngine();
-                }
+                const next = Math.max(0.05, Math.min(0.95, initial - dy * 0.004));
+                setBreakpointTension(lane.id, bpId, next);
+                flushPointsToEngine();
             };
             const onUp = () => {
                 setCurveDragBp(null);
@@ -252,6 +254,7 @@ export const AutomationLane = memo(function AutomationLane({
         [
             lane.id,
             setBreakpointCurve,
+            setBreakpointTension,
             flushPointsToEngine,
             pushPointsThrottled,
             pushPointsImmediate,
@@ -299,11 +302,70 @@ export const AutomationLane = memo(function AutomationLane({
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     onMouseDown={(e) => {
-                        const targetBp = bps.find((bp) => beatToX(bp.beat) <= e.nativeEvent.offsetX);
-                        if (targetBp) handleLineMouseDown(e, targetBp.id);
+                        const localX = e.nativeEvent.offsetX;
+                        const localY = e.nativeEvent.offsetY;
+                        let bestIdx = -1;
+                        let bestDist = Number.POSITIVE_INFINITY;
+                        for (let i = 0; i < bps.length - 1; i++) {
+                            const x1 = beatToX(bps[i].beat);
+                            const x2 = beatToX(bps[i + 1].beat);
+                            if (localX < Math.min(x1, x2) - 8 || localX > Math.max(x1, x2) + 8) continue;
+                            const t = Math.abs(x2 - x1) < 1e-6 ? 0 : (localX - x1) / (x2 - x1);
+                            const y1 = valueToPxY(bps[i].value);
+                            const y2 = valueToPxY(bps[i + 1].value);
+                            const y = y1 + (y2 - y1) * Math.max(0, Math.min(1, t));
+                            const dist = Math.abs(localY - y);
+                            if (dist < bestDist) {
+                                bestDist = dist;
+                                bestIdx = i;
+                            }
+                        }
+                        if (bestIdx >= 0) {
+                            handleLineMouseDown(e, bps[bestIdx].id);
+                        }
                     }}
                 />
             )}
+
+            {/* Bézier segment tension handles */}
+            {bps.map((bp, idx) => {
+                if (bp.curve !== 'bezier') return null;
+                const next = bps[idx + 1];
+                if (!next) return null;
+                const x1 = beatToX(bp.beat);
+                const y1 = valueToPxY(bp.value);
+                const x2 = beatToX(next.beat);
+                const y2 = valueToPxY(next.value);
+                const t = Math.max(0.05, Math.min(0.95, bp.tension ?? 0.5));
+                const mx = x1 + (x2 - x1) * t;
+                const my = y1 + (y2 - y1) * 0.5;
+                const active = curveDragBp === bp.id;
+                return (
+                    <g key={`curve-handle-${bp.id}`}>
+                        <line
+                            x1={x1}
+                            y1={y1}
+                            x2={mx}
+                            y2={my}
+                            stroke={lane.color}
+                            strokeOpacity={active ? 0.9 : 0.45}
+                            strokeWidth={1}
+                            strokeDasharray="3 2"
+                        />
+                        <circle
+                            cx={mx}
+                            cy={my}
+                            r={active ? 5.2 : 4}
+                            fill={active ? '#ffffff' : lane.color}
+                            fillOpacity={active ? 1 : 0.85}
+                            stroke={lane.color}
+                            strokeWidth={1}
+                            style={{ cursor: 'ns-resize' }}
+                            onMouseDown={(e) => handleLineMouseDown(e, bp.id)}
+                        />
+                    </g>
+                );
+            })}
 
             {/* Breakpoint dots */}
             {bps.map((bp) => {
@@ -332,6 +394,18 @@ export const AutomationLane = memo(function AutomationLane({
                         }}
                         onMouseDown={(e) => handleBpMouseDown(e, bp.id)}
                         onDoubleClick={(e) => handleBpDblClick(e, bp.id)}
+                        onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const next =
+                                bp.curve === 'linear'
+                                    ? 'bezier'
+                                    : bp.curve === 'bezier'
+                                        ? 'step'
+                                        : 'linear';
+                            setBreakpointCurve(lane.id, bp.id, next);
+                            flushPointsToEngine();
+                        }}
                         onMouseEnter={() => setHoveredBp(bp.id)}
                         onMouseLeave={() => setHoveredBp(null)}
                     />

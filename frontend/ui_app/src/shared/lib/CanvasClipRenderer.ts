@@ -42,6 +42,8 @@ export interface TimelineClipData {
     sourceOffset?: number;
     fadeIn?: number;
     fadeOut?: number;
+    fadeInCurve?: number;
+    fadeOutCurve?: number;
     isOffline?: boolean;
     muted?: boolean;
     midiNotes?: Array<{
@@ -512,10 +514,26 @@ export class CanvasClipRenderer {
 
         // ── 8. Fade overlays ──────────────────────────────────────────
         if (clip.fadeIn && clip.fadeIn > 0) {
-            this._drawFade(ctx, x, y + 1, w * clip.fadeIn, h, 'in');
+            this._drawFade(
+                ctx,
+                x,
+                y + 1,
+                w * clip.fadeIn,
+                h,
+                'in',
+                clip.fadeInCurve ?? 0.5,
+            );
         }
         if (clip.fadeOut && clip.fadeOut > 0) {
-            this._drawFade(ctx, x + w - w * clip.fadeOut, y + 1, w * clip.fadeOut, h, 'out');
+            this._drawFade(
+                ctx,
+                x + w - w * clip.fadeOut,
+                y + 1,
+                w * clip.fadeOut,
+                h,
+                'out',
+                clip.fadeOutCurve ?? 0.5,
+            );
         }
 
         // ── 9. Clip name ──────────────────────────────────────────────
@@ -970,11 +988,13 @@ export class CanvasClipRenderer {
         ctx: CanvasRenderingContext2D,
         x: number, y: number, w: number, h: number,
         direction: 'in' | 'out',
+        curve: number,
     ): void {
+        if (w <= 0 || h <= 0) return;
+        const t = Math.max(0.05, Math.min(0.95, curve));
+
         ctx.save();
-        const gradient = direction === 'in'
-            ? ctx.createLinearGradient(x, y, x + w, y)
-            : ctx.createLinearGradient(x, y, x + w, y);
+        const gradient = ctx.createLinearGradient(x, y, x + w, y);
         if (direction === 'in') {
             gradient.addColorStop(0, 'rgba(0, 0, 0, 0.6)');
             gradient.addColorStop(1, 'rgba(0, 0, 0, 0.0)');
@@ -984,6 +1004,17 @@ export class CanvasClipRenderer {
         }
         ctx.fillStyle = gradient;
         ctx.fillRect(x, y, w, h);
+
+        const cpX = direction === 'in' ? x + w * t : x + w * (1 - t);
+        const startX = direction === 'in' ? x : x + w;
+        const endX = direction === 'in' ? x + w : x;
+        ctx.strokeStyle = 'rgba(255, 190, 85, 0.9)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(startX, y + h);
+        ctx.quadraticCurveTo(cpX, y, endX, y + h);
+        ctx.stroke();
+
         ctx.restore();
     }
 }

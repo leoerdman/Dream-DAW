@@ -264,6 +264,24 @@ fn add_plugin_to_track_cmd(
         if merged.contains("auto filter") || merged.contains("autofilter") {
             return Some(("internal://effect/auto-filter", "Auto Filter", "effect"));
         }
+        if merged.contains("auto pan") || merged.contains("autopan") {
+            return Some(("internal://effect/auto-pan", "Auto Pan", "effect"));
+        }
+        if merged.contains("midipitcher") || merged.contains("midi pitch") {
+            return Some(("internal://midi-fx/pitch", "MIDI Pitch", "effect"));
+        }
+        if merged.contains("mxdevicescale") || merged.contains("midi scale") {
+            return Some(("internal://midi-fx/scale", "MIDI Scale", "effect"));
+        }
+        if merged.contains("mxdevicevelocity") || merged.contains("midi velocity") {
+            return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
+        }
+        if merged.contains("mxdevicerandom") || merged.contains("midi random") {
+            return Some(("internal://midi-fx/random", "MIDI Random", "effect"));
+        }
+        if merged.contains("spectrum") {
+            return Some(("internal://effect/spectrum", "Spectrum", "effect"));
+        }
         if merged.contains("phaser-flanger") || merged.contains("phaser flanger") {
             return Some(("internal://effect/phaser", "Phaser", "effect"));
         }
@@ -307,43 +325,49 @@ fn add_plugin_to_track_cmd(
         const FX_FLANGER: u8 = 11;
         const FX_DISTORTION: u8 = 12;
         const FX_BITCRUSHER: u8 = 13;
+        const FX_NOISE_MACHINE: u8 = 14;
+        const FX_AUTO_PAN: u8 = 15;
+
         let key = plugin_id.to_lowercase();
-        if key.contains("eq") {
+
+        // ── Exact internal:// prefix matches (highest priority) ──────
+        if key.starts_with("internal://effect/") {
+            return match key.as_str() {
+                "internal://effect/eq-eight" => Some(FX_EQ),
+                "internal://effect/compressor" => Some(FX_COMPRESSOR),
+                "internal://effect/delay" => Some(FX_DELAY),
+                "internal://effect/reverb" => Some(FX_REVERB),
+                "internal://effect/chorus" => Some(FX_CHORUS),
+                "internal://effect/utility" => Some(FX_UTILITY),
+                "internal://effect/saturator" => Some(FX_SATURATOR),
+                "internal://effect/limiter" => Some(FX_LIMITER),
+                "internal://effect/gate" => Some(FX_GATE),
+                "internal://effect/auto-filter" => Some(FX_AUTO_FILTER),
+                "internal://effect/phaser" => Some(FX_PHASER),
+                "internal://effect/flanger" => Some(FX_FLANGER),
+                "internal://effect/distortion" => Some(FX_DISTORTION),
+                "internal://effect/bitcrusher" => Some(FX_BITCRUSHER),
+                "internal://effect/noise-machine" => Some(FX_NOISE_MACHINE),
+                "internal://effect/auto-pan" => Some(FX_AUTO_PAN),
+                _ => None,
+            };
+        }
+
+        // ── Keyword fallbacks (Ableton device names, aliases) ────────
+        if key.contains("eq eight") || key.contains("eq8") || key.contains("eq3") || key.contains("channel eq") || key.contains("eq") {
             return Some(FX_EQ);
         }
-        if key.contains("eq eight")
-            || key.contains("eq8")
-            || key.contains("eq3")
-            || key.contains("channel eq")
-        {
-            return Some(FX_EQ);
-        }
-        if key.contains("compressor") {
+        if key.contains("compressor") || key.contains("glue") || key.contains("multiband dynamics") {
             return Some(FX_COMPRESSOR);
         }
-        if key.contains("glue") || key.contains("multiband dynamics") {
-            return Some(FX_COMPRESSOR);
-        }
-        if key.contains("delay") {
+        if key.contains("delay") || key.contains("echo") || key.contains("ping pong") {
             return Some(FX_DELAY);
         }
-        if key.contains("echo") || key.contains("ping pong") {
-            return Some(FX_DELAY);
-        }
-        if key.contains("reverb") {
+        if key.contains("reverb") || key.contains("hybrid reverb") {
             return Some(FX_REVERB);
         }
-        if key.contains("hybrid reverb") {
-            return Some(FX_REVERB);
-        }
-        if key.contains("chorus") {
+        if key.contains("chorus") || key.contains("chorus-ensemble") {
             return Some(FX_CHORUS);
-        }
-        if key.contains("chorus-ensemble") {
-            return Some(FX_CHORUS);
-        }
-        if key.contains("utility") {
-            return Some(FX_UTILITY);
         }
         if key.contains("saturator") {
             return Some(FX_SATURATOR);
@@ -351,35 +375,32 @@ fn add_plugin_to_track_cmd(
         if key.contains("limiter") {
             return Some(FX_LIMITER);
         }
-        if key.contains("gate") {
-            return Some(FX_GATE);
-        }
-        if key.contains("auto-filter") || key.contains("autofilter") {
+        if key.contains("auto-filter") || key.contains("autofilter") || key.contains("auto filter") {
             return Some(FX_AUTO_FILTER);
         }
-        if key.contains("auto filter") {
-            return Some(FX_AUTO_FILTER);
+        if key.contains("auto-pan") || key.contains("autopan") || key.contains("auto pan") {
+            return Some(FX_AUTO_PAN);
         }
-        if key.contains("phaser") {
-            return Some(FX_PHASER);
+        if key.contains("noise-machine") || key.contains("noisemachine") || key.contains("noise machine") {
+            return Some(FX_NOISE_MACHINE);
         }
-        if key.contains("phaser-flanger") {
+        if key.contains("phaser") || key.contains("phaser-flanger") {
             return Some(FX_PHASER);
         }
         if key.contains("flanger") {
             return Some(FX_FLANGER);
         }
-        if key.contains("distortion") {
+        if key.contains("distortion") || key.contains("overdrive") || key.contains("pedal") || key.contains("cabinet") || key.contains("amp") {
             return Some(FX_DISTORTION);
         }
-        if key.contains("overdrive") || key.contains("pedal") || key.contains("cabinet") || key.contains("amp") {
-            return Some(FX_DISTORTION);
-        }
-        if key.contains("bitcrusher") || key.contains("bit-crusher") {
+        if key.contains("bitcrusher") || key.contains("bit-crusher") || key.contains("redux") {
             return Some(FX_BITCRUSHER);
         }
-        if key.contains("redux") {
-            return Some(FX_BITCRUSHER);
+        if key.contains("utility") {
+            return Some(FX_UTILITY);
+        }
+        if key.contains("gate") {
+            return Some(FX_GATE);
         }
         None
     }
@@ -597,6 +618,10 @@ fn set_internal_plugin_param_cmd(
     let mut sampler_filter_cutoff: Option<f32> = None;
     let mut sampler_filter_resonance: Option<f32> = None;
     let mut sampler_filter_type: Option<u8> = None;
+    let mut sampler_lfo_rate: Option<f32> = None;
+    let mut sampler_lfo_depth: Option<f32> = None;
+    let mut sampler_lfo_target: Option<u8> = None;
+    let mut sampler_pulse_width: Option<f32> = None;
     let (track_index, sampler_cfg_for_rt) = {
         let (idx, track) = project
             .tracks
@@ -711,6 +736,30 @@ fn set_internal_plugin_param_cmd(
                 cfg.filter_type = ft;
                 sampler_filter_type = Some(ft);
             }
+            "synth.lfo.rate" | "synth.lforate" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                let rate = payload.value.clamp(0.01, 20.0) as f32;
+                cfg.lfo_rate = rate as f64;
+                sampler_lfo_rate = Some(rate);
+            }
+            "synth.lfo.depth" | "synth.lfodepth" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                let depth = payload.value.clamp(0.0, 1.0) as f32;
+                cfg.lfo_depth = depth as f64;
+                sampler_lfo_depth = Some(depth);
+            }
+            "synth.lfo.target" | "synth.lfotarget" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                let target = payload.value.round().clamp(0.0, 2.0) as u8;
+                cfg.lfo_target = target;
+                sampler_lfo_target = Some(target);
+            }
+            "synth.pulse_width" | "synth.pulsewidth" | "synth.pw" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                let pw = payload.value.clamp(0.05, 0.95) as f32;
+                cfg.pulse_width = pw as f64;
+                sampler_pulse_width = Some(pw);
+            }
             _ => {
                 // Keep unknown params round-trippable in automation lanes.
                 upsert_static_automation_lane(track, &payload.param_id, payload.value);
@@ -795,6 +844,30 @@ fn set_internal_plugin_param_cmd(
         push_command(&handle, EngineCommand::SetSamplerFilterType {
             track_index: track_index as u16,
             filter_type,
+        })?;
+    }
+    if let Some(rate) = sampler_lfo_rate {
+        push_command(&handle, EngineCommand::SetSamplerLfoRate {
+            track_index: track_index as u16,
+            rate,
+        })?;
+    }
+    if let Some(depth) = sampler_lfo_depth {
+        push_command(&handle, EngineCommand::SetSamplerLfoDepth {
+            track_index: track_index as u16,
+            depth,
+        })?;
+    }
+    if let Some(target) = sampler_lfo_target {
+        push_command(&handle, EngineCommand::SetSamplerLfoTarget {
+            track_index: track_index as u16,
+            target,
+        })?;
+    }
+    if let Some(width) = sampler_pulse_width {
+        push_command(&handle, EngineCommand::SetSamplerPulseWidth {
+            track_index: track_index as u16,
+            width,
         })?;
     }
 

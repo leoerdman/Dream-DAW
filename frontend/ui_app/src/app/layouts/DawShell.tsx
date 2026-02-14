@@ -76,6 +76,7 @@ export const DawShell = () => {
     });
     const [followPlayhead, setFollowPlayhead] = useState(false);
     const [midiNotesByClip, setMidiNotesByClip] = useState<Record<string, MidiNote[]>>({});
+    const [clipFadeCurves, setClipFadeCurves] = useState<Record<string, { fadeInCurve: number; fadeOutCurve: number }>>({});
     const [aiVariationBusy, setAiVariationBusy] = useState(false);
     const [browserWidth, setBrowserWidth] = useState(240);
     const [mixerFocusMode, setMixerFocusMode] = useState(false);
@@ -260,15 +261,23 @@ export const DawShell = () => {
     const timelineClipsForView = useMemo(
         () =>
             timelineClips.map((clip) => {
-                if (clip.type !== 'midi') return clip;
+                const curve = clipFadeCurves[clip.id];
+                const withCurve = curve
+                    ? {
+                        ...clip,
+                        fadeInCurve: curve.fadeInCurve,
+                        fadeOutCurve: curve.fadeOutCurve,
+                    }
+                    : clip;
+                if (clip.type !== 'midi') return withCurve;
                 const localNotes = midiNotesByClip[clip.id];
-                if (!localNotes) return clip;
+                if (!localNotes) return withCurve;
                 return {
-                    ...clip,
+                    ...withCurve,
                     midiNotes: localNotes,
                 };
             }),
-        [timelineClips, midiNotesByClip],
+        [timelineClips, midiNotesByClip, clipFadeCurves],
     );
 
     // Keep a valid selected track at all times.
@@ -798,6 +807,8 @@ export const DawShell = () => {
                                     clipDurationSamples={selectedTimelineClip.durationSamples}
                                     fadeInFrames={Math.max(0, Math.round(selectedTimelineClip.fadeIn ?? 0))}
                                     fadeOutFrames={Math.max(0, Math.round(selectedTimelineClip.fadeOut ?? 0))}
+                                    fadeInCurve={selectedTimelineClip.fadeInCurve ?? 0.5}
+                                    fadeOutCurve={selectedTimelineClip.fadeOutCurve ?? 0.5}
                                     onSetClipFades={async (fadeInFrames, fadeOutFrames) => {
                                         await engineApi.setClipFades(
                                             selectedTimelineClip.id,
@@ -806,9 +817,30 @@ export const DawShell = () => {
                                         );
                                         await fetchProject();
                                     }}
+                                    onSetFadeCurves={async (fadeInCurve, fadeOutCurve) => {
+                                        setClipFadeCurves((prev) => ({
+                                            ...prev,
+                                            [selectedTimelineClip.id]: {
+                                                fadeInCurve: Math.max(0.05, Math.min(0.95, fadeInCurve)),
+                                                fadeOutCurve: Math.max(0.05, Math.min(0.95, fadeOutCurve)),
+                                            },
+                                        }));
+                                    }}
                                 />
                             ) : selectedTimelineClip?.type === 'audio' ? (
-                                <SampleClipEditor key={selectedTimelineClip.id} clip={selectedTimelineClip} />
+                                <SampleClipEditor
+                                    key={selectedTimelineClip.id}
+                                    clip={selectedTimelineClip}
+                                    onSetFadeCurves={(fadeInCurve, fadeOutCurve) => {
+                                        setClipFadeCurves((prev) => ({
+                                            ...prev,
+                                            [selectedTimelineClip.id]: {
+                                                fadeInCurve: Math.max(0.05, Math.min(0.95, fadeInCurve)),
+                                                fadeOutCurve: Math.max(0.05, Math.min(0.95, fadeOutCurve)),
+                                            },
+                                        }));
+                                    }}
+                                />
                             ) : (
                                 <EmptyClipEditor />
                             )}
@@ -970,6 +1002,7 @@ const EmptyClipEditor = () => (
 
 const SampleClipEditor = ({
     clip,
+    onSetFadeCurves,
 }: {
     clip: {
         id: string;
@@ -980,8 +1013,11 @@ const SampleClipEditor = ({
         sourceOffset?: number;
         fadeIn?: number;
         fadeOut?: number;
+        fadeInCurve?: number;
+        fadeOutCurve?: number;
         isOffline?: boolean;
     };
+    onSetFadeCurves?: (fadeInCurve: number, fadeOutCurve: number) => void;
 }) => {
     const sampleRate = useEngineStore((s) => s.projectSampleRate || 44100);
     const bpm = useEngineStore((s) => s.projectBpm || s.transport.bpm || 120);
@@ -994,11 +1030,15 @@ const SampleClipEditor = ({
     const [draftOffset, setDraftOffset] = useState<number>(clip.sourceOffset ?? 0);
     const [draftFadeIn, setDraftFadeIn] = useState<number>(clip.fadeIn ?? 0);
     const [draftFadeOut, setDraftFadeOut] = useState<number>(clip.fadeOut ?? 0);
+    const [draftFadeInCurve, setDraftFadeInCurve] = useState<number>(clip.fadeInCurve ?? 0.5);
+    const [draftFadeOutCurve, setDraftFadeOutCurve] = useState<number>(clip.fadeOutCurve ?? 0.5);
     const [isPreviewing, setIsPreviewing] = useState(false);
 
     useEffect(() => setDraftOffset(clip.sourceOffset ?? 0), [clip.id, clip.sourceOffset]);
     useEffect(() => setDraftFadeIn(clip.fadeIn ?? 0), [clip.id, clip.fadeIn]);
     useEffect(() => setDraftFadeOut(clip.fadeOut ?? 0), [clip.id, clip.fadeOut]);
+    useEffect(() => setDraftFadeInCurve(clip.fadeInCurve ?? 0.5), [clip.id, clip.fadeInCurve]);
+    useEffect(() => setDraftFadeOutCurve(clip.fadeOutCurve ?? 0.5), [clip.id, clip.fadeOutCurve]);
 
     const commitOffset = useCallback(async (value: number) => {
         const next = Math.max(0, Math.min(maxOffset, Math.round(value)));
@@ -1115,7 +1155,7 @@ const SampleClipEditor = ({
 
             <div style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr 1fr 1fr',
+                gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
                 gap: 8,
                 alignItems: 'center',
                 padding: '6px 10px',
@@ -1163,6 +1203,42 @@ const SampleClipEditor = ({
                         style={{ width: '100%' }}
                     />
                     <span style={editorValueTextStyle}>{fadeLabel(draftFadeOut)}</span>
+                </label>
+                <label style={editorLabeledControlStyle}>
+                    <span style={editorMetaTextStyle}>In Curve</span>
+                    <input
+                        type="range"
+                        min={0.05}
+                        max={0.95}
+                        step={0.01}
+                        value={draftFadeInCurve}
+                        onChange={(e) => {
+                            const next = Number(e.target.value);
+                            setDraftFadeInCurve(next);
+                        }}
+                        onMouseUp={() => onSetFadeCurves?.(draftFadeInCurve, draftFadeOutCurve)}
+                        onTouchEnd={() => onSetFadeCurves?.(draftFadeInCurve, draftFadeOutCurve)}
+                        style={{ width: '100%' }}
+                    />
+                    <span style={editorValueTextStyle}>{draftFadeInCurve.toFixed(2)}</span>
+                </label>
+                <label style={editorLabeledControlStyle}>
+                    <span style={editorMetaTextStyle}>Out Curve</span>
+                    <input
+                        type="range"
+                        min={0.05}
+                        max={0.95}
+                        step={0.01}
+                        value={draftFadeOutCurve}
+                        onChange={(e) => {
+                            const next = Number(e.target.value);
+                            setDraftFadeOutCurve(next);
+                        }}
+                        onMouseUp={() => onSetFadeCurves?.(draftFadeInCurve, draftFadeOutCurve)}
+                        onTouchEnd={() => onSetFadeCurves?.(draftFadeInCurve, draftFadeOutCurve)}
+                        style={{ width: '100%' }}
+                    />
+                    <span style={editorValueTextStyle}>{draftFadeOutCurve.toFixed(2)}</span>
                 </label>
             </div>
 
@@ -1241,6 +1317,30 @@ const SampleClipEditor = ({
                                             borderLeft: '1px solid rgba(255,190,85,0.6)',
                                             pointerEvents: 'none',
                                         }} />
+                                    )}
+                                    {(fadeInPx > 0 || fadeOutPx > 0) && (
+                                        <svg
+                                            width={waveformWidth}
+                                            height={Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)}
+                                            style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+                                        >
+                                            {fadeInPx > 0 && (
+                                                <path
+                                                    d={`M 0 ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)} Q ${fadeInPx * draftFadeInCurve} 0 ${fadeInPx} ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)}`}
+                                                    fill="none"
+                                                    stroke="rgba(255,190,85,0.95)"
+                                                    strokeWidth={1.5}
+                                                />
+                                            )}
+                                            {fadeOutPx > 0 && (
+                                                <path
+                                                    d={`M ${waveformWidth} ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)} Q ${waveformWidth - fadeOutPx * draftFadeOutCurve} 0 ${waveformWidth - fadeOutPx} ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)}`}
+                                                    fill="none"
+                                                    stroke="rgba(255,190,85,0.95)"
+                                                    strokeWidth={1.5}
+                                                />
+                                            )}
+                                        </svg>
                                     )}
                                 </div>
                             </div>

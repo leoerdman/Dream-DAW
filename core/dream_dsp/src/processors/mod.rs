@@ -13,6 +13,7 @@ pub mod saturator;
 pub mod limiter;
 pub mod gate;
 pub mod auto_filter;
+pub mod auto_pan;
 pub mod phaser;
 pub mod flanger;
 pub mod distortion;

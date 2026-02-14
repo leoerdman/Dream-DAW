@@ -160,7 +160,7 @@ export const setTrackSolo = (trackIndex: number, soloed: boolean) =>
 // ── Device Chain Commands ────────────────────────────────────────────────
 
 /** Built-in effect type values (mirrors BuiltinEffectType in Rust). */
-export type BuiltinEffectType = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+export type BuiltinEffectType = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
 export const BuiltinEffectType: {
     Eq: BuiltinEffectType;
     Compressor: BuiltinEffectType;
@@ -169,6 +169,15 @@ export const BuiltinEffectType: {
     Chorus: BuiltinEffectType;
     Utility: BuiltinEffectType;
     Saturator: BuiltinEffectType;
+    Limiter: BuiltinEffectType;
+    Gate: BuiltinEffectType;
+    AutoFilter: BuiltinEffectType;
+    Phaser: BuiltinEffectType;
+    Flanger: BuiltinEffectType;
+    Distortion: BuiltinEffectType;
+    Bitcrusher: BuiltinEffectType;
+    NoiseMachine: BuiltinEffectType;
+    AutoPan: BuiltinEffectType;
 } = {
     Eq: 0,
     Compressor: 1,
@@ -177,6 +186,15 @@ export const BuiltinEffectType: {
     Chorus: 4,
     Utility: 5,
     Saturator: 6,
+    Limiter: 7,
+    Gate: 8,
+    AutoFilter: 9,
+    Phaser: 10,
+    Flanger: 11,
+    Distortion: 12,
+    Bitcrusher: 13,
+    NoiseMachine: 14,
+    AutoPan: 15,
 };
 
 /** Add a built-in DSP device to a track's insert chain. */

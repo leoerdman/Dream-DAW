@@ -58,7 +58,10 @@ interface PianoRollProps {
     clipDurationSamples?: number;
     fadeInFrames?: number;
     fadeOutFrames?: number;
+    fadeInCurve?: number;
+    fadeOutCurve?: number;
     onSetClipFades?: (fadeInFrames: number, fadeOutFrames: number) => void | Promise<void>;
+    onSetFadeCurves?: (fadeInCurve: number, fadeOutCurve: number) => void | Promise<void>;
 }
 
 // ── Scale Definitions ────────────────────────────────────────────────────
@@ -155,7 +158,10 @@ export const PianoRoll = memo(function PianoRoll({
     clipDurationSamples,
     fadeInFrames = 0,
     fadeOutFrames = 0,
+    fadeInCurve = 0.5,
+    fadeOutCurve = 0.5,
     onSetClipFades,
+    onSetFadeCurves,
 }: PianoRollProps) {
     const [tool, setTool] = useState<PianoRollTool>('draw');
     const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set());
@@ -166,6 +172,8 @@ export const PianoRoll = memo(function PianoRoll({
     const [isEditorFocused, setIsEditorFocused] = useState(false);
     const [draftFadeIn, setDraftFadeIn] = useState(fadeInFrames);
     const [draftFadeOut, setDraftFadeOut] = useState(fadeOutFrames);
+    const [draftFadeInCurve, setDraftFadeInCurve] = useState(fadeInCurve);
+    const [draftFadeOutCurve, setDraftFadeOutCurve] = useState(fadeOutCurve);
 
     // Scale state
     const [highlightScale, setHighlightScale] = useState(false);
@@ -238,6 +246,8 @@ export const PianoRoll = memo(function PianoRoll({
 
     useEffect(() => setDraftFadeIn(fadeInFrames), [clipId, fadeInFrames]);
     useEffect(() => setDraftFadeOut(fadeOutFrames), [clipId, fadeOutFrames]);
+    useEffect(() => setDraftFadeInCurve(fadeInCurve), [clipId, fadeInCurve]);
+    useEffect(() => setDraftFadeOutCurve(fadeOutCurve), [clipId, fadeOutCurve]);
 
     // Auto-fit horizontal: scale so the entire clip fills the available width.
     // Only apply MIN_PPB/MAX_PPB clamping to user-driven zoom overrides,
@@ -1118,6 +1128,38 @@ export const PianoRoll = memo(function PianoRoll({
                                 style={{ width: 72 }}
                             />
                         </label>
+                        {onSetFadeCurves && (
+                            <>
+                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                    <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>In Curve</span>
+                                    <input
+                                        type="range"
+                                        min={0.05}
+                                        max={0.95}
+                                        step={0.01}
+                                        value={draftFadeInCurve}
+                                        onChange={(e) => setDraftFadeInCurve(Number(e.target.value))}
+                                        onMouseUp={() => { void onSetFadeCurves(draftFadeInCurve, draftFadeOutCurve); }}
+                                        onTouchEnd={() => { void onSetFadeCurves(draftFadeInCurve, draftFadeOutCurve); }}
+                                        style={{ width: 64 }}
+                                    />
+                                </label>
+                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                    <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>Out Curve</span>
+                                    <input
+                                        type="range"
+                                        min={0.05}
+                                        max={0.95}
+                                        step={0.01}
+                                        value={draftFadeOutCurve}
+                                        onChange={(e) => setDraftFadeOutCurve(Number(e.target.value))}
+                                        onMouseUp={() => { void onSetFadeCurves(draftFadeInCurve, draftFadeOutCurve); }}
+                                        onTouchEnd={() => { void onSetFadeCurves(draftFadeInCurve, draftFadeOutCurve); }}
+                                        style={{ width: 64 }}
+                                    />
+                                </label>
+                            </>
+                        )}
                     </>
                 )}
 

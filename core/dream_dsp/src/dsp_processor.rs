@@ -70,6 +70,7 @@ pub enum BuiltinEffectType {
     Distortion = 12,
     Bitcrusher = 13,
     NoiseMachine = 14,
+    AutoPan = 15,
 }
 
 impl BuiltinEffectType {
@@ -91,6 +92,7 @@ impl BuiltinEffectType {
             12 => Some(Self::Distortion),
             13 => Some(Self::Bitcrusher),
             14 => Some(Self::NoiseMachine),
+            15 => Some(Self::AutoPan),
             _ => None,
         }
     }
@@ -116,6 +118,7 @@ impl BuiltinEffectType {
             Self::Distortion => Box::new(super::processors::distortion::DistortionProcessor::new()),
             Self::Bitcrusher => Box::new(super::processors::bitcrusher::BitcrusherProcessor::new()),
             Self::NoiseMachine => Box::new(super::processors::noise_machine::NoiseMachineProcessor::new(sample_rate)),
+            Self::AutoPan => Box::new(super::processors::auto_pan::AutoPanProcessor::new(sample_rate)),
         }
     }
 }
@@ -130,18 +133,18 @@ mod tests {
 
     #[test]
     fn builtin_effect_type_roundtrip() {
-        for i in 0..=14u8 {
+        for i in 0..=15u8 {
             let ty = BuiltinEffectType::from_u8(i).unwrap();
             assert_eq!(ty as u8, i);
         }
-        assert!(BuiltinEffectType::from_u8(15).is_none());
+        assert!(BuiltinEffectType::from_u8(16).is_none());
         assert!(BuiltinEffectType::from_u8(255).is_none());
     }
 
     #[test]
     fn create_all_processors() {
         let sr = 44100.0;
-        for i in 0..=14u8 {
+        for i in 0..=15u8 {
             let ty = BuiltinEffectType::from_u8(i).unwrap();
             let mut proc = ty.create_processor(sr);
             // Process silence — should produce silence

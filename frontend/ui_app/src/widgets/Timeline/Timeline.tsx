@@ -276,6 +276,13 @@ export const Timeline = (props: TimelineProps) => {
 
         const selectedSet = new Set(selectedClipIds);
         const clipData: TimelineClipData[] = clips.map(c => ({
+            // Stored fades are in sample-frames; canvas renderer expects 0..1 fraction of clip width.
+            fadeIn: (c.durationSamples && c.durationSamples > 0)
+                ? Math.max(0, Math.min(1, (c.fadeIn ?? 0) / c.durationSamples))
+                : 0,
+            fadeOut: (c.durationSamples && c.durationSamples > 0)
+                ? Math.max(0, Math.min(1, (c.fadeOut ?? 0) / c.durationSamples))
+                : 0,
             id: c.id,
             name: c.name,
             trackIndex: c.trackIndex,
@@ -287,8 +294,8 @@ export const Timeline = (props: TimelineProps) => {
             filePath: c.filePath,
             durationSamples: c.durationSamples,
             sourceOffset: c.sourceOffset,
-            fadeIn: c.fadeIn,
-            fadeOut: c.fadeOut,
+            fadeInCurve: c.fadeInCurve,
+            fadeOutCurve: c.fadeOutCurve,
             isOffline: c.isOffline,
             muted: c.muted,
             midiNotes: c.midiNotes,

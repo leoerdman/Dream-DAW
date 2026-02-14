@@ -466,12 +466,18 @@ export const AssetBrowser = () => {
         return base;
     }, [selectedCategoryId, searchQuery, realBrowserItems, pluginBrowserItems, folderBrowserItems, activeCategory, folderStack, sizeFilter, sortFilter]);
 
-    // ── Progressive rendering: show items in batches to avoid 10K DOM nodes ──
-    const RENDER_BATCH = 200;
-    const [visibleCount, setVisibleCount] = useState(RENDER_BATCH);
+    // ── Virtual scrolling: only render items visible in viewport ──
+    // ROW_HEIGHT must match the actual rendered row height (padding + content).
+    const ROW_HEIGHT = 28;
+    const OVERSCAN = 8; // extra rows above/below viewport for smooth scroll
+    const [scrollTop, setScrollTop] = useState(0);
+    const [containerHeight, setContainerHeight] = useState(400);
 
-    const visibleItems = useMemo(() => items.slice(0, visibleCount), [items, visibleCount]);
-    const hasMore = visibleCount < items.length;
+    // Compute visible window
+    const totalHeight = items.length * ROW_HEIGHT;
+    const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+    const endIdx = Math.min(items.length, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
+    const visibleItems = useMemo(() => items.slice(startIdx, endIdx), [items, startIdx, endIdx]);
 
     useEffect(() => {
         let cancelled = false;
@@ -510,12 +516,23 @@ export const AssetBrowser = () => {
         };
     }, []);
 
+    // Measure container height on mount and resize
+    useEffect(() => {
+        const el = fileListRef.current;
+        if (!el) return;
+        const ro = new ResizeObserver(entries => {
+            for (const entry of entries) {
+                setContainerHeight(entry.contentRect.height);
+            }
+        });
+        ro.observe(el);
+        setContainerHeight(el.clientHeight);
+        return () => ro.disconnect();
+    }, []);
+
     const handleFileListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-        const el = e.currentTarget;
-        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100 && hasMore) {
-            setVisibleCount(prev => Math.min(prev + RENDER_BATCH, items.length));
-        }
-    }, [hasMore, items.length]);
+        setScrollTop(e.currentTarget.scrollTop);
+    }, []);
 
     // ── Handle Add Folder ──
     const handleAddFolder = useCallback(() => {
@@ -633,7 +650,7 @@ export const AssetBrowser = () => {
 
     useEffect(() => {
         scrollSelectedIntoView(selectedItemId);
-    }, [selectedItemId, visibleItems.length, scrollSelectedIntoView]);
+    }, [selectedItemId, scrollSelectedIntoView]);
 
     const moveSelection = useCallback((delta: number) => {
         if (items.length === 0) return;
@@ -646,10 +663,20 @@ export const AssetBrowser = () => {
         const next = items[nextIndex];
         if (!next) return;
         setSelectedItemId(next.id);
-        if (nextIndex >= visibleCount) {
-            setVisibleCount((prev) => Math.min(Math.max(prev + RENDER_BATCH, nextIndex + 1), items.length));
+        // Scroll into view for virtual scrolling
+        const el = fileListRef.current;
+        if (el) {
+            const itemTop = nextIndex * ROW_HEIGHT;
+            const itemBottom = itemTop + ROW_HEIGHT;
+            // Account for sticky header (approx 24px)
+            const headerOffset = 24;
+            if (itemTop < el.scrollTop + headerOffset) {
+                el.scrollTop = itemTop - headerOffset;
+            } else if (itemBottom > el.scrollTop + el.clientHeight) {
+                el.scrollTop = itemBottom - el.clientHeight;
+            }
         }
-    }, [items, selectedItemId, visibleCount]);
+    }, [items, selectedItemId]);
 
     const focusResults = useCallback(() => {
         fileListRef.current?.focus();
@@ -729,7 +756,7 @@ export const AssetBrowser = () => {
                         if (nextQuery.trim().length > 0 && selectedCategoryId !== 'all') {
                             setSelectedCategoryId('all');
                         }
-                        setVisibleCount(RENDER_BATCH);
+                        setScrollTop(0); if (fileListRef.current) fileListRef.current.scrollTop = 0;
                     }}
                     onKeyDown={handleBrowserKeyDown}
                     style={{
@@ -846,7 +873,7 @@ export const AssetBrowser = () => {
                                 key={cat.id}
                                 onClick={() => {
                                     setSelectedCategoryId(cat.id);
-                                    setVisibleCount(RENDER_BATCH);
+                                    setScrollTop(0); if (fileListRef.current) fileListRef.current.scrollTop = 0;
                                 }}
                                 onContextMenu={cat.removable ? (e) => {
                                     e.preventDefault();
@@ -1015,32 +1042,32 @@ export const AssetBrowser = () => {
                         onKeyDown={handleBrowserKeyDown}
                         tabIndex={0}
                         style={{
-                        flex: 1,
-                        overflowY: 'auto',
-                        overflowX: 'hidden',
-                        outline: 'none',
-                    }}>
+                            flex: 1,
+                            overflowY: 'auto',
+                            overflowX: 'hidden',
+                            outline: 'none',
+                        }}>
                         <div
                             onContextMenu={(e) => {
                                 e.preventDefault();
                                 setColumnMenuPos({ x: e.clientX, y: e.clientY });
                             }}
                             style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            padding: '3px 8px',
-                            borderBottom: '1px solid var(--color-divider-light)',
-                            background: 'var(--color-bg-header)',
-                            color: 'var(--color-text-tertiary)',
-                            fontSize: 10,
-                            fontWeight: 700,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.04em',
-                            position: 'sticky',
-                            top: 0,
-                            zIndex: 5,
-                        }}>
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                padding: '3px 8px',
+                                borderBottom: '1px solid var(--color-divider-light)',
+                                background: 'var(--color-bg-header)',
+                                color: 'var(--color-text-tertiary)',
+                                fontSize: 10,
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.04em',
+                                position: 'sticky',
+                                top: 0,
+                                zIndex: 5,
+                            }}>
                             <span style={{ flex: 1, minWidth: 0 }}>Name</span>
                             {showTypeColumn && (
                                 <span style={{ minWidth: 52, textAlign: 'left', flexShrink: 0 }}>Type</span>
@@ -1079,199 +1106,198 @@ export const AssetBrowser = () => {
                                 <span style={{ opacity: 0.7, fontFamily: 'var(--font-mono)', fontSize: 9 }}>{scanError}</span>
                             </div>
                         )}
-                        {visibleItems.map(item => {
-                            const isSelected = selectedItemId === item.id;
-                            const isAudio = item.type === 'audio';
-                            const isPlugin = item.type === 'plugin';
-                            const isDraggable = isAudio || isPlugin;
-                            const typeLabel = item.isDirectory
-                                ? 'Folder'
-                                : (item.type === 'audio'
-                                    ? (item.format || 'Audio').toUpperCase()
-                                    : (item.type === 'plugin' ? (item.format || 'Plugin') : (item.format || item.type)));
-                            const sizeLabel = item.sizeBytes && !item.isDirectory
-                                ? (item.sizeBytes >= 1024 * 1024
-                                    ? `${(item.sizeBytes / (1024 * 1024)).toFixed(1)} MB`
-                                    : `${Math.round(item.sizeBytes / 1024)} KB`)
-                                : '';
+                        {/* Virtual scroll container */}
+                        <div style={{ height: totalHeight, position: 'relative' }}>
+                            {visibleItems.map((item, vi) => {
+                                const absIdx = startIdx + vi;
+                                const isSelected = selectedItemId === item.id;
+                                const isAudio = item.type === 'audio';
+                                const isPlugin = item.type === 'plugin';
+                                const isDraggable = isAudio || isPlugin;
+                                const typeLabel = item.isDirectory
+                                    ? 'Folder'
+                                    : (item.type === 'audio'
+                                        ? (item.format || 'Audio').toUpperCase()
+                                        : (item.type === 'plugin' ? (item.format || 'Plugin') : (item.format || item.type)));
+                                const sizeLabel = item.sizeBytes && !item.isDirectory
+                                    ? (item.sizeBytes >= 1024 * 1024
+                                        ? `${(item.sizeBytes / (1024 * 1024)).toFixed(1)} MB`
+                                        : `${Math.round(item.sizeBytes / 1024)} KB`)
+                                    : '';
 
-                            return (
-                                <div
-                                    key={item.id}
-                                    ref={(el) => {
-                                        itemRowRefs.current[item.id] = el;
-                                    }}
-                                    onClick={() => {
-                                        // Folder navigation
-                                        if (item.isDirectory && item.path) {
-                                            navigateInto(item.path);
-                                            return;
-                                        }
+                                return (
+                                    <div
+                                        key={item.id}
+                                        ref={(el) => {
+                                            itemRowRefs.current[item.id] = el;
+                                        }}
+                                        onClick={() => {
+                                            // Folder navigation
+                                            if (item.isDirectory && item.path) {
+                                                navigateInto(item.path);
+                                                return;
+                                            }
 
-                                        setSelectedItemId(prev => {
-                                            const newId = prev === item.id ? null : item.id;
-                                            // Selected audio: always fetch waveform for footer line
-                                            if (isAudio && item.path && newId) {
-                                                engineApi.getWaveformPeaks(item.path)
-                                                    .then(peaks => {
-                                                        setPreviewPeaks(selectBestPeakLevel(peaks.mip_levels));
-                                                        if (peaks.sample_rate > 0 && peaks.total_samples > 0) {
-                                                            audioDurationSecRef.current[item.path!] = peaks.total_samples / peaks.sample_rate;
-                                                        }
-                                                    })
-                                                    .catch(() => setPreviewPeaks(null));
-                                                // Autoplay depends on preview toggle state
-                                                if (previewEnabled) {
-                                                    engineApi.previewAudioFile(item.path)
-                                                        .catch(err => {
-                                                            console.warn('[Preview]', err);
-                                                        });
+                                            setSelectedItemId(prev => {
+                                                const newId = prev === item.id ? null : item.id;
+                                                // Selected audio: always fetch waveform for footer line
+                                                if (isAudio && item.path && newId) {
+                                                    engineApi.getWaveformPeaks(item.path)
+                                                        .then(peaks => {
+                                                            setPreviewPeaks(selectBestPeakLevel(peaks.mip_levels));
+                                                            if (peaks.sample_rate > 0 && peaks.total_samples > 0) {
+                                                                audioDurationSecRef.current[item.path!] = peaks.total_samples / peaks.sample_rate;
+                                                            }
+                                                        })
+                                                        .catch(() => setPreviewPeaks(null));
+                                                    // Autoplay depends on preview toggle state
+                                                    if (previewEnabled) {
+                                                        engineApi.previewAudioFile(item.path)
+                                                            .catch(err => {
+                                                                console.warn('[Preview]', err);
+                                                            });
+                                                    } else {
+                                                        engineApi.stopPreview().catch(() => { });
+                                                    }
                                                 } else {
                                                     engineApi.stopPreview().catch(() => { });
+                                                    setPreviewPeaks(null);
                                                 }
-                                            } else {
-                                                engineApi.stopPreview().catch(() => { });
-                                                setPreviewPeaks(null);
-                                            }
-                                            return newId;
-                                        });
-                                    }}
-                                    onMouseDown={(e) => {
-                                        if (!isDraggable || !item.path || e.button !== 0) return;
+                                                return newId;
+                                            });
+                                        }}
+                                        onMouseDown={(e) => {
+                                            if (!isDraggable || !item.path || e.button !== 0) return;
 
-                                        const startX = e.clientX;
-                                        const startY = e.clientY;
-                                        const DRAG_THRESHOLD = 5;
-                                        let dragStarted = false;
-                                        let dragCancelled = false;
-                                        let resolving = false;
+                                            const startX = e.clientX;
+                                            const startY = e.clientY;
+                                            const DRAG_THRESHOLD = 5;
+                                            let dragStarted = false;
+                                            let dragCancelled = false;
+                                            let resolving = false;
 
-                                        const onMove = (me: MouseEvent) => {
-                                            const dx = me.clientX - startX;
-                                            const dy = me.clientY - startY;
-                                            if (!dragStarted && !resolving && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
-                                                resolving = true;
-                                                void (async () => {
-                                                    let durationSeconds: number | undefined;
-                                                    if (isAudio) {
-                                                        durationSeconds =
-                                                            item.durationSeconds
-                                                            ?? audioDurationSecRef.current[item.path!]
-                                                            ?? undefined;
-                                                        if (durationSeconds === undefined) {
-                                                            try {
-                                                                durationSeconds = await engineApi.getAudioFileDuration(item.path!);
-                                                                audioDurationSecRef.current[item.path!] = durationSeconds;
-                                                            } catch {
-                                                                durationSeconds = undefined;
+                                            const onMove = (me: MouseEvent) => {
+                                                const dx = me.clientX - startX;
+                                                const dy = me.clientY - startY;
+                                                if (!dragStarted && !resolving && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+                                                    resolving = true;
+                                                    void (async () => {
+                                                        let durationSeconds: number | undefined;
+                                                        if (isAudio) {
+                                                            durationSeconds =
+                                                                item.durationSeconds
+                                                                ?? audioDurationSecRef.current[item.path!]
+                                                                ?? undefined;
+                                                            if (durationSeconds === undefined) {
+                                                                try {
+                                                                    durationSeconds = await engineApi.getAudioFileDuration(item.path!);
+                                                                    audioDurationSecRef.current[item.path!] = durationSeconds;
+                                                                } catch {
+                                                                    durationSeconds = undefined;
+                                                                }
                                                             }
                                                         }
-                                                    }
-                                                    if (dragCancelled) return;
-                                                    dragStarted = true;
-                                                    useDragStore.getState().startDrag({
-                                                        id: item.id,
-                                                        name: item.name,
-                                                        type: isPlugin ? 'plugin' : 'audio',
-                                                        path: item.path!,
-                                                        slotHint: item.slotHint ?? 'auto',
-                                                        durationSeconds,
-                                                    }, me.clientX, me.clientY);
-                                                })();
-                                            }
-                                        };
-                                        const onUp = () => {
-                                            dragCancelled = true;
-                                            window.removeEventListener('mousemove', onMove);
-                                            window.removeEventListener('mouseup', onUp);
-                                        };
-                                        window.addEventListener('mousemove', onMove);
-                                        window.addEventListener('mouseup', onUp);
-                                    }}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 8,
-                                        padding: '4px 8px',
-                                        cursor: item.isDirectory ? 'pointer' : (isDraggable ? 'grab' : 'default'),
-                                        background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
-                                        borderBottom: '1px solid var(--color-divider-light)',
-                                        transition: 'background var(--transition-fast)',
-                                    }}
-                                >
-                                    {item.isDirectory ? (
-                                        <span style={{ display: 'inline-flex', flexShrink: 0 }}>
-                                            <BrowserGlyph name="folder" size={11} />
-                                        </span>
-                                    ) : (
-                                        <TypeIcon type={item.type} />
-                                    )}
-                                    <span style={{
-                                        color: 'var(--color-text-primary)',
-                                        fontSize: 12,
-                                        fontWeight: 500,
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                        whiteSpace: 'nowrap',
-                                        flex: 1,
-                                        minWidth: 0,
-                                    }}>
-                                        {item.name}
-                                    </span>
-                                    {showTypeColumn && (
+                                                        if (dragCancelled) return;
+                                                        dragStarted = true;
+                                                        useDragStore.getState().startDrag({
+                                                            id: item.id,
+                                                            name: item.name,
+                                                            type: isPlugin ? 'plugin' : 'audio',
+                                                            path: item.path!,
+                                                            slotHint: item.slotHint ?? 'auto',
+                                                            durationSeconds,
+                                                        }, me.clientX, me.clientY);
+                                                    })();
+                                                }
+                                            };
+                                            const onUp = () => {
+                                                dragCancelled = true;
+                                                window.removeEventListener('mousemove', onMove);
+                                                window.removeEventListener('mouseup', onUp);
+                                            };
+                                            window.addEventListener('mousemove', onMove);
+                                            window.addEventListener('mouseup', onUp);
+                                        }}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 8,
+                                            padding: '4px 8px',
+                                            cursor: item.isDirectory ? 'pointer' : (isDraggable ? 'grab' : 'default'),
+                                            background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
+                                            borderBottom: '1px solid var(--color-divider-light)',
+                                            // ── Virtual positioning ──
+                                            position: 'absolute',
+                                            top: absIdx * ROW_HEIGHT,
+                                            left: 0,
+                                            right: 0,
+                                            height: ROW_HEIGHT,
+                                            boxSizing: 'border-box',
+                                        }}
+                                    >
+                                        {item.isDirectory ? (
+                                            <span style={{ display: 'inline-flex', flexShrink: 0 }}>
+                                                <BrowserGlyph name="folder" size={11} />
+                                            </span>
+                                        ) : (
+                                            <TypeIcon type={item.type} />
+                                        )}
                                         <span style={{
-                                            minWidth: 52,
-                                            maxWidth: 74,
-                                            color: 'var(--color-text-secondary)',
-                                            fontSize: 10,
-                                            textAlign: 'left',
-                                            whiteSpace: 'nowrap',
+                                            color: 'var(--color-text-primary)',
+                                            fontSize: 12,
+                                            fontWeight: 500,
                                             overflow: 'hidden',
                                             textOverflow: 'ellipsis',
-                                            flexShrink: 0,
-                                        }}>
-                                            {typeLabel}
-                                        </span>
-                                    )}
-                                    {showSizeColumn && (
-                                        <span style={{
-                                            minWidth: 44,
-                                            maxWidth: 56,
-                                            color: 'var(--color-text-secondary)',
-                                            fontSize: 10,
-                                            textAlign: 'right',
                                             whiteSpace: 'nowrap',
-                                            flexShrink: 0,
+                                            flex: 1,
+                                            minWidth: 0,
                                         }}>
-                                            {sizeLabel}
+                                            {item.name}
                                         </span>
-                                    )}
-                                    {item.isDirectory && (
-                                        <span style={{
-                                            color: 'var(--color-text-tertiary)',
-                                            fontSize: 9,
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            marginLeft: 2,
-                                            flexShrink: 0,
-                                        }}>
-                                            <BrowserGlyph name="chevron-right" size={10} />
-                                        </span>
-                                    )}
-                                </div>
-                            );
-                        })}
-                        {/* Load more indicator */}
-                        {hasMore && (
-                            <div style={{
-                                padding: '8px 10px',
-                                textAlign: 'center',
-                                color: 'var(--color-text-tertiary)',
-                                fontSize: 9,
-                            }}>
-                                {items.length - visibleCount} more items — scroll to load
-                            </div>
-                        )}
+                                        {showTypeColumn && (
+                                            <span style={{
+                                                minWidth: 52,
+                                                maxWidth: 74,
+                                                color: 'var(--color-text-secondary)',
+                                                fontSize: 10,
+                                                textAlign: 'left',
+                                                whiteSpace: 'nowrap',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                flexShrink: 0,
+                                            }}>
+                                                {typeLabel}
+                                            </span>
+                                        )}
+                                        {showSizeColumn && (
+                                            <span style={{
+                                                minWidth: 44,
+                                                maxWidth: 56,
+                                                color: 'var(--color-text-secondary)',
+                                                fontSize: 10,
+                                                textAlign: 'right',
+                                                whiteSpace: 'nowrap',
+                                                flexShrink: 0,
+                                            }}>
+                                                {sizeLabel}
+                                            </span>
+                                        )}
+                                        {item.isDirectory && (
+                                            <span style={{
+                                                color: 'var(--color-text-tertiary)',
+                                                fontSize: 9,
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                marginLeft: 2,
+                                                flexShrink: 0,
+                                            }}>
+                                                <BrowserGlyph name="chevron-right" size={10} />
+                                            </span>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
                         {!scanLoading && items.length === 0 && (
                             <div style={{
                                 padding: '20px 12px',

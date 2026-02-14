@@ -91,8 +91,47 @@ impl Default for SharedClipSnapshot {
 /// Atomic snapshot of per-track MIDI clip data for the audio thread.
 ///
 /// Same wait-free architecture as `SharedClipSnapshot`.
+#[derive(Debug, Clone)]
+pub struct MidiFxRuntimeConfig {
+    pub pitch_enabled: bool,
+    pub pitch_semitones: i8,
+    pub scale_enabled: bool,
+    pub scale_root: u8,
+    pub scale_mask: u16,
+    pub velocity_enabled: bool,
+    pub velocity_gain: f32,
+    pub velocity_offset: i8,
+    pub random_enabled: bool,
+    pub random_semitones: i8,
+    pub random_chance: f32,
+}
+
+impl Default for MidiFxRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            pitch_enabled: false,
+            pitch_semitones: 0,
+            scale_enabled: false,
+            scale_root: 0,
+            scale_mask: 0x0FFF,
+            velocity_enabled: false,
+            velocity_gain: 1.0,
+            velocity_offset: 0,
+            random_enabled: false,
+            random_semitones: 0,
+            random_chance: 1.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct MidiTrackRuntime {
+    pub clips: Vec<MidiClip>,
+    pub fx: MidiFxRuntimeConfig,
+}
+
 pub struct SharedMidiSnapshot {
-    inner: ArcSwap<Vec<Vec<MidiClip>>>,
+    inner: ArcSwap<Vec<MidiTrackRuntime>>,
 }
 
 impl SharedMidiSnapshot {
@@ -103,17 +142,17 @@ impl SharedMidiSnapshot {
     }
 
     /// Atomically replaces the MIDI snapshot (called from UI thread).
-    pub fn swap(&self, new_clips: Vec<Vec<MidiClip>>) {
-        self.inner.store(Arc::new(new_clips));
+    pub fn swap(&self, new_tracks: Vec<MidiTrackRuntime>) {
+        self.inner.store(Arc::new(new_tracks));
     }
 
     /// Gets the current MIDI snapshot (called from audio thread).
     /// **Wait-free** — nanosecond atomic load.
-    pub fn load(&self) -> arc_swap::Guard<Arc<Vec<Vec<MidiClip>>>> {
+    pub fn load(&self) -> arc_swap::Guard<Arc<Vec<MidiTrackRuntime>>> {
         self.inner.load()
     }
 
-    pub fn load_full(&self) -> Arc<Vec<Vec<MidiClip>>> {
+    pub fn load_full(&self) -> Arc<Vec<MidiTrackRuntime>> {
         self.inner.load_full()
     }
 }
@@ -433,6 +472,53 @@ const TEST_TONE_AMPLITUDE: f32 = 0.25;
 /// Exponential smoothing coefficient for frequency transitions.
 const FREQ_SMOOTHING: f32 = 0.001;
 
+#[derive(Clone, Copy)]
+struct MidiNoteMapState {
+    mapped_pitch: [u8; 128],
+    active: [bool; 128],
+    rng_state: u32,
+}
+
+impl Default for MidiNoteMapState {
+    fn default() -> Self {
+        Self {
+            mapped_pitch: [0; 128],
+            active: [false; 128],
+            rng_state: 0xA5A5_1337,
+        }
+    }
+}
+
+#[inline]
+fn clamp_midi_pitch(v: i16) -> u8 {
+    v.clamp(0, 127) as u8
+}
+
+#[inline]
+fn quantize_to_scale(pitch: u8, root: u8, mask: u16) -> u8 {
+    let mask = if mask == 0 { 0x0FFF } else { mask };
+    let base_oct = (pitch / 12) as i16;
+    let root = (root % 12) as i16;
+
+    let mut best_pitch = pitch as i16;
+    let mut best_dist = i16::MAX;
+    for degree in 0..12i16 {
+        if (mask & (1u16 << degree)) == 0 {
+            continue;
+        }
+        let target = (root + degree).rem_euclid(12);
+        for oct_off in [-1i16, 0, 1] {
+            let cand = ((base_oct + oct_off) * 12 + target).clamp(0, 127);
+            let dist = (cand - pitch as i16).abs();
+            if dist < best_dist {
+                best_dist = dist;
+                best_pitch = cand;
+            }
+        }
+    }
+    clamp_midi_pitch(best_pitch)
+}
+
 // ── Audio Stream Handle ─────────────────────────────────────────────────
 
 /// Holds the live cpal stream. Dropping this stops audio output.
@@ -633,6 +719,7 @@ pub fn start_audio_thread_on_device(
     let mut sampler_engines: Vec<SamplerEngine> = (0..64)
         .map(|_| SamplerEngine::new(sample_rate_f64))
         .collect();
+    let mut midi_note_states: [MidiNoteMapState; 64] = [MidiNoteMapState::default(); 64];
     // Scratch buffers for sampler output (reused each buffer, zero-alloc)
     let mut sampler_left = vec![0.0f32; 8192];
     let mut sampler_right = vec![0.0f32; 8192];
@@ -855,6 +942,30 @@ pub fn start_audio_thread_on_device(
                                     let idx = track_index as usize;
                                     if idx < sampler_engines.len() {
                                         sampler_engines[idx].set_filter_type(filter_type);
+                                    }
+                                }
+                                EngineCommand::SetSamplerLfoRate { track_index, rate } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_lfo_rate(rate);
+                                    }
+                                }
+                                EngineCommand::SetSamplerLfoDepth { track_index, depth } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_lfo_depth(depth);
+                                    }
+                                }
+                                EngineCommand::SetSamplerLfoTarget { track_index, target } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_lfo_target(target);
+                                    }
+                                }
+                                EngineCommand::SetSamplerPulseWidth { track_index, width } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_pulse_width(width);
                                     }
                                 }
                                 EngineCommand::SamplerAllNotesOff { track_index } => {
@@ -1156,16 +1267,18 @@ pub fn start_audio_thread_on_device(
                             //   share the same timeline window for this buffer.
                             let midi_snap = midi_snapshot.load();
 
-                            for (track_idx, midi_clips) in midi_snap.iter().enumerate() {
-                                if track_idx >= sampler_engines.len() || midi_clips.is_empty() {
+                            for (track_idx, midi_track) in midi_snap.iter().enumerate() {
+                                if track_idx >= sampler_engines.len() || midi_track.clips.is_empty() {
                                     continue;
                                 }
 
                                 let engine = &mut sampler_engines[track_idx];
+                                let note_state = &mut midi_note_states[track_idx];
+                                let fx = &midi_track.fx;
 
                                 // Schedule active notes for this buffer
                                 let events = MidiScheduler::find_active(
-                                    midi_clips,
+                                    &midi_track.clips,
                                     midi_playhead_pos,
                                     frame_count,
                                 );
@@ -1173,10 +1286,56 @@ pub fn start_audio_thread_on_device(
                                 // Process note-on/off events
                                 for event in &events {
                                     if event.is_note_on {
-                                        engine.note_on(event.pitch, event.velocity);
+                                        let mut pitch_i16 = event.pitch as i16;
+                                        let mut velocity_i16 = event.velocity as i16;
+
+                                        if fx.pitch_enabled {
+                                            pitch_i16 += fx.pitch_semitones as i16;
+                                        }
+                                        let mut mapped_pitch = clamp_midi_pitch(pitch_i16);
+
+                                        if fx.scale_enabled {
+                                            mapped_pitch = quantize_to_scale(
+                                                mapped_pitch,
+                                                fx.scale_root,
+                                                fx.scale_mask,
+                                            );
+                                        }
+
+                                        if fx.random_enabled && fx.random_semitones != 0 {
+                                            // Xorshift32 deterministic PRNG (RT-safe, no allocations).
+                                            let mut x = note_state.rng_state;
+                                            x ^= x << 13;
+                                            x ^= x >> 17;
+                                            x ^= x << 5;
+                                            note_state.rng_state = x;
+                                            let rnd01 = (x as f32) / (u32::MAX as f32);
+                                            if rnd01 <= fx.random_chance.clamp(0.0, 1.0) {
+                                                let span = fx.random_semitones.abs().max(1) as i16;
+                                                let signed = ((x >> 8) % ((span as u32) * 2 + 1)) as i16 - span;
+                                                mapped_pitch = clamp_midi_pitch(mapped_pitch as i16 + signed);
+                                            }
+                                        }
+
+                                        if fx.velocity_enabled {
+                                            velocity_i16 = ((velocity_i16 as f32) * fx.velocity_gain).round() as i16
+                                                + fx.velocity_offset as i16;
+                                        }
+                                        let mapped_velocity = velocity_i16.clamp(1, 127) as u8;
+
+                                        note_state.mapped_pitch[event.pitch as usize] = mapped_pitch;
+                                        note_state.active[event.pitch as usize] = true;
+                                        engine.note_on(mapped_pitch, mapped_velocity);
                                     }
                                     if event.is_note_off {
-                                        engine.note_off(event.pitch);
+                                        let src = event.pitch as usize;
+                                        let off_pitch = if note_state.active[src] {
+                                            note_state.active[src] = false;
+                                            note_state.mapped_pitch[src]
+                                        } else {
+                                            event.pitch
+                                        };
+                                        engine.note_off(off_pitch);
                                     }
                                 }
 

@@ -32,4 +32,16 @@ notes: Array<MidiNote>,
 /**
  * Whether this clip is currently selected in the UI.
  */
-is_selected: boolean, };
+is_selected: boolean, 
+/**
+ * Whether this clip is muted (stays on timeline but doesn't play).
+ */
+is_muted: boolean, 
+/**
+ * User-defined fade-in length in sample frames.
+ */
+fade_in_frames: bigint, 
+/**
+ * User-defined fade-out length in sample frames.
+ */
+fade_out_frames: bigint, };

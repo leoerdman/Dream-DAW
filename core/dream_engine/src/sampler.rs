@@ -879,7 +879,7 @@ fn render_oscillator_voice(
                 // LFO modulates cutoff: ±4 octaves range scaled by depth
                 let mod_factor = 2.0_f32.powf(lfo_val * 4.0);
                 let modulated_cutoff = (filter_cutoff_base * mod_factor).clamp(20.0, 20000.0);
-                (SvfCoeffs::new(modulated_cutoff, filter_resonance, sample_rate), true)
+                (SvfCoeffs::new(modulated_cutoff.into(), filter_resonance.into(), sample_rate), true)
             } else {
                 (*filter_coeffs_base, false)
             };

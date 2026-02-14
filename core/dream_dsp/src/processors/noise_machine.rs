@@ -156,45 +156,6 @@ impl NoiseMachineProcessor {
         self.hp_coeff = 1.0 / (1.0 + std::f32::consts::TAU * self.hp_freq / sr);
     }
 
-    #[inline]
-    fn generate_sample(&mut self, rng: &mut Rng, pink: &mut PinkGen, brown: &mut f32,
-                       prev_white: &mut f32, prev_blue: &mut f32) -> f32 {
-        match self.noise_type {
-            0 => rng.next_f32(), // White
-            1 => pink.next(rng), // Pink
-            2 => {
-                // Brown (-6dB/oct): integrate white noise
-                *brown = (*brown + rng.next_f32() * 0.02).clamp(-1.0, 1.0);
-                *brown
-            }
-            3 => {
-                // Blue (+3dB/oct): differentiate white
-                let w = rng.next_f32();
-                let out = w - *prev_white;
-                *prev_white = w;
-                out.clamp(-1.0, 1.0)
-            }
-            4 => {
-                // Violet (+6dB/oct): double differentiate
-                let w = rng.next_f32();
-                let blue = w - *prev_white;
-                *prev_white = w;
-                let out = blue - *prev_blue;
-                *prev_blue = blue;
-                out.clamp(-1.0, 1.0)
-            }
-            5 => {
-                // Grey: A-weighted white noise (simplified)
-                // Low roll-off + gentle HF boost for perceptual flatness
-                let w = rng.next_f32();
-                let hp = w - *prev_white;
-                *prev_white = w * 0.995;
-                let shaped = w * 0.5 + hp * 0.5;
-                shaped.clamp(-1.0, 1.0)
-            }
-            _ => rng.next_f32(),
-        }
-    }
 }
 
 impl DspProcessor for NoiseMachineProcessor {

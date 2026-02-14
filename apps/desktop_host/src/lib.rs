@@ -27,7 +27,7 @@ use arc_swap::ArcSwap;
 
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
 use dream_engine::driver::{
-    AutomationPoint, SharedAutomationSnapshot, SharedClipSnapshot, SharedRoutingSnapshot,
+    AutomationPoint, MidiFxRuntimeConfig, MidiTrackRuntime, SharedAutomationSnapshot, SharedClipSnapshot, SharedRoutingSnapshot,
     TrackAutomationState,
 };
 use dream_engine::offline_bounce::{BounceConfig, OfflineBouncer};
@@ -507,12 +507,102 @@ fn rebuild_automation_snapshot_from_project(
 }
 
 fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngineHandle) {
-    let clips_per_track: Vec<Vec<MidiClip>> = project
+    fn first_lane_value(track: &Track, keys: &[&str], default: f32) -> f32 {
+        for key in keys {
+            if let Some(lane) = track
+                .automation_lanes
+                .iter()
+                .find(|lane| lane.param_id.eq_ignore_ascii_case(key))
+                && let Some(point) = lane.points.first()
+            {
+                return point.value as f32;
+            }
+        }
+        default
+    }
+
+    let tracks: Vec<MidiTrackRuntime> = project
         .tracks
         .iter()
-        .map(|track| track.midi_clips.clone())
+        .map(|track| {
+            let has_pitch = track
+                .effects
+                .iter()
+                .any(|fx| fx.plugin_id.eq_ignore_ascii_case("internal://midi-fx/pitch"));
+            let has_scale = track
+                .effects
+                .iter()
+                .any(|fx| fx.plugin_id.eq_ignore_ascii_case("internal://midi-fx/scale"));
+            let has_velocity = track
+                .effects
+                .iter()
+                .any(|fx| fx.plugin_id.eq_ignore_ascii_case("internal://midi-fx/velocity"));
+            let has_random = track
+                .effects
+                .iter()
+                .any(|fx| fx.plugin_id.eq_ignore_ascii_case("internal://midi-fx/random"));
+
+            let fx = MidiFxRuntimeConfig {
+                pitch_enabled: has_pitch,
+                pitch_semitones: first_lane_value(
+                    track,
+                    &["midi.pitch.semitones", "midifx.pitch.semitones"],
+                    0.0,
+                )
+                .round()
+                .clamp(-48.0, 48.0) as i8,
+                scale_enabled: has_scale,
+                scale_root: first_lane_value(
+                    track,
+                    &["midi.scale.root", "midifx.scale.root"],
+                    0.0,
+                )
+                .round()
+                .rem_euclid(12.0) as u8,
+                scale_mask: first_lane_value(
+                    track,
+                    &["midi.scale.mask", "midifx.scale.mask"],
+                    4095.0,
+                )
+                .round()
+                .clamp(1.0, 4095.0) as u16,
+                velocity_enabled: has_velocity,
+                velocity_gain: first_lane_value(
+                    track,
+                    &["midi.velocity.gain", "midifx.velocity.gain"],
+                    1.0,
+                )
+                .clamp(0.0, 4.0),
+                velocity_offset: first_lane_value(
+                    track,
+                    &["midi.velocity.offset", "midifx.velocity.offset"],
+                    0.0,
+                )
+                .round()
+                .clamp(-127.0, 127.0) as i8,
+                random_enabled: has_random,
+                random_semitones: first_lane_value(
+                    track,
+                    &["midi.random.semitones", "midifx.random.semitones"],
+                    0.0,
+                )
+                .round()
+                .clamp(-24.0, 24.0) as i8,
+                random_chance: first_lane_value(
+                    track,
+                    &["midi.random.chance", "midifx.random.chance"],
+                    1.0,
+                )
+                .clamp(0.0, 1.0),
+            };
+
+            MidiTrackRuntime {
+                clips: track.midi_clips.clone(),
+                fx,
+            }
+        })
         .collect();
-    handle.midi_snapshot.swap(clips_per_track);
+    handle.midi_snapshot.swap(tracks);
 }
 
 fn rebuild_sampler_snapshot_from_project(
@@ -535,7 +625,7 @@ fn rebuild_sampler_snapshot_from_project(
     }
 
     let mut samples: Vec<Option<Arc<ClipAudio>>> = vec![None; project.tracks.len()];
-    let mut synth_settings: Vec<(usize, u8, u8, f32, f32, f32, f32, f32, u8)> = Vec::new();
+    let mut synth_settings: Vec<(usize, u8, u8, f32, f32, f32, f32, f32, u8, f32, f32, u8, f32)> = Vec::new();
     if let Ok(pool) = clip_pool_state.pool.lock() {
         for (idx, track) in project.tracks.iter().enumerate() {
             let plugin_id_lower = track
@@ -546,7 +636,7 @@ fn rebuild_sampler_snapshot_from_project(
             let is_wave_synth = plugin_id_lower.starts_with("internal://instrument/wave-synth")
                 || plugin_id_lower.starts_with("internal://instrument/simple-sine-synth");
             if is_wave_synth {
-                let (waveform, osc2, mix, detune, sub, f_cutoff, f_res, f_type) = track
+                let (waveform, osc2, mix, detune, sub, f_cutoff, f_res, f_type, lfo_r, lfo_d, lfo_t, pw) = track
                     .sampler
                     .as_ref()
                     .map(|cfg| {
@@ -559,10 +649,14 @@ fn rebuild_sampler_snapshot_from_project(
                             cfg.filter_cutoff.clamp(20.0, 20000.0) as f32,
                             cfg.filter_resonance.clamp(0.0, 0.99) as f32,
                             cfg.filter_type.min(3),
+                            cfg.lfo_rate.clamp(0.01, 20.0) as f32,
+                            cfg.lfo_depth.clamp(0.0, 1.0) as f32,
+                            cfg.lfo_target.min(2),
+                            cfg.pulse_width.clamp(0.05, 0.95) as f32,
                         )
                     })
-                    .unwrap_or((0, 0, 0.35, 0.0, 0.0, 20000.0, 0.0, 0));
-                synth_settings.push((idx, waveform, osc2, mix, detune, sub, f_cutoff, f_res, f_type));
+                    .unwrap_or((0, 0, 0.35, 0.0, 0.0, 20000.0, 0.0, 0, 1.0, 0.0, 0, 0.5));
+                synth_settings.push((idx, waveform, osc2, mix, detune, sub, f_cutoff, f_res, f_type, lfo_r, lfo_d, lfo_t, pw));
             }
             if let Some(cfg) = &track.sampler
                 && !cfg.sample_path.trim().is_empty()
@@ -574,7 +668,7 @@ fn rebuild_sampler_snapshot_from_project(
         }
     }
     handle.sampler_samples.swap(samples);
-    for (track_idx, waveform, osc2, mix, detune, sub, f_cutoff, f_res, f_type) in synth_settings {
+    for (track_idx, waveform, osc2, mix, detune, sub, f_cutoff, f_res, f_type, lfo_r, lfo_d, lfo_t, pw) in synth_settings {
         if let Err(err) = push_command(
             handle,
             EngineCommand::SetSamplerWaveform {
@@ -637,6 +731,34 @@ fn rebuild_sampler_snapshot_from_project(
                 filter_type: f_type,
             },
         );
+        let _ = push_command(
+            handle,
+            EngineCommand::SetSamplerLfoRate {
+                track_index: track_idx as u16,
+                rate: lfo_r,
+            },
+        );
+        let _ = push_command(
+            handle,
+            EngineCommand::SetSamplerLfoDepth {
+                track_index: track_idx as u16,
+                depth: lfo_d,
+            },
+        );
+        let _ = push_command(
+            handle,
+            EngineCommand::SetSamplerLfoTarget {
+                track_index: track_idx as u16,
+                target: lfo_t,
+            },
+        );
+        let _ = push_command(
+            handle,
+            EngineCommand::SetSamplerPulseWidth {
+                track_index: track_idx as u16,
+                width: pw,
+            },
+        );
     }
 }
 
@@ -656,44 +778,50 @@ fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     const FX_FLANGER: u8 = 11;
     const FX_DISTORTION: u8 = 12;
     const FX_BITCRUSHER: u8 = 13;
+    const FX_NOISE_MACHINE: u8 = 14;
+    const FX_AUTO_PAN: u8 = 15;
 
     let key = plugin_id.to_lowercase();
-    if key.contains("eq") {
+
+    // ── Exact internal:// prefix matches (highest priority) ──────────
+    if key.starts_with("internal://effect/") {
+        return match key.as_str() {
+            "internal://effect/eq-eight" => Some(FX_EQ),
+            "internal://effect/compressor" => Some(FX_COMPRESSOR),
+            "internal://effect/delay" => Some(FX_DELAY),
+            "internal://effect/reverb" => Some(FX_REVERB),
+            "internal://effect/chorus" => Some(FX_CHORUS),
+            "internal://effect/utility" => Some(FX_UTILITY),
+            "internal://effect/saturator" => Some(FX_SATURATOR),
+            "internal://effect/limiter" => Some(FX_LIMITER),
+            "internal://effect/gate" => Some(FX_GATE),
+            "internal://effect/auto-filter" => Some(FX_AUTO_FILTER),
+            "internal://effect/phaser" => Some(FX_PHASER),
+            "internal://effect/flanger" => Some(FX_FLANGER),
+            "internal://effect/distortion" => Some(FX_DISTORTION),
+            "internal://effect/bitcrusher" => Some(FX_BITCRUSHER),
+            "internal://effect/noise-machine" => Some(FX_NOISE_MACHINE),
+            "internal://effect/auto-pan" => Some(FX_AUTO_PAN),
+            _ => None,
+        };
+    }
+
+    // ── Keyword fallbacks (Ableton device names, aliases) ────────────
+    // Order: more specific matches before generic ones to avoid shadowing.
+    if key.contains("eq eight") || key.contains("eq8") || key.contains("eq3") || key.contains("channel eq") || key.contains("eq") {
         return Some(FX_EQ);
     }
-    if key.contains("eq eight")
-        || key.contains("eq8")
-        || key.contains("eq3")
-        || key.contains("channel eq")
-    {
-        return Some(FX_EQ);
-    }
-    if key.contains("compressor") {
+    if key.contains("compressor") || key.contains("glue") || key.contains("multiband dynamics") {
         return Some(FX_COMPRESSOR);
     }
-    if key.contains("glue") || key.contains("multiband dynamics") {
-        return Some(FX_COMPRESSOR);
-    }
-    if key.contains("delay") {
+    if key.contains("delay") || key.contains("echo") || key.contains("ping pong") {
         return Some(FX_DELAY);
     }
-    if key.contains("echo") || key.contains("ping pong") {
-        return Some(FX_DELAY);
-    }
-    if key.contains("reverb") {
+    if key.contains("reverb") || key.contains("hybrid reverb") {
         return Some(FX_REVERB);
     }
-    if key.contains("hybrid reverb") {
-        return Some(FX_REVERB);
-    }
-    if key.contains("chorus") {
+    if key.contains("chorus") || key.contains("chorus-ensemble") {
         return Some(FX_CHORUS);
-    }
-    if key.contains("chorus-ensemble") {
-        return Some(FX_CHORUS);
-    }
-    if key.contains("utility") {
-        return Some(FX_UTILITY);
     }
     if key.contains("saturator") {
         return Some(FX_SATURATOR);
@@ -701,35 +829,32 @@ fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     if key.contains("limiter") {
         return Some(FX_LIMITER);
     }
-    if key.contains("gate") {
-        return Some(FX_GATE);
-    }
-    if key.contains("auto-filter") || key.contains("autofilter") {
+    if key.contains("auto-filter") || key.contains("autofilter") || key.contains("auto filter") {
         return Some(FX_AUTO_FILTER);
     }
-    if key.contains("auto filter") {
-        return Some(FX_AUTO_FILTER);
+    if key.contains("auto-pan") || key.contains("autopan") || key.contains("auto pan") {
+        return Some(FX_AUTO_PAN);
     }
-    if key.contains("phaser") {
-        return Some(FX_PHASER);
+    if key.contains("noise-machine") || key.contains("noisemachine") || key.contains("noise machine") {
+        return Some(FX_NOISE_MACHINE);
     }
-    if key.contains("phaser-flanger") {
+    if key.contains("phaser") || key.contains("phaser-flanger") {
         return Some(FX_PHASER);
     }
     if key.contains("flanger") {
         return Some(FX_FLANGER);
     }
-    if key.contains("distortion") {
+    if key.contains("distortion") || key.contains("overdrive") || key.contains("pedal") || key.contains("cabinet") || key.contains("amp") {
         return Some(FX_DISTORTION);
     }
-    if key.contains("overdrive") || key.contains("pedal") || key.contains("cabinet") || key.contains("amp") {
-        return Some(FX_DISTORTION);
-    }
-    if key.contains("bitcrusher") || key.contains("bit-crusher") {
+    if key.contains("bitcrusher") || key.contains("bit-crusher") || key.contains("redux") {
         return Some(FX_BITCRUSHER);
     }
-    if key.contains("redux") {
-        return Some(FX_BITCRUSHER);
+    if key.contains("utility") {
+        return Some(FX_UTILITY);
+    }
+    if key.contains("gate") {
+        return Some(FX_GATE);
     }
     None
 }

@@ -228,7 +228,7 @@ fn scan_audio_folder(path: String) -> Result<Vec<AudioFileEntry>, String> {
 /// Returns a deduplicated, alphabetically sorted list of audio files.
 /// Caps at MAX_SCAN_FILES to prevent UI freeze on massive libraries.
 /// This powers the unified "All" category in the browser sidebar.
-const MAX_SCAN_FILES: usize = 10_000;
+const MAX_SCAN_FILES: usize = 50_000;
 
 #[tauri::command]
 fn scan_all_audio_sources(
@@ -265,8 +265,7 @@ fn scan_all_audio_sources(
     // Deduplicate by absolute path
     all_entries.retain(|e| seen_paths.insert(e.path.clone()));
 
-    // Sort alphabetically (case-insensitive)
-    all_entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    // Sorting deferred to frontend for instant response
 
     log::info!(
         "[IPC] scan_all_audio_sources: {} files from {} sources (cap: {})",
@@ -324,9 +323,10 @@ fn scan_directory_recursive(
                 size_bytes,
                 modified_at,
                 format: ext.to_uppercase(),
-                duration_seconds: AudioReader::read_metadata(&path)
-                    .ok()
-                    .and_then(|(sr, _ch, frames)| frames.map(|f| (f as f64) / (sr as f64))),
+                // Duration loaded on-demand when user selects a file.
+                // Removing per-file AudioReader::read_metadata() eliminates
+                // the #1 scan bottleneck (codec init × N files).
+                duration_seconds: None,
             });
             *file_count += 1;
         }

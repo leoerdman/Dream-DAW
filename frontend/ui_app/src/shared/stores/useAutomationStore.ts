@@ -28,6 +28,8 @@ export interface AutomationBreakpoint {
     value: number;
     /** Curve type TO THE NEXT breakpoint. */
     curve: CurveType;
+    /** Bézier tension TO THE NEXT breakpoint (0..1). */
+    tension?: number;
 }
 
 /** An automation lane for a single parameter on a single track. */
@@ -73,6 +75,7 @@ interface AutomationState {
     addBreakpoint: (laneId: string, beat: number, value: number, curve?: CurveType) => void;
     moveBreakpoint: (laneId: string, bpId: string, beat: number, value: number) => void;
     setBreakpointCurve: (laneId: string, bpId: string, curve: CurveType) => void;
+    setBreakpointTension: (laneId: string, bpId: string, tension: number) => void;
     removeBreakpoint: (laneId: string, bpId: string) => void;
     selectBreakpoint: (bpId: string, additive?: boolean) => void;
     clearSelection: () => void;
@@ -136,7 +139,13 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
         set((s) => {
             const lane = s.lanes[laneId];
             if (!lane) return s;
-            const bp: AutomationBreakpoint = { id: genBpId(), beat, value, curve };
+            const bp: AutomationBreakpoint = {
+                id: genBpId(),
+                beat,
+                value,
+                curve,
+                tension: curve === 'bezier' ? 0.5 : undefined,
+            };
             const bps = [...lane.breakpoints, bp].sort((a, b) => a.beat - b.beat);
             return { lanes: { ...s.lanes, [laneId]: { ...lane, breakpoints: bps } } };
         });
@@ -157,7 +166,27 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
         set((s) => {
             const lane = s.lanes[laneId];
             if (!lane) return s;
-            const bps = lane.breakpoints.map((bp) => (bp.id === bpId ? { ...bp, curve } : bp));
+            const bps = lane.breakpoints.map((bp) =>
+                bp.id === bpId
+                    ? {
+                        ...bp,
+                        curve,
+                        tension: curve === 'bezier' ? (bp.tension ?? 0.5) : undefined,
+                    }
+                    : bp,
+            );
+            return { lanes: { ...s.lanes, [laneId]: { ...lane, breakpoints: bps } } };
+        });
+    },
+
+    setBreakpointTension: (laneId, bpId, tension) => {
+        set((s) => {
+            const lane = s.lanes[laneId];
+            if (!lane) return s;
+            const nextTension = Math.max(0.05, Math.min(0.95, tension));
+            const bps = lane.breakpoints.map((bp) =>
+                bp.id === bpId ? { ...bp, curve: 'bezier' as const, tension: nextTension } : bp,
+            );
             return { lanes: { ...s.lanes, [laneId]: { ...lane, breakpoints: bps } } };
         });
     },

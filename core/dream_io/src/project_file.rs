@@ -394,6 +394,10 @@ mod tests {
             filter_cutoff: 20000.0,
             filter_resonance: 0.0,
             filter_type: 0,
+            lfo_rate: 1.0,
+            lfo_depth: 0.0,
+            lfo_target: 0,
+            pulse_width: 0.5,
         });
         midi_track.automation_lanes.push(AutomationLane {
             param_id: "volume".to_string(),

@@ -254,6 +254,22 @@ pub struct SamplerConfig {
     /// Filter type (0=LP, 1=HP, 2=BP, 3=Notch).
     #[serde(default)]
     pub filter_type: u8,
+
+    /// LFO modulation rate in Hz (0.01–20.0).
+    #[serde(default = "default_lfo_rate")]
+    pub lfo_rate: f64,
+
+    /// LFO modulation depth (0.0–1.0).
+    #[serde(default)]
+    pub lfo_depth: f64,
+
+    /// LFO modulation target (0=Filter, 1=Pitch, 2=Volume).
+    #[serde(default)]
+    pub lfo_target: u8,
+
+    /// Square wave pulse width (0.05–0.95).
+    #[serde(default = "default_pulse_width")]
+    pub pulse_width: f64,
 }
 
 impl Default for SamplerConfig {
@@ -273,6 +289,10 @@ impl Default for SamplerConfig {
             filter_cutoff: default_filter_cutoff(),
             filter_resonance: 0.0,
             filter_type: 0,
+            lfo_rate: default_lfo_rate(),
+            lfo_depth: 0.0,
+            lfo_target: 0,
+            pulse_width: default_pulse_width(),
         }
     }
 }
@@ -283,6 +303,14 @@ fn default_sampler_osc_mix() -> f64 {
 
 fn default_filter_cutoff() -> f64 {
     20000.0
+}
+
+fn default_lfo_rate() -> f64 {
+    1.0
+}
+
+fn default_pulse_width() -> f64 {
+    0.5
 }
 
 impl SamplerConfig {

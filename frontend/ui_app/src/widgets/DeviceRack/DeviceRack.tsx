@@ -46,10 +46,17 @@ interface DeviceSlot {
     | 'limiter'
     | 'gate'
     | 'autoFilter'
+    | 'autoPan'
     | 'phaser'
     | 'flanger'
     | 'distortion'
     | 'bitcrusher'
+    | 'noiseMachine'
+    | 'spectrum'
+    | 'midiPitch'
+    | 'midiScale'
+    | 'midiVelocity'
+    | 'midiRandom'
     | 'vst'
     | 'instrument'
     | 'sampler'
@@ -89,10 +96,16 @@ const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<
     limiter: { thr: 0, rel: 1, ceil: 2 },
     gate: { thr: 0, atk: 1, hold: 2, rel: 3, range: 4 },
     autoFilter: { cutoff: 0, res: 1, rate: 2, depth: 3, env: 4, type: 5, mix: 6 },
+    autoPan: { rate: 0, depth: 1, phase: 2, shape: 3, mix: 4 },
     phaser: { rate: 0, depth: 1, fb: 2, stages: 3, center: 4, mix: 5 },
     flanger: { rate: 0, depth: 1, fb: 2, delay: 3, mix: 4 },
     distortion: { drive: 0, tone: 1, mix: 2, mode: 3 },
     bitcrusher: { bits: 0, down: 1, mix: 2 },
+    noiseMachine: { type: 0, level: 1, stereo: 2, lpfreq: 3, hpfreq: 4, pan: 5 },
+    midiPitch: { semitones: 0 },
+    midiScale: { root: 0, mask: 1 },
+    midiVelocity: { gain: 0, offset: 1 },
+    midiRandom: { semitones: 0, chance: 1 },
 };
 
 const DEVICE_PARAM_PRESETS: Record<
@@ -161,6 +174,10 @@ const DEVICE_PARAM_PRESETS: Record<
         { name: 'Cutoff', value: 20000, min: 20, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'Res', value: 0, min: 0, max: 0.99, suffix: '', step: 0.01 },
         { name: 'FiltType', value: 0, min: 0, max: 3, suffix: '', step: 1 },
+        { name: 'LfoRate', value: 1, min: 0.01, max: 20, suffix: 'Hz', step: 0.01 },
+        { name: 'LfoDepth', value: 0, min: 0, max: 1, suffix: '', step: 0.01 },
+        { name: 'LfoTarget', value: 0, min: 0, max: 2, suffix: '', step: 1 },
+        { name: 'PulseWidth', value: 0.5, min: 0.05, max: 0.95, suffix: '', step: 0.01 },
         { name: 'Vol', value: 1, min: 0, max: 2, suffix: '', step: 0.01 },
         { name: 'Attack', value: 0.005, min: 0.001, max: 2.0, suffix: 's', step: 0.001 },
         { name: 'Decay', value: 0.1, min: 0.001, max: 4.0, suffix: 's', step: 0.001 },
@@ -193,6 +210,13 @@ const DEVICE_PARAM_PRESETS: Record<
         { name: 'Type', value: 0, min: 0, max: 3, suffix: '', step: 1 },
         { name: 'Mix', value: 1, min: 0, max: 1, suffix: '', step: 0.01 },
     ],
+    autoPan: [
+        { name: 'Rate', value: 1, min: 0.01, max: 20, suffix: 'Hz', step: 0.01 },
+        { name: 'Depth', value: 70, min: 0, max: 100, suffix: '%', step: 1 },
+        { name: 'Phase', value: 180, min: 0, max: 360, suffix: '°', step: 1 },
+        { name: 'Shape', value: 0, min: 0, max: 4, suffix: '', step: 1 },
+        { name: 'Mix', value: 100, min: 0, max: 100, suffix: '%', step: 1 },
+    ],
     phaser: [
         { name: 'Rate', value: 0.5, min: 0.01, max: 10, suffix: 'Hz', step: 0.01 },
         { name: 'Depth', value: 0.6, min: 0, max: 1, suffix: '', step: 0.01 },
@@ -218,6 +242,28 @@ const DEVICE_PARAM_PRESETS: Record<
         { name: 'Bits', value: 16, min: 1, max: 32, suffix: '', step: 1 },
         { name: 'Down', value: 1, min: 1, max: 64, suffix: 'x', step: 1 },
         { name: 'Mix', value: 1, min: 0, max: 1, suffix: '', step: 0.01 },
+    ],
+    noiseMachine: [
+        { name: 'Type', value: 0, min: 0, max: 4, suffix: '', step: 1 },
+        { name: 'Level', value: -12, min: -60, max: 0, suffix: 'dB', step: 0.5 },
+        { name: 'Stereo', value: 1, min: 0, max: 1, suffix: '', step: 1 },
+        { name: 'LPFreq', value: 20000, min: 200, max: 20000, suffix: 'Hz', step: 1 },
+        { name: 'HPFreq', value: 20, min: 20, max: 5000, suffix: 'Hz', step: 1 },
+        { name: 'Pan', value: 0, min: -100, max: 100, suffix: '%', step: 1 },
+    ],
+    spectrum: [],
+    midiPitch: [{ name: 'Semitones', value: 0, min: -48, max: 48, suffix: 'st', step: 1 }],
+    midiScale: [
+        { name: 'Root', value: 0, min: 0, max: 11, suffix: '', step: 1 },
+        { name: 'Mask', value: 4095, min: 1, max: 4095, suffix: '', step: 1 },
+    ],
+    midiVelocity: [
+        { name: 'Gain', value: 1, min: 0, max: 4, suffix: 'x', step: 0.01 },
+        { name: 'Offset', value: 0, min: -127, max: 127, suffix: '', step: 1 },
+    ],
+    midiRandom: [
+        { name: 'Semitones', value: 0, min: -24, max: 24, suffix: 'st', step: 1 },
+        { name: 'Chance', value: 1, min: 0, max: 1, suffix: '', step: 0.01 },
     ],
 };
 
@@ -376,11 +422,18 @@ export const DeviceRack = ({
             else if (normalized.includes('saturator')) effectType = 'saturator';
             else if (normalized.includes('limiter')) effectType = 'limiter';
             else if (normalized.includes('gate')) effectType = 'gate';
+            else if (normalized.includes('auto pan') || normalized.includes('auto-pan') || normalized.includes('autopan')) effectType = 'autoPan';
             else if (normalized.includes('auto filter') || normalized.includes('auto-filter') || normalized.includes('autofilter')) effectType = 'autoFilter';
             else if (normalized.includes('phaser')) effectType = 'phaser';
             else if (normalized.includes('flanger')) effectType = 'flanger';
             else if (normalized.includes('distortion')) effectType = 'distortion';
             else if (normalized.includes('bitcrusher') || normalized.includes('bit-crusher')) effectType = 'bitcrusher';
+            else if (normalized.includes('noise-machine') || normalized.includes('noise machine') || normalized.includes('noisemachine')) effectType = 'noiseMachine';
+            else if (normalized.includes('spectrum')) effectType = 'spectrum';
+            else if (normalized.includes('internal://midi-fx/pitch') || normalized.includes('midipitch')) effectType = 'midiPitch';
+            else if (normalized.includes('internal://midi-fx/scale') || normalized.includes('midiscale')) effectType = 'midiScale';
+            else if (normalized.includes('internal://midi-fx/velocity') || normalized.includes('midivelocity')) effectType = 'midiVelocity';
+            else if (normalized.includes('internal://midi-fx/random') || normalized.includes('midirandom')) effectType = 'midiRandom';
             else if (selectedTrack.instrument?.id === slot.id && !isVst) effectType = 'instrument';
 
             return {
@@ -484,6 +537,10 @@ export const DeviceRack = ({
                 else if (normalizedName === 'cutoff') paramId = 'synth.filter.cutoff';
                 else if (normalizedName === 'res') paramId = 'synth.filter.resonance';
                 else if (normalizedName === 'filttype') paramId = 'synth.filter.type';
+                else if (normalizedName === 'lforate') paramId = 'synth.lfo.rate';
+                else if (normalizedName === 'lfodepth') paramId = 'synth.lfo.depth';
+                else if (normalizedName === 'lfotarget') paramId = 'synth.lfo.target';
+                else if (normalizedName === 'pulsewidth') paramId = 'synth.pulse_width';
             } else if (device.effectType === 'eq') {
                 if (normalizedName === 'low') paramId = 'eq.low';
                 else if (normalizedName === 'lowfreq') paramId = 'eq.lowFreq';
@@ -495,6 +552,17 @@ export const DeviceRack = ({
                 else if (normalizedName === 'highfreq') paramId = 'eq.highFreq';
                 else if (normalizedName === 'highq') paramId = 'eq.highQ';
                 else if (normalizedName === 'out') paramId = 'eq.out';
+            } else if (device.effectType === 'midiPitch') {
+                if (normalizedName === 'semitones') paramId = 'midi.pitch.semitones';
+            } else if (device.effectType === 'midiScale') {
+                if (normalizedName === 'root') paramId = 'midi.scale.root';
+                else if (normalizedName === 'mask') paramId = 'midi.scale.mask';
+            } else if (device.effectType === 'midiVelocity') {
+                if (normalizedName === 'gain') paramId = 'midi.velocity.gain';
+                else if (normalizedName === 'offset') paramId = 'midi.velocity.offset';
+            } else if (device.effectType === 'midiRandom') {
+                if (normalizedName === 'semitones') paramId = 'midi.random.semitones';
+                else if (normalizedName === 'chance') paramId = 'midi.random.chance';
             }
 
             const key = `${selectedTrack.id}:${device.id}:${paramId}`;
@@ -1183,10 +1251,16 @@ const DeviceNode = ({
         limiter: '#59d3be',
         gate: '#6cc66d',
         autoFilter: '#3ed1d1',
+        autoPan: '#6db3ff',
         phaser: '#8b7bff',
         flanger: '#55a6ff',
         distortion: '#ff844d',
         bitcrusher: '#f0d65c',
+        spectrum: '#7cc4d4',
+        midiPitch: '#7aa3ff',
+        midiScale: '#8bc27a',
+        midiVelocity: '#d9a25c',
+        midiRandom: '#c58bdd',
         vst: '#4a9eff',
     };
     const typeColor = typeColorMap[device.effectType] || 'var(--color-accent-primary)';
@@ -1204,11 +1278,13 @@ const DeviceNode = ({
                     ? 320
                     : device.effectType === 'eq'
                         ? 280
-                        : device.effectType === 'autoFilter' || device.effectType === 'phaser' || device.effectType === 'flanger'
+                        : device.effectType === 'autoFilter' || device.effectType === 'autoPan' || device.effectType === 'phaser' || device.effectType === 'flanger'
                             ? 300
-                            : device.effectType === 'gate'
+                            : device.effectType === 'midiPitch' || device.effectType === 'midiScale' || device.effectType === 'midiVelocity' || device.effectType === 'midiRandom'
                                 ? 280
-                                : 240;
+                                : device.effectType === 'gate'
+                                    ? 280
+                                    : 240;
 
     return (
         <div
@@ -2162,10 +2238,22 @@ const PluginGuiSurface = ({
         );
     }
 
-    if (device.effectType === 'autoFilter' || device.effectType === 'phaser' || device.effectType === 'flanger') {
+    if (device.effectType === 'autoFilter' || device.effectType === 'autoPan' || device.effectType === 'phaser' || device.effectType === 'flanger') {
         const params = device.params;
-        const title = device.effectType === 'autoFilter' ? 'Auto Filter' : device.effectType === 'phaser' ? 'Phaser' : 'Flanger';
-        const hue = device.effectType === 'autoFilter' ? '#4cc9d8' : device.effectType === 'phaser' ? '#998bff' : '#66b3ff';
+        const title = device.effectType === 'autoFilter'
+            ? 'Auto Filter'
+            : device.effectType === 'autoPan'
+                ? 'Auto Pan'
+                : device.effectType === 'phaser'
+                    ? 'Phaser'
+                    : 'Flanger';
+        const hue = device.effectType === 'autoFilter'
+            ? '#4cc9d8'
+            : device.effectType === 'autoPan'
+                ? '#6db3ff'
+                : device.effectType === 'phaser'
+                    ? '#998bff'
+                    : '#66b3ff';
         return (
             <div style={pluginPanelLayoutStyle}>
                 <div style={{
@@ -2214,22 +2302,20 @@ const PluginGuiSurface = ({
         );
     }
 
-    if (device.effectType === 'instrument') {
+    if (device.effectType === 'noiseMachine') {
         return (
             <div style={pluginPanelLayoutStyle}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
-                    background: 'linear-gradient(180deg, #16243a 0%, #101726 100%)',
+                    background: 'linear-gradient(180deg, #17261a 0%, #0e150f 100%)',
                 }}>
-                    <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
-                        <rect x="0" y="0" width="320" height="52" fill="rgba(9, 14, 22, 0.75)" />
-                        <path d="M 10 48 L 40 10 L 85 26 L 140 26 L 180 14 L 240 20 L 308 48" fill="none" stroke="#64b1ff" strokeWidth="2.6" strokeLinejoin="round" strokeLinecap="round" />
+                    <div style={{ ...pluginPanelTitleStyle, color: '#a5d6b0' }}>Noise Machine</div>
+                    <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: 44 }}>
+                        <rect x="0" y="0" width="320" height="52" fill="rgba(12, 18, 12, 0.65)" />
+                        <path d="M 4 26 L 12 10 L 20 38 L 28 18 L 36 42 L 44 14 L 52 34 L 60 8 L 68 40 L 76 20 L 84 36 L 92 12 L 100 44 L 108 16 L 116 38 L 124 22 L 132 40 L 140 10 L 148 34 L 156 18 L 164 42 L 172 14 L 180 36 L 188 8 L 196 40 L 204 20 L 212 38 L 220 12 L 228 44 L 236 16 L 244 34 L 252 22 L 260 40 L 268 10 L 276 38 L 284 18 L 292 42 L 300 14 L 308 36 L 316 26" fill="none" stroke="#72d68a" strokeWidth="1.6" />
                     </svg>
-                    <div style={{ ...pluginPanelMetaStyle, color: '#9cbde2' }}>
-                        <span>Core Instrument Controls</span>
-                    </div>
                 </div>
-                <div style={pluginPanelKnobGrid(`repeat(${Math.max(1, Math.min(6, device.params.length))}, minmax(0, 1fr))`)}>
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(6, device.params.length)}, minmax(0, 1fr))`)}>
                     {device.params.slice(0, 6).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
@@ -2237,6 +2323,36 @@ const PluginGuiSurface = ({
             </div>
         );
     }
+
+    if (device.effectType === 'spectrum' || device.effectType === 'midiPitch' || device.effectType === 'midiScale' || device.effectType === 'midiVelocity' || device.effectType === 'midiRandom') {
+        const title = device.effectType === 'spectrum'
+            ? 'Spectrum'
+            : device.effectType === 'midiPitch'
+                ? 'MIDI Pitch'
+                : device.effectType === 'midiScale'
+                    ? 'MIDI Scale'
+                    : device.effectType === 'midiVelocity'
+                        ? 'MIDI Velocity'
+                        : 'MIDI Random';
+        return (
+            <div style={pluginPanelLayoutStyle}>
+                <div style={{ ...pluginPanelCardBaseStyle, background: 'linear-gradient(180deg, #1b1f2a 0%, #121521 100%)' }}>
+                    <div style={{ ...pluginPanelTitleStyle, color: '#b8c8e8' }}>{title}</div>
+                    <div style={pluginPanelMetaStyle}>
+                        <span>{device.effectType === 'spectrum' ? 'Analyzer (native)' : 'MIDI FX (import-compatible)'}</span>
+                    </div>
+                </div>
+                {device.params.length > 0 && (
+                    <div style={pluginPanelKnobGrid(`repeat(${Math.min(4, Math.max(2, device.params.length))}, minmax(0, 1fr))`)}>
+                        {device.params.map((p) => (
+                            <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
 
     return (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>

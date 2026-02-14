@@ -54,6 +54,10 @@ is_offline: boolean,
  */
 is_selected: boolean, 
 /**
+ * Whether this clip is muted (stays on timeline but doesn't play).
+ */
+is_muted: boolean, 
+/**
  * Optional color override (uses track color when `None`).
  */
 color_override: TrackColor | null, };

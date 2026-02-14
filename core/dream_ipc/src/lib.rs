@@ -111,6 +111,18 @@ pub enum EngineCommand {
     /// Set synth voice filter type (0=LP, 1=HP, 2=BP, 3=Notch).
     SetSamplerFilterType { track_index: u16, filter_type: u8 },
 
+    /// Set LFO modulation rate in Hz (0.01–20.0).
+    SetSamplerLfoRate { track_index: u16, rate: f32 },
+
+    /// Set LFO modulation depth (0.0–1.0).
+    SetSamplerLfoDepth { track_index: u16, depth: f32 },
+
+    /// Set LFO modulation target (0=Filter, 1=Pitch, 2=Volume).
+    SetSamplerLfoTarget { track_index: u16, target: u8 },
+
+    /// Set square wave pulse width (0.05–0.95).
+    SetSamplerPulseWidth { track_index: u16, width: f32 },
+
     /// Turn off all active notes on a track's sampler.
     SamplerAllNotesOff { track_index: u16 },
 

@@ -1,11 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════
 use std::path::{Path, PathBuf};
-use std::io::Read;
-use std::path::{Path, PathBuf};
-
-use flate2::read::GzDecoder;
-use quick_xml::events::{BytesStart, Event};
-use quick_xml::Reader;
 
 fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> Option<(&'static str, &'static str, &'static str)> {
     let merged = format!("{} {}", plugin_id, plugin_name).to_lowercase();
@@ -27,20 +21,25 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
     {
         return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument"));
     }
-    if merged.contains("sampler") || merged.contains("simpler") {
+    if merged.contains("sampler") || merged.contains("simpler") || compact.contains("multisampler") {
         return Some(("internal://instrument/sampler", "Sampler", "instrument"));
     }
 
     if merged.contains("eq") || merged.contains("channel eq") {
         return Some(("internal://effect/eq-eight", "EQ Eight", "effect"));
     }
-    if merged.contains("compressor") || merged.contains("glue") || merged.contains("multiband dynamics") {
+    if merged.contains("compressor") || merged.contains("glue") || compact.contains("multibanddynamics") || compact.contains("drumbuss") {
         return Some(("internal://effect/compressor", "Compressor", "effect"));
     }
-    if merged.contains("delay") || merged.contains("echo") || merged.contains("ping pong") {
+    if merged.contains("delay") || merged.contains("echo") || merged.contains("ping pong")
+        || compact.contains("beatrepeat") || compact.contains("graindelay")
+        || compact.contains("filterdelay") || compact.contains("spectraltime")
+    {
         return Some(("internal://effect/delay", "Delay", "effect"));
     }
-    if merged.contains("reverb") {
+    if merged.contains("reverb") || merged.contains("corpus") || merged.contains("resonators")
+        || compact.contains("spectralresonator") || compact.contains("resonator")
+    {
         return Some(("internal://effect/reverb", "Reverb", "effect"));
     }
     if merged.contains("chorus") {
@@ -49,13 +48,35 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
     if compact.contains("stereogain") {
         return Some(("internal://effect/utility", "Utility", "effect"));
     }
-    if compact.contains("autopan") || compact.contains("midipitcher") {
-        return Some(("internal://effect/utility", "Utility", "effect"));
+    if compact.contains("autopan") {
+        return Some(("internal://effect/auto-pan", "Auto Pan", "effect"));
     }
-    if merged.contains("saturator") {
+    if compact.contains("midipitcher") {
+        return Some(("internal://midi-fx/pitch", "MIDI Pitch", "effect"));
+    }
+    if compact.contains("mxdevicescale") || compact == "scale" {
+        return Some(("internal://midi-fx/scale", "MIDI Scale", "effect"));
+    }
+    if compact.contains("mxdevicevelocity") || compact == "velocity" {
+        return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
+    }
+    if compact.contains("mxdevicerandom") || compact == "random" {
+        return Some(("internal://midi-fx/random", "MIDI Random", "effect"));
+    }
+    if merged.contains("noise machine") || compact.contains("noisemachine") {
+        return Some(("internal://effect/noise-machine", "Noise Machine", "effect"));
+    }
+    if merged.contains("saturator") || compact.contains("dynamictube") || compact.contains("roar") {
         return Some(("internal://effect/saturator", "Saturator", "effect"));
     }
-    if merged.contains("utility") {
+    if merged.contains("spectrum") {
+        return Some(("internal://effect/spectrum", "Spectrum", "effect"));
+    }
+    if merged.contains("utility") || merged.contains("looper") || merged.contains("tuner")
+        || compact.contains("frequencyshifter")
+        || compact.contains("pitchhack") || compact.contains("spectral")
+        || compact.contains("mxdeviceaudioeffect") || compact.contains("mxdevicemidieffect")
+    {
         return Some(("internal://effect/utility", "Utility", "effect"));
     }
     if merged.contains("limiter") {
@@ -76,13 +97,17 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
     if merged.contains("flanger") {
         return Some(("internal://effect/flanger", "Flanger", "effect"));
     }
-    if merged.contains("distortion") || merged.contains("overdrive") || merged.contains("pedal") || merged.contains("cabinet") || merged.contains("amp") {
+    if merged.contains("distortion") || merged.contains("overdrive") || merged.contains("pedal")
+        || merged.contains("cabinet") || merged.contains("amp") || merged.contains("shaper")
+    {
         return Some(("internal://effect/distortion", "Distortion", "effect"));
     }
-    if merged.contains("erosion") || merged.contains("transmute") || merged.contains("vocoder") {
+    if merged.contains("erosion") || merged.contains("transmute") || merged.contains("vocoder")
+        || merged.contains("vinyl")
+    {
         return Some(("internal://effect/distortion", "Distortion", "effect"));
     }
-    if merged.contains("bitcrusher") || merged.contains("redux") {
+    if merged.contains("bitcrusher") || merged.contains("redux") || compact.contains("redux2") {
         return Some(("internal://effect/bitcrusher", "Bitcrusher", "effect"));
     }
     None
@@ -153,13 +178,6 @@ fn node_child_value(node: roxmltree::Node<'_, '_>, child_tag: &str) -> Option<St
         .map(|s| s.to_string())
 }
 
-fn node_descendant_value(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<String> {
-    node.descendants()
-        .find(|n| n.is_element() && n.has_tag_name(tag))
-        .and_then(|n| n.attribute("Value"))
-        .map(|s| s.to_string())
-}
-
 fn node_manual_value(node: roxmltree::Node<'_, '_>, param_tag: &str) -> Option<String> {
     node.children()
         .find(|c| c.is_element() && c.has_tag_name(param_tag))
@@ -184,20 +202,96 @@ fn resolve_als_file_path(
     absolute_path: Option<&str>,
     relative_path: Option<&str>,
 ) -> Option<String> {
+    fn try_existing_variants(raw: &str) -> Option<String> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        let candidates = [
+            trimmed.to_string(),
+            trimmed.replace(" - ", "-"),
+            trimmed.replace(" -", "-"),
+            trimmed.replace("- ", "-"),
+            trimmed.replace("ABLETON - Projects", "ABLETON - Projects"),
+            trimmed.replace("160 - 200 BPM", "160-200 BPM"),
+        ];
+        for candidate in candidates {
+            if std::path::Path::new(&candidate).exists() {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    fn search_near_project(als_path: &Path, raw: &str) -> Option<String> {
+        let file_name = std::path::Path::new(raw)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_string();
+        if file_name.is_empty() {
+            return None;
+        }
+        let root = als_path.parent()?;
+        let hot_dirs = [
+            root.join("Samples").join("Imported"),
+            root.join("Samples").join("Processed"),
+            root.join("Samples").join("Recorded"),
+            root.join("Samples"),
+        ];
+        for dir in hot_dirs {
+            if !dir.exists() {
+                continue;
+            }
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file()
+                        && path
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .map(|n| n.eq_ignore_ascii_case(&file_name))
+                            .unwrap_or(false)
+                    {
+                        return Some(path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+        None
+    }
+
     if let Some(abs) = absolute_path
         && !abs.trim().is_empty()
     {
-        return Some(abs.to_string());
+        if let Some(found) = try_existing_variants(abs) {
+            return Some(found);
+        }
+        if let Some(found) = search_near_project(als_path, abs) {
+            return Some(found);
+        }
+        return Some(abs.trim().to_string());
     }
     if let Some(rel) = relative_path
         && !rel.trim().is_empty()
     {
         let rel_path = PathBuf::from(rel);
         if rel_path.is_absolute() {
+            if let Some(found) = try_existing_variants(&rel_path.to_string_lossy()) {
+                return Some(found);
+            }
             return Some(rel_path.to_string_lossy().to_string());
         }
         let parent = als_path.parent().unwrap_or_else(|| Path::new("."));
-        return Some(parent.join(rel_path).to_string_lossy().to_string());
+        let joined = parent.join(rel_path).to_string_lossy().to_string();
+        if let Some(found) = try_existing_variants(&joined) {
+            return Some(found);
+        }
+        if let Some(found) = search_near_project(als_path, &joined) {
+            return Some(found);
+        }
+        return Some(joined);
     }
     None
 }
@@ -228,20 +322,37 @@ fn make_missing_plugin_slot(kind: &str, ableton_name: &str) -> PluginSlot {
     )
 }
 
+fn normalize_plugin_key(raw: &str) -> String {
+    raw.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
 struct ExternalPluginIndex {
     by_name: std::collections::HashMap<String, String>,
     by_stem: std::collections::HashMap<String, String>,
+    by_file_name: std::collections::HashMap<String, String>,
+    by_normalized: std::collections::HashMap<String, String>,
 }
 
 impl ExternalPluginIndex {
     fn build() -> Self {
         let mut by_name = std::collections::HashMap::new();
         let mut by_stem = std::collections::HashMap::new();
+        let mut by_file_name = std::collections::HashMap::new();
+        let mut by_normalized = std::collections::HashMap::new();
 
         for desc in dream_plugins::PluginScanner::new().scan_all() {
             let path_str = desc.path.to_string_lossy().to_string();
             let name_key = desc.name.to_lowercase();
             by_name.entry(name_key).or_insert_with(|| path_str.clone());
+            let normalized_name = normalize_plugin_key(&desc.name);
+            if !normalized_name.is_empty() {
+                by_normalized
+                    .entry(normalized_name)
+                    .or_insert_with(|| path_str.clone());
+            }
 
             let stem_key = desc
                 .path
@@ -250,11 +361,34 @@ impl ExternalPluginIndex {
                 .unwrap_or_default()
                 .to_lowercase();
             if !stem_key.is_empty() {
-                by_stem.entry(stem_key).or_insert(path_str);
+                by_stem.entry(stem_key).or_insert_with(|| path_str.clone());
+                let normalized_stem = normalize_plugin_key(
+                    desc.path.file_stem().and_then(|s| s.to_str()).unwrap_or_default(),
+                );
+                if !normalized_stem.is_empty() {
+                    by_normalized
+                        .entry(normalized_stem)
+                        .or_insert_with(|| path_str.clone());
+                }
+            }
+
+            let file_key = desc
+                .path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+                .to_lowercase();
+            if !file_key.is_empty() {
+                by_file_name.entry(file_key).or_insert(path_str);
             }
         }
 
-        Self { by_name, by_stem }
+        Self {
+            by_name,
+            by_stem,
+            by_file_name,
+            by_normalized,
+        }
     }
 
     fn resolve_by_name(&self, name: &str) -> Option<String> {
@@ -262,23 +396,297 @@ impl ExternalPluginIndex {
         if key.is_empty() {
             return None;
         }
+        let normalized = normalize_plugin_key(&key);
+
         self.by_name
             .get(&key)
             .cloned()
             .or_else(|| self.by_stem.get(&key).cloned())
+            .or_else(|| self.by_file_name.get(&key).cloned())
+            .or_else(|| self.by_normalized.get(&normalized).cloned())
+            .or_else(|| {
+                self.by_normalized
+                    .iter()
+                    .find(|(k, _)| k.contains(&normalized) || normalized.contains(*k))
+                    .map(|(_, v)| v.clone())
+            })
     }
 }
 
-fn collect_track_devices(track_node: roxmltree::Node<'_, '_>) -> Vec<roxmltree::Node<'_, '_>> {
-    track_node
+fn collect_devices_in_container<'a, 'input>(
+    device_container: roxmltree::Node<'a, 'input>,
+    out: &mut Vec<roxmltree::Node<'a, 'input>>,
+) {
+    for device in device_container.children().filter(|n| n.is_element()) {
+        out.push(device);
+
+        // Dive into nested rack/chain device containers.
+        // Ableton nests racks as: AudioEffectGroupDevice > Branches >
+        // AudioEffectBranch > DeviceChain > AudioToAudioDeviceChain > Devices.
+        // We search descendants for any <Devices> node inside a <DeviceChain>
+        // to handle intermediary wrappers like AudioToAudioDeviceChain.
+        for nested_chain in device
+            .descendants()
+            .filter(|n| n.is_element() && n.has_tag_name("DeviceChain"))
+        {
+            // First try direct <Devices> child (simple case)
+            if let Some(nested_devices) = nested_chain
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name("Devices"))
+            {
+                collect_devices_in_container(nested_devices, out);
+            } else {
+                // Ableton may wrap in AudioToAudioDeviceChain, MidiToAudioDeviceChain, etc.
+                // Search one level deeper for a <Devices> node.
+                for wrapper in nested_chain.children().filter(|n| n.is_element()) {
+                    if let Some(nested_devices) = wrapper
+                        .children()
+                        .find(|n| n.is_element() && n.has_tag_name("Devices"))
+                    {
+                        collect_devices_in_container(nested_devices, out);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn collect_track_devices<'a, 'input>(
+    track_node: roxmltree::Node<'a, 'input>,
+) -> Vec<roxmltree::Node<'a, 'input>> {
+    let mut devices = Vec::new();
+    for chain in track_node
+        .children()
+        .filter(|n| n.is_element() && n.has_tag_name("DeviceChain"))
+    {
+        if let Some(root_devices) = chain
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("Devices"))
+        {
+            collect_devices_in_container(root_devices, &mut devices);
+        }
+    }
+    devices
+}
+
+fn parse_fade_frames_from_audio_clip(
+    clip_node: roxmltree::Node<'_, '_>,
+    bpm: f64,
+    sample_rate: f64,
+) -> (i64, i64) {
+    let fade_in_beats = node_child_value(clip_node, "FadeInLength")
+        .as_deref()
+        .and_then(parse_f64_value)
+        .unwrap_or(0.0);
+    let fade_out_beats = node_child_value(clip_node, "FadeOutLength")
+        .as_deref()
+        .and_then(parse_f64_value)
+        .unwrap_or(0.0);
+
+    (
+        beats_to_frames(fade_in_beats, bpm, sample_rate).max(0),
+        beats_to_frames(fade_out_beats, bpm, sample_rate).max(0),
+    )
+}
+
+fn extract_audio_clip_source_path(
+    clip_node: roxmltree::Node<'_, '_>,
+    als_path: &Path,
+) -> String {
+    if let Some(sample_ref) = clip_node
         .descendants()
-        .filter(|n| {
-            n.is_element()
-                && n.parent()
-                    .map(|p| p.is_element() && p.has_tag_name("Devices"))
-                    .unwrap_or(false)
-        })
-        .collect()
+        .find(|n| n.is_element() && n.has_tag_name("SampleRef"))
+    {
+        let abs = sample_ref
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Path"))
+            .and_then(|n| n.attribute("Value"));
+        let rel = sample_ref
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("RelativePath"))
+            .and_then(|n| n.attribute("Value"));
+        if let Some(path) = resolve_als_file_path(als_path, abs, rel) {
+            return path;
+        }
+    }
+
+    if let Some(file_ref) = clip_node
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("FileRef"))
+    {
+        let abs = file_ref
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Path"))
+            .and_then(|n| n.attribute("Value"));
+        let rel = file_ref
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("RelativePath"))
+            .and_then(|n| n.attribute("Value"));
+        if let Some(path) = resolve_als_file_path(als_path, abs, rel) {
+            return path;
+        }
+    }
+
+    String::new()
+}
+
+fn extract_simpler_sample_path(
+    device: roxmltree::Node<'_, '_>,
+    als_path: &Path,
+) -> Option<String> {
+    let sample_ref = device
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("SampleRef"))?;
+    let abs = sample_ref
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("Path"))
+        .and_then(|n| n.attribute("Value"));
+    let rel = sample_ref
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("RelativePath"))
+        .and_then(|n| n.attribute("Value"));
+    resolve_als_file_path(als_path, abs, rel)
+}
+
+#[cfg(test)]
+mod als_import_tests {
+    use super::*;
+
+    #[test]
+    fn nested_device_collector_finds_devices_inside_racks() {
+        let xml = r#"
+        <Track>
+          <DeviceChain>
+            <Devices>
+              <AudioEffectGroupDevice Id="1">
+                <DeviceChain>
+                  <Devices>
+                    <Eq8 Id="2"/>
+                    <PluginDevice Id="3"/>
+                  </Devices>
+                </DeviceChain>
+              </AudioEffectGroupDevice>
+              <AutoFilter Id="4"/>
+            </Devices>
+          </DeviceChain>
+        </Track>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let track = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Track"))
+            .expect("track");
+
+        let names: Vec<String> = collect_track_devices(track)
+            .into_iter()
+            .map(|n| n.tag_name().name().to_string())
+            .collect();
+
+        assert!(names.iter().any(|n| n == "AudioEffectGroupDevice"));
+        assert!(names.iter().any(|n| n == "Eq8"));
+        assert!(names.iter().any(|n| n == "PluginDevice"));
+        assert!(names.iter().any(|n| n == "AutoFilter"));
+    }
+
+    #[test]
+    fn audio_clip_source_path_prefers_sample_ref() {
+        let xml = r#"
+        <AudioClip>
+          <SampleRef>
+            <FileRef>
+              <RelativePath Value="Samples/Imported/kick.wav"/>
+            </FileRef>
+          </SampleRef>
+        </AudioClip>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let clip = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("AudioClip"))
+            .expect("audio clip");
+
+        let als_path = Path::new("/tmp/project/Test.als");
+        let source = extract_audio_clip_source_path(clip, als_path);
+        assert!(source.ends_with("Samples/Imported/kick.wav"));
+    }
+}
+
+fn infer_device_display_name(device: roxmltree::Node<'_, '_>, fallback_tag: &str) -> String {
+    if let Some(user_name) = node_child_value(device, "UserName")
+        && !user_name.trim().is_empty()
+    {
+        return user_name.trim().to_string();
+    }
+
+    // Ableton built-ins often carry a FileRef/RelativePath like:
+    // "Devices/Audio Effects/EQ Eight" -> use final segment.
+    let rel = device
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("RelativePath"))
+        .and_then(|n| n.attribute("Value"))
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !rel.is_empty() {
+        let tail = rel
+            .replace('\\', "/")
+            .split('/')
+            .next_back()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if !tail.is_empty() {
+            return tail;
+        }
+    }
+
+    let abs = device
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("Path"))
+        .and_then(|n| n.attribute("Value"))
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !abs.is_empty() {
+        let tail = Path::new(&abs)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if !tail.is_empty() {
+            return tail;
+        }
+    }
+
+    fallback_tag.to_string()
+}
+
+#[tauri::command]
+fn import_ableton_project(
+    path: String,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<Project, String> {
+    if !PathBuf::from(&path)
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|e| e.eq_ignore_ascii_case("als"))
+        .unwrap_or(false)
+    {
+        return Err("Only .als files can be imported with this command.".to_string());
+    }
+    open_project(
+        path,
+        project_state,
+        clip_pool_state,
+        automation_runtime,
+        handle,
+        app,
+    )
 }
 
 fn import_track_clips(
@@ -306,16 +714,7 @@ fn import_track_clips(
             .filter(|v| !v.trim().is_empty())
             .unwrap_or_else(|| "Audio Clip".to_string());
 
-        let absolute_path = clip_node
-            .descendants()
-            .find(|n| n.is_element() && n.has_tag_name("Path"))
-            .and_then(|n| n.attribute("Value"));
-        let relative_path = clip_node
-            .descendants()
-            .find(|n| n.is_element() && n.has_tag_name("RelativePath"))
-            .and_then(|n| n.attribute("Value"));
-        let source_path = resolve_als_file_path(als_path, absolute_path, relative_path)
-            .unwrap_or_default();
+        let source_path = extract_audio_clip_source_path(clip_node, als_path);
 
         let mut clip = AudioClip::new(
             clip_name,
@@ -323,6 +722,15 @@ fn import_track_clips(
             AbsoluteTime::new(beats_to_frames(start_beats, bpm, sample_rate)),
             AbsoluteTime::new(beats_to_frames(duration_beats, bpm, sample_rate).max(1)),
         );
+        if let Some(sample_volume) = node_child_value(clip_node, "SampleVolume")
+            .as_deref()
+            .and_then(parse_f64_value)
+        {
+            clip.gain = sample_volume.clamp(0.0, 8.0);
+        }
+        let (fade_in, fade_out) = parse_fade_frames_from_audio_clip(clip_node, bpm, sample_rate);
+        clip.fade_in_frames = fade_in;
+        clip.fade_out_frames = fade_out;
 
         if let Some(start_relative_beats) = clip_node
             .descendants()
@@ -364,6 +772,9 @@ fn import_track_clips(
             AbsoluteTime::new(beats_to_frames(start_beats, bpm, sample_rate)),
             AbsoluteTime::new(beats_to_frames(duration_beats, bpm, sample_rate).max(1)),
         );
+        let (fade_in, fade_out) = parse_fade_frames_from_audio_clip(clip_node, bpm, sample_rate);
+        clip.fade_in_frames = fade_in;
+        clip.fade_out_frames = fade_out;
 
         if let Some(disabled) = node_child_value(clip_node, "Disabled")
             .as_deref()
@@ -399,21 +810,107 @@ fn import_track_clips(
     }
 }
 
+fn upsert_static_import_lane(track: &mut Track, param_id: &str, value: f64) {
+    if let Some(existing) = track
+        .automation_lanes
+        .iter_mut()
+        .find(|lane| lane.param_id.eq_ignore_ascii_case(param_id))
+    {
+        existing.points = vec![dream_models::project::AutomationPoint {
+            beat: 0.0,
+            value,
+            curve_type: "linear".to_string(),
+            tension: None,
+        }];
+        existing.param_id = param_id.to_string();
+        return;
+    }
+    track.automation_lanes.push(dream_models::project::AutomationLane {
+        param_id: param_id.to_string(),
+        points: vec![dream_models::project::AutomationPoint {
+            beat: 0.0,
+            value,
+            curve_type: "linear".to_string(),
+            tension: None,
+        }],
+    });
+}
+
 fn import_track_devices(
     track_node: roxmltree::Node<'_, '_>,
     track: &mut Track,
     external_plugins: &ExternalPluginIndex,
+    als_path: &Path,
 ) {
-    let container_tags = [
+    let effect_rack_tags = [
         "AudioEffectGroupDevice",
-        "InstrumentGroupDevice",
         "DrumGroupDevice",
         "MidiEffectGroupDevice",
     ];
 
     for device in collect_track_devices(track_node) {
         let tag = device.tag_name().name();
-        if container_tags.contains(&tag) {
+
+        // Effect racks: skip the container — inner devices are already
+        // flattened by collect_track_devices recursion.
+        if effect_rack_tags.contains(&tag) {
+            continue;
+        }
+
+        // Instrument racks: extract the primary instrument from inside
+        // the rack (MultiSampler, InstrumentVector, etc.) so it maps
+        // to Dream DAW's single-instrument-per-track model.
+        if tag == "InstrumentGroupDevice" {
+            if track.track_type == TrackType::Midi && track.instrument.is_none() {
+                // Search descendants for the first real instrument device
+                let instrument_tags = [
+                    "OriginalSimpler", "MultiSampler", "Operator",
+                    "InstrumentVector", "Drift",
+                ];
+                let inner_instrument = device.descendants().find(|n| {
+                    n.is_element() && instrument_tags.contains(&n.tag_name().name())
+                });
+                if let Some(inner) = inner_instrument {
+                    let inner_tag = inner.tag_name().name();
+                    let inner_name = infer_device_display_name(inner, inner_tag);
+                    if let Some((pid, pname, _)) = canonical_internal_plugin_for_import(inner_tag, &inner_name) {
+                        track.instrument = Some(PluginSlot::new(pname, pid));
+                        if track.sampler.is_none() {
+                            track.sampler = Some(SamplerConfig::default());
+                        }
+                        if inner_tag == "OriginalSimpler" {
+                            if let Some(sample_path) = extract_simpler_sample_path(inner, als_path) {
+                                if let Some(cfg) = &mut track.sampler {
+                                    if cfg.sample_path.trim().is_empty() {
+                                        cfg.sample_path = sample_path;
+                                    }
+                                }
+                            }
+                        }
+                        if pid == "internal://instrument/wave-synth" {
+                            if let Some(cfg) = &mut track.sampler {
+                                if cfg.sample_path.trim().is_empty() {
+                                    cfg.sample_path = "internal://waveform/sine".to_string();
+                                }
+                            }
+                        }
+                    } else {
+                        let rack_name = infer_device_display_name(device, tag);
+                        track.instrument = Some(make_missing_plugin_slot("ableton-rack", &rack_name));
+                    }
+                } else {
+                    // Check for a PluginDevice (VST instrument) inside the rack
+                    let inner_plugin = device.descendants().find(|n| {
+                        n.is_element() && n.tag_name().name() == "PluginDevice"
+                    });
+                    if inner_plugin.is_some() {
+                        // Will be processed by the flattened device list below
+                    } else {
+                        let rack_name = infer_device_display_name(device, tag);
+                        track.instrument = Some(make_missing_plugin_slot("ableton-rack", &rack_name));
+                    }
+                }
+            }
             continue;
         }
 
@@ -449,6 +946,22 @@ fn import_track_devices(
                 })
                 .unwrap_or_default()
                 .to_string();
+            let vst3_path = device
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name("Vst3PluginInfo"))
+                .and_then(|vst3| {
+                    vst3.children()
+                        .find(|n| n.is_element() && n.has_tag_name("Path"))
+                        .and_then(|n| n.attribute("Value"))
+                })
+                .unwrap_or_default()
+                .to_string();
+            let is_placeholder = device
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name("IsPlaceholderDevice"))
+                .and_then(|n| n.attribute("Value"))
+                .and_then(parse_bool_value)
+                .unwrap_or(false);
 
             let preferred_name = if !user_name.trim().is_empty() {
                 user_name.trim().to_string()
@@ -456,12 +969,26 @@ fn import_track_devices(
                 vst3_name.trim().to_string()
             } else if !vst2_name.trim().is_empty() {
                 vst2_name.trim().to_string()
+            } else if !vst2_path.trim().is_empty() {
+                Path::new(vst2_path.trim())
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Unknown Plugin")
+                    .to_string()
+            } else if !vst3_path.trim().is_empty() {
+                Path::new(vst3_path.trim())
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Unknown Plugin")
+                    .to_string()
             } else {
-                "Unknown Plugin".to_string()
+                infer_device_display_name(device, "Unknown Plugin")
             };
 
-            let resolved_plugin_id = if !vst2_path.trim().is_empty() && Path::new(vst2_path.trim()).exists() {
+            let resolved_plugin_id = if !vst2_path.trim().is_empty() {
                 Some(vst2_path.trim().to_string())
+            } else if !vst3_path.trim().is_empty() {
+                Some(vst3_path.trim().to_string())
             } else if !vst3_name.trim().is_empty() {
                 external_plugins.resolve_by_name(&vst3_name)
             } else if !vst2_name.trim().is_empty() {
@@ -473,6 +1000,8 @@ fn import_track_devices(
             let is_instrument_slot = track.track_type == TrackType::Midi && track.instrument.is_none();
             let slot = if let Some(plugin_id) = resolved_plugin_id {
                 PluginSlot::new(preferred_name, plugin_id)
+            } else if is_placeholder {
+                make_missing_plugin_slot("external", &preferred_name)
             } else {
                 make_missing_plugin_slot("external", &preferred_name)
             };
@@ -485,9 +1014,7 @@ fn import_track_devices(
             continue;
         }
 
-        let display_name = node_child_value(device, "UserName")
-            .filter(|v| !v.trim().is_empty())
-            .unwrap_or_else(|| tag.to_string());
+        let display_name = infer_device_display_name(device, tag);
 
         let canonical = canonical_internal_plugin_for_import(tag, &display_name);
         let is_instrument_slot = track.track_type == TrackType::Midi && track.instrument.is_none();
@@ -498,6 +1025,13 @@ fn import_track_devices(
                 if track.sampler.is_none() {
                     track.sampler = Some(SamplerConfig::default());
                 }
+                if tag == "OriginalSimpler"
+                    && let Some(sample_path) = extract_simpler_sample_path(device, als_path)
+                    && let Some(cfg) = &mut track.sampler
+                    && cfg.sample_path.trim().is_empty()
+                {
+                    cfg.sample_path = sample_path;
+                }
                 if plugin_id == "internal://instrument/wave-synth"
                     && let Some(cfg) = &mut track.sampler
                     && cfg.sample_path.trim().is_empty()
@@ -506,6 +1040,27 @@ fn import_track_devices(
                 }
             } else {
                 track.effects.push(slot);
+                // Import static MIDI FX settings into automation lanes so runtime
+                // can reconstruct behavior after .als load.
+                if plugin_id == "internal://midi-fx/pitch" {
+                    let semitones = maybe_parse_f64_manual(device, "Pitch").unwrap_or(0.0);
+                    upsert_static_import_lane(track, "midi.pitch.semitones", semitones.clamp(-48.0, 48.0));
+                } else if plugin_id == "internal://midi-fx/velocity" {
+                    let gain = maybe_parse_f64_manual(device, "Drive").unwrap_or(1.0);
+                    let offset = maybe_parse_f64_manual(device, "OutLow").unwrap_or(0.0);
+                    upsert_static_import_lane(track, "midi.velocity.gain", gain.clamp(0.0, 4.0));
+                    upsert_static_import_lane(track, "midi.velocity.offset", offset.clamp(-127.0, 127.0));
+                } else if plugin_id == "internal://midi-fx/random" {
+                    let chance = maybe_parse_f64_manual(device, "Chance").unwrap_or(1.0);
+                    let semitones = maybe_parse_f64_manual(device, "Choices").unwrap_or(0.0);
+                    upsert_static_import_lane(track, "midi.random.chance", chance.clamp(0.0, 1.0));
+                    upsert_static_import_lane(track, "midi.random.semitones", semitones.clamp(-24.0, 24.0));
+                } else if plugin_id == "internal://midi-fx/scale" {
+                    let root = maybe_parse_f64_manual(device, "Base").unwrap_or(0.0);
+                    upsert_static_import_lane(track, "midi.scale.root", root.rem_euclid(12.0));
+                    // Default to chromatic mask if explicit map isn't parsed yet.
+                    upsert_static_import_lane(track, "midi.scale.mask", 4095.0);
+                }
             }
         } else {
             let slot = make_missing_plugin_slot("ableton-device", &display_name);
@@ -516,6 +1071,312 @@ fn import_track_devices(
             }
         }
     }
+}
+
+// ── Ableton Color Mapping ────────────────────────────────────────────────
+//
+// Ableton Live uses a 70-color palette indexed 0–69. We map each index to
+// the nearest TrackColor variant. Unmapped / out-of-range indices fall back
+// to `TrackColor::for_index(fallback)`.
+
+fn ableton_color_to_track_color(index: i64, fallback: usize) -> TrackColor {
+    match index {
+        // Reds / Coral
+        0 | 1 | 2 => TrackColor::Coral,
+        // Oranges
+        3 | 4 | 5 => TrackColor::Orange,
+        // Golds
+        6 | 7 => TrackColor::Gold,
+        // Yellows
+        8 | 9 => TrackColor::Yellow,
+        // Limes
+        10 | 11 | 12 => TrackColor::Lime,
+        // Greens
+        13 | 14 | 15 => TrackColor::Green,
+        // Teals
+        16 | 17 => TrackColor::Teal,
+        // Cyans
+        18 | 19 => TrackColor::Cyan,
+        // Sky blues
+        20 | 21 => TrackColor::Sky,
+        // Blues
+        22 | 23 | 24 => TrackColor::Blue,
+        // Indigos
+        25 | 26 => TrackColor::Indigo,
+        // Purples
+        27 | 28 | 29 => TrackColor::Purple,
+        // Magentas
+        30 | 31 => TrackColor::Magenta,
+        // Pinks
+        32 | 33 | 34 => TrackColor::Pink,
+        // Roses
+        35 | 36 | 37 => TrackColor::Rose,
+        // Grays / Slates
+        38..=69 => TrackColor::Slate,
+        _ => TrackColor::for_index(fallback),
+    }
+}
+
+// ── Automation Envelope Import ───────────────────────────────────────────
+//
+// Ableton stores automation targets as numeric `PointeeId`s inside `Mixer`
+// and device `AutomationTarget Id="N"` nodes. The matching envelopes live
+// in `<AutomationEnvelopes>/<Envelopes>/<AutomationEnvelope>` with a
+// `<EnvelopeTarget>/<PointeeId Value="N"/>` linking back to the target.
+//
+// We build a PointeeId → param_id map, then parse FloatEvent envelopes.
+
+fn build_pointee_map(track_node: roxmltree::Node<'_, '_>) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+
+    // Named mixer parameters → well-known param IDs
+    let mixer_params = [
+        ("Volume", "volume"),
+        ("Pan", "pan"),
+        ("SplitStereoPanL", "pan_left"),
+        ("SplitStereoPanR", "pan_right"),
+    ];
+
+    // Locate the Mixer node
+    let mixer = track_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
+        .and_then(|dc| dc.children().find(|n| n.is_element() && n.has_tag_name("Mixer")));
+
+    if let Some(mixer) = mixer {
+        for (tag, param_id) in &mixer_params {
+            if let Some(param_node) = mixer.children().find(|n| n.is_element() && n.has_tag_name(*tag)) {
+                if let Some(target) = param_node
+                    .descendants()
+                    .find(|n| n.is_element() && n.has_tag_name("AutomationTarget"))
+                {
+                    if let Some(id) = target.attribute("Id") {
+                        map.insert(id.to_string(), param_id.to_string());
+                    }
+                }
+            }
+        }
+
+        // Mixer On/Speaker → mute automation
+        for mute_tag in ["On", "Speaker"] {
+            if let Some(node) = mixer.children().find(|n| n.is_element() && n.has_tag_name(mute_tag)) {
+                if let Some(target) = node.descendants().find(|n| n.is_element() && n.has_tag_name("AutomationTarget")) {
+                    if let Some(id) = target.attribute("Id") {
+                        map.insert(id.to_string(), format!("mixer.{}", mute_tag.to_lowercase()));
+                    }
+                }
+            }
+        }
+
+        // Send levels (SendA, SendB, etc.)
+        for (idx, send) in mixer
+            .descendants()
+            .filter(|n| n.is_element() && n.has_tag_name("TrackSendHolder"))
+            .enumerate()
+        {
+            if let Some(send_node) = send.children().find(|n| n.is_element() && n.has_tag_name("Send")) {
+                if let Some(target) = send_node.descendants().find(|n| n.is_element() && n.has_tag_name("AutomationTarget")) {
+                    if let Some(id) = target.attribute("Id") {
+                        let send_letter = (b'A' + idx as u8) as char;
+                        map.insert(id.to_string(), format!("send.{send_letter}"));
+                    }
+                }
+            }
+        }
+    }
+
+    // Device parameters: prefer explicit plugin parameter names/ids for PluginDevice.
+    for (dev_idx, device) in collect_track_devices(track_node).iter().enumerate() {
+        if !device.is_element() || !device.has_tag_name("PluginDevice") {
+            continue;
+        }
+
+        let plugin_name_raw = infer_device_display_name(*device, "plugin");
+        let plugin_key = normalize_plugin_key(&plugin_name_raw);
+
+        for float_param in device
+            .descendants()
+            .filter(|n| n.is_element() && n.has_tag_name("PluginFloatParameter"))
+        {
+            let target_id = float_param
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name("AutomationTarget"))
+                .and_then(|n| n.attribute("Id"))
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            if target_id.is_empty() || map.contains_key(&target_id) {
+                continue;
+            }
+
+            let param_name = node_child_value(float_param, "ParameterName")
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let param_id = node_child_value(float_param, "ParameterId")
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+
+            let mut param_key = normalize_plugin_key(&param_name);
+            if param_key.is_empty() {
+                let maybe_numeric = param_id.parse::<i64>().ok();
+                param_key = match maybe_numeric {
+                    Some(v) if v >= 0 => format!("id{v}"),
+                    _ => "unnamed".to_string(),
+                };
+            }
+
+            let lane_key = format!("plugin:{dev_idx}:{plugin_key}:{param_key}");
+            map.insert(target_id, lane_key);
+        }
+    }
+
+    // Generic fallback for any remaining automation target IDs.
+    for (dev_idx, device) in collect_track_devices(track_node).iter().enumerate() {
+        for target in device
+            .descendants()
+            .filter(|n| n.is_element() && n.has_tag_name("AutomationTarget"))
+        {
+            if let Some(id) = target.attribute("Id") {
+                if map.contains_key(id) {
+                    continue; // Already mapped by mixer
+                }
+                let param_tag = target
+                    .parent()
+                    .and_then(|p| if p.is_element() { Some(p.tag_name().name().to_string()) } else { None })
+                    .unwrap_or_else(|| "param".to_string());
+                map.insert(id.to_string(), format!("device:{dev_idx}:{param_tag}"));
+            }
+        }
+    }
+
+    map
+}
+
+fn import_track_automation(
+    track_node: roxmltree::Node<'_, '_>,
+    track: &mut Track,
+) {
+    let pointee_map = build_pointee_map(track_node);
+
+    // Walk all AutomationEnvelope elements on this track
+    let envelopes_container = track_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("AutomationEnvelopes"))
+        .and_then(|ae| ae.children().find(|n| n.is_element() && n.has_tag_name("Envelopes")));
+
+    let Some(envelopes) = envelopes_container else {
+        return;
+    };
+
+    for envelope in envelopes
+        .children()
+        .filter(|n| n.is_element() && n.has_tag_name("AutomationEnvelope"))
+    {
+        // Resolve param_id from PointeeId
+        let pointee_id = envelope
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("PointeeId"))
+            .and_then(|n| n.attribute("Value"))
+            .unwrap_or_default()
+            .to_string();
+
+        let param_id = pointee_map
+            .get(&pointee_id)
+            .cloned()
+            .unwrap_or_else(|| format!("unknown:{pointee_id}"));
+
+        // Parse FloatEvent entries
+        let mut points = Vec::new();
+        for event in envelope
+            .descendants()
+            .filter(|n| n.is_element() && n.has_tag_name("FloatEvent"))
+        {
+            let time_beats = event
+                .attribute("Time")
+                .and_then(parse_f64_value)
+                .unwrap_or(0.0);
+
+            // Skip the Ableton sentinel value (negative infinity placeholder)
+            if time_beats < -1_000_000.0 {
+                continue;
+            }
+
+            let value = event
+                .attribute("Value")
+                .and_then(parse_f64_value)
+                .unwrap_or(0.0);
+
+            // Detect bezier curve controls
+            let has_curve = event.attribute("CurveControl1X").is_some();
+            let curve_type = if has_curve {
+                "bezier".to_string()
+            } else {
+                "linear".to_string()
+            };
+
+            // Extract tension from bezier control points if present
+            let tension = if has_curve {
+                let c1y = event
+                    .attribute("CurveControl1Y")
+                    .and_then(parse_f64_value)
+                    .unwrap_or(0.5);
+                let c2y = event
+                    .attribute("CurveControl2Y")
+                    .and_then(parse_f64_value)
+                    .unwrap_or(0.5);
+                // Approximate tension from control points: 0 = linear, ±1 = extreme curve
+                Some((c2y - c1y).clamp(-1.0, 1.0))
+            } else {
+                None
+            };
+
+            points.push(dream_models::project::AutomationPoint {
+                beat: time_beats,
+                value,
+                curve_type,
+                tension,
+            });
+        }
+
+        if points.is_empty() {
+            continue;
+        }
+
+        // Sort by beat position
+        points.sort_by(|a, b| a.beat.partial_cmp(&b.beat).unwrap_or(std::cmp::Ordering::Equal));
+
+        track.automation_lanes.push(dream_models::project::AutomationLane {
+            param_id,
+            points,
+        });
+    }
+}
+
+fn consolidate_automation_lanes(track: &mut Track) {
+    use std::collections::HashMap;
+
+    let mut merged: HashMap<String, Vec<dream_models::project::AutomationPoint>> = HashMap::new();
+    for lane in track.automation_lanes.drain(..) {
+        let key = lane.param_id.trim().to_string();
+        if key.is_empty() {
+            continue;
+        }
+        merged.entry(key).or_default().extend(lane.points);
+    }
+
+    let mut out = Vec::new();
+    for (param_id, mut points) in merged {
+        points.sort_by(|a, b| a.beat.total_cmp(&b.beat));
+        points.dedup_by(|a, b| (a.beat - b.beat).abs() < 1e-9);
+        if points.is_empty() {
+            continue;
+        }
+        out.push(dream_models::project::AutomationLane { param_id, points });
+    }
+    out.sort_by(|a, b| a.param_id.cmp(&b.param_id));
+    track.automation_lanes = out;
 }
 
 fn import_als_project(file_path: &Path) -> Result<Project, String> {
@@ -568,6 +1429,28 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
     let mut project = Project::new(project_name, tempo, sample_rate);
     project.tracks.clear();
 
+    // ── Component 2: Time Signature Import ─────────────────────────────
+    if let Some(main_track) = live_set.descendants().find(|n| n.is_element() && n.has_tag_name("MainTrack")) {
+        // Ableton stores time signature inside MainTrack > TimeSignature
+        if let Some(ts_node) = main_track.descendants().find(|n| n.is_element() && n.has_tag_name("TimeSignature")) {
+            let numerator = ts_node
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name("Numerator"))
+                .and_then(|n| n.attribute("Value"))
+                .and_then(parse_i64_value)
+                .map(|v| v.clamp(1, 32) as u8)
+                .unwrap_or(4);
+            let denominator = ts_node
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name("Denominator"))
+                .and_then(|n| n.attribute("Value"))
+                .and_then(parse_i64_value)
+                .map(|v| v.clamp(1, 32) as u8)
+                .unwrap_or(4);
+            project.time_signature = TimeSignature::new(numerator, denominator);
+        }
+    }
+
     let external_plugins = ExternalPluginIndex::build();
 
     let tracks_node = live_set
@@ -581,12 +1464,14 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
 
     for (index, track_node) in tracks_node.children().filter(|n| n.is_element()).enumerate() {
         let tag = track_node.tag_name().name();
+        // ── Component 3: ReturnTrack imported as Audio ──────────────────
         let track_type = match tag {
-            "AudioTrack" => TrackType::Audio,
+            "AudioTrack" | "ReturnTrack" => TrackType::Audio,
             "MidiTrack" => TrackType::Midi,
             "GroupTrack" => TrackType::Group,
             _ => continue,
         };
+        let is_return_track = tag == "ReturnTrack";
 
         let track_name = track_node
             .children()
@@ -600,7 +1485,22 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| format!("{tag} {}", index + 1));
 
+        // Prefix return tracks for clarity
+        let track_name = if is_return_track && !track_name.starts_with("(Return)") {
+            format!("(Return) {track_name}")
+        } else {
+            track_name
+        };
+
         let mut track = Track::with_type(track_name, track_type, index);
+
+        // ── Component 4: Ableton Color Index Mapping ──────────────────
+        if let Some(color_value) = node_child_value(track_node, "Color")
+            .as_deref()
+            .and_then(parse_i64_value)
+        {
+            track.color = ableton_color_to_track_color(color_value, index);
+        }
 
         if let Some(mixer) = track_node
             .children()
@@ -618,8 +1518,10 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
             track.is_mute = on == Some(false) || speaker == Some(false);
         }
 
-        import_track_devices(track_node, &mut track, &external_plugins);
+        import_track_devices(track_node, &mut track, &external_plugins, file_path);
         import_track_clips(track_node, &mut track, file_path, tempo, sample_rate);
+        import_track_automation(track_node, &mut track);
+        consolidate_automation_lanes(&mut track);
 
         if track_type == TrackType::Midi && track.instrument.is_none() {
             track.instrument = Some(make_missing_plugin_slot("instrument", "Ableton Instrument"));
@@ -660,469 +1562,73 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
     }
 
     if let Some(main_track) = live_set.descendants().find(|n| n.is_element() && n.has_tag_name("MainTrack")) {
-        import_track_devices(main_track, &mut project.master_track, &external_plugins);
+        import_track_devices(main_track, &mut project.master_track, &external_plugins, file_path);
+        import_track_automation(main_track, &mut project.master_track);
+        consolidate_automation_lanes(&mut project.master_track);
     }
 
     normalize_internal_plugins_for_import(&mut project);
-    Ok(project)
-}
 
-#[derive(Debug, Default)]
-struct ImportedAudioClip {
-    name: String,
-    start_beats: f64,
-    end_beats: f64,
-    file_path: Option<String>,
-}
-
-#[derive(Debug, Default)]
-struct ImportedMidiNote {
-    pitch: u8,
-    start_beats: f64,
-    duration_beats: f64,
-    velocity: u8,
-}
-
-#[derive(Debug, Default)]
-struct ImportedMidiClip {
-    name: String,
-    start_beats: f64,
-    end_beats: f64,
-    notes: Vec<ImportedMidiNote>,
-}
-
-#[derive(Debug)]
-enum ImportedTrackKind {
-    Audio,
-    Midi,
-}
-
-#[derive(Debug, Default)]
-struct ImportedTrack {
-    name: String,
-    kind: Option<ImportedTrackKind>,
-    audio_clips: Vec<ImportedAudioClip>,
-    midi_clips: Vec<ImportedMidiClip>,
-}
-
-#[derive(Debug)]
-struct AbletonImportData {
-    bpm: f64,
-    time_signature: dream_models::project::TimeSignature,
-    tracks: Vec<ImportedTrack>,
-}
-
-impl Default for AbletonImportData {
-    fn default() -> Self {
-        Self {
-            bpm: 120.0,
-            time_signature: dream_models::project::TimeSignature::default(),
-            tracks: Vec::new(),
-        }
-    }
-}
-
-fn attr_value(tag: &BytesStart<'_>, key: &[u8]) -> Option<String> {
-    for attr in tag.attributes().flatten() {
-        if attr.key.as_ref() == key {
-            return Some(String::from_utf8_lossy(attr.value.as_ref()).to_string());
-        }
-    }
-    None
-}
-
-fn parse_f64_attr(tag: &BytesStart<'_>, key: &[u8]) -> Option<f64> {
-    attr_value(tag, key).and_then(|v| v.parse::<f64>().ok())
-}
-
-fn parse_u8_attr(tag: &BytesStart<'_>, key: &[u8]) -> Option<u8> {
-    attr_value(tag, key).and_then(|v| v.parse::<u8>().ok())
-}
-
-fn resolve_sample_path(raw: &str, als_path: &Path) -> String {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-    let candidate = PathBuf::from(trimmed);
-    if candidate.is_absolute() {
-        return candidate.to_string_lossy().to_string();
-    }
-    if let Some(parent) = als_path.parent() {
-        let joined = parent.join(candidate);
-        return joined.to_string_lossy().to_string();
-    }
-    trimmed.to_string()
-}
-
-fn parse_ableton_als(path: &Path) -> Result<AbletonImportData, String> {
-    let file = std::fs::File::open(path).map_err(|e| format!("Unable to open ALS file: {}", e))?;
-    let mut gz = GzDecoder::new(file);
-    let mut xml = String::new();
-    gz.read_to_string(&mut xml)
-        .map_err(|e| format!("Unable to decompress ALS file: {}", e))?;
-
-    let mut reader = Reader::from_str(&xml);
-    reader.config_mut().trim_text(true);
-
-    let mut data = AbletonImportData::default();
-    let mut stack: Vec<String> = Vec::new();
-
-    let mut current_track: Option<ImportedTrack> = None;
-    let mut current_audio_clip: Option<ImportedAudioClip> = None;
-    let mut current_midi_clip: Option<ImportedMidiClip> = None;
-    let mut pending_keytrack_notes: Vec<(f64, f64, u8)> = Vec::new();
-
-    let mut in_tempo = false;
-    let mut in_global_time_sig = false;
-    let mut pending_num: Option<u8> = None;
-    let mut pending_den: Option<u8> = None;
-
-    let mut in_audio_sample_ref = false;
-
-    loop {
-        match reader.read_event() {
-            Ok(Event::Start(tag)) => {
-                let name = String::from_utf8_lossy(tag.local_name().as_ref()).to_string();
-                stack.push(name.clone());
-
-                match name.as_str() {
-                    "AudioTrack" => {
-                        let mut t = ImportedTrack::default();
-                        t.kind = Some(ImportedTrackKind::Audio);
-                        current_track = Some(t);
-                    }
-                    "MidiTrack" => {
-                        let mut t = ImportedTrack::default();
-                        t.kind = Some(ImportedTrackKind::Midi);
-                        current_track = Some(t);
-                    }
-                    "AudioClip" => {
-                        current_audio_clip = Some(ImportedAudioClip {
-                            start_beats: parse_f64_attr(&tag, b"Time").unwrap_or(0.0),
-                            end_beats: 0.0,
-                            ..ImportedAudioClip::default()
-                        });
-                    }
-                    "MidiClip" => {
-                        current_midi_clip = Some(ImportedMidiClip {
-                            start_beats: parse_f64_attr(&tag, b"Time").unwrap_or(0.0),
-                            end_beats: 0.0,
-                            ..ImportedMidiClip::default()
-                        });
-                    }
-                    "Tempo" => {
-                        if current_track.is_none() && current_audio_clip.is_none() && current_midi_clip.is_none() {
-                            in_tempo = true;
-                        }
-                    }
-                    "TimeSignature" => {
-                        if current_track.is_none() && current_audio_clip.is_none() && current_midi_clip.is_none() {
-                            in_global_time_sig = true;
-                            pending_num = None;
-                            pending_den = None;
-                        }
-                    }
-                    "SampleRef" => {
-                        if current_audio_clip.is_some() {
-                            in_audio_sample_ref = true;
-                        }
-                    }
-                    "MidiNoteEvent" => {
-                        if current_midi_clip.is_some() {
-                            let start = parse_f64_attr(&tag, b"Time").unwrap_or(0.0);
-                            let duration = parse_f64_attr(&tag, b"Duration").unwrap_or(0.25);
-                            let velocity = parse_u8_attr(&tag, b"Velocity").unwrap_or(100).clamp(1, 127);
-                            pending_keytrack_notes.push((start, duration.max(0.001), velocity));
-                        }
-                    }
-                    "MidiKey" => {
-                        if let Some(clip) = current_midi_clip.as_mut() {
-                            let pitch = parse_u8_attr(&tag, b"Value").unwrap_or(60).min(127);
-                            for (start, duration, velocity) in pending_keytrack_notes.drain(..) {
-                                clip.notes.push(ImportedMidiNote {
-                                    pitch,
-                                    start_beats: start,
-                                    duration_beats: duration,
-                                    velocity,
-                                });
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            Ok(Event::Empty(tag)) => {
-                let name = String::from_utf8_lossy(tag.local_name().as_ref()).to_string();
-                match name.as_str() {
-                    "Manual" => {
-                        if in_tempo && let Some(v) = parse_f64_attr(&tag, b"Value") && (20.0..=400.0).contains(&v) {
-                            data.bpm = v;
-                        }
-                    }
-                    "Numerator" => {
-                        if in_global_time_sig {
-                            pending_num = parse_u8_attr(&tag, b"Value");
-                        }
-                    }
-                    "Denominator" => {
-                        if in_global_time_sig {
-                            pending_den = parse_u8_attr(&tag, b"Value");
-                        }
-                    }
-                    "CurrentStart" => {
-                        if let Some(c) = current_audio_clip.as_mut()
-                            && let Some(v) = parse_f64_attr(&tag, b"Value")
-                        {
-                            c.start_beats = v;
-                        }
-                        if let Some(c) = current_midi_clip.as_mut()
-                            && let Some(v) = parse_f64_attr(&tag, b"Value")
-                        {
-                            c.start_beats = v;
-                        }
-                    }
-                    "CurrentEnd" => {
-                        if let Some(c) = current_audio_clip.as_mut()
-                            && let Some(v) = parse_f64_attr(&tag, b"Value")
-                        {
-                            c.end_beats = v;
-                        }
-                        if let Some(c) = current_midi_clip.as_mut()
-                            && let Some(v) = parse_f64_attr(&tag, b"Value")
-                        {
-                            c.end_beats = v;
-                        }
-                    }
-                    "Name" => {
-                        if let Some(value) = attr_value(&tag, b"Value") {
-                            if let Some(c) = current_audio_clip.as_mut() {
-                                c.name = value;
-                            } else if let Some(c) = current_midi_clip.as_mut() {
-                                c.name = value;
-                            }
-                        }
-                    }
-                    "EffectiveName" => {
-                        if let Some(t) = current_track.as_mut()
-                            && let Some(value) = attr_value(&tag, b"Value")
-                            && !value.trim().is_empty()
-                        {
-                            t.name = value;
-                        }
-                    }
-                    "Path" => {
-                        if in_audio_sample_ref
-                            && let Some(c) = current_audio_clip.as_mut()
-                            && let Some(value) = attr_value(&tag, b"Value")
-                            && !value.trim().is_empty()
-                        {
-                            c.file_path = Some(resolve_sample_path(&value, path));
-                        }
-                    }
-                    "RelativePath" => {
-                        if in_audio_sample_ref
-                            && let Some(c) = current_audio_clip.as_mut()
-                            && c.file_path.as_deref().unwrap_or("").is_empty()
-                            && let Some(value) = attr_value(&tag, b"Value")
-                            && !value.trim().is_empty()
-                        {
-                            c.file_path = Some(resolve_sample_path(&value, path));
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            Ok(Event::End(tag)) => {
-                let name = String::from_utf8_lossy(tag.local_name().as_ref()).to_string();
-                match name.as_str() {
-                    "Tempo" => in_tempo = false,
-                    "TimeSignature" => {
-                        if in_global_time_sig {
-                            if let (Some(n), Some(d)) = (pending_num, pending_den)
-                                && n > 0
-                                && d > 0
-                            {
-                                data.time_signature = dream_models::project::TimeSignature {
-                                    numerator: n,
-                                    denominator: d,
-                                };
-                            }
-                            in_global_time_sig = false;
-                        }
-                    }
-                    "SampleRef" => in_audio_sample_ref = false,
-                    "AudioClip" => {
-                        if let Some(track) = current_track.as_mut()
-                            && let Some(mut clip) = current_audio_clip.take()
-                        {
-                            if clip.end_beats <= clip.start_beats {
-                                clip.end_beats = clip.start_beats + 1.0;
-                            }
-                            if clip.name.trim().is_empty() {
-                                clip.name = "Audio Clip".to_string();
-                            }
-                            if clip.file_path.as_deref().unwrap_or("").trim().is_empty() {
-                                clip.file_path = None;
-                            }
-                            track.audio_clips.push(clip);
-                        }
-                    }
-                    "MidiClip" => {
-                        if let Some(track) = current_track.as_mut()
-                            && let Some(mut clip) = current_midi_clip.take()
-                        {
-                            if clip.end_beats <= clip.start_beats {
-                                clip.end_beats = clip.start_beats + 1.0;
-                            }
-                            if clip.name.trim().is_empty() {
-                                clip.name = "MIDI Clip".to_string();
-                            }
-                            track.midi_clips.push(clip);
-                        }
-                    }
-                    "AudioTrack" | "MidiTrack" => {
-                        if let Some(mut t) = current_track.take() {
-                            if t.name.trim().is_empty() {
-                                t.name = if matches!(t.kind, Some(ImportedTrackKind::Audio)) {
-                                    "Audio Track".to_string()
-                                } else {
-                                    "MIDI Track".to_string()
-                                };
-                            }
-                            data.tracks.push(t);
-                        }
-                    }
-                    "KeyTrack" => {
-                        pending_keytrack_notes.clear();
-                    }
-                    _ => {}
-                }
-                let _ = stack.pop();
-            }
-            Ok(Event::Eof) => break,
-            Err(err) => return Err(format!("Failed to parse ALS XML: {}", err)),
-            _ => {}
-        }
-    }
-
-    Ok(data)
-}
-
-fn build_project_from_ableton_import(path: &Path, parsed: AbletonImportData) -> Result<Project, String> {
-    let project_name = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("Imported Ableton Project")
-        .trim();
-    let sr = 44_100.0;
-    let bpm = parsed.bpm.clamp(20.0, 400.0);
-    let mut project = Project::new(project_name, bpm, sr);
-    project.time_signature = parsed.time_signature;
-
-    let beats_per_second = bpm / 60.0;
-    let to_frames = |beats: f64| -> i64 {
-        ((beats.max(0.0) / beats_per_second) * sr).round() as i64
-    };
-
-    for (idx, imported_track) in parsed.tracks.into_iter().enumerate() {
-        let track_type = match imported_track.kind.unwrap_or(ImportedTrackKind::Audio) {
-            ImportedTrackKind::Audio => TrackType::Audio,
-            ImportedTrackKind::Midi => TrackType::Midi,
-        };
-        let mut track = Track::with_type(imported_track.name, track_type, idx);
-
-        for imported in imported_track.audio_clips {
-            let Some(file_path) = imported.file_path else { continue };
-            let start = to_frames(imported.start_beats);
-            let end = to_frames(imported.end_beats);
-            let duration_frames = (end - start).max(1);
-            let mut clip = AudioClip::new(
-                imported.name,
-                file_path,
-                AbsoluteTime::new(start),
-                AbsoluteTime::new(duration_frames),
+    // ── Component 5: Sample Consolidation ─────────────────────────────
+    //
+    // Copy referenced audio samples into the Ableton project folder's
+    // Samples/Imported/ directory so that clip paths remain valid even
+    // if the original sample sources are moved or deleted. Non-fatal —
+    // failures are logged but do not block the import.
+    if let Some(project_dir) = file_path.parent() {
+        let imported_dir = project_dir.join("Samples").join("Imported");
+        if let Err(e) = std::fs::create_dir_all(&imported_dir) {
+            log::warn!(
+                "Could not create Samples/Imported directory for ALS import: {e}"
             );
-            clip.source_offset = AbsoluteTime::ZERO;
-            track.clips.push(clip);
-        }
-
-        for imported in imported_track.midi_clips {
-            let start = to_frames(imported.start_beats);
-            let end = to_frames(imported.end_beats);
-            let duration_frames = (end - start).max(1);
-            let mut clip = dream_models::midi::MidiClip::new(
-                imported.name,
-                AbsoluteTime::new(start),
-                AbsoluteTime::new(duration_frames),
-            );
-            for note in imported.notes {
-                let note_start = to_frames(note.start_beats);
-                let note_dur = to_frames(note.duration_beats).max(1);
-                clip.notes.push(dream_models::midi::MidiNote::new(
-                    note.pitch,
-                    note.velocity.clamp(1, 127),
-                    note_start.max(0),
-                    note_dur,
-                ));
+        } else {
+            // Copy each clip's source file into Samples/Imported/
+            let mut rewrites = Vec::new();
+            for track in &project.tracks {
+                for clip in &track.clips {
+                    let src = Path::new(&clip.file_path);
+                    if !src.exists() || clip.file_path.trim().is_empty() {
+                        continue;
+                    }
+                    if let Some(file_name) = src.file_name() {
+                        let dest = imported_dir.join(file_name);
+                        if !dest.exists() {
+                            if let Err(e) = std::fs::copy(src, &dest) {
+                                log::warn!(
+                                    "Sample consolidation: failed to copy '{}': {e}",
+                                    src.display()
+                                );
+                                continue;
+                            }
+                        }
+                        rewrites.push((
+                            track.id,
+                            clip.file_path.clone(),
+                            dest.to_string_lossy().to_string(),
+                        ));
+                    }
+                }
             }
-            clip.notes.sort_by_key(|n| n.start_frame);
-            track.midi_clips.push(clip);
-        }
 
-        if !track.clips.is_empty() || !track.midi_clips.is_empty() {
-            project.add_track(track);
+            // Rewrite clip paths to the consolidated location
+            for (track_id, old_path, new_path) in rewrites {
+                if let Some(track) = project.find_track_mut(track_id) {
+                    for clip in &mut track.clips {
+                        if clip.file_path == old_path {
+                            clip.file_path = new_path.clone();
+                        }
+                    }
+                }
+            }
+
+            log::info!(
+                "ALS import: samples consolidated to '{}'",
+                imported_dir.display()
+            );
         }
     }
 
-    if project.tracks.is_empty() {
-        return Err("No supported tracks/clips were found in the Ableton project.".to_string());
-    }
-
-    refresh_offline_flags(&mut project);
     Ok(project)
-}
-
-#[tauri::command]
-fn import_ableton_project(
-    path: String,
-    project_state: tauri::State<'_, ProjectState>,
-    clip_pool_state: tauri::State<'_, ClipPoolState>,
-    automation_runtime: tauri::State<'_, AutomationRuntime>,
-    handle: tauri::State<'_, AudioEngineHandle>,
-    app: tauri::AppHandle,
-) -> Result<Project, String> {
-    let file_path = PathBuf::from(&path);
-    if !file_path.exists() {
-        return Err(format!("File does not exist: {}", file_path.display()));
-    }
-    if file_path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase() != "als" {
-        return Err("Only .als files can be imported with this command.".to_string());
-    }
-
-    let parsed = parse_ableton_als(&file_path)?;
-    let mut imported = build_project_from_ableton_import(&file_path, parsed)?;
-    normalize_internal_plugins_for_import(&mut imported);
-
-    *project_state.project.lock().map_err(|e| e.to_string())? = imported.clone();
-    *project_state.file_path.lock().map_err(|e| e.to_string())? = None;
-    *project_state.project_folder.lock().map_err(|e| e.to_string())? = file_path.parent().map(|p| p.to_path_buf());
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
-    *project_state.undo.lock().map_err(|e| e.to_string())? = UndoState::new();
-    clip_pool_state.rebuild_snapshot(&imported);
-    clip_pool_state.load_project_clips(&imported);
-    rebuild_automation_snapshot_from_project(&imported, &automation_runtime);
-    rebuild_midi_snapshot_from_project(&imported, &handle);
-    rebuild_sampler_snapshot_from_project(&imported, &clip_pool_state, &handle);
-    rebuild_runtime_device_chains_from_project(&imported, &handle)?;
-    sync_transport_from_project(&imported, &handle)?;
-
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.set_title(&format!("Dream DAW — {} (Imported)", imported.name));
-    }
-
-    log::info!("Ableton project imported from: {}", file_path.display());
-    Ok(imported)
 }
 
 /// Creates a new empty project and replaces the current one.
@@ -1263,22 +1769,6 @@ fn open_project(
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<Project, String> {
-    if PathBuf::from(&path)
-        .extension()
-        .and_then(|s| s.to_str())
-        .map(|e| e.eq_ignore_ascii_case("als"))
-        .unwrap_or(false)
-    {
-        return import_ableton_project(
-            path,
-            project_state,
-            clip_pool_state,
-            automation_runtime,
-            handle,
-            app,
-        );
-    }
-
     let file_path = PathBuf::from(&path);
 
     let importing_als = file_path

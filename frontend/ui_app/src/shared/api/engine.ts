@@ -461,6 +461,14 @@ export interface SplitClipResponse {
     right_id: string;
 }
 
+export interface DuplicateClipResponse {
+    new_id: string;
+}
+
+export interface MergeClipsResponse {
+    new_id: string;
+}
+
 /** Move a clip to a new track and/or position (sample frames). */
 export const moveClip = (clipId: string, newTrackIndex: number, newPositionFrames: number) =>
     invoke<void>('move_clip_cmd', { clipId, newTrackIndex, newPositionFrames });
@@ -468,6 +476,17 @@ export const moveClip = (clipId: string, newTrackIndex: number, newPositionFrame
 /** Split a clip at the given sample frame. Returns IDs of both halves. */
 export const splitClip = (clipId: string, splitFrame: number) =>
     invoke<SplitClipResponse>('split_clip_cmd', { clipId, splitFrame });
+
+/** Duplicate a clip (optionally to a specific destination frame). */
+export const duplicateClip = (clipId: string, newPositionFrames?: number) =>
+    invoke<DuplicateClipResponse>('duplicate_clip_cmd', {
+        clipId,
+        newPositionFrames: newPositionFrames ?? null,
+    });
+
+/** Merge multiple clips into one on the same track. */
+export const mergeClips = (clipIds: string[]) =>
+    invoke<MergeClipsResponse>('merge_clips_cmd', { clipIds });
 
 /** Delete a clip by UUID. */
 export const deleteClip = (clipId: string) =>

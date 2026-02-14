@@ -2264,7 +2264,7 @@ async fn duplicate_clip_cmd(
 
     'outer: for track in &mut project.tracks {
         if let Some(src) = track.clips.iter().find(|c| c.id == uuid).cloned() {
-            let mut dup = src;
+            let mut dup = src.clone();
             dup.id = Uuid::new_v4();
             dup.position = target_pos.unwrap_or_else(|| src.end_position());
             dup.is_selected = false;
@@ -2277,7 +2277,7 @@ async fn duplicate_clip_cmd(
             break 'outer;
         }
         if let Some(src) = track.midi_clips.iter().find(|c| c.id == uuid).cloned() {
-            let mut dup = src;
+            let mut dup = src.clone();
             dup.id = Uuid::new_v4();
             dup.position = target_pos.unwrap_or_else(|| src.end_position());
             dup.is_selected = false;
@@ -5005,6 +5005,8 @@ pub fn run() {
             // Clip Editing
             move_clip_cmd,
             split_clip_cmd,
+            duplicate_clip_cmd,
+            merge_clips_cmd,
             delete_clip_cmd,
             set_clip_fades_cmd,
             set_clip_source_offset_cmd,

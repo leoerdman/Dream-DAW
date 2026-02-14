@@ -89,6 +89,8 @@ interface TimelineProps {
     onPlayheadChange?: (beat: number) => void;
     onEditCursorChange?: (beat: number, trackIndex: number) => void;
     onClipSelect?: (clipId: string) => void;
+    selectedClipIds?: string[];
+    onClipSelectionChange?: (clipIds: string[]) => void;
     onClipMove?: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
     /** Called when an item is dropped from the AssetBrowser. */
     onDropBrowserItem?: (item: BrowserDragItem, trackIndex: number, beat: number) => void;
@@ -135,6 +137,8 @@ export const Timeline = ({
     loopEnabled = false,
     onEditCursorChange,
     onClipSelect,
+    selectedClipIds: externalSelectedClipIds,
+    onClipSelectionChange,
     onClipMove,
     onDropBrowserItem,
     onDoubleClickTrack,
@@ -150,7 +154,7 @@ export const Timeline = ({
     const [internalEditCursor, setInternalEditCursor] = useState(0);
     const [internalEditCursorTrackIndex, setInternalEditCursorTrackIndex] = useState(0);
     const [cursorBlinkOn, setCursorBlinkOn] = useState(true);
-    const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+    const [internalSelectedClipIds, setInternalSelectedClipIds] = useState<string[]>([]);
     const [draggingClip, setDraggingClip] = useState<{
         clipId: string;
         offsetX: number;
@@ -181,6 +185,14 @@ export const Timeline = ({
 
     // Use clips from engine store (passed via DawShell) — no demo fallback
     const clips = useMemo(() => externalClips ?? [], [externalClips]);
+    const selectedClipIds = externalSelectedClipIds ?? internalSelectedClipIds;
+    const selectedClipSet = useMemo(() => new Set(selectedClipIds), [selectedClipIds]);
+    const setSelectedClips = useCallback((ids: string[]) => {
+        if (!externalSelectedClipIds) {
+            setInternalSelectedClipIds(ids);
+        }
+        onClipSelectionChange?.(ids);
+    }, [externalSelectedClipIds, onClipSelectionChange]);
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -641,28 +653,37 @@ export const Timeline = ({
         const rawBeat = x / livePpb;
         const beat = Math.max(0, snapBeat(rawBeat, beatsPerBar));
         setEditCursorBeat(beat, trackIndex);
-        setSelectedClipId(null);
+        setSelectedClips([]);
         selectTrackByIndex(trackIndex);
         // Also seek the engine playhead to this position
         onPlayheadChange?.(beat);
-    }, [trackHeight, selectTrackByIndex, trackCount, setEditCursorBeat, onPlayheadChange, snapBeat, beatsPerBar, getLivePixelsPerBeat]);
+    }, [trackHeight, selectTrackByIndex, trackCount, setEditCursorBeat, onPlayheadChange, snapBeat, beatsPerBar, getLivePixelsPerBeat, setSelectedClips]);
 
     // ── Clip selection ──
     const handleClipClick = useCallback((e: React.MouseEvent, clipId: string) => {
         e.stopPropagation();
-        setSelectedClipId(clipId);
+        if (e.shiftKey) {
+            const next = new Set(selectedClipIds);
+            if (next.has(clipId)) next.delete(clipId);
+            else next.add(clipId);
+            setSelectedClips(Array.from(next));
+        } else {
+            setSelectedClips([clipId]);
+        }
         onClipSelect?.(clipId);
         const clip = clips.find((c) => c.id === clipId);
         if (clip) {
             selectTrackByIndex(clip.trackIndex);
             setInternalEditCursorTrackIndex(clip.trackIndex);
         }
-    }, [onClipSelect, clips, selectTrackByIndex]);
+    }, [onClipSelect, clips, selectTrackByIndex, selectedClipIds, setSelectedClips]);
 
     // ── Clip drag start ──
     const handleClipMouseDown = useCallback((e: React.MouseEvent, clip: TimelineClip) => {
         e.stopPropagation();
-        setSelectedClipId(clip.id);
+        if (!selectedClipSet.has(clip.id)) {
+            setSelectedClips(e.shiftKey ? Array.from(new Set([...selectedClipIds, clip.id])) : [clip.id]);
+        }
         onClipSelect?.(clip.id);
 
         if (e.metaKey && e.altKey) {
@@ -684,7 +705,7 @@ export const Timeline = ({
             startBeat: clip.startBeat,
             startTrack: clip.trackIndex,
         });
-    }, [onClipSelect, pixelsPerBeat]);
+    }, [onClipSelect, pixelsPerBeat, selectedClipSet, selectedClipIds, setSelectedClips]);
 
     // ── Global mouse move/up for drag ──
     useEffect(() => {
@@ -1059,7 +1080,7 @@ export const Timeline = ({
 
                     {/* ── Clips ── */}
                     {visibleClips.map(clip => {
-                        const isSelected = selectedClipId === clip.id;
+                        const isSelected = selectedClipSet.has(clip.id);
                         const left = clip.startBeat * pixelsPerBeat;
                         const width = clip.durationBeats * pixelsPerBeat;
                         const top = clip.trackIndex * trackHeight;

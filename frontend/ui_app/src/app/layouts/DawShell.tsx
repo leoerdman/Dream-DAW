@@ -60,6 +60,7 @@ export const DawShell = () => {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [selectedTrackId, setSelectedTrackId] = useState('');
     const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+    const [selectedClipIds, setSelectedClipIds] = useState<string[]>([]);
     const [editCursorBeat, setEditCursorBeat] = useState(0);
     const [editCursorTrackIndex, setEditCursorTrackIndex] = useState(0);
     const [isDragOver, setIsDragOver] = useState(false);
@@ -79,6 +80,7 @@ export const DawShell = () => {
     const fetchProject = useEngineStore(s => s.fetchProject);
     const startTelemetryLoop = useEngineStore(s => s.startTelemetryLoop);
     const flushTrackControlFinals = useEngineStore(s => s.flushTrackControlFinals);
+    const timelineClipsSnapshot = useEngineStore(s => s.timelineClips);
     const importingRef = useRef(false);
     const timelineRef = useRef<HTMLDivElement>(null);
 
@@ -89,10 +91,12 @@ export const DawShell = () => {
     // ── Global Keyboard Shortcuts (Space, Cmd+E, Delete) ──
     useKeyboardShortcuts({
         selectedClipId,
+        selectedClipIds,
         playheadFrames: Math.round(
             (useEngineStore.getState().transport.position_seconds ?? 0) *
             (useEngineStore.getState().projectSampleRate ?? 44100)
         ),
+        timelineClips: timelineClipsSnapshot,
         onProjectMutated: fetchProject,
         onTogglePlayback: togglePlay,
     });
@@ -322,6 +326,7 @@ export const DawShell = () => {
     // Clip selection callback
     const handleClipSelect = useCallback((clipId: string) => {
         setSelectedClipId(clipId);
+        setSelectedClipIds([clipId]);
     }, []);
 
     // Drop from AssetBrowser → Timeline
@@ -469,6 +474,11 @@ export const DawShell = () => {
                                 onPlayheadChange={handlePlayheadChange}
                                 onEditCursorChange={handleEditCursorChange}
                                 onClipSelect={handleClipSelect}
+                                selectedClipIds={selectedClipIds}
+                                onClipSelectionChange={(ids) => {
+                                    setSelectedClipIds(ids);
+                                    setSelectedClipId(ids[ids.length - 1] ?? null);
+                                }}
                                 onClipMove={handleClipMove}
                                 onDropBrowserItem={handleBrowserDrop}
                                 onDoubleClickTrack={handleDoubleClickTrack}

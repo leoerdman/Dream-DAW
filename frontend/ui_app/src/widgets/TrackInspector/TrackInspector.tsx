@@ -582,7 +582,7 @@ const VolumeFader = ({
     const zeroTickPos = dbToFader(0);
 
     return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 3, flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
             <div
                 ref={trackRef}
                 onMouseDown={(e) => { e.stopPropagation(); setIsDragging(true); applyFromEvent(e.clientX); }}
@@ -634,7 +634,7 @@ const VolumeFader = ({
 
 const TriColorVU = ({ peakDb, isMidi }: { peakDb: number; isMidi: boolean }) => {
     const normalizedLevel = vuNorm(peakDb); // 0..1
-    const meterHeight = 22;
+    const meterHeight = 32;
     const fillHeight = normalizedLevel * meterHeight;
 
     // Segment thresholds in normalized space
@@ -643,10 +643,12 @@ const TriColorVU = ({ peakDb, isMidi }: { peakDb: number; isMidi: boolean }) => 
 
     return (
         <div style={{
-            width: 5, height: meterHeight,
-            background: '#1a1a1e', borderRadius: 1,
+            width: 10, height: meterHeight,
+            background: '#2a2a30', borderRadius: 2,
             overflow: 'hidden', flexShrink: 0,
             position: 'relative',
+            border: '1px solid rgba(255,255,255,0.1)',
+            marginLeft: 2,
         }}>
             {/* Green segment: 0 to -2dB zone */}
             <div style={{
@@ -764,8 +766,8 @@ const TrackRow = ({
                 padding: '2px 6px 2px 4px',
                 background: isMasterFixed
                     ? (isSelected ? '#2a2a2e' : '#222226')
-                    : `color-mix(in srgb, ${track.color} ${isSelected ? '45%' : isHovered ? '35%' : '25%'}, #1a1a1e)`,
-                borderRight: '1px solid rgba(255,255,255,0.06)',
+                    : `color-mix(in srgb, ${track.color} ${isSelected ? '90%' : isHovered ? '80%' : '70%'}, #1a1a1e)`,
+                borderRight: '1px solid rgba(255,255,255,0.08)',
                 gap: 1,
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
@@ -775,14 +777,14 @@ const TrackRow = ({
                             onClick={e => { e.stopPropagation(); onToggleCollapse(); }}
                             style={{
                                 width: 12, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                background: 'none', border: 'none', color: 'var(--color-text-secondary)',
+                                background: 'none', border: 'none', color: '#fff',
                                 fontSize: 8, cursor: 'pointer', flexShrink: 0, padding: 0,
                             }}
                         >
                             {isCollapsed ? '▶' : '▼'}
                         </button>
                     ) : !isMasterFixed ? (
-                        <span style={{ fontSize: 7, color: track.color, opacity: 0.9, flexShrink: 0, width: 10 }}>
+                        <span style={{ fontSize: 7, color: '#fff', flexShrink: 0, width: 10 }}>
                             {track.type === 'midi' ? '♪' : '●'}
                         </span>
                     ) : (
@@ -827,12 +829,12 @@ const TrackRow = ({
                     <div style={{ display: 'flex', alignItems: 'center', gap: 3, paddingLeft: 10 }}>
                         <span style={{
                             fontSize: 7, fontWeight: 700, fontFamily: 'var(--font-mono)',
-                            color: track.color, opacity: 0.7,
+                            color: '#fff', opacity: 0.8,
                         }}>
                             {displayNum}
                         </span>
                         <span style={{
-                            fontSize: 7, color: 'var(--color-text-tertiary)',
+                            fontSize: 7, color: 'rgba(255,255,255,0.6)',
                             textTransform: 'capitalize',
                         }}>
                             {track.type}
@@ -916,60 +918,60 @@ const TrackRow = ({
             {/* ════ BLOCK 3: Mixer (gray) ════ */}
             <div style={{
                 display: 'flex', alignItems: 'center',
-                gap: 3, padding: '2px 4px', flex: 1, minWidth: 0,
+                gap: 4, padding: '2px 8px 2px 4px', flex: 1, minWidth: 0,
+                overflow: 'hidden',
             }}>
-                {/* Enable button (replaces Mute) — green when active, gray when disabled */}
+                {/* Buttons column (vertical stack) */}
                 {!isMaster && (
-                    <button
-                        onClick={e => { e.stopPropagation(); onToggleMute(); }}
-                        title={isEnabled ? 'Disable track' : 'Enable track'}
-                        style={{
-                            width: 16, height: 16,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: isEnabled ? '#40cc5a' : '#3a3a3e',
-                            color: isEnabled ? '#fff' : '#666',
-                            border: 'none', borderRadius: 3,
-                            fontSize: 9, fontWeight: 700, cursor: 'pointer',
-                            padding: 0, flexShrink: 0,
-                            transition: 'background 0.1s ease',
-                        }}
-                    >●</button>
-                )}
-
-                {/* Solo button */}
-                {!isMaster && (
-                    <button
-                        onClick={e => { e.stopPropagation(); onToggleSolo(); }}
-                        title="Solo"
-                        style={{
-                            width: 16, height: 16,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: track.isSoloed ? 'var(--color-btn-solo)' : '#3a3a3e',
-                            color: track.isSoloed ? '#fff' : '#666',
-                            border: 'none', borderRadius: 3,
-                            fontSize: 8, fontWeight: 700, cursor: 'pointer',
-                            padding: 0, flexShrink: 0,
-                            transition: 'background 0.1s ease',
-                        }}
-                    >S</button>
-                )}
-
-                {/* Record arm button (R) */}
-                {!isMaster && !isGroup && (
-                    <button
-                        onClick={e => { e.stopPropagation(); onToggleArm(); }}
-                        title="Arm for recording"
-                        style={{
-                            width: 16, height: 16,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: track.isArmed ? '#ff3b30' : '#3a3a3e',
-                            color: track.isArmed ? '#fff' : '#666',
-                            border: 'none', borderRadius: 3,
-                            fontSize: 8, fontWeight: 700, cursor: 'pointer',
-                            padding: 0, flexShrink: 0,
-                            transition: 'background 0.1s ease',
-                        }}
-                    >R</button>
+                    <div style={{
+                        display: 'flex', flexDirection: 'column',
+                        gap: 1, flexShrink: 0,
+                    }}>
+                        {/* Enable button — green when active */}
+                        <button
+                            onClick={e => { e.stopPropagation(); onToggleMute(); }}
+                            title={isEnabled ? 'Disable track' : 'Enable track'}
+                            style={{
+                                width: 18, height: 12,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                background: isEnabled ? '#40cc5a' : '#3a3a3e',
+                                color: isEnabled ? '#fff' : '#666',
+                                border: 'none', borderRadius: 2,
+                                fontSize: 7, fontWeight: 700, cursor: 'pointer',
+                                padding: 0, transition: 'background 0.1s ease',
+                            }}
+                        >●</button>
+                        {/* Solo button */}
+                        <button
+                            onClick={e => { e.stopPropagation(); onToggleSolo(); }}
+                            title="Solo"
+                            style={{
+                                width: 18, height: 12,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                background: track.isSoloed ? 'var(--color-btn-solo)' : '#3a3a3e',
+                                color: track.isSoloed ? '#fff' : '#666',
+                                border: 'none', borderRadius: 2,
+                                fontSize: 7, fontWeight: 700, cursor: 'pointer',
+                                padding: 0, transition: 'background 0.1s ease',
+                            }}
+                        >S</button>
+                        {/* Record arm button (R) */}
+                        {!isGroup && (
+                            <button
+                                onClick={e => { e.stopPropagation(); onToggleArm(); }}
+                                title="Arm for recording"
+                                style={{
+                                    width: 18, height: 12,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    background: track.isArmed ? '#ff3b30' : '#3a3a3e',
+                                    color: track.isArmed ? '#fff' : '#666',
+                                    border: 'none', borderRadius: 2,
+                                    fontSize: 7, fontWeight: 700, cursor: 'pointer',
+                                    padding: 0, transition: 'background 0.1s ease',
+                                }}
+                            >R</button>
+                        )}
+                    </div>
                 )}
 
                 {/* Volume Fader — horizontal blue slider */}

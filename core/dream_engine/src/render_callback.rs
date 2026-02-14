@@ -20,6 +20,7 @@ use dream_clip_engine::disk_streamer::StreamingWindow;
 use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::reader::ClipReader;
 use dream_clip_engine::scheduler::{ActiveClipInfo, ClipScheduler, LoopRegion as ClipLoopRegion};
+use dream_dsp::device_chain::DeviceChain;
 use dream_dsp::fades::FadeCache;
 use dream_ipc::metering::{compute_peak, compute_rms, linear_to_db, MeterBank};
 use dream_mixer::{ChannelStrip, SummingBus};
@@ -46,6 +47,8 @@ pub struct TrackSlot {
     pub buf_right: Vec<f32>,
     /// Per-track channel strip (gain, pan, mute).
     pub strip: ChannelStrip,
+    /// Per-track insert effect chain (processed after strip, before metering).
+    pub device_chain: DeviceChain,
     /// Was this slot active (had clips rendered) in the current buffer?
     pub active: bool,
 }
@@ -57,6 +60,7 @@ impl TrackSlot {
             buf_left: vec![0.0; max_frames],
             buf_right: vec![0.0; max_frames],
             strip: ChannelStrip::new(),
+            device_chain: DeviceChain::new(44100.0),
             active: false,
         }
     }
@@ -332,6 +336,7 @@ impl RenderContext {
         }
 
         // ── 4. Process channel strips (gain + pan) per track ────────
+        let sr = self.sample_rate as f32;
         for (track_idx, slot) in self.track_slots.iter_mut().enumerate() {
             if !slot.active {
                 continue;
@@ -342,6 +347,17 @@ impl RenderContext {
                 &mut slot.buf_left[..frame_count],
                 &mut slot.buf_right[..frame_count],
             );
+
+            // ── 4a. Process insert device chain ──────────────────
+            // Runs AFTER strip (so gain/pan are applied to the input)
+            // and BEFORE metering (so meters reflect post-FX signal).
+            if !slot.device_chain.is_empty() {
+                slot.device_chain.process_stereo(
+                    &mut slot.buf_left[..frame_count],
+                    &mut slot.buf_right[..frame_count],
+                    sr,
+                );
+            }
 
             // Write metering data (lock-free atomic writes)
             if let Some((meter_l, meter_r)) = self.meter_bank.track(track_idx) {

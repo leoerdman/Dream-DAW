@@ -92,6 +92,20 @@ pub enum EngineCommand {
     /// to eliminate discontinuity clicks during frequency changes.
     SetFreq(f32),
 
+    // ── Device Chain ─────────────────────────────────────────────────
+    /// Add a built-in DSP device to a track's insert chain.
+    /// `effect_type` maps to `BuiltinEffectType` (0=eq..6=saturator).
+    AddDevice { track_index: u16, slot_index: u8, effect_type: u8 },
+
+    /// Remove a device from a track's insert chain.
+    RemoveDevice { track_index: u16, slot_index: u8 },
+
+    /// Bypass or un-bypass a device slot.
+    BypassDevice { track_index: u16, slot_index: u8, bypassed: bool },
+
+    /// Set a parameter on a device in a track's insert chain.
+    SetDeviceParam { track_index: u16, slot_index: u8, param_index: u8, value: f32 },
+
     // ── Engine Lifecycle ─────────────────────────────────────────────
     /// Request the engine to stop and clean up all resources.
     Shutdown,

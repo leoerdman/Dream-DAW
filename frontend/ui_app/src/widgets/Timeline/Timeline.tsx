@@ -101,6 +101,8 @@ interface TimelineProps {
     onTrackSelect?: (trackId: string, trackIndex: number) => void;
     /** Called on vertical scroll — for syncing TrackInspector. */
     onScrollTop?: (scrollTop: number) => void;
+    /** When enabled, viewport follows playback line during playback. */
+    followPlayhead?: boolean;
 }
 
 
@@ -131,7 +133,6 @@ export const Timeline = ({
     loopStart = 4,
     loopEnd = 20,
     loopEnabled = true,
-    onPlayheadChange,
     onEditCursorChange,
     onClipSelect,
     onClipMove,
@@ -140,11 +141,11 @@ export const Timeline = ({
     onOpenMidiClip,
     onTrackSelect,
     onScrollTop,
+    followPlayhead = false,
 }: TimelineProps) => {
     const [pixelsPerBeat, setPixelsPerBeat] = useState(DEFAULT_PPB);
     const [scrollLeft, setScrollLeft] = useState(0);
     const [viewportWidth, setViewportWidth] = useState(0);
-    const [internalPlayhead, setInternalPlayhead] = useState(0);
     const [internalEditCursor, setInternalEditCursor] = useState(0);
     const [internalEditCursorTrackIndex, setInternalEditCursorTrackIndex] = useState(0);
     const [cursorBlinkOn, setCursorBlinkOn] = useState(true);
@@ -168,12 +169,9 @@ export const Timeline = ({
     const [dropTargetBeat, setDropTargetBeat] = useState<number | null>(null);
 
     // Use external playhead (from engine telemetry) when available
-    const playheadBeat = externalPlayhead ?? internalPlayhead;
+    const playheadBeat = externalPlayhead ?? 0;
     const editCursorBeat = externalEditCursor ?? internalEditCursor;
     const editCursorTrackIndex = externalEditCursorTrackIndex ?? internalEditCursorTrackIndex;
-    const setPlayheadBeat = (beat: number) => {
-        setInternalPlayhead(beat);
-    };
     const setEditCursorBeat = useCallback((beat: number, trackIndex: number) => {
         setInternalEditCursor(beat);
         setInternalEditCursorTrackIndex(trackIndex);
@@ -510,23 +508,38 @@ export const Timeline = ({
 
     // ── Zoom (Ctrl+Scroll or pinch) ──
     useEffect(() => {
-        const el = containerRef.current;
+        const el = scrollContainerRef.current;
         if (!el) return;
 
         const onWheel = (e: WheelEvent) => {
             if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
                 const delta = e.deltaY > 0 ? -2 : 2;
-                setPixelsPerBeat(prev => Math.max(MIN_PPB, Math.min(MAX_PPB, prev + delta)));
+                const rect = el.getBoundingClientRect();
+                const pointerX = Math.max(0, Math.min(el.clientWidth, e.clientX - rect.left));
+                const prevPpb = pixelsPerBeat;
+                const nextPpb = Math.max(MIN_PPB, Math.min(MAX_PPB, prevPpb + delta));
+                if (nextPpb === prevPpb) return;
+
+                // Keep beat under cursor fixed while zooming.
+                const anchorBeat = (el.scrollLeft + pointerX) / prevPpb;
+                const nextCanvasWidth = totalBeats * nextPpb;
+                const maxScrollLeft = Math.max(0, nextCanvasWidth - el.clientWidth);
+                const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, anchorBeat * nextPpb - pointerX));
+
+                setPixelsPerBeat(nextPpb);
+                requestAnimationFrame(() => {
+                    el.scrollLeft = nextScrollLeft;
+                });
             }
         };
         el.addEventListener('wheel', onWheel, { passive: false });
         return () => el.removeEventListener('wheel', onWheel);
-    }, []);
+    }, [pixelsPerBeat, totalBeats]);
 
     // ── Auto-scroll to follow playhead during playback ──
     useEffect(() => {
-        if (!isPlaying || externalPlayhead === undefined) return;
+        if (!followPlayhead || !isPlaying || externalPlayhead === undefined) return;
         const scrollEl = scrollContainerRef.current;
         if (!scrollEl) return;
 
@@ -543,7 +556,7 @@ export const Timeline = ({
         if (playheadX < viewLeft) {
             scrollEl.scrollLeft = Math.max(0, playheadX - margin);
         }
-    }, [externalPlayhead, isPlaying, pixelsPerBeat]);
+    }, [externalPlayhead, followPlayhead, isPlaying, pixelsPerBeat]);
 
     // ── Ruler click → set edit cursor position ──
     const handleRulerClick = useCallback((e: React.MouseEvent) => {
@@ -552,11 +565,7 @@ export const Timeline = ({
         const beat = x / pixelsPerBeat;
         const trackForCursor = Math.max(0, Math.min(trackCount - 1, editCursorTrackIndex));
         setEditCursorBeat(beat, trackForCursor);
-        if (!isPlaying) {
-            setPlayheadBeat(beat);
-            onPlayheadChange?.(beat);
-        }
-    }, [pixelsPerBeat, scrollLeft, editCursorTrackIndex, trackCount, setEditCursorBeat, isPlaying, onPlayheadChange]);
+    }, [pixelsPerBeat, scrollLeft, editCursorTrackIndex, trackCount, setEditCursorBeat]);
 
     // ── Canvas click → set edit cursor + deselect clip ──
     const handleCanvasClick = useCallback((e: React.MouseEvent) => {
@@ -571,11 +580,7 @@ export const Timeline = ({
         setEditCursorBeat(beat, trackIndex);
         setSelectedClipId(null);
         selectTrackByIndex(trackIndex);
-        if (!isPlaying) {
-            setPlayheadBeat(beat);
-            onPlayheadChange?.(beat);
-        }
-    }, [pixelsPerBeat, trackHeight, selectTrackByIndex, trackCount, setEditCursorBeat, isPlaying, onPlayheadChange]);
+    }, [pixelsPerBeat, trackHeight, selectTrackByIndex, trackCount, setEditCursorBeat]);
 
     // ── Clip selection ──
     const handleClipClick = useCallback((e: React.MouseEvent, clipId: string) => {

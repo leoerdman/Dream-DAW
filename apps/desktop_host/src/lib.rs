@@ -531,6 +531,38 @@ fn rebuild_sampler_snapshot_from_project(
     handle.sampler_samples.swap(samples);
 }
 
+fn sync_transport_from_project(project: &Project, handle: &AudioEngineHandle) -> Result<(), String> {
+    let bpm = project.pulse_map.initial_bpm();
+    let loop_enabled = project.is_looping;
+    let loop_start = project.loop_start_frames.unwrap_or(0);
+    let loop_end = project.loop_end_frames.unwrap_or(0);
+    let playhead = project.playhead_position_frames.max(0);
+
+    // Keep UI mirror state in sync.
+    {
+        let mut state = handle.playback_state.lock().map_err(|e| e.to_string())?;
+        state.bpm = bpm;
+        state.loop_enabled = loop_enabled;
+        state.loop_start = loop_start;
+        state.loop_end = loop_end;
+        // Project load/new always starts from stopped transport.
+        state.is_playing = false;
+    }
+
+    // Keep realtime transport in sync.
+    push_command(handle, EngineCommand::SetPlay(false))?;
+    push_command(handle, EngineCommand::SetBpm(bpm))?;
+    if loop_enabled && loop_end > loop_start {
+        push_command(handle, EngineCommand::SetLoopRegion {
+            start: loop_start,
+            end: loop_end,
+        })?;
+    }
+    push_command(handle, EngineCommand::SetLoopEnabled(loop_enabled))?;
+    push_command(handle, EngineCommand::Seek(playhead))?;
+    Ok(())
+}
+
 // ── Clip Pool State (shared between UI and audio thread) ────────────
 
 /// Thread-safe handle to the shared clip pool and project clip snapshot.
@@ -1267,19 +1299,115 @@ fn seek_seconds(
 
 /// Sets the project tempo (BPM).
 #[tauri::command]
-fn set_bpm(bpm: f64, handle: tauri::State<'_, AudioEngineHandle>) -> Result<(), String> {
+fn set_bpm(
+    bpm: f64,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
+) -> Result<(), String> {
     if !(20.0..=999.0).contains(&bpm) {
         return Err(format!("BPM {bpm} out of range (20–999)"));
     }
 
+    // Runtime transport BPM update for the audio thread.
     push_command(&handle, EngineCommand::SetBpm(bpm))?;
+
+    // Snapshot undo BEFORE project mutation.
+    push_undo(&project_state)?;
+
+    // Persisted project retime: keep musical beat positions/durations invariant
+    // while converting all sample-frame fields to the new tempo map.
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let old_pulse_map = project.pulse_map.clone();
+    let mut new_pulse_map = old_pulse_map.clone();
+    new_pulse_map.set_constant_tempo(bpm);
+    let current_engine_frame = handle.master_clock.position().max(0);
+    let current_engine_beat = old_pulse_map.beats(current_engine_frame);
+    let remapped_engine_frame = new_pulse_map.sample_frame(current_engine_beat).max(0);
+
+    let remap_frame = |frame: i64| -> i64 {
+        let beat = old_pulse_map.beats(frame.max(0));
+        new_pulse_map.sample_frame(beat).max(0)
+    };
+
+    for track in &mut project.tracks {
+        for clip in &mut track.clips {
+            let old_start = clip.position.sample_frame.max(0);
+            let old_end = (old_start + clip.duration.sample_frame.max(1)).max(old_start + 1);
+            let new_start = remap_frame(old_start);
+            let new_end = remap_frame(old_end).max(new_start + 1);
+            clip.position = AbsoluteTime::new(new_start);
+            clip.duration = AbsoluteTime::new((new_end - new_start).max(1));
+        }
+
+        for clip in &mut track.midi_clips {
+            let old_clip_start = clip.position.sample_frame.max(0);
+            let old_clip_end = (old_clip_start + clip.duration.sample_frame.max(1)).max(old_clip_start + 1);
+            let new_clip_start = remap_frame(old_clip_start);
+            let new_clip_end = remap_frame(old_clip_end).max(new_clip_start + 1);
+            let new_clip_duration = (new_clip_end - new_clip_start).max(1);
+
+            for note in &mut clip.notes {
+                let old_abs_start = (old_clip_start + note.start_frame.max(0)).max(old_clip_start);
+                let old_abs_end = (old_abs_start + note.duration_frames.max(1)).max(old_abs_start + 1);
+                let new_abs_start = remap_frame(old_abs_start);
+                let new_abs_end = remap_frame(old_abs_end).max(new_abs_start + 1);
+
+                let rel_start = (new_abs_start - new_clip_start).clamp(0, new_clip_duration - 1);
+                let rel_end = (new_abs_end - new_clip_start).clamp(rel_start + 1, new_clip_duration);
+                note.start_frame = rel_start;
+                note.duration_frames = (rel_end - rel_start).max(1);
+            }
+            clip.notes.sort_by_key(|n| n.start_frame);
+            clip.position = AbsoluteTime::new(new_clip_start);
+            clip.duration = AbsoluteTime::new(new_clip_duration);
+        }
+    }
+
+    // Persist transport/loop points in project domain.
+    project.playhead_position_frames = remapped_engine_frame;
+    let remapped_loop_start = project.loop_start_frames.map(remap_frame);
+    let remapped_loop_end = project.loop_end_frames.map(remap_frame);
+    match (remapped_loop_start, remapped_loop_end) {
+        (Some(start), Some(end)) if end > start => {
+            project.loop_start_frames = Some(start);
+            project.loop_end_frames = Some(end);
+        }
+        _ => {
+            project.loop_start_frames = remapped_loop_start;
+            project.loop_end_frames = remapped_loop_end;
+        }
+    }
+
+    project.pulse_map = new_pulse_map;
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
+    rebuild_automation_snapshot_from_project(&project, &automation_runtime);
+
+    // Re-anchor realtime transport to the same musical beat after tempo change.
+    push_command(&handle, EngineCommand::Seek(remapped_engine_frame))?;
+    if let (Some(start), Some(end)) = (project.loop_start_frames, project.loop_end_frames) {
+        if end > start {
+            push_command(&handle, EngineCommand::SetLoopRegion { start, end })?;
+        }
+    }
+    push_command(&handle, EngineCommand::SetLoopEnabled(project.is_looping))?;
 
     let mut state = handle
         .playback_state
         .lock()
         .map_err(|e| format!("Lock poisoned: {e}"))?;
     state.bpm = bpm;
-
+    if let (Some(start), Some(end)) = (project.loop_start_frames, project.loop_end_frames) {
+        if end > start {
+            state.loop_start = start;
+            state.loop_end = end;
+            state.loop_enabled = project.is_looping;
+        }
+    }
     log::info!("[IPC] set_bpm({bpm})");
     Ok(())
 }
@@ -1368,6 +1496,78 @@ fn set_track_solo(
         soloed,
     })?;
     log::info!("[IPC] set_track_solo(track={track_index}, soloed={soloed})");
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Tauri Commands — Device Chain
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Adds a built-in DSP device to a track's insert chain.
+#[tauri::command]
+fn add_device_cmd(
+    track_index: u16,
+    slot_index: u8,
+    effect_type: u8,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    push_command(&handle, EngineCommand::AddDevice {
+        track_index,
+        slot_index,
+        effect_type,
+    })?;
+    log::info!("[IPC] add_device(track={track_index}, slot={slot_index}, type={effect_type})");
+    Ok(())
+}
+
+/// Removes a device from a track's insert chain.
+#[tauri::command]
+fn remove_device_cmd(
+    track_index: u16,
+    slot_index: u8,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    push_command(&handle, EngineCommand::RemoveDevice {
+        track_index,
+        slot_index,
+    })?;
+    log::info!("[IPC] remove_device(track={track_index}, slot={slot_index})");
+    Ok(())
+}
+
+/// Bypasses or enables a device in a track's insert chain.
+#[tauri::command]
+fn bypass_device_cmd(
+    track_index: u16,
+    slot_index: u8,
+    bypassed: bool,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    push_command(&handle, EngineCommand::BypassDevice {
+        track_index,
+        slot_index,
+        bypassed,
+    })?;
+    log::debug!("[IPC] bypass_device(track={track_index}, slot={slot_index}, bypassed={bypassed})");
+    Ok(())
+}
+
+/// Sets a parameter on a device in a track's insert chain.
+#[tauri::command]
+fn set_device_param_cmd(
+    track_index: u16,
+    slot_index: u8,
+    param_index: u8,
+    value: f32,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    push_command(&handle, EngineCommand::SetDeviceParam {
+        track_index,
+        slot_index,
+        param_index,
+        value,
+    })?;
+    log::debug!("[IPC] set_device_param(track={track_index}, slot={slot_index}, param={param_index}, val={value})");
     Ok(())
 }
 
@@ -1880,6 +2080,16 @@ fn move_midi_clip_in_project(
     true
 }
 
+fn delete_midi_clip_in_project(project: &mut Project, clip_id: Uuid) -> bool {
+    for track in &mut project.tracks {
+        if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
+            track.midi_clips.remove(idx);
+            return true;
+        }
+    }
+    false
+}
+
 /// Moves a clip to a new track and/or position.
 ///
 /// The clip is identified by UUID string. After mutation, the
@@ -1963,6 +2173,7 @@ async fn delete_clip_cmd(
     clip_id: String,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&clip_id)
         .map_err(|e| format!("Invalid clip ID: {e}"))?;
@@ -1972,11 +2183,16 @@ async fn delete_clip_cmd(
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
 
-    mutators::delete_clip(&mut project, uuid)
-        .map_err(mutator_err_to_string)?;
+    if let Err(audio_err) = mutators::delete_clip(&mut project, uuid) {
+        // If this is not an audio clip, attempt MIDI clip delete using same UUID.
+        if !delete_midi_clip_in_project(&mut project, uuid) {
+            return Err(mutator_err_to_string(audio_err));
+        }
+    }
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
 
     Ok(())
 }
@@ -2604,6 +2820,7 @@ fn new_project(
     rebuild_automation_snapshot_from_project(&new, &automation_runtime);
     rebuild_midi_snapshot_from_project(&new, &handle);
     rebuild_sampler_snapshot_from_project(&new, &clip_pool_state, &handle);
+    sync_transport_from_project(&new, &handle)?;
 
     // Update window title
     if let Some(window) = app.get_webview_window("main") {
@@ -2735,6 +2952,7 @@ fn open_project(
     rebuild_automation_snapshot_from_project(&loaded, &automation_runtime);
     rebuild_midi_snapshot_from_project(&loaded, &handle);
     rebuild_sampler_snapshot_from_project(&loaded, &clip_pool_state, &handle);
+    sync_transport_from_project(&loaded, &handle)?;
 
     // Derive project folder from file path
     let folder = ProjectManager::folder_from_file(&file_path);
@@ -4586,6 +4804,11 @@ pub fn run() {
             remove_plugin_from_track_cmd,
             set_internal_plugin_param_cmd,
             set_sampler_sample_cmd,
+            // Device Chain
+            add_device_cmd,
+            remove_device_cmd,
+            bypass_device_cmd,
+            set_device_param_cmd,
             // Project Management (extended)
             create_backup_cmd,
             mark_dirty_cmd,

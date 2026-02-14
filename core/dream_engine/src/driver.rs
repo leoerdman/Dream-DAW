@@ -32,6 +32,7 @@ use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::scheduler::LoopRegion;
 use dream_ipc::metering::MeterBank;
 use dream_ipc::{EngineCommand, MasterClock};
+use dream_dsp::dsp_processor::BuiltinEffectType;
 use dream_models::midi::MidiClip;
 use dream_models::project::AudioClip;
 
@@ -800,6 +801,41 @@ pub fn start_audio_thread_on_device(
                                     // Kill all sampler voices on shutdown
                                     for engine in sampler_engines.iter_mut() {
                                         engine.all_notes_off();
+                                    }
+                                }
+                                // ── Device Chain Commands ────────────────────
+                                EngineCommand::AddDevice { track_index, slot_index, effect_type } => {
+                                    let idx = track_index as usize;
+                                    if idx < render_ctx.track_slots.len() {
+                                        if let Some(etype) = BuiltinEffectType::from_u8(effect_type) {
+                                            render_ctx.track_slots[idx]
+                                                .device_chain
+                                                .add_device(slot_index as usize, etype);
+                                        }
+                                    }
+                                }
+                                EngineCommand::RemoveDevice { track_index, slot_index } => {
+                                    let idx = track_index as usize;
+                                    if idx < render_ctx.track_slots.len() {
+                                        render_ctx.track_slots[idx]
+                                            .device_chain
+                                            .remove_device(slot_index as usize);
+                                    }
+                                }
+                                EngineCommand::BypassDevice { track_index, slot_index, bypassed } => {
+                                    let idx = track_index as usize;
+                                    if idx < render_ctx.track_slots.len() {
+                                        render_ctx.track_slots[idx]
+                                            .device_chain
+                                            .set_bypass(slot_index as usize, bypassed);
+                                    }
+                                }
+                                EngineCommand::SetDeviceParam { track_index, slot_index, param_index, value } => {
+                                    let idx = track_index as usize;
+                                    if idx < render_ctx.track_slots.len() {
+                                        render_ctx.track_slots[idx]
+                                            .device_chain
+                                            .set_param(slot_index as usize, param_index, value);
                                     }
                                 }
                             }

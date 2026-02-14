@@ -18,3 +18,8 @@ pub mod biquad;
 pub mod fades;
 pub mod resampler;
 pub mod svf;
+
+// ── Device Chain DSP (Sprint: Insert FX Pipeline) ──────────────────────
+pub mod dsp_processor;
+pub mod processors;
+pub mod device_chain;

@@ -140,7 +140,8 @@ impl ProjectFile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dream_models::project::{AudioClip, Track};
+    use dream_models::midi::{MidiClip, MidiNote, SamplerConfig};
+    use dream_models::project::{AudioClip, AutomationLane, AutomationPoint, PluginSlot, TimeSignature, Track, TrackColor, TrackType};
     use dream_models::time::AbsoluteTime;
     use std::path::PathBuf;
 
@@ -213,5 +214,89 @@ mod tests {
     fn error_display() {
         let err = ProjectFileError::SerializationError("bad json".into());
         assert_eq!(format!("{err}"), "Serialization error: bad json");
+    }
+
+    #[test]
+    fn save_load_preserves_full_project_state() {
+        let path = temp_path("full_state_roundtrip");
+
+        let mut project = Project::new("Full State", 172.0, 44100.0);
+        project.time_signature = TimeSignature::new(4, 4);
+        project.view_zoom_scale = Some(22.0);
+        project.view_scroll_position = Some(64.0);
+        project.playhead_position_frames = 123_456;
+        project.is_looping = true;
+        project.loop_start_frames = Some(44_100);
+        project.loop_end_frames = Some(88_200);
+
+        let mut midi_track = Track::with_type("MIDI 1", TrackType::Midi, 0);
+        midi_track.volume = 0.77;
+        midi_track.pan = -0.15;
+        midi_track.instrument = Some(PluginSlot::new("Sampler", "internal://instrument/sampler"));
+        midi_track.effects.push(PluginSlot::new("Utility", "internal://effect/utility"));
+        midi_track.sampler = Some(SamplerConfig {
+            sample_path: "Samples/snare.wav".to_string(),
+            root_note: 60,
+            volume: 0.9,
+            attack: 0.01,
+            decay: 0.12,
+            sustain: 0.85,
+            release: 0.09,
+        });
+        midi_track.automation_lanes.push(AutomationLane {
+            param_id: "volume".to_string(),
+            points: vec![
+                AutomationPoint { beat: 4.0, value: 0.5, curve_type: "linear".to_string(), tension: None },
+                AutomationPoint { beat: 8.0, value: 0.8, curve_type: "bezier".to_string(), tension: Some(0.35) },
+            ],
+        });
+
+        let mut midi_clip = MidiClip::new(
+            "Pattern A",
+            AbsoluteTime::new(44_100),
+            AbsoluteTime::new(44_100),
+        );
+        midi_clip.add_note(MidiNote::new(60, 110, 0, 11_025));
+        midi_clip.add_note(MidiNote::new(64, 100, 11_025, 11_025));
+        midi_track.midi_clips.push(midi_clip);
+
+        let mut audio_track = Track::with_type("Audio 1", TrackType::Audio, 1);
+        audio_track.color = TrackColor::Orange;
+        audio_track.clips.push(AudioClip::new(
+            "Kick",
+            "Samples/kick.wav",
+            AbsoluteTime::new(88_200),
+            AbsoluteTime::new(22_050),
+        ));
+
+        project.add_track(midi_track);
+        project.add_track(audio_track);
+
+        ProjectFile::save(&project, &path).unwrap();
+        let loaded = ProjectFile::load(&path).unwrap();
+
+        assert!((loaded.pulse_map.initial_bpm() - 172.0).abs() < f64::EPSILON);
+        assert_eq!(loaded.time_signature, TimeSignature::new(4, 4));
+        assert_eq!(loaded.playhead_position_frames, 123_456);
+        assert_eq!(loaded.is_looping, true);
+        assert_eq!(loaded.loop_start_frames, Some(44_100));
+        assert_eq!(loaded.loop_end_frames, Some(88_200));
+        assert_eq!(loaded.view_zoom_scale, Some(22.0));
+        assert_eq!(loaded.view_scroll_position, Some(64.0));
+
+        assert_eq!(loaded.tracks.len(), 2);
+        assert_eq!(loaded.tracks[0].track_type, TrackType::Midi);
+        assert!(loaded.tracks[0].instrument.is_some());
+        assert_eq!(loaded.tracks[0].effects.len(), 1);
+        assert!(loaded.tracks[0].sampler.is_some());
+        assert_eq!(loaded.tracks[0].automation_lanes.len(), 1);
+        assert_eq!(loaded.tracks[0].midi_clips.len(), 1);
+        assert_eq!(loaded.tracks[0].midi_clips[0].notes.len(), 2);
+
+        assert_eq!(loaded.tracks[1].track_type, TrackType::Audio);
+        assert_eq!(loaded.tracks[1].clips.len(), 1);
+        assert_eq!(loaded.tracks[1].clips[0].file_path, "Samples/kick.wav");
+
+        let _ = fs::remove_file(&path);
     }
 }

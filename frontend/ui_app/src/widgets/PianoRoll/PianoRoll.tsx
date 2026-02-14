@@ -20,6 +20,8 @@
 
 import { useState, useCallback, useRef, useMemo, useEffect, memo } from 'react';
 import { useGridStore } from '@/shared/stores/useGridStore';
+import type { GridDivision } from '@/shared/lib/gridSnap';
+import { divisionToInterval } from '@/shared/lib/gridSnap';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -96,6 +98,7 @@ const MIN_NOTE_HEIGHT = 4;
 const MAX_NOTE_HEIGHT = 32;
 const VELOCITY_LANE_HEIGHT = 64;
 const RULER_HEIGHT = 22;
+const LEFT_PANEL_WIDTH = 182;
 const LOWEST_PITCH = 0;
 const HIGHEST_PITCH = 115;
 const TOTAL_KEYS = HIGHEST_PITCH - LOWEST_PITCH + 1;
@@ -107,6 +110,12 @@ const KEY_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', '
 // MIDI 60 is shown as C3 (DAW-style), not C4 (scientific pitch notation).
 const OCTAVE_LABEL_OFFSET = -2;
 const DEFAULT_FOCUS_PITCH = 60; // C3 in this UI labeling
+const MIDI_GRID_PRESETS: Array<{ label: string; division: GridDivision }> = [
+    { label: '1 Bar', division: '1/1' },
+    { label: '1/4', division: '1/4' },
+    { label: '1/8', division: '1/8' },
+    { label: '1/16', division: '1/16' },
+];
 
 const isBlackKey = (pitch: number) => {
     const note = pitch % 12;
@@ -139,6 +148,7 @@ export const PianoRoll = memo(function PianoRoll({
     const [highlightScale, setHighlightScale] = useState(false);
     const [rootNote, setRootNote] = useState<RootNote>('C');
     const [scaleName, setScaleName] = useState<ScaleName>('Major');
+    const [clipTranspose, setClipTranspose] = useState(0);
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const noteCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -146,16 +156,22 @@ export const PianoRoll = memo(function PianoRoll({
     const keyboardScrollRef = useRef<HTMLDivElement>(null);
     const editorRootRef = useRef<HTMLDivElement>(null);
     const snapBeat = useGridStore((s) => s.snapBeat);
-    const gridInterval = useGridStore((s) => s.gridInterval);
+    const gridDivision = useGridStore((s) => s.division);
+    const gridTriplet = useGridStore((s) => s.triplet);
+    const setGridDivision = useGridStore((s) => s.setDivision);
 
     const beatsPerBar = timeSignature[0];
+    const currentGridInterval = useMemo(
+        () => divisionToInterval(gridDivision, beatsPerBar, gridTriplet),
+        [gridDivision, beatsPerBar, gridTriplet],
+    );
     const clipBeats = Math.max(0.25, clipLengthBeats ?? (totalBars * beatsPerBar));
 
     // Auto-fit horizontal
-    const gridAreaWidth = Math.max(100, containerWidth - KEYBOARD_WIDTH);
+    const gridAreaWidth = Math.max(100, containerWidth - KEYBOARD_WIDTH - LEFT_PANEL_WIDTH);
     const autoFitPPB = gridAreaWidth / clipBeats;
     const pixelsPerBeat = zoomOverrideH ?? Math.max(MIN_PPB, Math.min(MAX_PPB, autoFitPPB));
-    const totalBeats = clipBeats;
+    const totalBeats = Math.max(clipBeats, gridAreaWidth / pixelsPerBeat);
 
     const canvasWidth = totalBeats * pixelsPerBeat;
     const canvasHeight = TOTAL_KEYS * noteHeight;
@@ -246,17 +262,25 @@ export const PianoRoll = memo(function PianoRoll({
 
     // Grid lines
     const gridLines = useMemo(() => {
-        const lines: { x: number; isBar: boolean; label?: string }[] = [];
-        for (let beat = 0; beat <= totalBeats; beat++) {
-            const isBar = beat % beatsPerBar === 0;
+        const lines: { x: number; isBar: boolean; label?: string; isMainBeat: boolean }[] = [];
+        const epsilon = 1e-6;
+        const snap = currentGridInterval;
+        const visualStep = snap > 0 ? snap : 0.25; // fallback when OFF
+        const totalSteps = Math.ceil(totalBeats / visualStep);
+        for (let i = 0; i <= totalSteps; i++) {
+            const beat = i * visualStep;
+            if (beat > totalBeats + epsilon) break;
+            const isBar = Math.abs((beat / beatsPerBar) - Math.round(beat / beatsPerBar)) < epsilon;
+            const isMainBeat = Math.abs(beat - Math.round(beat)) < epsilon;
             lines.push({
                 x: beat * pixelsPerBeat,
                 isBar,
+                isMainBeat,
                 label: isBar ? `${Math.floor(beat / beatsPerBar) + 1}` : undefined,
             });
         }
         return lines;
-    }, [totalBeats, beatsPerBar, pixelsPerBeat]);
+    }, [totalBeats, beatsPerBar, pixelsPerBeat, currentGridInterval]);
 
     // Piano key data
     const pianoKeys = useMemo(() => {
@@ -471,6 +495,30 @@ export const PianoRoll = memo(function PianoRoll({
         [notes, onNotesChange],
     );
 
+    const transposeAllNotes = useCallback((delta: number) => {
+        if (delta === 0 || notes.length === 0) return;
+        const next = notes.map((n) => ({
+            ...n,
+            pitch: Math.max(LOWEST_PITCH, Math.min(HIGHEST_PITCH, n.pitch + delta)),
+        }));
+        setClipTranspose((prev) => Math.max(-24, Math.min(24, prev + delta)));
+        onNotesChange(next);
+    }, [notes, onNotesChange]);
+
+    const quantizeAllNotesToGrid = useCallback(() => {
+        const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
+        const next = notes.map((n) => {
+            const snappedStart = snapBeat(n.startBeat, beatsPerBar);
+            const snappedDur = Math.max(step, Math.round(n.durationBeats / step) * step);
+            return {
+                ...n,
+                startBeat: Math.max(0, Math.min(totalBeats - step, snappedStart)),
+                durationBeats: Math.max(step, snappedDur),
+            };
+        });
+        onNotesChange(next);
+    }, [notes, onNotesChange, currentGridInterval, snapBeat, beatsPerBar, totalBeats]);
+
     // Canvas note renderer
     useEffect(() => {
         const canvas = noteCanvasRef.current;
@@ -523,7 +571,7 @@ export const PianoRoll = memo(function PianoRoll({
         if (!isEditorFocused) return;
         const onKeyDown = (e: KeyboardEvent) => {
             const hasSelected = selectedNotes.size > 0;
-            const stepBeatRaw = gridInterval(beatsPerBar);
+            const stepBeatRaw = currentGridInterval;
             const stepBeat = stepBeatRaw > 0 ? stepBeatRaw : 0.25;
 
             if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -560,7 +608,7 @@ export const PianoRoll = memo(function PianoRoll({
         };
         window.addEventListener('keydown', onKeyDown, { capture: true });
         return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
-    }, [isEditorFocused, selectedNotes, notes, onNotesChange, gridInterval, beatsPerBar, totalBeats]);
+    }, [isEditorFocused, selectedNotes, notes, onNotesChange, currentGridInterval, totalBeats]);
 
     // Clip duration label
     const clipDurationLabel = useMemo(() => {
@@ -636,6 +684,41 @@ export const PianoRoll = memo(function PianoRoll({
                         }}
                     >
                         {t === 'draw' ? '✏ Draw' : t === 'select' ? '◻ Select' : '✕ Erase'}
+                    </button>
+                ))}
+
+                {/* Divider */}
+                <div style={{ width: 1, height: 16, background: 'var(--color-divider-light)', margin: '0 var(--space-1)' }} />
+
+                {/* MIDI Grid Presets */}
+                <span style={{
+                    fontSize: 'var(--font-size-micro)',
+                    color: 'var(--color-text-tertiary)',
+                    textTransform: 'uppercase',
+                    letterSpacing: 'var(--letter-spacing-wide)',
+                    fontWeight: 600,
+                    marginRight: 2,
+                }}>
+                    Grid
+                </span>
+                {MIDI_GRID_PRESETS.map((preset) => (
+                    <button
+                        key={preset.division}
+                        onClick={() => setGridDivision(preset.division)}
+                        style={{
+                            padding: '2px 8px',
+                            background: gridDivision === preset.division ? color : 'var(--color-bg-secondary)',
+                            color: gridDivision === preset.division ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
+                            border: gridDivision === preset.division ? 'none' : '1px solid var(--color-control-border)',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: 'var(--font-size-2xs)',
+                            fontFamily: 'var(--font-mono)',
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                        }}
+                        title={`Set MIDI grid to ${preset.label}`}
+                    >
+                        {preset.label}
                     </button>
                 ))}
 
@@ -750,6 +833,84 @@ export const PianoRoll = memo(function PianoRoll({
 
             {/* ── Main area ── */}
             <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+                {/* Left setup panel (2 vertical blocks) */}
+                <div style={{
+                    width: LEFT_PANEL_WIDTH,
+                    flexShrink: 0,
+                    borderRight: '1px solid var(--color-divider)',
+                    background: 'var(--color-bg-panel)',
+                    padding: 8,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                }}>
+                    <div style={{
+                        border: '1px solid var(--color-control-border)',
+                        borderRadius: 'var(--radius-sm)',
+                        background: 'var(--color-bg-secondary)',
+                        padding: 8,
+                        minHeight: 124,
+                    }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            Clip Setup
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginBottom: 6 }}>
+                            Length: <span style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>{clipDurationLabel}</span>
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginBottom: 6 }}>
+                            Grid: <span style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>{gridDivision}{gridTriplet ? 'T' : ''}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                            <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>Transpose</span>
+                            <button
+                                onClick={() => transposeAllNotes(-1)}
+                                style={miniBtnStyle}
+                            >
+                                -1
+                            </button>
+                            <button
+                                onClick={() => transposeAllNotes(1)}
+                                style={miniBtnStyle}
+                            >
+                                +1
+                            </button>
+                            <span style={{ fontSize: 10, color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)', marginLeft: 'auto' }}>
+                                {clipTranspose >= 0 ? `+${clipTranspose}` : clipTranspose}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div style={{
+                        border: '1px solid var(--color-control-border)',
+                        borderRadius: 'var(--radius-sm)',
+                        background: 'var(--color-bg-secondary)',
+                        padding: 8,
+                        minHeight: 124,
+                    }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            Performance
+                        </div>
+                        <button onClick={quantizeAllNotesToGrid} style={{ ...miniBtnStyle, width: '100%', marginBottom: 6 }}>
+                            Quantize To Grid
+                        </button>
+                        <button
+                            onClick={() => setZoomOverrideH(null)}
+                            style={{ ...miniBtnStyle, width: '100%', marginBottom: 6 }}
+                        >
+                            Fit To Clip
+                        </button>
+                        <button
+                            onClick={() => {
+                                const nudged = notes.map((n) => ({ ...n, velocity: Math.max(1, Math.min(127, n.velocity + 8)) }));
+                                onNotesChange(nudged);
+                            }}
+                            style={{ ...miniBtnStyle, width: '100%' }}
+                        >
+                            Velocity +8
+                        </button>
+                    </div>
+                </div>
+
                 {/* Piano Keyboard */}
                 <div style={{
                     width: KEYBOARD_WIDTH,
@@ -973,8 +1134,14 @@ export const PianoRoll = memo(function PianoRoll({
                                     y1={0}
                                     x2={gl.x}
                                     y2={canvasHeight}
-                                    stroke={gl.isBar ? 'var(--color-piano-bar)' : 'var(--color-piano-beat)'}
-                                    strokeWidth={gl.isBar ? 1 : 0.5}
+                                    stroke={
+                                        gl.isBar
+                                            ? 'var(--color-piano-bar)'
+                                            : gl.isMainBeat
+                                                ? 'var(--color-piano-beat)'
+                                                : 'var(--color-border-subtle)'
+                                    }
+                                    strokeWidth={gl.isBar ? 1 : gl.isMainBeat ? 0.65 : 0.45}
                                 />
                             ))}
                         </svg>
@@ -1134,5 +1301,16 @@ export const PianoRoll = memo(function PianoRoll({
         </div>
     );
 });
+
+const miniBtnStyle: React.CSSProperties = {
+    border: '1px solid var(--color-control-border)',
+    borderRadius: 'var(--radius-xs)',
+    background: 'var(--color-bg-input)',
+    color: 'var(--color-text-secondary)',
+    fontSize: 10,
+    fontFamily: 'var(--font-family)',
+    padding: '4px 6px',
+    cursor: 'pointer',
+};
 
 export default PianoRoll;

@@ -96,10 +96,13 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
 
             const pianoRollScope = getScopedEditorElement(e, 'piano-roll');
             const inPianoRoll = Boolean(pianoRollScope);
+            const deviceRackScope = getScopedEditorElement(e, 'device-rack');
+            const inDeviceRack = Boolean(deviceRackScope);
+            const selectedDeviceId = deviceRackScope?.dataset?.selectedDeviceId ?? '';
 
             // ── Space: Toggle Playback ─────────────────────────────
             if (e.code === 'Space' && !e.repeat) {
-                if (inPianoRoll) return;
+                if (inPianoRoll || inDeviceRack) return;
                 e.preventDefault();
                 e.stopPropagation();
                 onTogglePlayback();
@@ -108,7 +111,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
 
             // ── Cmd/Ctrl + E: Split at Playhead ────────────────────
             if (isModKey(e) && e.key.toLowerCase() === 'e') {
-                if (inPianoRoll) return;
+                if (inPianoRoll || inDeviceRack) return;
                 e.preventDefault();
                 e.stopPropagation();
 
@@ -125,6 +128,10 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
 
             // ── Backspace / Delete: Delete Selected Clip ───────────
             if (e.key === 'Backspace' || e.key === 'Delete') {
+                if (inDeviceRack && selectedDeviceId.length > 0) {
+                    // DeviceRack owns Delete when a plugin/device card is selected.
+                    return;
+                }
                 if (inPianoRoll) {
                     const selectedCount = Number(pianoRollScope?.dataset?.selectedNotes ?? '0');
                     // When notes are selected, PianoRoll owns Delete/Backspace.

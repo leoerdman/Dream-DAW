@@ -195,6 +195,13 @@ export const AssetBrowser = () => {
         return () => window.removeEventListener('keydown', handler);
     }, []);
 
+    // While searching, force "All" category so results are global.
+    useEffect(() => {
+        if (searchQuery.trim().length > 0 && selectedCategoryId !== 'all') {
+            setSelectedCategoryId('all');
+        }
+    }, [searchQuery, selectedCategoryId]);
+
     const toggleSection = useCallback((id: string) => {
         setCollapsedSections(prev => {
             const next = new Set(prev);
@@ -493,7 +500,11 @@ export const AssetBrowser = () => {
                     placeholder="Search… (⌘F)"
                     value={searchQuery}
                     onChange={e => {
-                        setSearchQuery(e.target.value);
+                        const nextQuery = e.target.value;
+                        setSearchQuery(nextQuery);
+                        if (nextQuery.trim().length > 0 && selectedCategoryId !== 'all') {
+                            setSelectedCategoryId('all');
+                        }
                         setVisibleCount(RENDER_BATCH);
                     }}
                     style={{

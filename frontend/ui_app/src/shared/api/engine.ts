@@ -141,6 +141,44 @@ export const setTrackMute = (trackIndex: number, muted: boolean) =>
 export const setTrackSolo = (trackIndex: number, soloed: boolean) =>
     invoke<void>('set_track_solo', { trackIndex, soloed });
 
+// ── Device Chain Commands ────────────────────────────────────────────────
+
+/** Built-in effect type values (mirrors BuiltinEffectType in Rust). */
+export type BuiltinEffectType = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+export const BuiltinEffectType: {
+    Eq: BuiltinEffectType;
+    Compressor: BuiltinEffectType;
+    Delay: BuiltinEffectType;
+    Reverb: BuiltinEffectType;
+    Chorus: BuiltinEffectType;
+    Utility: BuiltinEffectType;
+    Saturator: BuiltinEffectType;
+} = {
+    Eq: 0,
+    Compressor: 1,
+    Delay: 2,
+    Reverb: 3,
+    Chorus: 4,
+    Utility: 5,
+    Saturator: 6,
+};
+
+/** Add a built-in DSP device to a track's insert chain. */
+export const addDevice = (trackIndex: number, slotIndex: number, effectType: BuiltinEffectType) =>
+    invoke<void>('add_device_cmd', { trackIndex, slotIndex, effectType });
+
+/** Remove a device from a track's insert chain. */
+export const removeDevice = (trackIndex: number, slotIndex: number) =>
+    invoke<void>('remove_device_cmd', { trackIndex, slotIndex });
+
+/** Bypass or enable a device in a track's insert chain. */
+export const bypassDevice = (trackIndex: number, slotIndex: number, bypassed: boolean) =>
+    invoke<void>('bypass_device_cmd', { trackIndex, slotIndex, bypassed });
+
+/** Set a parameter on a device in a track's insert chain. */
+export const setDeviceParam = (trackIndex: number, slotIndex: number, paramIndex: number, value: number) =>
+    invoke<void>('set_device_param_cmd', { trackIndex, slotIndex, paramIndex, value });
+
 /** Batch update a track's state. */
 export const updateTrack = (update: TrackStateUpdate) =>
     invoke<void>('update_track', { update });

@@ -307,7 +307,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     },
 
     setBpm: async (bpm: number) => {
-        // Optimistic update — UI responds instantly
+        // Optimistic update — UI responds instantly.
         set((s) => ({ transport: { ...s.transport, bpm } }));
         try {
             await engine.setBpm(bpm);

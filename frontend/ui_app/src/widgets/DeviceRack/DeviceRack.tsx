@@ -452,7 +452,13 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
 
     return (
         <>
-            <div ref={rackRef} style={{
+            <div
+                ref={rackRef}
+                tabIndex={0}
+                data-keyboard-scope="device-rack"
+                data-selected-device-id={selectedDeviceId ?? ''}
+                onMouseDown={() => rackRef.current?.focus()}
+                style={{
                 display: 'flex',
                 flexDirection: 'column',
                 height: '100%',
@@ -506,9 +512,10 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
 
                     {/* Device slots */}
                     {chain.length > 0 ? (
-                        chain.map(device => (
+                        chain.map((device, idx) => (
                             <DeviceNode
                                 key={device.id}
+                                order={idx + 1}
                                 device={device}
                                 isSelected={selectedDeviceId === device.id}
                                 editorSupported={pluginCapability[device.pluginId]?.supported ?? true}
@@ -516,6 +523,7 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
                                 onToggle={() => toggleDevice(device.id)}
                                 onSelect={() => {
                                     setSelectedDeviceId(device.id);
+                                    rackRef.current?.focus();
                                     statusClear();
                                 }}
                                 onOpenSettings={() => {
@@ -767,6 +775,7 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
 // ── DeviceNode ──────────────────────────────────────────
 
 const DeviceNode = ({
+    order,
     device, onToggle, onOpenGUI,
     isSelected,
     onSelect,
@@ -776,6 +785,7 @@ const DeviceNode = ({
     onLoadSample,
     editorSupported, editorReason,
 }: {
+    order: number;
     device: DeviceSlot;
     onToggle: () => void;
     isSelected: boolean;
@@ -806,14 +816,14 @@ const DeviceNode = ({
     };
     const typeColor = typeColorMap[device.effectType] || 'var(--color-accent-primary)';
     const rackWidth = isSelected && device.source === 'internal'
-        ? 980
+        ? 820
         : device.effectType === 'sampler'
-            ? 360
+            ? 350
             : device.effectType === 'instrument'
-                ? 310
+                ? 300
                 : device.effectType === 'eq'
-                    ? 270
-                    : 230;
+                    ? 260
+                    : 220;
 
     return (
         <div
@@ -831,7 +841,8 @@ const DeviceNode = ({
                 opacity: device.isEnabled ? 1 : 0.5,
                 transition: 'opacity var(--transition-fast)',
                 flexShrink: 0,
-                minHeight: isSelected && device.source === 'internal' ? 280 : 126,
+                minHeight: isSelected && device.source === 'internal' ? 248 : 126,
+                maxHeight: isSelected && device.source === 'internal' ? 248 : 126,
                 position: 'relative',
                 boxShadow: isSelected ? '0 0 0 1px var(--color-accent-primary), 0 0 12px rgba(74,144,217,0.35)' : 'none',
             }}
@@ -889,6 +900,14 @@ const DeviceNode = ({
                     whiteSpace: 'nowrap',
                 }}>
                     {device.name}
+                </span>
+                <span style={{
+                    fontSize: 9,
+                    color: 'var(--color-text-tertiary)',
+                    fontFamily: 'var(--font-mono)',
+                    marginRight: 4,
+                }}>
+                    {order}
                 </span>
                 {device.source === 'vst' ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>

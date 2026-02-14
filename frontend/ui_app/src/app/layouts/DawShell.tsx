@@ -69,6 +69,7 @@ export const DawShell = () => {
         active: false,
         trackIndex: 0,
     });
+    const [followPlayhead, setFollowPlayhead] = useState(false);
     const [midiNotesByClip, setMidiNotesByClip] = useState<Record<string, MidiNote[]>>({});
     const midiSaveThrottlesRef = useRef<Map<string, (notes: MidiNote[]) => void>>(new Map());
     const latestMidiNotesRef = useRef<Record<string, MidiNote[]>>({});
@@ -422,6 +423,8 @@ export const DawShell = () => {
                             onSettingsClick={openSettings}
                             onOpenExport={() => setExportOpen(true)}
                             onRecordingStateChange={(state) => setRecordingState(state)}
+                            followPlayhead={followPlayhead}
+                            onFollowPlayheadChange={setFollowPlayhead}
                         />
                     </ErrorBoundary>
                 </header>
@@ -475,6 +478,7 @@ export const DawShell = () => {
                                     handleSelectTrack(resolvedTrackId);
                                 }}
                                 onScrollTop={handleTimelineScrollTop}
+                                followPlayhead={followPlayhead}
                             />
                         </ErrorBoundary>
                     </div>

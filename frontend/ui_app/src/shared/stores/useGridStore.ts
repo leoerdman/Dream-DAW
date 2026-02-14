@@ -68,7 +68,7 @@ const CYCLE_ORDER: GridDivision[] = ['1/4', '1/8', '1/16', '1/32', '1/1', '1/2',
 
 export const useGridStore = create<GridStore>((set, get) => ({
     // ── State ──────────────────────────────────────────────────────────
-    division: '1/4',
+    division: '1/1',
     triplet: false,
 
     // ── Actions ────────────────────────────────────────────────────────

@@ -104,9 +104,30 @@ impl MidiScheduler {
                 let is_note_on = note_abs_start >= playhead_pos && note_abs_start < buffer_end;
                 let is_note_off = note_abs_end > playhead_pos && note_abs_end <= buffer_end;
 
+                // Clip fades for MIDI clips: scale note-on velocity by fade envelope
+                // at the note start position inside the clip.
+                let clip_fade_in = clip.fade_in_frames.max(0) as f64;
+                let clip_fade_out = clip.fade_out_frames.max(0) as f64;
+                let clip_len = clip.duration.sample_frame.max(1) as f64;
+                let note_pos_in_clip = note.start_frame.max(0) as f64;
+                let fade_in_gain = if clip_fade_in > 0.0 {
+                    (note_pos_in_clip / clip_fade_in).clamp(0.0, 1.0)
+                } else {
+                    1.0
+                };
+                let dist_to_end = (clip_len - note_pos_in_clip).max(0.0);
+                let fade_out_gain = if clip_fade_out > 0.0 {
+                    (dist_to_end / clip_fade_out).clamp(0.0, 1.0)
+                } else {
+                    1.0
+                };
+                let velocity_scaled = ((note.velocity as f64) * fade_in_gain.min(fade_out_gain))
+                    .round()
+                    .clamp(1.0, 127.0) as u8;
+
                 events.push(ScheduledNote {
                     pitch: note.pitch,
-                    velocity: note.velocity,
+                    velocity: velocity_scaled,
                     buffer_onset: onset.min(frame_count),
                     buffer_offset_end: offset_end.min(frame_count),
                     is_note_on,

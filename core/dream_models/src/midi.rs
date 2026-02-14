@@ -117,6 +117,14 @@ pub struct MidiClip {
     /// Whether this clip is muted (stays on timeline but doesn't play).
     #[serde(default)]
     pub is_muted: bool,
+
+    /// User-defined fade-in length in sample frames.
+    #[serde(default)]
+    pub fade_in_frames: i64,
+
+    /// User-defined fade-out length in sample frames.
+    #[serde(default)]
+    pub fade_out_frames: i64,
 }
 
 impl MidiClip {
@@ -134,6 +142,8 @@ impl MidiClip {
             notes: Vec::new(),
             is_selected: false,
             is_muted: false,
+            fade_in_frames: 0,
+            fade_out_frames: 0,
         }
     }
 

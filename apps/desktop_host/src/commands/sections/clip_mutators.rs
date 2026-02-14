@@ -461,6 +461,7 @@ async fn set_clip_fades_cmd(
     fade_out_frames: i64,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
     push_undo(&project_state)?;
@@ -477,11 +478,23 @@ async fn set_clip_fades_cmd(
     }
 
     if !updated {
+        for track in &mut project.tracks {
+            if let Some(clip) = track.midi_clips.iter_mut().find(|c| c.id == uuid) {
+                clip.fade_in_frames = fade_in_frames.max(0);
+                clip.fade_out_frames = fade_out_frames.max(0);
+                updated = true;
+                break;
+            }
+        }
+    }
+
+    if !updated {
         return Err(format!("Clip not found: {clip_id}"));
     }
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
 
     log::info!(
         "[IPC] set_clip_fades_cmd clip={} fade_in={} fade_out={}",
@@ -876,4 +889,3 @@ async fn cancel_export_cmd(
     log::info!("[Export] Cancel requested");
     Ok(())
 }
-

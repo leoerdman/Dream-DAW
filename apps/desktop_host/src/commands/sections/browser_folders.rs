@@ -318,6 +318,7 @@ async fn pick_project_file(app: tauri::AppHandle) -> Result<Option<String>, Stri
 
     app.dialog().file()
         .add_filter("Dream DAW Project", &["ddpj", "json"])
+        .add_filter("Ableton Live Set", &["als"])
         .set_title("Open Project")
         .pick_file(move |file| {
             let _ = tx.send(file.map(|p| p.to_string()));

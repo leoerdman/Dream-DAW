@@ -662,6 +662,12 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         color: trackColor,
                         durationSamples: clip.duration.sample_frame,
                         sourceOffset: 0,
+                        fadeIn: ((clip as Record<string, unknown>).fade_in_frames as number | undefined)
+                            ?? ((clip as Record<string, unknown>).fadeIn as number | undefined)
+                            ?? 0,
+                        fadeOut: ((clip as Record<string, unknown>).fade_out_frames as number | undefined)
+                            ?? ((clip as Record<string, unknown>).fadeOut as number | undefined)
+                            ?? 0,
                         muted: (clip as Record<string, unknown>).is_muted as boolean ?? false,
                         midiNotes: (clip.notes ?? []).map((note, idx) => ({
                             id: `${clip.id}:${idx}:${note.pitch}:${note.start_frame}`,

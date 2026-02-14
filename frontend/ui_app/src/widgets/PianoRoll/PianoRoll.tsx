@@ -54,6 +54,11 @@ interface PianoRollProps {
     totalBars?: number;
     playheadBeat?: number;
     clipLengthBeats?: number;
+    clipId?: string;
+    clipDurationSamples?: number;
+    fadeInFrames?: number;
+    fadeOutFrames?: number;
+    onSetClipFades?: (fadeInFrames: number, fadeOutFrames: number) => void | Promise<void>;
 }
 
 // ── Scale Definitions ────────────────────────────────────────────────────
@@ -146,6 +151,11 @@ export const PianoRoll = memo(function PianoRoll({
     totalBars = 8,
     playheadBeat,
     clipLengthBeats,
+    clipId,
+    clipDurationSamples,
+    fadeInFrames = 0,
+    fadeOutFrames = 0,
+    onSetClipFades,
 }: PianoRollProps) {
     const [tool, setTool] = useState<PianoRollTool>('draw');
     const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set());
@@ -154,6 +164,8 @@ export const PianoRoll = memo(function PianoRoll({
     const [zoomOverrideH, setZoomOverrideH] = useState<number | null>(null);
     const [noteHeight, setNoteHeight] = useState(DEFAULT_NOTE_HEIGHT);
     const [isEditorFocused, setIsEditorFocused] = useState(false);
+    const [draftFadeIn, setDraftFadeIn] = useState(fadeInFrames);
+    const [draftFadeOut, setDraftFadeOut] = useState(fadeOutFrames);
 
     // Scale state
     const [highlightScale, setHighlightScale] = useState(false);
@@ -222,6 +234,10 @@ export const PianoRoll = memo(function PianoRoll({
         [gridDivision, beatsPerBar, gridTriplet],
     );
     const clipBeats = Math.max(0.25, clipLengthBeats ?? (totalBars * beatsPerBar));
+    const maxFadeFrames = Math.max(0, Math.round((clipDurationSamples ?? 0) * 0.5));
+
+    useEffect(() => setDraftFadeIn(fadeInFrames), [clipId, fadeInFrames]);
+    useEffect(() => setDraftFadeOut(fadeOutFrames), [clipId, fadeOutFrames]);
 
     // Auto-fit horizontal: scale so the entire clip fills the available width.
     // Only apply MIN_PPB/MAX_PPB clamping to user-driven zoom overrides,
@@ -518,6 +534,11 @@ export const PianoRoll = memo(function PianoRoll({
                     .map((n) => [n.id, { startBeat: n.startBeat, pitch: n.pitch, durationBeats: n.durationBeats }] as const),
             );
 
+            // Push undo snapshot at drag start (drag moves use raw onNotesChange for performance)
+            historyRef.current.push([...notes]);
+            if (historyRef.current.length > MAX_HISTORY) historyRef.current.shift();
+            redoStackRef.current = [];
+
             const onMove = (ev: MouseEvent) => {
                 const dx = ev.clientX - startX;
                 const dy = ev.clientY - startY;
@@ -587,9 +608,9 @@ export const PianoRoll = memo(function PianoRoll({
             const rect = e.currentTarget.getBoundingClientRect();
             const y = e.clientY - rect.top;
             const newVelocity = Math.round(Math.max(1, Math.min(127, (1 - y / VELOCITY_LANE_HEIGHT) * 127)));
-            onNotesChange(notes.map((n) => (n.id === noteId ? { ...n, velocity: newVelocity } : n)));
+            commitNotesChange(notes.map((n) => (n.id === noteId ? { ...n, velocity: newVelocity } : n)));
         },
-        [notes, onNotesChange],
+        [notes, commitNotesChange],
     );
 
     const transposeNotes = useCallback((delta: number) => {
@@ -600,8 +621,8 @@ export const PianoRoll = memo(function PianoRoll({
             return { ...n, pitch: Math.max(LOWEST_PITCH, Math.min(HIGHEST_PITCH, n.pitch + delta)) };
         });
         setClipTranspose((prev) => Math.max(-24, Math.min(24, prev + delta)));
-        onNotesChange(next);
-    }, [notes, onNotesChange, selectedNotes]);
+        commitNotesChange(next);
+    }, [notes, commitNotesChange, selectedNotes]);
 
     const quantizeAllNotesToGrid = useCallback(() => {
         const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
@@ -1068,6 +1089,38 @@ export const PianoRoll = memo(function PianoRoll({
                     Humanize
                 </button>
 
+                {clipId && onSetClipFades && maxFadeFrames > 0 && (
+                    <>
+                        <div style={{ width: 1, height: 16, background: 'var(--color-divider-light)', margin: '0 var(--space-1)' }} />
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                            <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>Fade In</span>
+                            <input
+                                type="range"
+                                min={0}
+                                max={Math.max(1, maxFadeFrames)}
+                                value={draftFadeIn}
+                                onChange={(e) => setDraftFadeIn(Number(e.target.value))}
+                                onMouseUp={() => { void onSetClipFades(draftFadeIn, draftFadeOut); }}
+                                onTouchEnd={() => { void onSetClipFades(draftFadeIn, draftFadeOut); }}
+                                style={{ width: 72 }}
+                            />
+                        </label>
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                            <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>Fade Out</span>
+                            <input
+                                type="range"
+                                min={0}
+                                max={Math.max(1, maxFadeFrames)}
+                                value={draftFadeOut}
+                                onChange={(e) => setDraftFadeOut(Number(e.target.value))}
+                                onMouseUp={() => { void onSetClipFades(draftFadeIn, draftFadeOut); }}
+                                onTouchEnd={() => { void onSetClipFades(draftFadeIn, draftFadeOut); }}
+                                style={{ width: 72 }}
+                            />
+                        </label>
+                    </>
+                )}
+
                 <div style={{ flex: 1 }} />
 
                 <button
@@ -1210,7 +1263,7 @@ export const PianoRoll = memo(function PianoRoll({
                         <button
                             onClick={() => {
                                 const nudged = notes.map((n) => ({ ...n, velocity: Math.max(1, Math.min(127, n.velocity + 8)) }));
-                                onNotesChange(nudged);
+                                commitNotesChange(nudged);
                             }}
                             style={{ ...miniBtnStyle, width: '100%' }}
                         >

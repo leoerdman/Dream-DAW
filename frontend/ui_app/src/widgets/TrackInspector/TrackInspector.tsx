@@ -348,6 +348,16 @@ export const TrackInspector = ({
         });
     }, [selectedTrackIds, getTrackIndex]);
 
+    const handleDuplicateSelectedTracks = useCallback(() => {
+        const ids = Array.from(selectedTrackIds);
+        if (ids.length === 0) return;
+        void engineApi.duplicateTracks(ids).then(() => {
+            return useEngineStore.getState().fetchProject();
+        }).catch((err) => {
+            console.error('[TrackInspector] duplicate selected tracks failed:', err);
+        });
+    }, [selectedTrackIds]);
+
     const handleGroupTrack = useCallback((trackId: string) => {
         void engineApi.createGroup([trackId]).then(() => {
             void useEngineStore.getState().fetchProject();
@@ -412,6 +422,10 @@ export const TrackInspector = ({
                     });
                 }
             }
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd' && selectedTrackIds.size > 0) {
+                e.preventDefault();
+                handleDuplicateSelectedTracks();
+            }
             if ((e.key === 'Delete' || e.key === 'Backspace') && selectedTrackIds.size > 0) {
                 e.preventDefault();
                 handleDeleteSelectedTracks();
@@ -419,7 +433,7 @@ export const TrackInspector = ({
         };
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
-    }, [selectedTrackId, selectedTrackIds, tracks, handleRenameStart, handleGroupTrack, handleDeleteSelectedTracks]);
+    }, [selectedTrackId, selectedTrackIds, tracks, handleRenameStart, handleGroupTrack, handleDeleteSelectedTracks, handleDuplicateSelectedTracks]);
 
     const computeRawInsertIndex = useCallback((visibleInsertIndex: number): number => {
         if (visibleTracks.length === 0) return 0;

@@ -156,7 +156,12 @@ export function useProjectManager(onProjectLoaded?: () => void) {
         try {
             const path = await engineApi.pickProjectFile();
             if (path) {
-                await engineApi.openProject(path);
+                const isAbleton = path.toLowerCase().endsWith('.als');
+                if (isAbleton) {
+                    await engineApi.importAbletonProject(path);
+                } else {
+                    await engineApi.openProject(path);
+                }
                 await refreshStatus();
                 onProjectLoaded?.();
             }

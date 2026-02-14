@@ -271,6 +271,10 @@ export const ungroupTrack = (groupId: string) =>
 export const moveTrackBlockToIndex = (rootTrackId: string, targetIndex: number) =>
     invoke<void>('move_track_block_to_index_cmd', { rootTrackId, targetIndex });
 
+/** Duplicate track list preserving order. */
+export const duplicateTracks = (trackIds: string[]) =>
+    invoke<void>('duplicate_tracks_cmd', { trackIds });
+
 // ── State Queries ────────────────────────────────────────────────────────
 
 /** Get current engine state snapshot. */
@@ -429,6 +433,10 @@ export const saveProjectAs = (path: string) =>
 /** Open a project from disk. Returns the loaded project. */
 export const openProject = (path: string) =>
     invoke<unknown>('open_project', { path });
+
+/** Import an Ableton Live .als project into Dream DAW. */
+export const importAbletonProject = (path: string) =>
+    invoke<unknown>('import_ableton_project', { path });
 
 /** Get list of recently opened projects. */
 export const getRecentProjects = () =>

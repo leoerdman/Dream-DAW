@@ -79,6 +79,7 @@ export const DawShell = () => {
     const [aiVariationBusy, setAiVariationBusy] = useState(false);
     const [browserWidth, setBrowserWidth] = useState(240);
     const [mixerFocusMode, setMixerFocusMode] = useState(false);
+    const [trackHeightPx, setTrackHeightPx] = useState(48);
     const midiSaveThrottlesRef = useRef<Map<string, (notes: MidiNote[]) => void>>(new Map());
     const latestMidiNotesRef = useRef<Record<string, MidiNote[]>>({});
     const importFile = useEngineStore(s => s.importFile);
@@ -412,8 +413,31 @@ export const DawShell = () => {
     }, [flushTrackControlFinals, selectedTimelineClip, projectBpm, transport.bpm]);
 
     // ── Shared layout constants (SSOT for height sync) ──────────────
-    const TRACK_HEIGHT = mixerFocusMode ? 84 : 48;
+    const TRACK_HEIGHT_MIN = 20;
+    const TRACK_HEIGHT_MAX = 200;
+    const TRACK_HEIGHT_STEP = 8;
+    const TRACK_HEIGHT = trackHeightPx;
     const RULER_HEIGHT = 28;
+
+    // Option(Alt)+Wheel: vertical track height zoom in 8px steps.
+    useEffect(() => {
+        const onWheel = (e: WheelEvent) => {
+            if (!e.altKey) return;
+            const target = e.target as HTMLElement | null;
+            const inTimeline = !!target?.closest?.('[data-testid="timeline-view"]');
+            const inInspector = !!target?.closest?.('[data-testid="track-inspector"]');
+            if (!inTimeline && !inInspector) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setTrackHeightPx((prev) => {
+                const direction = e.deltaY < 0 ? 1 : -1;
+                const next = prev + direction * TRACK_HEIGHT_STEP;
+                return Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, next));
+            });
+        };
+        window.addEventListener('wheel', onWheel, { passive: false, capture: true });
+        return () => window.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions);
+    }, []);
 
     // ── Scroll sync between Timeline and TrackInspector ─────────────
     const [timelineScrollTop, setTimelineScrollTop] = useState(0);
@@ -770,6 +794,18 @@ export const DawShell = () => {
                                     playheadBeat={playheadBeat}
                                     totalBars={selectedMidiTotalBars}
                                     clipLengthBeats={selectedTimelineClip.durationBeats}
+                                    clipId={selectedTimelineClip.id}
+                                    clipDurationSamples={selectedTimelineClip.durationSamples}
+                                    fadeInFrames={Math.max(0, Math.round(selectedTimelineClip.fadeIn ?? 0))}
+                                    fadeOutFrames={Math.max(0, Math.round(selectedTimelineClip.fadeOut ?? 0))}
+                                    onSetClipFades={async (fadeInFrames, fadeOutFrames) => {
+                                        await engineApi.setClipFades(
+                                            selectedTimelineClip.id,
+                                            Math.max(0, Math.round(fadeInFrames)),
+                                            Math.max(0, Math.round(fadeOutFrames)),
+                                        );
+                                        await fetchProject();
+                                    }}
                                 />
                             ) : selectedTimelineClip?.type === 'audio' ? (
                                 <SampleClipEditor key={selectedTimelineClip.id} clip={selectedTimelineClip} />

@@ -603,9 +603,7 @@ export const AssetBrowser = () => {
                         const parentSectionId = currentSection;
                         if (parentSectionId && collapsedSections.has(parentSectionId)) return null;
 
-                        const searchActive = searchQuery.trim().length > 0;
-                        const effectiveSelectedCategoryId = searchActive ? 'all' : selectedCategoryId;
-                        const isSelected = effectiveSelectedCategoryId === cat.id;
+                        const isSelected = selectedCategoryId === cat.id;
 
                         // Special: Add Folder button
                         if (cat.id === 'addFolder') {
@@ -642,7 +640,7 @@ export const AssetBrowser = () => {
                             <button
                                 key={cat.id}
                                 onClick={() => {
-                                    setSelectedCategoryId(searchActive ? 'all' : cat.id);
+                                    setSelectedCategoryId(cat.id);
                                     setVisibleCount(RENDER_BATCH);
                                 }}
                                 onContextMenu={cat.removable ? (e) => {

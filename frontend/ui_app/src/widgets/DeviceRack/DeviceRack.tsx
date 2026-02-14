@@ -554,7 +554,7 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
                 }}>
 
                     {/* Input meter — real data */}
-                    <MeterBar label="IN" level={inLevel} isInput />
+                    <MeterBar level={inLevel} isInput />
 
                     {/* Device slots */}
                     {chain.length > 0 ? (
@@ -678,11 +678,30 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
                         </div>
                     )}
 
-                    {/* Output meter — real data */}
-                    <MeterBar label="OUT" level={outLevel} />
+                    {/* Output meter — show only when chain exists */}
+                    {chain.length > 0 && <MeterBar level={outLevel} />}
 
                     {/* Add device button */}
                     <button
+                        onClick={async () => {
+                            const targetTrack = selectedTrack ?? projectTracks[0] ?? null;
+                            if (!targetTrack) {
+                                statusError('No target track selected.');
+                                return;
+                            }
+                            const addInstrument = targetTrack.track_type === 'Midi' && !targetTrack.instrument;
+                            const pluginId = addInstrument ? 'internal://instrument/sampler' : 'internal://effect/utility';
+                            const pluginName = addInstrument ? 'Sampler' : 'Utility';
+                            const slot: 'instrument' | 'effect' = addInstrument ? 'instrument' : 'effect';
+                            try {
+                                await engineApi.addPluginToTrack(targetTrack.id, pluginId, pluginName, slot);
+                                await fetchProject();
+                                statusClear();
+                            } catch (err) {
+                                console.error('[DeviceRack] add default device failed:', err);
+                                statusError('Failed to add device.');
+                            }
+                        }}
                         style={{
                             width: 64,
                             minWidth: 64,
@@ -862,14 +881,14 @@ const DeviceNode = ({
     };
     const typeColor = typeColorMap[device.effectType] || 'var(--color-accent-primary)';
     const rackWidth = isSelected && device.source === 'internal'
-        ? 820
+        ? 720
         : device.effectType === 'sampler'
-            ? 350
+            ? 360
             : device.effectType === 'instrument'
-                ? 300
+                ? 320
                 : device.effectType === 'eq'
-                    ? 260
-                    : 220;
+                    ? 280
+                    : 240;
 
     return (
         <div
@@ -882,13 +901,13 @@ const DeviceNode = ({
                 flexDirection: 'column',
                 background: 'var(--color-bg-node)',
                 borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--color-border-subtle)',
+                border: isSelected ? '1px solid var(--color-accent-primary)' : '1px solid #4a4a4a',
                 overflow: 'hidden',
                 opacity: device.isEnabled ? 1 : 0.5,
                 transition: 'opacity var(--transition-fast)',
                 flexShrink: 0,
-                minHeight: isSelected && device.source === 'internal' ? 248 : 126,
-                maxHeight: isSelected && device.source === 'internal' ? 248 : 126,
+                minHeight: isSelected && device.source === 'internal' ? 172 : 120,
+                maxHeight: isSelected && device.source === 'internal' ? 172 : 120,
                 position: 'relative',
                 boxShadow: isSelected ? '0 0 0 1px var(--color-accent-primary), 0 0 12px rgba(74,144,217,0.35)' : 'none',
             }}
@@ -918,7 +937,7 @@ const DeviceNode = ({
                 justifyContent: 'space-between',
                 padding: '3px 6px',
                 borderBottom: '1px solid var(--color-divider)',
-                background: isSelected ? 'color-mix(in srgb, var(--color-bg-header) 70%, var(--color-accent-primary))' : 'var(--color-bg-header)',
+                background: 'var(--color-bg-header)',
                 cursor: 'pointer',
             }}
                 onClick={(e) => { e.stopPropagation(); onSelect(); }}
@@ -927,7 +946,7 @@ const DeviceNode = ({
                     onClick={onToggle}
                     title={device.isEnabled ? 'Disable' : 'Enable'}
                     style={{
-                        width: 8, height: 8,
+                        width: 11, height: 11,
                         borderRadius: '50%',
                         background: device.isEnabled ? typeColor : 'var(--color-text-tertiary)',
                         border: 'none',
@@ -992,7 +1011,7 @@ const DeviceNode = ({
             </div>
 
             {isSelected && device.source === 'internal' ? (
-                <div style={{ padding: 8 }}>
+                <div style={{ padding: 6 }}>
                     <PluginGuiSurface
                         device={device}
                         onParamChange={onParamChange}
@@ -1108,22 +1127,24 @@ const PluginGuiSurface = ({
             if (!p) return fallback;
             return `${p.value.toFixed(p.step && p.step < 1 ? 2 : 0)}${p.suffix}`;
         };
+        const sampleName = device.samplePath ? device.samplePath.split('/').pop() : null;
         return (
             <div style={{
                 display: 'grid',
-                gridTemplateRows: '130px auto',
+                gridTemplateRows: '78px auto',
                 height: '100%',
-                gap: 8,
-                border: '1px solid #4d4d4d',
-                borderRadius: 4,
-                background: '#2a2a2a',
+                gap: 4,
+                border: '1px solid #49505d',
+                borderRadius: 6,
+                background: 'linear-gradient(180deg, #2c313a 0%, #262b33 100%)',
                 overflow: 'hidden',
             }}>
-                <div style={{
-                    background: '#333333',
-                    position: 'relative',
-                    overflow: 'hidden',
-                }}
+                <div
+                    style={{
+                        position: 'relative',
+                        overflow: 'hidden',
+                        borderBottom: '1px solid rgba(90,178,255,0.22)',
+                    }}
                     onMouseUp={() => {
                         const dragging = useDragStore.getState().draggingItem;
                         if (dragging?.type === 'audio' && dragging.path) {
@@ -1132,97 +1153,80 @@ const PluginGuiSurface = ({
                         }
                     }}
                 >
-                    <div style={{ position: 'absolute', inset: 0, borderBottom: '1px solid rgba(255,255,255,0.09)' }} />
                     <div style={{
                         position: 'absolute',
-                        left: 0,
-                        right: 0,
-                        top: 0,
-                        height: 22,
-                        borderBottom: '1px solid rgba(255,255,255,0.08)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '0 8px',
-                        fontSize: 9,
-                        color: '#d0d0d0',
-                        background: 'linear-gradient(180deg, #2c2c2c 0%, #222222 100%)',
-                    }}>
-                        <span style={{ fontWeight: 700 }}>Sample</span>
-                        <span style={{ fontSize: 9, opacity: 0.85 }}>Controls</span>
-                    </div>
+                        inset: 0,
+                        background: 'linear-gradient(180deg, rgba(18, 21, 28, 0.96) 0%, rgba(12, 15, 22, 0.96) 100%)',
+                    }} />
                     <svg
-                        viewBox="0 0 1000 110"
+                        viewBox="0 0 1000 90"
                         preserveAspectRatio="none"
-                        style={{ position: 'absolute', left: 6, right: 6, top: 24, height: 68, width: 'calc(100% - 12px)' }}
+                        style={{ position: 'absolute', left: 8, right: 8, top: 20, height: 40, width: 'calc(100% - 16px)' }}
                     >
-                        <rect x="0" y="0" width="1000" height="110" fill="#202020" />
-                        {Array.from({ length: 24 }).map((_, i) => (
+                        <rect x="0" y="0" width="1000" height="90" fill="#191f2b" />
+                        {Array.from({ length: 18 }).map((_, i) => (
                             <line
                                 key={`g-${i}`}
-                                x1={(i / 23) * 1000}
+                                x1={(i / 17) * 1000}
                                 y1={0}
-                                x2={(i / 23) * 1000}
-                                y2={110}
-                                stroke="rgba(255,255,255,0.06)"
+                                x2={(i / 17) * 1000}
+                                y2={90}
+                                stroke="rgba(90,178,255,0.12)"
                                 strokeWidth="1"
                             />
                         ))}
                         {waveformPeaks ? (
-                            <>
-                                {Array.from({ length: 220 }).map((_, i) => {
-                                    const idx = Math.floor((i / 219) * (waveformPeaks.length - 1));
-                                    const amp = Math.max(0.01, Math.min(1, waveformPeaks[idx] || 0));
-                                    const h = amp * 52;
-                                    return (
-                                        <line
-                                            key={`w-${i}`}
-                                            x1={(i / 219) * 1000}
-                                            y1={55 - h}
-                                            x2={(i / 219) * 1000}
-                                            y2={55 + h}
-                                            stroke="#ffb01a"
-                                            strokeWidth="1.2"
-                                            strokeOpacity="0.95"
-                                        />
-                                    );
-                                })}
-                            </>
+                            Array.from({ length: 220 }).map((_, i) => {
+                                const idx = Math.floor((i / 219) * (waveformPeaks.length - 1));
+                                const amp = Math.max(0.01, Math.min(1, waveformPeaks[idx] || 0));
+                                const h = amp * 40;
+                                return (
+                                    <line
+                                        key={`w-${i}`}
+                                        x1={(i / 219) * 1000}
+                                        y1={45 - h}
+                                        x2={(i / 219) * 1000}
+                                        y2={45 + h}
+                                        stroke="#ffbf3c"
+                                        strokeWidth="1.2"
+                                        strokeOpacity="0.94"
+                                    />
+                                );
+                            })
                         ) : (
                             <path
-                                d="M 0 54 C 30 10, 60 98, 90 54 C 120 10, 150 98, 180 54 C 210 10, 240 98, 270 54 C 300 10, 330 98, 360 54 C 390 10, 420 98, 450 54 C 480 10, 510 98, 540 54 C 570 18, 600 90, 630 54 C 660 24, 690 82, 720 54 C 750 30, 780 74, 810 54 C 840 36, 870 68, 900 54 C 930 46, 960 56, 1000 54"
+                                d="M 0 46 C 30 14, 60 78, 90 46 C 120 14, 150 78, 180 46 C 210 14, 240 78, 270 46 C 300 14, 330 78, 360 46 C 390 14, 420 78, 450 46 C 480 14, 510 78, 540 46 C 570 18, 600 74, 630 46 C 660 24, 690 68, 720 46 C 750 30, 780 62, 810 46 C 840 36, 870 56, 900 46 C 930 42, 960 50, 1000 46"
                                 fill="none"
-                                stroke="#ffb01a"
-                                strokeWidth="3"
+                                stroke="#ffbf3c"
+                                strokeWidth="2.4"
                                 strokeLinecap="round"
                             />
                         )}
                     </svg>
                     <div style={{
                         position: 'absolute',
-                        top: 95,
                         left: 8,
+                        top: 4,
+                        color: '#d7dce7',
                         fontSize: 9,
-                        color: '#bbbbbb',
+                        letterSpacing: '0.04em',
+                        textTransform: 'uppercase',
+                        fontWeight: 700,
                     }}>
-                        {device.samplePath ? device.samplePath.split('/').pop() : 'Drag sample here or load from disk'}
+                        Sample
                     </div>
                     <div style={{
                         position: 'absolute',
                         left: 8,
-                        right: 130,
-                        bottom: 6,
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
-                        gap: 8,
+                        right: 88,
+                        bottom: 3,
+                        color: sampleName ? '#9fb6d9' : '#a8b0bd',
                         fontSize: 9,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
                     }}>
-                        <div style={{ color: '#9a9a9a' }}><div>Start</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>0.00%</div></div>
-                        <div style={{ color: '#9a9a9a' }}><div>Loop</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>100%</div></div>
-                        <div style={{ color: '#9a9a9a' }}><div>Length</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>100%</div></div>
-                        <div style={{ color: '#9a9a9a' }}><div>Attack</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>{getParam('Attack', '0.01s')}</div></div>
-                        <div style={{ color: '#9a9a9a' }}><div>Decay</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>{getParam('Decay', '0.10s')}</div></div>
-                        <div style={{ color: '#9a9a9a' }}><div>Release</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>{getParam('Release', '0.05s')}</div></div>
+                        {sampleName ?? 'Drop sample here or load from disk'}
                     </div>
                     <button
                         type="button"
@@ -1230,59 +1234,79 @@ const PluginGuiSurface = ({
                         style={{
                             position: 'absolute',
                             right: 8,
-                            top: 2,
-                            border: '1px solid #555555',
+                            top: 4,
+                            border: '1px solid #4f5968',
                             borderRadius: 3,
-                            background: '#2c2c2c',
-                            color: '#d0d0d0',
+                            background: '#293445',
+                            color: '#d7e2f2',
                             fontSize: 9,
                             padding: '3px 7px',
                             cursor: 'pointer',
                         }}
                     >
-                        Load Sample
+                        Load
                     </button>
                 </div>
                 <div style={{
-                    display: 'flex',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr auto',
+                    gap: 10,
                     alignItems: 'center',
-                    gap: 12,
-                    padding: '6px 8px 8px 8px',
-                    background: '#272727',
-                    borderTop: '1px solid rgba(255,255,255,0.06)',
+                    padding: '2px 8px 6px 8px',
+                    background: 'rgba(16, 20, 28, 0.55)',
                 }}>
-                    {device.params.slice(0, 6).map((p) => (
-                        <ParamKnob key={p.name} param={p} onChange={onParamChange} />
-                    ))}
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                        gap: 6,
+                        fontSize: 9,
+                        color: '#9fb2cf',
+                    }}>
+                        <div><div>Attack</div><div style={{ color: '#5ab2ff', fontFamily: 'var(--font-mono)' }}>{getParam('Attack', '0.01s')}</div></div>
+                        <div><div>Decay</div><div style={{ color: '#5ab2ff', fontFamily: 'var(--font-mono)' }}>{getParam('Decay', '0.10s')}</div></div>
+                        <div><div>Release</div><div style={{ color: '#5ab2ff', fontFamily: 'var(--font-mono)' }}>{getParam('Release', '0.05s')}</div></div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {device.params.slice(0, 6).map((p) => (
+                            <ParamKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        ))}
+                    </div>
                 </div>
             </div>
         );
     }
 
     if (device.effectType === 'eq') {
+        const low = device.params.find((p) => p.name.toLowerCase() === 'low')?.value ?? 0;
+        const mid = device.params.find((p) => p.name.toLowerCase() === 'mid')?.value ?? 0;
+        const high = device.params.find((p) => p.name.toLowerCase() === 'high')?.value ?? 0;
+        const norm = (v: number) => Math.max(-1, Math.min(1, v / 24));
+        const yL = 46 - norm(low) * 18;
+        const yM = 46 - norm(mid) * 20;
+        const yH = 46 - norm(high) * 18;
+        const curve = `M 0 ${yL.toFixed(2)} C 90 ${yL.toFixed(2)}, 170 ${(yM + yL) / 2} 240 ${yM.toFixed(2)} C 320 ${(yM + yH) / 2} 390 ${yH.toFixed(2)} 480 ${yH.toFixed(2)}`;
         return (
-            <div style={{ display: 'grid', gridTemplateRows: '1fr auto', height: '100%', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateRows: '96px auto', height: '100%', gap: 8 }}>
                 <div style={{
-                    border: '1px solid var(--color-divider)',
+                    border: '1px solid #4d4d4d',
                     borderRadius: 6,
-                    background: '#0d0d0d',
-                    position: 'relative',
+                    background: 'linear-gradient(180deg, #101010 0%, #0a0a0a 100%)',
                     overflow: 'hidden',
                 }}>
-                    <svg width="100%" height="100%" viewBox="0 0 100 40" preserveAspectRatio="none">
-                        {Array.from({ length: 10 }).map((_, i) => (
-                            <line key={`vx-${i}`} x1={i * 10} y1={0} x2={i * 10} y2={40} stroke="rgba(255,255,255,0.08)" strokeWidth="0.2" />
+                    <svg width="100%" height="100%" viewBox="0 0 480 92" preserveAspectRatio="none">
+                        {Array.from({ length: 12 }).map((_, i) => (
+                            <line key={`vx-${i}`} x1={i * 40} y1={0} x2={i * 40} y2={92} stroke="rgba(90,178,255,0.12)" strokeWidth="1" />
                         ))}
                         {Array.from({ length: 5 }).map((_, i) => (
-                            <line key={`hx-${i}`} x1={0} y1={i * 10} x2={100} y2={i * 10} stroke="rgba(255,255,255,0.08)" strokeWidth="0.2" />
+                            <line key={`hx-${i}`} x1={0} y1={i * 23} x2={480} y2={i * 23} stroke="rgba(90,178,255,0.12)" strokeWidth="1" />
                         ))}
-                        <path d="M 0 20 C 10 20, 20 16, 30 20 C 40 24, 50 12, 60 20 C 70 28, 80 18, 90 20 L 100 20"
-                            fill="none" stroke="#d9a625" strokeWidth="1.2" />
+                        <path d={curve} fill="none" stroke="#d9a625" strokeWidth="3" strokeLinecap="round" />
+                        <line x1="0" y1="46" x2="480" y2="46" stroke="rgba(90,178,255,0.18)" strokeWidth="1" />
                     </svg>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                    {device.params.slice(0, 4).map((p) => (
-                        <ParamKnob key={p.name} param={p} onChange={onParamChange} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                    {device.params.slice(0, 3).map((p) => (
+                        <ParamKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
                 </div>
             </div>
@@ -1290,19 +1314,61 @@ const PluginGuiSurface = ({
     }
 
     if (device.effectType === 'utility') {
+        const gain = device.params.find((p) => p.name.toLowerCase() === 'gain')?.value ?? 0;
+        const pan = device.params.find((p) => p.name.toLowerCase() === 'pan')?.value ?? 0;
+        const width = device.params.find((p) => p.name.toLowerCase() === 'width')?.value ?? 100;
+        const mono = (device.params.find((p) => p.name.toLowerCase() === 'mono')?.value ?? 0) > 0.5;
+        const panPct = Math.max(-1, Math.min(1, pan / 100));
+        const widthPct = Math.max(0, Math.min(1, width / 200));
         return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
                 <div style={{
-                    border: '1px solid var(--color-divider)',
+                    border: '1px solid #4d4d4d',
                     borderRadius: 6,
-                    padding: 10,
-                    background: '#121212',
+                    background: 'linear-gradient(180deg, #121212 0%, #0d0d0d 100%)',
+                    padding: '8px 10px',
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(4, minmax(90px, 1fr))',
-                    gap: 12,
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 10,
+                    alignItems: 'center',
+                }}>
+                    <div>
+                        <div style={{ fontSize: 9, color: '#9fa7b5', marginBottom: 4 }}>Pan</div>
+                        <div style={{ position: 'relative', height: 8, borderRadius: 999, background: '#2a2a2a' }}>
+                            <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'rgba(255,255,255,0.2)' }} />
+                            <div style={{
+                                position: 'absolute',
+                                top: -3,
+                                left: `calc(${(panPct * 50 + 50).toFixed(3)}% - 5px)`,
+                                width: 10,
+                                height: 14,
+                                borderRadius: 4,
+                                background: '#56a7ff',
+                                boxShadow: '0 0 6px rgba(86,167,255,0.45)',
+                            }} />
+                        </div>
+                    </div>
+                    <div>
+                        <div style={{ fontSize: 9, color: '#9fa7b5', marginBottom: 4 }}>Stereo Width</div>
+                        <div style={{ height: 8, borderRadius: 999, background: '#2a2a2a', overflow: 'hidden' }}>
+                            <div style={{
+                                width: `${(widthPct * 100).toFixed(2)}%`,
+                                height: '100%',
+                                background: mono ? '#9b9b9b' : 'linear-gradient(90deg, #2aa6ff 0%, #7dd1ff 100%)',
+                            }} />
+                        </div>
+                    </div>
+                    <div style={{ fontSize: 9, color: '#a7b0c0' }}>Gain: <span style={{ color: '#d7dde8', fontFamily: 'var(--font-mono)' }}>{gain.toFixed(1)} dB</span></div>
+                    <div style={{ fontSize: 9, color: mono ? '#d9d9d9' : '#8593a8' }}>{mono ? 'Mono Enabled' : 'Stereo'}</div>
+                </div>
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                    alignItems: 'center',
+                    gap: 8,
                 }}>
                     {device.params.slice(0, 4).map((p) => (
-                        <ParamKnob key={p.name} param={p} onChange={onParamChange} />
+                        <ParamKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
                 </div>
             </div>
@@ -1383,26 +1449,31 @@ const ParamSlider = ({
 
 const ParamKnob = ({
     param,
+    compact = false,
     onChange,
 }: {
     param: DeviceParam;
+    compact?: boolean;
     onChange: (paramName: string, value: number) => void;
 }) => {
     const pct = Math.max(0, Math.min(1, (param.value - param.min) / Math.max(1e-9, param.max - param.min)));
     const angle = -135 + pct * 270;
     const valueText = param.value.toFixed(param.step && param.step < 1 ? 2 : 0);
+    const size = compact ? 34 : 42;
+    const markerHeight = compact ? 11 : 14;
+    const markerTopOffset = compact ? '-84%' : '-88%';
     return (
         <label style={{
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            gap: 5,
-            minWidth: 86,
+            gap: compact ? 3 : 5,
+            minWidth: compact ? 56 : 86,
         }}>
             <span style={{ fontSize: 10, color: 'var(--color-text-secondary)', textAlign: 'center', lineHeight: 1.1 }}>
                 {param.name}
             </span>
-            <div style={{ position: 'relative', width: 42, height: 42 }}>
+            <div style={{ position: 'relative', width: size, height: size }}>
                 <div style={{
                     width: '100%',
                     height: '100%',
@@ -1417,10 +1488,10 @@ const ParamKnob = ({
                         left: '50%',
                         top: '50%',
                         width: 2,
-                        height: 14,
+                        height: markerHeight,
                         background: 'var(--color-accent-primary)',
                         transformOrigin: '50% 90%',
-                        transform: `translate(-50%, -88%) rotate(${angle}deg)`,
+                        transform: `translate(-50%, ${markerTopOffset}) rotate(${angle}deg)`,
                         borderRadius: 999,
                         boxShadow: '0 0 3px rgba(74,144,217,0.7)',
                     }} />
@@ -1440,7 +1511,7 @@ const ParamKnob = ({
                     }}
                 />
             </div>
-            <span style={{ fontSize: 10, color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>
+            <span style={{ fontSize: compact ? 9 : 10, color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>
                 {valueText}{param.suffix}
             </span>
         </label>
@@ -1449,7 +1520,7 @@ const ParamKnob = ({
 
 // ── MeterBar (small vertical signal meter) ──────────────
 
-const MeterBar = ({ label, level, isInput }: { label: string; level: number; isInput?: boolean }) => {
+const MeterBar = ({ level, isInput }: { level: number; isInput?: boolean }) => {
     const h = Math.max(0, Math.min(100, level * 100));
     const meterColor = level > 0.85 ? 'var(--color-meter-clip)' : level > 0.6 ? 'var(--color-meter-hot)' : 'var(--color-meter-normal)';
 
@@ -1458,12 +1529,11 @@ const MeterBar = ({ label, level, isInput }: { label: string; level: number; isI
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            gap: 2,
             flexShrink: 0,
             alignSelf: 'stretch',
         }}>
             <div style={{
-                width: 10,
+                width: 6,
                 flex: 1,
                 background: 'var(--color-meter-bg)',
                 borderRadius: 1,
@@ -1481,13 +1551,6 @@ const MeterBar = ({ label, level, isInput }: { label: string; level: number; isI
                     transition: 'height 0.08s linear',
                 }} />
             </div>
-            <span style={{
-                fontSize: 7,
-                color: 'var(--color-text-tertiary)',
-                fontWeight: 600,
-            }}>
-                {label}
-            </span>
         </div>
     );
 };

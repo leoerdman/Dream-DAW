@@ -406,6 +406,22 @@ export const DawShell = () => {
     // Drop from AssetBrowser → Timeline
     const handleBrowserDrop = useCallback((item: BrowserDragItem, trackIndex: number, beat: number) => {
         console.log('[DawShell] handleBrowserDrop', { item, trackIndex, beat });
+        if (item.type === 'plugin') {
+            const targetTrack = projectTracks[Math.max(0, Math.min(projectTracks.length - 1, trackIndex))];
+            if (!targetTrack || !item.path) return;
+            const slot: 'instrument' | 'effect' =
+                item.slotHint === 'instrument'
+                    ? 'instrument'
+                    : item.slotHint === 'effect'
+                        ? 'effect'
+                        : targetTrack.track_type === 'Midi' && !targetTrack.instrument
+                            ? 'instrument'
+                            : 'effect';
+            void engineApi.addPluginToTrack(targetTrack.id, item.path, item.name, slot)
+                .then(fetchProject)
+                .catch((err) => console.error('[DawShell] addPluginToTrack (timeline drop) failed:', err));
+            return;
+        }
         if (item.type !== 'audio' && item.type !== 'midi') {
             return;
         }
@@ -420,7 +436,7 @@ export const DawShell = () => {
         } else {
             console.error(`[DawShell] Cannot import '${item.name}': no file path (demo items are not real files)`);
         }
-    }, [importFile, projectBpm, transport.bpm]);
+    }, [importFile, projectBpm, transport.bpm, projectTracks, fetchProject]);
 
     // Double-click on track lane → create 1-bar MIDI clip
     const handleDoubleClickTrack = useCallback((trackIndex: number, beat: number) => {

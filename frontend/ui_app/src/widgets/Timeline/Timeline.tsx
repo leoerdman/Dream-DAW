@@ -44,6 +44,7 @@ export interface BrowserDragItem {
     type: string;
     path: string;
     durationSeconds?: number;
+    slotHint?: 'instrument' | 'effect' | 'auto';
 }
 
 interface TimelineProps {
@@ -349,15 +350,12 @@ export const Timeline = (props: TimelineProps) => {
         const track = engine.viewport.screenToTrack(e.clientY, rect);
 
         if (storeDrag) {
-            if (storeDrag.type !== 'audio' && storeDrag.type !== 'midi') {
-                useDragStore.getState().endDrag();
-                return;
-            }
             const browserItem: BrowserDragItem = {
                 id: storeDrag.id,
                 name: storeDrag.name,
                 type: storeDrag.type ?? 'audio',
                 path: storeDrag.path ?? '',
+                slotHint: storeDrag.slotHint,
             };
             callbacksRef.current.onDropBrowserItem?.(browserItem, track, beat);
             useDragStore.getState().endDrag();
@@ -428,7 +426,7 @@ export const Timeline = (props: TimelineProps) => {
                 e.clientY >= rect.top &&
                 e.clientY <= rect.bottom;
 
-            if (inside && (draggingItem.type === 'audio' || draggingItem.type === 'midi')) {
+            if (inside) {
                 const beat = Math.max(0, Math.round(engine.viewport.screenToBeats(e.clientX, rect)));
                 const track = engine.viewport.screenToTrack(e.clientY, rect);
                 callbacksRef.current.onDropBrowserItem?.(
@@ -438,6 +436,7 @@ export const Timeline = (props: TimelineProps) => {
                         type: draggingItem.type,
                         path: draggingItem.path,
                         durationSeconds: draggingItem.durationSeconds,
+                        slotHint: draggingItem.slotHint,
                     },
                     track,
                     beat,

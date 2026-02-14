@@ -913,6 +913,11 @@ pub fn start_audio_thread_on_device(
                             let has_clips = !snapshot.is_empty()
                                 && snapshot.iter().any(|track_clips| !track_clips.is_empty());
 
+                            // ▸ Capture pre-advance playhead for MIDI scheduling.
+                            //   render_tracks() internally advances the playhead,
+                            //   so we must snapshot BEFORE the call.
+                            let midi_playhead_pos = render_ctx.playhead.position();
+
                             if has_clips {
                                 // Disable test tone automatically when real clips exist
                                 // so the sine never bleeds through.
@@ -1050,8 +1055,9 @@ pub fn start_audio_thread_on_device(
                             }
 
                             // Load MIDI snapshot and schedule notes
+                            // ▸ Use the pre-advance position so MIDI and audio
+                            //   share the same timeline window for this buffer.
                             let midi_snap = midi_snapshot.load();
-                            let playhead_pos = render_ctx.playhead.position();
 
                             for (track_idx, midi_clips) in midi_snap.iter().enumerate() {
                                 if track_idx >= sampler_engines.len() || midi_clips.is_empty() {
@@ -1066,7 +1072,7 @@ pub fn start_audio_thread_on_device(
                                 // Schedule active notes for this buffer
                                 let events = MidiScheduler::find_active(
                                     midi_clips,
-                                    playhead_pos,
+                                    midi_playhead_pos,
                                     frame_count,
                                 );
 

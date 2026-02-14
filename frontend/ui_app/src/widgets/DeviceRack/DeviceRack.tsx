@@ -45,6 +45,19 @@ interface DeviceSlot {
     samplePath?: string;
 }
 
+const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<
+    DeviceSlot['effectType'],
+    Record<string, number>
+>> = {
+    eq: { low: 0, mid: 1, high: 2 },
+    utility: { gain: 0, pan: 1, width: 2, mono: 3 },
+    compressor: { thr: 0, ratio: 1, atk: 2, rel: 3 },
+    delay: { time: 0, fb: 1, 'dry/wet': 2, mix: 2 },
+    reverb: { decay: 0, tone: 1, 'dry/wet': 2, mix: 2 },
+    chorus: { rate: 0, depth: 1, mix: 2 },
+    saturator: { drive: 0, tone: 1, mix: 2 },
+};
+
 const DEVICE_PARAM_PRESETS: Record<
     DeviceSlot['effectType'],
     Array<Omit<PluginParam, 'value'> & { value: number }>
@@ -61,13 +74,12 @@ const DEVICE_PARAM_PRESETS: Record<
         { name: 'Rel', value: 80, min: 10, max: 1000, suffix: 'ms', step: 1 },
     ],
     delay: [
-        { name: 'Time', value: 1 / 4, min: 1 / 32, max: 1, suffix: 'note', step: 0.01 },
+        { name: 'Time', value: 280, min: 1, max: 2000, suffix: 'ms', step: 1 },
         { name: 'Fb', value: 30, min: 0, max: 95, suffix: '%', step: 1 },
         { name: 'Dry/Wet', value: 35, min: 0, max: 100, suffix: '%', step: 1 },
     ],
     reverb: [
-        { name: 'Size', value: 45, min: 0, max: 100, suffix: '%', step: 1 },
-        { name: 'Decay', value: 1.8, min: 0.1, max: 12, suffix: 's', step: 0.1 },
+        { name: 'Decay', value: 45, min: 0, max: 100, suffix: '%', step: 1 },
         { name: 'Tone', value: 0, min: -100, max: 100, suffix: '%', step: 1 },
         { name: 'Dry/Wet', value: 22, min: 0, max: 100, suffix: '%', step: 1 },
     ],
@@ -302,21 +314,16 @@ export const DeviceRack = ({
                 });
             };
 
-            // Runtime DSP path for built-in effects (EQ/Utility) — this is the audible path.
-            if (device.source === 'internal' && device.effectType === 'eq') {
-                const key = paramName.toLowerCase();
-                if (key === 'low') pushPluginParam(0, value);
-                else if (key === 'mid') pushPluginParam(1, value);
-                else if (key === 'high') pushPluginParam(2, value);
-                return;
-            }
-            if (device.source === 'internal' && device.effectType === 'utility') {
-                const key = paramName.toLowerCase();
-                if (key === 'gain') pushPluginParam(0, value);
-                else if (key === 'pan') pushPluginParam(1, value);
-                else if (key === 'width') pushPluginParam(2, value);
-                else if (key === 'mono') pushPluginParam(3, value);
-                return;
+            // Runtime DSP path for built-in effects — this is the audible path.
+            if (device.source === 'internal') {
+                const effectMap = RUNTIME_PARAM_INDEX_BY_EFFECT[device.effectType];
+                if (effectMap) {
+                    const key = paramName.toLowerCase();
+                    const index = effectMap[key];
+                    if (index != null) {
+                        pushPluginParam(index, value);
+                    }
+                }
             }
 
             const normalizedName = paramName.toLowerCase();
@@ -778,7 +785,7 @@ export const DeviceRack = ({
                 <PluginWindow
                     pluginId={openGuiDevice.pluginId}
                     pluginName={openGuiDevice.name}
-                    pluginType={openGuiDevice.effectType === 'sampler' || openGuiDevice.effectType === 'instrument' ? 'instrument' : 'effect'}
+                    pluginType={openGuiDevice.effectType === 'sampler' || openGuiDevice.effectType === 'instrument' || openGuiDevice.effectType === 'waveSynth' ? 'instrument' : 'effect'}
                     isBypassed={!openGuiDevice.isEnabled}
                     onToggleBypass={() => toggleDevice(openGuiDevice)}
                     onClose={() => setOpenGuiDevice(null)}
@@ -834,7 +841,7 @@ export const DeviceRack = ({
                 <PluginWindow
                     pluginId={`${openSettingsDevice.pluginId}:settings`}
                     pluginName={`${openSettingsDevice.name} • Settings`}
-                    pluginType={openSettingsDevice.effectType === 'sampler' || openSettingsDevice.effectType === 'instrument' ? 'instrument' : 'effect'}
+                    pluginType={openSettingsDevice.effectType === 'sampler' || openSettingsDevice.effectType === 'instrument' || openSettingsDevice.effectType === 'waveSynth' ? 'instrument' : 'effect'}
                     isBypassed={!openSettingsDevice.isEnabled}
                     onToggleBypass={() => toggleDevice(openSettingsDevice)}
                     onClose={() => setOpenSettingsDevice(null)}
@@ -1138,6 +1145,8 @@ const PluginGuiSurface = ({
     onLoadSample?: () => void;
 }) => {
     const [waveformPeaks, setWaveformPeaks] = useState<number[] | null>(null);
+    const eqSurfaceRef = useRef<SVGSVGElement | null>(null);
+    const [dragEqBand, setDragEqBand] = useState<'low' | 'mid' | 'high' | null>(null);
 
     useEffect(() => {
         const samplePath = device.samplePath?.trim();
@@ -1163,6 +1172,28 @@ const PluginGuiSurface = ({
         };
     }, [device.samplePath]);
 
+    useEffect(() => {
+        if (!dragEqBand) return;
+        const onMove = (e: MouseEvent) => {
+            const surface = eqSurfaceRef.current;
+            if (!surface) return;
+            const rect = surface.getBoundingClientRect();
+            const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+            const value = ((rect.height / 2 - y) / (rect.height / 2)) * 24;
+            const rounded = Math.max(-24, Math.min(24, value));
+            if (dragEqBand === 'low') onParamChange('Low', rounded);
+            if (dragEqBand === 'mid') onParamChange('Mid', rounded);
+            if (dragEqBand === 'high') onParamChange('High', rounded);
+        };
+        const onUp = () => setDragEqBand(null);
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        return () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+    }, [dragEqBand, onParamChange]);
+
     if (device.effectType === 'waveSynth') {
         const waveParam = device.params.find((x) => x.name.toLowerCase() === 'wave');
         const waveIndex = Math.round(waveParam?.value ?? 0);
@@ -1172,6 +1203,30 @@ const PluginGuiSurface = ({
             { idx: 2, label: 'Saw' },
             { idx: 3, label: 'Square' },
         ];
+        const wavePath = (() => {
+            switch (waveIndex) {
+                case 1:
+                    return 'M 0 50 L 12.5 20 L 37.5 80 L 62.5 20 L 87.5 80 L 100 50';
+                case 2:
+                    return 'M 0 70 L 25 30 L 50 70 L 75 30 L 100 70';
+                case 3:
+                    return 'M 0 70 L 0 30 L 25 30 L 25 70 L 50 70 L 50 30 L 75 30 L 75 70 L 100 70';
+                default:
+                    return 'M 0 50 C 8 10, 17 10, 25 50 C 33 90, 42 90, 50 50 C 58 10, 67 10, 75 50 C 83 90, 92 90, 100 50';
+            }
+        })();
+        const randomizePatch = () => {
+            const randomInRange = (min: number, max: number, step = 0.01) => {
+                const raw = min + Math.random() * (max - min);
+                return Math.round(raw / step) * step;
+            };
+            onParamChange('Wave', Math.floor(Math.random() * 4));
+            onParamChange('Vol', randomInRange(0.7, 1.4, 0.01));
+            onParamChange('Attack', randomInRange(0.001, 0.18, 0.001));
+            onParamChange('Decay', randomInRange(0.03, 1.8, 0.001));
+            onParamChange('Sustain', randomInRange(0.25, 1.0, 0.01));
+            onParamChange('Release', randomInRange(0.02, 2.2, 0.001));
+        };
         return (
             <div style={{ display: 'grid', gridTemplateRows: '110px auto', gap: 8, height: '100%' }}>
                 <div style={{
@@ -1185,12 +1240,35 @@ const PluginGuiSurface = ({
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                         <span style={{ fontSize: 10, color: '#d3efe3', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                            Waveform
+                            Wave Synth
                         </span>
-                        <span style={{ fontSize: 10, color: '#80d7b0', fontFamily: 'var(--font-mono)' }}>
-                            {waveformLabel(waveIndex)}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 10, color: '#80d7b0', fontFamily: 'var(--font-mono)' }}>
+                                {waveformLabel(waveIndex)}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={randomizePatch}
+                                style={{
+                                    border: '1px solid #4d7b69',
+                                    borderRadius: 4,
+                                    background: 'rgba(24, 44, 37, 0.72)',
+                                    color: '#c9f7df',
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    letterSpacing: '0.03em',
+                                    cursor: 'pointer',
+                                    padding: '3px 7px',
+                                }}
+                            >
+                                Random
+                            </button>
+                        </div>
                     </div>
+                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height: 26, opacity: 0.9 }}>
+                        <rect x="0" y="0" width="100" height="100" fill="rgba(8, 17, 14, 0.55)" />
+                        <path d={wavePath} fill="none" stroke="#64e7ad" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6 }}>
                         {waveforms.map((wf) => (
                             <button
@@ -1391,10 +1469,14 @@ const PluginGuiSurface = ({
         const mid = device.params.find((p) => p.name.toLowerCase() === 'mid')?.value ?? 0;
         const high = device.params.find((p) => p.name.toLowerCase() === 'high')?.value ?? 0;
         const norm = (v: number) => Math.max(-1, Math.min(1, v / 24));
-        const yL = 46 - norm(low) * 18;
-        const yM = 46 - norm(mid) * 20;
-        const yH = 46 - norm(high) * 18;
-        const curve = `M 0 ${yL.toFixed(2)} C 90 ${yL.toFixed(2)}, 170 ${(yM + yL) / 2} 240 ${yM.toFixed(2)} C 320 ${(yM + yH) / 2} 390 ${yH.toFixed(2)} 480 ${yH.toFixed(2)}`;
+        const yFromDb = (v: number) => 46 - norm(v) * 34;
+        const xLow = 82;
+        const xMid = 242;
+        const xHigh = 402;
+        const yL = yFromDb(low);
+        const yM = yFromDb(mid);
+        const yH = yFromDb(high);
+        const curve = `M 0 ${yL.toFixed(2)} C 40 ${yL.toFixed(2)}, ${xLow - 32} ${yL.toFixed(2)} ${xLow} ${yL.toFixed(2)} C ${xLow + 45} ${yL.toFixed(2)}, ${xMid - 35} ${yM.toFixed(2)} ${xMid} ${yM.toFixed(2)} C ${xMid + 35} ${yM.toFixed(2)}, ${xHigh - 45} ${yH.toFixed(2)} ${xHigh} ${yH.toFixed(2)} C ${xHigh + 35} ${yH.toFixed(2)}, 450 ${yH.toFixed(2)} 480 ${yH.toFixed(2)}`;
         return (
             <div style={{ display: 'grid', gridTemplateRows: '96px auto', height: '100%', gap: 8 }}>
                 <div style={{
@@ -1403,7 +1485,7 @@ const PluginGuiSurface = ({
                     background: 'linear-gradient(180deg, var(--surface-1) 0%, color-mix(in srgb, var(--surface-1) 86%, #000) 100%)',
                     overflow: 'hidden',
                 }}>
-                    <svg width="100%" height="100%" viewBox="0 0 480 92" preserveAspectRatio="none">
+                    <svg ref={eqSurfaceRef} width="100%" height="100%" viewBox="0 0 480 92" preserveAspectRatio="none">
                         {Array.from({ length: 12 }).map((_, i) => (
                             <line key={`vx-${i}`} x1={i * 40} y1={0} x2={i * 40} y2={92} stroke="rgba(90,178,255,0.12)" strokeWidth="1" />
                         ))}
@@ -1411,7 +1493,22 @@ const PluginGuiSurface = ({
                             <line key={`hx-${i}`} x1={0} y1={i * 23} x2={480} y2={i * 23} stroke="rgba(90,178,255,0.12)" strokeWidth="1" />
                         ))}
                         <path d={curve} fill="none" stroke="#d9a625" strokeWidth="3" strokeLinecap="round" />
+                        <path d={curve} fill="none" stroke="rgba(217,166,37,0.22)" strokeWidth="10" strokeLinecap="round" />
                         <line x1="0" y1="46" x2="480" y2="46" stroke="rgba(90,178,255,0.18)" strokeWidth="1" />
+                        {[
+                            { key: 'low', x: xLow, y: yL, color: '#5ab2ff' },
+                            { key: 'mid', x: xMid, y: yM, color: '#d9a625' },
+                            { key: 'high', x: xHigh, y: yH, color: '#ff8b5b' },
+                        ].map((band) => (
+                            <g
+                                key={band.key}
+                                style={{ cursor: 'ns-resize' }}
+                                onMouseDown={() => setDragEqBand(band.key as 'low' | 'mid' | 'high')}
+                            >
+                                <circle cx={band.x} cy={band.y} r="9" fill="rgba(0,0,0,0.55)" stroke={band.color} strokeWidth="1.5" />
+                                <circle cx={band.x} cy={band.y} r="3.2" fill={band.color} />
+                            </g>
+                        ))}
                     </svg>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
@@ -1478,6 +1575,224 @@ const PluginGuiSurface = ({
                     gap: 8,
                 }}>
                     {device.params.slice(0, 4).map((p) => (
+                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    if (
+        device.effectType === 'compressor'
+    ) {
+        const thr = device.params.find((p) => p.name.toLowerCase() === 'thr')?.value ?? -18;
+        const ratio = device.params.find((p) => p.name.toLowerCase() === 'ratio')?.value ?? 4;
+        const pseudoGr = Math.max(0, Math.min(24, ((-thr) / 60) * ratio * 2.4));
+        return (
+            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+                <div style={{
+                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
+                    borderRadius: 6,
+                    background: 'linear-gradient(180deg, var(--surface-1) 0%, color-mix(in srgb, var(--surface-1) 88%, #000) 100%)',
+                    padding: '8px 10px',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr auto',
+                    gap: 10,
+                    alignItems: 'center',
+                }}>
+                    <svg viewBox="0 0 280 86" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
+                        <rect x="0" y="0" width="280" height="86" fill="rgba(22,24,30,0.65)" />
+                        <path d="M 14 70 L 120 70 Q 170 70 235 20 L 260 20" fill="none" stroke="#6ac3ff" strokeWidth="3" strokeLinecap="round" />
+                        <line x1="14" y1="20" x2="14" y2="70" stroke="rgba(255,255,255,0.2)" />
+                        <line x1="14" y1="70" x2="260" y2="70" stroke="rgba(255,255,255,0.2)" />
+                    </svg>
+                    <div style={{ width: 46, height: 72, borderRadius: 4, background: '#1c1f24', border: '1px solid #3d434d', padding: 3 }}>
+                        <div style={{ width: '100%', height: `${(pseudoGr / 24) * 100}%`, marginTop: `${100 - (pseudoGr / 24) * 100}%`, background: 'linear-gradient(180deg, #66cc33 0%, #ffcc1a 60%, #ff3333 100%)', borderRadius: 2 }} />
+                    </div>
+                </div>
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${Math.max(1, Math.min(4, device.params.length))}, minmax(0, 1fr))`,
+                    alignItems: 'center',
+                    gap: 8,
+                }}>
+                    {device.params.slice(0, 4).map((p) => (
+                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    if (device.effectType === 'delay') {
+        const time = device.params.find((p) => p.name.toLowerCase() === 'time')?.value ?? 280;
+        const fb = device.params.find((p) => p.name.toLowerCase() === 'fb')?.value ?? 30;
+        const mix = device.params.find((p) => p.name.toLowerCase() === 'dry/wet')?.value ?? 35;
+        return (
+            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+                <div style={{
+                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
+                    borderRadius: 6,
+                    background: 'linear-gradient(180deg, #1a2230 0%, #0f1520 100%)',
+                    padding: '8px 10px',
+                    display: 'grid',
+                    gridTemplateRows: '1fr auto',
+                    gap: 6,
+                }}>
+                    <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
+                        <rect x="0" y="0" width="320" height="52" fill="rgba(14,20,30,0.6)" />
+                        {Array.from({ length: 8 }).map((_, i) => {
+                            const x = 16 + i * 36;
+                            const h = 24 * Math.pow((fb / 100), i);
+                            return <rect key={i} x={x} y={26 - h / 2} width="10" height={h} fill={i === 0 ? '#7cc4ff' : '#4a9eff'} opacity={0.95 - i * 0.08} rx="1.5" />;
+                        })}
+                    </svg>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: '#9fb2cf', fontFamily: 'var(--font-mono)' }}>
+                        <span>{time.toFixed(0)}ms</span>
+                        <span>FB {fb.toFixed(0)}%</span>
+                        <span>Mix {mix.toFixed(0)}%</span>
+                    </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', alignItems: 'center', gap: 8 }}>
+                    {device.params.slice(0, 3).map((p) => (
+                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    if (device.effectType === 'reverb') {
+        const decay = device.params.find((p) => p.name.toLowerCase() === 'decay')?.value ?? 45;
+        const tone = device.params.find((p) => p.name.toLowerCase() === 'tone')?.value ?? 0;
+        return (
+            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+                <div style={{
+                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
+                    borderRadius: 6,
+                    background: 'radial-gradient(circle at 30% 20%, rgba(137, 89, 194, 0.5) 0%, rgba(28, 24, 38, 0.92) 65%)',
+                    padding: '8px 10px',
+                    display: 'grid',
+                    gridTemplateRows: '1fr auto',
+                    gap: 6,
+                }}>
+                    <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 4, background: 'rgba(10,10,12,0.45)' }}>
+                        {Array.from({ length: 5 }).map((_, i) => (
+                            <div
+                                key={i}
+                                style={{
+                                    position: 'absolute',
+                                    left: `${15 + i * 14}%`,
+                                    top: '50%',
+                                    width: `${24 + i * 12}px`,
+                                    height: `${24 + i * 12}px`,
+                                    marginTop: `${-(12 + i * 6)}px`,
+                                    borderRadius: '50%',
+                                    border: '1px solid rgba(192, 145, 255, 0.35)',
+                                }}
+                            />
+                        ))}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: '#c8b8e7', fontFamily: 'var(--font-mono)' }}>
+                        <span>Decay {decay.toFixed(0)}%</span>
+                        <span>Tone {tone.toFixed(0)}%</span>
+                    </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', alignItems: 'center', gap: 8 }}>
+                    {device.params.slice(0, 3).map((p) => (
+                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    if (device.effectType === 'chorus') {
+        const rate = device.params.find((p) => p.name.toLowerCase() === 'rate')?.value ?? 1.2;
+        const depth = device.params.find((p) => p.name.toLowerCase() === 'depth')?.value ?? 40;
+        return (
+            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+                <div style={{
+                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
+                    borderRadius: 6,
+                    background: 'linear-gradient(180deg, #24172a 0%, #14111b 100%)',
+                    padding: '8px 10px',
+                    display: 'grid',
+                    gridTemplateRows: '1fr auto',
+                    gap: 6,
+                }}>
+                    <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
+                        <rect x="0" y="0" width="320" height="52" fill="rgba(12, 11, 18, 0.65)" />
+                        <path d="M 0 26 C 40 8, 80 44, 120 26 C 160 8, 200 44, 240 26 C 280 8, 320 44, 320 26" fill="none" stroke="#c867ff" strokeWidth="2.2" />
+                        <path d="M 0 26 C 40 44, 80 8, 120 26 C 160 44, 200 8, 240 26 C 280 44, 320 8, 320 26" fill="none" stroke="#4ac0ff" strokeWidth="2.2" opacity="0.9" />
+                    </svg>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: '#c6b9de', fontFamily: 'var(--font-mono)' }}>
+                        <span>{rate.toFixed(1)}Hz</span>
+                        <span>Depth {depth.toFixed(0)}%</span>
+                    </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', alignItems: 'center', gap: 8 }}>
+                    {device.params.slice(0, 3).map((p) => (
+                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    if (device.effectType === 'saturator') {
+        const drive = device.params.find((p) => p.name.toLowerCase() === 'drive')?.value ?? 3;
+        return (
+            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+                <div style={{
+                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
+                    borderRadius: 6,
+                    background: 'linear-gradient(180deg, #2d1d13 0%, #1a120d 100%)',
+                    padding: '8px 10px',
+                    display: 'grid',
+                    gridTemplateRows: '1fr auto',
+                    gap: 6,
+                }}>
+                    <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
+                        <rect x="0" y="0" width="320" height="52" fill="rgba(20, 13, 9, 0.7)" />
+                        <path d="M 12 46 C 72 46, 112 6, 160 6 C 208 6, 248 46, 308 46" fill="none" stroke="#ffac59" strokeWidth={Math.max(2, 2 + drive / 8)} strokeLinecap="round" />
+                    </svg>
+                    <div style={{ fontSize: 9, color: '#e1be95', fontFamily: 'var(--font-mono)' }}>Drive {drive.toFixed(1)} dB</div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', alignItems: 'center', gap: 8 }}>
+                    {device.params.slice(0, 3).map((p) => (
+                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    if (device.effectType === 'instrument') {
+        return (
+            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+                <div style={{
+                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
+                    borderRadius: 6,
+                    background: 'linear-gradient(180deg, #16243a 0%, #101726 100%)',
+                    padding: '8px 10px',
+                    display: 'grid',
+                    gridTemplateRows: '1fr auto',
+                    gap: 6,
+                }}>
+                    <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
+                        <rect x="0" y="0" width="320" height="52" fill="rgba(9, 14, 22, 0.75)" />
+                        <path d="M 10 48 L 40 10 L 85 26 L 140 26 L 180 14 L 240 20 L 308 48" fill="none" stroke="#64b1ff" strokeWidth="2.6" strokeLinejoin="round" strokeLinecap="round" />
+                    </svg>
+                    <div style={{ fontSize: 9, color: '#9cbde2' }}>Core Instrument Controls</div>
+                </div>
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${Math.max(1, Math.min(6, device.params.length))}, minmax(0, 1fr))`,
+                    alignItems: 'center',
+                    gap: 8,
+                }}>
+                    {device.params.slice(0, 6).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
                 </div>

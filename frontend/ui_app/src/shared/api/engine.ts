@@ -229,6 +229,21 @@ export const deleteTrack = (index: number) =>
 export const renameTrack = (index: number, name: string) =>
     invoke<void>('rename_track_cmd', { index, name });
 
+/** Create a group track and move selected tracks into it. Returns new group track ID. */
+export const createGroup = (trackIds: string[], groupName?: string) =>
+    invoke<string>('create_group_cmd', {
+        trackIds,
+        groupName: groupName ?? null,
+    });
+
+/** Persist group expand/collapse state. */
+export const setGroupExpanded = (groupId: string, expanded: boolean) =>
+    invoke<void>('set_group_expanded_cmd', { groupId, expanded });
+
+/** Move track to target visual index (drag-reorder in track list). */
+export const moveTrackToIndex = (trackId: string, targetIndex: number) =>
+    invoke<void>('move_track_to_index_cmd', { trackId, targetIndex });
+
 // ── State Queries ────────────────────────────────────────────────────────
 
 /** Get current engine state snapshot. */

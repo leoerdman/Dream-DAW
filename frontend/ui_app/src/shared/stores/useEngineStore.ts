@@ -41,6 +41,12 @@ export interface ProjectTrack {
     output: string;
     /** Input routing source ID (or 'none'/'ext-1'/'ext-2'). */
     input: string;
+    /** Parent group track ID (if this track is grouped). */
+    parent_track_id?: string | null;
+    /** Child track IDs (for group tracks). */
+    child_track_ids?: string[];
+    /** Group expanded/collapsed state (for group tracks). */
+    is_expanded?: boolean;
     /** Effect plugin chain (insert slots). */
     effects: Array<{
         id: string;
@@ -510,7 +516,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     fetchProject: async () => {
         try {
-            const project = await engine.getProject() as {
+                const project = await engine.getProject() as {
                 tracks: Array<{
                     id: string;
                     name: string;
@@ -522,6 +528,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     is_solo: boolean;
                     output_destination_id?: string | null;
                     input_source_id?: string | null;
+                    parent_track_id?: string | null;
+                    child_track_ids?: string[];
+                    is_expanded?: boolean;
                     effects?: Array<{
                         id: string;
                         name: string;
@@ -596,6 +605,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         (track.input_source_id && track.input_source_id.length > 0
                             ? track.input_source_id
                             : ((track as Record<string, unknown>).input as string)) || 'none',
+                    parent_track_id: (track as Record<string, unknown>).parent_track_id as string | null | undefined,
+                    child_track_ids: ((track as Record<string, unknown>).child_track_ids as string[] | undefined) ?? [],
+                    is_expanded: ((track as Record<string, unknown>).is_expanded as boolean | undefined) ?? true,
                     effects: track.effects ?? [],
                     instrument: track.instrument ?? null,
                     sampler: (track as Record<string, unknown>).sampler as ProjectTrack['sampler'] ?? null,

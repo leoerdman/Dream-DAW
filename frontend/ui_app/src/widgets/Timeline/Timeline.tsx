@@ -488,6 +488,7 @@ export const Timeline = (props: TimelineProps) => {
     return (
         <div
             ref={rootRef}
+            data-testid="timeline-view"
             style={{
                 width: '100%',
                 height: '100%',

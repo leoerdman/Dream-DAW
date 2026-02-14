@@ -75,6 +75,7 @@ export const DawShell = () => {
     const [midiNotesByClip, setMidiNotesByClip] = useState<Record<string, MidiNote[]>>({});
     const [aiVariationBusy, setAiVariationBusy] = useState(false);
     const [browserWidth, setBrowserWidth] = useState(240);
+    const [mixerFocusMode, setMixerFocusMode] = useState(false);
     const midiSaveThrottlesRef = useRef<Map<string, (notes: MidiNote[]) => void>>(new Map());
     const latestMidiNotesRef = useRef<Record<string, MidiNote[]>>({});
     const importFile = useEngineStore(s => s.importFile);
@@ -118,6 +119,16 @@ export const DawShell = () => {
             if (e.metaKey && e.key === ',') {
                 e.preventDefault();
                 setSettingsOpen(prev => !prev);
+            }
+            if (e.key === 'Tab' && !e.shiftKey) {
+                const target = e.target as HTMLElement | null;
+                const tag = target?.tagName?.toLowerCase();
+                const isTextInput =
+                    tag === 'input' || tag === 'textarea' || target?.isContentEditable;
+                if (isTextInput) return;
+                e.preventDefault();
+                setMixerFocusMode((prev) => !prev);
+                return;
             }
             // Shift+Tab: toggle bottom panel between Instrument Rack and Clip Editor.
             if (e.key === 'Tab' && e.shiftKey) {
@@ -386,7 +397,7 @@ export const DawShell = () => {
     }, [flushTrackControlFinals, selectedTimelineClip, projectBpm, transport.bpm]);
 
     // ── Shared layout constants (SSOT for height sync) ──────────────
-    const TRACK_HEIGHT = 48;
+    const TRACK_HEIGHT = mixerFocusMode ? 84 : 48;
     const RULER_HEIGHT = 28;
 
     // ── Scroll sync between Timeline and TrackInspector ─────────────
@@ -683,6 +694,7 @@ export const DawShell = () => {
                                 trackHeight={TRACK_HEIGHT}
                                 rulerHeight={RULER_HEIGHT}
                                 scrollTop={timelineScrollTop}
+                                mixerFocusMode={mixerFocusMode}
                             />
                         </ErrorBoundary>
                     </aside>

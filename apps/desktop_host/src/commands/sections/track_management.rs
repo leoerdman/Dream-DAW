@@ -116,3 +116,157 @@ async fn rename_track_cmd(
     Ok(())
 }
 
+fn rebuild_group_children(project: &mut Project) {
+    for track in &mut project.tracks {
+        track.child_track_ids.clear();
+    }
+    let parent_pairs: Vec<(Uuid, Uuid)> = project
+        .tracks
+        .iter()
+        .filter_map(|t| t.parent_track_id.map(|parent| (t.id, parent)))
+        .collect();
+    for (child_id, parent_id) in parent_pairs {
+        if let Some(parent_track) = project.tracks.iter_mut().find(|t| t.id == parent_id) {
+            parent_track.child_track_ids.push(child_id);
+        }
+    }
+}
+
+#[tauri::command]
+async fn create_group_cmd(
+    track_ids: Vec<String>,
+    group_name: Option<String>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<String, String> {
+    if track_ids.is_empty() {
+        return Err("No tracks selected for grouping".to_string());
+    }
+
+    let parsed_ids: Vec<Uuid> = track_ids
+        .iter()
+        .map(|id| Uuid::parse_str(id).map_err(|_| format!("Invalid track id: {id}")))
+        .collect::<Result<_, _>>()?;
+
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    let mut selected: Vec<(usize, Uuid)> = project
+        .tracks
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, t)| {
+            if parsed_ids.contains(&t.id) && t.track_type != TrackType::Master {
+                Some((idx, t.id))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if selected.is_empty() {
+        return Err("No valid tracks found for grouping".to_string());
+    }
+
+    selected.sort_by_key(|(idx, _)| *idx);
+    let first_index = selected[0].0;
+
+    let group_num = project
+        .tracks
+        .iter()
+        .filter(|t| t.track_type == TrackType::Group)
+        .count()
+        + 1;
+    let mut group_track = Track::with_type(
+        group_name.unwrap_or_else(|| format!("Group {}", group_num)),
+        TrackType::Group,
+        first_index,
+    );
+    group_track.parent_track_id = None;
+    group_track.output_destination_id = None;
+    group_track.is_expanded = true;
+    group_track.child_track_ids.clear();
+    let group_id = group_track.id;
+
+    project.tracks.insert(first_index, group_track);
+
+    let selected_ids_in_order: Vec<Uuid> = selected.into_iter().map(|(_, id)| id).collect();
+    let mut child_tracks: Vec<Track> = Vec::with_capacity(selected_ids_in_order.len());
+    for child_id in &selected_ids_in_order {
+        if let Some(current_index) = project.tracks.iter().position(|t| t.id == *child_id) {
+            let mut child = project.tracks.remove(current_index);
+            child.parent_track_id = Some(group_id);
+            child.output_destination_id = Some(group_id);
+            child_tracks.push(child);
+        }
+    }
+
+    for (offset, child) in child_tracks.into_iter().enumerate() {
+        project.tracks.insert(first_index + 1 + offset, child);
+    }
+
+    rebuild_group_children(&mut project);
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    log::info!(
+        "[IPC] create_group_cmd: created group {} with {} children",
+        group_id,
+        selected_ids_in_order.len()
+    );
+    Ok(group_id.to_string())
+}
+
+#[tauri::command]
+async fn set_group_expanded_cmd(
+    group_id: String,
+    expanded: bool,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<(), String> {
+    let gid = Uuid::parse_str(&group_id).map_err(|_| format!("Invalid group_id: {group_id}"))?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let group_track = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.id == gid && t.track_type == TrackType::Group)
+        .ok_or_else(|| format!("Group track not found: {group_id}"))?;
+    group_track.is_expanded = expanded;
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    log::info!("[IPC] set_group_expanded_cmd({group_id} -> {expanded})");
+    Ok(())
+}
+
+#[tauri::command]
+async fn move_track_to_index_cmd(
+    track_id: String,
+    target_index: usize,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let moving_id = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    let from_index = project
+        .tracks
+        .iter()
+        .position(|t| t.id == moving_id)
+        .ok_or_else(|| format!("Track not found: {track_id}"))?;
+    if project.tracks.len() <= 1 {
+        return Ok(());
+    }
+
+    let max_index = project.tracks.len().saturating_sub(1);
+    let to_index = target_index.min(max_index);
+    if from_index == to_index {
+        return Ok(());
+    }
+
+    project.move_track(from_index, to_index);
+    rebuild_group_children(&mut project);
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    log::info!("[IPC] move_track_to_index_cmd({track_id}: {from_index} -> {to_index})");
+    Ok(())
+}

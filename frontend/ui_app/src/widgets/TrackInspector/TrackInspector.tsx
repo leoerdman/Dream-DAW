@@ -113,6 +113,7 @@ interface TrackInspectorProps {
     trackHeight?: number;
     rulerHeight?: number;
     scrollTop?: number;
+    mixerFocusMode?: boolean;
 }
 
 export const TrackInspector = ({
@@ -121,11 +122,13 @@ export const TrackInspector = ({
     trackHeight = 48,
     rulerHeight = 24,
     scrollTop: externalScrollTop,
+    mixerFocusMode = false,
 }: TrackInspectorProps) => {
     const projectTracks = useEngineStore((s) => s.projectTracks);
     const engineSetTrackMute = useEngineStore((s) => s.setTrackMute);
     const engineSetTrackSolo = useEngineStore((s) => s.setTrackSolo);
     const engineSetTrackVolume = useEngineStore((s) => s.setTrackVolume);
+    const engineSetTrackPan = useEngineStore((s) => s.setTrackPan);
     const engineSetMasterVolume = useEngineStore((s) => s.setMasterVolume);
     const masterVolume = useEngineStore((s) => s.masterVolume);
     const addTrack = useEngineStore((s) => s.addTrack);
@@ -332,7 +335,24 @@ export const TrackInspector = ({
                     fontSize: 9, fontWeight: 600,
                     color: 'var(--color-text-secondary)',
                     letterSpacing: '0.5px', textTransform: 'uppercase',
-                }}>Tracks</span>
+                }}>
+                    {mixerFocusMode ? 'Mixer' : 'Tracks'}
+                </span>
+                {mixerFocusMode && (
+                    <span style={{
+                        marginLeft: 6,
+                        fontSize: 8,
+                        fontWeight: 700,
+                        fontFamily: 'var(--font-mono)',
+                        color: 'var(--color-accent-primary)',
+                        background: 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)',
+                        border: '1px solid color-mix(in srgb, var(--color-accent-primary) 36%, transparent)',
+                        borderRadius: 3,
+                        padding: '1px 4px',
+                    }}>
+                        TAB
+                    </span>
+                )}
             </div>
 
             {/* Track List */}
@@ -369,9 +389,13 @@ export const TrackInspector = ({
                             onVolumeChange={(gain: number) => {
                                 if (trackIndex >= 0) engineSetTrackVolume(trackIndex, gain);
                             }}
+                            onPanChange={(pan: number) => {
+                                if (trackIndex >= 0) engineSetTrackPan(trackIndex, pan);
+                            }}
                             onOutputChange={(targetId) => { void setTrackOutput(track.id, targetId); }}
                             onInputChange={(inputId) => { void setTrackInput(track.id, inputId); }}
                             onContextMenu={(e) => handleContextMenu(e, track.id, trackIndex)}
+                            mixerFocusMode={mixerFocusMode}
                         />
                     );
                 })}
@@ -421,10 +445,12 @@ export const TrackInspector = ({
                 onVolumeChange={(gain: number) => {
                     void engineSetMasterVolume(gain);
                 }}
+                onPanChange={() => { }}
                 onOutputChange={() => { }}
                 onInputChange={() => { }}
                 onContextMenu={() => { }}
                 isMasterFixed
+                mixerFocusMode={mixerFocusMode}
             />
 
             {/* Context Menu */}
@@ -576,9 +602,11 @@ function dbToFader(db: number): number {
 const VolumeFader = ({
     volumeLinear,
     onVolumeChange,
+    compact = false,
 }: {
     volumeLinear: number;
     onVolumeChange: (gain: number) => void;
+    compact?: boolean;
 }) => {
     const trackRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -612,7 +640,7 @@ const VolumeFader = ({
     const zeroTickPos = dbToFader(0);
 
     return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 3 : 4, flex: 1, minWidth: 0 }}>
             <div
                 ref={trackRef}
                 onPointerDown={(e) => {
@@ -637,8 +665,16 @@ const VolumeFader = ({
                     onVolumeChange(1.0); /* reset to 0 dB */
                     void useEngineStore.getState().flushTrackControlFinals();
                 }}
+                onWheel={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    const step = e.shiftKey ? 0.006 : 0.018;
+                    const next = Math.max(0, Math.min(2, volumeLinear + (e.deltaY < 0 ? step : -step)));
+                    onVolumeChange(next);
+                    void useEngineStore.getState().flushTrackControlFinals();
+                }}
                 style={{
-                    position: 'relative', flex: 1, height: 6, minWidth: 40,
+                    position: 'relative', flex: 1, height: compact ? 5 : 6, minWidth: compact ? 34 : 40,
                     background: 'var(--surface-elevated)', borderRadius: 2, cursor: 'ew-resize',
                     overflow: 'hidden',
                     touchAction: 'none',
@@ -671,8 +707,8 @@ const VolumeFader = ({
             </div>
             {/* dB label */}
             <span style={{
-                fontSize: 8, fontWeight: 600, fontFamily: 'var(--font-mono)',
-                color: 'var(--color-text-secondary)', minWidth: 22, textAlign: 'right',
+                fontSize: compact ? 7 : 8, fontWeight: 600, fontFamily: 'var(--font-mono)',
+                color: 'var(--color-text-secondary)', minWidth: compact ? 20 : 22, textAlign: 'right',
                 flexShrink: 0, whiteSpace: 'nowrap',
             }}>
                 {formatDb(db)}
@@ -681,11 +717,121 @@ const VolumeFader = ({
     );
 };
 
+// ── Pan Fader ───────────────────────────────────────────────
+
+const PanFader = ({
+    pan,
+    onPanChange,
+    compact = false,
+}: {
+    pan: number;
+    onPanChange: (pan: number) => void;
+    compact?: boolean;
+}) => {
+    const trackRef = useRef<HTMLDivElement>(null);
+    const [isDragging, setIsDragging] = useState(false);
+    const activePointerId = useRef<number | null>(null);
+    const panNorm = Math.max(0, Math.min(1, (pan + 1) / 2));
+
+    const applyFromEvent = useCallback((clientX: number) => {
+        const el = trackRef.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        const nextPan = pos * 2 - 1;
+        onPanChange(nextPan);
+    }, [onPanChange]);
+
+    const endDrag = useCallback(() => {
+        setIsDragging(false);
+        activePointerId.current = null;
+        void useEngineStore.getState().flushTrackControlFinals();
+    }, []);
+
+    const panLabel = Math.abs(pan) < 0.02
+        ? 'C'
+        : (pan < 0 ? `L${Math.round(Math.abs(pan) * 100)}` : `R${Math.round(Math.abs(pan) * 100)}`);
+
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 3 : 4, minWidth: compact ? 70 : 86, flexShrink: 0 }}>
+            <div
+                ref={trackRef}
+                onPointerDown={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+                    activePointerId.current = e.pointerId;
+                    setIsDragging(true);
+                    applyFromEvent(e.clientX);
+                }}
+                onPointerMove={(e) => {
+                    if (!isDragging) return;
+                    if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return;
+                    applyFromEvent(e.clientX);
+                }}
+                onPointerUp={(e) => {
+                    if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return;
+                    (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
+                    endDrag();
+                }}
+                onPointerCancel={endDrag}
+                onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    onPanChange(0);
+                    void useEngineStore.getState().flushTrackControlFinals();
+                }}
+                onWheel={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    const step = e.shiftKey ? 0.01 : 0.03;
+                    const next = Math.max(-1, Math.min(1, pan + (e.deltaY < 0 ? step : -step)));
+                    onPanChange(next);
+                    void useEngineStore.getState().flushTrackControlFinals();
+                }}
+                style={{
+                    position: 'relative',
+                    width: compact ? 52 : 62,
+                    height: compact ? 5 : 6,
+                    background: 'var(--surface-elevated)',
+                    borderRadius: 2,
+                    cursor: 'ew-resize',
+                    overflow: 'hidden',
+                    touchAction: 'none',
+                }}
+            >
+                <div style={{
+                    position: 'absolute', left: '50%', top: 0, bottom: 0,
+                    width: 1, background: 'var(--color-divider-light)', zIndex: 1,
+                }} />
+                <div style={{
+                    position: 'absolute',
+                    left: `calc(${panNorm * 100}% - 3px)`,
+                    top: 0, width: 6, height: '100%',
+                    background: 'var(--text-primary)',
+                    borderRadius: 1,
+                    transition: isDragging ? 'none' : 'left 60ms linear',
+                }} />
+            </div>
+            <span style={{
+                fontSize: compact ? 7 : 8,
+                fontWeight: 600,
+                fontFamily: 'var(--font-mono)',
+                color: 'var(--color-text-secondary)',
+                minWidth: compact ? 16 : 20,
+                textAlign: 'right',
+                whiteSpace: 'nowrap',
+            }}>
+                {panLabel}
+            </span>
+        </div>
+    );
+};
+
 // ── Tri-Color VU Meter (vertical) ──────────────────────────
 
-const TriColorVU = ({ peakDb, isMidi }: { peakDb: number; isMidi: boolean }) => {
+const TriColorVU = ({ peakDb, isMidi, compact = false }: { peakDb: number; isMidi: boolean; compact?: boolean }) => {
     const normalizedLevel = vuNorm(peakDb); // 0..1
-    const meterHeight = 32;
+    const meterHeight = compact ? 28 : 32;
     const fillHeight = normalizedLevel * meterHeight;
 
     // Segment thresholds in normalized space
@@ -738,13 +884,219 @@ const TriColorVU = ({ peakDb, isMidi }: { peakDb: number; isMidi: boolean }) => 
     );
 };
 
+// ── Vertical Mixer Strip (Tab mixer mode) ─────────────────────────────
+
+const VerticalMixerStrip = ({
+    volumeLinear,
+    pan,
+    peakDb,
+    isMidi,
+    onVolumeChange,
+    onPanChange,
+}: {
+    volumeLinear: number;
+    pan: number;
+    peakDb: number;
+    isMidi: boolean;
+    onVolumeChange: (gain: number) => void;
+    onPanChange: (pan: number) => void;
+}) => {
+    const stripRef = useRef<HTMLDivElement>(null);
+    const [isDragging, setIsDragging] = useState(false);
+    const activePointerId = useRef<number | null>(null);
+
+    const volNorm = Math.max(0, Math.min(1, dbToFader(gainToDb(volumeLinear))));
+    const meterNorm = Math.max(0, Math.min(1, vuNorm(peakDb)));
+    const panNorm = Math.max(0, Math.min(1, (pan + 1) / 2));
+
+    const applyVolumeFromY = useCallback((clientY: number) => {
+        const el = stripRef.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const pos = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
+        const nextDb = faderToDb(pos);
+        onVolumeChange(dbToGain(nextDb));
+    }, [onVolumeChange]);
+
+    const endDrag = useCallback(() => {
+        setIsDragging(false);
+        activePointerId.current = null;
+        void useEngineStore.getState().flushTrackControlFinals();
+    }, []);
+
+    return (
+        <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            minWidth: 86,
+            flexShrink: 0,
+        }}>
+            <div
+                ref={stripRef}
+                onPointerDown={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+                    activePointerId.current = e.pointerId;
+                    setIsDragging(true);
+                    applyVolumeFromY(e.clientY);
+                }}
+                onPointerMove={(e) => {
+                    if (!isDragging) return;
+                    if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return;
+                    applyVolumeFromY(e.clientY);
+                }}
+                onPointerUp={(e) => {
+                    if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return;
+                    (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
+                    endDrag();
+                }}
+                onPointerCancel={endDrag}
+                onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    onVolumeChange(1.0);
+                    void useEngineStore.getState().flushTrackControlFinals();
+                }}
+                onWheel={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    const step = e.shiftKey ? 0.006 : 0.018;
+                    const next = Math.max(0, Math.min(2, volumeLinear + (e.deltaY < 0 ? step : -step)));
+                    onVolumeChange(next);
+                    void useEngineStore.getState().flushTrackControlFinals();
+                }}
+                title="Volume"
+                style={{
+                    position: 'relative',
+                    width: 16,
+                    height: 62,
+                    borderRadius: 4,
+                    background: 'var(--surface-elevated)',
+                    border: '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
+                    overflow: 'hidden',
+                    cursor: 'ns-resize',
+                    touchAction: 'none',
+                }}
+            >
+                <div style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: `${meterNorm * 100}%`,
+                    background: isMidi ? 'rgba(255,149,0,0.5)' : 'rgba(64,204,90,0.5)',
+                    pointerEvents: 'none',
+                }} />
+                <div style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: `${volNorm * 100}%`,
+                    background: 'linear-gradient(to top, #2fa64a 0%, #46d165 100%)',
+                    opacity: 0.9,
+                    pointerEvents: 'none',
+                }} />
+                <div style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: `calc(${volNorm * 100}% - 1px)`,
+                    height: 2,
+                    background: 'rgba(255,255,255,0.9)',
+                    boxShadow: '0 0 4px rgba(255,255,255,0.45)',
+                    transition: isDragging ? 'none' : 'bottom 60ms linear',
+                    pointerEvents: 'none',
+                }} />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 54 }}>
+                <span style={{
+                    fontSize: 8,
+                    fontFamily: 'var(--font-mono)',
+                    color: 'var(--color-text-secondary)',
+                    textAlign: 'right',
+                }}>
+                    {formatDb(gainToDb(volumeLinear))}
+                </span>
+                <div
+                    onWheel={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        const step = e.shiftKey ? 0.01 : 0.03;
+                        const next = Math.max(-1, Math.min(1, pan + (e.deltaY < 0 ? step : -step)));
+                        onPanChange(next);
+                        void useEngineStore.getState().flushTrackControlFinals();
+                    }}
+                    title="Pan"
+                    style={{
+                        position: 'relative',
+                        width: 54,
+                        height: 8,
+                        borderRadius: 3,
+                        background: 'var(--surface-elevated)',
+                        border: '1px solid color-mix(in srgb, var(--text-primary) 10%, transparent)',
+                    }}
+                >
+                    <div style={{
+                        position: 'absolute',
+                        left: '50%',
+                        top: 0,
+                        bottom: 0,
+                        width: 1,
+                        background: 'var(--color-divider-light)',
+                    }} />
+                    <div style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: `calc(${panNorm * 100}% - 3px)`,
+                        width: 6,
+                        height: '100%',
+                        borderRadius: 2,
+                        background: 'var(--text-primary)',
+                    }} />
+                    <input
+                        type="range"
+                        min={-1}
+                        max={1}
+                        step={0.01}
+                        value={pan}
+                        onChange={(e) => onPanChange(Number(e.target.value))}
+                        onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            onPanChange(0);
+                        }}
+                        style={{
+                            position: 'absolute',
+                            inset: 0,
+                            width: '100%',
+                            height: '100%',
+                            opacity: 0,
+                            cursor: 'ew-resize',
+                        }}
+                    />
+                </div>
+                <span style={{
+                    fontSize: 8,
+                    fontFamily: 'var(--font-mono)',
+                    color: 'var(--color-text-secondary)',
+                    textAlign: 'right',
+                }}>
+                    {Math.abs(pan) < 0.02 ? 'C' : (pan < 0 ? `L${Math.round(Math.abs(pan) * 100)}` : `R${Math.round(Math.abs(pan) * 100)}`)}
+                </span>
+            </div>
+        </div>
+    );
+};
+
 // ── TrackRow (3-block Ableton-style layout) ──────────────────────────────
 
 const TrackRow = ({
     track, allTracks, trackHeight, displayNum, isSelected, isCollapsed, depth,
     isRenaming, renameValue, onRenameChange, onRenameCommit, onRenameCancel,
     onClick, onToggleMute, onToggleSolo, onToggleArm, onToggleCollapse,
-    onVolumeChange, onOutputChange, onInputChange, onContextMenu, isMasterFixed,
+    onVolumeChange, onPanChange, onOutputChange, onInputChange, onContextMenu, isMasterFixed, mixerFocusMode = false,
 }: {
     track: TrackData;
     allTracks: TrackData[];
@@ -764,10 +1116,12 @@ const TrackRow = ({
     onToggleArm: () => void;
     onToggleCollapse?: () => void;
     onVolumeChange?: (gain: number) => void;
+    onPanChange?: (pan: number) => void;
     onOutputChange?: (targetId: string) => void;
     onInputChange?: (inputId: string) => void;
     onContextMenu?: (e: React.MouseEvent) => void;
     isMasterFixed?: boolean;
+    mixerFocusMode?: boolean;
 }) => {
     const isMaster = track.type === 'master';
     const isGroup = track.type === 'group';
@@ -790,7 +1144,7 @@ const TrackRow = ({
         }
     }, [isRenaming]);
 
-    const showRoutingExpanded = !isMasterFixed && trackHeight >= 48 && (isSelected || isHovered);
+    const showRoutingExpanded = !isMasterFixed && trackHeight >= 48 && (mixerFocusMode || isSelected || isHovered);
     const showRoutingCompact = !isMasterFixed && !showRoutingExpanded;
 
     // Subdue track visually when disabled (muted)
@@ -820,8 +1174,9 @@ const TrackRow = ({
             {/* ════ BLOCK 1: Track Header (colored) ════ */}
             <div style={{
                 display: 'flex', flexDirection: 'column', justifyContent: 'center',
-                minWidth: isMasterFixed ? 80 : 90, maxWidth: 120,
-                padding: '2px 6px 2px 4px',
+                minWidth: isMasterFixed ? 88 : 98,
+                maxWidth: mixerFocusMode ? 132 : 120,
+                padding: mixerFocusMode ? '2px 8px 2px 5px' : '2px 6px 2px 4px',
                 background: `color-mix(in srgb, ${track.color} ${isSelected ? '90%' : isHovered ? '80%' : '70%'}, #1a1a1a)`,
                 borderRight: '1px solid rgba(255,255,255,0.08)',
                 gap: 1,
@@ -913,9 +1268,9 @@ const TrackRow = ({
             {showRoutingExpanded && (
                 <div style={{
                     display: 'flex', flexDirection: 'column', justifyContent: 'center',
-                    gap: 2, padding: '2px 4px',
+                    gap: 2, padding: mixerFocusMode ? '2px 6px' : '2px 4px',
                     borderRight: '1px solid rgba(255,255,255,0.06)',
-                    minWidth: 80,
+                    minWidth: mixerFocusMode ? 94 : 80,
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                         <span style={{ fontSize: 6, color: 'var(--color-text-tertiary)', flexShrink: 0 }}>→</span>
@@ -995,7 +1350,9 @@ const TrackRow = ({
             {/* ════ BLOCK 3: Mixer (gray background) ════ */}
             <div style={{
                 display: 'flex', alignItems: 'center',
-                gap: 4, padding: '2px 8px 2px 4px', flex: 1, minWidth: 0,
+                gap: mixerFocusMode ? 6 : 4,
+                padding: mixerFocusMode ? '2px 8px 2px 6px' : '2px 8px 2px 4px',
+                flex: 1, minWidth: 0,
                 overflow: 'hidden',
                 background: 'var(--surface-2)',
             }}>
@@ -1003,14 +1360,14 @@ const TrackRow = ({
                 {!isMaster && (
                     <div style={{
                         display: 'flex', flexDirection: 'column',
-                        gap: 1, flexShrink: 0,
+                        gap: mixerFocusMode ? 2 : 1, flexShrink: 0,
                     }}>
                         {/* Enable button — green when active, shows track number */}
                         <button
                             onClick={e => { e.stopPropagation(); onToggleMute(); }}
                             title={isEnabled ? 'Disable track' : 'Enable track'}
                             style={{
-                                width: 20, height: 14,
+                                width: mixerFocusMode ? 22 : 20, height: mixerFocusMode ? 15 : 14,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 background: isEnabled ? 'var(--color-status-success)' : 'var(--surface-elevated)',
                                 color: isEnabled ? 'var(--text-primary)' : 'var(--text-muted)',
@@ -1025,7 +1382,7 @@ const TrackRow = ({
                             onClick={e => { e.stopPropagation(); onToggleSolo(); }}
                             title="Solo"
                             style={{
-                                width: 20, height: 14,
+                                width: mixerFocusMode ? 22 : 20, height: mixerFocusMode ? 15 : 14,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 background: track.isSoloed ? 'var(--color-btn-solo)' : 'var(--surface-elevated)',
                                 color: track.isSoloed ? 'var(--text-primary)' : 'var(--text-muted)',
@@ -1039,7 +1396,7 @@ const TrackRow = ({
                                 onClick={e => { e.stopPropagation(); onToggleArm(); }}
                                 title="Arm for recording"
                                 style={{
-                                    width: 20, height: 14,
+                                    width: mixerFocusMode ? 22 : 20, height: mixerFocusMode ? 15 : 14,
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                                     background: track.isArmed ? 'var(--color-status-error)' : 'var(--surface-elevated)',
                                     color: track.isArmed ? 'var(--text-primary)' : 'var(--text-muted)',
@@ -1052,17 +1409,38 @@ const TrackRow = ({
                     </div>
                 )}
 
-                {/* Volume Fader — horizontal blue slider */}
-                {!isGroup && onVolumeChange && (
-                    <VolumeFader
+                {!isGroup && mixerFocusMode && onVolumeChange && onPanChange ? (
+                    <VerticalMixerStrip
                         volumeLinear={track.volume}
+                        pan={track.pan}
+                        peakDb={track.vuLevel}
+                        isMidi={track.type === 'midi'}
                         onVolumeChange={onVolumeChange}
+                        onPanChange={onPanChange}
                     />
-                )}
+                ) : (
+                    <>
+                        {/* Volume Fader — horizontal blue slider */}
+                        {!isGroup && onVolumeChange && (
+                            <VolumeFader
+                                volumeLinear={track.volume}
+                                onVolumeChange={onVolumeChange}
+                                compact
+                            />
+                        )}
+                        {!isGroup && onPanChange && (
+                            <PanFader
+                                pan={track.pan}
+                                onPanChange={onPanChange}
+                                compact
+                            />
+                        )}
 
-                {/* Tri-Color VU Meter */}
-                {!isGroup && (
-                    <TriColorVU peakDb={track.vuLevel} isMidi={track.type === 'midi'} />
+                        {/* Tri-Color VU Meter */}
+                        {!isGroup && (
+                            <TriColorVU peakDb={track.vuLevel} isMidi={track.type === 'midi'} compact />
+                        )}
+                    </>
                 )}
             </div>
         </div>

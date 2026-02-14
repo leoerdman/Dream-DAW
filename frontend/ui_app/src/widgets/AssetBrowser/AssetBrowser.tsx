@@ -470,13 +470,22 @@ export const AssetBrowser = () => {
     const hasMore = visibleCount < items.length;
 
     useEffect(() => {
+        let cancelled = false;
         if (items.length === 0) {
-            setSelectedItemId(null);
+            queueMicrotask(() => {
+                if (!cancelled) setSelectedItemId(null);
+            });
             return;
         }
         if (!selectedItemId || !items.some((it) => it.id === selectedItemId)) {
-            setSelectedItemId(items[0].id);
+            const nextId = items[0].id;
+            queueMicrotask(() => {
+                if (!cancelled) setSelectedItemId(nextId);
+            });
         }
+        return () => {
+            cancelled = true;
+        };
     }, [items, selectedItemId]);
 
     const handleFileListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {

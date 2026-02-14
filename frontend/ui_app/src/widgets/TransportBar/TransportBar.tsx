@@ -167,7 +167,7 @@ export const TransportBar = ({
     }, []);
 
     return (
-        <div className="glass-pill" style={{ height: 'var(--daw-transport-height)', zIndex: 'var(--z-transport)' }}>
+        <div data-testid="transport-bar" className="glass-pill" style={{ height: 'var(--daw-transport-height)', zIndex: 'var(--z-transport)' }}>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '100%', width: '100%' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                     <PillSection>

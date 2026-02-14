@@ -61,6 +61,14 @@ pub enum BuiltinEffectType {
     Chorus = 4,
     Utility = 5,
     Saturator = 6,
+    // Wave 1 — Essential Effects
+    Limiter = 7,
+    Gate = 8,
+    AutoFilter = 9,
+    Phaser = 10,
+    Flanger = 11,
+    Distortion = 12,
+    Bitcrusher = 13,
 }
 
 impl BuiltinEffectType {
@@ -74,6 +82,13 @@ impl BuiltinEffectType {
             4 => Some(Self::Chorus),
             5 => Some(Self::Utility),
             6 => Some(Self::Saturator),
+            7 => Some(Self::Limiter),
+            8 => Some(Self::Gate),
+            9 => Some(Self::AutoFilter),
+            10 => Some(Self::Phaser),
+            11 => Some(Self::Flanger),
+            12 => Some(Self::Distortion),
+            13 => Some(Self::Bitcrusher),
             _ => None,
         }
     }
@@ -90,6 +105,14 @@ impl BuiltinEffectType {
             Self::Reverb => Box::new(super::processors::reverb::ReverbProcessor::new(sample_rate)),
             Self::Chorus => Box::new(super::processors::chorus::ChorusProcessor::new(sample_rate)),
             Self::Saturator => Box::new(super::processors::saturator::SaturatorProcessor::new()),
+            // Wave 1
+            Self::Limiter => Box::new(super::processors::limiter::LimiterProcessor::new(sample_rate)),
+            Self::Gate => Box::new(super::processors::gate::GateProcessor::new(sample_rate)),
+            Self::AutoFilter => Box::new(super::processors::auto_filter::AutoFilterProcessor::new(sample_rate)),
+            Self::Phaser => Box::new(super::processors::phaser::PhaserProcessor::new(sample_rate)),
+            Self::Flanger => Box::new(super::processors::flanger::FlangerProcessor::new(sample_rate)),
+            Self::Distortion => Box::new(super::processors::distortion::DistortionProcessor::new()),
+            Self::Bitcrusher => Box::new(super::processors::bitcrusher::BitcrusherProcessor::new()),
         }
     }
 }
@@ -104,18 +127,18 @@ mod tests {
 
     #[test]
     fn builtin_effect_type_roundtrip() {
-        for i in 0..=6u8 {
+        for i in 0..=13u8 {
             let ty = BuiltinEffectType::from_u8(i).unwrap();
             assert_eq!(ty as u8, i);
         }
-        assert!(BuiltinEffectType::from_u8(7).is_none());
+        assert!(BuiltinEffectType::from_u8(14).is_none());
         assert!(BuiltinEffectType::from_u8(255).is_none());
     }
 
     #[test]
     fn create_all_processors() {
         let sr = 44100.0;
-        for i in 0..=6u8 {
+        for i in 0..=13u8 {
             let ty = BuiltinEffectType::from_u8(i).unwrap();
             let mut proc = ty.create_processor(sr);
             // Process silence — should produce silence

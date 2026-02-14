@@ -132,8 +132,7 @@ const isBlackKey = (pitch: number) => {
     return [1, 3, 6, 8, 10].includes(note);
 };
 
-let nextNoteId = 1;
-const genNoteId = () => `note_${nextNoteId++}`;
+const genNoteId = () => crypto.randomUUID();
 
 // ── Component ────────────────────────────────────────────────────────────
 
@@ -330,7 +329,8 @@ export const PianoRoll = memo(function PianoRoll({
             if (beat >= totalBeats) return;
 
             if (tool === 'draw') {
-                const duration = Math.max(0.125, Math.min(1, totalBeats - beat));
+                const gridStep = currentGridInterval > 0 ? currentGridInterval : 0.25;
+                const duration = Math.max(0.125, Math.min(gridStep, totalBeats - beat));
                 const newNote: MidiNote = {
                     id: genNoteId(),
                     pitch,
@@ -341,7 +341,7 @@ export const PianoRoll = memo(function PianoRoll({
                 onNotesChange([...notes, newNote]);
             }
         },
-        [tool, yToPitch, pixelsPerBeat, snapBeat, beatsPerBar, notes, onNotesChange, totalBeats],
+        [tool, yToPitch, pixelsPerBeat, snapBeat, beatsPerBar, notes, onNotesChange, totalBeats, currentGridInterval],
     );
 
     const handleNoteClick = useCallback(
@@ -531,15 +531,16 @@ export const PianoRoll = memo(function PianoRoll({
         [notes, onNotesChange],
     );
 
-    const transposeAllNotes = useCallback((delta: number) => {
+    const transposeNotes = useCallback((delta: number) => {
         if (delta === 0 || notes.length === 0) return;
-        const next = notes.map((n) => ({
-            ...n,
-            pitch: Math.max(LOWEST_PITCH, Math.min(HIGHEST_PITCH, n.pitch + delta)),
-        }));
+        const targets = selectedNotes.size > 0 ? selectedNotes : new Set(notes.map((n) => n.id));
+        const next = notes.map((n) => {
+            if (!targets.has(n.id)) return n;
+            return { ...n, pitch: Math.max(LOWEST_PITCH, Math.min(HIGHEST_PITCH, n.pitch + delta)) };
+        });
         setClipTranspose((prev) => Math.max(-24, Math.min(24, prev + delta)));
         onNotesChange(next);
-    }, [notes, onNotesChange]);
+    }, [notes, onNotesChange, selectedNotes]);
 
     const quantizeAllNotesToGrid = useCallback(() => {
         const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
@@ -945,13 +946,13 @@ export const PianoRoll = memo(function PianoRoll({
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
                             <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>Transpose</span>
                             <button
-                                onClick={() => transposeAllNotes(-1)}
+                                onClick={() => transposeNotes(-1)}
                                 style={miniBtnStyle}
                             >
                                 -1
                             </button>
                             <button
-                                onClick={() => transposeAllNotes(1)}
+                                onClick={() => transposeNotes(1)}
                                 style={miniBtnStyle}
                             >
                                 +1

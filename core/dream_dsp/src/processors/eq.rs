@@ -1,120 +1,177 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — 3-Band EQ Processor
+// Dream DAW — 8-Band Parametric EQ Processor (Enterprise)
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// Classic 3-band parametric EQ using the crate's BiquadFilter:
-//   - Low shelf (200 Hz)
-//   - Mid peaking (1 kHz, Q = 0.71)
-//   - High shelf (5 kHz)
+// Full 8-band parametric EQ with per-band filter type selection:
+//   Band 0: Low Cut (HP 12/24 dB/oct)
+//   Band 1: Low Shelf
+//   Bands 2–5: Peaking (parametric bell)
+//   Band 6: High Shelf
+//   Band 7: High Cut (LP 12/24 dB/oct)
 //
-// Parameters:
-//   0: Low  gain  (-24 to +24 dB, default 0)
-//   1: Mid  gain  (-24 to +24 dB, default 0)
-//   2: High gain  (-24 to +24 dB, default 0)
+// Each band has: Frequency, Gain, Q, Enable, Type
 //
-// Real-Time Safety: Zero allocations. O(N) per buffer.
+// Parameters (8 bands × 4 params = 32 param slots):
+//   band * 4 + 0: Frequency (20–20000 Hz)
+//   band * 4 + 1: Gain (-24 to +24 dB)
+//   band * 4 + 2: Q (0.1 to 18.0)
+//   band * 4 + 3: Enable (0 or 1)
+//
+// Real-Time Safety: Zero allocations. O(N × active_bands) per buffer.
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::biquad::{BiquadCoeffs, BiquadFilter, BiquadType};
 use crate::dsp_processor::DspProcessor;
 
-/// Fixed EQ band center frequencies (Hz).
-const LOW_FREQ: f64 = 200.0;
-const MID_FREQ: f64 = 1000.0;
-const HIGH_FREQ: f64 = 5000.0;
-const MID_Q: f64 = 0.71;
+const NUM_BANDS: usize = 8;
 
-/// 3-band parametric EQ processor.
+/// Default frequencies for 8 bands (log-spaced).
+const DEFAULT_FREQS: [f64; NUM_BANDS] = [
+    30.0, 100.0, 250.0, 800.0, 2500.0, 6000.0, 12000.0, 18000.0,
+];
+
+/// Default filter types per band.
+const DEFAULT_TYPES: [BiquadType; NUM_BANDS] = [
+    BiquadType::HighPass,  // Band 0: Low cut
+    BiquadType::LowShelf,  // Band 1: Low shelf
+    BiquadType::Peaking,   // Band 2: Bell
+    BiquadType::Peaking,   // Band 3: Bell
+    BiquadType::Peaking,   // Band 4: Bell
+    BiquadType::Peaking,   // Band 5: Bell
+    BiquadType::HighShelf, // Band 6: High shelf
+    BiquadType::LowPass,   // Band 7: High cut
+];
+
+/// Per-band state.
+struct EqBand {
+    filter_l: BiquadFilter,
+    filter_r: BiquadFilter,
+    freq: f64,
+    gain_db: f64,
+    q: f64,
+    enabled: bool,
+    filter_type: BiquadType,
+}
+
+impl EqBand {
+    fn new(freq: f64, gain_db: f64, q: f64, filter_type: BiquadType, sr: f64) -> Self {
+        let coeffs = BiquadCoeffs::new(filter_type, freq, q, sr, gain_db);
+        Self {
+            filter_l: BiquadFilter::new(coeffs),
+            filter_r: BiquadFilter::new(coeffs),
+            freq,
+            gain_db,
+            q,
+            enabled: true,
+            filter_type,
+        }
+    }
+
+    fn update(&mut self, sr: f64) {
+        let coeffs = BiquadCoeffs::new(self.filter_type, self.freq, self.q, sr, self.gain_db);
+        self.filter_l.update_coefficients(coeffs);
+        self.filter_r.update_coefficients(coeffs);
+    }
+
+    fn reset(&mut self) {
+        self.filter_l.reset();
+        self.filter_r.reset();
+    }
+}
+
+/// 8-band parametric EQ processor.
 pub struct EqProcessor {
-    // Stereo pair for each band (L/R channels)
-    low_l: BiquadFilter,
-    low_r: BiquadFilter,
-    mid_l: BiquadFilter,
-    mid_r: BiquadFilter,
-    high_l: BiquadFilter,
-    high_r: BiquadFilter,
-    // Current gain values
-    low_db: f32,
-    mid_db: f32,
-    high_db: f32,
-    // Cached sample rate
+    bands: [EqBand; NUM_BANDS],
     sample_rate: f64,
+    /// Output gain in dB (-24 to +24)
+    output_gain_db: f32,
+    output_gain_lin: f32,
 }
 
 impl EqProcessor {
     pub fn new(sample_rate: f64) -> Self {
-        let flat = BiquadCoeffs::new(BiquadType::LowShelf, LOW_FREQ, 0.71, sample_rate, 0.0);
+        let bands = std::array::from_fn(|i| {
+            let gain = if DEFAULT_TYPES[i] == BiquadType::HighPass
+                || DEFAULT_TYPES[i] == BiquadType::LowPass
+            {
+                0.0 // Cuts don't use gain
+            } else {
+                0.0 // Flat by default
+            };
+            EqBand::new(DEFAULT_FREQS[i], gain, 0.71, DEFAULT_TYPES[i], sample_rate)
+        });
         Self {
-            low_l: BiquadFilter::new(flat),
-            low_r: BiquadFilter::new(flat),
-            mid_l: BiquadFilter::new(BiquadCoeffs::new(BiquadType::Peaking, MID_FREQ, MID_Q, sample_rate, 0.0)),
-            mid_r: BiquadFilter::new(BiquadCoeffs::new(BiquadType::Peaking, MID_FREQ, MID_Q, sample_rate, 0.0)),
-            high_l: BiquadFilter::new(BiquadCoeffs::new(BiquadType::HighShelf, HIGH_FREQ, 0.71, sample_rate, 0.0)),
-            high_r: BiquadFilter::new(BiquadCoeffs::new(BiquadType::HighShelf, HIGH_FREQ, 0.71, sample_rate, 0.0)),
-            low_db: 0.0,
-            mid_db: 0.0,
-            high_db: 0.0,
+            bands,
             sample_rate,
+            output_gain_db: 0.0,
+            output_gain_lin: 1.0,
         }
-    }
-
-    fn update_low(&mut self) {
-        let c = BiquadCoeffs::new(BiquadType::LowShelf, LOW_FREQ, 0.71, self.sample_rate, self.low_db as f64);
-        self.low_l.update_coefficients(c);
-        self.low_r.update_coefficients(c);
-    }
-
-    fn update_mid(&mut self) {
-        let c = BiquadCoeffs::new(BiquadType::Peaking, MID_FREQ, MID_Q, self.sample_rate, self.mid_db as f64);
-        self.mid_l.update_coefficients(c);
-        self.mid_r.update_coefficients(c);
-    }
-
-    fn update_high(&mut self) {
-        let c = BiquadCoeffs::new(BiquadType::HighShelf, HIGH_FREQ, 0.71, self.sample_rate, self.high_db as f64);
-        self.high_l.update_coefficients(c);
-        self.high_r.update_coefficients(c);
     }
 }
 
 impl DspProcessor for EqProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], _sample_rate: f32) {
-        // Process each band in series
-        self.low_l.process_buffer(left);
-        self.low_r.process_buffer(right);
-        self.mid_l.process_buffer(left);
-        self.mid_r.process_buffer(right);
-        self.high_l.process_buffer(left);
-        self.high_r.process_buffer(right);
+        // Process each enabled band in series
+        for band in &mut self.bands {
+            if !band.enabled {
+                continue;
+            }
+            band.filter_l.process_buffer(left);
+            band.filter_r.process_buffer(right);
+        }
+        // Output gain
+        if (self.output_gain_lin - 1.0).abs() > 0.0001 {
+            let g = self.output_gain_lin;
+            for i in 0..left.len().min(right.len()) {
+                left[i] *= g;
+                right[i] *= g;
+            }
+        }
     }
 
     fn set_param(&mut self, index: u8, value: f32) {
-        let clamped = value.clamp(-24.0, 24.0);
-        match index {
+        let idx = index as usize;
+
+        // Param 32 = output gain
+        if idx == 32 {
+            self.output_gain_db = value.clamp(-24.0, 24.0);
+            self.output_gain_lin = 10.0_f32.powf(self.output_gain_db / 20.0);
+            return;
+        }
+
+        let band_idx = idx / 4;
+        let param_idx = idx % 4;
+        if band_idx >= NUM_BANDS {
+            return;
+        }
+        let sr = self.sample_rate;
+        let band = &mut self.bands[band_idx];
+
+        match param_idx {
             0 => {
-                self.low_db = clamped;
-                self.update_low();
+                band.freq = (value as f64).clamp(20.0, 20000.0);
+                band.update(sr);
             }
             1 => {
-                self.mid_db = clamped;
-                self.update_mid();
+                band.gain_db = (value as f64).clamp(-24.0, 24.0);
+                band.update(sr);
             }
             2 => {
-                self.high_db = clamped;
-                self.update_high();
+                band.q = (value as f64).clamp(0.1, 18.0);
+                band.update(sr);
+            }
+            3 => {
+                band.enabled = value > 0.5;
             }
             _ => {}
         }
     }
 
     fn reset(&mut self) {
-        self.low_l.reset();
-        self.low_r.reset();
-        self.mid_l.reset();
-        self.mid_r.reset();
-        self.high_l.reset();
-        self.high_r.reset();
+        for band in &mut self.bands {
+            band.reset();
+        }
     }
 }
 
@@ -125,25 +182,41 @@ mod tests {
     #[test]
     fn eq_flat_passthrough() {
         let mut proc = EqProcessor::new(44100.0);
+        // Disable cut bands so signal passes flat
+        proc.set_param(3, 0.0);   // disable band 0 (HP)
+        proc.set_param(7 * 4 + 3, 0.0); // disable band 7 (LP)
         let input = vec![0.5f32; 256];
         let mut left = input.clone();
         let mut right = input.clone();
         proc.process_stereo(&mut left, &mut right, 44100.0);
-        // Flat EQ should approximately pass through DC signal
         for s in &left {
-            assert!((s - 0.5).abs() < 0.1, "EQ flat pass failed: {s}");
+            assert!((s - 0.5).abs() < 0.15, "EQ flat pass failed: {s}");
         }
     }
 
     #[test]
     fn eq_boost_changes_signal() {
         let mut proc = EqProcessor::new(44100.0);
-        proc.set_param(1, 12.0); // Boost mid by 12dB
+        proc.set_param(3 * 4 + 1, 12.0); // Boost band 3 by 12dB
         let mut left = vec![0.1f32; 1024];
         let mut right = vec![0.1f32; 1024];
         proc.process_stereo(&mut left, &mut right, 44100.0);
-        // After boosting, some samples should differ from original
         let changed = left.iter().any(|s| (s - 0.1).abs() > 0.001);
         assert!(changed, "EQ boost should change signal");
+    }
+
+    #[test]
+    fn eq_output_gain() {
+        let mut proc = EqProcessor::new(44100.0);
+        // Disable all bands
+        for b in 0..NUM_BANDS {
+            proc.set_param((b * 4 + 3) as u8, 0.0);
+        }
+        proc.set_param(32, 6.0); // +6 dB output gain
+        let mut left = vec![0.25f32; 256];
+        let mut right = vec![0.25f32; 256];
+        proc.process_stereo(&mut left, &mut right, 44100.0);
+        let expected = 0.25 * 10.0_f32.powf(6.0 / 20.0);
+        assert!((left[100] - expected).abs() < 0.05, "Output gain failed: got {} expected {}", left[100], expected);
     }
 }

@@ -763,6 +763,7 @@ name = "desktop_host"
 version = "0.1.0"
 dependencies = [
  "arc-swap",
+ "base64 0.22.1",
  "dirs 5.0.1",
  "dream_clip_engine",
  "dream_engine",

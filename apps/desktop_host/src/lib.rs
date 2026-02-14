@@ -1290,7 +1290,7 @@ pub fn run() {
     // Start the audio engine on a dedicated thread
     let clock_for_engine = Arc::clone(&master_clock);
     let meter_for_engine = Arc::clone(&meter_bank);
-    let stream = dream_engine::driver::start_audio_thread(
+    let stream = match dream_engine::driver::start_audio_thread(
         consumer,
         clock_for_engine,
         meter_for_engine,
@@ -1302,8 +1302,13 @@ pub fn run() {
         sampler_samples_for_engine,
         preview_buffer_for_engine,
         preview_cursor_for_engine,
-    )
-    .expect("Fatal: failed to start audio engine");
+    ) {
+        Ok(stream) => stream,
+        Err(err) => {
+            log::error!("Fatal: failed to start audio engine: {err}");
+            return;
+        }
+    };
 
     // Capture output latency from the stream handle before boxing
     let output_latency_frames = stream.output_latency_frames;
@@ -1355,7 +1360,7 @@ pub fn run() {
             // server-pushed events. Zero invoke() overhead per frame.
             let telemetry_app = app.handle().clone();
 
-            std::thread::Builder::new()
+            if let Err(err) = std::thread::Builder::new()
                 .name("telemetry-push".into())
                 .spawn(move || {
                     loop {
@@ -1418,7 +1423,9 @@ pub fn run() {
                         let _ = telemetry_app.emit("telemetry_tick", payload);
                     }
                 })
-                .expect("Failed to spawn telemetry thread");
+            {
+                log::warn!("Failed to spawn telemetry thread: {err}");
+            }
 
             log::info!(
                 "Dream DAW v{} — Audio engine initialized ({} IPC commands registered)",
@@ -1428,5 +1435,7 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("Fatal: failed to launch Dream DAW");
+        .unwrap_or_else(|err| {
+            log::error!("Fatal: failed to launch Dream DAW: {err}");
+        });
 }

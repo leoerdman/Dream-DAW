@@ -196,7 +196,7 @@ impl RenderContext {
     /// # Real-Time Safety
     /// Zero allocations. Zero locks. Zero I/O. Zero panics.
     /// All iteration is bounded by pre-known sizes.
-
+    ///
     /// Phase 1: Fills track slot buffers with scheduled, faded, strip-processed audio.
     ///
     /// After this call, `self.track_slots[i].buf_left/buf_right` contain fully

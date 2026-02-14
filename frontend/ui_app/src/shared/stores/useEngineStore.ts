@@ -250,6 +250,8 @@ const DEFAULT_TRANSPORT: TransportState = {
     loop_enabled: false,
     loop_start: 0,
     loop_end: 0,
+    output_latency_frames: 0,
+    telemetry_timestamp_ms: 0,
 };
 
 const DEFAULT_METER: engine.MeterReading = {

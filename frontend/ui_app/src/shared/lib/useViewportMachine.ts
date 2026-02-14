@@ -18,7 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { useRef, useCallback, useEffect, useState, useMemo } from 'react';
-import { ViewportMachine, type ViewportSnapshot, type ViewportMachineConfig } from './ViewportMachine';
+import { ViewportMachine, type ViewportSnapshot } from './ViewportMachine';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -92,7 +92,7 @@ export function useViewportMachine(config: UseViewportMachineConfig): UseViewpor
             vm.detach();
             vmRef.current = null;
         };
-        // Intentionally only on mount — config changes go through updateConfig
+        // Mount-only initialization by design; runtime updates go through updateConfig/updatePpb.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -104,7 +104,7 @@ export function useViewportMachine(config: UseViewportMachineConfig): UseViewpor
 
         vm.attach(el);
         return () => vm.detach();
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    }, []);
 
     // Resize observer — update viewport dimensions
     useEffect(() => {
@@ -119,7 +119,7 @@ export function useViewportMachine(config: UseViewportMachineConfig): UseViewpor
         });
         ro.observe(el);
         return () => ro.disconnect();
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    }, []);
 
     // Sync config changes to the machine
     useEffect(() => {

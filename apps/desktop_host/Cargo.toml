@@ -36,6 +36,7 @@ dream_plugins = { path = "../../core/dream_plugins" }
 
 # Project management
 uuid = { workspace = true }
+base64 = "0.22"
 dirs = "5"
 tauri-plugin-dialog = "2"
 midir = "0.10"

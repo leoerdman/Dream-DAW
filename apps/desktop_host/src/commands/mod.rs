@@ -81,6 +81,7 @@ pub(crate) fn invoke_handler()
         update_midi_clip_cmd,
         // Waveform
         get_waveform_peaks,
+        get_waveform_peaks_binary,
         // Track Management
         add_track_cmd,
         delete_track_cmd,

@@ -216,10 +216,10 @@ unsafe extern "system" fn host_query_interface(
     }
     // We respond to FUnknown and IHostApplication queries
     if tuid_eq(iid, &IID_FUNKNOWN) || tuid_eq(iid, &IID_IHOST_APPLICATION) {
-        *obj = this;
+        unsafe { *obj = this; }
         K_RESULT_OK
     } else {
-        *obj = ptr::null_mut();
+        unsafe { *obj = ptr::null_mut(); }
         K_NO_INTERFACE
     }
 }
@@ -245,7 +245,7 @@ unsafe extern "system" fn host_get_name(_this: *mut c_void, name: *mut u16) -> T
         b'D' as u16, b'A' as u16, b'W' as u16,
         0, // null terminator
     ];
-    ptr::copy_nonoverlapping(text.as_ptr(), name, text.len());
+    unsafe { ptr::copy_nonoverlapping(text.as_ptr(), name, text.len()); }
     K_RESULT_OK
 }
 
@@ -258,7 +258,7 @@ unsafe extern "system" fn host_create_instance(
     // We don't provide any additional host services (e.g. IMessage).
     // This is valid — most plugins handle this gracefully.
     if !_obj.is_null() {
-        *_obj = ptr::null_mut();
+        unsafe { *_obj = ptr::null_mut(); }
     }
     K_NO_INTERFACE
 }

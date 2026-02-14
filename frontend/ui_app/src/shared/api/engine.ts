@@ -32,6 +32,10 @@ export interface TransportState {
     loop_enabled: boolean;
     loop_start: number;
     loop_end: number;
+    /** Hardware output latency in sample frames for A/V sync compensation. */
+    output_latency_frames: number;
+    /** Wall-clock timestamp (ms since UNIX epoch) for playhead interpolation. */
+    telemetry_timestamp_ms: number;
 }
 
 /** Per-channel meter reading — mirrors Rust `MeterReading`. */
@@ -470,6 +474,63 @@ export interface WaveformPeaks {
 /** Get multi-resolution waveform peaks for a loaded audio file. */
 export const getWaveformPeaks = (filePath: string) =>
     invoke<WaveformPeaks>('get_waveform_peaks', { filePath });
+
+// ── Binary-Optimized Waveform Peaks ──────────────────────────────────────
+
+/** Wire format for the binary-optimized waveform peaks response. */
+interface WaveformPeaksBinaryResponse {
+    source_id: string;
+    sample_rate: number;
+    total_samples: number;
+    mip_levels: Array<{
+        samples_per_peak: number;
+        peak_count: number;
+        float_offset: number;
+    }>;
+    /** All peaks as base64-encoded little-endian f32 buffer: [min, max, min, max, ...] */
+    peaks_base64: string;
+}
+
+/**
+ * Get waveform peaks via binary-optimized IPC (base64-encoded Float32Array).
+ *
+ * ~80% smaller payload than JSON. Returns the same `WaveformPeaks` interface
+ * for backward compatibility with `WaveformCache`.
+ */
+export async function getWaveformPeaksBinary(filePath: string): Promise<WaveformPeaks> {
+    const raw = await invoke<WaveformPeaksBinaryResponse>(
+        'get_waveform_peaks_binary',
+        { filePath },
+    );
+
+    // Decode base64 → Uint8Array → Float32Array
+    const binaryString = atob(raw.peaks_base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    const floats = new Float32Array(bytes.buffer);
+
+    // Reconstruct PeakMipLevel[] from flat buffer using offsets
+    const mip_levels: PeakMipLevel[] = raw.mip_levels.map((meta) => {
+        const peaks: PeakPair[] = new Array(meta.peak_count);
+        for (let i = 0; i < meta.peak_count; i++) {
+            const idx = meta.float_offset + i * 2;
+            peaks[i] = { min: floats[idx], max: floats[idx + 1] };
+        }
+        return {
+            samples_per_peak: meta.samples_per_peak,
+            peaks,
+        };
+    });
+
+    return {
+        source_id: raw.source_id,
+        sample_rate: raw.sample_rate,
+        total_samples: raw.total_samples,
+        mip_levels,
+    };
+}
 
 // ── Clip Editing ─────────────────────────────────────────────────────────
 

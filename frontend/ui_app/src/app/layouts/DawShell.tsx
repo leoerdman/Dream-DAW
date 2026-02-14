@@ -14,7 +14,6 @@ import { Timeline } from '@/widgets/Timeline/Timeline';
 import { ClipRenderer } from '@/widgets/Timeline/ClipRenderer';
 import type { BrowserDragItem } from '@/widgets/Timeline/Timeline';
 import { SettingsPanel } from '@/widgets/SettingsPanel/SettingsPanel';
-import { DragOverlay } from '@/widgets/DragOverlay/DragOverlay';
 import { PianoRoll, type MidiNote } from '@/widgets/PianoRoll/PianoRoll';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { ExportModal } from '@/widgets/ExportModal/ExportModal';
@@ -589,6 +588,7 @@ export const DawShell = () => {
                     >
                         <ErrorBoundary module="Timeline">
                             <Timeline
+                                bpm={projectBpm || transport.bpm || 120}
                                 clips={timelineClipsForView}
                                 playheadBeat={playheadBeat}
                                 editCursorBeat={editCursorBeat}
@@ -738,9 +738,6 @@ export const DawShell = () => {
                     </div>
                 </div>
             )}
-            {/* Store-based drag overlay — floating label following cursor */}
-            <DragOverlay />
-
             {/* ── Export Modal ── */}
             <ExportModal
                 isOpen={exportOpen}

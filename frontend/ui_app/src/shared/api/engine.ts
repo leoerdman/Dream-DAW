@@ -363,6 +363,10 @@ export const previewAudioFile = (path: string) =>
 export const stopPreview = () =>
     invoke<void>('stop_preview_cmd');
 
+/** Get exact audio file duration in seconds. */
+export const getAudioFileDuration = (path: string) =>
+    invoke<number>('get_audio_file_duration', { path });
+
 // ── Splash / Window ──────────────────────────────────────────────────────
 
 /** Expand window from splash mode (450×450) to full DAW mode (1400×900). */
@@ -421,6 +425,7 @@ export interface AudioFileEntry {
     size_bytes: number;
     modified_at: string;
     format: string;
+    duration_seconds?: number | null;
 }
 
 /** Recursively scan a directory for audio files. */
@@ -443,6 +448,7 @@ export interface BrowserFileEntry {
     /** Semantic type: 'audio' | 'plugin' | 'project' | 'preset' | 'folder' | 'other' */
     file_type: string;
     is_directory: boolean;
+    duration_seconds?: number | null;
 }
 
 /** Scan a folder for ALL file types (audio, plugins, projects, presets, folders). */

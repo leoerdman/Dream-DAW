@@ -693,7 +693,11 @@ pub fn start_audio_thread_on_device(
                                     _bpm = bpm.clamp(20.0, 999.0);
                                 }
                                 EngineCommand::SetLoopEnabled(enabled) => {
-                                    if !enabled {
+                                    if enabled {
+                                        // If region was cleared, we can't recreate it here.
+                                        // The IPC always sends SetLoopRegion BEFORE SetLoopEnabled,
+                                        // so the region should already exist. This is a no-op guard.
+                                    } else {
                                         render_ctx.loop_region = None;
                                     }
                                 }
@@ -1130,7 +1134,7 @@ pub fn start_audio_thread_on_device(
                         if is_playing {
                             clock.advance(frame_count as i64);
 
-                            // Handle loop wrap on master clock
+                            // Handle loop wrap on master clock + playhead
                             if let Some(ref region) = render_ctx.loop_region {
                                 let pos = clock.position();
                                 if pos >= region.end {
@@ -1139,6 +1143,10 @@ pub fn start_audio_thread_on_device(
                                     let new_pos = region.start + (overshoot % loop_len);
                                     clock.reset();
                                     clock.advance(new_pos);
+
+                                    // Sync playhead to wrapped position so clip
+                                    // scheduling & MIDI correctly loop as well.
+                                    render_ctx.playhead.seek(new_pos);
                                 }
                             }
                         }

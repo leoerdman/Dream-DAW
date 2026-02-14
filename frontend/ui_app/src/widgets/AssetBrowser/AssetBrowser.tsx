@@ -76,6 +76,7 @@ interface BrowserItem {
     /** Whether this is a navigable directory */
     isDirectory?: boolean;
     slotHint?: 'instrument' | 'effect' | 'auto';
+    durationSeconds?: number;
 }
 
 // ── Static Categories ────────────────────────────────────
@@ -351,6 +352,7 @@ export const AssetBrowser = () => {
                 format: f.format,
                 meta: sizeLabel,
                 path: f.path,
+                durationSeconds: f.duration_seconds ?? undefined,
             };
         });
     }, [realFiles]);
@@ -382,6 +384,7 @@ export const AssetBrowser = () => {
                 meta: f.is_directory ? 'Folder' : `${f.extension} · ${sizeLabel}`,
                 path: f.path,
                 isDirectory: f.is_directory,
+                durationSeconds: f.duration_seconds ?? undefined,
             };
         });
     }, [folderItems]);
@@ -841,37 +844,45 @@ export const AssetBrowser = () => {
                                         const startY = e.clientY;
                                         const DRAG_THRESHOLD = 5;
                                         let dragStarted = false;
+                                        let dragCancelled = false;
+                                        let resolving = false;
 
                                         const onMove = (me: MouseEvent) => {
                                             const dx = me.clientX - startX;
                                             const dy = me.clientY - startY;
-                                            if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
-                                                dragStarted = true;
-                                                const durationSeconds = isAudio
-                                                    ? audioDurationSecRef.current[item.path!]
-                                                    : undefined;
-                                                useDragStore.getState().startDrag({
-                                                    id: item.id,
-                                                    name: item.name,
-                                                    type: isPlugin ? 'plugin' : 'audio',
-                                                    path: item.path!,
-                                                    slotHint: item.slotHint ?? 'auto',
-                                                    durationSeconds,
-                                                });
-
-                                                if (isAudio && durationSeconds === undefined) {
-                                                    engineApi.getWaveformPeaks(item.path!)
-                                                        .then((peaks) => {
-                                                            if (!(peaks.sample_rate > 0 && peaks.total_samples > 0)) return;
-                                                            const resolved = peaks.total_samples / peaks.sample_rate;
-                                                            audioDurationSecRef.current[item.path!] = resolved;
-                                                            useDragStore.getState().updateDraggingItem({ durationSeconds: resolved });
-                                                        })
-                                                        .catch(() => { });
-                                                }
+                                            if (!dragStarted && !resolving && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+                                                resolving = true;
+                                                void (async () => {
+                                                    let durationSeconds: number | undefined;
+                                                    if (isAudio) {
+                                                        durationSeconds =
+                                                            item.durationSeconds
+                                                            ?? audioDurationSecRef.current[item.path!]
+                                                            ?? undefined;
+                                                        if (durationSeconds === undefined) {
+                                                            try {
+                                                                durationSeconds = await engineApi.getAudioFileDuration(item.path!);
+                                                                audioDurationSecRef.current[item.path!] = durationSeconds;
+                                                            } catch {
+                                                                durationSeconds = undefined;
+                                                            }
+                                                        }
+                                                    }
+                                                    if (dragCancelled) return;
+                                                    dragStarted = true;
+                                                    useDragStore.getState().startDrag({
+                                                        id: item.id,
+                                                        name: item.name,
+                                                        type: isPlugin ? 'plugin' : 'audio',
+                                                        path: item.path!,
+                                                        slotHint: item.slotHint ?? 'auto',
+                                                        durationSeconds,
+                                                    }, me.clientX, me.clientY);
+                                                })();
                                             }
                                         };
                                         const onUp = () => {
+                                            dragCancelled = true;
                                             window.removeEventListener('mousemove', onMove);
                                             window.removeEventListener('mouseup', onUp);
                                         };

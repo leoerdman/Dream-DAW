@@ -20,6 +20,7 @@ fn new_project(
     rebuild_automation_snapshot_from_project(&new, &automation_runtime);
     rebuild_midi_snapshot_from_project(&new, &handle);
     rebuild_sampler_snapshot_from_project(&new, &clip_pool_state, &handle);
+    rebuild_runtime_device_chains_from_project(&new, &handle)?;
     sync_transport_from_project(&new, &handle)?;
 
     // Update window title
@@ -152,6 +153,7 @@ fn open_project(
     rebuild_automation_snapshot_from_project(&loaded, &automation_runtime);
     rebuild_midi_snapshot_from_project(&loaded, &handle);
     rebuild_sampler_snapshot_from_project(&loaded, &clip_pool_state, &handle);
+    rebuild_runtime_device_chains_from_project(&loaded, &handle)?;
     sync_transport_from_project(&loaded, &handle)?;
 
     // Derive project folder from file path
@@ -209,4 +211,3 @@ fn get_project_status(
         "projectFolder": project_folder.as_ref().map(|p| p.display().to_string()),
     }))
 }
-

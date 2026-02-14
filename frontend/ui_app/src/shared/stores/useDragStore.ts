@@ -7,11 +7,10 @@
  * 1. AssetBrowser sets `draggingItem` on mousedown + threshold
  * 2. Global mousemove updates `cursorPos` for real-time ghost preview
  * 3. Timeline reads cursor position to render a ghost clip at exact drop location
- * 4. DawShell's global mouseup handler detects cursor over Timeline → creates clip
- * 5. DawShell calls `endDrag()` to clean up
+ * 4. Timeline handles global mouseup drop resolution → creates clip
+ * 5. Timeline/store calls `endDrag()` to clean up
  *
- * IMPORTANT: The mouseup cleanup is handled SOLELY by DawShell, NOT by this store.
- * This avoids listener ordering race conditions during HMR and strict mode.
+ * Mouseup cleanup is orchestrated by the Timeline shell, not by this store.
  */
 
 import { create } from 'zustand';
@@ -35,7 +34,7 @@ interface DragState {
     cursorY: number;
 
     /** Start dragging an item. Begins tracking cursor position. */
-    startDrag: (item: DragBrowserItem) => void;
+    startDrag: (item: DragBrowserItem, cursorX?: number, cursorY?: number) => void;
 
     /** Cancel / end the drag. Stops cursor tracking. */
     endDrag: () => void;
@@ -51,9 +50,13 @@ export const useDragStore = create<DragState>((set) => ({
     cursorX: 0,
     cursorY: 0,
 
-    startDrag: (item) => {
+    startDrag: (item, cursorX, cursorY) => {
         console.log('[DragStore] startDrag', item.name);
-        set({ draggingItem: item });
+        set({
+            draggingItem: item,
+            cursorX: cursorX ?? 0,
+            cursorY: cursorY ?? 0,
+        });
         window.__dreamInAppDrag = true;
 
         // Attach global mousemove to track cursor for ghost preview rendering

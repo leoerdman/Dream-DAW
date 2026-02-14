@@ -534,6 +534,86 @@ fn rebuild_sampler_snapshot_from_project(
     handle.sampler_samples.swap(samples);
 }
 
+fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
+    // Must match dream_dsp::dsp_processor::BuiltinEffectType discriminants.
+    const FX_EQ: u8 = 0;
+    const FX_COMPRESSOR: u8 = 1;
+    const FX_DELAY: u8 = 2;
+    const FX_REVERB: u8 = 3;
+    const FX_CHORUS: u8 = 4;
+    const FX_UTILITY: u8 = 5;
+    const FX_SATURATOR: u8 = 6;
+
+    let key = plugin_id.to_lowercase();
+    if key.contains("eq") {
+        return Some(FX_EQ);
+    }
+    if key.contains("compressor") {
+        return Some(FX_COMPRESSOR);
+    }
+    if key.contains("delay") {
+        return Some(FX_DELAY);
+    }
+    if key.contains("reverb") {
+        return Some(FX_REVERB);
+    }
+    if key.contains("chorus") {
+        return Some(FX_CHORUS);
+    }
+    if key.contains("utility") {
+        return Some(FX_UTILITY);
+    }
+    if key.contains("saturator") {
+        return Some(FX_SATURATOR);
+    }
+    None
+}
+
+fn rebuild_runtime_device_chains_from_project(
+    project: &Project,
+    handle: &AudioEngineHandle,
+) -> Result<(), String> {
+    const MAX_DEVICE_SLOTS: u8 = 16;
+
+    // Reset current runtime chains for known tracks/slots.
+    for track_index in 0..project.tracks.len() {
+        let track_index = track_index as u16;
+        for slot_index in 0..MAX_DEVICE_SLOTS {
+            push_command(handle, EngineCommand::RemoveDevice { track_index, slot_index })?;
+        }
+    }
+
+    // Rebuild from persisted internal effect slots.
+    for (track_index, track) in project.tracks.iter().enumerate() {
+        for (slot_index, fx) in track.effects.iter().enumerate() {
+            if !fx.plugin_id.starts_with("internal://") {
+                continue;
+            }
+            if let Some(effect_type) = builtin_effect_type_from_plugin_id(&fx.plugin_id) {
+                push_command(
+                    handle,
+                    EngineCommand::AddDevice {
+                        track_index: track_index as u16,
+                        slot_index: slot_index.min(u8::MAX as usize) as u8,
+                        effect_type,
+                    },
+                )?;
+                if fx.is_bypassed {
+                    push_command(
+                        handle,
+                        EngineCommand::BypassDevice {
+                            track_index: track_index as u16,
+                            slot_index: slot_index.min(u8::MAX as usize) as u8,
+                            bypassed: true,
+                        },
+                    )?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn sync_transport_from_project(project: &Project, handle: &AudioEngineHandle) -> Result<(), String> {
     let bpm = project.pulse_map.initial_bpm();
     let loop_enabled = project.is_looping;

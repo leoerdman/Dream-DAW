@@ -14,6 +14,8 @@ struct BrowserFileEntry {
     file_type: String,
     /// Whether this entry is a directory
     is_directory: bool,
+    /// Exact audio duration in seconds when known (audio files only).
+    duration_seconds: Option<f64>,
 }
 
 /// Returns the list of user-added browser folders from settings.
@@ -146,6 +148,7 @@ fn scan_folder_all(path: String) -> Result<Vec<BrowserFileEntry>, String> {
                     extension: ext.to_uppercase(),
                     file_type: "plugin".to_string(),
                     is_directory: false, // Treat as file for UX
+                    duration_seconds: None,
                 });
             } else {
                 // Regular subfolder
@@ -157,10 +160,18 @@ fn scan_folder_all(path: String) -> Result<Vec<BrowserFileEntry>, String> {
                     extension: String::new(),
                     file_type: "folder".to_string(),
                     is_directory: true,
+                    duration_seconds: None,
                 });
             }
         } else if let Some(ext) = entry_path.extension().and_then(|e| e.to_str()) {
             let file_type = classify_file_type(ext);
+            let duration_seconds = if file_type == "audio" {
+                AudioReader::read_metadata(&entry_path)
+                    .ok()
+                    .and_then(|(sr, _ch, frames)| frames.map(|f| (f as f64) / (sr as f64)))
+            } else {
+                None
+            };
             entries.push(BrowserFileEntry {
                 name: file_name,
                 path: entry_path.to_string_lossy().to_string(),
@@ -169,6 +180,7 @@ fn scan_folder_all(path: String) -> Result<Vec<BrowserFileEntry>, String> {
                 extension: ext.to_uppercase(),
                 file_type: file_type.to_string(),
                 is_directory: false,
+                duration_seconds,
             });
         }
     }
@@ -266,6 +278,7 @@ fn scan_plugin_folders(
                         extension: plugin_type.to_string(),
                         file_type: "plugin".to_string(),
                         is_directory: false,
+                        duration_seconds: None,
                     });
                 }
             }
@@ -347,4 +360,3 @@ async fn save_project_dialog(
     .await
     .map_err(|e| format!("Join error: {}", e))?
 }
-

@@ -179,10 +179,14 @@ export const PianoRoll = memo(function PianoRoll({
     );
     const clipBeats = Math.max(0.25, clipLengthBeats ?? (totalBars * beatsPerBar));
 
-    // Auto-fit horizontal
+    // Auto-fit horizontal: scale so the entire clip fills the available width.
+    // Only apply MIN_PPB/MAX_PPB clamping to user-driven zoom overrides,
+    // so auto-fit always shows the clip's exact natural length.
     const gridAreaWidth = Math.max(100, containerWidth - KEYBOARD_WIDTH - LEFT_PANEL_WIDTH);
-    const autoFitPPB = gridAreaWidth / clipBeats;
-    const pixelsPerBeat = zoomOverrideH ?? Math.max(MIN_PPB, Math.min(MAX_PPB, autoFitPPB));
+    const autoFitPPB = Math.max(MIN_PPB, gridAreaWidth / clipBeats);
+    const pixelsPerBeat = zoomOverrideH != null
+        ? Math.max(MIN_PPB, Math.min(MAX_PPB, zoomOverrideH))
+        : autoFitPPB;
     const totalBeats = Math.max(clipBeats, gridAreaWidth / pixelsPerBeat);
 
     const canvasWidth = totalBeats * pixelsPerBeat;

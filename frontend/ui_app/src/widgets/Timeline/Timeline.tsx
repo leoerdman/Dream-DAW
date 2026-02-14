@@ -393,7 +393,7 @@ export const Timeline = (props: TimelineProps) => {
         if (inside && (draggingItem.type === 'audio' || draggingItem.type === 'midi')) {
             const beat = Math.max(0, Math.round(engine.viewport.screenToBeats(dragCursorX, rect)));
             const track = engine.viewport.screenToTrack(dragCursorY, rect);
-            engine.setDropTarget({ track, beat });
+            engine.setDropTarget(null);
             const widthBeats = draggingItem.durationSeconds
                 ? Math.max(0.25, draggingItem.durationSeconds * (bpm / 60))
                 : 4;

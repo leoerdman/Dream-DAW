@@ -8,6 +8,7 @@ struct AudioFileEntry {
     size_bytes: u64,
     modified_at: String,
     format: String,
+    duration_seconds: Option<f64>,
 }
 
 /// Audio extensions recognized by the file browser (case-insensitive).
@@ -184,6 +185,26 @@ async fn stop_preview_cmd(
     Ok(())
 }
 
+/// Returns exact audio file duration in seconds.
+#[tauri::command]
+fn get_audio_file_duration(path: String) -> Result<f64, String> {
+    let file_path = std::path::PathBuf::from(&path);
+    if !file_path.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+
+    if let Ok((sample_rate, _channels, num_frames)) = AudioReader::read_metadata(&file_path)
+        && let Some(frames) = num_frames
+        && sample_rate > 0
+    {
+        return Ok(frames as f64 / sample_rate as f64);
+    }
+
+    let decoded = AudioReader::read(&file_path)
+        .map_err(|e| format!("Failed to decode '{}': {}", path, e))?;
+    Ok(decoded.duration_seconds())
+}
+
 /// Recursively scans the given directory for audio files.
 #[tauri::command]
 fn scan_audio_folder(path: String) -> Result<Vec<AudioFileEntry>, String> {
@@ -303,6 +324,9 @@ fn scan_directory_recursive(
                 size_bytes,
                 modified_at,
                 format: ext.to_uppercase(),
+                duration_seconds: AudioReader::read_metadata(&path)
+                    .ok()
+                    .and_then(|(sr, _ch, frames)| frames.map(|f| (f as f64) / (sr as f64))),
             });
             *file_count += 1;
         }
@@ -310,4 +334,3 @@ fn scan_directory_recursive(
 
     Ok(())
 }
-

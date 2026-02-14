@@ -203,15 +203,18 @@ export class CanvasClipRenderer {
     private _drawTrackBackgrounds(ctx: CanvasRenderingContext2D, vp: ViewportMatrix, theme: TimelineTheme, selectedTrack: number): void {
         const rulerH = vp.rulerHeight;
         const trackH = vp.trackHeight;
-        // +1 to include the master track row at the bottom
-        const totalRows = vp.trackCount + 1;
 
-        for (let i = 0; i < totalRows; i++) {
-            const y = rulerH + i * trackH - vp.scrollY;
-            if (y + trackH < rulerH || y > vp.viewportHeight) continue;
+        // Fill the entire track area with the default track color
+        ctx.fillStyle = theme.trackDefault;
+        ctx.fillRect(0, rulerH, vp.viewportWidth, vp.viewportHeight - rulerH);
 
-            ctx.fillStyle = i === selectedTrack ? theme.trackSelected : theme.trackDefault;
-            ctx.fillRect(0, Math.max(rulerH, y), vp.viewportWidth, trackH);
+        // Highlight only the selected track
+        if (selectedTrack >= 0) {
+            const y = rulerH + selectedTrack * trackH - vp.scrollY;
+            if (y + trackH >= rulerH && y <= vp.viewportHeight) {
+                ctx.fillStyle = theme.trackSelected;
+                ctx.fillRect(0, Math.max(rulerH, y), vp.viewportWidth, trackH);
+            }
         }
     }
 
@@ -258,10 +261,10 @@ export class CanvasClipRenderer {
             ctx.stroke();
         }
 
-        // ── Horizontal track dividers ─────────────────────────────────
+        // ── Horizontal track dividers (+1 for master track) ────────────
         ctx.strokeStyle = theme.trackDivider;
         ctx.lineWidth = 1;
-        for (let i = 0; i <= vp.trackCount; i++) {
+        for (let i = 0; i <= vp.trackCount + 1; i++) {
             const y = rulerH + i * trackH - vp.scrollY;
             if (y < rulerH - 1 || y > vp.viewportHeight + 1) continue;
             ctx.beginPath();
@@ -872,7 +875,26 @@ export class CanvasClipRenderer {
             ctx.font = '11px Inter, -apple-system, sans-serif';
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'left';
-            ctx.fillText(ghost.name, x + 5, y + 1 + h / 2);
+            const pad = 5;
+            const maxTextWidth = Math.max(0, w - pad * 2);
+            let label = ghost.name;
+            const ellipsis = '...';
+            if (ctx.measureText(label).width > maxTextWidth) {
+                while (label.length > 0 && ctx.measureText(label + ellipsis).width > maxTextWidth) {
+                    label = label.slice(0, -1);
+                }
+                label = label.length > 0 ? `${label}${ellipsis}` : '';
+            }
+
+            // Hard clip text to clip bounds so it never spills visually.
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(x + pad, y + 1, Math.max(0, w - pad * 2), h);
+            ctx.clip();
+            if (label) {
+                ctx.fillText(label, x + pad, y + 1 + h / 2);
+            }
+            ctx.restore();
         }
 
         ctx.restore();

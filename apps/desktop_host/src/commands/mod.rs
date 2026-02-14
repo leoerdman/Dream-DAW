@@ -68,6 +68,7 @@ pub(crate) fn invoke_handler()
         remove_browser_folder,
         preview_audio_file_cmd,
         stop_preview_cmd,
+        get_audio_file_duration,
         pick_folder,
         pick_project_file,
         save_project_dialog,

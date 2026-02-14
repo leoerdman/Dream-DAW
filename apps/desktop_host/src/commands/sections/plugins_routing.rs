@@ -225,7 +225,42 @@ fn add_plugin_to_track_cmd(
     payload: AddPluginToTrackPayload,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
+    fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
+        // Must match dream_dsp::dsp_processor::BuiltinEffectType discriminants.
+        const FX_EQ: u8 = 0;
+        const FX_COMPRESSOR: u8 = 1;
+        const FX_DELAY: u8 = 2;
+        const FX_REVERB: u8 = 3;
+        const FX_CHORUS: u8 = 4;
+        const FX_UTILITY: u8 = 5;
+        const FX_SATURATOR: u8 = 6;
+        let key = plugin_id.to_lowercase();
+        if key.contains("eq") {
+            return Some(FX_EQ);
+        }
+        if key.contains("compressor") {
+            return Some(FX_COMPRESSOR);
+        }
+        if key.contains("delay") {
+            return Some(FX_DELAY);
+        }
+        if key.contains("reverb") {
+            return Some(FX_REVERB);
+        }
+        if key.contains("chorus") {
+            return Some(FX_CHORUS);
+        }
+        if key.contains("utility") {
+            return Some(FX_UTILITY);
+        }
+        if key.contains("saturator") {
+            return Some(FX_SATURATOR);
+        }
+        None
+    }
+
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
 
@@ -245,6 +280,7 @@ fn add_plugin_to_track_cmd(
     };
 
     let plugin_slot = PluginSlot::new(payload.plugin_name.clone(), payload.plugin_id.clone());
+    let mut runtime_add: Option<(Uuid, u8, u8)> = None;
     if use_instrument {
         track.instrument = Some(plugin_slot);
         if payload.plugin_id.starts_with("internal://instrument/sampler") && track.sampler.is_none() {
@@ -252,10 +288,26 @@ fn add_plugin_to_track_cmd(
         }
     } else {
         track.effects.push(plugin_slot);
+        if payload.plugin_id.starts_with("internal://")
+            && let Some(effect_type) = builtin_effect_type_from_plugin_id(&payload.plugin_id)
+        {
+            let slot_index = (track.effects.len().saturating_sub(1)).min(u8::MAX as usize) as u8;
+            runtime_add = Some((track.id, slot_index, effect_type));
+        }
     }
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
+    if let Some((track_id, slot_index, effect_type)) = runtime_add {
+        // Map project UUID track ordering to runtime track index.
+        if let Some(runtime_track_index) = project.tracks.iter().position(|t| t.id == track_id) {
+            push_command(&handle, EngineCommand::AddDevice {
+                track_index: runtime_track_index as u16,
+                slot_index,
+                effect_type,
+            })?;
+        }
+    }
     log::info!(
         "[IPC] add_plugin_to_track_cmd(track={}, plugin='{}', slot={})",
         payload.track_id,
@@ -271,6 +323,7 @@ fn remove_plugin_from_track_cmd(
     payload: RemovePluginFromTrackPayload,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
@@ -286,6 +339,7 @@ fn remove_plugin_from_track_cmd(
         .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
 
     let mut removed = false;
+    let mut runtime_remove_slot: Option<u8> = None;
     if let Some(inst) = &track.instrument
         && inst.id == slot_uuid
     {
@@ -298,9 +352,11 @@ fn remove_plugin_from_track_cmd(
     }
 
     if !removed {
-        let before = track.effects.len();
-        track.effects.retain(|slot| slot.id != slot_uuid);
-        removed = track.effects.len() != before;
+        if let Some(effect_idx) = track.effects.iter().position(|slot| slot.id == slot_uuid) {
+            runtime_remove_slot = Some(effect_idx.min(u8::MAX as usize) as u8);
+            track.effects.remove(effect_idx);
+            removed = true;
+        }
     }
 
     if !removed {
@@ -312,6 +368,14 @@ fn remove_plugin_from_track_cmd(
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
+    if let Some(slot_index) = runtime_remove_slot
+        && let Some(runtime_track_index) = project.tracks.iter().position(|t| t.id == track_uuid)
+    {
+        push_command(&handle, EngineCommand::RemoveDevice {
+            track_index: runtime_track_index as u16,
+            slot_index,
+        })?;
+    }
     log::info!(
         "[IPC] remove_plugin_from_track_cmd(track={}, slot={})",
         payload.track_id,

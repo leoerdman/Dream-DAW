@@ -48,7 +48,6 @@ const DEVICE_PARAM_PRESETS: Record<
         { name: 'Low', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'Mid', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'High', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
-        { name: 'Freq', value: 1000, min: 20, max: 20000, suffix: 'Hz', step: 1 },
     ],
     compressor: [
         { name: 'Thr', value: -18, min: -60, max: 0, suffix: 'dB', step: 0.1 },
@@ -224,9 +223,19 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
                 isEnabled: !(localBypass[slot.id] ?? slot.is_bypassed),
                 params: (DEVICE_PARAM_PRESETS[effectType] ?? []).map((template) => {
                     const key = `${slot.id}:${template.name}`;
+                    let backendValue = template.value;
+                    if ((effectType === 'sampler' || effectType === 'instrument') && selectedTrack.sampler) {
+                        const n = template.name.toLowerCase();
+                        if (n === 'vol') backendValue = selectedTrack.sampler.volume;
+                        else if (n === 'attack') backendValue = selectedTrack.sampler.attack;
+                        else if (n === 'decay') backendValue = selectedTrack.sampler.decay;
+                        else if (n === 'sustain') backendValue = selectedTrack.sampler.sustain;
+                        else if (n === 'release') backendValue = selectedTrack.sampler.release;
+                        else if (n === 'root') backendValue = selectedTrack.sampler.root_note;
+                    }
                     return {
                         ...template,
-                        value: localParams[key] ?? template.value,
+                        value: localParams[key] ?? backendValue,
                     };
                 }),
                 vuLevel: outLevel,
@@ -240,9 +249,20 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
         });
     }, [selectedTrack, localBypass, localParams, isMaster, outLevel]);
 
-    const toggleDevice = useCallback((id: string) => {
-        setLocalBypass((prev) => ({ ...prev, [id]: !(prev[id] ?? false) }));
-    }, []);
+    const toggleDevice = useCallback((device: DeviceSlot) => {
+        const currentBypassed = localBypass[device.id] ?? !device.isEnabled;
+        const nextBypassed = !currentBypassed;
+        setLocalBypass((prev) => ({ ...prev, [device.id]: nextBypassed }));
+
+        // Internal effects are processed by runtime device chain -> keep bypass in sync.
+        if (!selectedTrack || selectedTrackId === 'master' || device.source !== 'internal') return;
+        const trackIdx = projectTracks.findIndex((t) => t.id === selectedTrack.id);
+        const slotIdx = selectedTrack.effects.findIndex((fx) => fx.id === device.id);
+        if (trackIdx < 0 || slotIdx < 0) return;
+        void engineApi.bypassDevice(trackIdx, slotIdx, nextBypassed).catch((err) => {
+            console.error('[DeviceRack] bypassDevice failed:', err);
+        });
+    }, [localBypass, selectedTrack, selectedTrackId, projectTracks]);
 
     const setDeviceParam = useCallback((deviceId: string, paramName: string, value: number) => {
         setLocalParams((prev) => ({ ...prev, [`${deviceId}:${paramName}`]: value }));
@@ -251,6 +271,32 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
     const sendInternalParam = useCallback(
         (device: DeviceSlot, paramName: string, value: number) => {
             if (!selectedTrack || selectedTrackId === 'master') return;
+            const trackIdx = projectTracks.findIndex((t) => t.id === selectedTrack.id);
+            const effectSlotIdx = selectedTrack.effects.findIndex((fx) => fx.id === device.id);
+            const pushDeviceParam = (paramIndex: number, paramValue: number) => {
+                if (trackIdx < 0 || effectSlotIdx < 0) return;
+                void engineApi.setDeviceParam(trackIdx, effectSlotIdx, paramIndex, paramValue).catch((err) => {
+                    console.error('[DeviceRack] setDeviceParam failed:', err);
+                });
+            };
+
+            // Runtime DSP path for built-in effects (EQ/Utility) — this is the audible path.
+            if (device.source === 'internal' && device.effectType === 'eq') {
+                const key = paramName.toLowerCase();
+                if (key === 'low') pushDeviceParam(0, value);
+                else if (key === 'mid') pushDeviceParam(1, value);
+                else if (key === 'high') pushDeviceParam(2, value);
+                return;
+            }
+            if (device.source === 'internal' && device.effectType === 'utility') {
+                const key = paramName.toLowerCase();
+                if (key === 'gain') pushDeviceParam(0, value);
+                else if (key === 'pan') pushDeviceParam(1, value);
+                else if (key === 'width') pushDeviceParam(2, value);
+                else if (key === 'mono') pushDeviceParam(3, value);
+                return;
+            }
+
             const normalizedName = paramName.toLowerCase();
             let paramId = `${device.effectType}.${normalizedName}`;
             if (device.effectType === 'utility') {
@@ -282,7 +328,7 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
             }
             sender(value);
         },
-        [selectedTrack, selectedTrackId],
+        [selectedTrack, selectedTrackId, projectTracks],
     );
 
     useEffect(() => {
@@ -520,7 +566,7 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
                                 isSelected={selectedDeviceId === device.id}
                                 editorSupported={pluginCapability[device.pluginId]?.supported ?? true}
                                 editorReason={pluginCapability[device.pluginId]?.reason}
-                                onToggle={() => toggleDevice(device.id)}
+                                onToggle={() => toggleDevice(device)}
                                 onSelect={() => {
                                     setSelectedDeviceId(device.id);
                                     rackRef.current?.focus();
@@ -678,7 +724,7 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
                     pluginName={openGuiDevice.name}
                     pluginType={openGuiDevice.effectType === 'sampler' || openGuiDevice.effectType === 'instrument' ? 'instrument' : 'effect'}
                     isBypassed={!openGuiDevice.isEnabled}
-                    onToggleBypass={() => toggleDevice(openGuiDevice.id)}
+                    onToggleBypass={() => toggleDevice(openGuiDevice)}
                     onClose={() => setOpenGuiDevice(null)}
                     width={openGuiDevice.isVst ? 960 : openGuiDevice.effectType === 'eq' ? 760 : openGuiDevice.effectType === 'sampler' ? 820 : 640}
                     height={openGuiDevice.effectType === 'eq' ? 420 : openGuiDevice.effectType === 'sampler' ? 460 : 380}
@@ -734,7 +780,7 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
                     pluginName={`${openSettingsDevice.name} • Settings`}
                     pluginType={openSettingsDevice.effectType === 'sampler' || openSettingsDevice.effectType === 'instrument' ? 'instrument' : 'effect'}
                     isBypassed={!openSettingsDevice.isEnabled}
-                    onToggleBypass={() => toggleDevice(openSettingsDevice.id)}
+                    onToggleBypass={() => toggleDevice(openSettingsDevice)}
                     onClose={() => setOpenSettingsDevice(null)}
                     width={560}
                     height={400}

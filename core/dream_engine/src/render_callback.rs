@@ -391,7 +391,16 @@ impl RenderContext {
         }
 
         // ── Advance playhead ─────────────────────────────────────
-        self.playhead.advance(frame_count, None);
+        // Convert ClipLoopRegion → transport LoopRegion so the
+        // playhead wraps at the loop boundary during advance.
+        let transport_loop = self.loop_region.as_ref().map(|r| {
+            dream_transport::LoopRegion {
+                start: r.start,
+                end: r.end,
+                enabled: true, // presence of Some = enabled
+            }
+        });
+        self.playhead.advance(frame_count, transport_loop.as_ref());
     }
 
     /// Full render pipeline: fills track slots, sums into master bus, interleaves output.

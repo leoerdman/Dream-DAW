@@ -286,6 +286,35 @@ fn first_child_bool(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<bool> {
     first_child_value(node, tag).as_deref().and_then(parse_bool_value)
 }
 
+fn descendant_value(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<String> {
+    node.descendants()
+        .find(|n| n.is_element() && n.has_tag_name(tag))
+        .and_then(|n| n.attribute("Value"))
+        .map(|s| s.to_string())
+}
+
+fn parse_live_set_bool(live_set: roxmltree::Node<'_, '_>, tag: &str) -> Option<bool> {
+    first_child_value(live_set, tag)
+        .or_else(|| descendant_value(live_set, tag))
+        .as_deref()
+        .and_then(parse_bool_value)
+}
+
+fn parse_live_set_i32(live_set: roxmltree::Node<'_, '_>, tag: &str) -> Option<i32> {
+    first_child_value(live_set, tag)
+        .or_else(|| descendant_value(live_set, tag))
+        .as_deref()
+        .and_then(parse_i64_value)
+        .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+}
+
+fn parse_view_states_bool(live_set: roxmltree::Node<'_, '_>, tag: &str) -> Option<bool> {
+    live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("ViewStates"))
+        .and_then(|view_states| first_child_bool(view_states, tag))
+}
+
 fn semitone_to_tonic(root: u8) -> &'static str {
     match root % 12 {
         0 => "C",
@@ -495,9 +524,13 @@ fn parse_clip_envelopes(
 fn parse_clip_grid(
     clip_node: roxmltree::Node<'_, '_>,
 ) -> Option<(u16, u16, u8, bool, bool)> {
-    let grid = clip_node
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("Grid"))?;
+    let grid = if clip_node.has_tag_name("Grid") {
+        clip_node
+    } else {
+        clip_node
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("Grid"))?
+    };
     let numerator = first_child_value(grid, "FixedNumerator")
         .as_deref()
         .and_then(parse_i64_value)
@@ -523,30 +556,16 @@ fn parse_project_markers(
 ) -> Vec<dream_models::project::ProjectMarker> {
     let mut out = Vec::<dream_models::project::ProjectMarker>::new();
 
-    let Some(locators_root) = live_set
-        .children()
-        .find(|n| n.is_element() && n.has_tag_name("Locators"))
-        .or_else(|| live_set.descendants().find(|n| n.is_element() && n.has_tag_name("Locators")))
-    else {
-        return out;
-    };
+    let mut idx = 0usize;
 
-    for (idx, locator) in locators_root
+    for locator in live_set
         .descendants()
         .filter(|n| n.is_element() && n.has_tag_name("Locator"))
-        .enumerate()
     {
         let position_beats = first_child_f64(locator, "Time")
-            .or_else(|| {
-                locator
-                    .children()
-                    .find(|n| n.is_element() && n.has_tag_name("Time"))
-                    .and_then(|n| n.attribute("Value"))
-                    .and_then(parse_f64_value)
-            })
+            .or_else(|| locator.attribute("Time").and_then(parse_f64_value))
             .unwrap_or(0.0)
             .max(0.0);
-
         let name = first_child_value(locator, "Name")
             .or_else(|| {
                 locator
@@ -558,21 +577,146 @@ fn parse_project_markers(
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| format!("Marker {}", idx + 1));
-
         let color = first_child_value(locator, "Color")
+            .or_else(|| locator.attribute("Color").map(|s| s.to_string()))
             .as_deref()
             .and_then(parse_i64_value)
             .map(|v| ableton_color_to_track_color(v, idx));
-
         out.push(dream_models::project::ProjectMarker {
             id: Uuid::new_v4(),
             name,
             position_beats,
             color,
         });
+        idx += 1;
     }
 
+    // Some ALS files store timeline cue points outside <Locators>.
+    for cue in live_set
+        .descendants()
+        .filter(|n| n.is_element() && n.has_tag_name("CuePoint"))
+    {
+        let position_beats = cue
+            .attribute("Time")
+            .and_then(parse_f64_value)
+            .or_else(|| first_child_f64(cue, "Time"))
+            .unwrap_or(0.0)
+            .max(0.0);
+        let name = cue
+            .attribute("Name")
+            .map(|s| s.to_string())
+            .or_else(|| first_child_value(cue, "Name"))
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| format!("Cue {}", idx + 1));
+        let color = cue
+            .attribute("Color")
+            .map(|s| s.to_string())
+            .or_else(|| first_child_value(cue, "Color"))
+            .as_deref()
+            .and_then(parse_i64_value)
+            .map(|v| ableton_color_to_track_color(v, idx));
+        out.push(dream_models::project::ProjectMarker {
+            id: Uuid::new_v4(),
+            name,
+            position_beats,
+            color,
+        });
+        idx += 1;
+    }
+
+    // Drop duplicates by (rounded beat, normalized name).
     out.sort_by(|a, b| a.position_beats.total_cmp(&b.position_beats));
+    out.dedup_by(|a, b| {
+        ((a.position_beats - b.position_beats).abs() < 1e-6)
+            && a.name.trim().eq_ignore_ascii_case(b.name.trim())
+    });
+
+    out
+}
+
+fn parse_project_scenes(
+    live_set: roxmltree::Node<'_, '_>,
+) -> Vec<dream_models::project::ProjectScene> {
+    let mut out = Vec::<dream_models::project::ProjectScene>::new();
+
+    let Some(scenes_root) = live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("Scenes"))
+        .or_else(|| live_set.descendants().find(|n| n.is_element() && n.has_tag_name("Scenes")))
+    else {
+        return out;
+    };
+
+    for (fallback_idx, scene) in scenes_root
+        .children()
+        .filter(|n| n.is_element() && n.has_tag_name("Scene"))
+        .enumerate()
+    {
+        let index = scene
+            .attribute("Id")
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+            .unwrap_or(fallback_idx as i32);
+
+        let name = first_child_value(scene, "Name")
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| format!("Scene {}", index + 1));
+
+        let color = first_child_value(scene, "Color")
+            .as_deref()
+            .and_then(parse_i64_value)
+            .and_then(|v| (v >= 0).then_some(ableton_color_to_track_color(v, fallback_idx)));
+
+        let tempo = first_child_f64(scene, "Tempo").filter(|v| v.is_finite() && *v > 0.0);
+        let tempo_enabled = first_child_bool(scene, "IsTempoEnabled").unwrap_or(false);
+        let time_signature_id = first_child_i32(scene, "TimeSignatureId");
+        let time_signature_enabled = first_child_bool(scene, "IsTimeSignatureEnabled").unwrap_or(false);
+        let time_signature_numerator = scene
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Numerator"))
+            .and_then(|n| n.attribute("Value"))
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(1, 32) as u8);
+        let time_signature_denominator = scene
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Denominator"))
+            .and_then(|n| n.attribute("Value"))
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(1, 32) as u8);
+        let follow_action = scene
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("FollowAction"));
+        let follow_action_enabled = follow_action
+            .and_then(|f| first_child_bool(f, "FollowActionEnabled"))
+            .unwrap_or(false);
+        let follow_time = follow_action.and_then(|f| first_child_f64(f, "FollowTime"));
+        let follow_action_a = follow_action.and_then(|f| first_child_i32(f, "FollowActionA"));
+        let follow_action_b = follow_action.and_then(|f| first_child_i32(f, "FollowActionB"));
+        let follow_chance_a = follow_action.and_then(|f| first_child_f64(f, "FollowChanceA"));
+        let follow_chance_b = follow_action.and_then(|f| first_child_f64(f, "FollowChanceB"));
+
+        out.push(dream_models::project::ProjectScene {
+            index,
+            name,
+            color,
+            tempo,
+            tempo_enabled,
+            time_signature_id,
+            time_signature_enabled,
+            time_signature_numerator,
+            time_signature_denominator,
+            follow_action_enabled,
+            follow_time,
+            follow_action_a,
+            follow_action_b,
+            follow_chance_a,
+            follow_chance_b,
+        });
+    }
+
+    out.sort_by_key(|s| s.index);
     out
 }
 
@@ -761,6 +905,96 @@ fn make_missing_plugin_slot(kind: &str, ableton_name: &str) -> DeviceNode {
         format!("Plugin Not Found: {}", ableton_name.trim()),
         format!("missing://{kind}/{slug}"),
     ))
+}
+
+fn encode_missing_meta(raw: &str) -> String {
+    raw.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '~') {
+                ch.to_string()
+            } else {
+                format!("%{:02X}", ch as u32)
+            }
+        })
+        .collect::<String>()
+}
+
+fn make_missing_external_plugin_slot_with_metadata(
+    kind: &str,
+    preferred_name: &str,
+    user_name: &str,
+    vst2_name: &str,
+    vst2_path: &str,
+    vst3_name: &str,
+    vst3_path: &str,
+    is_placeholder: bool,
+) -> DeviceNode {
+    let mut details = Vec::new();
+    if !user_name.trim().is_empty() {
+        details.push(format!("user={}", user_name.trim()));
+    }
+    if !vst3_name.trim().is_empty() {
+        details.push(format!("vst3={}", vst3_name.trim()));
+    }
+    if !vst3_path.trim().is_empty() {
+        details.push(format!("vst3_path={}", vst3_path.trim()));
+    }
+    if !vst2_name.trim().is_empty() {
+        details.push(format!("vst2={}", vst2_name.trim()));
+    }
+    if !vst2_path.trim().is_empty() {
+        details.push(format!("vst2_path={}", vst2_path.trim()));
+    }
+    details.push(format!("placeholder={}", if is_placeholder { "1" } else { "0" }));
+
+    let detail_text = details.join("; ");
+    let display_name = if detail_text.is_empty() {
+        format!("Plugin Not Found: {}", preferred_name.trim())
+    } else {
+        format!("Plugin Not Found: {} [{}]", preferred_name.trim(), detail_text)
+    };
+
+    let normalized = preferred_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let slug = if normalized.is_empty() {
+        "unknown".to_string()
+    } else {
+        normalized
+    };
+
+    let mut query = Vec::new();
+    query.push(format!("name={}", encode_missing_meta(preferred_name.trim())));
+    if !user_name.trim().is_empty() {
+        query.push(format!("user={}", encode_missing_meta(user_name.trim())));
+    }
+    if !vst3_name.trim().is_empty() {
+        query.push(format!("vst3={}", encode_missing_meta(vst3_name.trim())));
+    }
+    if !vst3_path.trim().is_empty() {
+        query.push(format!("vst3path={}", encode_missing_meta(vst3_path.trim())));
+    }
+    if !vst2_name.trim().is_empty() {
+        query.push(format!("vst2={}", encode_missing_meta(vst2_name.trim())));
+    }
+    if !vst2_path.trim().is_empty() {
+        query.push(format!("vst2path={}", encode_missing_meta(vst2_path.trim())));
+    }
+    query.push(format!("placeholder={}", if is_placeholder { "1" } else { "0" }));
+
+    let plugin_id = format!("missing://{kind}/{slug}?{}", query.join("&"));
+    DeviceNode::Single(PluginSlot::new(display_name, plugin_id))
 }
 
 fn normalize_plugin_key(raw: &str) -> String {
@@ -1182,6 +1416,326 @@ mod als_import_tests {
         let env = parse_clip_envelopes(clip, &map);
         assert_eq!(env.len(), 1);
         assert_eq!(env[0].param_id, "volume");
+    }
+
+    #[test]
+    fn parse_live_set_global_modes() {
+        let xml = r#"
+        <LiveSet>
+          <AutomationMode Value="1"/>
+          <SnapAutomationToGrid Value="false"/>
+          <ArrangementOverdub Value="true"/>
+          <SoloInPlace Value="0"/>
+          <CrossfadeCurve Value="3"/>
+          <LatencyCompensation Value="1"/>
+          <SelectedDocumentViewInMainWindow Value="2"/>
+          <ViewStateFxSlotCount Value="4"/>
+          <ViewStateSessionMixerVolumeSectionHeight Value="283"/>
+          <ViewStateArrangerMixerVolumeSectionHeight Value="120"/>
+          <ViewStateSessionTrackWidth Value="74"/>
+          <ViewStateMainWindowClipDetailOpen Value="false"/>
+          <ViewStateMainWindowDeviceDetailOpen Value="true"/>
+          <ViewStateSecondWindowClipDetailOpen Value="true"/>
+          <ViewStateSecondWindowDeviceDetailOpen Value="false"/>
+          <ShouldSceneTempoAndTimeSignatureBeVisible Value="true"/>
+          <WaveformVerticalZoomFactor Value="1.25"/>
+          <IsWaveformVerticalZoomActive Value="true"/>
+          <HighlightedTrackIndex Value="34"/>
+          <TrackHeaderWidth Value="102"/>
+          <ResetNonautomatedMidiControllersOnClipStarts Value="true"/>
+          <MidiFoldIn Value="true"/>
+          <MidiFoldMode Value="-99"/>
+          <MultiClipFocusMode Value="true"/>
+          <MultiClipLoopBarHeight Value="16"/>
+          <MidiPrelisten Value="1"/>
+          <UseWarperLegacyHiQMode Value="false"/>
+          <ShowVideoWindow Value="true"/>
+          <SoloOrPflSavedValue Value="true"/>
+          <ColorSequenceIndex Value="7"/>
+          <NoteSpellingPreference Value="0"/>
+          <AccidentalSpellingPreference Value="3"/>
+          <PreferFlatRootNote Value="false"/>
+          <ViewStateMainWindowHiddenOtherDocViewTypeClipDetailOpen Value="false"/>
+          <ViewStateMainWindowHiddenOtherDocViewTypeDeviceDetailOpen Value="true"/>
+          <ViewStates>
+            <MixerInArrangement Value="0"/>
+            <ArrangerMixerIO Value="1"/>
+            <ArrangerMixerSends Value="1"/>
+            <ArrangerMixerReturns Value="1"/>
+            <ArrangerMixerVolume Value="1"/>
+            <ArrangerMixerTrackOptions Value="0"/>
+            <ArrangerMixerCrossFade Value="0"/>
+            <ArrangerMixerTrackPerformanceImpactMeter Value="0"/>
+            <MixerInSession Value="1"/>
+            <SessionIO Value="1"/>
+            <SessionSends Value="1"/>
+            <SessionReturns Value="1"/>
+            <SessionVolume Value="1"/>
+            <SessionTrackOptions Value="0"/>
+            <SessionCrossFade Value="0"/>
+            <SessionTrackPerformanceImpactMeter Value="0"/>
+            <SessionShowOverView Value="0"/>
+            <ArrangerIO Value="1"/>
+            <ArrangerReturns Value="1"/>
+            <ArrangerVolume Value="1"/>
+            <ArrangerTrackOptions Value="0"/>
+            <ArrangerShowOverView Value="1"/>
+          </ViewStates>
+        </LiveSet>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let live_set = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("LiveSet"))
+            .expect("live set");
+
+        assert_eq!(parse_live_set_bool(live_set, "AutomationMode"), Some(true));
+        assert_eq!(parse_live_set_bool(live_set, "SnapAutomationToGrid"), Some(false));
+        assert_eq!(parse_live_set_bool(live_set, "ArrangementOverdub"), Some(true));
+        assert_eq!(parse_live_set_bool(live_set, "SoloInPlace"), Some(false));
+        assert_eq!(parse_live_set_i32(live_set, "CrossfadeCurve"), Some(3));
+        assert_eq!(parse_live_set_i32(live_set, "LatencyCompensation"), Some(1));
+        assert_eq!(parse_live_set_i32(live_set, "SelectedDocumentViewInMainWindow"), Some(2));
+        assert_eq!(parse_live_set_i32(live_set, "ViewStateFxSlotCount"), Some(4));
+        assert_eq!(
+            first_child_value(live_set, "ViewStateSessionMixerVolumeSectionHeight")
+                .as_deref()
+                .and_then(parse_f64_value),
+            Some(283.0)
+        );
+        assert_eq!(
+            first_child_value(live_set, "ViewStateArrangerMixerVolumeSectionHeight")
+                .as_deref()
+                .and_then(parse_f64_value),
+            Some(120.0)
+        );
+        assert_eq!(
+            first_child_value(live_set, "ViewStateSessionTrackWidth")
+                .as_deref()
+                .and_then(parse_f64_value),
+            Some(74.0)
+        );
+        assert_eq!(parse_live_set_bool(live_set, "ViewStateMainWindowClipDetailOpen"), Some(false));
+        assert_eq!(parse_live_set_bool(live_set, "ViewStateMainWindowDeviceDetailOpen"), Some(true));
+        assert_eq!(parse_live_set_bool(live_set, "ViewStateSecondWindowClipDetailOpen"), Some(true));
+        assert_eq!(parse_live_set_bool(live_set, "ViewStateSecondWindowDeviceDetailOpen"), Some(false));
+        assert_eq!(parse_live_set_bool(live_set, "ShouldSceneTempoAndTimeSignatureBeVisible"), Some(true));
+        assert_eq!(
+            first_child_value(live_set, "WaveformVerticalZoomFactor")
+                .as_deref()
+                .and_then(parse_f64_value),
+            Some(1.25)
+        );
+        assert_eq!(parse_live_set_bool(live_set, "IsWaveformVerticalZoomActive"), Some(true));
+        assert_eq!(parse_live_set_i32(live_set, "HighlightedTrackIndex"), Some(34));
+        assert_eq!(
+            first_child_value(live_set, "TrackHeaderWidth")
+                .as_deref()
+                .and_then(parse_f64_value),
+            Some(102.0)
+        );
+        assert_eq!(
+            parse_live_set_bool(live_set, "ResetNonautomatedMidiControllersOnClipStarts"),
+            Some(true)
+        );
+        assert_eq!(parse_live_set_bool(live_set, "MidiFoldIn"), Some(true));
+        assert_eq!(parse_live_set_i32(live_set, "MidiFoldMode"), Some(-99));
+        assert_eq!(parse_live_set_bool(live_set, "MultiClipFocusMode"), Some(true));
+        assert_eq!(
+            first_child_value(live_set, "MultiClipLoopBarHeight")
+                .as_deref()
+                .and_then(parse_f64_value),
+            Some(16.0)
+        );
+        assert_eq!(parse_live_set_bool(live_set, "MidiPrelisten"), Some(true));
+        assert_eq!(parse_live_set_bool(live_set, "UseWarperLegacyHiQMode"), Some(false));
+        assert_eq!(parse_live_set_bool(live_set, "ShowVideoWindow"), Some(true));
+        assert_eq!(parse_live_set_bool(live_set, "SoloOrPflSavedValue"), Some(true));
+        assert_eq!(parse_live_set_i32(live_set, "ColorSequenceIndex"), Some(7));
+        assert_eq!(parse_live_set_i32(live_set, "NoteSpellingPreference"), Some(0));
+        assert_eq!(parse_live_set_i32(live_set, "AccidentalSpellingPreference"), Some(3));
+        assert_eq!(parse_live_set_bool(live_set, "PreferFlatRootNote"), Some(false));
+        assert_eq!(
+            parse_live_set_bool(live_set, "ViewStateMainWindowHiddenOtherDocViewTypeClipDetailOpen"),
+            Some(false)
+        );
+        assert_eq!(
+            parse_live_set_bool(live_set, "ViewStateMainWindowHiddenOtherDocViewTypeDeviceDetailOpen"),
+            Some(true)
+        );
+        assert_eq!(parse_view_states_bool(live_set, "MixerInArrangement"), Some(false));
+        assert_eq!(parse_view_states_bool(live_set, "ArrangerMixerIO"), Some(true));
+        assert_eq!(parse_view_states_bool(live_set, "SessionIO"), Some(true));
+        assert_eq!(parse_view_states_bool(live_set, "SessionShowOverView"), Some(false));
+        assert_eq!(parse_view_states_bool(live_set, "ArrangerIO"), Some(true));
+        assert_eq!(parse_view_states_bool(live_set, "ArrangerReturns"), Some(true));
+        assert_eq!(parse_view_states_bool(live_set, "ArrangerVolume"), Some(true));
+        assert_eq!(parse_view_states_bool(live_set, "ArrangerTrackOptions"), Some(false));
+        assert_eq!(parse_view_states_bool(live_set, "ArrangerShowOverView"), Some(true));
+    }
+
+    #[test]
+    fn parse_clip_grid_accepts_root_grid_node() {
+        let xml = r#"
+        <Grid>
+          <FixedNumerator Value="8" />
+          <FixedDenominator Value="1" />
+          <Ntoles Value="2" />
+          <SnapToGrid Value="true" />
+          <Fixed Value="false" />
+        </Grid>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let grid = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Grid"))
+            .expect("grid");
+        let parsed = parse_clip_grid(grid).expect("parsed");
+        assert_eq!(parsed, (8, 1, 2, true, false));
+    }
+
+    #[test]
+    fn parse_transport_values_from_live_set_transport_node() {
+        let xml = r#"
+        <LiveSet>
+          <Transport>
+            <PhaseNudgeTempo Value="10" />
+            <LoopOn Value="true" />
+            <LoopStart Value="16" />
+            <LoopLength Value="8" />
+            <LoopIsSongStart Value="false" />
+            <CurrentTime Value="18.5" />
+            <PunchIn Value="1" />
+            <PunchOut Value="0" />
+            <MetronomeTickDuration Value="0.25" />
+            <DrawMode Value="true" />
+          </Transport>
+        </LiveSet>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let live_set = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("LiveSet"))
+            .expect("live set");
+        let transport = live_set
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("Transport"))
+            .expect("transport");
+        assert_eq!(first_child_bool(transport, "LoopOn"), Some(true));
+        assert_eq!(first_child_f64(transport, "LoopStart"), Some(16.0));
+        assert_eq!(first_child_f64(transport, "LoopLength"), Some(8.0));
+        assert_eq!(first_child_f64(transport, "PhaseNudgeTempo"), Some(10.0));
+        assert_eq!(first_child_f64(transport, "CurrentTime"), Some(18.5));
+        assert_eq!(first_child_bool(transport, "PunchIn"), Some(true));
+        assert_eq!(first_child_bool(transport, "PunchOut"), Some(false));
+        assert_eq!(first_child_bool(transport, "LoopIsSongStart"), Some(false));
+        assert_eq!(first_child_f64(transport, "MetronomeTickDuration"), Some(0.25));
+        assert_eq!(first_child_bool(transport, "DrawMode"), Some(true));
+    }
+
+    #[test]
+    fn parse_live_set_session_scroll_and_breakpoint() {
+        let xml = r#"
+        <LiveSet>
+          <SessionScrollPos X="-5582" Y="17" />
+          <SelectedBreakpointValue Value="1308.18286" />
+        </LiveSet>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let live_set = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("LiveSet"))
+            .expect("live set");
+        let session_scroll = live_set
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("SessionScrollPos"))
+            .expect("session scroll");
+        assert_eq!(
+            session_scroll.attribute("X").and_then(parse_i64_value),
+            Some(-5582)
+        );
+        assert_eq!(
+            session_scroll.attribute("Y").and_then(parse_i64_value),
+            Some(17)
+        );
+        assert_eq!(
+            first_child_f64(live_set, "SelectedBreakpointValue"),
+            Some(1308.18286)
+        );
+    }
+
+    #[test]
+    fn parse_project_markers_includes_cue_points() {
+        let xml = r#"
+        <LiveSet>
+          <Locators>
+            <Locators>
+              <Locator><Name Value="Verse"/><Time Value="8"/></Locator>
+            </Locators>
+          </Locators>
+          <CuePoints>
+            <CuePoint Name="Drop" Time="16" Color="2"/>
+          </CuePoints>
+        </LiveSet>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let live_set = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("LiveSet"))
+            .expect("live set");
+        let markers = parse_project_markers(live_set);
+        assert_eq!(markers.len(), 2);
+        assert_eq!(markers[0].name, "Verse");
+        assert_eq!(markers[1].name, "Drop");
+        assert!((markers[1].position_beats - 16.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_project_scenes_reads_follow_and_time_signature_details() {
+        let xml = r#"
+        <LiveSet>
+          <Scenes>
+            <Scene Id="3">
+              <Name Value="Build" />
+              <Tempo Value="128" />
+              <IsTempoEnabled Value="true" />
+              <TimeSignatureId Value="201" />
+              <IsTimeSignatureEnabled Value="true" />
+              <TimeSignature>
+                <TimeSignatures>
+                  <RemoteableTimeSignature Id="0">
+                    <Numerator Value="7" />
+                    <Denominator Value="8" />
+                  </RemoteableTimeSignature>
+                </TimeSignatures>
+              </TimeSignature>
+              <FollowAction>
+                <FollowActionEnabled Value="true" />
+                <FollowTime Value="2" />
+                <FollowActionA Value="4" />
+                <FollowActionB Value="2" />
+                <FollowChanceA Value="75" />
+                <FollowChanceB Value="25" />
+              </FollowAction>
+            </Scene>
+          </Scenes>
+        </LiveSet>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let live_set = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("LiveSet"))
+            .expect("live set");
+        let scenes = parse_project_scenes(live_set);
+        assert_eq!(scenes.len(), 1);
+        let s = &scenes[0];
+        assert_eq!(s.index, 3);
+        assert_eq!(s.name, "Build");
+        assert_eq!(s.time_signature_numerator, Some(7));
+        assert_eq!(s.time_signature_denominator, Some(8));
+        assert!(s.follow_action_enabled);
+        assert_eq!(s.follow_action_a, Some(4));
+        assert_eq!(s.follow_action_b, Some(2));
     }
 }
 
@@ -1678,6 +2232,7 @@ fn parse_als_rack_chains(
                     // PluginDevice → external VST/VST3.
                     if child_tag == "PluginDevice" {
                         let display = infer_device_display_name(child_device, child_tag);
+                        let user_name = node_child_value(child_device, "UserName").unwrap_or_default();
                         let vst3_name = child_device
                             .descendants()
                             .find(|n| n.is_element() && n.has_tag_name("Vst3PluginInfo"))
@@ -1749,9 +2304,16 @@ fn parse_als_rack_chains(
                                 .devices
                                 .push(DeviceNode::Single(PluginSlot::new(pname, pid)));
                         } else {
-                            chain
-                                .devices
-                                .push(make_missing_plugin_slot("external", &preferred_name));
+                            chain.devices.push(make_missing_external_plugin_slot_with_metadata(
+                                "external",
+                                &preferred_name,
+                                &user_name,
+                                &vst2_name,
+                                &vst2_path,
+                                &vst3_name,
+                                &vst3_path,
+                                false,
+                            ));
                         }
                         continue;
                     }
@@ -2256,10 +2818,17 @@ fn import_track_devices(
                 } else {
                     DeviceNode::Single(PluginSlot::new(pname, pid))
                 }
-            } else if is_placeholder {
-                make_missing_plugin_slot("external", &preferred_name)
             } else {
-                make_missing_plugin_slot("external", &preferred_name)
+                make_missing_external_plugin_slot_with_metadata(
+                    "external",
+                    &preferred_name,
+                    &user_name,
+                    &vst2_name,
+                    &vst2_path,
+                    &vst3_name,
+                    &vst3_path,
+                    is_placeholder,
+                )
             };
 
             if is_instrument_slot {
@@ -2704,13 +3273,296 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
     let mut project = Project::new(project_name, tempo, sample_rate);
     project.tracks.clear();
     project.markers = parse_project_markers(live_set);
+    project.session_scenes = parse_project_scenes(live_set);
+    if let Some(v) = parse_live_set_bool(live_set, "AutomationMode") {
+        project.automation_mode_enabled = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "SnapAutomationToGrid") {
+        project.snap_automation_to_grid = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "ArrangementOverdub") {
+        project.arrangement_overdub = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "SoloInPlace") {
+        project.solo_in_place = v;
+    }
+    if let Some(v) = parse_live_set_i32(live_set, "CrossfadeCurve") {
+        project.crossfade_curve = v;
+    }
+    if let Some(v) = parse_live_set_i32(live_set, "LatencyCompensation") {
+        project.latency_compensation_mode = v;
+    }
+    if let Some(v) = parse_live_set_i32(live_set, "GlobalQuantisation") {
+        project.global_quantisation = v;
+    }
+    if let Some(v) = parse_live_set_i32(live_set, "AutoQuantisation") {
+        project.auto_quantisation = v;
+    }
+    if let Some(session_scroll) = live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("SessionScrollPos"))
+    {
+        if let Some(v) = session_scroll.attribute("X").and_then(parse_i64_value) {
+            project.session_scroll_x = v.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        }
+        if let Some(v) = session_scroll.attribute("Y").and_then(parse_i64_value) {
+            project.session_scroll_y = v.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        }
+    }
+    if let Some(v) = first_child_f64(live_set, "SelectedBreakpointValue")
+        .filter(|v| v.is_finite())
+    {
+        project.selected_breakpoint_value = v;
+    }
+    if let Some(v) = parse_live_set_i32(live_set, "SelectedDocumentViewInMainWindow") {
+        project.selected_document_view = v;
+    }
+    if let Some(v) = parse_live_set_i32(live_set, "ViewStateFxSlotCount") {
+        project.view_state_fx_slot_count = v;
+    }
+    if let Some(v) = first_child_value(live_set, "ViewStateSessionMixerVolumeSectionHeight")
+        .as_deref()
+        .and_then(parse_f64_value)
+        .filter(|v| v.is_finite())
+    {
+        project.view_state_session_mixer_volume_section_height = v;
+    }
+    if let Some(v) = first_child_value(live_set, "ViewStateArrangerMixerVolumeSectionHeight")
+        .as_deref()
+        .and_then(parse_f64_value)
+        .filter(|v| v.is_finite())
+    {
+        project.view_state_arranger_mixer_volume_section_height = v;
+    }
+    if let Some(v) = first_child_value(live_set, "ViewStateSessionTrackWidth")
+        .as_deref()
+        .and_then(parse_f64_value)
+        .filter(|v| v.is_finite())
+    {
+        project.view_state_session_track_width = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "ViewStateMainWindowClipDetailOpen") {
+        project.view_state_main_window_clip_detail_open = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "ViewStateMainWindowDeviceDetailOpen") {
+        project.view_state_main_window_device_detail_open = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "ViewStateSecondWindowClipDetailOpen") {
+        project.view_state_second_window_clip_detail_open = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "ViewStateSecondWindowDeviceDetailOpen") {
+        project.view_state_second_window_device_detail_open = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "ShouldSceneTempoAndTimeSignatureBeVisible") {
+        project.should_scene_tempo_time_signature_be_visible = v;
+    }
+    if let Some(v) = first_child_value(live_set, "WaveformVerticalZoomFactor")
+        .as_deref()
+        .and_then(parse_f64_value)
+        .filter(|v| v.is_finite())
+    {
+        project.waveform_vertical_zoom_factor = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "IsWaveformVerticalZoomActive") {
+        project.is_waveform_vertical_zoom_active = v;
+    }
+    if let Some(v) = parse_live_set_i32(live_set, "HighlightedTrackIndex") {
+        project.highlighted_track_index = v;
+    }
+    if let Some(v) = first_child_value(live_set, "TrackHeaderWidth")
+        .as_deref()
+        .and_then(parse_f64_value)
+        .filter(|v| v.is_finite())
+    {
+        project.track_header_width = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "ResetNonautomatedMidiControllersOnClipStarts") {
+        project.reset_nonautomated_midi_controllers_on_clip_starts = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "MidiFoldIn") {
+        project.midi_fold_in = v;
+    }
+    if let Some(v) = parse_live_set_i32(live_set, "MidiFoldMode") {
+        project.midi_fold_mode = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "MultiClipFocusMode") {
+        project.multi_clip_focus_mode = v;
+    }
+    if let Some(v) = first_child_value(live_set, "MultiClipLoopBarHeight")
+        .as_deref()
+        .and_then(parse_f64_value)
+        .filter(|v| v.is_finite())
+    {
+        project.multi_clip_loop_bar_height = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "MidiPrelisten") {
+        project.midi_prelisten = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "UseWarperLegacyHiQMode") {
+        project.use_warper_legacy_hiq_mode = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "ShowVideoWindow") {
+        project.show_video_window = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "SoloOrPflSavedValue") {
+        project.solo_or_pfl_saved_value = v;
+    }
+    if let Some(v) = parse_live_set_i32(live_set, "ColorSequenceIndex") {
+        project.color_sequence_index = v;
+    }
+    if let Some(v) = parse_live_set_i32(live_set, "NoteSpellingPreference") {
+        project.note_spelling_preference = v;
+    }
+    if let Some(v) = parse_live_set_i32(live_set, "AccidentalSpellingPreference") {
+        project.accidental_spelling_preference = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "PreferFlatRootNote") {
+        project.prefer_flat_root_note = v;
+    }
+    if let Some(v) = parse_live_set_bool(
+        live_set,
+        "ViewStateMainWindowHiddenOtherDocViewTypeClipDetailOpen",
+    ) {
+        project.view_state_main_window_hidden_other_doc_view_type_clip_detail_open = v;
+    }
+    if let Some(v) = parse_live_set_bool(
+        live_set,
+        "ViewStateMainWindowHiddenOtherDocViewTypeDeviceDetailOpen",
+    ) {
+        project.view_state_main_window_hidden_other_doc_view_type_device_detail_open = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "MixerInArrangement") {
+        project.view_mixer_in_arrangement = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "ArrangerMixerIO") {
+        project.view_arranger_mixer_io = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "ArrangerMixerSends") {
+        project.view_arranger_mixer_sends = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "ArrangerMixerReturns") {
+        project.view_arranger_mixer_returns = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "ArrangerMixerVolume") {
+        project.view_arranger_mixer_volume = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "ArrangerMixerTrackOptions") {
+        project.view_arranger_mixer_track_options = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "ArrangerMixerCrossFade") {
+        project.view_arranger_mixer_crossfade = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "ArrangerMixerTrackPerformanceImpactMeter") {
+        project.view_arranger_mixer_track_performance_impact_meter = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "MixerInSession") {
+        project.view_mixer_in_session = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "SessionIO") {
+        project.view_session_io = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "SessionSends") {
+        project.view_session_sends = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "SessionReturns") {
+        project.view_session_returns = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "SessionVolume") {
+        project.view_session_volume = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "SessionTrackOptions") {
+        project.view_session_track_options = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "SessionCrossFade") {
+        project.view_session_crossfade = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "SessionTrackPerformanceImpactMeter") {
+        project.view_session_track_performance_impact_meter = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "SessionShowOverView") {
+        project.view_session_show_overview = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "ArrangerIO") {
+        project.view_arranger_io = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "ArrangerReturns") {
+        project.view_arranger_returns = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "ArrangerVolume") {
+        project.view_arranger_volume = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "ArrangerTrackOptions") {
+        project.view_arranger_track_options = v;
+    }
+    if let Some(v) = parse_view_states_bool(live_set, "ArrangerShowOverView") {
+        project.view_arranger_show_overview = v;
+    }
 
-    // Import default arrangement/editor grid settings from the first clip
-    // that carries a Grid block.
+    if let Some(main_track) = live_set
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("MainTrack"))
+        && let Some(global_groove_amount) = main_track
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("GlobalGrooveAmount"))
+            .and_then(|n| {
+                n.children()
+                    .find(|c| c.is_element() && c.has_tag_name("Manual"))
+                    .and_then(|m| m.attribute("Value"))
+                    .and_then(parse_f64_value)
+            })
+            .filter(|v| v.is_finite())
+    {
+        project.global_groove_amount = global_groove_amount;
+    }
+
+    if let Some(transport) = live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("Transport"))
+    {
+        if let Some(v) = first_child_f64(transport, "PhaseNudgeTempo")
+            .filter(|v| v.is_finite())
+        {
+            project.transport_phase_nudge_tempo = v;
+        }
+        if let Some(current_time_beats) = first_child_f64(transport, "CurrentTime")
+            .filter(|v| v.is_finite() && *v >= 0.0)
+        {
+            project.playhead_position_frames = beats_to_frames(current_time_beats, tempo, sample_rate);
+        }
+        let loop_on = first_child_bool(transport, "LoopOn").unwrap_or(false);
+        let loop_start_beats = first_child_f64(transport, "LoopStart").unwrap_or(0.0).max(0.0);
+        let loop_length_beats = first_child_f64(transport, "LoopLength").unwrap_or(0.0).max(0.0);
+        project.is_looping = loop_on;
+        project.loop_start_frames = Some(beats_to_frames(loop_start_beats, tempo, sample_rate));
+        project.loop_end_frames = Some(beats_to_frames(loop_start_beats + loop_length_beats, tempo, sample_rate));
+        if let Some(v) = first_child_bool(transport, "PunchIn") {
+            project.punch_in_enabled = v;
+        }
+        if let Some(v) = first_child_bool(transport, "PunchOut") {
+            project.punch_out_enabled = v;
+        }
+        if let Some(v) = first_child_f64(transport, "MetronomeTickDuration")
+            .filter(|v| v.is_finite())
+        {
+            project.metronome_tick_duration = v;
+        }
+        if let Some(v) = first_child_bool(transport, "LoopIsSongStart") {
+            project.transport_loop_is_song_start = v;
+        }
+        if let Some(v) = first_child_bool(transport, "DrawMode") {
+            project.transport_draw_mode = v;
+        }
+    }
+
+    // Import arrangement/editor grid settings (prefer LiveSet root grid).
     if let Some((num, den, ntoles, snap, fixed)) = live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("Grid"))
+        .and_then(parse_clip_grid)
+        .or_else(|| live_set
         .descendants()
         .filter(|n| n.is_element() && (n.has_tag_name("AudioClip") || n.has_tag_name("MidiClip")))
-        .find_map(parse_clip_grid)
+        .find_map(parse_clip_grid))
     {
         project.arrangement_grid_numerator = num;
         project.arrangement_grid_denominator = den;
@@ -2719,8 +3571,31 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
         project.arrangement_grid_fixed = fixed;
     }
 
-    // Import project key signature hint from the first clip with ScaleInformation.
-    if let Some(first_clip_with_scale) = live_set
+    // Import project key signature hint (prefer LiveSet root scale info).
+    if let Some(root_scale) = live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("ScaleInformation"))
+    {
+        let is_in_key = first_child_bool(live_set, "InKey").unwrap_or(false);
+        let scale_root = first_child_value(root_scale, "Root")
+            .as_deref()
+            .and_then(parse_i64_value)
+            .map(|v| v.rem_euclid(12) as u8);
+        let scale_name = first_child_value(root_scale, "Name");
+        if is_in_key || scale_root.is_some() {
+            project.key_sig_enabled = true;
+        }
+        if let Some(root) = scale_root {
+            project.key_sig_tonic = semitone_to_tonic(root).to_string();
+        }
+        if let Some(name) = scale_name {
+            project.key_sig_mode = if name.chars().all(|c| c.is_ascii_digit()) {
+                format!("Scale {name}")
+            } else {
+                name
+            };
+        }
+    } else if let Some(first_clip_with_scale) = live_set
         .descendants()
         .filter(|n| n.is_element() && (n.has_tag_name("AudioClip") || n.has_tag_name("MidiClip")))
         .find(|clip| {

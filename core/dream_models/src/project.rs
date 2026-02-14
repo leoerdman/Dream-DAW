@@ -55,6 +55,71 @@ pub struct ProjectMarker {
     pub color: Option<TrackColor>,
 }
 
+/// A Session scene imported from ALS `<Scenes>`.
+///
+/// Stores scene metadata needed for future Session View parity and relaunch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ProjectScene {
+    /// Scene index from ALS `Scene Id`.
+    pub index: i32,
+
+    /// Scene display name.
+    pub name: String,
+
+    /// Optional scene color.
+    #[serde(default)]
+    pub color: Option<TrackColor>,
+
+    /// Optional scene tempo.
+    #[serde(default)]
+    pub tempo: Option<f64>,
+
+    /// Whether scene tempo override is enabled.
+    #[serde(default)]
+    pub tempo_enabled: bool,
+
+    /// Optional referenced time-signature id from ALS.
+    #[serde(default)]
+    pub time_signature_id: Option<i32>,
+
+    /// Whether scene time-signature override is enabled.
+    #[serde(default)]
+    pub time_signature_enabled: bool,
+
+    /// Optional scene time-signature numerator.
+    #[serde(default)]
+    pub time_signature_numerator: Option<u8>,
+
+    /// Optional scene time-signature denominator.
+    #[serde(default)]
+    pub time_signature_denominator: Option<u8>,
+
+    /// Follow action enabled for scene launch.
+    #[serde(default)]
+    pub follow_action_enabled: bool,
+
+    /// Follow action time in beats.
+    #[serde(default)]
+    pub follow_time: Option<f64>,
+
+    /// Follow action A opcode.
+    #[serde(default)]
+    pub follow_action_a: Option<i32>,
+
+    /// Follow action B opcode.
+    #[serde(default)]
+    pub follow_action_b: Option<i32>,
+
+    /// Follow action A chance [0..100].
+    #[serde(default)]
+    pub follow_chance_a: Option<f64>,
+
+    /// Follow action B chance [0..100].
+    #[serde(default)]
+    pub follow_chance_b: Option<f64>,
+}
+
 /// A single automation envelope attached to a clip parameter.
 ///
 /// Represents intra-clip automation (e.g., volume fade within a clip).
@@ -869,6 +934,17 @@ pub struct Track {
     #[ts(type = "string | null")]
     pub output_destination_id: Option<Uuid>,
 
+    /// Input routing source identifier (`AudioInputRouting` / `MidiInputRouting` target value).
+    ///
+    /// Kept as raw routing token (e.g. `AudioIn/Ext.1`, `MidiIn/Track.42`) because
+    /// ALS uses multiple non-UUID addressing modes.
+    #[serde(default)]
+    pub input_source_id: Option<String>,
+
+    /// Track monitoring mode (`MonitoringEnum`): 0=In, 1=Auto, 2=Off.
+    #[serde(default)]
+    pub monitoring_mode: Option<u8>,
+
     // ── Effect Chain ───────────────────────────────────────────────────
 
     /// Insert device nodes (processed in order). Each can be a single
@@ -923,6 +999,8 @@ impl Track {
             color: TrackColor::default(),
             height: 80.0,
             output_destination_id: None,
+            input_source_id: None,
+            monitoring_mode: None,
             effects: Vec::new(),
             instrument: None,
             parent_track_id: None,
@@ -1046,9 +1124,268 @@ pub struct Project {
     #[serde(default)]
     pub markers: Vec<ProjectMarker>,
 
+    /// Session scenes imported from ALS `<Scenes>`.
+    #[serde(default)]
+    pub session_scenes: Vec<ProjectScene>,
+
     /// Whether fixed grid mode is enabled.
     #[serde(default)]
     pub arrangement_grid_fixed: bool,
+
+    /// Global automation mode toggle (`AutomationMode`).
+    #[serde(default)]
+    pub automation_mode_enabled: bool,
+
+    /// Whether automation editing snaps to grid (`SnapAutomationToGrid`).
+    #[serde(default = "default_true")]
+    pub snap_automation_to_grid: bool,
+
+    /// Arrangement overdub mode (`ArrangementOverdub`).
+    #[serde(default)]
+    pub arrangement_overdub: bool,
+
+    /// Solo in place mode (`SoloInPlace`).
+    #[serde(default = "default_true")]
+    pub solo_in_place: bool,
+
+    /// Crossfade curve mode value (`CrossfadeCurve`).
+    #[serde(default = "default_crossfade_curve")]
+    pub crossfade_curve: i32,
+
+    /// Latency compensation mode (`LatencyCompensation`).
+    #[serde(default = "default_latency_compensation")]
+    pub latency_compensation_mode: i32,
+
+    /// Transport punch-in mode (`Transport/PunchIn`).
+    #[serde(default)]
+    pub punch_in_enabled: bool,
+
+    /// Transport punch-out mode (`Transport/PunchOut`).
+    #[serde(default)]
+    pub punch_out_enabled: bool,
+
+    /// Transport metronome tick duration (`Transport/MetronomeTickDuration`).
+    #[serde(default)]
+    pub metronome_tick_duration: f64,
+
+    /// Global groove amount (`MainTrack/GlobalGrooveAmount/Manual`).
+    #[serde(default = "default_global_groove_amount")]
+    pub global_groove_amount: f64,
+
+    /// Session view horizontal scroll position (`SessionScrollPos@X`).
+    #[serde(default)]
+    pub session_scroll_x: i32,
+
+    /// Session view vertical scroll position (`SessionScrollPos@Y`).
+    #[serde(default)]
+    pub session_scroll_y: i32,
+
+    /// Selected breakpoint value in detail editors (`SelectedBreakpointValue`).
+    #[serde(default)]
+    pub selected_breakpoint_value: f64,
+
+    /// Global launch quantisation (`GlobalQuantisation`).
+    #[serde(default)]
+    pub global_quantisation: i32,
+
+    /// Auto quantisation (`AutoQuantisation`).
+    #[serde(default)]
+    pub auto_quantisation: i32,
+
+    /// Selected document view in main window (`SelectedDocumentViewInMainWindow`).
+    #[serde(default)]
+    pub selected_document_view: i32,
+
+    /// Number of visible FX slots (`ViewStateFxSlotCount`).
+    #[serde(default)]
+    pub view_state_fx_slot_count: i32,
+
+    /// Session mixer volume section height (`ViewStateSessionMixerVolumeSectionHeight`).
+    #[serde(default)]
+    pub view_state_session_mixer_volume_section_height: f64,
+
+    /// Arranger mixer volume section height (`ViewStateArrangerMixerVolumeSectionHeight`).
+    #[serde(default)]
+    pub view_state_arranger_mixer_volume_section_height: f64,
+
+    /// Session track width (`ViewStateSessionTrackWidth`).
+    #[serde(default)]
+    pub view_state_session_track_width: f64,
+
+    /// Main window clip detail visibility.
+    #[serde(default)]
+    pub view_state_main_window_clip_detail_open: bool,
+
+    /// Main window device detail visibility.
+    #[serde(default)]
+    pub view_state_main_window_device_detail_open: bool,
+
+    /// Second window clip detail visibility.
+    #[serde(default)]
+    pub view_state_second_window_clip_detail_open: bool,
+
+    /// Second window device detail visibility.
+    #[serde(default)]
+    pub view_state_second_window_device_detail_open: bool,
+
+    /// Scene tempo/time-signature visibility flag.
+    #[serde(default)]
+    pub should_scene_tempo_time_signature_be_visible: bool,
+
+    /// Waveform vertical zoom factor.
+    #[serde(default)]
+    pub waveform_vertical_zoom_factor: f64,
+
+    /// Whether waveform vertical zoom is active.
+    #[serde(default)]
+    pub is_waveform_vertical_zoom_active: bool,
+
+    /// Highlighted track index in LiveSet UI.
+    #[serde(default)]
+    pub highlighted_track_index: i32,
+
+    /// Track header width in UI units.
+    #[serde(default)]
+    pub track_header_width: f64,
+
+    /// Reset non-automated MIDI controllers on clip starts.
+    #[serde(default)]
+    pub reset_nonautomated_midi_controllers_on_clip_starts: bool,
+
+    /// MIDI fold-in state.
+    #[serde(default)]
+    pub midi_fold_in: bool,
+
+    /// MIDI fold mode value.
+    #[serde(default)]
+    pub midi_fold_mode: i32,
+
+    /// Multi-clip focus mode state.
+    #[serde(default)]
+    pub multi_clip_focus_mode: bool,
+
+    /// Multi-clip loop bar height.
+    #[serde(default)]
+    pub multi_clip_loop_bar_height: f64,
+
+    /// MIDI prelisten state.
+    #[serde(default)]
+    pub midi_prelisten: bool,
+
+    /// Warper legacy high-quality mode toggle.
+    #[serde(default)]
+    pub use_warper_legacy_hiq_mode: bool,
+
+    /// Show video window state.
+    #[serde(default)]
+    pub show_video_window: bool,
+
+    /// Stored solo/PFL state.
+    #[serde(default)]
+    pub solo_or_pfl_saved_value: bool,
+
+    /// UI color sequence index.
+    #[serde(default)]
+    pub color_sequence_index: i32,
+
+    /// Note spelling preference.
+    #[serde(default)]
+    pub note_spelling_preference: i32,
+
+    /// Accidental spelling preference.
+    #[serde(default)]
+    pub accidental_spelling_preference: i32,
+
+    /// Prefer flat root note spelling.
+    #[serde(default)]
+    pub prefer_flat_root_note: bool,
+
+    /// Main window hidden-other-doc clip detail open state.
+    #[serde(default)]
+    pub view_state_main_window_hidden_other_doc_view_type_clip_detail_open: bool,
+
+    /// Main window hidden-other-doc device detail open state.
+    #[serde(default)]
+    pub view_state_main_window_hidden_other_doc_view_type_device_detail_open: bool,
+
+    /// Transport phase nudge tempo value.
+    #[serde(default)]
+    pub transport_phase_nudge_tempo: f64,
+
+    /// Whether transport loop starts from song start.
+    #[serde(default)]
+    pub transport_loop_is_song_start: bool,
+
+    /// Transport draw mode state.
+    #[serde(default)]
+    pub transport_draw_mode: bool,
+
+    /// ViewStates/MixerInArrangement.
+    #[serde(default)]
+    pub view_mixer_in_arrangement: bool,
+    /// ViewStates/ArrangerMixerIO.
+    #[serde(default)]
+    pub view_arranger_mixer_io: bool,
+    /// ViewStates/ArrangerMixerSends.
+    #[serde(default)]
+    pub view_arranger_mixer_sends: bool,
+    /// ViewStates/ArrangerMixerReturns.
+    #[serde(default)]
+    pub view_arranger_mixer_returns: bool,
+    /// ViewStates/ArrangerMixerVolume.
+    #[serde(default)]
+    pub view_arranger_mixer_volume: bool,
+    /// ViewStates/ArrangerMixerTrackOptions.
+    #[serde(default)]
+    pub view_arranger_mixer_track_options: bool,
+    /// ViewStates/ArrangerMixerCrossFade.
+    #[serde(default)]
+    pub view_arranger_mixer_crossfade: bool,
+    /// ViewStates/ArrangerMixerTrackPerformanceImpactMeter.
+    #[serde(default)]
+    pub view_arranger_mixer_track_performance_impact_meter: bool,
+    /// ViewStates/MixerInSession.
+    #[serde(default)]
+    pub view_mixer_in_session: bool,
+    /// ViewStates/SessionIO.
+    #[serde(default)]
+    pub view_session_io: bool,
+    /// ViewStates/SessionSends.
+    #[serde(default)]
+    pub view_session_sends: bool,
+    /// ViewStates/SessionReturns.
+    #[serde(default)]
+    pub view_session_returns: bool,
+    /// ViewStates/SessionVolume.
+    #[serde(default)]
+    pub view_session_volume: bool,
+    /// ViewStates/SessionTrackOptions.
+    #[serde(default)]
+    pub view_session_track_options: bool,
+    /// ViewStates/SessionCrossFade.
+    #[serde(default)]
+    pub view_session_crossfade: bool,
+    /// ViewStates/SessionTrackPerformanceImpactMeter.
+    #[serde(default)]
+    pub view_session_track_performance_impact_meter: bool,
+    /// ViewStates/SessionShowOverView.
+    #[serde(default)]
+    pub view_session_show_overview: bool,
+    /// ViewStates/ArrangerIO.
+    #[serde(default)]
+    pub view_arranger_io: bool,
+    /// ViewStates/ArrangerReturns.
+    #[serde(default)]
+    pub view_arranger_returns: bool,
+    /// ViewStates/ArrangerVolume.
+    #[serde(default)]
+    pub view_arranger_volume: bool,
+    /// ViewStates/ArrangerTrackOptions.
+    #[serde(default)]
+    pub view_arranger_track_options: bool,
+    /// ViewStates/ArrangerShowOverView.
+    #[serde(default)]
+    pub view_arranger_show_overview: bool,
 
     // ── Playback State ────────────────────────────────────────────────
 
@@ -1091,6 +1428,9 @@ fn default_arrangement_grid_numerator() -> u16 { 1 }
 fn default_arrangement_grid_denominator() -> u16 { 16 }
 fn default_arrangement_grid_ntoles() -> u8 { 2 }
 fn default_arrangement_snap_to_grid() -> bool { true }
+fn default_crossfade_curve() -> i32 { 2 }
+fn default_latency_compensation() -> i32 { 2 }
+fn default_global_groove_amount() -> f64 { 100.0 }
 
 impl Project {
     /// Creates a new empty project with default settings.
@@ -1117,7 +1457,77 @@ impl Project {
             arrangement_grid_ntoles: default_arrangement_grid_ntoles(),
             arrangement_snap_to_grid: default_arrangement_snap_to_grid(),
             arrangement_grid_fixed: false,
+            automation_mode_enabled: false,
+            snap_automation_to_grid: true,
+            arrangement_overdub: false,
+            solo_in_place: true,
+            crossfade_curve: default_crossfade_curve(),
+            latency_compensation_mode: default_latency_compensation(),
+            punch_in_enabled: false,
+            punch_out_enabled: false,
+            metronome_tick_duration: 0.0,
+            global_groove_amount: default_global_groove_amount(),
+            session_scroll_x: 0,
+            session_scroll_y: 0,
+            selected_breakpoint_value: 0.0,
+            global_quantisation: 0,
+            auto_quantisation: 0,
+            selected_document_view: 0,
+            view_state_fx_slot_count: 0,
+            view_state_session_mixer_volume_section_height: 0.0,
+            view_state_arranger_mixer_volume_section_height: 0.0,
+            view_state_session_track_width: 0.0,
+            view_state_main_window_clip_detail_open: false,
+            view_state_main_window_device_detail_open: false,
+            view_state_second_window_clip_detail_open: false,
+            view_state_second_window_device_detail_open: false,
+            should_scene_tempo_time_signature_be_visible: false,
+            waveform_vertical_zoom_factor: 1.0,
+            is_waveform_vertical_zoom_active: false,
+            highlighted_track_index: -1,
+            track_header_width: 0.0,
+            reset_nonautomated_midi_controllers_on_clip_starts: false,
+            midi_fold_in: false,
+            midi_fold_mode: 0,
+            multi_clip_focus_mode: false,
+            multi_clip_loop_bar_height: 0.0,
+            midi_prelisten: false,
+            use_warper_legacy_hiq_mode: false,
+            show_video_window: false,
+            solo_or_pfl_saved_value: false,
+            color_sequence_index: 0,
+            note_spelling_preference: 0,
+            accidental_spelling_preference: 0,
+            prefer_flat_root_note: false,
+            view_state_main_window_hidden_other_doc_view_type_clip_detail_open: false,
+            view_state_main_window_hidden_other_doc_view_type_device_detail_open: false,
+            transport_phase_nudge_tempo: 0.0,
+            transport_loop_is_song_start: false,
+            transport_draw_mode: false,
+            view_mixer_in_arrangement: false,
+            view_arranger_mixer_io: false,
+            view_arranger_mixer_sends: false,
+            view_arranger_mixer_returns: false,
+            view_arranger_mixer_volume: false,
+            view_arranger_mixer_track_options: false,
+            view_arranger_mixer_crossfade: false,
+            view_arranger_mixer_track_performance_impact_meter: false,
+            view_mixer_in_session: false,
+            view_session_io: false,
+            view_session_sends: false,
+            view_session_returns: false,
+            view_session_volume: false,
+            view_session_track_options: false,
+            view_session_crossfade: false,
+            view_session_track_performance_impact_meter: false,
+            view_session_show_overview: false,
+            view_arranger_io: false,
+            view_arranger_returns: false,
+            view_arranger_volume: false,
+            view_arranger_track_options: false,
+            view_arranger_show_overview: false,
             markers: Vec::new(),
+            session_scenes: Vec::new(),
             // Playback
             playhead_position_frames: 0,
             // Loop

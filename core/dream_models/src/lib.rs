@@ -81,6 +81,8 @@ impl Default for PlaybackState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::project::Project;
+    use std::path::PathBuf;
 
     #[test]
     fn playback_state_serializes_to_json() {
@@ -112,12 +114,16 @@ mod tests {
         assert_eq!(deserialized.loop_start, 705600);
     }
 
-    /// This test exercises ts-rs export. When run, it generates the
-    /// TypeScript file to `frontend/shared_bindings/PlaybackState.ts`.
+    /// Export the complete model graph to `core/dream_models/bindings`.
+    ///
+    /// `scripts/sync_bindings.sh` copies this directory to frontend type folders,
+    /// so this must stay deterministic and up-to-date.
     #[test]
     fn export_typescript_bindings() {
-        let config = ts_rs::Config::new()
-            .with_out_dir("../../frontend/shared_bindings");
-        PlaybackState::export_all(&config).expect("ts-rs export failed");
+        let out_dir: PathBuf = [env!("CARGO_MANIFEST_DIR"), "bindings"].iter().collect();
+        std::fs::create_dir_all(&out_dir).expect("create bindings dir");
+        let config = ts_rs::Config::new().with_out_dir(out_dir);
+        PlaybackState::export_all(&config).expect("ts-rs export failed for PlaybackState");
+        Project::export_all(&config).expect("ts-rs export failed for Project model graph");
     }
 }

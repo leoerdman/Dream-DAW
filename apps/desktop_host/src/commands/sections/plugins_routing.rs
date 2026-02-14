@@ -214,8 +214,35 @@ fn set_track_routing_cmd(
 
 /// Set track audio input source (placeholder hook for sidechain/input matrix).
 #[tauri::command]
-fn set_track_input_cmd(track_id: String, input_id: String) -> Result<(), String> {
-    log::info!("[IPC] set_track_input_cmd({track_id} <- {input_id})");
+fn set_track_input_cmd(
+    track_id: String,
+    input_id: String,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let source_id = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let track = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.id == source_id)
+        .ok_or_else(|| format!("Track not found: {track_id}"))?;
+
+    let normalized = input_id.trim();
+    track.input_source_id = if normalized.is_empty()
+        || normalized.eq_ignore_ascii_case("none")
+        || normalized.eq_ignore_ascii_case("no input")
+        || normalized.eq_ignore_ascii_case("no_input")
+    {
+        None
+    } else {
+        Some(normalized.to_string())
+    };
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    log::info!("[IPC] set_track_input_cmd({track_id} <- {})", track.input_source_id.as_deref().unwrap_or("none"));
     Ok(())
 }
 

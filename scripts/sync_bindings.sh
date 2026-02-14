@@ -6,6 +6,9 @@ SRC_DIR="$ROOT_DIR/core/dream_models/bindings"
 DST_DIR="$ROOT_DIR/frontend/ui_app/src/shared/types"
 LEGACY_DST_DIR="$ROOT_DIR/frontend/shared_bindings"
 
+# Always regenerate Rust -> TS bindings before syncing to frontend.
+cargo test -p dream_models export_typescript_bindings -- --nocapture >/dev/null
+
 if [ ! -d "$SRC_DIR" ]; then
   echo "[sync_bindings] Source bindings directory not found: $SRC_DIR" >&2
   exit 1

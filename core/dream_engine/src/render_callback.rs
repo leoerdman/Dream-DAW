@@ -449,7 +449,7 @@ mod tests {
         let pool = ClipPool::new();
 
         let mut output = vec![1.0_f32; 512]; // Fill with 1.0 first
-        let no_clips: Vec<&[dream_models::project::AudioClip]> = Vec::new();
+        let no_clips: Vec<Vec<dream_models::project::AudioClip>> = Vec::new();
 
         ctx.render(&mut output, &no_clips, &pool);
 

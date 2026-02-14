@@ -16,9 +16,6 @@ import { SettingsPanel } from '@/widgets/SettingsPanel/SettingsPanel';
 import { DragOverlay } from '@/widgets/DragOverlay/DragOverlay';
 import { PianoRoll, type MidiNote } from '@/widgets/PianoRoll/PianoRoll';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
-import { useDragStore } from '@/shared/stores/useDragStore';
-import { useGridStore } from '@/shared/stores/useGridStore';
-import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import { ExportModal } from '@/widgets/ExportModal/ExportModal';
 import * as engineApi from '@/shared/api/engine';
 
@@ -63,6 +60,8 @@ export const DawShell = () => {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [selectedTrackId, setSelectedTrackId] = useState('');
     const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+    const [editCursorBeat, setEditCursorBeat] = useState(0);
+    const [editCursorTrackIndex, setEditCursorTrackIndex] = useState(0);
     const [isDragOver, setIsDragOver] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
     const [bottomPanelMode, setBottomPanelMode] = useState<BottomPanelMode>('rack');
@@ -77,6 +76,7 @@ export const DawShell = () => {
     const createMidiClip = useEngineStore(s => s.createMidiClip);
     const togglePlay = useEngineStore(s => s.togglePlay);
     const fetchProject = useEngineStore(s => s.fetchProject);
+    const startTelemetryLoop = useEngineStore(s => s.startTelemetryLoop);
     const flushTrackControlFinals = useEngineStore(s => s.flushTrackControlFinals);
     const importingRef = useRef(false);
     const timelineRef = useRef<HTMLDivElement>(null);
@@ -118,26 +118,6 @@ export const DawShell = () => {
         return () => window.removeEventListener('keydown', handler);
     }, []);
 
-    // ── Store-based Drag → dropped on Timeline (callback from Timeline) ────
-    const handleStoreDropItem = useCallback(
-        (item: { name: string; path: string; type: string }, trackIndex: number, beat: number) => {
-            console.log('[DawShell] handleStoreDropItem', { name: item.name, type: item.type, path: item.path, trackIndex, beat });
-
-            if (!item.path || (item.type !== 'audio' && item.type !== 'midi')) {
-                console.warn('[DawShell] Drop: unsupported type or no path', item);
-                return;
-            }
-
-            const state = useEngineStore.getState();
-            const bpm = state.transport.bpm || 120;
-            const sr = state.projectSampleRate || 44100;
-            const posSeconds = beat / (bpm / 60);
-            const positionFrames = Math.round(posSeconds * sr);
-            state.importFile(item.path, trackIndex, positionFrames);
-        },
-        [],
-    );
-
     // ── Tauri Drag & Drop → Import Audio ───────────────────────────
     useEffect(() => {
         let unlisten: (() => void) | undefined;
@@ -145,7 +125,7 @@ export const DawShell = () => {
         const setup = async () => {
             // Listen for drag hover (visual feedback) — only for OS file drops, not in-app drags
             const unlistenHover = await listen('tauri://drag-over', () => {
-                if (!(window as any).__dreamInAppDrag) {
+                if (!window.__dreamInAppDrag) {
                     setIsDragOver(true);
                 }
             });
@@ -196,10 +176,38 @@ export const DawShell = () => {
     const openSettings = useCallback(() => setSettingsOpen(true), []);
     const handleSelectTrack = useCallback((id: string) => setSelectedTrackId(id), []);
 
+    // Safety-net bootstrap: if splash transition missed telemetry startup,
+    // mount of workspace guarantees playhead + meters start updating.
+    useEffect(() => {
+        startTelemetryLoop();
+    }, [startTelemetryLoop]);
+
+    // Force one layout sync pass right after workspace mount to avoid stale
+    // cached sizes from splash geometry on first frame.
+    useEffect(() => {
+        const id = requestAnimationFrame(() => {
+            window.dispatchEvent(new Event('resize'));
+        });
+        return () => cancelAnimationFrame(id);
+    }, []);
+
     // ── Engine state for Timeline ───────────────────────────────────
     const transport = useEngineStore(s => s.transport);
     const timelineClips = useEngineStore(s => s.timelineClips);
     const projectTracks = useEngineStore(s => s.projectTracks);
+    const timelineClipsForView = useMemo(
+        () =>
+            timelineClips.map((clip) => {
+                if (clip.type !== 'midi') return clip;
+                const localNotes = midiNotesByClip[clip.id];
+                if (!localNotes) return clip;
+                return {
+                    ...clip,
+                    midiNotes: localNotes,
+                };
+            }),
+        [timelineClips, midiNotesByClip],
+    );
 
     // Keep a valid selected track at all times.
     useEffect(() => {
@@ -222,8 +230,8 @@ export const DawShell = () => {
     const trackCount = Math.max(projectTracks.length, 8);
     const trackIds = useMemo(() => projectTracks.map((t) => t.id), [projectTracks]);
     const selectedTimelineClip = useMemo(
-        () => timelineClips.find((c) => c.id === selectedClipId) ?? null,
-        [timelineClips, selectedClipId],
+        () => timelineClipsForView.find((c) => c.id === selectedClipId) ?? null,
+        [timelineClipsForView, selectedClipId],
     );
     const selectedMidiTotalBars = useMemo(() => {
         if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return 8;
@@ -292,6 +300,27 @@ export const DawShell = () => {
         engineApi.seekSeconds(seconds);
     }, [transport.bpm]);
 
+    const handleEditCursorChange = useCallback((beat: number, trackIndex: number) => {
+        setEditCursorBeat(Math.max(0, beat));
+        setEditCursorTrackIndex(Math.max(0, trackIndex));
+    }, []);
+
+    // Start playback from the edit cursor position.
+    const prevIsPlayingRef = useRef(false);
+    useEffect(() => {
+        const justStarted = transport.is_playing && !prevIsPlayingRef.current;
+        prevIsPlayingRef.current = transport.is_playing;
+        if (!justStarted) return;
+        const bpm = transport.bpm || 120;
+        const cursorSeconds = Math.max(0, editCursorBeat / (bpm / 60));
+        const drift = Math.abs((transport.position_seconds ?? 0) - cursorSeconds);
+        if (drift > 0.002) {
+            void engineApi.seekSeconds(cursorSeconds).catch((err) => {
+                console.error('[DawShell] seek to edit cursor failed:', err);
+            });
+        }
+    }, [transport.is_playing, transport.bpm, transport.position_seconds, editCursorBeat]);
+
     // Clip selection callback
     const handleClipSelect = useCallback((clipId: string) => {
         setSelectedClipId(clipId);
@@ -345,6 +374,39 @@ export const DawShell = () => {
         setBottomPanelMode('clip');
     }, []);
 
+    const flushPendingMidiEdits = useCallback(async () => {
+        const bpm = transport.bpm || 120;
+        const sr = useEngineStore.getState().projectSampleRate || 44100;
+        const beatsPerSecond = bpm / 60;
+        const tasks: Promise<unknown>[] = [];
+
+        for (const [clipId, notes] of Object.entries(latestMidiNotesRef.current)) {
+            tasks.push(
+                engineApi.updateMidiClip(
+                    clipId,
+                    notes.map((n) => ({
+                        pitch: n.pitch,
+                        velocity: n.velocity,
+                        startFrames: Math.max(0, Math.round((n.startBeat / beatsPerSecond) * sr)),
+                        durationFrames: Math.max(1, Math.round((n.durationBeats / beatsPerSecond) * sr)),
+                    })),
+                )
+            );
+        }
+
+        await Promise.allSettled(tasks);
+    }, [transport.bpm]);
+
+    useEffect(() => {
+        window.__dreamFlushPendingEdits = async () => {
+            await flushTrackControlFinals();
+            await flushPendingMidiEdits();
+        };
+        return () => {
+            delete window.__dreamFlushPendingEdits;
+        };
+    }, [flushTrackControlFinals, flushPendingMidiEdits]);
+
     return (
         <div className="relative w-screen h-screen overflow-hidden bg-bg-app text-text-primary">
 
@@ -391,8 +453,10 @@ export const DawShell = () => {
                     >
                         <ErrorBoundary module="Timeline">
                             <Timeline
-                                clips={timelineClips}
+                                clips={timelineClipsForView}
                                 playheadBeat={playheadBeat}
+                                editCursorBeat={editCursorBeat}
+                                editCursorTrackIndex={editCursorTrackIndex}
                                 isPlaying={transport.is_playing}
                                 recordingActive={recordingState.active}
                                 recordingTrackIndex={recordingState.trackIndex}
@@ -400,12 +464,16 @@ export const DawShell = () => {
                                 trackCount={trackCount}
                                 trackHeight={TRACK_HEIGHT}
                                 onPlayheadChange={handlePlayheadChange}
+                                onEditCursorChange={handleEditCursorChange}
                                 onClipSelect={handleClipSelect}
                                 onClipMove={handleClipMove}
                                 onDropBrowserItem={handleBrowserDrop}
-                                onStoreDropItem={handleStoreDropItem}
                                 onDoubleClickTrack={handleDoubleClickTrack}
                                 onOpenMidiClip={handleOpenMidiClip}
+                                onTrackSelect={(trackId, trackIndex) => {
+                                    const resolvedTrackId = trackIds[trackIndex] ?? trackId;
+                                    handleSelectTrack(resolvedTrackId);
+                                }}
                                 onScrollTop={handleTimelineScrollTop}
                             />
                         </ErrorBoundary>
@@ -480,7 +548,7 @@ export const DawShell = () => {
                                     clipLengthBeats={selectedTimelineClip.durationBeats}
                                 />
                             ) : selectedTimelineClip?.type === 'audio' ? (
-                                <SampleClipEditor clip={selectedTimelineClip} />
+                                <SampleClipEditor key={selectedTimelineClip.id} clip={selectedTimelineClip} />
                             ) : (
                                 <EmptyClipEditor />
                             )}
@@ -569,10 +637,6 @@ const SampleClipEditor = ({
     const durationSamples = Math.max(0, clip.durationSamples ?? 0);
     const maxOffset = Math.max(0, durationSamples - 1);
     const [draftOffset, setDraftOffset] = useState<number>(clip.sourceOffset ?? 0);
-
-    useEffect(() => {
-        setDraftOffset(clip.sourceOffset ?? 0);
-    }, [clip.id, clip.sourceOffset]);
 
     const commitOffset = useCallback(async (value: number) => {
         const next = Math.max(0, Math.min(maxOffset, Math.round(value)));

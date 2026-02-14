@@ -77,6 +77,8 @@ interface TimelineProps {
     trackHeight?: number;
     clips?: TimelineClip[];
     playheadBeat?: number;
+    editCursorBeat?: number;
+    editCursorTrackIndex?: number;
     isPlaying?: boolean;
     recordingActive?: boolean;
     recordingTrackIndex?: number;
@@ -85,6 +87,7 @@ interface TimelineProps {
     loopEnd?: number;
     loopEnabled?: boolean;
     onPlayheadChange?: (beat: number) => void;
+    onEditCursorChange?: (beat: number, trackIndex: number) => void;
     onClipSelect?: (clipId: string) => void;
     onClipMove?: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
     /** Called when an item is dropped from the AssetBrowser. */
@@ -94,6 +97,8 @@ interface TimelineProps {
     onDoubleClickTrack?: (trackIndex: number, beat: number) => void;
     /** Called when user double-clicks a MIDI clip (open piano roll). */
     onOpenMidiClip?: (clipId: string, trackIndex: number) => void;
+    /** Called when user clicks timeline lane/clip to select owning track. */
+    onTrackSelect?: (trackId: string, trackIndex: number) => void;
     /** Called on vertical scroll — for syncing TrackInspector. */
     onScrollTop?: (scrollTop: number) => void;
 }
@@ -117,6 +122,8 @@ export const Timeline = ({
     trackHeight = 48,
     clips: externalClips,
     playheadBeat: externalPlayhead,
+    editCursorBeat: externalEditCursor,
+    editCursorTrackIndex: externalEditCursorTrackIndex,
     isPlaying = false,
     recordingActive = false,
     recordingTrackIndex = 0,
@@ -125,17 +132,22 @@ export const Timeline = ({
     loopEnd = 20,
     loopEnabled = true,
     onPlayheadChange,
+    onEditCursorChange,
     onClipSelect,
     onClipMove,
     onDropBrowserItem,
     onDoubleClickTrack,
     onOpenMidiClip,
+    onTrackSelect,
     onScrollTop,
 }: TimelineProps) => {
     const [pixelsPerBeat, setPixelsPerBeat] = useState(DEFAULT_PPB);
     const [scrollLeft, setScrollLeft] = useState(0);
     const [viewportWidth, setViewportWidth] = useState(0);
     const [internalPlayhead, setInternalPlayhead] = useState(0);
+    const [internalEditCursor, setInternalEditCursor] = useState(0);
+    const [internalEditCursorTrackIndex, setInternalEditCursorTrackIndex] = useState(0);
+    const [cursorBlinkOn, setCursorBlinkOn] = useState(true);
     const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
     const [draggingClip, setDraggingClip] = useState<{
         clipId: string;
@@ -157,12 +169,19 @@ export const Timeline = ({
 
     // Use external playhead (from engine telemetry) when available
     const playheadBeat = externalPlayhead ?? internalPlayhead;
+    const editCursorBeat = externalEditCursor ?? internalEditCursor;
+    const editCursorTrackIndex = externalEditCursorTrackIndex ?? internalEditCursorTrackIndex;
     const setPlayheadBeat = (beat: number) => {
         setInternalPlayhead(beat);
     };
+    const setEditCursorBeat = useCallback((beat: number, trackIndex: number) => {
+        setInternalEditCursor(beat);
+        setInternalEditCursorTrackIndex(trackIndex);
+        onEditCursorChange?.(beat, trackIndex);
+    }, [onEditCursorChange]);
 
     // Use clips from engine store (passed via DawShell) — no demo fallback
-    const clips = externalClips ?? [];
+    const clips = useMemo(() => externalClips ?? [], [externalClips]);
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -178,6 +197,20 @@ export const Timeline = ({
     const totalBeats = totalBars * beatsPerBar;
     const canvasWidth = totalBeats * pixelsPerBeat;
     const canvasHeight = trackCount * trackHeight;
+
+    const selectTrackByIndex = useCallback((trackIndex: number) => {
+        const clampedIndex = Math.max(0, Math.min(trackCount - 1, trackIndex));
+        const trackId = trackIds[clampedIndex] ?? `track-${clampedIndex}`;
+        onTrackSelect?.(trackId, clampedIndex);
+    }, [onTrackSelect, trackCount, trackIds]);
+
+    // Blinking edit cursor (independent from playback line).
+    useEffect(() => {
+        const interval = window.setInterval(() => {
+            setCursorBlinkOn((prev) => !prev);
+        }, 1200);
+        return () => window.clearInterval(interval);
+    }, []);
 
     // ── Grid snap ──
     const snapBeat = useGridStore((s) => s.snapBeat);
@@ -293,7 +326,11 @@ export const Timeline = ({
             useDragStore.getState().endDrag();
 
             // Fire the callback with exact position
-            onDropBrowserItem?.({ name: item.name, path: item.path, type: item.type }, trackIdx, snappedBeat);
+            onDropBrowserItem?.(
+                { id: item.id, name: item.name, path: item.path, type: item.type },
+                trackIdx,
+                snappedBeat,
+            );
         };
 
         window.addEventListener('mouseup', handleMouseUp);
@@ -508,32 +545,49 @@ export const Timeline = ({
         }
     }, [externalPlayhead, isPlaying, pixelsPerBeat]);
 
-    // ── Ruler click → set playhead ──
+    // ── Ruler click → set edit cursor position ──
     const handleRulerClick = useCallback((e: React.MouseEvent) => {
         const rect = e.currentTarget.getBoundingClientRect();
         const x = e.clientX - rect.left + scrollLeft;
         const beat = x / pixelsPerBeat;
-        setPlayheadBeat(beat);
-        onPlayheadChange?.(beat);
-    }, [pixelsPerBeat, scrollLeft, onPlayheadChange]);
+        const trackForCursor = Math.max(0, Math.min(trackCount - 1, editCursorTrackIndex));
+        setEditCursorBeat(beat, trackForCursor);
+        if (!isPlaying) {
+            setPlayheadBeat(beat);
+            onPlayheadChange?.(beat);
+        }
+    }, [pixelsPerBeat, scrollLeft, editCursorTrackIndex, trackCount, setEditCursorBeat, isPlaying, onPlayheadChange]);
 
-    // ── Canvas click → set playhead + deselect ──
+    // ── Canvas click → set edit cursor + deselect clip ──
     const handleCanvasClick = useCallback((e: React.MouseEvent) => {
         if ((e.target as HTMLElement).dataset.clip) return;
         const rect = e.currentTarget.getBoundingClientRect();
-        const x = e.clientX - rect.left;
+        const scrollLeftPx = scrollContainerRef.current?.scrollLeft ?? 0;
+        const x = e.clientX - rect.left + scrollLeftPx;
+        const scrollTop = scrollContainerRef.current?.scrollTop ?? 0;
+        const y = e.clientY - rect.top + scrollTop;
+        const trackIndex = Math.max(0, Math.min(trackCount - 1, Math.floor(y / trackHeight)));
         const beat = x / pixelsPerBeat;
-        setPlayheadBeat(beat);
+        setEditCursorBeat(beat, trackIndex);
         setSelectedClipId(null);
-        onPlayheadChange?.(beat);
-    }, [pixelsPerBeat, onPlayheadChange]);
+        selectTrackByIndex(trackIndex);
+        if (!isPlaying) {
+            setPlayheadBeat(beat);
+            onPlayheadChange?.(beat);
+        }
+    }, [pixelsPerBeat, trackHeight, selectTrackByIndex, trackCount, setEditCursorBeat, isPlaying, onPlayheadChange]);
 
     // ── Clip selection ──
     const handleClipClick = useCallback((e: React.MouseEvent, clipId: string) => {
         e.stopPropagation();
         setSelectedClipId(clipId);
         onClipSelect?.(clipId);
-    }, [onClipSelect]);
+        const clip = clips.find((c) => c.id === clipId);
+        if (clip) {
+            selectTrackByIndex(clip.trackIndex);
+            setInternalEditCursorTrackIndex(clip.trackIndex);
+        }
+    }, [onClipSelect, clips, selectTrackByIndex]);
 
     // ── Clip drag start ──
     const handleClipMouseDown = useCallback((e: React.MouseEvent, clip: TimelineClip) => {
@@ -569,8 +623,10 @@ export const Timeline = ({
         const onMove = (e: MouseEvent) => {
             if (!canvasRef.current) return;
             const rect = canvasRef.current.getBoundingClientRect();
-            const x = e.clientX - rect.left - draggingClip.offsetX;
-            const y = e.clientY - rect.top - draggingClip.offsetY;
+            const scrollLeftPx = scrollContainerRef.current?.scrollLeft ?? 0;
+            const scrollTopPx = scrollContainerRef.current?.scrollTop ?? 0;
+            const x = e.clientX - rect.left + scrollLeftPx - draggingClip.offsetX;
+            const y = e.clientY - rect.top + scrollTopPx - draggingClip.offsetY;
             const newBeat = Math.max(0, e.altKey
                 ? (x / pixelsPerBeat)
                 : snapBeat(x / pixelsPerBeat, beatsPerBar)
@@ -587,8 +643,10 @@ export const Timeline = ({
         const onUp = (e: MouseEvent) => {
             if (!canvasRef.current) return;
             const rect = canvasRef.current.getBoundingClientRect();
-            const x = e.clientX - rect.left - draggingClip.offsetX;
-            const y = e.clientY - rect.top - draggingClip.offsetY;
+            const scrollLeftPx = scrollContainerRef.current?.scrollLeft ?? 0;
+            const scrollTopPx = scrollContainerRef.current?.scrollTop ?? 0;
+            const x = e.clientX - rect.left + scrollLeftPx - draggingClip.offsetX;
+            const y = e.clientY - rect.top + scrollTopPx - draggingClip.offsetY;
             const newBeat = Math.max(0, e.altKey
                 ? (x / pixelsPerBeat)
                 : snapBeat(x / pixelsPerBeat, beatsPerBar)
@@ -604,7 +662,7 @@ export const Timeline = ({
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
         };
-    }, [draggingClip, pixelsPerBeat, trackHeight, trackCount, onClipMove]);
+    }, [draggingClip, pixelsPerBeat, trackHeight, trackCount, onClipMove, snapBeat, beatsPerBar]);
 
     // Ruler marks
     const rulerMarks = useMemo(() => {
@@ -712,6 +770,21 @@ export const Timeline = ({
                         borderRight: '5px solid transparent',
                         borderBottom: '6px solid var(--color-accent-primary)',
                     }} />
+
+                    {/* Edit cursor indicator on ruler (blinking, independent) */}
+                    <div style={{
+                        position: 'absolute',
+                        left: editCursorBeat * pixelsPerBeat - 4,
+                        top: 0,
+                        width: 0,
+                        height: 0,
+                        borderLeft: '5px solid transparent',
+                        borderRight: '5px solid transparent',
+                        borderTop: '6px solid rgba(255,255,255,0.68)',
+                        opacity: cursorBlinkOn ? 0.68 : 0.24,
+                        transition: 'opacity 820ms ease-in-out',
+                        pointerEvents: 'none',
+                    }} />
                 </div>
 
                 {/* Loop region on ruler */}
@@ -748,8 +821,8 @@ export const Timeline = ({
                     try {
                         const item = JSON.parse(raw) as BrowserDragItem;
                         const rect = e.currentTarget.getBoundingClientRect();
-                        const y = e.clientY - rect.top;
-                        const x = e.clientX - rect.left;
+                        const y = e.clientY - rect.top + e.currentTarget.scrollTop;
+                        const x = e.clientX - rect.left + e.currentTarget.scrollLeft;
                         const track = Math.min(Math.floor(y / trackHeight), trackCount - 1);
                         const beat = Math.max(0, snapBeat(x / pixelsPerBeat, beatsPerBar));
                         console.log('[Timeline] Drop on scroll container', { item, track, beat });
@@ -773,8 +846,10 @@ export const Timeline = ({
                     onDoubleClick={(e) => {
                         // Double-click on a track lane → create MIDI clip
                         const rect = e.currentTarget.getBoundingClientRect();
-                        const y = e.clientY - rect.top;
-                        const x = e.clientX - rect.left;
+                        const scrollLeftPx = scrollContainerRef.current?.scrollLeft ?? 0;
+                        const scrollTopPx = scrollContainerRef.current?.scrollTop ?? 0;
+                        const y = e.clientY - rect.top + scrollTopPx;
+                        const x = e.clientX - rect.left + scrollLeftPx;
                         const track = Math.min(Math.floor(y / trackHeight), trackCount - 1);
                         const beat = Math.max(0, e.altKey
                             ? (x / pixelsPerBeat)
@@ -789,8 +864,10 @@ export const Timeline = ({
                             e.dataTransfer.dropEffect = 'copy';
                             // Compute target track from cursor Y
                             const rect = e.currentTarget.getBoundingClientRect();
-                            const y = e.clientY - rect.top;
-                            const x = e.clientX - rect.left;
+                            const scrollLeftPx = scrollContainerRef.current?.scrollLeft ?? 0;
+                            const scrollTopPx = scrollContainerRef.current?.scrollTop ?? 0;
+                            const y = e.clientY - rect.top + scrollTopPx;
+                            const x = e.clientX - rect.left + scrollLeftPx;
                             const track = Math.min(Math.floor(y / trackHeight), trackCount - 1);
                             const beat = Math.max(0, snapBeat(x / pixelsPerBeat, beatsPerBar)); // magnetic snap
                             setDropTargetTrack(track);
@@ -808,8 +885,10 @@ export const Timeline = ({
                         try {
                             const item = JSON.parse(raw) as BrowserDragItem;
                             const rect = e.currentTarget.getBoundingClientRect();
-                            const y = e.clientY - rect.top;
-                            const x = e.clientX - rect.left;
+                            const scrollLeftPx = scrollContainerRef.current?.scrollLeft ?? 0;
+                            const scrollTopPx = scrollContainerRef.current?.scrollTop ?? 0;
+                            const y = e.clientY - rect.top + scrollTopPx;
+                            const x = e.clientX - rect.left + scrollLeftPx;
                             const track = Math.min(Math.floor(y / trackHeight), trackCount - 1);
                             const beat = Math.max(0, snapBeat(x / pixelsPerBeat, beatsPerBar));
                             onDropBrowserItem?.(item, track, beat);
@@ -1203,6 +1282,21 @@ export const Timeline = ({
                         pointerEvents: 'none',
                         boxShadow: '0 0 6px var(--color-accent-primary)',
                     }} />
+
+                    {/* ── Edit Cursor (blinking marker) ── */}
+                    <div style={{
+                        position: 'absolute',
+                        left: editCursorBeat * pixelsPerBeat,
+                        top: editCursorTrackIndex * trackHeight,
+                        width: 1,
+                        height: trackHeight,
+                        background: 'rgba(255,255,255,0.62)',
+                        zIndex: 19,
+                        pointerEvents: 'none',
+                        opacity: cursorBlinkOn ? 0.62 : 0.22,
+                        boxShadow: cursorBlinkOn ? '0 0 3px rgba(255,255,255,0.55)' : 'none',
+                        transition: 'opacity 820ms ease-in-out, box-shadow 820ms ease-in-out',
+                    }} />
                 </div>
             </div>
         </div>
@@ -1221,7 +1315,8 @@ const AudioWaveformFallback = ({ width }: { width: number }) => {
             style={{ opacity: 0.4 }}
         >
             {Array.from({ length: segmentCount }, (_, i) => {
-                const h = 3 + Math.random() * 14;
+                const seeded = Math.abs(Math.sin((i + 1) * 12.9898 + segmentCount * 78.233));
+                const h = 3 + seeded * 14;
                 const y = 10 - h / 2;
                 return (
                     <rect
@@ -1241,6 +1336,7 @@ const AudioWaveformFallback = ({ width }: { width: number }) => {
 /** MIDI note blocks — compact piano-roll style */
 const MidiNoteFallback = ({
     width,
+    height = 18,
     notes,
     clipDurationBeats,
 }: {
@@ -1256,42 +1352,36 @@ const MidiNoteFallback = ({
 }) => {
     const hasNotes = (notes?.length ?? 0) > 0;
     const duration = Math.max(0.001, clipDurationBeats ?? 1);
-    const minPitch = 24;
-    const maxPitch = 96;
-    const pitchSpan = maxPitch - minPitch;
+    const viewHeight = Math.max(12, Math.round(height));
+    const normalizedNotes = (notes ?? []).filter((n) => Number.isFinite(n.pitch));
+
+    let minPitch = 24;
+    let maxPitch = 96;
+    if (normalizedNotes.length > 0) {
+        const rawMin = Math.min(...normalizedNotes.map((n) => n.pitch));
+        const rawMax = Math.max(...normalizedNotes.map((n) => n.pitch));
+        const pad = 1;
+        minPitch = Math.max(0, Math.floor(rawMin) - pad);
+        maxPitch = Math.min(127, Math.ceil(rawMax) + pad);
+        if (maxPitch - minPitch < 4) {
+            const center = Math.round((rawMin + rawMax) * 0.5);
+            minPitch = Math.max(0, center - 2);
+            maxPitch = Math.min(127, center + 2);
+        }
+    }
+    const pitchSpan = Math.max(1, maxPitch - minPitch);
 
     if (!hasNotes) {
-        const noteCount = Math.max(2, Math.floor(width / 8));
-        const seed = (i: number) => {
-            let h = i * 2654435761;
-            h = ((h >>> 16) ^ h) * 0x45d9f3b;
-            h = ((h >>> 16) ^ h) * 0x45d9f3b;
-            h = (h >>> 16) ^ h;
-            return (h & 0xffff) / 0xffff;
-        };
+        const emptyWidth = Math.max(100, Math.round(width));
         return (
             <svg
                 width="100%"
                 height="100%"
-                viewBox={`0 0 ${noteCount * 3} 12`}
+                viewBox={`0 0 ${emptyWidth} ${viewHeight}`}
                 preserveAspectRatio="none"
-                style={{ opacity: 0.5 }}
+                style={{ opacity: 0.2 }}
             >
-                {Array.from({ length: noteCount }, (_, i) => {
-                    const y = 1 + Math.floor(seed(i) * 9);
-                    const w = 0.8 + seed(i + 1000) * 1.5;
-                    return (
-                        <rect
-                            key={i}
-                            x={i * 3}
-                            y={y}
-                            width={w}
-                            height={1.5}
-                            fill="rgba(255,255,255,0.7)"
-                            rx={0.3}
-                        />
-                    );
-                })}
+                {/* intentionally empty: no baseline stripe in MIDI clips */}
             </svg>
         );
     }
@@ -1300,22 +1390,23 @@ const MidiNoteFallback = ({
         <svg
             width="100%"
             height="100%"
-            viewBox="0 0 100 12"
+            viewBox={`0 0 100 ${viewHeight}`}
             preserveAspectRatio="none"
-            style={{ opacity: 0.65 }}
+            style={{ opacity: 0.76 }}
         >
             {notes!.map((note, i) => {
                 const x = (note.startBeat / duration) * 100;
                 const w = Math.max(0.8, (note.durationBeats / duration) * 100);
-                const yNorm = (note.pitch - minPitch) / pitchSpan;
-                const y = 10 - Math.max(0, Math.min(1, yNorm)) * 9;
+                const yNorm = (maxPitch - note.pitch) / pitchSpan;
+                const y = 1 + Math.max(0, Math.min(1, yNorm)) * (viewHeight - 4);
+                const noteHeight = Math.max(1.4, Math.min(4.2, viewHeight * 0.12));
                 return (
                     <rect
                         key={`${note.pitch}-${note.startBeat}-${i}`}
                         x={x}
                         y={y}
                         width={w}
-                        height={1.5}
+                        height={noteHeight}
                         fill="rgba(255,255,255,0.82)"
                         rx={0.3}
                     />

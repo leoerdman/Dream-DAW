@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import throttle from 'lodash.throttle';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useDragStore } from '@/shared/stores/useDragStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import * as engineApi from '@/shared/api/engine';
 import { PluginWindow } from '@/widgets/PluginWindow/PluginWindow';
 
@@ -36,6 +37,7 @@ interface DeviceSlot {
     pluginId: string;
     isVst: boolean;
     source: 'internal' | 'vst' | 'unknown';
+    samplePath?: string;
 }
 
 const DEVICE_PARAM_PRESETS: Record<
@@ -107,6 +109,38 @@ function vuNorm(peakDb: number): number {
     return (clamped - minDb) / (maxDb - minDb);
 }
 
+function normalizePickedPath(picked: unknown): string | null {
+    const rawValue = Array.isArray(picked) ? picked[0] : picked;
+    if (typeof rawValue !== 'string') return null;
+
+    let normalized = rawValue.trim();
+    if (!normalized) return null;
+
+    if (normalized.startsWith('file://')) {
+        try {
+            const url = new URL(normalized);
+            normalized = decodeURIComponent(url.pathname);
+            if (/^\/[A-Za-z]:/.test(normalized)) {
+                normalized = normalized.slice(1);
+            }
+        } catch {
+            normalized = decodeURIComponent(normalized.replace(/^file:\/\//, ''));
+        }
+    }
+
+    return normalized;
+}
+
+function errorMessage(err: unknown): string {
+    if (err instanceof Error) return err.message;
+    if (typeof err === 'string') return err;
+    if (err && typeof err === 'object') {
+        const maybeMessage = (err as { message?: unknown }).message;
+        if (typeof maybeMessage === 'string') return maybeMessage;
+    }
+    return 'Unknown error';
+}
+
 // ── Component ──────────────────────────────────────────
 
 interface DeviceRackProps {
@@ -119,8 +153,11 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
     const [pluginCapability, setPluginCapability] = useState<
         Record<string, { supported: boolean; reason?: string }>
     >({});
-    const [openInternalDevice, setOpenInternalDevice] = useState<DeviceSlot | null>(null);
-    const [uiNotice, setUiNotice] = useState<string | null>(null);
+    const [openGuiDevice, setOpenGuiDevice] = useState<DeviceSlot | null>(null);
+    const [openSettingsDevice, setOpenSettingsDevice] = useState<DeviceSlot | null>(null);
+    const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+    const statusError = useStatusStore((s) => s.setError);
+    const statusClear = useStatusStore((s) => s.clear);
     const throttledParamSendsRef = useRef<Map<string, (value: number) => void>>(new Map());
     const projectTracks = useEngineStore((s) => s.projectTracks);
     const meters = useEngineStore((s) => s.meters);
@@ -196,6 +233,9 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
                 pluginId,
                 isVst,
                 source: isInternal ? 'internal' : isVst ? 'vst' : 'unknown',
+                samplePath: effectType === 'sampler' || effectType === 'instrument'
+                    ? (selectedTrack.sampler?.sample_path ?? undefined)
+                    : undefined,
             };
         });
     }, [selectedTrack, localBypass, localParams, isMaster, outLevel]);
@@ -246,14 +286,52 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
     );
 
     useEffect(() => {
-        if (!openInternalDevice) return;
-        const next = chain.find((d) => d.id === openInternalDevice.id);
-        if (!next) {
-            setOpenInternalDevice(null);
-            return;
+        if (selectedDeviceId && !chain.some((d) => d.id === selectedDeviceId)) {
+            setSelectedDeviceId(null);
         }
-        setOpenInternalDevice(next);
-    }, [chain, openInternalDevice]);
+        if (!selectedDeviceId && chain.length > 0) {
+            const preferredInline =
+                chain.find((d) => d.source === 'internal' && (d.effectType === 'sampler' || d.effectType === 'instrument')) ??
+                chain.find((d) => d.source === 'internal') ??
+                null;
+            if (preferredInline) {
+                setSelectedDeviceId(preferredInline.id);
+            }
+        }
+        if (openGuiDevice) {
+            const next = chain.find((d) => d.id === openGuiDevice.id);
+            if (!next) setOpenGuiDevice(null);
+            else setOpenGuiDevice(next);
+        }
+        if (openSettingsDevice) {
+            const next = chain.find((d) => d.id === openSettingsDevice.id);
+            if (!next) setOpenSettingsDevice(null);
+            else setOpenSettingsDevice(next);
+        }
+    }, [chain, selectedDeviceId, openGuiDevice, openSettingsDevice]);
+
+    useEffect(() => {
+        const onKeyDown = async (e: KeyboardEvent) => {
+            if ((e.key !== 'Delete' && e.key !== 'Backspace') || !selectedDeviceId) return;
+            const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+            if (tag === 'input' || tag === 'textarea' || (e.target as HTMLElement | null)?.isContentEditable) return;
+            if (!selectedTrack || selectedTrackId === 'master') return;
+            e.preventDefault();
+            try {
+                await engineApi.removePluginFromTrack(selectedTrack.id, selectedDeviceId);
+                if (openGuiDevice?.id === selectedDeviceId) setOpenGuiDevice(null);
+                if (openSettingsDevice?.id === selectedDeviceId) setOpenSettingsDevice(null);
+                setSelectedDeviceId(null);
+                await fetchProject();
+                statusClear();
+            } catch (err) {
+                console.error('[DeviceRack] removePluginFromTrack failed:', err);
+                statusError('Failed to remove plugin from track.');
+            }
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [selectedDeviceId, selectedTrack, selectedTrackId, openGuiDevice, openSettingsDevice, fetchProject, statusClear, statusError]);
 
     useEffect(() => {
         let cancelled = false;
@@ -331,7 +409,7 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
 
             const targetTrack = selectedTrack ?? projectTracks[0] ?? null;
             if (!targetTrack) {
-                setUiNotice('No target track selected.');
+                statusError('No target track selected.');
                 useDragStore.getState().endDrag();
                 setIsDropActive(false);
                 return;
@@ -354,10 +432,10 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
                     slot,
                 );
                 await fetchProject();
-                setUiNotice(null);
+                statusClear();
             } catch (err) {
                 console.error('[DeviceRack] addPluginToTrack failed:', err);
-                setUiNotice('Failed to add plugin to track.');
+                statusError('Failed to add plugin to track.');
             } finally {
                 useDragStore.getState().endDrag();
                 setIsDropActive(false);
@@ -370,219 +448,318 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
             window.removeEventListener('mousemove', onMouseMove);
             window.removeEventListener('mouseup', onMouseUp, true);
         };
-    }, [isDropActive, isMaster, selectedTrack, fetchProject]);
+    }, [isDropActive, isMaster, selectedTrack, projectTracks, fetchProject, statusClear, statusError]);
 
     return (
         <>
-        <div ref={rackRef} style={{
-            display: 'flex',
-            flexDirection: 'column',
-            height: '100%',
-            background: 'var(--color-bg-panel)',
-            outline: isDropActive ? '2px solid var(--color-accent-primary)' : 'none',
-            boxShadow: isDropActive ? 'inset 0 0 0 1px rgba(74, 144, 217, 0.35)' : 'none',
-        }}>
-            {uiNotice && (
+            <div ref={rackRef} style={{
+                display: 'flex',
+                flexDirection: 'column',
+                height: '100%',
+                background: 'var(--color-bg-panel)',
+                outline: isDropActive ? '2px solid var(--color-accent-primary)' : 'none',
+                boxShadow: isDropActive ? 'inset 0 0 0 1px rgba(74, 144, 217, 0.35)' : 'none',
+            }}>
+
+
+                {/* ── Header Bar ── */}
                 <div style={{
-                    flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
                     padding: '4px 10px',
-                    fontSize: 'var(--font-size-2xs)',
-                    background: 'rgba(217, 64, 64, 0.14)',
-                    color: 'var(--color-status-error)',
-                    borderBottom: '1px solid rgba(217, 64, 64, 0.3)',
+                    borderBottom: '1px solid var(--color-divider)',
+                    background: 'var(--color-bg-header)',
+                    height: 24,
+                    flexShrink: 0,
                 }}>
-                    {uiNotice}
-                </div>
-            )}
-
-            {/* ── Header Bar ── */}
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '4px 10px',
-                borderBottom: '1px solid var(--color-divider)',
-                background: 'var(--color-bg-header)',
-                height: 24,
-                flexShrink: 0,
-            }}>
-                <span style={{
-                    fontSize: 'var(--font-size-2xs)',
-                    fontWeight: 600,
-                    color: 'var(--color-text-secondary)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                }}>
-                    ⛓ {trackName} — Instrument & Effects Chain · {chain.length} devices
-                </span>
-                <span style={{
-                    fontSize: 'var(--font-size-2xs)',
-                    color: 'var(--color-text-tertiary)',
-                }}>
-                    {trackName}
-                </span>
-            </div>
-
-            {/* ── Device Chain (horizontal scroll) ── */}
-            <div className="scrollbar-hide" style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 6,
-                padding: '8px 10px',
-                flex: 1,
-                overflowX: 'auto',
-                overflowY: 'hidden',
-            }}>
-
-                {/* Input meter — real data */}
-                <MeterBar label="IN" level={inLevel} isInput />
-
-                {/* Device slots */}
-                {chain.length > 0 ? (
-                    chain.map(device => (
-                        <DeviceNode
-                            key={device.id}
-                            device={device}
-                            editorSupported={pluginCapability[device.pluginId]?.supported ?? true}
-                            editorReason={pluginCapability[device.pluginId]?.reason}
-                            onToggle={() => toggleDevice(device.id)}
-                            onParamChange={(paramName, value) => {
-                                setDeviceParam(device.id, paramName, value);
-                                sendInternalParam(device, paramName, value);
-                            }}
-                            onOpenGUI={async () => {
-                                if (device.source === 'internal') {
-                                    setOpenInternalDevice(device);
-                                    setUiNotice(null);
-                                    return;
-                                }
-                                try {
-                                    const capability = await engineApi.canOpenPluginEditor(device.pluginId);
-                                    setPluginCapability((prev) => ({
-                                        ...prev,
-                                        [device.pluginId]: {
-                                            supported: capability.supported,
-                                            reason: capability.reason ?? undefined,
-                                        },
-                                    }));
-                                    if (!capability.supported) {
-                                        const reason = capability.reason ?? 'Plugin editor is not supported.';
-                                        console.warn('[DeviceRack] Plugin editor unavailable:', reason);
-                                        setUiNotice(reason);
-                                        return;
-                                    }
-                                    await engineApi.openPluginWindow(device.pluginId);
-                                    setUiNotice(null);
-                                } catch (err) {
-                                    console.error('[DeviceRack] Failed to open plugin window:', err);
-                                    setUiNotice('Failed to open plugin window.');
-                                }
-                            }}
-                        />
-                    ))
-                ) : (
-                    /* ── Empty State ── */
-                    <div style={{
-                        flex: 1,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 8,
-                        minHeight: 80,
+                    <span style={{
+                        fontSize: 'var(--font-size-2xs)',
+                        fontWeight: 600,
+                        color: 'var(--color-text-secondary)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                    }}>
+                        ⛓ {trackName} — Instrument & Effects Chain · {chain.length} devices
+                    </span>
+                    <span style={{
+                        fontSize: 'var(--font-size-2xs)',
                         color: 'var(--color-text-tertiary)',
                     }}>
-                        <span style={{
-                            fontSize: 20,
-                            opacity: 0.3,
-                        }}>♪</span>
-                        <span style={{
-                            fontSize: 10,
-                            fontWeight: 500,
-                            letterSpacing: '0.03em',
+                        {trackName}
+                    </span>
+                </div>
+
+                {/* ── Device Chain (horizontal scroll) ── */}
+                <div className="scrollbar-hide" style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 6,
+                    padding: '8px 10px',
+                    flex: 1,
+                    overflowX: 'auto',
+                    overflowY: 'hidden',
+                }}>
+
+                    {/* Input meter — real data */}
+                    <MeterBar label="IN" level={inLevel} isInput />
+
+                    {/* Device slots */}
+                    {chain.length > 0 ? (
+                        chain.map(device => (
+                            <DeviceNode
+                                key={device.id}
+                                device={device}
+                                isSelected={selectedDeviceId === device.id}
+                                editorSupported={pluginCapability[device.pluginId]?.supported ?? true}
+                                editorReason={pluginCapability[device.pluginId]?.reason}
+                                onToggle={() => toggleDevice(device.id)}
+                                onSelect={() => {
+                                    setSelectedDeviceId(device.id);
+                                    statusClear();
+                                }}
+                                onOpenSettings={() => {
+                                    if (device.source !== 'vst') return;
+                                    setSelectedDeviceId(device.id);
+                                    setOpenSettingsDevice(device);
+                                    statusClear();
+                                }}
+                                onParamChange={(name, value) => {
+                                    setDeviceParam(device.id, name, value);
+                                    sendInternalParam(device, name, value);
+                                }}
+                                onDropSample={async (samplePath) => {
+                                    if (!selectedTrack || selectedTrackId === 'master') return;
+                                    try {
+                                        const normalizedPath = normalizePickedPath(samplePath);
+                                        if (!normalizedPath) {
+                                            statusError('Failed to load sampler sample: invalid file path.');
+                                            return;
+                                        }
+                                        await engineApi.setSamplerSample(selectedTrack.id, normalizedPath);
+                                        setSelectedDeviceId(device.id);
+                                        statusClear();
+                                        await fetchProject();
+                                    } catch (err) {
+                                        console.error('[DeviceRack] sampler device drop failed:', err);
+                                        statusError(`Failed to load sampler sample: ${errorMessage(err)}`);
+                                    }
+                                }}
+                                onLoadSample={async () => {
+                                    if (!selectedTrack || selectedTrackId === 'master') return;
+                                    try {
+                                        const { open } = await import('@tauri-apps/plugin-dialog');
+                                        const picked = await open({
+                                            multiple: false,
+                                            title: 'Load Sampler Sample',
+                                            filters: [{ name: 'Audio', extensions: ['wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg', 'm4a', 'aac'] }],
+                                        });
+                                        const normalizedPath = normalizePickedPath(picked);
+                                        if (normalizedPath) {
+                                            await engineApi.setSamplerSample(selectedTrack.id, normalizedPath);
+                                            statusClear();
+                                            await fetchProject();
+                                        }
+                                    } catch (err) {
+                                        console.error('[DeviceRack] setSamplerSample failed:', err);
+                                        statusError(`Failed to load sampler sample: ${errorMessage(err)}`);
+                                    }
+                                }}
+                                onOpenGUI={async () => {
+                                    setSelectedDeviceId(device.id);
+                                    if (device.source === 'internal') {
+                                        statusClear();
+                                        return;
+                                    }
+                                    try {
+                                        const capability = await engineApi.canOpenPluginEditor(device.pluginId);
+                                        setPluginCapability((prev) => ({
+                                            ...prev,
+                                            [device.pluginId]: {
+                                                supported: capability.supported,
+                                                reason: capability.reason ?? undefined,
+                                            },
+                                        }));
+                                        if (!capability.supported) {
+                                            const reason = capability.reason ?? 'Plugin editor is not supported.';
+                                            console.warn('[DeviceRack] Plugin editor unavailable:', reason);
+                                            statusError(reason);
+                                            return;
+                                        }
+                                        // Try native plugin editor bridge first (host-managed).
+                                        // Keep DAW-owned UI fallback available for consistency.
+                                        await engineApi.openPluginWindow(device.pluginId);
+                                        setOpenGuiDevice(device);
+                                        statusClear();
+                                    } catch (err) {
+                                        console.error('[DeviceRack] Failed to open plugin window:', err);
+                                        statusError('Failed to open plugin window.');
+                                    }
+                                }}
+                            />
+                        ))
+                    ) : (
+                        /* ── Empty State ── */
+                        <div style={{
+                            flex: 1,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 8,
+                            minHeight: 80,
+                            color: 'var(--color-text-tertiary)',
                         }}>
-                            Drop Files and Devices Here
-                        </span>
-                    </div>
-                )}
+                            <span style={{
+                                fontSize: 20,
+                                opacity: 0.3,
+                            }}>♪</span>
+                            <span style={{
+                                fontSize: 10,
+                                fontWeight: 500,
+                                letterSpacing: '0.03em',
+                            }}>
+                                Drop Files and Devices Here
+                            </span>
+                        </div>
+                    )}
 
-                {/* Output meter — real data */}
-                <MeterBar label="OUT" level={outLevel} />
+                    {/* Output meter — real data */}
+                    <MeterBar label="OUT" level={outLevel} />
 
-                {/* Add device button */}
-                <button
-                    style={{
-                        width: 64,
-                        minWidth: 64,
-                        height: '100%',
-                        minHeight: 100,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 6,
-                        background: 'transparent',
-                        border: '1px dashed var(--color-border-subtle)',
-                        borderRadius: 'var(--radius-sm)',
-                        cursor: 'pointer',
-                        color: 'var(--color-text-tertiary)',
-                        fontSize: 9,
-                        fontWeight: 500,
-                        flexShrink: 0,
-                        transition: 'all var(--transition-fast)',
-                    }}
-                    onMouseEnter={e => {
-                        e.currentTarget.style.borderColor = 'var(--color-accent-primary)';
-                        e.currentTarget.style.color = 'var(--color-accent-primary)';
-                    }}
-                    onMouseLeave={e => {
-                        e.currentTarget.style.borderColor = 'var(--color-border-subtle)';
-                        e.currentTarget.style.color = 'var(--color-text-tertiary)';
-                    }}
-                >
-                    <span style={{ fontSize: 18, lineHeight: 1 }}>+</span>
-                    Add Device
-                </button>
+                    {/* Add device button */}
+                    <button
+                        style={{
+                            width: 64,
+                            minWidth: 64,
+                            height: '100%',
+                            minHeight: 100,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            background: 'transparent',
+                            border: '1px dashed var(--color-border-subtle)',
+                            borderRadius: 'var(--radius-sm)',
+                            cursor: 'pointer',
+                            color: 'var(--color-text-tertiary)',
+                            fontSize: 9,
+                            fontWeight: 500,
+                            flexShrink: 0,
+                            transition: 'all var(--transition-fast)',
+                        }}
+                        onMouseEnter={e => {
+                            e.currentTarget.style.borderColor = 'var(--color-accent-primary)';
+                            e.currentTarget.style.color = 'var(--color-accent-primary)';
+                        }}
+                        onMouseLeave={e => {
+                            e.currentTarget.style.borderColor = 'var(--color-border-subtle)';
+                            e.currentTarget.style.color = 'var(--color-text-tertiary)';
+                        }}
+                    >
+                        <span style={{ fontSize: 18, lineHeight: 1 }}>+</span>
+                        Add Device
+                    </button>
+                </div>
+
             </div>
-        </div>
-        {openInternalDevice && (
-            <PluginWindow
-                pluginId={openInternalDevice.pluginId}
-                pluginName={openInternalDevice.name}
-                pluginType={openInternalDevice.effectType === 'sampler' || openInternalDevice.effectType === 'instrument' ? 'instrument' : 'effect'}
-                isBypassed={!openInternalDevice.isEnabled}
-                onToggleBypass={() => toggleDevice(openInternalDevice.id)}
-                onClose={() => setOpenInternalDevice(null)}
-                width={openInternalDevice.effectType === 'eq' ? 760 : openInternalDevice.effectType === 'sampler' ? 820 : 520}
-                height={openInternalDevice.effectType === 'eq' ? 420 : openInternalDevice.effectType === 'sampler' ? 460 : 360}
-            >
-                <InternalPluginPanel
-                    device={openInternalDevice}
-                    onParamChange={(name, value) => {
-                        setDeviceParam(openInternalDevice.id, name, value);
-                        sendInternalParam(openInternalDevice, name, value);
-                    }}
-                    onLoadSample={async () => {
-                        if (!selectedTrack || selectedTrackId === 'master') return;
-                        try {
-                            const { open } = await import('@tauri-apps/plugin-dialog');
-                            const picked = await open({
-                                multiple: false,
-                                title: 'Load Sampler Sample',
-                                filters: [{ name: 'Audio', extensions: ['wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg', 'm4a', 'aac'] }],
-                            });
-                            if (typeof picked === 'string' && picked.length > 0) {
-                                await engineApi.setSamplerSample(selectedTrack.id, picked);
-                                setUiNotice(null);
+            {openGuiDevice && openGuiDevice.isVst && (
+                <PluginWindow
+                    pluginId={openGuiDevice.pluginId}
+                    pluginName={openGuiDevice.name}
+                    pluginType={openGuiDevice.effectType === 'sampler' || openGuiDevice.effectType === 'instrument' ? 'instrument' : 'effect'}
+                    isBypassed={!openGuiDevice.isEnabled}
+                    onToggleBypass={() => toggleDevice(openGuiDevice.id)}
+                    onClose={() => setOpenGuiDevice(null)}
+                    width={openGuiDevice.isVst ? 960 : openGuiDevice.effectType === 'eq' ? 760 : openGuiDevice.effectType === 'sampler' ? 820 : 640}
+                    height={openGuiDevice.effectType === 'eq' ? 420 : openGuiDevice.effectType === 'sampler' ? 460 : 380}
+                >
+                    <PluginGuiSurface
+                        device={openGuiDevice}
+                        onParamChange={(name, value) => {
+                            setDeviceParam(openGuiDevice.id, name, value);
+                            sendInternalParam(openGuiDevice, name, value);
+                        }}
+                        onDropSample={async (samplePath) => {
+                            if (!selectedTrack || selectedTrackId === 'master') return;
+                            try {
+                                const normalizedPath = normalizePickedPath(samplePath);
+                                if (!normalizedPath) {
+                                    statusError('Failed to load sampler sample: invalid file path.');
+                                    return;
+                                }
+                                await engineApi.setSamplerSample(selectedTrack.id, normalizedPath);
+                                statusClear();
+                                await fetchProject();
+                            } catch (err) {
+                                console.error('[DeviceRack] sampler drop failed:', err);
+                                statusError(`Failed to load sampler sample: ${errorMessage(err)}`);
                             }
-                        } catch (err) {
-                            console.error('[DeviceRack] setSamplerSample failed:', err);
-                            setUiNotice('Failed to load sampler sample.');
-                        }
-                    }}
-                />
-            </PluginWindow>
-        )}
+                        }}
+                        onLoadSample={async () => {
+                            if (!selectedTrack || selectedTrackId === 'master') return;
+                            try {
+                                const { open } = await import('@tauri-apps/plugin-dialog');
+                                const picked = await open({
+                                    multiple: false,
+                                    title: 'Load Sampler Sample',
+                                    filters: [{ name: 'Audio', extensions: ['wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg', 'm4a', 'aac'] }],
+                                });
+                                const normalizedPath = normalizePickedPath(picked);
+                                if (normalizedPath) {
+                                    await engineApi.setSamplerSample(selectedTrack.id, normalizedPath);
+                                    statusClear();
+                                    await fetchProject();
+                                }
+                            } catch (err) {
+                                console.error('[DeviceRack] setSamplerSample failed:', err);
+                                statusError(`Failed to load sampler sample: ${errorMessage(err)}`);
+                            }
+                        }}
+                    />
+                </PluginWindow>
+            )}
+            {openSettingsDevice && openSettingsDevice.isVst && (
+                <PluginWindow
+                    pluginId={`${openSettingsDevice.pluginId}:settings`}
+                    pluginName={`${openSettingsDevice.name} • Settings`}
+                    pluginType={openSettingsDevice.effectType === 'sampler' || openSettingsDevice.effectType === 'instrument' ? 'instrument' : 'effect'}
+                    isBypassed={!openSettingsDevice.isEnabled}
+                    onToggleBypass={() => toggleDevice(openSettingsDevice.id)}
+                    onClose={() => setOpenSettingsDevice(null)}
+                    width={560}
+                    height={400}
+                >
+                    <PluginSettingsPanel
+                        device={openSettingsDevice}
+                        onParamChange={(name, value) => {
+                            setDeviceParam(openSettingsDevice.id, name, value);
+                            sendInternalParam(openSettingsDevice, name, value);
+                        }}
+                        onLoadSample={async () => {
+                            if (!selectedTrack || selectedTrackId === 'master') return;
+                            try {
+                                const { open } = await import('@tauri-apps/plugin-dialog');
+                                const picked = await open({
+                                    multiple: false,
+                                    title: 'Load Sampler Sample',
+                                    filters: [{ name: 'Audio', extensions: ['wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg', 'm4a', 'aac'] }],
+                                });
+                                const normalizedPath = normalizePickedPath(picked);
+                                if (normalizedPath) {
+                                    await engineApi.setSamplerSample(selectedTrack.id, normalizedPath);
+                                    statusClear();
+                                    await fetchProject();
+                                }
+                            } catch (err) {
+                                console.error('[DeviceRack] setSamplerSample failed:', err);
+                                statusError(`Failed to load sampler sample: ${errorMessage(err)}`);
+                            }
+                        }}
+                    />
+                </PluginWindow>
+            )}
         </>
     );
 };
@@ -591,12 +768,22 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
 
 const DeviceNode = ({
     device, onToggle, onOpenGUI,
+    isSelected,
+    onSelect,
+    onOpenSettings,
     onParamChange,
+    onDropSample,
+    onLoadSample,
     editorSupported, editorReason,
 }: {
     device: DeviceSlot;
     onToggle: () => void;
+    isSelected: boolean;
+    onSelect: () => void;
+    onOpenSettings: () => void;
     onParamChange: (paramName: string, value: number) => void;
+    onDropSample?: (samplePath: string) => void;
+    onLoadSample?: () => void;
     onOpenGUI?: () => void;
     editorSupported?: boolean;
     editorReason?: string;
@@ -618,14 +805,23 @@ const DeviceNode = ({
         vst: '#4a9eff',
     };
     const typeColor = typeColorMap[device.effectType] || 'var(--color-accent-primary)';
+    const rackWidth = isSelected && device.source === 'internal'
+        ? 980
+        : device.effectType === 'sampler'
+            ? 360
+            : device.effectType === 'instrument'
+                ? 310
+                : device.effectType === 'eq'
+                    ? 270
+                    : 230;
 
     return (
         <div
             className="device-node"
             data-effect={device.effectType}
             style={{
-                minWidth: device.effectType === 'eq' ? 160 : device.effectType === 'instrument' || device.effectType === 'sampler' ? 140 : 120,
-                width: device.effectType === 'eq' ? 160 : device.effectType === 'instrument' || device.effectType === 'sampler' ? 140 : 120,
+                minWidth: rackWidth,
+                width: rackWidth,
                 display: 'flex',
                 flexDirection: 'column',
                 background: 'var(--color-bg-node)',
@@ -635,8 +831,20 @@ const DeviceNode = ({
                 opacity: device.isEnabled ? 1 : 0.5,
                 transition: 'opacity var(--transition-fast)',
                 flexShrink: 0,
-                height: '100%',
+                minHeight: isSelected && device.source === 'internal' ? 280 : 126,
                 position: 'relative',
+                boxShadow: isSelected ? '0 0 0 1px var(--color-accent-primary), 0 0 12px rgba(74,144,217,0.35)' : 'none',
+            }}
+            onMouseUp={() => {
+                const dragging = useDragStore.getState().draggingItem;
+                const isSamplerDevice =
+                    device.source === 'internal' &&
+                    (device.effectType === 'sampler' || device.effectType === 'instrument');
+                if (!isSamplerDevice) return;
+                if (dragging?.type === 'audio' && dragging.path) {
+                    onDropSample?.(dragging.path);
+                    useDragStore.getState().endDrag();
+                }
             }}
         >
             {/* Type color stripe at top (2px) */}
@@ -653,8 +861,11 @@ const DeviceNode = ({
                 justifyContent: 'space-between',
                 padding: '3px 6px',
                 borderBottom: '1px solid var(--color-divider)',
-                background: 'var(--color-bg-header)',
-            }}>
+                background: isSelected ? 'color-mix(in srgb, var(--color-bg-header) 70%, var(--color-accent-primary))' : 'var(--color-bg-header)',
+                cursor: 'pointer',
+            }}
+                onClick={(e) => { e.stopPropagation(); onSelect(); }}
+            >
                 <button
                     onClick={onToggle}
                     title={device.isEnabled ? 'Disable' : 'Enable'}
@@ -679,37 +890,31 @@ const DeviceNode = ({
                 }}>
                     {device.name}
                 </span>
-                <button
-                    onClick={(e) => { e.stopPropagation(); onOpenGUI?.(); }}
-                    title={device.source === 'internal'
-                        ? 'Open Internal Plugin UI'
-                        : editorSupported === false
-                            ? (editorReason ?? 'Plugin editor is unavailable')
-                            : 'Open Plugin GUI'}
-                    disabled={device.source !== 'internal' && device.isVst ? editorSupported === false : device.source !== 'internal'}
-                    style={{
-                        background: 'none',
-                        border: 'none',
-                        color: editorSupported === false ? 'var(--color-text-tertiary)' : 'var(--color-text-tertiary)',
-                        fontSize: 8,
-                        cursor: device.source === 'internal'
-                            ? 'pointer'
-                            : editorSupported === false
-                                ? 'not-allowed'
-                                : 'pointer',
-                        flexShrink: 0,
-                        padding: '0 2px',
-                        visibility: (device.isVst || device.source === 'internal') ? 'visible' : 'hidden',
-                        opacity: device.source === 'internal' ? 1 : (editorSupported === false ? 0.45 : 1),
-                    }}
-                    onMouseEnter={e => {
-                        if (device.source !== 'internal' && editorSupported === false) return;
-                        e.currentTarget.style.color = 'var(--color-accent-primary)';
-                    }}
-                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-text-tertiary)'; }}
-                >
-                    Open UI
-                </button>
+                {device.source === 'vst' ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onOpenGUI?.(); }}
+                            title={editorSupported === false
+                                ? (editorReason ?? 'Plugin editor is unavailable')
+                                : 'Open Plugin GUI'}
+                            disabled={editorSupported === false}
+                            style={headerIconBtnStyle(editorSupported === false)}
+                        >
+                            UI
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
+                            title="Plugin Settings / Automatable Params"
+                            style={headerIconBtnStyle(false)}
+                        >
+                            🔧
+                        </button>
+                    </div>
+                ) : (
+                    <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)', fontWeight: 700 }}>
+                        INLINE
+                    </span>
+                )}
                 <span style={{
                     fontSize: 8,
                     color: device.source === 'vst' ? '#2ecc71' : 'var(--color-text-tertiary)',
@@ -721,24 +926,42 @@ const DeviceNode = ({
                 </span>
             </div>
 
-            {/* Knobs area */}
-            <div style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 4,
-                padding: '6px 4px',
-                justifyContent: 'center',
-                flex: 1,
-            }}>
-                {device.params.map(param => (
-                    <Knob
-                        key={param.name}
-                        param={param}
-                        accentColor={typeColor}
-                        onChange={(value) => onParamChange(param.name, value)}
+            {isSelected && device.source === 'internal' ? (
+                <div style={{ padding: 8 }}>
+                    <PluginGuiSurface
+                        device={device}
+                        onParamChange={onParamChange}
+                        onDropSample={onDropSample}
+                        onLoadSample={onLoadSample}
                     />
-                ))}
-            </div>
+                </div>
+            ) : (
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '8px',
+                    minHeight: 82,
+                    overflow: 'hidden',
+                }}>
+                    {device.source === 'internal' && device.params.length > 0 ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+                            {device.params.slice(0, device.effectType === 'sampler' ? 4 : 3).map((p) => (
+                                <ParamKnob key={p.name} param={p} onChange={onParamChange} />
+                            ))}
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>
+                                {device.source === 'vst' ? 'Native GUI' : 'Internal GUI'}
+                            </span>
+                            <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)' }}>
+                                {device.params.length} params
+                            </span>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Bottom VU bar */}
             <div style={{
@@ -761,160 +984,210 @@ const DeviceNode = ({
     );
 };
 
-// ── Knob ──────────────────────────────────────────────────
+const headerIconBtnStyle = (disabled: boolean) =>
+    ({
+        minWidth: 24,
+        height: 18,
+        padding: '0 6px',
+        borderRadius: 4,
+        border: '1px solid var(--color-divider)',
+        background: disabled ? 'rgba(120, 120, 120, 0.25)' : 'var(--color-bg-elevated)',
+        color: disabled ? 'var(--color-text-tertiary)' : 'var(--color-text-secondary)',
+        fontSize: 9,
+        fontWeight: 700,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.65 : 1,
+        transition: 'all var(--transition-fast)',
+    }) as const;
 
-const Knob = ({
-    param,
-    accentColor,
-    onChange,
-}: {
-    param: DeviceParam;
-    accentColor: string;
-    onChange: (value: number) => void;
-}) => {
-    const normalizedValue = (param.value - param.min) / (param.max - param.min);
-    const size = 28;
-    const center = size / 2;
-    const r = 10;
-    const startAngle = 135;
-    const endAngle = 405;
-    const valueAngle = startAngle + normalizedValue * (endAngle - startAngle);
-    const bgArc = describeArc(center, center, r, startAngle, endAngle);
-    const toRad = (d: number) => (d * Math.PI) / 180;
-    const sx = center + r * Math.cos(toRad(startAngle));
-    const sy = center + r * Math.sin(toRad(startAngle));
-    const ex = center + r * Math.cos(toRad(valueAngle));
-    const ey = center + r * Math.sin(toRad(valueAngle));
-    const largeArc = (valueAngle - startAngle) > 180 ? 1 : 0;
-
-    const displayValue = Number.isInteger(param.value) ? param.value.toString() : param.value.toFixed(1);
-
-    return (
-        <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 0,
-            width: 36,
-        }}>
-            <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-                {/* Background arc */}
-                <path
-                    d={bgArc}
-                    fill="none"
-                    stroke="var(--color-knob-track)"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                />
-                {/* Active arc */}
-                {normalizedValue > 0.01 && (
-                    <path
-                        d={`M ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 1 ${ex} ${ey}`}
-                        fill="none"
-                        stroke={accentColor}
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                    />
-                )}
-                {/* Center dot */}
-                <circle cx={center} cy={center} r="3" fill="var(--color-bg-elevated)" stroke={accentColor} strokeWidth="0.5" />
-                {/* Indicator dot */}
-                <circle cx={ex} cy={ey} r="1.5" fill={accentColor} />
-            </svg>
-            <span style={{
-                fontSize: 8,
-                fontFamily: 'var(--font-mono)',
-                color: 'var(--color-knob-value-text)',
-                textAlign: 'center',
-                lineHeight: 1,
-            }}>
-                {displayValue}
-            </span>
-            <span style={{
-                fontSize: 7,
-                color: 'var(--color-text-tertiary)',
-                textAlign: 'center',
-                lineHeight: 1,
-                marginTop: 1,
-            }}>
-                {param.name}
-            </span>
-            <input
-                type="range"
-                min={param.min}
-                max={param.max}
-                step={param.step ?? (param.max - param.min) / 100}
-                value={param.value}
-                onChange={(e) => onChange(Number(e.target.value))}
-                style={{
-                    width: 34,
-                    height: 10,
-                    marginTop: 2,
-                    accentColor,
-                    cursor: 'pointer',
-                }}
-            />
-        </div>
-    );
-};
-
-const InternalPluginPanel = ({
+const PluginGuiSurface = ({
     device,
     onParamChange,
+    onDropSample,
     onLoadSample,
 }: {
     device: DeviceSlot;
     onParamChange: (paramName: string, value: number) => void;
+    onDropSample?: (samplePath: string) => void;
     onLoadSample?: () => void;
 }) => {
+    const [waveformPeaks, setWaveformPeaks] = useState<number[] | null>(null);
+
+    useEffect(() => {
+        const samplePath = device.samplePath?.trim();
+        if (!samplePath) {
+            return;
+        }
+        let cancelled = false;
+        engineApi.getWaveformPeaks(samplePath)
+            .then((wf) => {
+                if (cancelled) return;
+                const level = wf.mip_levels[Math.min(2, Math.max(0, wf.mip_levels.length - 1))] ?? wf.mip_levels[0];
+                const peaks = (level?.peaks ?? []).map((p) => Math.max(Math.abs(p.min), Math.abs(p.max)));
+                setWaveformPeaks(peaks.length > 0 ? peaks : null);
+            })
+            .catch((err) => {
+                if (!cancelled) {
+                    console.warn('[DeviceRack] sampler waveform load failed:', err);
+                    setWaveformPeaks(null);
+                }
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [device.samplePath]);
+
     if (device.effectType === 'sampler' || device.effectType === 'instrument') {
+        const getParam = (name: string, fallback: string) => {
+            const p = device.params.find((x) => x.name.toLowerCase() === name.toLowerCase());
+            if (!p) return fallback;
+            return `${p.value.toFixed(p.step && p.step < 1 ? 2 : 0)}${p.suffix}`;
+        };
         return (
-            <div style={{ display: 'grid', gridTemplateRows: '1fr auto', height: '100%', gap: 10 }}>
+            <div style={{
+                display: 'grid',
+                gridTemplateRows: '130px auto',
+                height: '100%',
+                gap: 8,
+                border: '1px solid #4a4d52',
+                borderRadius: 4,
+                background: '#2a2c30',
+                overflow: 'hidden',
+            }}>
                 <div style={{
-                    border: '1px solid var(--color-divider)',
-                    borderRadius: 6,
-                    background: 'linear-gradient(180deg, #101822 0%, #0a1018 100%)',
+                    background: '#30343a',
                     position: 'relative',
                     overflow: 'hidden',
-                }}>
+                }}
+                    onMouseUp={() => {
+                        const dragging = useDragStore.getState().draggingItem;
+                        if (dragging?.type === 'audio' && dragging.path) {
+                            onDropSample?.(dragging.path);
+                            useDragStore.getState().endDrag();
+                        }
+                    }}
+                >
+                    <div style={{ position: 'absolute', inset: 0, borderBottom: '1px solid rgba(255,255,255,0.09)' }} />
                     <div style={{
                         position: 'absolute',
-                        inset: 0,
-                        background: 'repeating-linear-gradient(90deg, rgba(255,255,255,0.06) 0px, rgba(255,255,255,0.06) 1px, transparent 1px, transparent 18px)',
-                    }} />
-                    <div style={{
-                        position: 'absolute',
-                        top: 12,
-                        left: 12,
-                        fontSize: 10,
-                        color: 'var(--color-text-secondary)',
-                        letterSpacing: '0.05em',
-                        textTransform: 'uppercase',
+                        left: 0,
+                        right: 0,
+                        top: 0,
+                        height: 22,
+                        borderBottom: '1px solid rgba(255,255,255,0.08)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '0 8px',
+                        fontSize: 9,
+                        color: '#cfd3d8',
+                        background: 'linear-gradient(180deg, #2a2f38 0%, #20242c 100%)',
                     }}>
-                        Sampler Waveform Area
+                        <span style={{ fontWeight: 700 }}>Sample</span>
+                        <span style={{ fontSize: 9, opacity: 0.85 }}>Controls</span>
+                    </div>
+                    <svg
+                        viewBox="0 0 1000 110"
+                        preserveAspectRatio="none"
+                        style={{ position: 'absolute', left: 6, right: 6, top: 24, height: 68, width: 'calc(100% - 12px)' }}
+                    >
+                        <rect x="0" y="0" width="1000" height="110" fill="#1f2227" />
+                        {Array.from({ length: 24 }).map((_, i) => (
+                            <line
+                                key={`g-${i}`}
+                                x1={(i / 23) * 1000}
+                                y1={0}
+                                x2={(i / 23) * 1000}
+                                y2={110}
+                                stroke="rgba(255,255,255,0.06)"
+                                strokeWidth="1"
+                            />
+                        ))}
+                        {waveformPeaks ? (
+                            <>
+                                {Array.from({ length: 220 }).map((_, i) => {
+                                    const idx = Math.floor((i / 219) * (waveformPeaks.length - 1));
+                                    const amp = Math.max(0.01, Math.min(1, waveformPeaks[idx] || 0));
+                                    const h = amp * 52;
+                                    return (
+                                        <line
+                                            key={`w-${i}`}
+                                            x1={(i / 219) * 1000}
+                                            y1={55 - h}
+                                            x2={(i / 219) * 1000}
+                                            y2={55 + h}
+                                            stroke="#ffb01a"
+                                            strokeWidth="1.2"
+                                            strokeOpacity="0.95"
+                                        />
+                                    );
+                                })}
+                            </>
+                        ) : (
+                            <path
+                                d="M 0 54 C 30 10, 60 98, 90 54 C 120 10, 150 98, 180 54 C 210 10, 240 98, 270 54 C 300 10, 330 98, 360 54 C 390 10, 420 98, 450 54 C 480 10, 510 98, 540 54 C 570 18, 600 90, 630 54 C 660 24, 690 82, 720 54 C 750 30, 780 74, 810 54 C 840 36, 870 68, 900 54 C 930 46, 960 56, 1000 54"
+                                fill="none"
+                                stroke="#ffb01a"
+                                strokeWidth="3"
+                                strokeLinecap="round"
+                            />
+                        )}
+                    </svg>
+                    <div style={{
+                        position: 'absolute',
+                        top: 95,
+                        left: 8,
+                        fontSize: 9,
+                        color: '#b8bdc5',
+                    }}>
+                        {device.samplePath ? device.samplePath.split('/').pop() : 'Drag sample here or load from disk'}
+                    </div>
+                    <div style={{
+                        position: 'absolute',
+                        left: 8,
+                        right: 130,
+                        bottom: 6,
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
+                        gap: 8,
+                        fontSize: 9,
+                    }}>
+                        <div style={{ color: '#99a0aa' }}><div>Start</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>0.00%</div></div>
+                        <div style={{ color: '#99a0aa' }}><div>Loop</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>100%</div></div>
+                        <div style={{ color: '#99a0aa' }}><div>Length</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>100%</div></div>
+                        <div style={{ color: '#99a0aa' }}><div>Attack</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>{getParam('Attack', '0.01s')}</div></div>
+                        <div style={{ color: '#99a0aa' }}><div>Decay</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>{getParam('Decay', '0.10s')}</div></div>
+                        <div style={{ color: '#99a0aa' }}><div>Release</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>{getParam('Release', '0.05s')}</div></div>
                     </div>
                     <button
                         type="button"
                         onClick={() => onLoadSample?.()}
                         style={{
                             position: 'absolute',
-                            right: 12,
-                            top: 10,
-                            border: '1px solid var(--color-divider)',
-                            borderRadius: 4,
-                            background: 'rgba(20,25,35,0.9)',
-                            color: 'var(--color-text-secondary)',
-                            fontSize: 10,
-                            padding: '4px 8px',
+                            right: 8,
+                            top: 2,
+                            border: '1px solid #51545a',
+                            borderRadius: 3,
+                            background: '#2a2f36',
+                            color: '#cfd3d8',
+                            fontSize: 9,
+                            padding: '3px 7px',
                             cursor: 'pointer',
                         }}
                     >
                         Load Sample
                     </button>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                    {device.params.map((p) => (
-                        <ParamSlider key={p.name} param={p} onChange={onParamChange} />
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: '6px 8px 8px 8px',
+                    background: '#26282d',
+                    borderTop: '1px solid rgba(255,255,255,0.06)',
+                }}>
+                    {device.params.slice(0, 6).map((p) => (
+                        <ParamKnob key={p.name} param={p} onChange={onParamChange} />
                     ))}
                 </div>
             </div>
@@ -942,9 +1215,9 @@ const InternalPluginPanel = ({
                             fill="none" stroke="#d9a625" strokeWidth="1.2" />
                     </svg>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                    {device.params.map((p) => (
-                        <ParamSlider key={p.name} param={p} onChange={onParamChange} />
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                    {device.params.slice(0, 4).map((p) => (
+                        <ParamKnob key={p.name} param={p} onChange={onParamChange} />
                     ))}
                 </div>
             </div>
@@ -960,11 +1233,11 @@ const InternalPluginPanel = ({
                     padding: 10,
                     background: '#111318',
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(2, minmax(120px, 1fr))',
-                    gap: 10,
+                    gridTemplateColumns: 'repeat(4, minmax(90px, 1fr))',
+                    gap: 12,
                 }}>
-                    {device.params.map((p) => (
-                        <ParamSlider key={p.name} param={p} onChange={onParamChange} />
+                    {device.params.slice(0, 4).map((p) => (
+                        <ParamKnob key={p.name} param={p} onChange={onParamChange} />
                     ))}
                 </div>
             </div>
@@ -972,13 +1245,53 @@ const InternalPluginPanel = ({
     }
 
     return (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
             {device.params.map((p) => (
-                <ParamSlider key={p.name} param={p} onChange={onParamChange} />
+                <ParamKnob key={p.name} param={p} onChange={onParamChange} />
             ))}
         </div>
     );
 };
+
+const PluginSettingsPanel = ({
+    device,
+    onParamChange,
+    onLoadSample,
+}: {
+    device: DeviceSlot;
+    onParamChange: (paramName: string, value: number) => void;
+    onLoadSample?: () => void;
+}) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {device.effectType === 'sampler' && (
+            <button
+                type="button"
+                onClick={() => onLoadSample?.()}
+                style={{
+                    width: 'fit-content',
+                    border: '1px solid var(--color-divider)',
+                    borderRadius: 4,
+                    background: 'var(--color-bg-header)',
+                    color: 'var(--color-text-secondary)',
+                    fontSize: 11,
+                    padding: '6px 10px',
+                    cursor: 'pointer',
+                }}
+            >
+                Load Sample
+            </button>
+        )}
+        <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, minmax(180px, 1fr))',
+            gap: 10,
+        }}>
+            {device.params.map((p) => (
+                <ParamSlider key={p.name} param={p} onChange={onParamChange} />
+            ))}
+        </div>
+    </div>
+);
 
 const ParamSlider = ({
     param,
@@ -1002,6 +1315,72 @@ const ParamSlider = ({
         />
     </label>
 );
+
+const ParamKnob = ({
+    param,
+    onChange,
+}: {
+    param: DeviceParam;
+    onChange: (paramName: string, value: number) => void;
+}) => {
+    const pct = Math.max(0, Math.min(1, (param.value - param.min) / Math.max(1e-9, param.max - param.min)));
+    const angle = -135 + pct * 270;
+    const valueText = param.value.toFixed(param.step && param.step < 1 ? 2 : 0);
+    return (
+        <label style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 5,
+            minWidth: 86,
+        }}>
+            <span style={{ fontSize: 10, color: 'var(--color-text-secondary)', textAlign: 'center', lineHeight: 1.1 }}>
+                {param.name}
+            </span>
+            <div style={{ position: 'relative', width: 42, height: 42 }}>
+                <div style={{
+                    width: '100%',
+                    height: '100%',
+                    borderRadius: '50%',
+                    background: 'radial-gradient(circle at 35% 30%, #2d3240 0%, #171b25 58%, #0d1017 100%)',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.08), inset 0 -2px 4px rgba(0,0,0,0.5)',
+                    position: 'relative',
+                }}>
+                    <div style={{
+                        position: 'absolute',
+                        left: '50%',
+                        top: '50%',
+                        width: 2,
+                        height: 14,
+                        background: 'var(--color-accent-primary)',
+                        transformOrigin: '50% 90%',
+                        transform: `translate(-50%, -88%) rotate(${angle}deg)`,
+                        borderRadius: 999,
+                        boxShadow: '0 0 3px rgba(74,144,217,0.7)',
+                    }} />
+                </div>
+                <input
+                    type="range"
+                    min={param.min}
+                    max={param.max}
+                    step={param.step ?? (param.max - param.min) / 100}
+                    value={param.value}
+                    onChange={(e) => onChange(param.name, Number(e.target.value))}
+                    style={{
+                        position: 'absolute',
+                        inset: 0,
+                        opacity: 0,
+                        cursor: 'ns-resize',
+                    }}
+                />
+            </div>
+            <span style={{ fontSize: 10, color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>
+                {valueText}{param.suffix}
+            </span>
+        </label>
+    );
+};
 
 // ── MeterBar (small vertical signal meter) ──────────────
 
@@ -1047,15 +1426,3 @@ const MeterBar = ({ label, level, isInput }: { label: string; level: number; isI
         </div>
     );
 };
-
-// ── SVG Arc Utility ──────────────────────────────────────
-
-function describeArc(cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
-    const toRad = (d: number) => (d * Math.PI) / 180;
-    const sx = cx + r * Math.cos(toRad(startDeg));
-    const sy = cy + r * Math.sin(toRad(startDeg));
-    const ex = cx + r * Math.cos(toRad(endDeg));
-    const ey = cy + r * Math.sin(toRad(endDeg));
-    const largeArc = (endDeg - startDeg) > 180 ? 1 : 0;
-    return `M ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 1 ${ex} ${ey}`;
-}

@@ -344,23 +344,12 @@ impl OfflineBouncer {
 mod tests {
     use super::*;
     use dream_models::project::{Project, Track, TrackType};
-    use dream_models::time::AbsoluteTime;
 
     fn make_test_project() -> Project {
         let mut project = Project::default();
-        project.tracks.push(Track {
-            id: "test-track".to_string(),
-            name: "Test Track".to_string(),
-            track_type: TrackType::Audio,
-            volume: 1.0,
-            pan: 0.0,
-            muted: false,
-            soloed: false,
-            arm_recording: false,
-            audio_clips: vec![],
-            midi_clips: vec![],
-            color: "#4488FF".to_string(),
-        });
+        let mut track = Track::new("Test Track");
+        track.track_type = TrackType::Audio;
+        project.tracks.push(track);
         project
     }
 

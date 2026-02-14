@@ -38,6 +38,18 @@ source_offset: AbsoluteTime,
  */
 gain: number, 
 /**
+ * User-defined fade-in length in sample frames.
+ */
+fade_in_frames: bigint, 
+/**
+ * User-defined fade-out length in sample frames.
+ */
+fade_out_frames: bigint, 
+/**
+ * Whether source media is currently missing on disk.
+ */
+is_offline: boolean, 
+/**
  * Whether this clip is currently selected in the UI.
  */
 is_selected: boolean, 

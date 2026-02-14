@@ -123,6 +123,7 @@ impl MidiScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dream_models::midi::MidiNote;
     use dream_models::time::AbsoluteTime;
 
     fn make_midi_clip(pos: i64, dur: i64, notes: Vec<MidiNote>) -> MidiClip {

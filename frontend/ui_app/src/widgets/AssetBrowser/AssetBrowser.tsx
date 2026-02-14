@@ -212,15 +212,13 @@ export const AssetBrowser = () => {
             setScanLoading(true);
             setScanError(null);
 
+            // Generate demo samples (idempotent, skips if marker exists),
+            // then scan ALL audio sources (samples_path + browser_folders) unified.
             engineApi.generateDemoSamples()
                 .catch(err => console.warn('[AssetBrowser] Demo sample generation skipped:', err))
                 .then(() => {
                     if (cancelled) return Promise.reject('cancelled');
-                    return engineApi.getSamplesPath();
-                })
-                .then(path => {
-                    if (cancelled) return Promise.reject('cancelled');
-                    return engineApi.scanAudioFolder(path);
+                    return engineApi.scanAllAudioSources();
                 })
                 .then(files => {
                     if (!cancelled) {
@@ -250,8 +248,10 @@ export const AssetBrowser = () => {
 
     useEffect(() => {
         if (selectedCategoryId !== 'plugins' || pluginScanDone) return;
-        setPluginScanDone(true);
-        setScanLoading(true);
+        Promise.resolve().then(() => {
+            setPluginScanDone(true);
+            setScanLoading(true);
+        });
 
         engineApi.scanPluginFolders()
             .then(files => {
@@ -276,8 +276,10 @@ export const AssetBrowser = () => {
 
     useEffect(() => {
         if (!activeFolderPath || activeFolderPath === folderScanPath) return;
-        setFolderScanPath(activeFolderPath);
-        setScanLoading(true);
+        Promise.resolve().then(() => {
+            setFolderScanPath(activeFolderPath);
+            setScanLoading(true);
+        });
 
         engineApi.scanFolderAll(activeFolderPath)
             .then(files => {
@@ -293,9 +295,11 @@ export const AssetBrowser = () => {
 
     // Reset folder state when category changes
     useEffect(() => {
-        setFolderStack([]);
-        setFolderScanPath(null);
-        setFolderItems([]);
+        Promise.resolve().then(() => {
+            setFolderStack([]);
+            setFolderScanPath(null);
+            setFolderItems([]);
+        });
     }, [selectedCategoryId]);
 
     // Convert real audio files to BrowserItems
@@ -355,8 +359,16 @@ export const AssetBrowser = () => {
             base = folderBrowserItems;
         } else {
             switch (selectedCategoryId) {
-                case 'samples':
                 case 'all':
+                    // "All" shows EVERYTHING: samples + instruments + effects + plugins, merged & sorted
+                    base = [
+                        ...realBrowserItems,
+                        ...INTERNAL_INSTRUMENT_ITEMS,
+                        ...INTERNAL_EFFECT_ITEMS,
+                        ...pluginBrowserItems,
+                    ].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+                    break;
+                case 'samples':
                 case 'sounds':
                 case 'drums':
                 case 'clips':
@@ -372,7 +384,7 @@ export const AssetBrowser = () => {
                     base = [
                         ...INTERNAL_INSTRUMENT_ITEMS,
                         ...pluginBrowserItems.filter(p =>
-                        /synth|sampl|piano|organ|drum|instrument/i.test(p.name)
+                            /synth|sampl|piano|organ|drum|instrument/i.test(p.name)
                         ),
                     ];
                     if (base.length === INTERNAL_INSTRUMENT_ITEMS.length) {
@@ -394,6 +406,20 @@ export const AssetBrowser = () => {
 
         return base;
     }, [selectedCategoryId, searchQuery, realBrowserItems, pluginBrowserItems, folderBrowserItems, activeCategory, folderStack]);
+
+    // ── Progressive rendering: show items in batches to avoid 10K DOM nodes ──
+    const RENDER_BATCH = 200;
+    const [visibleCount, setVisibleCount] = useState(RENDER_BATCH);
+
+    const visibleItems = useMemo(() => items.slice(0, visibleCount), [items, visibleCount]);
+    const hasMore = visibleCount < items.length;
+
+    const handleFileListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+        const el = e.currentTarget;
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100 && hasMore) {
+            setVisibleCount(prev => Math.min(prev + RENDER_BATCH, items.length));
+        }
+    }, [hasMore, items.length]);
 
     // ── Handle Add Folder ──
     const handleAddFolder = useCallback(() => {
@@ -456,7 +482,10 @@ export const AssetBrowser = () => {
                     type="text"
                     placeholder="Search… (⌘F)"
                     value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
+                    onChange={e => {
+                        setSearchQuery(e.target.value);
+                        setVisibleCount(RENDER_BATCH);
+                    }}
                     style={{
                         width: '100%',
                         padding: '4px 8px',
@@ -564,7 +593,10 @@ export const AssetBrowser = () => {
                         return (
                             <button
                                 key={cat.id}
-                                onClick={() => setSelectedCategoryId(cat.id)}
+                                onClick={() => {
+                                    setSelectedCategoryId(cat.id);
+                                    setVisibleCount(RENDER_BATCH);
+                                }}
                                 onContextMenu={cat.removable ? (e) => {
                                     e.preventDefault();
                                     if (cat.folderPath && confirm(`Remove "${cat.title}" from browser?`)) {
@@ -670,7 +702,7 @@ export const AssetBrowser = () => {
                     )}
 
                     {/* File List */}
-                    <div className="scrollbar-hide" style={{
+                    <div className="scrollbar-hide" onScroll={handleFileListScroll} style={{
                         flex: 1,
                         overflowY: 'auto',
                         overflowX: 'hidden',
@@ -698,7 +730,7 @@ export const AssetBrowser = () => {
                                 <span style={{ opacity: 0.7, fontFamily: 'var(--font-mono)', fontSize: 9 }}>{scanError}</span>
                             </div>
                         )}
-                        {items.map(item => {
+                        {visibleItems.map(item => {
                             const isSelected = selectedItemId === item.id;
                             const isAudio = item.type === 'audio';
                             const isPlugin = item.type === 'plugin';
@@ -820,6 +852,17 @@ export const AssetBrowser = () => {
                                 </div>
                             );
                         })}
+                        {/* Load more indicator */}
+                        {hasMore && (
+                            <div style={{
+                                padding: '8px 10px',
+                                textAlign: 'center',
+                                color: 'var(--color-text-tertiary)',
+                                fontSize: 9,
+                            }}>
+                                {items.length - visibleCount} more items — scroll to load
+                            </div>
+                        )}
                         {!scanLoading && items.length === 0 && (
                             <div style={{
                                 padding: '20px 12px',

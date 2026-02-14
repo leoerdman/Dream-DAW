@@ -15,9 +15,10 @@
                 "title": "Dream DAW",
                 "width": 500,
                 "height": 500,
-                "resizable": false,
+                "resizable": true,
                 "fullscreen": false,
                 "decorations": false,
+                "maximizable": true,
                 "center": true
             }
         ],

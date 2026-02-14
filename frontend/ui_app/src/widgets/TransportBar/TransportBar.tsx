@@ -93,7 +93,7 @@ export const TransportBar = ({ onSettingsClick, onOpenExport, onRecordingStateCh
             engineSetBpm(rounded);
             setBpmText(rounded.toFixed(2));
         }
-    }, []);
+    }, [engineSetBpm]);
 
     const commitBpm = () => {
         const val = parseFloat(bpmText);

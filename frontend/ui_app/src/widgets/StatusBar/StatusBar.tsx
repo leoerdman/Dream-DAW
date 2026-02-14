@@ -3,14 +3,17 @@
  *
  * Ported from StatusBarView.swift (142 lines).
  * NOW WIRED to Zustand engine store for live playhead data.
+ * Shows global errors/notices from useStatusStore.
  *
  * Layout:
  *   [Arrangement] [Position: 1.1.24] [End: 48.1.00] [Length: 2:28.430]
  *   ...spacer...
  *   [▶/■] [9 tracks] [44100 Hz] [Main ▾]
+ *   ─── Error line (when active) ───
  */
 
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 interface StatusBarProps {
     projectEnd?: string;
@@ -30,6 +33,11 @@ export const StatusBar = ({
     const projectSampleRate = useEngineStore((s) => s.projectSampleRate);
     const projectTracks = useEngineStore((s) => s.projectTracks);
 
+    // Status bar messages
+    const statusMessage = useStatusStore((s) => s.message);
+    const statusSeverity = useStatusStore((s) => s.severity);
+    const statusClear = useStatusStore((s) => s.clear);
+
     // Live values from engine store
     const sampleRate = projectSampleRate || 44100;
     const trackCount = projectTracks.length;
@@ -41,81 +49,124 @@ export const StatusBar = ({
     const position = `${bar}.${beat}.${sub.toString().padStart(2, '0')}`;
 
     return (
-        <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            height: 'var(--daw-status-bar-height)',
-            background: 'var(--color-bg-header)',
-            borderTop: '1px solid var(--color-divider)',
-            padding: '0 8px',
-            fontSize: 'var(--font-size-2xs)',
-            flexShrink: 0,
-            zIndex: 'var(--z-transport)',
-        }}>
-
-            {/* Left section */}
+        <div style={{ flexShrink: 0 }}>
+            {/* ── Main Status Row ── */}
             <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 12,
+                justifyContent: 'space-between',
+                height: 24,
+                background: 'var(--color-bg-header)',
+                borderTop: '1px solid var(--color-divider)',
+                padding: '0 10px',
+                fontSize: 'var(--font-size-2xs)',
+                zIndex: 'var(--z-transport)',
             }}>
-                <StatusText>Arrangement</StatusText>
 
-                <StatusGroup>
-                    <StatusLabel>Position:</StatusLabel>
-                    <StatusValue>{position}</StatusValue>
-                </StatusGroup>
-
-                <StatusGroup>
-                    <StatusLabel>End:</StatusLabel>
-                    <StatusValue>{projectEnd}</StatusValue>
-                </StatusGroup>
-
-                <StatusGroup>
-                    <StatusLabel>Length:</StatusLabel>
-                    <StatusValue>{duration}</StatusValue>
-                </StatusGroup>
-            </div>
-
-            {/* Right section */}
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-            }}>
-                <span
-                    title={connected ? 'Engine connected' : 'Engine disconnected'}
-                    style={{
-                        width: 6, height: 6,
-                        borderRadius: '50%',
-                        background: connected ? 'var(--color-status-success)' : 'var(--color-status-error)',
-                        flexShrink: 0,
-                    }}
-                />
-                <span style={{
-                    color: isPlaying ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
-                    fontSize: 10,
-                }}>
-                    {isPlaying ? '▶' : '■'}
-                </span>
-
-                <StatusText>{trackCount} tracks</StatusText>
-                <StatusText>{sampleRate} Hz</StatusText>
-
+                {/* Left section */}
                 <div style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 3,
+                    gap: 12,
                 }}>
+                    <StatusText>Arrangement</StatusText>
+
+                    <StatusGroup>
+                        <StatusLabel>Position:</StatusLabel>
+                        <StatusValue>{position}</StatusValue>
+                    </StatusGroup>
+
+                    <StatusGroup>
+                        <StatusLabel>End:</StatusLabel>
+                        <StatusValue>{projectEnd}</StatusValue>
+                    </StatusGroup>
+
+                    <StatusGroup>
+                        <StatusLabel>Length:</StatusLabel>
+                        <StatusValue>{duration}</StatusValue>
+                    </StatusGroup>
+                </div>
+
+                {/* Right section */}
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                }}>
+                    <span
+                        title={connected ? 'Engine connected' : 'Engine disconnected'}
+                        style={{
+                            width: 6, height: 6,
+                            borderRadius: '50%',
+                            background: connected ? 'var(--color-status-success)' : 'var(--color-status-error)',
+                            flexShrink: 0,
+                        }}
+                    />
                     <span style={{
-                        width: 5, height: 5,
-                        borderRadius: '50%',
-                        background: 'var(--color-text-tertiary)',
-                    }} />
-                    <StatusText>Main</StatusText>
+                        color: isPlaying ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
+                        fontSize: 10,
+                    }}>
+                        {isPlaying ? '▶' : '■'}
+                    </span>
+
+                    <StatusText>{trackCount} tracks</StatusText>
+                    <StatusText>{sampleRate} Hz</StatusText>
+
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 3,
+                    }}>
+                        <span style={{
+                            width: 5, height: 5,
+                            borderRadius: '50%',
+                            background: 'var(--color-text-tertiary)',
+                        }} />
+                        <StatusText>Main</StatusText>
+                    </div>
                 </div>
             </div>
+
+            {/* ── Error/Notice Row (appears below status when active) ── */}
+            {statusMessage && (
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        height: 22,
+                        padding: '0 10px',
+                        fontSize: 'var(--font-size-2xs)',
+                        fontWeight: 500,
+                        background: statusSeverity === 'error'
+                            ? 'rgba(217, 64, 64, 0.14)'
+                            : 'rgba(74, 158, 255, 0.10)',
+                        color: statusSeverity === 'error'
+                            ? 'var(--color-status-error)'
+                            : 'var(--color-accent-primary)',
+                        borderTop: `1px solid ${statusSeverity === 'error'
+                            ? 'rgba(217, 64, 64, 0.3)'
+                            : 'rgba(74, 158, 255, 0.2)'}`,
+                    }}
+                >
+                    <span>{statusSeverity === 'error' ? '⚠ ' : 'ℹ '}{statusMessage}</span>
+                    <button
+                        onClick={() => statusClear()}
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'inherit',
+                            cursor: 'pointer',
+                            fontSize: 12,
+                            opacity: 0.6,
+                            padding: '0 4px',
+                        }}
+                        title="Dismiss"
+                    >
+                        ✕
+                    </button>
+                </div>
+            )}
         </div>
     );
 };

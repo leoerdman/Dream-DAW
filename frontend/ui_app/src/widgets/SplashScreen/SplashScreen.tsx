@@ -4,8 +4,8 @@
    Single-window approach:
    - App starts as 500×500 borderless window
    - This React overlay shows logo + version + status animation
-   - On completion, calls Tauri `expand_window` to resize to full DAW
-   - Overlay fades out revealing the Workspace beneath
+   - On completion, calls onComplete (which mounts Workspace)
+   - THEN expand_window runs — maximized window shows the DAW, not the splash
    ═════════════════════════════════════════════════════════════ */
 
 import { useState, useEffect, useCallback } from 'react'
@@ -35,19 +35,11 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
             console.warn('[Splash] Failed to load settings:', e)
         }
 
-        // 2. Expand the window: hide → configure → maximize → show
-        //    The backend does hide → set decorations/resizable → maximize → show → focus
-        try {
-            await engineApi.expandWindow()
-        } catch (e) {
-            console.warn('[Splash] expand_window unavailable (browser dev?):', e)
-        }
-
-        // 3. Start the 60fps telemetry loop — the DAW comes alive
+        // 2. Start telemetry loop — the DAW comes alive
         startTelemetryLoop()
 
-        // 4. Await initial project fetch — ensures tracks/clips are in the store
-        //    before the Workspace component mounts after the splash fades
+        // 3. Await initial project fetch — ensures tracks/clips are in the store
+        //    before the Workspace component mounts
         const fetchProject = useEngineStore.getState().fetchProject
         try {
             await fetchProject()
@@ -55,16 +47,25 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
             console.warn('[Splash] fetchProject failed:', e)
         }
 
-        // 5. Brief pause to let macOS WindowServer finish drawing the expanded frame
-        //    This prevents a flash of unstyled content before the fade-out begins
-        await new Promise(r => setTimeout(r, 120))
-
-        // 5. Fade out the splash overlay to reveal the workspace beneath
+        // 4. Fade out the splash overlay
         setPhase('fading')
-        setTimeout(() => {
-            setPhase('done')
+
+        // 5. After fade completes:
+        //    - FIRST expand the native window
+        //    - THEN mount Workspace
+        // This avoids rendering DAW layout at splash size (top-left squish).
+        setTimeout(async () => {
+            try {
+                await engineApi.expandWindow()
+            } catch (e) {
+                console.warn('[Splash] expand_window unavailable (browser dev?):', e)
+            }
+
+            // Give layout observers one frame in expanded geometry, then mount DAW.
+            await new Promise(r => setTimeout(r, 120))
             onComplete?.()
-        }, 600) // matches CSS transition duration
+            setPhase('done')
+        }, 400) // fade animation is 400ms
     }, [onComplete, startTelemetryLoop])
 
     useEffect(() => {

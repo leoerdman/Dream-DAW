@@ -149,6 +149,14 @@ export const updateTrack = (update: TrackStateUpdate) =>
 export const addTrack = (name?: string) =>
     invoke<void>('add_track_cmd', { name: name ?? null });
 
+/** Delete a track by its zero-based index. */
+export const deleteTrack = (index: number) =>
+    invoke<void>('delete_track_cmd', { index });
+
+/** Rename a track by its zero-based index. */
+export const renameTrack = (index: number, name: string) =>
+    invoke<void>('rename_track_cmd', { index, name });
+
 // ── State Queries ────────────────────────────────────────────────────────
 
 /** Get current engine state snapshot. */
@@ -313,6 +321,10 @@ export interface AudioFileEntry {
 /** Recursively scan a directory for audio files. */
 export const scanAudioFolder = (path: string) =>
     invoke<AudioFileEntry[]>('scan_audio_folder', { path });
+
+/** Scan ALL audio sources: samples_path + all browser_folders. Unified sorted list. */
+export const scanAllAudioSources = () =>
+    invoke<AudioFileEntry[]>('scan_all_audio_sources');
 
 // ── Browser Folder Management ────────────────────────────────────────
 
@@ -487,6 +499,12 @@ export const addPluginToTrack = (
 ) =>
     invoke<void>('add_plugin_to_track_cmd', {
         payload: { trackId, pluginId, pluginName, slot },
+    });
+
+/** Remove plugin slot from track chain by slot id. */
+export const removePluginFromTrack = (trackId: string, slotId: string) =>
+    invoke<void>('remove_plugin_from_track_cmd', {
+        payload: { trackId, slotId },
     });
 
 /** Set an internal plugin parameter (Utility/Sampler/EQ UI -> backend state). */

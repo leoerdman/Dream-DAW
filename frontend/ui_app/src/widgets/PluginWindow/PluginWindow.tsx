@@ -55,7 +55,7 @@ const MIN_HEIGHT = 200;
 // ── Component ────────────────────────────────────────────────────────────
 
 export const PluginWindow = memo(function PluginWindow({
-    pluginId: _pluginId,
+    pluginId,
     pluginName,
     isBypassed,
     onToggleBypass,
@@ -111,6 +111,7 @@ export const PluginWindow = memo(function PluginWindow({
 
     return (
         <div
+            data-plugin-id={pluginId}
             style={{
                 position: 'fixed',
                 left: position.x,

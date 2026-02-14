@@ -316,7 +316,7 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
             />
 
             {/* Slip-edit handle (bottom center bar) */}
-            {showHandles && (
+            {showHandles && onSlip && (
                 <div
                     onMouseDown={handleSlipDrag}
                     onMouseEnter={() => setHoveredHandle('slip')}

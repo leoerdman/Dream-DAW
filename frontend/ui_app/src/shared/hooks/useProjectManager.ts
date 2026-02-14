@@ -44,6 +44,10 @@ export function useProjectManager(onProjectLoaded?: () => void) {
 
     const autoBackupRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+    // ── Ref for latest filePath (avoids stale closures in keyboard handlers) ──
+    const filePathRef = useRef<string | null>(null);
+    filePathRef.current = state.filePath;
+
     // ── Status Sync ───────────────────────────────────────────────────
 
     /** Fetches and syncs the project status from the backend. */
@@ -68,10 +72,18 @@ export function useProjectManager(onProjectLoaded?: () => void) {
         try {
             setState((prev) => ({ ...prev, isSaving: true }));
 
-            if (state.filePath) {
+            const flush = window.__dreamFlushPendingEdits;
+            if (typeof flush === 'function') {
+                await flush();
+            }
+
+            // Use ref to always get the latest filePath, avoiding stale closure
+            const currentPath = filePathRef.current;
+            if (currentPath) {
+                // Project has been saved before — overwrite in place
                 await engineApi.saveProject();
             } else {
-                // No existing path — trigger Save As
+                // Brand new project — show Save As dialog
                 const path = await engineApi.saveProjectDialog();
                 if (path) {
                     await engineApi.saveProjectAs(path);
@@ -84,12 +96,17 @@ export function useProjectManager(onProjectLoaded?: () => void) {
         } finally {
             setState((prev) => ({ ...prev, isSaving: false }));
         }
-    }, [state.filePath, refreshStatus]);
+    }, [refreshStatus]);
 
     /** Save As — always shows the dialog. */
     const handleSaveAs = useCallback(async () => {
         try {
             setState((prev) => ({ ...prev, isSaving: true }));
+
+            const flush = window.__dreamFlushPendingEdits;
+            if (typeof flush === 'function') {
+                await flush();
+            }
 
             const path = await engineApi.saveProjectDialog();
             if (path) {
@@ -164,30 +181,31 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
             const mod = e.metaKey || e.ctrlKey;
+            const key = e.key.toLowerCase();
 
             // Cmd+S — Save
-            if (mod && e.key === 's' && !e.shiftKey) {
+            if (mod && key === 's' && !e.shiftKey) {
                 e.preventDefault();
                 handleSave();
                 return;
             }
 
             // Cmd+Shift+S — Save As
-            if (mod && e.key === 's' && e.shiftKey) {
+            if (mod && key === 's' && e.shiftKey) {
                 e.preventDefault();
                 handleSaveAs();
                 return;
             }
 
             // Cmd+N — New Project
-            if (mod && e.key === 'n') {
+            if (mod && key === 'n') {
                 e.preventDefault();
                 handleNew();
                 return;
             }
 
             // Cmd+O — Open Project
-            if (mod && e.key === 'o') {
+            if (mod && key === 'o') {
                 e.preventDefault();
                 handleOpen();
                 return;

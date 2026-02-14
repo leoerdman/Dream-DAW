@@ -210,6 +210,12 @@ impl ProjectManager {
                 let source = Path::new(&clip.file_path);
                 Self::copy_single_sample(source, dest)?;
             }
+            if let Some(sampler) = &track.sampler {
+                if !sampler.sample_path.trim().is_empty() {
+                    let source = Path::new(&sampler.sample_path);
+                    Self::copy_single_sample(source, dest)?;
+                }
+            }
         }
 
         Ok(())

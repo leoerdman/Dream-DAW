@@ -83,6 +83,16 @@ export interface ProjectTrack {
         plugin_id: string;
         is_bypassed: boolean;
     } | null;
+    /** Sampler state for internal sampler instrument, if present. */
+    sampler: {
+        sample_path: string;
+        root_note: number;
+        volume: number;
+        attack: number;
+        decay: number;
+        sustain: number;
+        release: number;
+    } | null;
 }
 
 // ── Track color mapping (matches Rust TrackColor enum) ───────────────────
@@ -181,6 +191,12 @@ interface EngineStore {
 
     /** Add a new track to the project. */
     addTrack: (name?: string) => Promise<void>;
+
+    /** Delete a track by its zero-based index. */
+    deleteTrack: (index: number) => Promise<void>;
+
+    /** Rename a track by its zero-based index. */
+    renameTrack: (index: number, name: string) => Promise<void>;
 
     /** Import an audio file onto a track, optionally at a specific position. */
     importFile: (path: string, trackIndex: number, positionFrames?: number) => Promise<ImportAudioResponse | null>;
@@ -417,6 +433,26 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         }
     },
 
+    deleteTrack: async (index: number) => {
+        try {
+            await engine.deleteTrack(index);
+            await get().fetchProject();
+            set({ lastError: null });
+        } catch (e) {
+            set({ lastError: String(e) });
+        }
+    },
+
+    renameTrack: async (index: number, name: string) => {
+        try {
+            await engine.renameTrack(index, name);
+            await get().fetchProject();
+            set({ lastError: null });
+        } catch (e) {
+            set({ lastError: String(e) });
+        }
+    },
+
     importFile: async (path: string, trackIndex: number, positionFrames?: number) => {
         try {
             const response = await engine.importAudioFile(path, trackIndex, positionFrames);
@@ -537,6 +573,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                             : ((track as Record<string, unknown>).input as string)) || 'none',
                     effects: track.effects ?? [],
                     instrument: track.instrument ?? null,
+                    sampler: (track as Record<string, unknown>).sampler as ProjectTrack['sampler'] ?? null,
                 });
 
                 for (const clip of track.clips) {

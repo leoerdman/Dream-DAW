@@ -102,7 +102,8 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
 
     removeLane: (laneId) => {
         set((s) => {
-            const { [laneId]: _, ...rest } = s.lanes;
+            const rest = { ...s.lanes };
+            delete rest[laneId];
             return { lanes: rest };
         });
     },

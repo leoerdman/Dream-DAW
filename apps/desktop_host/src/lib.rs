@@ -383,6 +383,38 @@ impl ProjectState {
             undo: Mutex::new(UndoState::new()),
         }
     }
+
+    /// Marks the project as dirty and updates the window title with a `*` suffix.
+    ///
+    /// This is the single choke-point for every mutation that makes the project
+    /// "unsaved". The caller must supply the project name (to avoid a double-lock
+    /// on `self.project` when the caller already holds it) and an optional
+    /// `AppHandle` to update the native title bar.
+    fn mark_dirty(&self, project_name: &str, app: Option<&tauri::AppHandle>) -> Result<(), String> {
+        let mut dirty = self.is_dirty.lock().map_err(|e| e.to_string())?;
+        let was_dirty = *dirty;
+        *dirty = true;
+        // Only update the title if transitioning from clean → dirty
+        if !was_dirty {
+            if let Some(app) = app {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_title(&format!("Dream DAW — {}*", project_name));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Clears the dirty flag and updates the window title (removes `*`).
+    fn clear_dirty(&self, project_name: &str, app: Option<&tauri::AppHandle>) -> Result<(), String> {
+        *self.is_dirty.lock().map_err(|e| e.to_string())? = false;
+        if let Some(app) = app {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_title(&format!("Dream DAW — {}", project_name));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Snapshots the current project state onto the undo stack.
@@ -600,43 +632,43 @@ impl ClipPoolState {
         let mut skipped = 0usize;
         let mut failed = 0usize;
 
+        let mut load_path = |source_path: &str| {
+            if source_path.trim().is_empty() {
+                return;
+            }
+            if pool.get(source_path).is_some() {
+                skipped += 1;
+                return;
+            }
+            let path = PathBuf::from(source_path);
+            if !path.exists() {
+                log::warn!("[ClipPool] file not found, skipping: '{}'", source_path);
+                failed += 1;
+                return;
+            }
+            match AudioReader::read(&path) {
+                Ok(decoded) => {
+                    pool.insert(ClipAudio {
+                        source_path: source_path.to_string(),
+                        channels: decoded.channels,
+                        sample_rate: decoded.sample_rate,
+                        num_frames: decoded.num_frames,
+                    });
+                    loaded += 1;
+                }
+                Err(e) => {
+                    log::error!("[ClipPool] decode failed for '{}': {e}", source_path);
+                    failed += 1;
+                }
+            }
+        };
+
         for track in &project.tracks {
             for clip in &track.clips {
-                if clip.file_path.is_empty() {
-                    continue;
-                }
-                // Skip if already in pool (idempotent)
-                if pool.get(&clip.file_path).is_some() {
-                    skipped += 1;
-                    continue;
-                }
-                let path = PathBuf::from(&clip.file_path);
-                if !path.exists() {
-                    log::warn!(
-                        "[ClipPool] file not found, skipping: '{}'",
-                        clip.file_path
-                    );
-                    failed += 1;
-                    continue;
-                }
-                match AudioReader::read(&path) {
-                    Ok(decoded) => {
-                        pool.insert(ClipAudio {
-                            source_path: clip.file_path.clone(),
-                            channels: decoded.channels,
-                            sample_rate: decoded.sample_rate,
-                            num_frames: decoded.num_frames,
-                        });
-                        loaded += 1;
-                    }
-                    Err(e) => {
-                        log::error!(
-                            "[ClipPool] decode failed for '{}': {e}",
-                            clip.file_path
-                        );
-                        failed += 1;
-                    }
-                }
+                load_path(&clip.file_path);
+            }
+            if let Some(sampler) = &track.sampler {
+                load_path(&sampler.sample_path);
             }
         }
 
@@ -785,12 +817,12 @@ struct AppSettings {
     cpu_usage_simulator: bool,
     #[serde(default = "default_true", alias = "srPitchConversionHighQuality")]
     sr_pitch_conversion: bool,
-    #[serde(default = "default_user_folder")]
+    #[serde(default = "default_user_folder", alias = "userFolderPath")]
     user_folder_path: String,
     /// User-added folders shown in the browser PLACES section.
-    #[serde(default)]
+    #[serde(default, alias = "browserFolders")]
     browser_folders: Vec<String>,
-    #[serde(default = "default_samples_path")]
+    #[serde(default = "default_samples_path", alias = "samplesPath")]
     samples_path: String,
     #[serde(default = "default_vst2_path", alias = "vst2Path")]
     vst2_path: String,
@@ -1062,6 +1094,13 @@ struct AddPluginToTrackPayload {
     plugin_id: String,
     plugin_name: String,
     slot: String, // "instrument" | "effect" | "auto"
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemovePluginFromTrackPayload {
+    track_id: String,
+    slot_id: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1813,6 +1852,34 @@ fn mutator_err_to_string(e: MutatorError) -> String {
     e.to_string()
 }
 
+fn move_midi_clip_in_project(
+    project: &mut Project,
+    clip_id: Uuid,
+    new_track_index: usize,
+    new_position: AbsoluteTime,
+) -> bool {
+    let mut extracted = None;
+    for track in &mut project.tracks {
+        if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
+            let mut clip = track.midi_clips.remove(idx);
+            clip.position = new_position;
+            extracted = Some(clip);
+            break;
+        }
+    }
+
+    let Some(clip) = extracted else {
+        return false;
+    };
+    let target = &mut project.tracks[new_track_index];
+    let insert_pos = target
+        .midi_clips
+        .binary_search_by(|c| c.position.cmp(&clip.position))
+        .unwrap_or_else(|i| i);
+    target.midi_clips.insert(insert_pos, clip);
+    true
+}
+
 /// Moves a clip to a new track and/or position.
 ///
 /// The clip is identified by UUID string. After mutation, the
@@ -1824,6 +1891,7 @@ async fn move_clip_cmd(
     new_position_frames: i64,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&clip_id)
         .map_err(|e| format!("Invalid clip ID: {e}"))?;
@@ -1833,16 +1901,25 @@ async fn move_clip_cmd(
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
 
-    mutators::move_clip(
-        &mut project,
-        uuid,
-        new_track_index,
-        AbsoluteTime::new(new_position_frames),
-    )
-    .map_err(mutator_err_to_string)?;
+    if new_track_index >= project.tracks.len() {
+        return Err(format!(
+            "Track out of range: requested {} but project has {} tracks",
+            new_track_index,
+            project.tracks.len()
+        ));
+    }
+
+    let new_position = AbsoluteTime::new(new_position_frames);
+    if let Err(audio_err) = mutators::move_clip(&mut project, uuid, new_track_index, new_position) {
+        // If this is not an audio clip, attempt MIDI clip move using same UUID.
+        if !move_midi_clip_in_project(&mut project, uuid, new_track_index, new_position) {
+            return Err(mutator_err_to_string(audio_err));
+        }
+    }
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
 
     Ok(())
 }
@@ -2405,6 +2482,49 @@ async fn add_track_cmd(
     Ok(())
 }
 
+/// Deletes a track by index. Pushes undo snapshot before mutation.
+#[tauri::command]
+async fn delete_track_cmd(
+    index: usize,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    if index >= project.tracks.len() {
+        return Err(format!("Track index {} out of range ({})", index, project.tracks.len()));
+    }
+
+    // Snapshot for undo BEFORE mutation
+    drop(project);
+    push_undo(&project_state)?;
+    project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    let removed_name = project.tracks[index].name.clone();
+    project.tracks.remove(index);
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    log::info!("[IPC] delete_track_cmd: index={} name='{}' (now {} tracks)", index, removed_name, project.tracks.len());
+    Ok(())
+}
+
+/// Renames a track by index.
+#[tauri::command]
+async fn rename_track_cmd(
+    index: usize,
+    name: String,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<(), String> {
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    if index >= project.tracks.len() {
+        return Err(format!("Track index {} out of range ({})", index, project.tracks.len()));
+    }
+    let old_name = project.tracks[index].name.clone();
+    project.tracks[index].name = name.clone();
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    log::info!("[IPC] rename_track_cmd: index={} '{}' → '{}'", index, old_name, name);
+    Ok(())
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Splash Screen → Main Window Transition
 // ═══════════════════════════════════════════════════════════════════════
@@ -2948,25 +3068,86 @@ fn scan_audio_folder(path: String) -> Result<Vec<AudioFileEntry>, String> {
     }
 
     let mut entries = Vec::new();
-    scan_directory_recursive(root, &mut entries, 0, 8)?; // max depth 8
+    let mut file_count: usize = 0;
+    scan_directory_recursive(root, &mut entries, 0, 8, &mut file_count, MAX_SCAN_FILES)?; // max depth 8
     entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(entries)
 }
 
+/// Scans ALL audio sources: the configured samples_path + every user browser_folder.
+/// Returns a deduplicated, alphabetically sorted list of audio files.
+/// Caps at MAX_SCAN_FILES to prevent UI freeze on massive libraries.
+/// This powers the unified "All" category in the browser sidebar.
+const MAX_SCAN_FILES: usize = 10_000;
+
+#[tauri::command]
+fn scan_all_audio_sources(
+    app: tauri::AppHandle,
+    settings_state: tauri::State<'_, SettingsState>,
+) -> Result<Vec<AudioFileEntry>, String> {
+    let samples_path = get_samples_path(app)?;
+    let browser_folders = {
+        let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+        settings.browser_folders.clone()
+    };
+
+    let mut all_entries: Vec<AudioFileEntry> = Vec::new();
+    let mut seen_paths = std::collections::HashSet::new();
+    let mut file_count: usize = 0;
+
+    // Scan samples_path
+    let samples_dir = std::path::Path::new(&samples_path);
+    if samples_dir.is_dir() {
+        let _ = scan_directory_recursive(samples_dir, &mut all_entries, 0, 8, &mut file_count, MAX_SCAN_FILES);
+    }
+
+    // Scan each browser folder
+    for folder in &browser_folders {
+        if file_count >= MAX_SCAN_FILES {
+            break;
+        }
+        let dir = std::path::Path::new(folder);
+        if dir.is_dir() {
+            let _ = scan_directory_recursive(dir, &mut all_entries, 0, 8, &mut file_count, MAX_SCAN_FILES);
+        }
+    }
+
+    // Deduplicate by absolute path
+    all_entries.retain(|e| seen_paths.insert(e.path.clone()));
+
+    // Sort alphabetically (case-insensitive)
+    all_entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+    log::info!(
+        "[IPC] scan_all_audio_sources: {} files from {} sources (cap: {})",
+        all_entries.len(),
+        1 + browser_folders.len(),
+        MAX_SCAN_FILES
+    );
+    Ok(all_entries)
+}
+
 /// Recursive directory walker for audio files.
+/// Stops when `file_count` reaches `max_files` to prevent scanning massive libraries.
 fn scan_directory_recursive(
     dir: &std::path::Path,
     entries: &mut Vec<AudioFileEntry>,
     depth: u32,
     max_depth: u32,
+    file_count: &mut usize,
+    max_files: usize,
 ) -> Result<(), String> {
-    if depth > max_depth {
+    if depth > max_depth || *file_count >= max_files {
         return Ok(());
     }
 
     let read_dir = std::fs::read_dir(dir).map_err(|e| format!("Cannot read {}: {}", dir.display(), e))?;
 
     for entry in read_dir.flatten() {
+        if *file_count >= max_files {
+            break;
+        }
+
         let path = entry.path();
 
         // Skip hidden files/directories
@@ -2975,7 +3156,7 @@ fn scan_directory_recursive(
         }
 
         if path.is_dir() {
-            scan_directory_recursive(&path, entries, depth + 1, max_depth)?;
+            scan_directory_recursive(&path, entries, depth + 1, max_depth, file_count, max_files)?;
         } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             if AUDIO_EXTENSIONS.contains(&ext.to_lowercase().as_str()) {
                 let metadata = std::fs::metadata(&path).ok();
@@ -2993,6 +3174,7 @@ fn scan_directory_recursive(
                     modified_at,
                     format: ext.to_uppercase(),
                 });
+                *file_count += 1;
             }
         }
     }
@@ -3386,17 +3568,34 @@ fn mark_dirty_cmd(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let was_dirty = *project_state.is_dirty.lock().map_err(|e| e.to_string())?;
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let name = project.name.clone();
+    drop(project);
+    project_state.mark_dirty(&name, Some(&app))?;
+    Ok(())
+}
 
-    // Add dirty indicator to window title if transitioning from clean to dirty
-    if !was_dirty {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.set_title(&format!("Dream DAW — {} ●", project.name));
+/// Syncs the window title with the current dirty state.
+///
+/// Called by the frontend after mutations to ensure the title bar
+/// accurately reflects whether there are unsaved changes.
+#[tauri::command]
+fn sync_title_cmd(
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let name = project.name.clone();
+    let is_dirty = *project_state.is_dirty.lock().map_err(|e| e.to_string())?;
+    drop(project);
+
+    if let Some(window) = app.get_webview_window("main") {
+        if is_dirty {
+            let _ = window.set_title(&format!("Dream DAW — {}*", name));
+        } else {
+            let _ = window.set_title(&format!("Dream DAW — {}", name));
         }
     }
-
     Ok(())
 }
 
@@ -3600,15 +3799,36 @@ fn can_open_plugin_editor(
     }
 
     let descriptor = plugin_host_state.resolve_descriptor(&plugin_id)?;
-    let reason = match descriptor.format {
-        PluginFormat::VST3 => Some("VST3 editor host bridge is not implemented yet.".to_string()),
-        PluginFormat::CLAP => Some("CLAP editor bridge is not implemented yet.".to_string()),
-        PluginFormat::AudioUnit => Some("AudioUnit editor bridge is not implemented yet.".to_string()),
-    };
+    if descriptor.format != PluginFormat::VST3 {
+        let reason = match descriptor.format {
+            PluginFormat::VST3 => None,
+            PluginFormat::CLAP => Some("CLAP plugin editor is not supported by this host build.".to_string()),
+            PluginFormat::AudioUnit => Some("AudioUnit editor is not supported by this host build.".to_string()),
+        };
+        return Ok(PluginEditorCapability {
+            supported: false,
+            reason,
+        });
+    }
+
+    // Probe capability by loading the plugin and querying the live instance.
+    // The probe instance is removed immediately to avoid changing chain state.
+    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+    let probe_id = host
+        .load_vst3(descriptor.clone())
+        .map_err(|e| format!("Failed to load plugin '{}': {e}", descriptor.name))?;
+    let supported = host
+        .supports_editor(probe_id)
+        .map_err(|e| format!("Failed to check editor capability: {e}"))?;
+    let _ = host.remove(probe_id);
 
     Ok(PluginEditorCapability {
-        supported: false,
-        reason,
+        supported,
+        reason: if supported {
+            None
+        } else {
+            Some("Plugin does not expose a host-openable editor in this build.".to_string())
+        },
     })
 }
 
@@ -3768,6 +3988,61 @@ fn add_plugin_to_track_cmd(
     Ok(())
 }
 
+/// Remove a plugin slot from a track (instrument/effect) by slot UUID.
+#[tauri::command]
+fn remove_plugin_from_track_cmd(
+    payload: RemovePluginFromTrackPayload,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let track_uuid = Uuid::parse_str(&payload.track_id)
+        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
+    let slot_uuid = Uuid::parse_str(&payload.slot_id)
+        .map_err(|_| format!("Invalid slot_id: {}", payload.slot_id))?;
+
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let track = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.id == track_uuid)
+        .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
+
+    let mut removed = false;
+    if let Some(inst) = &track.instrument {
+        if inst.id == slot_uuid {
+            let removed_plugin_id = inst.plugin_id.clone();
+            track.instrument = None;
+            if removed_plugin_id.starts_with("internal://instrument/sampler") {
+                track.sampler = None;
+            }
+            removed = true;
+        }
+    }
+
+    if !removed {
+        let before = track.effects.len();
+        track.effects.retain(|slot| slot.id != slot_uuid);
+        removed = track.effects.len() != before;
+    }
+
+    if !removed {
+        return Err(format!(
+            "Plugin slot not found on track {}: {}",
+            payload.track_id, payload.slot_id
+        ));
+    }
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    log::info!(
+        "[IPC] remove_plugin_from_track_cmd(track={}, slot={})",
+        payload.track_id,
+        payload.slot_id
+    );
+    Ok(())
+}
+
 fn upsert_static_automation_lane(track: &mut Track, param_id: &str, value: f64) {
     if let Some(existing) = track
         .automation_lanes
@@ -3808,74 +4083,80 @@ fn set_internal_plugin_param_cmd(
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     push_undo(&project_state)?;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-
-    let (track_index, track) = project
-        .tracks
-        .iter_mut()
-        .enumerate()
-        .find(|(_, t)| t.id == track_uuid)
-        .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
-
     let key = payload.param_id.to_lowercase();
     let mut sampler_command_needed = false;
+    let (track_index, sampler_cfg_for_rt) = {
+        let (idx, track) = project
+            .tracks
+            .iter_mut()
+            .enumerate()
+            .find(|(_, t)| t.id == track_uuid)
+            .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
 
-    match key.as_str() {
-        // Utility gain in dB => plugin.gain in linear 0..2
-        "gain" | "utility.gain" | "plugin.gain" => {
-            let linear = 10.0_f64.powf(payload.value.clamp(-60.0, 12.0) / 20.0).clamp(0.0, 2.0);
-            upsert_static_automation_lane(track, "plugin.gain", linear);
+        match key.as_str() {
+            // Utility gain in dB => plugin.gain in linear 0..2
+            "gain" | "utility.gain" | "plugin.gain" => {
+                let linear = 10.0_f64.powf(payload.value.clamp(-60.0, 12.0) / 20.0).clamp(0.0, 2.0);
+                upsert_static_automation_lane(track, "plugin.gain", linear);
+            }
+            // Utility pan in -100..100 or -1..1 => plugin.pan in -1..1
+            "pan" | "utility.pan" | "plugin.pan" => {
+                let pan = if payload.value.abs() > 1.0 {
+                    (payload.value / 100.0).clamp(-1.0, 1.0)
+                } else {
+                    payload.value.clamp(-1.0, 1.0)
+                };
+                upsert_static_automation_lane(track, "plugin.pan", pan);
+            }
+            "width" | "utility.width" | "plugin.width" => {
+                upsert_static_automation_lane(track, "plugin.width", payload.value.clamp(0.0, 200.0));
+            }
+            "mono" | "utility.mono" | "plugin.mono" => {
+                upsert_static_automation_lane(track, "plugin.mono", if payload.value >= 0.5 { 1.0 } else { 0.0 });
+            }
+            // Sampler parameters
+            "sampler.volume" | "volume" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                cfg.volume = payload.value.clamp(0.0, 2.0);
+                sampler_command_needed = true;
+            }
+            "sampler.attack" | "attack" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                cfg.attack = payload.value.clamp(0.001, 10.0);
+                sampler_command_needed = true;
+            }
+            "sampler.decay" | "decay" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                cfg.decay = payload.value.clamp(0.001, 10.0);
+                sampler_command_needed = true;
+            }
+            "sampler.sustain" | "sustain" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                cfg.sustain = payload.value.clamp(0.0, 1.0);
+                sampler_command_needed = true;
+            }
+            "sampler.release" | "release" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                cfg.release = payload.value.clamp(0.001, 20.0);
+                sampler_command_needed = true;
+            }
+            "sampler.rootnote" | "rootnote" | "sampler.root_note" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                cfg.root_note = payload.value.round().clamp(0.0, 127.0) as u8;
+                sampler_command_needed = true;
+            }
+            _ => {
+                // Keep unknown params round-trippable in automation lanes.
+                upsert_static_automation_lane(track, &payload.param_id, payload.value);
+            }
         }
-        // Utility pan in -100..100 or -1..1 => plugin.pan in -1..1
-        "pan" | "utility.pan" | "plugin.pan" => {
-            let pan = if payload.value.abs() > 1.0 {
-                (payload.value / 100.0).clamp(-1.0, 1.0)
-            } else {
-                payload.value.clamp(-1.0, 1.0)
-            };
-            upsert_static_automation_lane(track, "plugin.pan", pan);
+
+        if sampler_command_needed {
+            (idx, track.sampler.clone())
+        } else {
+            (idx, None)
         }
-        "width" | "utility.width" | "plugin.width" => {
-            upsert_static_automation_lane(track, "plugin.width", payload.value.clamp(0.0, 200.0));
-        }
-        "mono" | "utility.mono" | "plugin.mono" => {
-            upsert_static_automation_lane(track, "plugin.mono", if payload.value >= 0.5 { 1.0 } else { 0.0 });
-        }
-        // Sampler parameters
-        "sampler.volume" | "volume" => {
-            let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-            cfg.volume = payload.value.clamp(0.0, 2.0);
-            sampler_command_needed = true;
-        }
-        "sampler.attack" | "attack" => {
-            let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-            cfg.attack = payload.value.clamp(0.001, 10.0);
-            sampler_command_needed = true;
-        }
-        "sampler.decay" | "decay" => {
-            let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-            cfg.decay = payload.value.clamp(0.001, 10.0);
-            sampler_command_needed = true;
-        }
-        "sampler.sustain" | "sustain" => {
-            let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-            cfg.sustain = payload.value.clamp(0.0, 1.0);
-            sampler_command_needed = true;
-        }
-        "sampler.release" | "release" => {
-            let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-            cfg.release = payload.value.clamp(0.001, 20.0);
-            sampler_command_needed = true;
-        }
-        "sampler.rootnote" | "rootnote" | "sampler.root_note" => {
-            let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-            cfg.root_note = payload.value.round().clamp(0.0, 127.0) as u8;
-            sampler_command_needed = true;
-        }
-        _ => {
-            // Keep unknown params round-trippable in automation lanes.
-            upsert_static_automation_lane(track, &payload.param_id, payload.value);
-        }
-    }
+    };
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
@@ -3883,7 +4164,7 @@ fn set_internal_plugin_param_cmd(
     rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
 
     if sampler_command_needed {
-        if let Some(cfg) = &track.sampler {
+        if let Some(cfg) = &sampler_cfg_for_rt {
             let idx = track_index as u16;
             push_command(&handle, EngineCommand::SetSamplerRootNote {
                 track_index: idx,
@@ -3942,18 +4223,21 @@ fn set_sampler_sample_cmd(
 
     push_undo(&project_state)?;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let (track_index, track) = project
-        .tracks
-        .iter_mut()
-        .enumerate()
-        .find(|(_, t)| t.id == track_uuid)
-        .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
+    let (track_index, sampler_cfg) = {
+        let (idx, track) = project
+            .tracks
+            .iter_mut()
+            .enumerate()
+            .find(|(_, t)| t.id == track_uuid)
+            .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
 
-    let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
-    cfg.sample_path = sample_path.clone();
-    if let Some(root) = payload.root_note {
-        cfg.root_note = root.min(127);
-    }
+        let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+        cfg.sample_path = sample_path.clone();
+        if let Some(root) = payload.root_note {
+            cfg.root_note = root.min(127);
+        }
+        (idx, cfg.clone())
+    };
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
@@ -3964,18 +4248,18 @@ fn set_sampler_sample_cmd(
     let idx = track_index as u16;
     push_command(&handle, EngineCommand::SetSamplerRootNote {
         track_index: idx,
-        root_note: cfg.root_note,
+        root_note: sampler_cfg.root_note,
     })?;
     push_command(&handle, EngineCommand::SetSamplerVolume {
         track_index: idx,
-        volume: cfg.volume as f32,
+        volume: sampler_cfg.volume as f32,
     })?;
     push_command(&handle, EngineCommand::SetSamplerAdsr {
         track_index: idx,
-        attack: cfg.attack as f32,
-        decay: cfg.decay as f32,
-        sustain: cfg.sustain as f32,
-        release: cfg.release as f32,
+        attack: sampler_cfg.attack as f32,
+        decay: sampler_cfg.decay as f32,
+        sustain: sampler_cfg.sustain as f32,
+        release: sampler_cfg.release as f32,
     })?;
 
     log::info!(
@@ -4241,6 +4525,7 @@ pub fn run() {
             // File Browser
             generate_demo_samples_cmd,
             scan_audio_folder,
+            scan_all_audio_sources,
             scan_folder_all,
             scan_plugin_folders,
             get_browser_folders,
@@ -4263,6 +4548,8 @@ pub fn run() {
             get_waveform_peaks,
             // Track Management
             add_track_cmd,
+            delete_track_cmd,
+            rename_track_cmd,
             // Clip Editing
             move_clip_cmd,
             split_clip_cmd,
@@ -4296,6 +4583,7 @@ pub fn run() {
             set_track_routing_cmd,
             set_track_input_cmd,
             add_plugin_to_track_cmd,
+            remove_plugin_from_track_cmd,
             set_internal_plugin_param_cmd,
             set_sampler_sample_cmd,
             // Project Management (extended)

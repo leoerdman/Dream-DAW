@@ -64,7 +64,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         } catch (err) {
             console.error('[FileMenu] New project failed:', err);
         }
-    }, [onProjectChange]);
+    }, [onProjectChange, fetchProject]);
 
     const handleOpen = useCallback(async () => {
         setOpen(false);
@@ -78,7 +78,7 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         } catch (err) {
             console.error('[FileMenu] Open failed:', err);
         }
-    }, [onProjectChange]);
+    }, [onProjectChange, fetchProject]);
 
     const handleOpenRecent = useCallback(async (path: string) => {
         setOpen(false);
@@ -90,23 +90,15 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         } catch (err) {
             console.error('[FileMenu] Open recent failed:', err);
         }
-    }, [onProjectChange]);
-
-    const handleSave = useCallback(async () => {
-        setOpen(false);
-        try {
-            await engineApi.saveProject();
-            console.log('[FileMenu] Project saved');
-        } catch (err) {
-            // If no path set, fallback to Save As
-            console.log('[FileMenu] Save failed, trying Save As...', err);
-            handleSaveAs();
-        }
-    }, []);
+    }, [onProjectChange, fetchProject]);
 
     const handleSaveAs = useCallback(async () => {
         setOpen(false);
         try {
+            const flush = window.__dreamFlushPendingEdits;
+            if (typeof flush === 'function') {
+                await flush();
+            }
             const path = await engineApi.saveProjectDialog();
             if (!path) return; // Cancelled
             await engineApi.saveProjectAs(path);
@@ -115,6 +107,22 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             console.error('[FileMenu] Save As failed:', err);
         }
     }, []);
+
+    const handleSave = useCallback(async () => {
+        setOpen(false);
+        try {
+            const flush = window.__dreamFlushPendingEdits;
+            if (typeof flush === 'function') {
+                await flush();
+            }
+            await engineApi.saveProject();
+            console.log('[FileMenu] Project saved');
+        } catch (err) {
+            // If no path set, fallback to Save As
+            console.log('[FileMenu] Save failed, trying Save As...', err);
+            handleSaveAs();
+        }
+    }, [handleSaveAs]);
 
     return (
         <div ref={menuRef} style={{ position: 'relative' }}>

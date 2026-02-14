@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { StrictMode, useState, Component } from 'react'
 import type { ReactNode, ErrorInfo } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -49,14 +50,14 @@ function App() {
 
   return (
     <>
-      {/* Phase 1: Splash overlay fills the small borderless window.
-          When complete, expand_window runs (hide → configure → maximize → show)
-          and telemetry + fetchProject start. Then splash fades and unmounts. */}
+      {/* Splash overlay: shows in the small 500×500 borderless window.
+          When complete, the Rust expand_window has ALREADY run (hide → maximize → show)
+          and telemetry + fetchProject are ready. onComplete unmounts splash and mounts workspace.
+          The workspace is already the content when the maximized window becomes visible. */}
       {!splashDone && <SplashScreen onComplete={() => setSplashDone(true)} />}
 
-      {/* Phase 2: Workspace mounts ONLY after splash is done.
-          By this point telemetry is running and fetchProject has been called,
-          so the store already has tracks/clips for DawShell to render. */}
+      {/* Workspace mounts ONLY after splash is done.
+          By this point the window is already maximized and the store has data. */}
       {splashDone && (
         <ErrorBoundary>
           <Workspace />

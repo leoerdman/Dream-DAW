@@ -94,10 +94,12 @@ export function useTelemetryLoop(
 ) {
     // Store config/refs in refs to avoid re-subscribing on every render
     const configRef = useRef(config);
-    configRef.current = config;
-
     const refsRef = useRef(refs);
-    refsRef.current = refs;
+
+    useEffect(() => {
+        configRef.current = config;
+        refsRef.current = refs;
+    }, [config, refs]);
 
     useEffect(() => {
         const enabled = config.enabled !== false;

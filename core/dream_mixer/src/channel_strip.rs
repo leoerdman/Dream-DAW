@@ -16,7 +16,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use crate::gain::{apply_gain_smoothed, GAIN_SMOOTH_COEFF};
+use crate::gain::GAIN_SMOOTH_COEFF;
 use crate::meter::VuMeter;
 use crate::pan::{apply_pan_smoothed, PanLaw};
 
@@ -141,20 +141,14 @@ impl ChannelStrip {
         // Combined target = fader volume × solo/mute multiplier
         let combined_target = self.target_volume * self.effective_gain;
 
-        // Apply smoothed gain to both channels
-        apply_gain_smoothed(
-            &mut left[..len],
-            combined_target,
-            &mut self.current_volume,
-            self.volume_smooth_coeff,
-        );
-
-        // For right channel, we create a shadow smoother that tracks
-        // the same target (the left smoother already moved current_volume).
-        // We use the already-converged current_volume as a constant gain.
-        let right_gain = self.current_volume;
-        for sample in right[..len].iter_mut() {
-            *sample *= right_gain;
+        // Apply smoothed gain to BOTH channels simultaneously.
+        // Per-sample smoothing ensures identical L/R gain at every sample,
+        // preventing stereo image shift during volume transitions.
+        let coeff = self.volume_smooth_coeff;
+        for i in 0..len {
+            self.current_volume += (combined_target - self.current_volume) * coeff;
+            left[i] *= self.current_volume;
+            right[i] *= self.current_volume;
         }
 
         // Apply smoothed panning

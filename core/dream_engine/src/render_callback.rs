@@ -28,6 +28,9 @@ use dream_transport::Playhead;
 
 use std::sync::Arc;
 
+/// Module-level atomic counter for pool misses (RT-safe, no per-miss allocation).
+static POOL_MISS_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 // ── Constants ──────────────────────────────────────────────────────────────
 
 /// Maximum number of tracks supported per project.
@@ -193,14 +196,25 @@ impl RenderContext {
     /// # Real-Time Safety
     /// Zero allocations. Zero locks. Zero I/O. Zero panics.
     /// All iteration is bounded by pre-known sizes.
+
+    /// Phase 1: Fills track slot buffers with scheduled, faded, strip-processed audio.
+    ///
+    /// After this call, `self.track_slots[i].buf_left/buf_right` contain fully
+    /// processed per-track audio (gain, pan, metering done). The master bus is
+    /// NOT summed — use `render()` for the full pipeline, or sum manually in the
+    /// graph path.
+    ///
+    /// Also advances the playhead.
+    ///
+    /// # Real-Time Safety
+    /// Zero allocations. Zero locks. Zero I/O. Zero panics.
     #[inline]
-    pub fn render(
+    pub fn render_tracks(
         &mut self,
-        output: &mut [f32],
+        frame_count: usize,
         clips_per_track: &[Vec<dream_models::project::AudioClip>],
         clip_pool: &ClipPool,
     ) {
-        let frame_count = output.len() / self.channels;
         let playhead_pos = self.playhead.position();
 
         // ── 1. Clear all track buffers ──────────────────────────────
@@ -237,11 +251,8 @@ impl RenderContext {
             slot.active = true;
 
             // ── 3. Read clip audio into track buffer ────────────────
-            // ClipScheduler told us which clips overlap. Now read their
-            // decoded samples from ClipPool (pre-loaded, zero-copy Arc).
             for ac in &self.scratch_active_clips {
                 let clip = &clips[ac.clip_index];
-                // Try in-memory pool first (short clips)
                 if let Some(audio) = clip_pool.get(&clip.file_path) {
                     _total_pool_hits += 1;
                     ClipReader::read_stereo_into(
@@ -255,7 +266,6 @@ impl RenderContext {
                         clip.gain as f32,
                     );
                 } else if let Some(window) = self.streaming_windows.get(&clip.file_path) {
-                    // Fall back to disk streaming window (large files)
                     _total_pool_hits += 1;
                     window.read_into(
                         ac.source_start_frame,
@@ -266,18 +276,11 @@ impl RenderContext {
                         clip.gain as f32,
                     );
                 } else {
-                    // Diagnostic: neither pool nor streaming — clip not loaded
-                    log::warn!(
-                        "[Render] Pool MISS for clip '{}' file_path='{}'",
-                        clip.name,
-                        clip.file_path
-                    );
+                    POOL_MISS_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     continue;
                 }
 
                 // ── 3a. Apply fades at clip boundaries ───────────────
-                // 1) User-defined clip fades (if set by UI fade handles).
-                // 2) Fallback to always-on micro-fades for anti-click safety.
                 let offset = ac.buffer_offset;
                 let read_len = ac.frames_to_read;
                 if read_len > 0 {
@@ -289,7 +292,6 @@ impl RenderContext {
                         if ac.is_clip_head && user_fade_in > 0 {
                             let len = user_fade_in.min(read_len);
                             for i in 0..len {
-                                // Hermite S-curve 3t^2 - 2t^3
                                 let t = i as f32 / len.max(1) as f32;
                                 let g = t * t * (3.0 - 2.0 * t);
                                 slot.buf_left[offset + i] *= g;
@@ -341,12 +343,15 @@ impl RenderContext {
                 LAST_DIAG.store(diag_counter, std::sync::atomic::Ordering::Relaxed);
                 let total_clips: usize = clips_per_track.iter().map(|c| c.len()).sum();
                 if total_clips > 0 || _total_active > 0 {
+                    let pool_misses =
+                        POOL_MISS_COUNT.swap(0, std::sync::atomic::Ordering::Relaxed);
                     log::info!(
-                        "[Render] playhead={} total_clips={} active={} pool_hits={}",
+                        "[Render] playhead={} total_clips={} active={} pool_hits={} pool_misses={}",
                         playhead_pos,
                         total_clips,
                         _total_active,
-                        _total_pool_hits
+                        _total_pool_hits,
+                        pool_misses
                     );
                 }
             }
@@ -359,15 +364,11 @@ impl RenderContext {
                 continue;
             }
 
-            // Process left and right through the channel strip
             slot.strip.process_stereo(
                 &mut slot.buf_left[..frame_count],
                 &mut slot.buf_right[..frame_count],
             );
 
-            // ── 4a. Process insert device chain ──────────────────
-            // Runs AFTER strip (so gain/pan are applied to the input)
-            // and BEFORE metering (so meters reflect post-FX signal).
             if !slot.device_chain.is_empty() {
                 slot.device_chain.process_stereo(
                     &mut slot.buf_left[..frame_count],
@@ -376,7 +377,6 @@ impl RenderContext {
                 );
             }
 
-            // Write metering data (lock-free atomic writes)
             if let Some((meter_l, meter_r)) = self.meter_bank.track(track_idx) {
                 let rms_l = linear_to_db(compute_rms(&slot.buf_left[..frame_count]));
                 let rms_r = linear_to_db(compute_rms(&slot.buf_right[..frame_count]));
@@ -388,9 +388,37 @@ impl RenderContext {
                 meter_l.store_peak_decay(peak_l, 0.99);
                 meter_r.store_peak_decay(peak_r, 0.99);
             }
+        }
 
-            // ── 5. Sum into master bus ──────────────────────────────
-            self.master_bus.add_stereo(
+        // ── Advance playhead ─────────────────────────────────────
+        self.playhead.advance(frame_count, None);
+    }
+
+    /// Full render pipeline: fills track slots, sums into master bus, interleaves output.
+    ///
+    /// Use this when the audio DAG / graph path is NOT active.
+    /// When the graph is active, call `render_tracks()` instead and let
+    /// the graph handle summing and interleaving.
+    #[inline]
+    pub fn render(
+        &mut self,
+        output: &mut [f32],
+        clips_per_track: &[Vec<dream_models::project::AudioClip>],
+        clip_pool: &ClipPool,
+    ) {
+        let frame_count = output.len() / self.channels;
+
+        // Phase 1: Fill track slots
+        self.render_tracks(frame_count, clips_per_track, clip_pool);
+
+        // ── 5. Sum into master bus ──────────────────────────────
+        let track_slots = &self.track_slots;
+        let master_bus = &mut self.master_bus;
+        for slot in track_slots {
+            if !slot.active {
+                continue;
+            }
+            master_bus.add_stereo(
                 &slot.buf_left[..frame_count],
                 &slot.buf_right[..frame_count],
             );
@@ -423,9 +451,6 @@ impl RenderContext {
                 output[base + 1] = soft_clip(master_r[i]);
             }
         }
-
-        // ── 7. Advance playhead ─────────────────────────────────────
-        self.playhead.advance(frame_count, None);
     }
 
     /// Returns the number of active (pre-allocated) track slots.

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Dream DAW — Full Verification (Rust + TypeScript + Tests)
 set -e
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 echo "═══ Rust Check ═══"
 cargo check --workspace

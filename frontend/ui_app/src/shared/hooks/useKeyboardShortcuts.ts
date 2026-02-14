@@ -114,8 +114,8 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             const selectedTrackIndex = projectTracks.findIndex((t) => t.id === selectedTrackId);
             const insertAfterIndex =
                 selectedTrackId &&
-                selectedTrackId !== 'master' &&
-                selectedTrackIndex >= 0
+                    selectedTrackId !== 'master' &&
+                    selectedTrackIndex >= 0
                     ? selectedTrackIndex
                     : null;
 
@@ -190,7 +190,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                     .sort((a, b) => a.startBeat - b.startBeat);
                 if (selected.length === 0) return;
 
-                const bpm = Math.max(1, useEngineStore.getState().transport.bpm || 120);
+                const bpm = Math.max(1, useEngineStore.getState().projectBpm || useEngineStore.getState().transport.bpm || 120);
                 const minStart = Math.min(...selected.map((c) => c.startBeat));
                 const maxEnd = Math.max(...selected.map((c) => c.startBeat + c.durationBeats));
                 const spanBeats = Math.max(0.0001, maxEnd - minStart);
@@ -260,7 +260,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 e.stopPropagation();
                 if (clipboard.length === 0) return;
 
-                const bpm = Math.max(1, useEngineStore.getState().transport.bpm || 120);
+                const bpm = Math.max(1, useEngineStore.getState().projectBpm || useEngineStore.getState().transport.bpm || 120);
                 const sampleRate = useEngineStore.getState().projectSampleRate || 44100;
                 const framesPerBeat = (60 / bpm) * sampleRate;
                 const cursorBeat = playheadFrames / framesPerBeat;

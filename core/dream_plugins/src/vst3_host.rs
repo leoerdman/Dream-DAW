@@ -29,7 +29,7 @@ use uuid::Uuid;
 
 use crate::descriptor::PluginDescriptor;
 use crate::format::PluginFormat;
-use crate::instance::{PluginError, PluginInstance};
+use crate::instance::{PluginError, PluginInstance, TransportContext};
 
 type DreamDawProcessF32Fn = unsafe extern "C" fn(
     inputs: *const *const f32,
@@ -50,6 +50,105 @@ type Tresult = i32;
 const K_RESULT_OK: Tresult = 0;
 const K_SAMPLE32: i32 = 0;
 const K_REALTIME: i32 = 0;
+const K_NO_INTERFACE: Tresult = -1; // E_NOINTERFACE
+
+// ── VST3 ProcessContext C-ABI (matches Steinberg::Vst::ProcessContext) ──
+//
+// This struct MUST match the exact binary layout of the VST3 SDK's ProcessContext.
+// Fields that we don't populate are zeroed — plugins must check the `state` flags
+// before reading optional fields.
+//
+// Reference: vst3sdk/pluginterfaces/vst/ivstprocesscontext.h
+
+/// State bit flags for ProcessContext.
+const K_PLAYING: u32 = 1 << 1;
+const K_RECORDING: u32 = 1 << 3;
+const K_TEMPO_VALID: u32 = 1 << 10;
+const K_TIME_SIG_VALID: u32 = 1 << 13;
+const K_PROJECT_TIME_VALID: u32 = 1 << 9;
+
+/// C-ABI struct matching `Steinberg::Vst::ProcessContext`.
+/// Must be #[repr(C)] with exact field order from the SDK.
+#[repr(C)]
+#[derive(Clone)]
+struct Vst3ProcessContext {
+    /// Bit combination of ProcessContext state flags.
+    state: u32,
+    /// Current sample rate in Hz.
+    sample_rate: f64,
+    /// Project time in samples (absolute position).
+    project_time_samples: i64,
+
+    /// System time in nanoseconds (not used — set to 0).
+    system_time: i64,
+    /// Musical position in quarter notes (beats).
+    project_time_music: f64,
+    /// Last bar start position in quarter notes.
+    bar_position_music: f64,
+    /// Cycle start position in quarter notes.
+    cycle_start_music: f64,
+    /// Cycle end position in quarter notes.
+    cycle_end_music: f64,
+
+    /// Tempo in BPM.
+    tempo: f64,
+    /// Time signature numerator.
+    time_sig_numerator: i32,
+    /// Time signature denominator.
+    time_sig_denominator: i32,
+
+    /// MIDI clock position (not used).
+    chord: i32,
+    /// SMPTE offset (not used).
+    smpte_offset_subframes: i32,
+    /// SMPTE frame rate (not used).
+    sampler_offset: i32,
+    /// Timecode frame rate.
+    smpte_frame_rate: i32,
+    /// Clock offset.
+    clock_offset: i32,
+    /// Flags.
+    flags: u32,
+}
+
+impl Vst3ProcessContext {
+    /// Creates a ProcessContext from the stored transport state.
+    fn from_transport(ctx: &TransportContext) -> Self {
+        let mut state: u32 = K_TEMPO_VALID | K_TIME_SIG_VALID | K_PROJECT_TIME_VALID;
+        if ctx.is_playing {
+            state |= K_PLAYING;
+        }
+        if ctx.is_recording {
+            state |= K_RECORDING;
+        }
+
+        // Convert position in samples to beats:
+        // beats = samples / (sample_rate * 60 / bpm)
+        let beats_per_second = ctx.tempo / 60.0;
+        let position_seconds = ctx.position_samples as f64 / ctx.sample_rate;
+        let position_beats = position_seconds * beats_per_second;
+
+        Self {
+            state,
+            sample_rate: ctx.sample_rate,
+            project_time_samples: ctx.position_samples,
+            system_time: 0,
+            project_time_music: position_beats,
+            bar_position_music: 0.0,
+            cycle_start_music: 0.0,
+            cycle_end_music: 0.0,
+            tempo: ctx.tempo,
+            time_sig_numerator: 4,
+            time_sig_denominator: 4,
+            chord: 0,
+            smpte_offset_subframes: 0,
+            sampler_offset: 0,
+            smpte_frame_rate: 0,
+            clock_offset: 0,
+            flags: 0,
+        }
+    }
+}
 
 const IID_IAUDIO_PROCESSOR: Tuid = [
     0x42, 0x04, 0x3F, 0x99, 0xB7, 0xDA, 0x45, 0x3C, 0xA5, 0x69, 0xE7, 0x9D, 0x9A, 0xAE, 0xC3, 0x3D,
@@ -57,6 +156,133 @@ const IID_IAUDIO_PROCESSOR: Tuid = [
 const IID_ICOMPONENT: Tuid = [
     0xE8, 0x31, 0xFF, 0x31, 0xF2, 0xD5, 0x43, 0x01, 0x92, 0x8E, 0xBB, 0xEE, 0x25, 0x69, 0x78, 0x02,
 ];
+
+// IHostApplication IID: {58E595CC-DB2D-4969-8B6A-AF8C36A664E5}
+const IID_IHOST_APPLICATION: Tuid = [
+    0x58, 0xE5, 0x95, 0xCC, 0xDB, 0x2D, 0x49, 0x69,
+    0x8B, 0x6A, 0xAF, 0x8C, 0x36, 0xA6, 0x64, 0xE5,
+];
+
+// FUnknown IID: {00000000-0000-0000-C000-000000000046}
+const IID_FUNKNOWN: Tuid = [
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46,
+];
+
+// ── Minimal IHostApplication (COM singleton) ───────────────────────────
+//
+// VST3 plugins expect a valid IHostApplication* passed to IComponent::initialize().
+// Passing NULL causes immediate segfault in FabFilter, Serum, Kontakt, etc.
+//
+// This is a static singleton — zero allocations at runtime.
+// The COM vtable lives in static memory. RefCount is permanent.
+
+/// COM vtable for IHostApplication.
+/// Layout: FUnknown (query_interface, addRef, release) + getName + createInstance.
+#[repr(C)]
+struct IHostApplicationVtbl {
+    query_interface: unsafe extern "system" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
+    add_ref: unsafe extern "system" fn(*mut c_void) -> u32,
+    release: unsafe extern "system" fn(*mut c_void) -> u32,
+    get_name: unsafe extern "system" fn(*mut c_void, *mut u16) -> Tresult,
+    create_instance: unsafe extern "system" fn(*mut c_void, *const Tuid, *const Tuid, *mut *mut c_void) -> Tresult,
+}
+
+/// The singleton IHostApplication object.
+/// Contains only a vtable pointer — minimal COM object.
+#[repr(C)]
+struct HostApplicationInstance {
+    vtbl: *const IHostApplicationVtbl,
+}
+
+// Safety: HostApplicationInstance is a read-only singleton with no mutable state.
+unsafe impl Sync for HostApplicationInstance {}
+unsafe impl Send for HostApplicationInstance {}
+
+fn tuid_eq(a: *const Tuid, b: &Tuid) -> bool {
+    if a.is_null() {
+        return false;
+    }
+    unsafe { *a == *b }
+}
+
+unsafe extern "system" fn host_query_interface(
+    this: *mut c_void,
+    iid: *const Tuid,
+    obj: *mut *mut c_void,
+) -> Tresult {
+    if obj.is_null() {
+        return K_NO_INTERFACE;
+    }
+    // We respond to FUnknown and IHostApplication queries
+    if tuid_eq(iid, &IID_FUNKNOWN) || tuid_eq(iid, &IID_IHOST_APPLICATION) {
+        *obj = this;
+        K_RESULT_OK
+    } else {
+        *obj = ptr::null_mut();
+        K_NO_INTERFACE
+    }
+}
+
+unsafe extern "system" fn host_add_ref(_this: *mut c_void) -> u32 {
+    // Static singleton — never freed, refcount is meaningless.
+    1
+}
+
+unsafe extern "system" fn host_release(_this: *mut c_void) -> u32 {
+    // Static singleton — never freed.
+    1
+}
+
+unsafe extern "system" fn host_get_name(_this: *mut c_void, name: *mut u16) -> Tresult {
+    if name.is_null() {
+        return K_NO_INTERFACE;
+    }
+    // Write "Dream DAW" as UTF-16LE (VST3 uses Steinberg::String128 = wchar_t[128])
+    let text: &[u16] = &[
+        b'D' as u16, b'r' as u16, b'e' as u16, b'a' as u16, b'm' as u16,
+        b' ' as u16,
+        b'D' as u16, b'A' as u16, b'W' as u16,
+        0, // null terminator
+    ];
+    ptr::copy_nonoverlapping(text.as_ptr(), name, text.len());
+    K_RESULT_OK
+}
+
+unsafe extern "system" fn host_create_instance(
+    _this: *mut c_void,
+    _cid: *const Tuid,
+    _iid: *const Tuid,
+    _obj: *mut *mut c_void,
+) -> Tresult {
+    // We don't provide any additional host services (e.g. IMessage).
+    // This is valid — most plugins handle this gracefully.
+    if !_obj.is_null() {
+        *_obj = ptr::null_mut();
+    }
+    K_NO_INTERFACE
+}
+
+/// Static vtable for IHostApplication — lives forever in .rodata.
+static HOST_APP_VTBL: IHostApplicationVtbl = IHostApplicationVtbl {
+    query_interface: host_query_interface,
+    add_ref: host_add_ref,
+    release: host_release,
+    get_name: host_get_name,
+    create_instance: host_create_instance,
+};
+
+/// Static singleton IHostApplication instance.
+static HOST_APP_INSTANCE: HostApplicationInstance = HostApplicationInstance {
+    vtbl: &HOST_APP_VTBL as *const IHostApplicationVtbl,
+};
+
+/// Returns a pointer to the static IHostApplication singleton.
+/// This pointer is valid for the entire lifetime of the process.
+/// It is safe to pass to VST3 IComponent::initialize().
+fn host_application_ptr() -> *mut c_void {
+    &HOST_APP_INSTANCE as *const HostApplicationInstance as *mut c_void
+}
 
 #[repr(C)]
 #[allow(dead_code)]
@@ -284,6 +510,10 @@ pub struct Vst3Instance {
     component_ptr: usize,
     processor_ptr: usize,
     com_initialized: bool,
+
+    /// Cached transport context (set before each process() call).
+    /// Updated via set_transport_context() — zero-alloc Copy struct.
+    transport_ctx: TransportContext,
 }
 
 impl Drop for Vst3Instance {
@@ -485,6 +715,7 @@ impl Vst3Instance {
             component_ptr,
             processor_ptr,
             com_initialized: false,
+            transport_ctx: TransportContext::default(),
         })
     }
 
@@ -508,6 +739,7 @@ impl Vst3Instance {
             component_ptr: 0,
             processor_ptr: 0,
             com_initialized: false,
+            transport_ctx: TransportContext::default(),
         }
     }
 }
@@ -548,7 +780,9 @@ impl PluginInstance for Vst3Instance {
             if self.component_ptr != 0 {
                 let component = self.component_ptr as *mut IComponent;
                 unsafe {
-                    let _ = ((*(*component).vtbl).initialize)(component, ptr::null_mut());
+                    // AVANGARD FIX: Pass real IHostApplication instead of NULL.
+                    // NULL causes segfault in FabFilter, Serum, Kontakt, etc.
+                    let _ = ((*(*component).vtbl).initialize)(component, host_application_ptr());
                     let _ = ((*(*component).vtbl).set_active)(component, 1);
                 }
             }
@@ -656,6 +890,7 @@ impl PluginInstance for Vst3Instance {
                 channel_buffers32: out_ptrs.as_mut_ptr(),
                 channel_buffers64: ptr::null_mut(),
             };
+            let mut process_ctx = Vst3ProcessContext::from_transport(&self.transport_ctx);
             let mut data = ProcessData {
                 process_mode: K_REALTIME,
                 symbolic_sample_size: K_SAMPLE32,
@@ -668,7 +903,9 @@ impl PluginInstance for Vst3Instance {
                 output_parameter_changes: ptr::null_mut(),
                 input_events: ptr::null_mut(),
                 output_events: ptr::null_mut(),
-                process_context: ptr::null_mut(),
+                // AVANGARD FIX: Provide real ProcessContext instead of NULL.
+                // NULL causes segfault in FabFilter, Serum, etc. when querying tempo.
+                process_context: &mut process_ctx as *mut Vst3ProcessContext as *mut c_void,
             };
 
             let processor = self.processor_ptr as *mut IAudioProcessor;
@@ -735,6 +972,10 @@ impl PluginInstance for Vst3Instance {
         // Clear scratch buffers
         self.scratch_left.fill(0.0);
         self.scratch_right.fill(0.0);
+    }
+
+    fn set_transport_context(&mut self, ctx: TransportContext) {
+        self.transport_ctx = ctx;
     }
 
     fn is_active(&self) -> bool {

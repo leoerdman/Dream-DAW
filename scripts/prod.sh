@@ -20,7 +20,7 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TAURI_DIR="$SCRIPT_DIR/apps/desktop_host"
 
 # ── Color output ──────────────────────────────────────────────────────────

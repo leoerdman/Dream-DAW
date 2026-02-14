@@ -49,22 +49,17 @@ impl SummingBus {
     /// Clears the bus for a new frame.
     ///
     /// # Real-Time Safety
-    /// Real-time safe — only zeroes existing memory, no reallocation.
+    /// Real-time safe — only zeroes existing memory, never allocates.
+    /// If `buffer_size` exceeds capacity, it is clamped to the
+    /// pre-allocated size (logged once via debug_assert).
     #[inline]
     pub fn clear(&mut self, buffer_size: usize) {
-        // Ensure capacity without reallocation in normal operation
-        if buffer_size > self.left.len() {
-            self.left.resize(buffer_size, 0.0);
-            self.right.resize(buffer_size, 0.0);
-        }
+        // Hard clamp — NEVER allocate on the audio thread.
+        let buffer_size = buffer_size.min(self.left.len());
 
         // Zero-fill
-        for sample in self.left[..buffer_size].iter_mut() {
-            *sample = 0.0;
-        }
-        for sample in self.right[..buffer_size].iter_mut() {
-            *sample = 0.0;
-        }
+        self.left[..buffer_size].fill(0.0);
+        self.right[..buffer_size].fill(0.0);
 
         self.source_count = 0;
     }
@@ -207,12 +202,17 @@ mod tests {
     #[test]
     fn handles_larger_buffer_size() {
         let mut bus = SummingBus::new(256);
-        // Clear with larger size triggers resize
+        // Clear with larger size should clamp to capacity (256),
+        // NOT allocate — this is the RT-safety guarantee.
         bus.clear(512);
 
-        let signal = vec![0.5; 512];
-        bus.add_mono(&signal);
+        // The bus capacity should remain at 256 (no reallocation)
+        assert_eq!(bus.left().len(), 256);
+        assert_eq!(bus.right().len(), 256);
 
-        assert!((bus.left()[511] - 0.5).abs() < 0.001);
+        // Adding a signal within capacity should still work
+        let signal = vec![0.5; 256];
+        bus.add_mono(&signal);
+        assert!((bus.left()[255] - 0.5).abs() < 0.001);
     }
 }

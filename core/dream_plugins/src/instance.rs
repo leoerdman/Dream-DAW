@@ -44,6 +44,38 @@ impl std::fmt::Display for PluginError {
 
 impl std::error::Error for PluginError {}
 
+/// Transport context passed to plugins before each process() call.
+///
+/// Contains the minimum set of host state that VST3/CLAP/AU plugins need
+/// to synchronize with the DAW's transport (tempo, position, play state).
+///
+/// This is a lightweight, Copy struct — safe to pass on the audio thread.
+#[derive(Debug, Clone, Copy)]
+pub struct TransportContext {
+    /// Current sample rate (Hz).
+    pub sample_rate: f64,
+    /// Current playhead position in sample frames (absolute).
+    pub position_samples: i64,
+    /// Current project tempo in BPM.
+    pub tempo: f64,
+    /// Whether playback is active.
+    pub is_playing: bool,
+    /// Whether recording is active.
+    pub is_recording: bool,
+}
+
+impl Default for TransportContext {
+    fn default() -> Self {
+        Self {
+            sample_rate: 44100.0,
+            position_samples: 0,
+            tempo: 120.0,
+            is_playing: false,
+            is_recording: false,
+        }
+    }
+}
+
 /// Format-agnostic interface for a loaded plugin instance.
 ///
 /// Each concrete implementation wraps a specific plugin API:
@@ -112,6 +144,20 @@ pub trait PluginInstance: Send {
     ///
     /// Called when transport is repositioned or on loop boundaries.
     fn reset(&mut self);
+
+    /// Sets the transport context for the next process() call.
+    ///
+    /// Called once per buffer, before process(). The plugin can use this
+    /// to populate format-specific process context structs (e.g. VST3
+    /// ProcessContext, CLAP transport).
+    ///
+    /// Default implementation is a no-op — built-in effects ignore this.
+    ///
+    /// # Real-Time Safety
+    /// This method MUST be real-time-safe (no allocations, just copy a struct).
+    fn set_transport_context(&mut self, _ctx: TransportContext) {
+        // No-op by default — built-in DSP doesn't need transport info.
+    }
 
     /// Whether the plugin is currently activated.
     fn is_active(&self) -> bool;

@@ -275,7 +275,7 @@ export const DawShell = () => {
             const clip = selectedTimelineClip;
             if (!clip || clip.type !== 'midi') return;
             const notes = latestMidiNotesRef.current[clip.id] ?? [];
-            const bpm = transport.bpm || 120;
+            const bpm = projectBpm || transport.bpm || 120;
             const sr = useEngineStore.getState().projectSampleRate || 44100;
             const beatsPerSecond = bpm / 60;
             void engineApi
@@ -292,7 +292,7 @@ export const DawShell = () => {
         };
         window.addEventListener('pointerup', onPointerUp);
         return () => window.removeEventListener('pointerup', onPointerUp);
-    }, [flushTrackControlFinals, selectedTimelineClip, transport.bpm]);
+    }, [flushTrackControlFinals, selectedTimelineClip, projectBpm, transport.bpm]);
 
     // ── Shared layout constants (SSOT for height sync) ──────────────
     const TRACK_HEIGHT = 48;
@@ -387,7 +387,7 @@ export const DawShell = () => {
     }, []);
 
     const flushPendingMidiEdits = useCallback(async () => {
-        const bpm = transport.bpm || 120;
+        const bpm = projectBpm || transport.bpm || 120;
         const sr = useEngineStore.getState().projectSampleRate || 44100;
         const beatsPerSecond = bpm / 60;
         const tasks: Promise<unknown>[] = [];
@@ -407,7 +407,7 @@ export const DawShell = () => {
         }
 
         await Promise.allSettled(tasks);
-    }, [transport.bpm]);
+    }, [projectBpm, transport.bpm]);
 
     useEffect(() => {
         window.__dreamFlushPendingEdits = async () => {
@@ -475,8 +475,8 @@ export const DawShell = () => {
                                 recordingActive={recordingState.active}
                                 recordingTrackIndex={recordingState.trackIndex}
                                 trackIds={trackIds}
-                                loopStart={(transport.loop_start / projectSampleRate) * ((transport.bpm || 120) / 60)}
-                                loopEnd={(transport.loop_end / projectSampleRate) * ((transport.bpm || 120) / 60)}
+                                loopStart={(transport.loop_start / projectSampleRate) * ((projectBpm || transport.bpm || 120) / 60)}
+                                loopEnd={(transport.loop_end / projectSampleRate) * ((projectBpm || transport.bpm || 120) / 60)}
                                 loopEnabled={transport.loop_enabled}
                                 trackCount={trackCount}
                                 trackHeight={TRACK_HEIGHT}
@@ -544,7 +544,7 @@ export const DawShell = () => {
                                     onNotesChange={(notes) => {
                                         const clipId = selectedTimelineClip.id;
                                         setMidiNotesByClip((prev) => ({ ...prev, [clipId]: notes }));
-                                        const bpm = transport.bpm || 120;
+                                        const bpm = projectBpm || transport.bpm || 120;
                                         const sr = useEngineStore.getState().projectSampleRate || 44100;
                                         const beatsPerSecond = bpm / 60;
                                         let send = midiSaveThrottlesRef.current.get(clipId);

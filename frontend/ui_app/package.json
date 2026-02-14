@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "sync:bindings": "bash ../../scripts/sync_bindings.sh",
+    "predev": "pnpm run sync:bindings",
+    "prebuild": "pnpm run sync:bindings",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",

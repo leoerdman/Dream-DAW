@@ -907,7 +907,15 @@ pub fn start_audio_thread_on_device(
                                 // Real clip playback via RenderContext
                                 // 100% lock-free: ArcSwap::load() is wait-free (nanosecond).
                                 let pool_snap = clip_pool.load();
-                                render_ctx.render(data, snapshot.as_ref(), &pool_snap);
+
+                                // Use render_tracks() (Phase 1 only) — fills track_slots
+                                // with strip-processed audio. The graph handles summing
+                                // and interleaving, so we skip the master bus path.
+                                render_ctx.render_tracks(
+                                    frame_count,
+                                    snapshot.as_ref(),
+                                    &pool_snap,
+                                );
 
                                 // Graph pass: route pre-rendered tracks through DAG.
                                 let n = frame_count

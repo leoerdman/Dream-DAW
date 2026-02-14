@@ -232,6 +232,119 @@ fn set_loop(
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+
+pub(crate) fn invoke_handler()
+-> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![
+        // Transport
+        play,
+        stop,
+        toggle_playback,
+        seek,
+        seek_seconds,
+        seek_to_beat,
+        set_bpm,
+        set_loop,
+        // Track Control
+        set_track_volume,
+        set_track_pan,
+        set_master_volume,
+        set_track_mute,
+        set_track_solo,
+        update_track,
+        // State Queries
+        get_state,
+        get_transport,
+        get_meters,
+        // Project Management
+        new_project,
+        save_project,
+        save_project_as,
+        open_project,
+        get_recent_projects,
+        get_project,
+        get_project_status,
+        // Settings
+        get_settings,
+        update_settings,
+        get_samples_path,
+        // File Browser
+        generate_demo_samples_cmd,
+        scan_audio_folder,
+        scan_all_audio_sources,
+        scan_folder_all,
+        scan_plugin_folders,
+        get_browser_folders,
+        add_browser_folder,
+        remove_browser_folder,
+        preview_audio_file_cmd,
+        stop_preview_cmd,
+        pick_folder,
+        pick_project_file,
+        save_project_dialog,
+        // Splash
+        expand_window,
+        // Legacy
+        set_frequency,
+        // Audio Import
+        import_audio_file,
+        create_midi_clip_cmd,
+        update_midi_clip_cmd,
+        // Waveform
+        get_waveform_peaks,
+        // Track Management
+        add_track_cmd,
+        delete_track_cmd,
+        rename_track_cmd,
+        // Clip Editing
+        move_clip_cmd,
+        split_clip_cmd,
+        duplicate_clip_cmd,
+        merge_clips_cmd,
+        delete_clip_cmd,
+        set_clip_fades_cmd,
+        set_clip_source_offset_cmd,
+        resolve_missing_file_cmd,
+        // Automation / recording / export
+        set_automation_points_cmd,
+        arm_track_cmd,
+        start_recording_cmd,
+        stop_recording_cmd,
+        export_mix_cmd,
+        cancel_export_cmd,
+        // Undo/Redo
+        undo_cmd,
+        redo_cmd,
+        // Audio Device Management
+        get_audio_devices,
+        set_audio_device,
+        restart_audio_engine,
+        // MIDI input
+        get_midi_inputs,
+        connect_midi_input,
+        // Epic 2: plugin windows + routing
+        open_plugin_window,
+        can_open_plugin_editor,
+        close_plugin_window,
+        log_frontend_error,
+        get_routing_targets,
+        set_track_routing_cmd,
+        set_track_input_cmd,
+        add_plugin_to_track_cmd,
+        remove_plugin_from_track_cmd,
+        set_internal_plugin_param_cmd,
+        set_sampler_sample_cmd,
+        // Device Chain
+        add_device_cmd,
+        remove_device_cmd,
+        bypass_device_cmd,
+        set_device_param_cmd,
+        // Project Management (extended)
+        create_backup_cmd,
+        mark_dirty_cmd,
+        sync_title_cmd,
+    ]
+}
 // Tauri Commands — Track Control
 // ═══════════════════════════════════════════════════════════════════════
 

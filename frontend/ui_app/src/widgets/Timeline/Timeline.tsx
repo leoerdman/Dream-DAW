@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { flushSync } from 'react-dom';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { ClipRenderer } from './ClipRenderer';
@@ -186,7 +185,6 @@ export const Timeline = ({
     const canvasRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const rulerContentRef = useRef<HTMLDivElement>(null);
-    const rulerLoopRef = useRef<HTMLDivElement>(null);
     const masterLaneContentRef = useRef<HTMLDivElement>(null);
     const phantomClipRef = useRef<HTMLDivElement>(null);
     const phantomCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -195,15 +193,26 @@ export const Timeline = ({
     const phantomStartBeatRef = useRef(0);
     const liveUnlistenRef = useRef<UnlistenFn | null>(null);
     const liveRafRef = useRef<number | null>(null);
+    const scrollLeftRef = useRef(0);
+    const viewportWidthRef = useRef(0);
+    const scrollRafRef = useRef<number | null>(null);
+    const pendingScrollRef = useRef<{ left: number; width: number } | null>(null);
 
     const beatsPerBar = timeSignature[0];
     const totalBeats = totalBars * beatsPerBar;
     const canvasWidth = totalBeats * pixelsPerBeat;
     const canvasHeight = trackCount * trackHeight;
+    const getLivePixelsPerBeat = useCallback(() => {
+        const liveWidth = canvasRef.current?.clientWidth;
+        if (liveWidth && totalBeats > 0) {
+            return liveWidth / totalBeats;
+        }
+        return pixelsPerBeat;
+    }, [pixelsPerBeat, totalBeats]);
 
     const selectTrackByIndex = useCallback((trackIndex: number) => {
         const clampedIndex = Math.max(0, Math.min(trackCount - 1, trackIndex));
-        const trackId = trackIds[clampedIndex] ?? `track-${clampedIndex}`;
+        const trackId = trackIds[clampedIndex] ?? `track - ${clampedIndex} `;
         onTrackSelect?.(trackId, clampedIndex);
     }, [onTrackSelect, trackCount, trackIds]);
 
@@ -371,16 +380,16 @@ export const Timeline = ({
         const startX = phantomStartBeatRef.current * pixelsPerBeat;
         const maxWidth = Math.max(1, canvasWidth - startX);
         phantomEl.style.display = 'block';
-        phantomEl.style.left = `${startX}px`;
-        phantomEl.style.top = `${recordingTrackIndex * trackHeight + 2}px`;
-        phantomEl.style.height = `${trackHeight - 4}px`;
+        phantomEl.style.left = `${startX} px`;
+        phantomEl.style.top = `${recordingTrackIndex * trackHeight + 2} px`;
+        phantomEl.style.height = `${trackHeight - 4} px`;
         phantomEl.style.width = '2px';
 
         const dpr = window.devicePixelRatio || 1;
         canvas.width = Math.ceil(maxWidth * dpr);
         canvas.height = Math.ceil((trackHeight - 4) * dpr);
-        canvas.style.width = `${maxWidth}px`;
-        canvas.style.height = `${trackHeight - 4}px`;
+        canvas.style.width = `${maxWidth} px`;
+        canvas.style.height = `${trackHeight - 4} px`;
         const ctx = canvas.getContext('2d');
         if (ctx) {
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -446,7 +455,7 @@ export const Timeline = ({
         if (!phantomEl || !recordingActive) return;
         const startX = phantomStartBeatRef.current * pixelsPerBeat;
         const currentX = playheadBeat * pixelsPerBeat;
-        phantomEl.style.width = `${Math.max(2, currentX - startX)}px`;
+        phantomEl.style.width = `${Math.max(2, currentX - startX)} px`;
     }, [recordingActive, playheadBeat, pixelsPerBeat]);
 
     useEffect(() => {
@@ -463,7 +472,7 @@ export const Timeline = ({
         const onMove = (e: MouseEvent) => {
             const deltaPx = e.clientX - slippingClip.startX;
             const sourceDelta = Math.round(deltaPx * slippingClip.samplesPerPixel);
-            const previewEl = document.getElementById(`clip-wave-${slippingClip.clipId}`);
+            const previewEl = document.getElementById(`clip - wave - ${slippingClip.clipId} `);
             if (previewEl) {
                 previewEl.style.transform = `translateX(${Math.max(-64, Math.min(64, -(sourceDelta / Math.max(1, slippingClip.samplesPerPixel))))}px)`;
             }
@@ -477,7 +486,7 @@ export const Timeline = ({
             } catch (err) {
                 console.error('[Timeline] setClipSourceOffset failed:', err);
             }
-            const previewEl = document.getElementById(`clip-wave-${slippingClip.clipId}`);
+            const previewEl = document.getElementById(`clip - wave - ${slippingClip.clipId} `);
             if (previewEl) previewEl.style.transform = '';
             setSlippingClip(null);
         };
@@ -492,38 +501,58 @@ export const Timeline = ({
 
     // ── Scroll handler ──
     const syncHorizontalLayers = useCallback((left: number) => {
-        const tx = `translateX(${-left}px)`;
+        const tx = `translateX(${- left}px)`;
         if (rulerContentRef.current) {
             rulerContentRef.current.style.transform = tx;
         }
         if (masterLaneContentRef.current) {
             masterLaneContentRef.current.style.transform = tx;
         }
-        if (rulerLoopRef.current) {
-            rulerLoopRef.current.style.transform = tx;
-        }
     }, []);
 
     const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
         const target = e.currentTarget;
-        setScrollLeft(target.scrollLeft);
-        setViewportWidth(target.clientWidth);
-        syncHorizontalLayers(target.scrollLeft);
+        const left = target.scrollLeft;
+        const width = target.clientWidth;
+
+        scrollLeftRef.current = left;
+        viewportWidthRef.current = width;
+        syncHorizontalLayers(left);
         onScrollTop?.(target.scrollTop);
-        // Sync both scroll offsets to shared store for drag-drop accuracy
-        setTimelineLayout({ scrollLeft: target.scrollLeft, scrollTop: target.scrollTop });
+        setTimelineLayout({ scrollLeft: left, scrollTop: target.scrollTop });
+
+        pendingScrollRef.current = { left, width };
+        if (scrollRafRef.current != null) return;
+        scrollRafRef.current = requestAnimationFrame(() => {
+            scrollRafRef.current = null;
+            const pending = pendingScrollRef.current;
+            if (!pending) return;
+            setScrollLeft(pending.left);
+            setViewportWidth(pending.width);
+        });
     }, [onScrollTop, setTimelineLayout, syncHorizontalLayers]);
 
     useEffect(() => {
         const syncViewport = () => {
             if (scrollContainerRef.current) {
-                setViewportWidth(scrollContainerRef.current.clientWidth);
-                syncHorizontalLayers(scrollContainerRef.current.scrollLeft);
+                const left = scrollContainerRef.current.scrollLeft;
+                const width = scrollContainerRef.current.clientWidth;
+                scrollLeftRef.current = left;
+                viewportWidthRef.current = width;
+                setViewportWidth(width);
+                setScrollLeft(left);
+                syncHorizontalLayers(left);
             }
         };
         syncViewport();
         window.addEventListener('resize', syncViewport);
-        return () => window.removeEventListener('resize', syncViewport);
+        return () => {
+            window.removeEventListener('resize', syncViewport);
+            if (scrollRafRef.current != null) {
+                cancelAnimationFrame(scrollRafRef.current);
+                scrollRafRef.current = null;
+            }
+        };
     }, [syncHorizontalLayers]);
 
     // ── Zoom (Ctrl+Scroll or pinch) ──
@@ -555,7 +584,7 @@ export const Timeline = ({
         };
         el.addEventListener('wheel', onWheel, { passive: false });
         return () => el.removeEventListener('wheel', onWheel);
-    }, [pixelsPerBeat, totalBeats]);
+    }, [pixelsPerBeat, totalBeats, syncHorizontalLayers]);
 
     // ── Auto-scroll to follow playhead during playback ──
     useEffect(() => {
@@ -570,45 +599,53 @@ export const Timeline = ({
 
         // If playhead goes past 85% of visible area, scroll to follow
         if (playheadX > viewRight - margin) {
-            scrollEl.scrollLeft = playheadX - scrollEl.clientWidth * 0.3;
+            const next = playheadX - scrollEl.clientWidth * 0.3;
+            scrollEl.scrollLeft = next;
+            syncHorizontalLayers(next);
         }
         // If playhead wraps back (e.g. loop), scroll back
         if (playheadX < viewLeft) {
-            scrollEl.scrollLeft = Math.max(0, playheadX - margin);
+            const next = Math.max(0, playheadX - margin);
+            scrollEl.scrollLeft = next;
+            syncHorizontalLayers(next);
         }
-    }, [externalPlayhead, followPlayhead, isPlaying, pixelsPerBeat]);
+    }, [externalPlayhead, followPlayhead, isPlaying, pixelsPerBeat, syncHorizontalLayers]);
 
     // ── Ruler click → set edit cursor position + seek engine ──
     // Uses live DOM scrollLeft (not React state) to avoid stale values during zoom transitions
     const handleRulerClick = useCallback((e: React.MouseEvent) => {
         const rect = e.currentTarget.getBoundingClientRect();
         const liveScrollLeft = scrollContainerRef.current?.scrollLeft ?? 0;
+        const livePpb = getLivePixelsPerBeat();
         const x = e.clientX - rect.left + liveScrollLeft;
-        const rawBeat = x / pixelsPerBeat;
+        const rawBeat = x / livePpb;
         const beat = Math.max(0, snapBeat(rawBeat, beatsPerBar));
         const trackForCursor = Math.max(0, Math.min(trackCount - 1, editCursorTrackIndex));
         setEditCursorBeat(beat, trackForCursor);
         // Also seek the engine playhead to this position
         onPlayheadChange?.(beat);
-    }, [pixelsPerBeat, editCursorTrackIndex, trackCount, setEditCursorBeat, onPlayheadChange, snapBeat, beatsPerBar]);
+    }, [editCursorTrackIndex, trackCount, setEditCursorBeat, onPlayheadChange, snapBeat, beatsPerBar, getLivePixelsPerBeat]);
 
     // ── Canvas click → set edit cursor + deselect clip + seek engine ──
     const handleCanvasClick = useCallback((e: React.MouseEvent) => {
         if ((e.target as HTMLElement).dataset.clip) return;
-        const rect = e.currentTarget.getBoundingClientRect();
-        const scrollLeftPx = scrollContainerRef.current?.scrollLeft ?? 0;
+        const scrollEl = scrollContainerRef.current;
+        if (!scrollEl) return;
+        const rect = scrollEl.getBoundingClientRect();
+        const scrollLeftPx = scrollEl.scrollLeft;
+        const scrollTop = scrollEl.scrollTop;
+        const livePpb = getLivePixelsPerBeat();
         const x = e.clientX - rect.left + scrollLeftPx;
-        const scrollTop = scrollContainerRef.current?.scrollTop ?? 0;
         const y = e.clientY - rect.top + scrollTop;
         const trackIndex = Math.max(0, Math.min(trackCount - 1, Math.floor(y / trackHeight)));
-        const rawBeat = x / pixelsPerBeat;
+        const rawBeat = x / livePpb;
         const beat = Math.max(0, snapBeat(rawBeat, beatsPerBar));
         setEditCursorBeat(beat, trackIndex);
         setSelectedClipId(null);
         selectTrackByIndex(trackIndex);
         // Also seek the engine playhead to this position
         onPlayheadChange?.(beat);
-    }, [pixelsPerBeat, trackHeight, selectTrackByIndex, trackCount, setEditCursorBeat, onPlayheadChange, snapBeat, beatsPerBar]);
+    }, [trackHeight, selectTrackByIndex, trackCount, setEditCursorBeat, onPlayheadChange, snapBeat, beatsPerBar, getLivePixelsPerBeat]);
 
     // ── Clip selection ──
     const handleClipClick = useCallback((e: React.MouseEvent, clipId: string) => {
@@ -654,10 +691,11 @@ export const Timeline = ({
         if (!draggingClip) return;
 
         const onMove = (e: MouseEvent) => {
-            if (!canvasRef.current) return;
-            const rect = canvasRef.current.getBoundingClientRect();
-            const scrollLeftPx = scrollContainerRef.current?.scrollLeft ?? 0;
-            const scrollTopPx = scrollContainerRef.current?.scrollTop ?? 0;
+            const scrollEl = scrollContainerRef.current;
+            if (!scrollEl) return;
+            const rect = scrollEl.getBoundingClientRect();
+            const scrollLeftPx = scrollEl.scrollLeft;
+            const scrollTopPx = scrollEl.scrollTop;
             const x = e.clientX - rect.left + scrollLeftPx - draggingClip.offsetX;
             const y = e.clientY - rect.top + scrollTopPx - draggingClip.offsetY;
             const newBeat = Math.max(0, e.altKey
@@ -666,18 +704,19 @@ export const Timeline = ({
             );
             const newTrack = Math.max(0, Math.min(trackCount - 1, Math.floor(y / trackHeight)));
             // Update in real-time for visual feedback via CSS transform
-            const el = document.getElementById(`clip-${draggingClip.clipId}`);
+            const el = document.getElementById(`clip - ${draggingClip.clipId} `);
             if (el) {
-                el.style.left = `${newBeat * pixelsPerBeat}px`;
-                el.style.top = `${newTrack * trackHeight}px`;
+                el.style.left = `${newBeat * pixelsPerBeat} px`;
+                el.style.top = `${newTrack * trackHeight} px`;
             }
         };
 
         const onUp = (e: MouseEvent) => {
-            if (!canvasRef.current) return;
-            const rect = canvasRef.current.getBoundingClientRect();
-            const scrollLeftPx = scrollContainerRef.current?.scrollLeft ?? 0;
-            const scrollTopPx = scrollContainerRef.current?.scrollTop ?? 0;
+            const scrollEl = scrollContainerRef.current;
+            if (!scrollEl) return;
+            const rect = scrollEl.getBoundingClientRect();
+            const scrollLeftPx = scrollEl.scrollLeft;
+            const scrollTopPx = scrollEl.scrollTop;
             const x = e.clientX - rect.left + scrollLeftPx - draggingClip.offsetX;
             const y = e.clientY - rect.top + scrollTopPx - draggingClip.offsetY;
             const newBeat = Math.max(0, e.altKey
@@ -706,7 +745,7 @@ export const Timeline = ({
             const barIndex = Math.floor(beat / beatsPerBar) + 1;
             const beatInBar = beat % beatsPerBar;
             if (beatInBar === 0) {
-                marks.push({ beat, label: `${barIndex}`, isBar: true });
+                marks.push({ beat, label: `${barIndex} `, isBar: true });
             } else {
                 marks.push({ beat, label: '', isBar: false });
             }
@@ -726,6 +765,12 @@ export const Timeline = ({
             return right >= visibleStartPx && left <= visibleEndPx;
         });
     }, [clips, pixelsPerBeat, visibleStartPx, visibleEndPx]);
+
+    const visibleGridLines = useMemo(() => {
+        const startBeat = Math.max(0, (scrollLeft - 300) / pixelsPerBeat);
+        const endBeat = Math.min(totalBeats, (scrollLeft + viewportWidth + 300) / pixelsPerBeat);
+        return gridLines.filter((gl) => gl.beat >= startBeat && gl.beat <= endBeat);
+    }, [gridLines, pixelsPerBeat, scrollLeft, viewportWidth, totalBeats]);
 
     return (
         <div
@@ -834,8 +879,8 @@ export const Timeline = ({
                         background: loopEnabled
                             ? 'color-mix(in srgb, var(--color-accent-primary) 15%, transparent)'
                             : 'rgba(255,255,255,0.04)',
-                        borderLeft: `1px solid ${loopEnabled ? 'var(--color-accent-primary)' : 'rgba(255,255,255,0.1)'}`,
-                        borderRight: `1px solid ${loopEnabled ? 'var(--color-accent-primary)' : 'rgba(255,255,255,0.1)'}`,
+                        borderLeft: `1px solid ${loopEnabled ? 'var(--color-accent-primary)' : 'rgba(255,255,255,0.1)'} `,
+                        borderRight: `1px solid ${loopEnabled ? 'var(--color-accent-primary)' : 'rgba(255,255,255,0.1)'} `,
                         pointerEvents: 'none',
                         transition: 'background 0.2s ease, border-color 0.2s ease',
                     }} />
@@ -884,15 +929,18 @@ export const Timeline = ({
                     onClick={handleCanvasClick}
                     onDoubleClick={(e) => {
                         // Double-click on a track lane → create MIDI clip
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const scrollLeftPx = scrollContainerRef.current?.scrollLeft ?? 0;
-                        const scrollTopPx = scrollContainerRef.current?.scrollTop ?? 0;
+                        const scrollEl = scrollContainerRef.current;
+                        if (!scrollEl) return;
+                        const rect = scrollEl.getBoundingClientRect();
+                        const scrollLeftPx = scrollEl.scrollLeft;
+                        const scrollTopPx = scrollEl.scrollTop;
+                        const livePpb = getLivePixelsPerBeat();
                         const y = e.clientY - rect.top + scrollTopPx;
                         const x = e.clientX - rect.left + scrollLeftPx;
                         const track = Math.min(Math.floor(y / trackHeight), trackCount - 1);
                         const beat = Math.max(0, e.altKey
-                            ? (x / pixelsPerBeat)
-                            : snapBeat(x / pixelsPerBeat, beatsPerBar)
+                            ? (x / livePpb)
+                            : snapBeat(x / livePpb, beatsPerBar)
                         );
                         onDoubleClickTrack?.(track, beat);
                     }}
@@ -902,13 +950,16 @@ export const Timeline = ({
                             e.preventDefault();
                             e.dataTransfer.dropEffect = 'copy';
                             // Compute target track from cursor Y
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            const scrollLeftPx = scrollContainerRef.current?.scrollLeft ?? 0;
-                            const scrollTopPx = scrollContainerRef.current?.scrollTop ?? 0;
+                            const scrollEl = scrollContainerRef.current;
+                            if (!scrollEl) return;
+                            const rect = scrollEl.getBoundingClientRect();
+                            const scrollLeftPx = scrollEl.scrollLeft;
+                            const scrollTopPx = scrollEl.scrollTop;
+                            const livePpb = getLivePixelsPerBeat();
                             const y = e.clientY - rect.top + scrollTopPx;
                             const x = e.clientX - rect.left + scrollLeftPx;
                             const track = Math.min(Math.floor(y / trackHeight), trackCount - 1);
-                            const beat = Math.max(0, snapBeat(x / pixelsPerBeat, beatsPerBar)); // magnetic snap
+                            const beat = Math.max(0, snapBeat(x / livePpb, beatsPerBar)); // magnetic snap
                             setDropTargetTrack(track);
                             setDropTargetBeat(beat);
                         }
@@ -923,13 +974,16 @@ export const Timeline = ({
                         if (!raw) return;
                         try {
                             const item = JSON.parse(raw) as BrowserDragItem;
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            const scrollLeftPx = scrollContainerRef.current?.scrollLeft ?? 0;
-                            const scrollTopPx = scrollContainerRef.current?.scrollTop ?? 0;
+                            const scrollEl = scrollContainerRef.current;
+                            if (!scrollEl) return;
+                            const rect = scrollEl.getBoundingClientRect();
+                            const scrollLeftPx = scrollEl.scrollLeft;
+                            const scrollTopPx = scrollEl.scrollTop;
+                            const livePpb = getLivePixelsPerBeat();
                             const y = e.clientY - rect.top + scrollTopPx;
                             const x = e.clientX - rect.left + scrollLeftPx;
                             const track = Math.min(Math.floor(y / trackHeight), trackCount - 1);
-                            const beat = Math.max(0, snapBeat(x / pixelsPerBeat, beatsPerBar));
+                            const beat = Math.max(0, snapBeat(x / livePpb, beatsPerBar));
                             onDropBrowserItem?.(item, track, beat);
                         } catch (err) {
                             console.error('[Timeline] Drop parse error:', err);
@@ -954,7 +1008,7 @@ export const Timeline = ({
                         {/* Horizontal track dividers */}
                         {Array.from({ length: trackCount + 1 }, (_, i) => (
                             <line
-                                key={`h-${i}`}
+                                key={`h - ${i} `}
                                 x1={0}
                                 y1={i * trackHeight}
                                 x2={canvasWidth}
@@ -965,7 +1019,7 @@ export const Timeline = ({
                         ))}
 
                         {/* Vertical grid lines — dynamic resolution based on zoom */}
-                        {gridLines.map((gl, idx) => {
+                        {visibleGridLines.map((gl, idx) => {
                             const opacity = gl.isBar ? 0.6
                                 : gl.isMainBeat ? 0.3
                                     : gl.depth === 2 ? 0.15
@@ -973,7 +1027,7 @@ export const Timeline = ({
                                             : 0.07;
                             return (
                                 <line
-                                    key={`v-${idx}`}
+                                    key={`v - ${idx} `}
                                     x1={gl.beat * pixelsPerBeat}
                                     y1={0}
                                     x2={gl.beat * pixelsPerBeat}
@@ -996,8 +1050,8 @@ export const Timeline = ({
                         background: loopEnabled
                             ? 'color-mix(in srgb, var(--color-accent-primary) 5%, transparent)'
                             : 'rgba(255,255,255,0.015)',
-                        borderLeft: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 40%, transparent)' : 'rgba(255,255,255,0.05)'}`,
-                        borderRight: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 40%, transparent)' : 'rgba(255,255,255,0.05)'}`,
+                        borderLeft: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 40%, transparent)' : 'rgba(255,255,255,0.05)'} `,
+                        borderRight: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 40%, transparent)' : 'rgba(255,255,255,0.05)'} `,
                         pointerEvents: 'none',
                         zIndex: 1,
                         transition: 'background 0.2s ease, border-color 0.2s ease',
@@ -1012,7 +1066,7 @@ export const Timeline = ({
 
                         return (
                             <div
-                                id={`clip-${clip.id}`}
+                                id={`clip - ${clip.id} `}
                                 key={clip.id}
                                 data-clip="true"
                                 onClick={e => handleClipClick(e, clip.id)}
@@ -1078,7 +1132,7 @@ export const Timeline = ({
                                     overflow: 'hidden',
                                 }}>
                                     {clip.type === 'audio' && clip.filePath && clip.durationSamples ? (
-                                        <div id={`clip-wave-${clip.id}`} style={{ willChange: 'transform' }}>
+                                        <div id={`clip - wave - ${clip.id} `} style={{ willChange: 'transform' }}>
                                             <ClipRenderer
                                                 filePath={clip.filePath}
                                                 width={width}
@@ -1176,7 +1230,7 @@ export const Timeline = ({
 
                     {/* ── Automation Lanes (SVG overlays per track) ── */}
                     {Array.from({ length: trackCount }, (_, trackIdx) => {
-                        const trackId = trackIds[trackIdx] ?? `track-${trackIdx}`;
+                        const trackId = trackIds[trackIdx] ?? `track - ${trackIdx} `;
                         const expanded = expandedTracks.has(trackId);
                         if (!expanded) return null;
                         const lanes = Object.values(automationLanes).filter((lane) => lane.trackId === trackId);
@@ -1247,9 +1301,9 @@ export const Timeline = ({
                                 ? 'rgba(120, 200, 120, 0.35)'
                                 : 'rgba(74, 144, 217, 0.35)',
                             border: `1.5px solid ${ghostPreview.type === 'midi'
-                                ? 'rgba(120, 200, 120, 0.8)'
-                                : 'rgba(74, 144, 217, 0.8)'
-                                }`,
+                                    ? 'rgba(120, 200, 120, 0.8)'
+                                    : 'rgba(74, 144, 217, 0.8)'
+                                } `,
                             borderRadius: 3,
                             zIndex: 16,
                             pointerEvents: 'none',
@@ -1375,7 +1429,7 @@ export const Timeline = ({
                         }}
                     >
                         {/* Vertical grid lines for master lane */}
-                        {gridLines.map((gl, idx) => {
+                        {visibleGridLines.map((gl, idx) => {
                             const opacity = gl.isBar ? 0.6
                                 : gl.isMainBeat ? 0.3
                                     : gl.depth === 2 ? 0.15
@@ -1383,7 +1437,7 @@ export const Timeline = ({
                                             : 0.07;
                             return (
                                 <line
-                                    key={`m-${idx}`}
+                                    key={`m - ${idx} `}
                                     x1={gl.beat * pixelsPerBeat}
                                     y1={0}
                                     x2={gl.beat * pixelsPerBeat}
@@ -1407,8 +1461,8 @@ export const Timeline = ({
                             background: loopEnabled
                                 ? 'color-mix(in srgb, var(--color-accent-primary) 5%, transparent)'
                                 : 'rgba(255,255,255,0.015)',
-                            borderLeft: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 75%, transparent)' : 'rgba(255,255,255,0.05)'}`,
-                            borderRight: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 75%, transparent)' : 'rgba(255,255,255,0.05)'}`,
+                            borderLeft: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 75%, transparent)' : 'rgba(255,255,255,0.05)'} `,
+                            borderRight: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 75%, transparent)' : 'rgba(255,255,255,0.05)'} `,
                             pointerEvents: 'none',
                             zIndex: 1,
                             transition: 'background 0.2s ease, border-color 0.2s ease',
@@ -1507,7 +1561,7 @@ const MidiNoteFallback = ({
             <svg
                 width="100%"
                 height="100%"
-                viewBox={`0 0 ${emptyWidth} ${viewHeight}`}
+                viewBox={`0 0 ${emptyWidth} ${viewHeight} `}
                 preserveAspectRatio="none"
                 style={{ opacity: 0.2 }}
             >
@@ -1520,7 +1574,7 @@ const MidiNoteFallback = ({
         <svg
             width="100%"
             height="100%"
-            viewBox={`0 0 100 ${viewHeight}`}
+            viewBox={`0 0 100 ${viewHeight} `}
             preserveAspectRatio="none"
             style={{ opacity: 0.76 }}
         >
@@ -1532,7 +1586,7 @@ const MidiNoteFallback = ({
                 const noteHeight = Math.max(1.4, Math.min(4.2, viewHeight * 0.12));
                 return (
                     <rect
-                        key={`${note.pitch}-${note.startBeat}-${i}`}
+                        key={`${note.pitch} -${note.startBeat} -${i} `}
                         x={x}
                         y={y}
                         width={w}

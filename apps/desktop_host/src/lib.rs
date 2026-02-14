@@ -2087,6 +2087,16 @@ struct SplitClipResponse {
     right_id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct DuplicateClipResponse {
+    new_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MergeClipsResponse {
+    new_id: String,
+}
+
 fn mutator_err_to_string(e: MutatorError) -> String {
     e.to_string()
 }
@@ -2234,6 +2244,189 @@ async fn delete_clip_cmd(
     rebuild_midi_snapshot_from_project(&project, &handle);
 
     Ok(())
+}
+
+/// Duplicate a clip, optionally at a specific destination position.
+#[tauri::command]
+async fn duplicate_clip_cmd(
+    clip_id: String,
+    new_position_frames: Option<i64>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<DuplicateClipResponse, String> {
+    let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
+    push_undo(&project_state)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut created_id: Option<Uuid> = None;
+    let target_pos = new_position_frames.map(AbsoluteTime::new);
+
+    'outer: for track in &mut project.tracks {
+        if let Some(src) = track.clips.iter().find(|c| c.id == uuid).cloned() {
+            let mut dup = src;
+            dup.id = Uuid::new_v4();
+            dup.position = target_pos.unwrap_or_else(|| src.end_position());
+            dup.is_selected = false;
+            let insert_at = track
+                .clips
+                .binary_search_by(|c| c.position.cmp(&dup.position))
+                .unwrap_or_else(|i| i);
+            created_id = Some(dup.id);
+            track.clips.insert(insert_at, dup);
+            break 'outer;
+        }
+        if let Some(src) = track.midi_clips.iter().find(|c| c.id == uuid).cloned() {
+            let mut dup = src;
+            dup.id = Uuid::new_v4();
+            dup.position = target_pos.unwrap_or_else(|| src.end_position());
+            dup.is_selected = false;
+            let insert_at = track
+                .midi_clips
+                .binary_search_by(|c| c.position.cmp(&dup.position))
+                .unwrap_or_else(|i| i);
+            created_id = Some(dup.id);
+            track.midi_clips.insert(insert_at, dup);
+            break 'outer;
+        }
+    }
+
+    let new_id = created_id.ok_or_else(|| format!("Clip not found: {clip_id}"))?;
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
+
+    Ok(DuplicateClipResponse {
+        new_id: new_id.to_string(),
+    })
+}
+
+/// Merge selected clips into one clip on the same track.
+#[tauri::command]
+async fn merge_clips_cmd(
+    clip_ids: Vec<String>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<MergeClipsResponse, String> {
+    if clip_ids.is_empty() {
+        return Err("No clips selected".to_string());
+    }
+
+    let ids: Result<Vec<Uuid>, _> = clip_ids.iter().map(|id| Uuid::parse_str(id)).collect();
+    let ids = ids.map_err(|e| format!("Invalid clip ID: {e}"))?;
+    push_undo(&project_state)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    // Find track containing all selected clips.
+    let mut selected_track_idx: Option<usize> = None;
+    for (ti, track) in project.tracks.iter().enumerate() {
+        let audio_hits = ids.iter().filter(|id| track.clips.iter().any(|c| c.id == **id)).count();
+        let midi_hits = ids.iter().filter(|id| track.midi_clips.iter().any(|c| c.id == **id)).count();
+        if audio_hits == ids.len() || midi_hits == ids.len() {
+            selected_track_idx = Some(ti);
+            break;
+        }
+    }
+    let ti = selected_track_idx.ok_or_else(|| "Selected clips must be on one track".to_string())?;
+    let track = &mut project.tracks[ti];
+
+    let audio_selected: Vec<_> = track
+        .clips
+        .iter()
+        .filter(|c| ids.contains(&c.id))
+        .cloned()
+        .collect();
+    let midi_selected: Vec<_> = track
+        .midi_clips
+        .iter()
+        .filter(|c| ids.contains(&c.id))
+        .cloned()
+        .collect();
+
+    if !audio_selected.is_empty() && !midi_selected.is_empty() {
+        return Err("Cannot merge audio and MIDI clips together".to_string());
+    }
+    if audio_selected.len() + midi_selected.len() < 2 {
+        return Err("Select at least two clips to merge".to_string());
+    }
+
+    let new_id = Uuid::new_v4();
+    if !audio_selected.is_empty() {
+        let first = audio_selected
+            .iter()
+            .min_by_key(|c| c.position.sample_frame)
+            .ok_or_else(|| "No audio clips selected".to_string())?;
+        let start = audio_selected
+            .iter()
+            .map(|c| c.position.sample_frame)
+            .min()
+            .unwrap_or(first.position.sample_frame);
+        let end = audio_selected
+            .iter()
+            .map(|c| c.end_position().sample_frame)
+            .max()
+            .unwrap_or(first.end_position().sample_frame);
+
+        track.clips.retain(|c| !ids.contains(&c.id));
+        let merged = AudioClip {
+            id: new_id,
+            name: "Merged Clip".to_string(),
+            file_path: first.file_path.clone(),
+            position: AbsoluteTime::new(start),
+            duration: AbsoluteTime::new((end - start).max(1)),
+            source_offset: first.source_offset,
+            gain: first.gain,
+            fade_in_frames: 0,
+            fade_out_frames: 0,
+            is_offline: first.is_offline,
+            is_selected: false,
+            color_override: first.color_override,
+        };
+        let insert_at = track
+            .clips
+            .binary_search_by(|c| c.position.cmp(&merged.position))
+            .unwrap_or_else(|i| i);
+        track.clips.insert(insert_at, merged);
+    } else {
+        let start = midi_selected
+            .iter()
+            .map(|c| c.position.sample_frame)
+            .min()
+            .ok_or_else(|| "No MIDI clips selected".to_string())?;
+        let end = midi_selected
+            .iter()
+            .map(|c| c.end_position().sample_frame)
+            .max()
+            .ok_or_else(|| "No MIDI clips selected".to_string())?;
+
+        let mut merged = MidiClip::new("Merged Clip", AbsoluteTime::new(start), AbsoluteTime::new((end - start).max(1)));
+        merged.id = new_id;
+        for clip in &midi_selected {
+            let clip_offset = clip.position.sample_frame - start;
+            for note in &clip.notes {
+                let mut moved = note.clone();
+                moved.start_frame = (note.start_frame + clip_offset).max(0);
+                merged.add_note(moved);
+            }
+        }
+
+        track.midi_clips.retain(|c| !ids.contains(&c.id));
+        let insert_at = track
+            .midi_clips
+            .binary_search_by(|c| c.position.cmp(&merged.position))
+            .unwrap_or_else(|i| i);
+        track.midi_clips.insert(insert_at, merged);
+    }
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
+
+    Ok(MergeClipsResponse {
+        new_id: new_id.to_string(),
+    })
 }
 
 /// Update a clip's source offset (slip editing).

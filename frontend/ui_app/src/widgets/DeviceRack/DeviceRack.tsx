@@ -1068,13 +1068,13 @@ const PluginGuiSurface = ({
                 gridTemplateRows: '130px auto',
                 height: '100%',
                 gap: 8,
-                border: '1px solid #4a4d52',
+                border: '1px solid #4d4d4d',
                 borderRadius: 4,
-                background: '#2a2c30',
+                background: '#2a2a2a',
                 overflow: 'hidden',
             }}>
                 <div style={{
-                    background: '#30343a',
+                    background: '#333333',
                     position: 'relative',
                     overflow: 'hidden',
                 }}
@@ -1099,8 +1099,8 @@ const PluginGuiSurface = ({
                         justifyContent: 'space-between',
                         padding: '0 8px',
                         fontSize: 9,
-                        color: '#cfd3d8',
-                        background: 'linear-gradient(180deg, #2a2f38 0%, #20242c 100%)',
+                        color: '#d0d0d0',
+                        background: 'linear-gradient(180deg, #2c2c2c 0%, #222222 100%)',
                     }}>
                         <span style={{ fontWeight: 700 }}>Sample</span>
                         <span style={{ fontSize: 9, opacity: 0.85 }}>Controls</span>
@@ -1110,7 +1110,7 @@ const PluginGuiSurface = ({
                         preserveAspectRatio="none"
                         style={{ position: 'absolute', left: 6, right: 6, top: 24, height: 68, width: 'calc(100% - 12px)' }}
                     >
-                        <rect x="0" y="0" width="1000" height="110" fill="#1f2227" />
+                        <rect x="0" y="0" width="1000" height="110" fill="#202020" />
                         {Array.from({ length: 24 }).map((_, i) => (
                             <line
                                 key={`g-${i}`}
@@ -1157,7 +1157,7 @@ const PluginGuiSurface = ({
                         top: 95,
                         left: 8,
                         fontSize: 9,
-                        color: '#b8bdc5',
+                        color: '#bbbbbb',
                     }}>
                         {device.samplePath ? device.samplePath.split('/').pop() : 'Drag sample here or load from disk'}
                     </div>
@@ -1171,12 +1171,12 @@ const PluginGuiSurface = ({
                         gap: 8,
                         fontSize: 9,
                     }}>
-                        <div style={{ color: '#99a0aa' }}><div>Start</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>0.00%</div></div>
-                        <div style={{ color: '#99a0aa' }}><div>Loop</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>100%</div></div>
-                        <div style={{ color: '#99a0aa' }}><div>Length</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>100%</div></div>
-                        <div style={{ color: '#99a0aa' }}><div>Attack</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>{getParam('Attack', '0.01s')}</div></div>
-                        <div style={{ color: '#99a0aa' }}><div>Decay</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>{getParam('Decay', '0.10s')}</div></div>
-                        <div style={{ color: '#99a0aa' }}><div>Release</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>{getParam('Release', '0.05s')}</div></div>
+                        <div style={{ color: '#9a9a9a' }}><div>Start</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>0.00%</div></div>
+                        <div style={{ color: '#9a9a9a' }}><div>Loop</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>100%</div></div>
+                        <div style={{ color: '#9a9a9a' }}><div>Length</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>100%</div></div>
+                        <div style={{ color: '#9a9a9a' }}><div>Attack</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>{getParam('Attack', '0.01s')}</div></div>
+                        <div style={{ color: '#9a9a9a' }}><div>Decay</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>{getParam('Decay', '0.10s')}</div></div>
+                        <div style={{ color: '#9a9a9a' }}><div>Release</div><div style={{ color: '#57b4ff', fontFamily: 'var(--font-mono)' }}>{getParam('Release', '0.05s')}</div></div>
                     </div>
                     <button
                         type="button"
@@ -1185,10 +1185,10 @@ const PluginGuiSurface = ({
                             position: 'absolute',
                             right: 8,
                             top: 2,
-                            border: '1px solid #51545a',
+                            border: '1px solid #555555',
                             borderRadius: 3,
-                            background: '#2a2f36',
-                            color: '#cfd3d8',
+                            background: '#2c2c2c',
+                            color: '#d0d0d0',
                             fontSize: 9,
                             padding: '3px 7px',
                             cursor: 'pointer',
@@ -1202,7 +1202,7 @@ const PluginGuiSurface = ({
                     alignItems: 'center',
                     gap: 12,
                     padding: '6px 8px 8px 8px',
-                    background: '#26282d',
+                    background: '#272727',
                     borderTop: '1px solid rgba(255,255,255,0.06)',
                 }}>
                     {device.params.slice(0, 6).map((p) => (
@@ -1219,7 +1219,7 @@ const PluginGuiSurface = ({
                 <div style={{
                     border: '1px solid var(--color-divider)',
                     borderRadius: 6,
-                    background: '#0b0f15',
+                    background: '#0d0d0d',
                     position: 'relative',
                     overflow: 'hidden',
                 }}>
@@ -1250,7 +1250,7 @@ const PluginGuiSurface = ({
                     border: '1px solid var(--color-divider)',
                     borderRadius: 6,
                     padding: 10,
-                    background: '#111318',
+                    background: '#121212',
                     display: 'grid',
                     gridTemplateColumns: 'repeat(4, minmax(90px, 1fr))',
                     gap: 12,
@@ -1361,7 +1361,7 @@ const ParamKnob = ({
                     width: '100%',
                     height: '100%',
                     borderRadius: '50%',
-                    background: 'radial-gradient(circle at 35% 30%, #2d3240 0%, #171b25 58%, #0d1017 100%)',
+                    background: 'radial-gradient(circle at 35% 30%, #303030 0%, #191919 58%, #0e0e0e 100%)',
                     border: '1px solid rgba(255,255,255,0.2)',
                     boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.08), inset 0 -2px 4px rgba(0,0,0,0.5)',
                     position: 'relative',

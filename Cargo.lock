@@ -736,6 +736,7 @@ dependencies = [
  "dream_io",
  "dream_ipc",
  "dream_models",
+ "dream_plugins",
  "env_logger",
  "log",
  "rtrb",

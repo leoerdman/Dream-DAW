@@ -19,7 +19,7 @@
 use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::reader::ClipReader;
 use dream_clip_engine::disk_streamer::StreamingWindow;
-use dream_clip_engine::scheduler::{ClipScheduler, LoopRegion as ClipLoopRegion};
+use dream_clip_engine::scheduler::{ActiveClipInfo, ClipScheduler, LoopRegion as ClipLoopRegion};
 use dream_dsp::fades::FadeCache;
 use dream_mixer::{ChannelStrip, SummingBus};
 use dream_ipc::metering::{MeterBank, compute_rms, compute_peak, linear_to_db};
@@ -114,6 +114,17 @@ pub struct RenderContext {
     /// audio is read from the streaming window instead of the in-memory pool.
     /// This prevents OOM for files exceeding `RAM_THRESHOLD_BYTES`.
     pub streaming_windows: std::collections::HashMap<String, StreamingWindow>,
+
+    /// Reused active-clip scratch (pre-allocated, no per-buffer allocs).
+    scratch_active_clips: Vec<ActiveClipInfo>,
+    /// Secondary scratch for loop-wrap scheduling.
+    scratch_post_wrap_clips: Vec<ActiveClipInfo>,
+}
+
+#[inline]
+fn soft_clip(sample: f32) -> f32 {
+    // Smooth brickwall-style limiting: hard clamp avoided to reduce harsh harmonics.
+    (sample / (1.0 + sample.abs())).clamp(-1.0, 1.0)
 }
 
 impl RenderContext {
@@ -146,6 +157,8 @@ impl RenderContext {
             meter_bank,
             loop_region: None,
             streaming_windows: std::collections::HashMap::new(),
+            scratch_active_clips: Vec::with_capacity(256),
+            scratch_post_wrap_clips: Vec::with_capacity(256),
         }
     }
 
@@ -163,7 +176,7 @@ impl RenderContext {
     pub fn render(
         &mut self,
         output: &mut [f32],
-        clips_per_track: &[&[dream_models::project::AudioClip]],
+        clips_per_track: &[Vec<dream_models::project::AudioClip>],
         clip_pool: &ClipPool,
     ) {
         let frame_count = output.len() / self.channels;
@@ -185,27 +198,30 @@ impl RenderContext {
                 break;
             }
 
-            let active_clips = ClipScheduler::find_active_looped(
+            ClipScheduler::fill_active_looped_with_tmp(
                 clips,
                 playhead_pos,
                 frame_count,
                 self.loop_region.as_ref(),
+                &mut self.scratch_active_clips,
+                &mut self.scratch_post_wrap_clips,
             );
 
-            if active_clips.is_empty() {
+            if self.scratch_active_clips.is_empty() {
                 continue;
             }
 
-            _total_active += active_clips.len();
+            _total_active += self.scratch_active_clips.len();
             let slot = &mut self.track_slots[track_idx];
             slot.active = true;
 
             // ── 3. Read clip audio into track buffer ────────────────
             // ClipScheduler told us which clips overlap. Now read their
             // decoded samples from ClipPool (pre-loaded, zero-copy Arc).
-            for ac in &active_clips {
+            for ac in &self.scratch_active_clips {
+                let clip = &clips[ac.clip_index];
                 // Try in-memory pool first (short clips)
-                if let Some(audio) = clip_pool.get(&ac.clip.file_path) {
+                if let Some(audio) = clip_pool.get(&clip.file_path) {
                     _total_pool_hits += 1;
                     ClipReader::read_stereo_into(
                         audio.left(),
@@ -215,9 +231,9 @@ impl RenderContext {
                         &mut slot.buf_right,
                         ac.buffer_offset,
                         ac.frames_to_read,
-                        ac.clip.gain as f32,
+                        clip.gain as f32,
                     );
-                } else if let Some(window) = self.streaming_windows.get(&ac.clip.file_path) {
+                } else if let Some(window) = self.streaming_windows.get(&clip.file_path) {
                     // Fall back to disk streaming window (large files)
                     _total_pool_hits += 1;
                     window.read_into(
@@ -226,41 +242,68 @@ impl RenderContext {
                         &mut slot.buf_left,
                         &mut slot.buf_right,
                         ac.buffer_offset,
-                        ac.clip.gain as f32,
+                        clip.gain as f32,
                     );
                 } else {
                     // Diagnostic: neither pool nor streaming — clip not loaded
                     log::warn!("[Render] Pool MISS for clip '{}' file_path='{}'",
-                        ac.clip.name, ac.clip.file_path);
+                        clip.name, clip.file_path);
                     continue;
                 }
 
-                    // ── 3a. Apply Hann micro-fades at clip boundaries ──
-                    // Always-on anti-click: ~2ms Hann window at clip start/end.
-                    // This eliminates digital clicks from trimmed clip edges.
-                    // Zero-alloc: uses pre-computed curves from FadeCache.
-                    let fade_len = self.fade_cache.fade_length;
+                // ── 3a. Apply fades at clip boundaries ───────────────
+                // 1) User-defined clip fades (if set by UI fade handles).
+                // 2) Fallback to always-on micro-fades for anti-click safety.
+                let offset = ac.buffer_offset;
+                let read_len = ac.frames_to_read;
+                if read_len > 0 {
+                    let user_fade_in = clip.fade_in_frames.max(0) as usize;
+                    let user_fade_out = clip.fade_out_frames.max(0) as usize;
 
-                    if ac.is_clip_head && ac.frames_to_read >= fade_len {
-                        // Fade-in at clip start
-                        let offset = ac.buffer_offset;
-                        let len = fade_len.min(ac.frames_to_read);
-                        for i in 0..len {
-                            let gain = self.fade_cache.fade_in[i];
-                            slot.buf_left[offset + i] *= gain;
-                            slot.buf_right[offset + i] *= gain;
+                    let has_user_fades = user_fade_in > 0 || user_fade_out > 0;
+                    if has_user_fades {
+                        if ac.is_clip_head && user_fade_in > 0 {
+                            let len = user_fade_in.min(read_len);
+                            for i in 0..len {
+                                // Hermite S-curve 3t^2 - 2t^3
+                                let t = i as f32 / len.max(1) as f32;
+                                let g = t * t * (3.0 - 2.0 * t);
+                                slot.buf_left[offset + i] *= g;
+                                slot.buf_right[offset + i] *= g;
+                            }
+                        }
+
+                        if ac.is_clip_tail && user_fade_out > 0 {
+                            let len = user_fade_out.min(read_len);
+                            let start = offset + read_len - len;
+                            for i in 0..len {
+                                let t = i as f32 / len.max(1) as f32;
+                                let g = 1.0 - (t * t * (3.0 - 2.0 * t));
+                                slot.buf_left[start + i] *= g;
+                                slot.buf_right[start + i] *= g;
+                            }
+                        }
+                    } else {
+                        let fade_len = self.fade_cache.fade_length;
+                        if ac.is_clip_head && read_len >= fade_len {
+                            let len = fade_len.min(read_len);
+                            for i in 0..len {
+                                let gain = self.fade_cache.fade_in[i];
+                                slot.buf_left[offset + i] *= gain;
+                                slot.buf_right[offset + i] *= gain;
+                            }
+                        }
+
+                        if ac.is_clip_tail && read_len >= fade_len {
+                            let tail_start = offset + read_len - fade_len;
+                            for i in 0..fade_len {
+                                let gain = self.fade_cache.fade_out[i];
+                                slot.buf_left[tail_start + i] *= gain;
+                                slot.buf_right[tail_start + i] *= gain;
+                            }
                         }
                     }
-
-                    if ac.is_clip_tail && ac.frames_to_read >= fade_len {
-                        // Fade-out at clip end
-                        let tail_start = ac.buffer_offset + ac.frames_to_read - fade_len;
-                        for i in 0..fade_len {
-                            let gain = self.fade_cache.fade_out[i];
-                            slot.buf_left[tail_start + i] *= gain;
-                            slot.buf_right[tail_start + i] *= gain;
-                        }
-                    }
+                }
             }
         }
 
@@ -330,8 +373,8 @@ impl RenderContext {
         for i in 0..frame_count {
             let base = i * self.channels;
             if base + 1 < output.len() {
-                output[base] = master_l[i];
-                output[base + 1] = master_r[i];
+                output[base] = soft_clip(master_l[i]);
+                output[base + 1] = soft_clip(master_r[i]);
             }
         }
 

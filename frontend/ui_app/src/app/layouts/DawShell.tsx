@@ -12,6 +12,7 @@ import { Timeline } from '@/widgets/Timeline/Timeline';
 import type { BrowserDragItem } from '@/widgets/Timeline/Timeline';
 import { SettingsPanel } from '@/widgets/SettingsPanel/SettingsPanel';
 import { DragOverlay } from '@/widgets/DragOverlay/DragOverlay';
+import { PianoRoll, type MidiNote } from '@/widgets/PianoRoll/PianoRoll';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
@@ -64,6 +65,9 @@ export const DawShell = () => {
         active: false,
         trackIndex: 0,
     });
+    const [pianoRollOpen, setPianoRollOpen] = useState(false);
+    const [pianoRollClipId, setPianoRollClipId] = useState<string | null>(null);
+    const [midiNotesByClip, setMidiNotesByClip] = useState<Record<string, MidiNote[]>>({});
     const importFile = useEngineStore(s => s.importFile);
     const createMidiClip = useEngineStore(s => s.createMidiClip);
     const togglePlay = useEngineStore(s => s.togglePlay);
@@ -224,6 +228,7 @@ export const DawShell = () => {
     }, [transport.position_seconds, transport.bpm]);
 
     const trackCount = Math.max(projectTracks.length, 8);
+    const trackIds = useMemo(() => projectTracks.map((t) => t.id), [projectTracks]);
 
     // ── Shared layout constants (SSOT for height sync) ──────────────
     const TRACK_HEIGHT = 48;
@@ -290,6 +295,11 @@ export const DawShell = () => {
             .catch(err => console.error('[DawShell] moveClip failed:', err));
     }, [transport.bpm, fetchProject]);
 
+    const handleOpenMidiClip = useCallback((clipId: string) => {
+        setPianoRollClipId(clipId);
+        setPianoRollOpen(true);
+    }, []);
+
     return (
         <div className="relative w-screen h-screen overflow-hidden bg-bg-app text-text-primary">
 
@@ -341,6 +351,7 @@ export const DawShell = () => {
                                 isPlaying={transport.is_playing}
                                 recordingActive={recordingState.active}
                                 recordingTrackIndex={recordingState.trackIndex}
+                                trackIds={trackIds}
                                 trackCount={trackCount}
                                 trackHeight={TRACK_HEIGHT}
                                 onPlayheadChange={handlePlayheadChange}
@@ -348,6 +359,7 @@ export const DawShell = () => {
                                 onClipMove={handleClipMove}
                                 onDropBrowserItem={handleBrowserDrop}
                                 onDoubleClickTrack={handleDoubleClickTrack}
+                                onOpenMidiClip={handleOpenMidiClip}
                                 onScrollTop={handleTimelineScrollTop}
                             />
                         </ErrorBoundary>
@@ -431,6 +443,44 @@ export const DawShell = () => {
                 onClose={() => setExportOpen(false)}
                 projectName="My Project"
             />
+
+            {pianoRollOpen && pianoRollClipId && (
+                <div
+                    onClick={() => setPianoRollOpen(false)}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 9100,
+                        background: 'rgba(0,0,0,0.6)',
+                        backdropFilter: 'blur(6px)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                    }}
+                >
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: 'min(1200px, 92vw)',
+                            height: 'min(760px, 86vh)',
+                            background: '#0f1014',
+                            border: '1px solid var(--color-divider)',
+                            borderRadius: 10,
+                            overflow: 'hidden',
+                            boxShadow: '0 20px 80px rgba(0,0,0,0.55)',
+                        }}
+                    >
+                        <PianoRoll
+                            notes={midiNotesByClip[pianoRollClipId] ?? []}
+                            onNotesChange={(notes) =>
+                                setMidiNotesByClip((prev) => ({ ...prev, [pianoRollClipId]: notes }))
+                            }
+                            playheadBeat={playheadBeat}
+                            totalBars={16}
+                        />
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

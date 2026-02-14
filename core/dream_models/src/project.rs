@@ -235,6 +235,18 @@ pub struct AudioClip {
     /// Gain multiplier for this clip (1.0 = unity).
     pub gain: f64,
 
+    /// User-defined fade-in length in sample frames.
+    #[serde(default)]
+    pub fade_in_frames: i64,
+
+    /// User-defined fade-out length in sample frames.
+    #[serde(default)]
+    pub fade_out_frames: i64,
+
+    /// Whether source media is currently missing on disk.
+    #[serde(default)]
+    pub is_offline: bool,
+
     /// Whether this clip is currently selected in the UI.
     pub is_selected: bool,
 
@@ -258,6 +270,9 @@ impl AudioClip {
             duration,
             source_offset: AbsoluteTime::ZERO,
             gain: 1.0,
+            fade_in_frames: 0,
+            fade_out_frames: 0,
+            is_offline: false,
             is_selected: false,
             color_override: None,
         }
@@ -282,6 +297,39 @@ impl AudioClip {
     }
 }
 
+// ── Automation ────────────────────────────────────────────────────────
+
+/// A single automation breakpoint.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AutomationPoint {
+    /// Position in beats on the timeline.
+    pub beat: f64,
+    /// Normalized value (semantics depend on parameter).
+    pub value: f64,
+    /// Curve type to next point ("linear", "bezier", "step").
+    #[serde(default = "default_automation_curve_type")]
+    pub curve_type: String,
+    /// Optional curve tension for bezier-like shapes.
+    #[serde(default)]
+    pub tension: Option<f64>,
+}
+
+fn default_automation_curve_type() -> String {
+    "linear".to_string()
+}
+
+/// Automation lane attached to a specific track parameter.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AutomationLane {
+    /// Parameter identifier (e.g. "volume", "pan").
+    pub param_id: String,
+    /// Ordered automation breakpoints.
+    #[serde(default)]
+    pub points: Vec<AutomationPoint>,
+}
+
 // ── Track ──────────────────────────────────────────────────────────────
 
 /// A single track in the project.
@@ -291,7 +339,7 @@ impl AudioClip {
 /// consumed by the audio graph's `NodeKind::Track` processor.
 ///
 /// Enriched from Swift `Track` class (276 LOC).
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct Track {
     /// Unique track identifier.
@@ -360,6 +408,12 @@ pub struct Track {
 
     /// Sampler instrument configuration (for MIDI tracks).
     pub sampler: Option<SamplerConfig>,
+
+    // ── Automation ────────────────────────────────────────────────────
+
+    /// Automation lanes for this track (volume/pan/plugin params).
+    #[serde(default)]
+    pub automation_lanes: Vec<AutomationLane>,
 }
 
 impl Track {
@@ -385,6 +439,7 @@ impl Track {
             is_expanded: true,
             midi_clips: Vec::new(),
             sampler: None,
+            automation_lanes: Vec::new(),
         }
     }
 

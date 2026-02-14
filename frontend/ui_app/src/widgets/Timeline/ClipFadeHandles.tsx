@@ -187,14 +187,19 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
                     pointerEvents: 'none',
                 }}
             >
+                <defs>
+                    <pattern id="fadeHatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                        <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(255,255,255,0.45)" strokeWidth="2" />
+                    </pattern>
+                </defs>
                 {/* Fade-In dim area */}
                 {fadeIn > 0 && (
-                    <path d={fadeInFill} fill="rgba(0,0,0,0.35)" />
+                    <path d={fadeInFill} fill="url(#fadeHatch)" />
                 )}
 
                 {/* Fade-Out dim area */}
                 {fadeOut > 0 && (
-                    <path d={fadeOutFill} fill="rgba(0,0,0,0.35)" />
+                    <path d={fadeOutFill} fill="url(#fadeHatch)" />
                 )}
 
                 {/* Fade-In curve line */}

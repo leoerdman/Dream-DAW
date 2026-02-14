@@ -12,12 +12,14 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useRef, useState, memo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
+import throttle from 'lodash.throttle';
 import {
     useAutomationStore,
     type AutomationLane as LaneData,
     type AutomationBreakpoint,
 } from '@/shared/stores/useAutomationStore';
+import * as engineApi from '@/shared/api/engine';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -53,6 +55,7 @@ export const AutomationLane = memo(function AutomationLane({
 }: AutomationLaneProps) {
     const addBreakpoint = useAutomationStore((s) => s.addBreakpoint);
     const moveBreakpoint = useAutomationStore((s) => s.moveBreakpoint);
+    const setBreakpointCurve = useAutomationStore((s) => s.setBreakpointCurve);
     const removeBreakpoint = useAutomationStore((s) => s.removeBreakpoint);
     const selectBreakpoint = useAutomationStore((s) => s.selectBreakpoint);
     const selectedBreakpoints = useAutomationStore((s) => s.selectedBreakpoints);
@@ -60,6 +63,34 @@ export const AutomationLane = memo(function AutomationLane({
     const svgRef = useRef<SVGSVGElement>(null);
     const [hoveredBp, setHoveredBp] = useState<string | null>(null);
     const [draggingBp, setDraggingBp] = useState<string | null>(null);
+    const [curveDragBp, setCurveDragBp] = useState<string | null>(null);
+
+    const pushPointsThrottled = useMemo(
+        () =>
+            throttle((points: engineApi.AutomationPoint[]) => {
+                engineApi
+                    .setAutomationPoints(lane.trackId, lane.paramKey, points)
+                    .catch((err) => console.error('[AutomationLane] setAutomationPoints failed:', err));
+            }, 16),
+        [lane.trackId, lane.paramKey],
+    );
+
+    useEffect(() => {
+        return () => {
+            pushPointsThrottled.cancel();
+        };
+    }, [pushPointsThrottled]);
+
+    const flushPointsToEngine = useCallback(() => {
+        const latest = useAutomationStore.getState().lanes[lane.id];
+        const points: engineApi.AutomationPoint[] = (latest?.breakpoints ?? lane.breakpoints).map((bp) => ({
+            beat: bp.beat,
+            value: bp.value,
+            curveType: bp.curve === 'step' ? 'step' : bp.curve === 'bezier' ? 'bezier' : 'linear',
+            tension: bp.curve === 'bezier' ? 0.5 : undefined,
+        }));
+        pushPointsThrottled(points);
+    }, [lane.id, lane.breakpoints, pushPointsThrottled]);
 
     // ── Coordinate Conversion ──────────────────────────────────────
 
@@ -131,10 +162,12 @@ export const AutomationLane = memo(function AutomationLane({
     const handleSvgClick = useCallback(
         (e: React.MouseEvent) => {
             if (draggingBp) return;
+            if (!e.shiftKey) return;
             const { beat, value } = pxToCoords(e.clientX, e.clientY);
             addBreakpoint(lane.id, beat, value);
+            flushPointsToEngine();
         },
-        [pxToCoords, addBreakpoint, lane.id, draggingBp],
+        [pxToCoords, addBreakpoint, lane.id, draggingBp, flushPointsToEngine],
     );
 
     const handleBpMouseDown = useCallback(
@@ -150,6 +183,7 @@ export const AutomationLane = memo(function AutomationLane({
 
             const onUp = () => {
                 setDraggingBp(null);
+                flushPointsToEngine();
                 window.removeEventListener('mousemove', onMove);
                 window.removeEventListener('mouseup', onUp);
             };
@@ -157,15 +191,42 @@ export const AutomationLane = memo(function AutomationLane({
             window.addEventListener('mousemove', onMove);
             window.addEventListener('mouseup', onUp);
         },
-        [selectBreakpoint, moveBreakpoint, pxToCoords, lane.id],
+        [selectBreakpoint, moveBreakpoint, pxToCoords, lane.id, flushPointsToEngine],
     );
 
     const handleBpDblClick = useCallback(
         (e: React.MouseEvent, bpId: string) => {
             e.stopPropagation();
             removeBreakpoint(lane.id, bpId);
+            flushPointsToEngine();
         },
-        [removeBreakpoint, lane.id],
+        [removeBreakpoint, lane.id, flushPointsToEngine],
+    );
+
+    const handleLineMouseDown = useCallback(
+        (e: React.MouseEvent, bpId: string) => {
+            if (!e.altKey) return;
+            e.stopPropagation();
+            setCurveDragBp(bpId);
+            setBreakpointCurve(lane.id, bpId, 'bezier');
+
+            const startY = e.clientY;
+            const onMove = (ev: MouseEvent) => {
+                const dy = ev.clientY - startY;
+                if (Math.abs(dy) > 4) {
+                    setBreakpointCurve(lane.id, bpId, 'bezier');
+                }
+            };
+            const onUp = () => {
+                setCurveDragBp(null);
+                flushPointsToEngine();
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+            };
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', onUp);
+        },
+        [lane.id, setBreakpointCurve, flushPointsToEngine],
     );
 
     // ── Render ──────────────────────────────────────────────────────
@@ -208,6 +269,10 @@ export const AutomationLane = memo(function AutomationLane({
                     strokeWidth={LINE_WIDTH}
                     strokeLinecap="round"
                     strokeLinejoin="round"
+                    onMouseDown={(e) => {
+                        const targetBp = bps.find((bp) => beatToX(bp.beat) <= e.nativeEvent.offsetX);
+                        if (targetBp) handleLineMouseDown(e, targetBp.id);
+                    }}
                 />
             )}
 
@@ -234,6 +299,7 @@ export const AutomationLane = memo(function AutomationLane({
                             filter: isHover
                                 ? `drop-shadow(0 0 4px ${lane.color})`
                                 : undefined,
+                            opacity: curveDragBp === bp.id ? 0.9 : 1,
                         }}
                         onMouseDown={(e) => handleBpMouseDown(e, bp.id)}
                         onDoubleClick={(e) => handleBpDblClick(e, bp.id)}

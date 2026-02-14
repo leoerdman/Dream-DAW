@@ -57,8 +57,9 @@ interface PianoRollProps {
 const KEYBOARD_WIDTH = 48;
 const NOTE_HEIGHT = 12;
 const VELOCITY_LANE_HEIGHT = 60;
-const TOTAL_KEYS = 88;
-const LOWEST_PITCH = 21; // A0
+const LOWEST_PITCH = 0; // C-2
+const HIGHEST_PITCH = 115; // G8
+const TOTAL_KEYS = HIGHEST_PITCH - LOWEST_PITCH + 1;
 const DEFAULT_PPB = 20;
 const MIN_PPB = 8;
 const MAX_PPB = 120;
@@ -88,6 +89,7 @@ export const PianoRoll = memo(function PianoRoll({
     const [tool, setTool] = useState<PianoRollTool>('draw');
     const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set());
     const scrollRef = useRef<HTMLDivElement>(null);
+    const noteCanvasRef = useRef<HTMLCanvasElement>(null);
     const snapBeat = useGridStore((s) => s.snapBeat);
 
     const beatsPerBar = timeSignature[0];
@@ -223,6 +225,10 @@ export const PianoRoll = memo(function PianoRoll({
 
             const startBeat = note.startBeat;
             const startPitch = note.pitch;
+            const startDuration = note.durationBeats;
+            const target = e.currentTarget as HTMLElement;
+            const edgeGripPx = 6;
+            const mode = e.nativeEvent.offsetX >= target.clientWidth - edgeGripPx ? 'resize-right' : e.nativeEvent.offsetX <= edgeGripPx ? 'resize-left' : 'move';
 
             const onMove = (ev: MouseEvent) => {
                 const dx = ev.clientX - startX;
@@ -230,12 +236,21 @@ export const PianoRoll = memo(function PianoRoll({
                 const beatDelta = dx / pixelsPerBeat;
                 const pitchDelta = -Math.round(dy / NOTE_HEIGHT);
 
-                const newBeat = Math.max(0, snapBeat(startBeat + beatDelta, beatsPerBar));
-                const newPitch = Math.max(LOWEST_PITCH, Math.min(LOWEST_PITCH + TOTAL_KEYS - 1, startPitch + pitchDelta));
-
-                const updated = notes.map((n) =>
-                    n.id === noteId ? { ...n, startBeat: newBeat, pitch: newPitch } : n,
-                );
+                const updated = notes.map((n) => {
+                    if (n.id !== noteId) return n;
+                    if (mode === 'resize-right') {
+                        const nextDuration = Math.max(0.125, snapBeat(startDuration + beatDelta, beatsPerBar));
+                        return { ...n, durationBeats: nextDuration };
+                    }
+                    if (mode === 'resize-left') {
+                        const snappedBeat = Math.max(0, snapBeat(startBeat + beatDelta, beatsPerBar));
+                        const newDur = Math.max(0.125, startDuration + (startBeat - snappedBeat));
+                        return { ...n, startBeat: snappedBeat, durationBeats: newDur };
+                    }
+                    const newBeat = Math.max(0, snapBeat(startBeat + beatDelta, beatsPerBar));
+                    const newPitch = Math.max(LOWEST_PITCH, Math.min(LOWEST_PITCH + TOTAL_KEYS - 1, startPitch + pitchDelta));
+                    return { ...n, startBeat: newBeat, pitch: newPitch };
+                });
                 onNotesChange(updated);
             };
 
@@ -263,6 +278,38 @@ export const PianoRoll = memo(function PianoRoll({
         },
         [notes, onNotesChange],
     );
+
+    // ── Note Canvas Renderer (notes are drawn strictly to <canvas>) ──
+    useEffect(() => {
+        const canvas = noteCanvasRef.current;
+        if (!canvas) return;
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.ceil(canvasWidth * dpr);
+        canvas.height = Math.ceil(canvasHeight * dpr);
+        canvas.style.width = `${canvasWidth}px`;
+        canvas.style.height = `${canvasHeight}px`;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+        for (const note of notes) {
+            const x = note.startBeat * pixelsPerBeat;
+            const y = pitchToY(note.pitch) + 1;
+            const w = Math.max(4, note.durationBeats * pixelsPerBeat - 1);
+            const h = NOTE_HEIGHT - 2;
+            ctx.globalAlpha = Math.max(0.15, note.velocity / 127);
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, w, h);
+            if (selectedNotes.has(note.id)) {
+                ctx.globalAlpha = 1;
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(x + 0.5, y + 0.5, Math.max(1, w - 1), Math.max(1, h - 1));
+            }
+        }
+        ctx.globalAlpha = 1;
+    }, [notes, selectedNotes, canvasWidth, canvasHeight, pixelsPerBeat, color, pitchToY]);
 
     return (
         <div style={{
@@ -407,6 +454,17 @@ export const PianoRoll = memo(function PianoRoll({
                                 cursor: tool === 'draw' ? 'crosshair' : tool === 'erase' ? 'not-allowed' : 'default',
                             }}
                         >
+                            <canvas
+                                ref={noteCanvasRef}
+                                style={{
+                                    position: 'absolute',
+                                    left: 0,
+                                    top: 0,
+                                    width: canvasWidth,
+                                    height: canvasHeight,
+                                    pointerEvents: 'none',
+                                }}
+                            />
                             {/* MIDI Notes */}
                             {notes.map((note) => {
                                 const x = note.startBeat * pixelsPerBeat;
@@ -425,18 +483,12 @@ export const PianoRoll = memo(function PianoRoll({
                                             top: y + 1,
                                             width: Math.max(4, w - 1),
                                             height: NOTE_HEIGHT - 2,
-                                            background: color,
-                                            opacity: note.velocity / 127,
+                                            background: 'transparent',
                                             borderRadius: 2,
-                                            border: isNoteSelected
-                                                ? '1.5px solid #fff'
-                                                : '1px solid rgba(255,255,255,0.15)',
+                                            border: '1px solid transparent',
                                             cursor: tool === 'erase' ? 'not-allowed' : 'grab',
                                             zIndex: isNoteSelected ? 5 : 2,
                                             transition: 'border 0.1s ease',
-                                            boxShadow: isNoteSelected
-                                                ? `0 0 6px ${color}88`
-                                                : 'none',
                                         }}
                                     />
                                 );

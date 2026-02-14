@@ -135,6 +135,28 @@ pub trait PluginInstance: Send {
             "Parameters not supported".to_string(),
         ))
     }
+
+    /// Opens the plugin editor window (native GUI), if supported.
+    ///
+    /// Called from the UI thread. Implementations may return an error
+    /// when the format or backend does not yet provide editor hosting.
+    fn open_editor(&mut self) -> Result<(), PluginError> {
+        Err(PluginError::UnsupportedFormat(
+            "Plugin editor window is not supported for this instance".to_string(),
+        ))
+    }
+
+    /// Closes the plugin editor window, if currently open.
+    fn close_editor(&mut self) -> Result<(), PluginError> {
+        Err(PluginError::UnsupportedFormat(
+            "Plugin editor window is not supported for this instance".to_string(),
+        ))
+    }
+
+    /// Reports whether this instance can open a native plugin editor.
+    fn supports_editor(&self) -> bool {
+        false
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

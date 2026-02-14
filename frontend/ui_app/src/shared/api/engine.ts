@@ -364,9 +364,22 @@ export const setAudioDevice = (deviceName: string) =>
 export const openPluginWindow = (pluginId: string) =>
     invoke<void>('open_plugin_window', { pluginId });
 
+/** Editor capability probe. Allows UI to fail fast with a clear reason. */
+export interface PluginEditorCapability {
+    supported: boolean;
+    reason?: string | null;
+}
+
+export const canOpenPluginEditor = (pluginId: string) =>
+    invoke<PluginEditorCapability>('can_open_plugin_editor', { pluginId });
+
 /** Close an open plugin window. */
 export const closePluginWindow = (pluginId: string) =>
     invoke<void>('close_plugin_window', { pluginId });
+
+/** Send a frontend crash/error payload to backend unified logs. */
+export const logFrontendError = (module: string, error: string, stack?: string) =>
+    invoke<void>('log_frontend_error', { module, error, stack: stack ?? null });
 
 // ── Track Routing (DAG Topology) ────────────────────────────────────────
 

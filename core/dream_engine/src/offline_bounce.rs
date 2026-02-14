@@ -25,15 +25,12 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use std::path::Path;
 use std::sync::Arc;
 
-use log::{info, error};
+use log::info;
 
 use dream_clip_engine::pool::ClipPool;
-use dream_clip_engine::scheduler::{ClipScheduler, LoopRegion as ClipLoopRegion};
-use dream_clip_engine::reader::ClipReader;
-use dream_dsp::fades::FadeCache;
+use dream_clip_engine::scheduler::LoopRegion as ClipLoopRegion;
 use dream_ipc::metering::MeterBank;
 use dream_io::wav_writer::WavWriter;
 use dream_models::project::{AudioClip, Project};
@@ -188,7 +185,7 @@ impl OfflineBouncer {
 
         // ── Create standalone RenderContext ──────────────────────
         // This is completely independent from the audio thread's context.
-        let meter_bank = Arc::new(MeterBank::new());
+        let meter_bank = Arc::new(MeterBank::new(project.tracks.len().max(1)));
         let mut render_ctx = RenderContext::new(
             project.tracks.len().max(1),
             sample_rate,
@@ -208,12 +205,7 @@ impl OfflineBouncer {
         let clips_per_track: Vec<Vec<AudioClip>> = project
             .tracks
             .iter()
-            .map(|track| track.audio_clips.clone())
-            .collect();
-
-        let clips_refs: Vec<&[AudioClip]> = clips_per_track
-            .iter()
-            .map(|v| v.as_slice())
+            .map(|track| track.clips.clone())
             .collect();
 
         // ── Pre-allocate output buffers ──────────────────────────
@@ -239,7 +231,7 @@ impl OfflineBouncer {
             // Render one buffer through the full pipeline
             render_ctx.render(
                 &mut interleaved_buf[..chunk_samples],
-                &clips_refs,
+                &clips_per_track,
                 clip_pool,
             );
 

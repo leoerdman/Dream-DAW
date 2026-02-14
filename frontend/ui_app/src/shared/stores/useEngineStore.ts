@@ -41,6 +41,8 @@ export interface TimelineClip {
     durationSamples?: number;
     /** Source offset in samples (for trimmed clips). */
     sourceOffset?: number;
+    /** Backend flagged clip as unresolved media. */
+    isOffline?: boolean;
 }
 
 /** Track info from Rust project. */
@@ -426,6 +428,13 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         duration: { sample_frame: number };
                         source_offset: { sample_frame: number };
                         color_override: unknown;
+                        is_offline?: boolean;
+                    }>;
+                    midi_clips?: Array<{
+                        id: string;
+                        name: string;
+                        position: { sample_frame: number };
+                        duration: { sample_frame: number };
                     }>;
                 }>;
                 sample_rate: number;
@@ -442,12 +451,13 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
             for (let trackIdx = 0; trackIdx < project.tracks.length; trackIdx++) {
                 const track = project.tracks[trackIdx];
+                const trackColor = resolveTrackColor(track.color);
 
                 projectTracks.push({
                     id: track.id,
                     name: track.name,
                     track_type: track.track_type || 'Audio',
-                    color: resolveTrackColor(track.color),
+                    color: trackColor,
                     volume: track.volume,
                     pan: track.pan,
                     is_mute: track.is_mute,
@@ -468,7 +478,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 for (const clip of track.clips) {
                     const posSeconds = clip.position.sample_frame / sr;
                     const durSeconds = clip.duration.sample_frame / sr;
-                    const trackColor = resolveTrackColor(track.color);
 
                     timelineClips.push({
                         id: clip.id,
@@ -483,6 +492,23 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         filePath: clip.file_path,
                         durationSamples: clip.duration.sample_frame,
                         sourceOffset: clip.source_offset?.sample_frame ?? 0,
+                        isOffline: clip.is_offline ?? false,
+                    });
+                }
+
+                for (const clip of track.midi_clips ?? []) {
+                    const posSeconds = clip.position.sample_frame / sr;
+                    const durSeconds = clip.duration.sample_frame / sr;
+                    timelineClips.push({
+                        id: clip.id,
+                        name: clip.name,
+                        trackIndex: trackIdx,
+                        startBeat: posSeconds * beatsPerSecond,
+                        durationBeats: durSeconds * beatsPerSecond,
+                        type: 'midi',
+                        color: trackColor,
+                        durationSamples: clip.duration.sample_frame,
+                        sourceOffset: 0,
                     });
                 }
             }

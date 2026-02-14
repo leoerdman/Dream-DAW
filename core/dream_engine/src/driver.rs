@@ -17,24 +17,26 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use std::sync::Arc;
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use dream_graph::{AudioDag, AudioNode, GraphBuilder, GraphRenderer, LiveGraph, NodeId, NodeKind};
 use log::{error, info};
 
-use dream_clip_engine::pool::ClipPool;
-use dream_clip_engine::pool::ClipAudio;
-use dream_clip_engine::scheduler::LoopRegion;
 use dream_clip_engine::midi_scheduler::{MidiScheduler, ScheduledNote};
+use dream_clip_engine::pool::ClipAudio;
+use dream_clip_engine::pool::ClipPool;
+use dream_clip_engine::scheduler::LoopRegion;
 use dream_ipc::metering::MeterBank;
 use dream_ipc::{EngineCommand, MasterClock};
-use dream_models::project::AudioClip;
 use dream_models::midi::MidiClip;
+use dream_models::project::AudioClip;
 
 use crate::render_callback::RenderContext;
-use crate::sampler::{SamplerEngine, AdsrParams};
+use crate::sampler::{AdsrParams, SamplerEngine};
 
 // ── Shared Clip Snapshot (LOCK-FREE) ───────────────────────────────────
 
@@ -119,6 +121,251 @@ impl Default for SharedMidiSnapshot {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// ── Shared Routing Snapshot (LOCK-FREE) ────────────────────────────────
+
+/// Atomic snapshot of per-track routing destinations for the audio graph.
+///
+/// Each entry is an optional destination track index:
+/// - `None` => route track to master.
+/// - `Some(i)` => route track to track `i` (bus/sidechain style feed).
+pub struct SharedRoutingSnapshot {
+    inner: ArcSwap<Vec<Option<usize>>>,
+    generation: std::sync::atomic::AtomicU64,
+}
+
+impl SharedRoutingSnapshot {
+    pub fn new() -> Self {
+        Self {
+            inner: ArcSwap::from_pointee(Vec::new()),
+            generation: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    pub fn swap(&self, routing: Vec<Option<usize>>) {
+        self.inner.store(Arc::new(routing));
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn load(&self) -> arc_swap::Guard<Arc<Vec<Option<usize>>>> {
+        self.inner.load()
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
+    }
+}
+
+impl Default for SharedRoutingSnapshot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ── Shared Automation Snapshot (LOCK-FREE) ─────────────────────────────
+
+#[derive(Debug, Clone, Default)]
+pub struct AutomationPoint {
+    pub sample_frame: i64,
+    pub value: f32,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TrackAutomationState {
+    pub volume: Vec<AutomationPoint>,
+    pub pan: Vec<AutomationPoint>,
+    /// Arbitrary automation lanes (e.g. plugin parameter IDs).
+    pub plugin_params: BTreeMap<String, Vec<AutomationPoint>>,
+}
+
+/// Atomic snapshot of per-track automation lanes.
+pub struct SharedAutomationSnapshot {
+    inner: ArcSwap<Vec<TrackAutomationState>>,
+    generation: std::sync::atomic::AtomicU64,
+}
+
+impl SharedAutomationSnapshot {
+    pub fn new() -> Self {
+        Self {
+            inner: ArcSwap::from_pointee(Vec::new()),
+            generation: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    pub fn swap(&self, lanes: Vec<TrackAutomationState>) {
+        self.inner.store(Arc::new(lanes));
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn load(&self) -> arc_swap::Guard<Arc<Vec<TrackAutomationState>>> {
+        self.inner.load()
+    }
+
+    pub fn load_full(&self) -> Arc<Vec<TrackAutomationState>> {
+        self.inner.load_full()
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
+    }
+}
+
+impl Default for SharedAutomationSnapshot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[inline]
+fn soft_clip(sample: f32) -> f32 {
+    (sample / (1.0 + sample.abs())).clamp(-1.0, 1.0)
+}
+
+#[inline]
+fn eval_automation(points: &[AutomationPoint], at_frame: i64) -> Option<f32> {
+    if points.is_empty() {
+        return None;
+    }
+    if points.len() == 1 {
+        return Some(points[0].value);
+    }
+    if at_frame <= points[0].sample_frame {
+        return Some(points[0].value);
+    }
+
+    for window in points.windows(2) {
+        let a = &window[0];
+        let b = &window[1];
+        if at_frame <= b.sample_frame {
+            let span = (b.sample_frame - a.sample_frame).max(1) as f32;
+            let t = ((at_frame - a.sample_frame) as f32 / span).clamp(0.0, 1.0);
+            return Some(a.value + (b.value - a.value) * t);
+        }
+    }
+
+    points.last().map(|p| p.value)
+}
+
+#[inline]
+fn apply_plugin_gain(left: &mut [f32], right: &mut [f32], gain: f32) {
+    let n = left.len().min(right.len());
+    let g = gain.clamp(0.0, 2.0);
+    for i in 0..n {
+        left[i] *= g;
+        right[i] *= g;
+    }
+}
+
+#[inline]
+fn apply_plugin_pan(left: &mut [f32], right: &mut [f32], pan: f32) {
+    let n = left.len().min(right.len());
+    let p = pan.clamp(-1.0, 1.0);
+    let left_mul = if p > 0.0 { 1.0 - p } else { 1.0 };
+    let right_mul = if p < 0.0 { 1.0 + p } else { 1.0 };
+    for i in 0..n {
+        left[i] *= left_mul;
+        right[i] *= right_mul;
+    }
+}
+
+fn build_linear_dag(track_count: usize) -> AudioDag {
+    let mut builder =
+        GraphBuilder::new().add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput));
+    for track_idx in 0..track_count {
+        builder = builder.add_node(AudioNode::new(
+            NodeId((track_idx as u64) + 1),
+            NodeKind::Track {
+                name: format!("Track {}", track_idx + 1),
+            },
+        ));
+    }
+
+    for track_idx in 0..track_count {
+        let from = NodeId((track_idx as u64) + 1);
+        builder = match builder.add_edge(from, NodeId(0)) {
+            Ok(next) => next,
+            Err(err) => {
+                log::warn!(
+                    "[Graph] linear edge build failed ({}), fallback to master-only",
+                    err
+                );
+                return GraphBuilder::new()
+                    .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
+                    .build()
+                    .expect("master-only graph must be valid");
+            }
+        };
+    }
+
+    builder.build().unwrap_or_else(|_| {
+        GraphBuilder::new()
+            .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
+            .build()
+            .expect("master-only graph must be valid")
+    })
+}
+
+fn build_dag_for_tracks(track_count: usize, routing: &[Option<usize>]) -> AudioDag {
+    let mut builder =
+        GraphBuilder::new().add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput));
+
+    for track_idx in 0..track_count {
+        builder = builder.add_node(AudioNode::new(
+            NodeId((track_idx as u64) + 1),
+            NodeKind::Track {
+                name: format!("Track {}", track_idx + 1),
+            },
+        ));
+    }
+
+    let mut wired_to_master = vec![false; track_count];
+    for track_idx in 0..track_count {
+        let from = NodeId((track_idx as u64) + 1);
+        if let Some(Some(dest_idx)) = routing.get(track_idx) {
+            if *dest_idx < track_count && *dest_idx != track_idx {
+                let to = NodeId((*dest_idx as u64) + 1);
+                let next = match builder.add_edge(from, to) {
+                    Ok(next) => next,
+                    Err(err) => {
+                        log::warn!(
+                            "[Graph] routing edge {} -> {} rejected ({}), fallback to linear graph",
+                            track_idx,
+                            dest_idx,
+                            err
+                        );
+                        return build_linear_dag(track_count);
+                    }
+                };
+                builder = next;
+            } else {
+                wired_to_master[track_idx] = true;
+            }
+        } else {
+            wired_to_master[track_idx] = true;
+        }
+    }
+
+    for track_idx in 0..track_count {
+        if wired_to_master[track_idx] {
+            let from = NodeId((track_idx as u64) + 1);
+            builder = match builder.add_edge(from, NodeId(0)) {
+                Ok(next) => next,
+                Err(err) => {
+                    log::warn!(
+                        "[Graph] master edge rejected ({}), fallback to linear graph",
+                        err
+                    );
+                    return build_linear_dag(track_count);
+                }
+            };
+        }
+    }
+
+    builder.build().unwrap_or_else(|err| {
+        log::warn!("[Graph] build failed ({}), fallback to linear graph", err);
+        build_linear_dag(track_count)
+    })
 }
 
 // ── Shared Sampler Samples (LOCK-FREE) ─────────────────────────────────
@@ -240,6 +487,8 @@ pub fn start_audio_thread(
     clip_pool: Arc<ArcSwap<ClipPool>>,
     clip_snapshot: Arc<SharedClipSnapshot>,
     midi_snapshot: Arc<SharedMidiSnapshot>,
+    routing_snapshot: Arc<SharedRoutingSnapshot>,
+    automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<SharedSamplerSamples>,
     preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
@@ -253,8 +502,7 @@ pub fn start_audio_thread(
         .ok_or(AudioDriverError::NoOutputDevice)?;
 
     let device_name = device
-        .description()
-        .map(|d| d.name().to_string())
+        .name()
         .unwrap_or_else(|_| String::from("Unknown Device"));
     info!("Output device: {}", device_name);
 
@@ -274,13 +522,24 @@ pub fn start_audio_thread(
     );
 
     // ── 3. Build RenderContext ──────────────────────────────────────
+    // cpal 0.17: sample_rate() returns u32 directly
     let sample_rate_f64 = config.sample_rate as f64;
     let mut render_ctx = RenderContext::new(
-        64,  // MAX_TRACKS pre-allocated
+        64, // MAX_TRACKS pre-allocated
         sample_rate_f64,
         channels,
         Arc::clone(&meter_bank),
     );
+    let mut graph_renderer = GraphRenderer::new(256, 8192);
+    let mut live_graph = LiveGraph::empty();
+    let mut graph_dag = GraphBuilder::new()
+        .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
+        .build()
+        .expect("master-only graph must be valid");
+    let mut graph_out_left = vec![0.0f32; 8192];
+    let mut graph_out_right = vec![0.0f32; 8192];
+    let mut graph_last_generation = u64::MAX;
+    let mut graph_last_track_count = usize::MAX;
 
     // ── 4. Test tone state (fallback when no clips loaded) ──────────
     let mut test_tone_phase: f64 = 0.0;
@@ -318,9 +577,23 @@ pub fn start_audio_thread(
             // │  is atomic). NO I/O. NO panics.                      │
             // └──────────────────────────────────────────────────────┘
             move |data: &mut [f32], _info: &cpal::OutputCallbackInfo| {
+                let callback_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                // ═══════════════════════════════════════════════════════════════
+                // RT-Armor: Zero-Alloc, Panic-Safe, Denormal-Free Audio Pipeline
+                // ═══════════════════════════════════════════════════════════════
+
+                // ── A0. Denormal Protection (DAZ/FTZ) ────────────────────────
+                // Flush denormals to zero to prevent CPU spikes during reverb tails.
+                #[cfg(target_arch = "x86_64")]
+                unsafe {
+                    use std::arch::x86_64::*;
+                    let csr = _mm_getcsr();
+                    _mm_setcsr(csr | 0x8040); // DAZ + FTZ bits
+                }
+
                 let frame_count = data.len() / channels;
 
-                // ── A. Drain command queue ───────────────────────
+                // ── A1. Drain command queue ───────────────────────────────
                 while let Ok(cmd) = consumer.pop() {
                     match cmd {
                         EngineCommand::SetPlay(play) => {
@@ -355,13 +628,13 @@ pub fn start_audio_thread(
                         }
                         EngineCommand::SetLoopRegion { start, end } => {
                             if end > start {
-                                render_ctx.loop_region = Some(LoopRegion {
-                                    start,
-                                    end,
-                                });
+                                render_ctx.loop_region = Some(LoopRegion { start, end });
                             }
                         }
-                        EngineCommand::SetTrackVolume { track_index, volume } => {
+                        EngineCommand::SetTrackVolume {
+                            track_index,
+                            volume,
+                        } => {
                             let idx = track_index as usize;
                             if idx < render_ctx.track_slots.len() {
                                 render_ctx.track_slots[idx].strip.set_volume(volume);
@@ -384,7 +657,10 @@ pub fn start_audio_thread(
                                 }
                             }
                         }
-                        EngineCommand::SetTrackSolo { track_index, soloed } => {
+                        EngineCommand::SetTrackSolo {
+                            track_index,
+                            soloed,
+                        } => {
                             let idx = track_index as usize;
                             if idx < 64 {
                                 track_soloed[idx] = soloed;
@@ -403,7 +679,11 @@ pub fn start_audio_thread(
                             }
                         }
                         // ── Sampler Commands ────────────────────────
-                        EngineCommand::SamplerNoteOn { track_index, pitch, velocity } => {
+                        EngineCommand::SamplerNoteOn {
+                            track_index,
+                            pitch,
+                            velocity,
+                        } => {
                             let idx = track_index as usize;
                             if idx < sampler_engines.len() {
                                 sampler_engines[idx].note_on(pitch, velocity);
@@ -415,19 +695,31 @@ pub fn start_audio_thread(
                                 sampler_engines[idx].note_off(pitch);
                             }
                         }
-                        EngineCommand::SetSamplerRootNote { track_index, root_note } => {
+                        EngineCommand::SetSamplerRootNote {
+                            track_index,
+                            root_note,
+                        } => {
                             let idx = track_index as usize;
                             if idx < sampler_engines.len() {
                                 sampler_engines[idx].root_note = root_note;
                             }
                         }
-                        EngineCommand::SetSamplerVolume { track_index, volume } => {
+                        EngineCommand::SetSamplerVolume {
+                            track_index,
+                            volume,
+                        } => {
                             let idx = track_index as usize;
                             if idx < sampler_engines.len() {
                                 sampler_engines[idx].volume = volume;
                             }
                         }
-                        EngineCommand::SetSamplerAdsr { track_index, attack, decay, sustain, release } => {
+                        EngineCommand::SetSamplerAdsr {
+                            track_index,
+                            attack,
+                            decay,
+                            sustain,
+                            release,
+                        } => {
                             let idx = track_index as usize;
                             if idx < sampler_engines.len() {
                                 sampler_engines[idx].set_adsr(AdsrParams {
@@ -462,8 +754,47 @@ pub fn start_audio_thread(
                     // still run below so browser audition works when
                     // transport is stopped.
                 } else {
-                    // ── B. Load clip snapshot & render ───────────────
+                    // ── B-1. Apply track automation targets (volume/pan) ───────────
+                    // ChannelStrip already smooths per-sample, so this remains click-free.
+                    let automation = automation_snapshot.load();
+                    let playhead_pos = render_ctx.playhead.position();
+                    for (track_idx, lane) in automation.iter().enumerate() {
+                        if track_idx >= render_ctx.track_slots.len() {
+                            break;
+                        }
+                        if let Some(v) = eval_automation(&lane.volume, playhead_pos) {
+                            render_ctx.track_slots[track_idx]
+                                .strip
+                                .set_volume(v.max(0.0));
+                        }
+                        if let Some(p) = eval_automation(&lane.pan, playhead_pos) {
+                            render_ctx.track_slots[track_idx]
+                                .strip
+                                .set_pan(p.clamp(-1.0, 1.0));
+                        }
+                    }
+
+                    // ── B0. Rebuild graph on routing/track topology changes ─────────
+                    let route_gen = routing_snapshot.generation();
                     let snapshot = clip_snapshot.load();
+                    let track_count = snapshot.len().min(64);
+
+                    if route_gen != graph_last_generation || track_count != graph_last_track_count {
+                        let routing = routing_snapshot.load();
+                        let new_dag = build_dag_for_tracks(track_count, &routing);
+                        graph_dag = new_dag;
+                        if live_graph.swap_graph(&graph_dag).is_err() {
+                            if let Ok(new_live) = LiveGraph::from_dag(&graph_dag) {
+                                live_graph = new_live;
+                            }
+                        }
+                        let plan = live_graph.load();
+                        graph_renderer.update_plan(&plan, &graph_dag);
+                        graph_last_generation = route_gen;
+                        graph_last_track_count = track_count;
+                    }
+
+                    // ── B. Load clip snapshot & render ───────────────
                     let has_clips = !snapshot.is_empty()
                         && snapshot.iter().any(|track_clips| !track_clips.is_empty());
 
@@ -475,12 +806,82 @@ pub fn start_audio_thread(
                         // Real clip playback via RenderContext
                         // 100% lock-free: ArcSwap::load() is wait-free (nanosecond).
                         let pool_snap = clip_pool.load();
-                        let clips_refs: Vec<&[AudioClip]> = snapshot
-                            .iter()
-                            .map(|v| v.as_slice())
-                            .collect();
+                        render_ctx.render(data, snapshot.as_ref(), &pool_snap);
 
-                        render_ctx.render(data, &clips_refs, &pool_snap);
+                        // Graph pass: route pre-rendered tracks through DAG.
+                        let n = frame_count
+                            .min(graph_out_left.len())
+                            .min(graph_out_right.len());
+                        graph_out_left[..n].fill(0.0);
+                        graph_out_right[..n].fill(0.0);
+
+                        let plan = live_graph.load();
+                        graph_renderer.render(
+                            &plan,
+                            &graph_dag,
+                            n,
+                            &mut graph_out_left[..n],
+                            &mut graph_out_right[..n],
+                            |node, left, right, count| {
+                                if node.id.0 == 0 {
+                                    return;
+                                }
+                                let track_idx = (node.id.0 - 1) as usize;
+                                if let Some(slot) = render_ctx.track_slots.get(track_idx) {
+                                    let c =
+                                        count.min(slot.buf_left.len()).min(slot.buf_right.len());
+                                    left[..c].copy_from_slice(&slot.buf_left[..c]);
+                                    right[..c].copy_from_slice(&slot.buf_right[..c]);
+
+                                    // Canonicalized in desktop_host:
+                                    // __plugin_gain__ => [0..2], __plugin_pan__ => [0..1] or [-1..1]
+                                    if let Some(lane) = automation.get(track_idx) {
+                                        if let Some(points) =
+                                            lane.plugin_params.get("__plugin_gain__")
+                                        {
+                                            if let Some(gain) =
+                                                eval_automation(points, playhead_pos)
+                                            {
+                                                apply_plugin_gain(
+                                                    &mut left[..c],
+                                                    &mut right[..c],
+                                                    gain,
+                                                );
+                                            }
+                                        }
+                                        if let Some(points) =
+                                            lane.plugin_params.get("__plugin_pan__")
+                                        {
+                                            if let Some(raw_pan) =
+                                                eval_automation(points, playhead_pos)
+                                            {
+                                                let pan = if (0.0..=1.0).contains(&raw_pan) {
+                                                    raw_pan * 2.0 - 1.0
+                                                } else {
+                                                    raw_pan
+                                                };
+                                                apply_plugin_pan(
+                                                    &mut left[..c],
+                                                    &mut right[..c],
+                                                    pan,
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            |_node, _left, _right, _count| {
+                                // Plugin node processing will be injected here.
+                            },
+                        );
+
+                        for i in 0..n {
+                            let base = i * channels;
+                            if base + 1 < data.len() {
+                                data[base] = soft_clip(graph_out_left[i]);
+                                data[base + 1] = soft_clip(graph_out_right[i]);
+                            }
+                        }
                     } else if test_tone_enabled {
                         // Test tone fallback (no clips loaded)
                         for frame in data.chunks_exact_mut(channels) {
@@ -488,8 +889,7 @@ pub fn start_audio_thread(
                                 (test_tone_target_freq - test_tone_current_freq) * FREQ_SMOOTHING;
 
                             let phase_inc = test_tone_current_freq as f64 / sample_rate_f64;
-                            let sample = (test_tone_phase * std::f64::consts::TAU).sin()
-                                as f32
+                            let sample = (test_tone_phase * std::f64::consts::TAU).sin() as f32
                                 * TEST_TONE_AMPLITUDE;
 
                             for ch in frame.iter_mut() {
@@ -546,7 +946,8 @@ pub fn start_audio_thread(
                         }
 
                         // Schedule active notes for this buffer
-                        let events = MidiScheduler::find_active(midi_clips, playhead_pos, frame_count);
+                        let events =
+                            MidiScheduler::find_active(midi_clips, playhead_pos, frame_count);
 
                         // Process note-on/off events
                         for event in &events {
@@ -564,11 +965,7 @@ pub fn start_audio_thread(
                             sampler_left[..fc].fill(0.0);
                             sampler_right[..fc].fill(0.0);
 
-                            engine.render(
-                                &mut sampler_left[..fc],
-                                &mut sampler_right[..fc],
-                                fc,
-                            );
+                            engine.render(&mut sampler_left[..fc], &mut sampler_right[..fc], fc);
 
                             // Mix sampler output into interleaved data
                             for i in 0..fc {
@@ -616,6 +1013,11 @@ pub fn start_audio_thread(
                         }
                     }
                 }
+                }));
+                if callback_result.is_err() {
+                    data.fill(0.0);
+                    error!("[RT] Panic trapped inside audio callback; emitted silence for this buffer");
+                }
             },
             move |err| {
                 error!("Audio stream error: {}", err);
@@ -651,27 +1053,19 @@ pub fn list_audio_devices() -> (Vec<String>, Vec<String>) {
 
     let outputs: Vec<String> = host
         .output_devices()
-        .map(|devices| {
-            devices
-                .filter_map(|d| {
-                    d.name().ok()
-                })
-                .collect()
-        })
+        .map(|devices| devices.filter_map(|d| d.name().ok()).collect())
         .unwrap_or_default();
 
     let inputs: Vec<String> = host
         .input_devices()
-        .map(|devices| {
-            devices
-                .filter_map(|d| {
-                    d.name().ok()
-                })
-                .collect()
-        })
+        .map(|devices| devices.filter_map(|d| d.name().ok()).collect())
         .unwrap_or_default();
 
-    info!("Audio devices: {} outputs, {} inputs", outputs.len(), inputs.len());
+    info!(
+        "Audio devices: {} outputs, {} inputs",
+        outputs.len(),
+        inputs.len()
+    );
     (outputs, inputs)
 }
 

@@ -55,6 +55,8 @@ fn main() {
         clip_pool,
         clip_snapshot,
         Arc::new(dream_engine::driver::SharedMidiSnapshot::new()),
+        Arc::new(dream_engine::driver::SharedRoutingSnapshot::new()),
+        Arc::new(dream_engine::driver::SharedAutomationSnapshot::new()),
         Arc::new(dream_engine::driver::SharedSamplerSamples::new()),
         Arc::new(arc_swap::ArcSwap::from_pointee(None)), // preview buffer (unused in standalone)
         Arc::new(std::sync::atomic::AtomicUsize::new(0)), // preview cursor

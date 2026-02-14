@@ -31,7 +31,7 @@ use std::sync::Arc;
 use std::thread;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use log::{info, warn, error};
+use log::{info, error};
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -207,7 +207,7 @@ impl RecordingSession {
             .default_input_config()
             .map_err(|e| RecordingError::ConfigError(e.to_string()))?;
 
-        let sample_rate = supported_config.sample_rate().0;
+        let sample_rate = supported_config.sample_rate();
         let channels = supported_config.channels() as usize;
         let config: cpal::StreamConfig = supported_config.into();
 

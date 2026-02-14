@@ -1,11 +1,13 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { open } from '@tauri-apps/plugin-dialog';
 import { ClipRenderer } from './ClipRenderer';
 import { ClipFadeHandles } from './ClipFadeHandles';
 import { AutomationLane } from './AutomationLane';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { computeGridLines } from '@/shared/lib/gridSnap';
+import * as engineApi from '@/shared/api/engine';
 
 /**
  * Timeline — Central arrangement canvas with ruler, grid, clips, and playhead.
@@ -45,6 +47,8 @@ export interface TimelineClip {
     fadeIn?: number;
     /** Fade-out duration (0..1, fraction of clip width). */
     fadeOut?: number;
+    /** Source media is missing on disk. */
+    isOffline?: boolean;
 }
 
 /** Data transferred when dragging from AssetBrowser. */
@@ -66,6 +70,7 @@ interface TimelineProps {
     isPlaying?: boolean;
     recordingActive?: boolean;
     recordingTrackIndex?: number;
+    trackIds?: string[];
     loopStart?: number;
     loopEnd?: number;
     loopEnabled?: boolean;
@@ -76,6 +81,8 @@ interface TimelineProps {
     onDropBrowserItem?: (item: BrowserDragItem, trackIndex: number, beat: number) => void;
     /** Called when user double-clicks on a track lane to create a MIDI clip. */
     onDoubleClickTrack?: (trackIndex: number, beat: number) => void;
+    /** Called when user double-clicks a MIDI clip (open piano roll). */
+    onOpenMidiClip?: (clipId: string, trackIndex: number) => void;
     /** Called on vertical scroll — for syncing TrackInspector. */
     onScrollTop?: (scrollTop: number) => void;
 }
@@ -102,6 +109,7 @@ export const Timeline = ({
     isPlaying = false,
     recordingActive = false,
     recordingTrackIndex = 0,
+    trackIds = [],
     loopStart = 4,
     loopEnd = 20,
     loopEnabled = true,
@@ -110,6 +118,7 @@ export const Timeline = ({
     onClipMove,
     onDropBrowserItem,
     onDoubleClickTrack,
+    onOpenMidiClip,
     onScrollTop,
 }: TimelineProps) => {
     const [pixelsPerBeat, setPixelsPerBeat] = useState(DEFAULT_PPB);
@@ -122,6 +131,12 @@ export const Timeline = ({
         offsetY: number;
         startBeat: number;
         startTrack: number;
+    } | null>(null);
+    const [slippingClip, setSlippingClip] = useState<{
+        clipId: string;
+        startX: number;
+        startOffsetSamples: number;
+        samplesPerPixel: number;
     } | null>(null);
 
     // Drop target state for visual feedback
@@ -154,6 +169,8 @@ export const Timeline = ({
 
     // ── Grid snap ──
     const snapBeat = useGridStore((s) => s.snapBeat);
+    const automationLanes = useAutomationStore((s) => s.lanes);
+    const expandedTracks = useAutomationStore((s) => s.expandedTracks);
     const gridLines = useMemo(
         () => computeGridLines(totalBeats, beatsPerBar, pixelsPerBeat),
         [totalBeats, beatsPerBar, pixelsPerBeat],
@@ -276,6 +293,39 @@ export const Timeline = ({
 
     useEffect(() => clearLiveLoop, [clearLiveLoop]);
 
+    // ── Slip-edit (Cmd+Alt drag inside clip) ──
+    useEffect(() => {
+        if (!slippingClip) return;
+        const onMove = (e: MouseEvent) => {
+            const deltaPx = e.clientX - slippingClip.startX;
+            const sourceDelta = Math.round(deltaPx * slippingClip.samplesPerPixel);
+            const previewEl = document.getElementById(`clip-wave-${slippingClip.clipId}`);
+            if (previewEl) {
+                previewEl.style.transform = `translateX(${Math.max(-64, Math.min(64, -(sourceDelta / Math.max(1, slippingClip.samplesPerPixel))))}px)`;
+            }
+        };
+        const onUp = async (e: MouseEvent) => {
+            const deltaPx = e.clientX - slippingClip.startX;
+            const sourceDelta = Math.round(deltaPx * slippingClip.samplesPerPixel);
+            const nextOffset = Math.max(0, slippingClip.startOffsetSamples + sourceDelta);
+            try {
+                await engineApi.setClipSourceOffset(slippingClip.clipId, nextOffset);
+            } catch (err) {
+                console.error('[Timeline] setClipSourceOffset failed:', err);
+            }
+            const previewEl = document.getElementById(`clip-wave-${slippingClip.clipId}`);
+            if (previewEl) previewEl.style.transform = '';
+            setSlippingClip(null);
+        };
+
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        return () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+    }, [slippingClip]);
+
     // ── Scroll handler ──
     const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
         const target = e.currentTarget;
@@ -353,6 +403,17 @@ export const Timeline = ({
         setSelectedClipId(clip.id);
         onClipSelect?.(clip.id);
 
+        if (e.metaKey && e.altKey) {
+            const samplesPerPixel = (clip.durationSamples ?? 0) / Math.max(1, clip.durationBeats * pixelsPerBeat);
+            setSlippingClip({
+                clipId: clip.id,
+                startX: e.clientX,
+                startOffsetSamples: clip.sourceOffset ?? 0,
+                samplesPerPixel: Math.max(1, samplesPerPixel),
+            });
+            return;
+        }
+
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
         setDraggingClip({
             clipId: clip.id,
@@ -361,7 +422,7 @@ export const Timeline = ({
             startBeat: clip.startBeat,
             startTrack: clip.trackIndex,
         });
-    }, [onClipSelect]);
+    }, [onClipSelect, pixelsPerBeat]);
 
     // ── Global mouse move/up for drag ──
     useEffect(() => {
@@ -684,6 +745,26 @@ export const Timeline = ({
                                 data-clip="true"
                                 onClick={e => handleClipClick(e, clip.id)}
                                 onMouseDown={e => handleClipMouseDown(e, clip)}
+                                onDoubleClick={async (e) => {
+                                    e.stopPropagation();
+                                    if (clip.isOffline) {
+                                        try {
+                                            const file = await open({
+                                                title: 'Resolve Missing Media',
+                                                multiple: false,
+                                            });
+                                            if (typeof file === 'string' && file.length > 0) {
+                                                await engineApi.resolveMissingFile(clip.id, file);
+                                            }
+                                        } catch (err) {
+                                            console.error('[Timeline] resolveMissingFile failed:', err);
+                                        }
+                                        return;
+                                    }
+                                    if (clip.type === 'midi') {
+                                        onOpenMidiClip?.(clip.id, clip.trackIndex);
+                                    }
+                                }}
                                 style={{
                                     position: 'absolute',
                                     left,
@@ -725,18 +806,41 @@ export const Timeline = ({
                                     overflow: 'hidden',
                                 }}>
                                     {clip.type === 'audio' && clip.filePath && clip.durationSamples ? (
-                                        <ClipRenderer
-                                            filePath={clip.filePath}
-                                            width={width}
-                                            height={trackHeight - 16}
-                                            durationSamples={clip.durationSamples}
-                                            sourceOffset={clip.sourceOffset}
-                                            isSelected={isSelected}
-                                        />
+                                        <div id={`clip-wave-${clip.id}`} style={{ willChange: 'transform' }}>
+                                            <ClipRenderer
+                                                filePath={clip.filePath}
+                                                width={width}
+                                                height={trackHeight - 16}
+                                                durationSamples={clip.durationSamples}
+                                                sourceOffset={clip.sourceOffset}
+                                                isSelected={isSelected}
+                                            />
+                                        </div>
                                     ) : clip.type === 'audio' ? (
                                         <AudioWaveformFallback width={width} />
                                     ) : (
                                         <MidiNoteFallback width={width} height={trackHeight - 16} />
+                                    )}
+                                    {clip.isOffline && (
+                                        <div
+                                            style={{
+                                                position: 'absolute',
+                                                inset: 0,
+                                                background:
+                                                    'repeating-linear-gradient(135deg, rgba(255,20,20,0.9) 0px, rgba(255,20,20,0.9) 7px, rgba(255,70,70,0.65) 7px, rgba(255,70,70,0.65) 14px)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                color: '#fff',
+                                                fontSize: 10,
+                                                fontWeight: 700,
+                                                letterSpacing: '0.06em',
+                                                textShadow: '0 1px 2px rgba(0,0,0,0.55)',
+                                                pointerEvents: 'none',
+                                            }}
+                                        >
+                                            MEDIA OFFLINE
+                                        </div>
                                     )}
                                 </div>
 
@@ -746,6 +850,22 @@ export const Timeline = ({
                                     height={trackHeight - 4}
                                     fadeIn={clip.fadeIn ?? 0}
                                     fadeOut={clip.fadeOut ?? 0}
+                                    onFadeInChange={(fraction) => {
+                                        if (!clip.durationSamples) return;
+                                        const fadeInFrames = Math.round(fraction * clip.durationSamples);
+                                        const fadeOutFrames = Math.round((clip.fadeOut ?? 0) * clip.durationSamples);
+                                        engineApi.setClipFades(clip.id, fadeInFrames, fadeOutFrames).catch((err) =>
+                                            console.error('[Timeline] setClipFades fadeIn failed:', err),
+                                        );
+                                    }}
+                                    onFadeOutChange={(fraction) => {
+                                        if (!clip.durationSamples) return;
+                                        const fadeInFrames = Math.round((clip.fadeIn ?? 0) * clip.durationSamples);
+                                        const fadeOutFrames = Math.round(fraction * clip.durationSamples);
+                                        engineApi.setClipFades(clip.id, fadeInFrames, fadeOutFrames).catch((err) =>
+                                            console.error('[Timeline] setClipFades fadeOut failed:', err),
+                                        );
+                                    }}
                                     isSelected={isSelected}
                                     color={clip.color}
                                 />
@@ -779,10 +899,10 @@ export const Timeline = ({
 
                     {/* ── Automation Lanes (SVG overlays per track) ── */}
                     {Array.from({ length: trackCount }, (_, trackIdx) => {
-                        const trackId = `track-${trackIdx}`;
-                        const expanded = useAutomationStore.getState().expandedTracks.has(trackId);
+                        const trackId = trackIds[trackIdx] ?? `track-${trackIdx}`;
+                        const expanded = expandedTracks.has(trackId);
                         if (!expanded) return null;
-                        const lanes = useAutomationStore.getState().getLanesForTrack(trackId);
+                        const lanes = Object.values(automationLanes).filter((lane) => lane.trackId === trackId);
                         return lanes.filter(l => l.visible).map(lane => (
                             <div
                                 key={lane.id}
@@ -793,7 +913,7 @@ export const Timeline = ({
                                     width: canvasWidth,
                                     height: trackHeight,
                                     zIndex: 12,
-                                    pointerEvents: 'none',
+                                    pointerEvents: 'auto',
                                 }}
                             >
                                 <AutomationLane

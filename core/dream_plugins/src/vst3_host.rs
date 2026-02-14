@@ -22,7 +22,7 @@
 
 use std::path::{Path, PathBuf};
 
-use log::{info, warn, error};
+use log::info;
 use uuid::Uuid;
 
 use crate::descriptor::PluginDescriptor;
@@ -119,6 +119,9 @@ pub struct Vst3Instance {
     /// Plugin's reported processing latency in samples.
     latency: u32,
 
+    /// Whether the plugin editor window is currently open.
+    editor_open: bool,
+
     /// Pre-allocated scratch buffer for VST3 interleaved→planar conversion.
     scratch_left: Vec<f32>,
     scratch_right: Vec<f32>,
@@ -199,6 +202,7 @@ impl Vst3Instance {
             sample_rate: 44100.0,
             max_buffer_size: 0,
             latency: 0,
+            editor_open: false,
             scratch_left: Vec::new(),
             scratch_right: Vec::new(),
         })
@@ -215,6 +219,7 @@ impl Vst3Instance {
             sample_rate: 44100.0,
             max_buffer_size: 0,
             latency,
+            editor_open: false,
             scratch_left: Vec::new(),
             scratch_right: Vec::new(),
         }
@@ -294,6 +299,33 @@ impl PluginInstance for Vst3Instance {
     fn is_active(&self) -> bool {
         self.is_active
     }
+
+    fn open_editor(&mut self) -> Result<(), PluginError> {
+        if !self.is_active {
+            return Err(PluginError::InvalidState(
+                "Cannot open editor: plugin is not active".to_string(),
+            ));
+        }
+        if self.editor_open {
+            return Ok(());
+        }
+
+        Err(PluginError::UnsupportedFormat(
+            "VST3 editor host bridge is not implemented yet".to_string(),
+        ))
+    }
+
+    fn close_editor(&mut self) -> Result<(), PluginError> {
+        if !self.editor_open {
+            return Ok(());
+        }
+        self.editor_open = false;
+        Ok(())
+    }
+
+    fn supports_editor(&self) -> bool {
+        false
+    }
 }
 
 // ── Plugin Host (Instance Registry) ───────────────────────────────────
@@ -350,6 +382,7 @@ impl PluginHost {
     pub fn remove(&mut self, id: Uuid) -> Result<(), PluginError> {
         if let Some(pos) = self.instances.iter().position(|inst| inst.id() == id) {
             let mut instance = self.instances.remove(pos);
+            let _ = instance.close_editor();
             instance.deactivate()?;
             info!("[PluginHost] Removed instance: {}", id);
             Ok(())
@@ -388,6 +421,30 @@ impl PluginHost {
         );
 
         Ok(())
+    }
+
+    /// Opens native editor for a specific plugin instance.
+    pub fn open_editor(&mut self, id: Uuid) -> Result<(), PluginError> {
+        let instance = self
+            .get_mut(id)
+            .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
+        instance.open_editor()
+    }
+
+    /// Closes native editor for a specific plugin instance.
+    pub fn close_editor(&mut self, id: Uuid) -> Result<(), PluginError> {
+        let instance = self
+            .get_mut(id)
+            .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
+        instance.close_editor()
+    }
+
+    /// Returns whether a plugin instance supports opening a native editor.
+    pub fn supports_editor(&mut self, id: Uuid) -> Result<bool, PluginError> {
+        let instance = self
+            .get_mut(id)
+            .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
+        Ok(instance.supports_editor())
     }
 }
 
@@ -471,5 +528,29 @@ mod tests {
 
         let result = stub.process(&[&input], &mut [&mut output], 64);
         assert!(matches!(result, Err(PluginError::InvalidState(_))));
+    }
+
+    #[test]
+    fn editor_capability_defaults_to_false() {
+        let desc = make_test_descriptor();
+        let stub = Vst3Instance::stub(desc, 0);
+        assert!(!stub.supports_editor());
+    }
+
+    #[test]
+    fn editor_open_requires_activation() {
+        let desc = make_test_descriptor();
+        let mut stub = Vst3Instance::stub(desc, 0);
+        let result = stub.open_editor();
+        assert!(matches!(result, Err(PluginError::InvalidState(_))));
+    }
+
+    #[test]
+    fn editor_open_reports_unimplemented_after_activation() {
+        let desc = make_test_descriptor();
+        let mut stub = Vst3Instance::stub(desc, 0);
+        stub.activate(44100.0, 128).unwrap();
+        let result = stub.open_editor();
+        assert!(matches!(result, Err(PluginError::UnsupportedFormat(_))));
     }
 }

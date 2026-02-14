@@ -32,6 +32,7 @@ dream_ipc = { path = "../../core/dream_ipc" }
 dream_engine = { path = "../../core/dream_engine" }
 dream_io = { path = "../../core/dream_io" }
 dream_clip_engine = { path = "../../core/dream_clip_engine" }
+dream_plugins = { path = "../../core/dream_plugins" }
 
 # Project management
 uuid = { workspace = true }

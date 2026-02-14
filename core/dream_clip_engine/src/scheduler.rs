@@ -38,10 +38,121 @@ pub struct ActiveClip<'a> {
     pub is_clip_tail: bool,
 }
 
+/// Allocation-free active clip descriptor for RT hot path.
+#[derive(Debug, Clone, Copy)]
+pub struct ActiveClipInfo {
+    /// Index of clip in the source clip slice.
+    pub clip_index: usize,
+    pub source_start_frame: i64,
+    pub buffer_offset: usize,
+    pub frames_to_read: usize,
+    pub is_clip_head: bool,
+    pub is_clip_tail: bool,
+}
+
 /// Schedules clips for playback based on the current playhead position.
 pub struct ClipScheduler;
 
 impl ClipScheduler {
+    /// Fills a caller-provided scratch buffer with active clips (zero alloc on hot path).
+    pub fn fill_active<'a>(
+        clips: &'a [AudioClip],
+        playhead_pos: i64,
+        buffer_size: usize,
+        out: &mut Vec<ActiveClipInfo>,
+    ) {
+        let buffer_end = playhead_pos + buffer_size as i64;
+        out.clear();
+
+        for (clip_index, clip) in clips.iter().enumerate() {
+            let clip_start = clip.position.sample_frame;
+            let clip_end = clip.end_position().sample_frame;
+
+            if clip_end <= playhead_pos || clip_start >= buffer_end {
+                continue;
+            }
+
+            let intersect_start = playhead_pos.max(clip_start);
+            let intersect_end = buffer_end.min(clip_end);
+            let frames_to_read = (intersect_end - intersect_start) as usize;
+            if frames_to_read == 0 {
+                continue;
+            }
+
+            let buffer_offset = if clip_start > playhead_pos {
+                (clip_start - playhead_pos) as usize
+            } else {
+                0
+            };
+
+            let source_start_frame = clip.source_offset.sample_frame + (intersect_start - clip_start);
+            let is_clip_head = intersect_start == clip_start;
+            let is_clip_tail = intersect_end == clip_end;
+
+            out.push(ActiveClipInfo {
+                clip_index,
+                source_start_frame,
+                buffer_offset,
+                frames_to_read,
+                is_clip_head,
+                is_clip_tail,
+            });
+        }
+    }
+
+    /// Loop-aware, allocation-free scheduler variant for RT callback.
+    pub fn fill_active_looped_with_tmp<'a>(
+        clips: &'a [AudioClip],
+        playhead_pos: i64,
+        buffer_size: usize,
+        loop_region: Option<&LoopRegion>,
+        out: &mut Vec<ActiveClipInfo>,
+        tmp: &mut Vec<ActiveClipInfo>,
+    ) {
+        let loop_region = match loop_region {
+            Some(lr) if lr.is_valid() => lr,
+            _ => {
+                Self::fill_active(clips, playhead_pos, buffer_size, out);
+                return;
+            }
+        };
+
+        let buffer_end = playhead_pos + buffer_size as i64;
+        if buffer_end <= loop_region.end {
+            Self::fill_active(clips, playhead_pos, buffer_size, out);
+            return;
+        }
+
+        let pre_wrap_frames = (loop_region.end - playhead_pos).max(0) as usize;
+        let post_wrap_frames = buffer_size.saturating_sub(pre_wrap_frames);
+        out.clear();
+        tmp.clear();
+
+        if pre_wrap_frames > 0 {
+            Self::fill_active(clips, playhead_pos, pre_wrap_frames, out);
+        }
+
+        if post_wrap_frames > 0 {
+            Self::fill_active(clips, loop_region.start, post_wrap_frames, tmp);
+            for mut clip in tmp.iter().copied() {
+                clip.buffer_offset += pre_wrap_frames;
+                out.push(clip);
+            }
+        }
+    }
+
+    /// Loop-aware scheduler variant.
+    pub fn fill_active_looped<'a>(
+        clips: &'a [AudioClip],
+        playhead_pos: i64,
+        buffer_size: usize,
+        loop_region: Option<&LoopRegion>,
+        out: &mut Vec<ActiveClipInfo>,
+    ) {
+        let mut tmp = Vec::new();
+        Self::fill_active_looped_with_tmp(clips, playhead_pos, buffer_size, loop_region, out, &mut tmp);
+    }
+
     /// Finds all clips that overlap the given playback window.
     ///
     /// # Arguments
@@ -60,57 +171,19 @@ impl ClipScheduler {
         playhead_pos: i64,
         buffer_size: usize,
     ) -> Vec<ActiveClip<'a>> {
-        let buffer_end = playhead_pos + buffer_size as i64;
-        let mut active = Vec::new();
-
-        for clip in clips {
-            let clip_start = clip.position.sample_frame;
-            let clip_end = clip.end_position().sample_frame;
-
-            // Check overlap: clip range intersects buffer range
-            if clip_end <= playhead_pos || clip_start >= buffer_end {
-                continue; // No overlap
-            }
-
-            // Calculate the intersection
-            let intersect_start = playhead_pos.max(clip_start);
-            let intersect_end = buffer_end.min(clip_end);
-            let frames_to_read = (intersect_end - intersect_start) as usize;
-
-            if frames_to_read == 0 {
-                continue;
-            }
-
-            // Buffer offset: where in the output buffer does this clip start writing?
-            let buffer_offset = if clip_start > playhead_pos {
-                (clip_start - playhead_pos) as usize
-            } else {
-                0
-            };
-
-            // Source frame: where in the clip's source audio do we start reading?
-            let source_start_frame = clip.source_offset.sample_frame
-                + (intersect_start - clip_start);
-
-            // Clip boundary detection for micro-fade application:
-            // - is_clip_head: the clip's first audio frame is in this buffer
-            //   (i.e. we're reading from the very start of the clip's source region)
-            // - is_clip_tail: the clip's last audio frame is in this buffer
-            //   (i.e. the clip ends before the buffer window ends)
-            let is_clip_head = intersect_start == clip_start;
-            let is_clip_tail = intersect_end == clip_end;
-
-            active.push(ActiveClip {
-                clip,
-                source_start_frame,
-                buffer_offset,
-                frames_to_read,
-                is_clip_head,
-                is_clip_tail,
-            });
-        }
-
-        active
+        let mut scratch = Vec::new();
+        Self::fill_active(clips, playhead_pos, buffer_size, &mut scratch);
+        scratch
+            .into_iter()
+            .map(|info| ActiveClip {
+                clip: &clips[info.clip_index],
+                source_start_frame: info.source_start_frame,
+                buffer_offset: info.buffer_offset,
+                frames_to_read: info.frames_to_read,
+                is_clip_head: info.is_clip_head,
+                is_clip_tail: info.is_clip_tail,
+            })
+            .collect()
     }
 
     /// Finds active clips with loop-aware scheduling.
@@ -135,47 +208,19 @@ impl ClipScheduler {
         buffer_size: usize,
         loop_region: Option<&LoopRegion>,
     ) -> Vec<ActiveClip<'a>> {
-        let loop_region = match loop_region {
-            Some(lr) if lr.is_valid() => lr,
-            _ => return Self::find_active(clips, playhead_pos, buffer_size),
-        };
-
-        let buffer_end = playhead_pos + buffer_size as i64;
-
-        // Does the buffer cross the loop boundary?
-        if buffer_end <= loop_region.end {
-            // No wrap — standard scheduling
-            return Self::find_active(clips, playhead_pos, buffer_size);
-        }
-
-        // ── Buffer wraps around loop boundary ──────────────────────────
-
-        // Pre-wrap segment: playhead → loop end
-        let pre_wrap_frames = (loop_region.end - playhead_pos).max(0) as usize;
-
-        // Post-wrap segment: loop start → remaining frames
-        let post_wrap_frames = buffer_size.saturating_sub(pre_wrap_frames);
-
-        let mut active = Vec::new();
-
-        // Schedule clips for the pre-wrap segment
-        if pre_wrap_frames > 0 {
-            let pre_clips = Self::find_active(clips, playhead_pos, pre_wrap_frames);
-            active.extend(pre_clips);
-        }
-
-        // Schedule clips for the post-wrap segment (from loop start)
-        if post_wrap_frames > 0 {
-            let post_clips = Self::find_active(clips, loop_region.start, post_wrap_frames);
-
-            // Offset the post-wrap clips into the buffer
-            for mut clip in post_clips {
-                clip.buffer_offset += pre_wrap_frames;
-                active.push(clip);
-            }
-        }
-
-        active
+        let mut scratch = Vec::new();
+        Self::fill_active_looped(clips, playhead_pos, buffer_size, loop_region, &mut scratch);
+        scratch
+            .into_iter()
+            .map(|info| ActiveClip {
+                clip: &clips[info.clip_index],
+                source_start_frame: info.source_start_frame,
+                buffer_offset: info.buffer_offset,
+                frames_to_read: info.frames_to_read,
+                is_clip_head: info.is_clip_head,
+                is_clip_tail: info.is_clip_tail,
+            })
+            .collect()
     }
 }
 
@@ -400,4 +445,3 @@ mod tests {
         assert_eq!(LoopRegion::new(1000, 5000).length(), 4000);
     }
 }
-

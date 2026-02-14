@@ -19,21 +19,31 @@
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::Ordering;
 use std::time::Duration;
+use std::collections::HashMap;
 
 use arc_swap::ArcSwap;
 
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
-use dream_engine::driver::SharedClipSnapshot;
+use dream_engine::driver::{
+    AutomationPoint, SharedAutomationSnapshot, SharedClipSnapshot, SharedRoutingSnapshot,
+    TrackAutomationState,
+};
+use dream_engine::offline_bounce::{BounceConfig, OfflineBouncer};
+use dream_engine::recording::RecordingSession;
 use dream_io::audio_reader::AudioReader;
 use dream_io::peak_cache::{PeakCache, WaveformPeaks};
 use dream_io::project_file::ProjectFile;
 use dream_io::project_manager::ProjectManager;
 use dream_io::wav_writer::WavWriter;
+use dream_plugins::{PluginDescriptor, PluginHost, PluginScanner};
+use dream_plugins::format::{PluginCategory, PluginFormat};
 use dream_ipc::metering::MeterBank;
 use dream_ipc::{EngineCommand, MasterClock};
 use dream_models::mutators::{self, MutatorError};
-use dream_models::project::{AudioClip, Project, Track};
+use dream_models::midi::{MidiClip, SamplerConfig};
+use dream_models::project::{AudioClip, PluginSlot, Project, TimeSignature, Track, TrackColor, TrackType};
 use dream_models::time::AbsoluteTime;
 use dream_models::PlaybackState;
 use tauri::{Manager, Emitter};
@@ -90,14 +100,233 @@ impl AudioEngineHandle {
 
 
 
-/// Undo/Redo history — stores full `Project` snapshots.
+/// Structural-sharing snapshot of a project.
 ///
-/// Since `Project` derives `Clone` and is relatively lightweight (metadata +
-/// clip references, not audio data), cloning is fast and memory-efficient.
-/// Audio samples remain in the `ClipPool` and are never duplicated.
+/// Track snapshots and clip payloads are shared via Arc between snapshots
+/// so undo/redo does not deep-clone unchanged timeline data.
+#[derive(Clone)]
+struct SharedTrackSnapshot {
+    id: Uuid,
+    name: String,
+    track_type: TrackType,
+    clips: Vec<Arc<AudioClip>>,
+    volume: f64,
+    pan: f64,
+    is_solo: bool,
+    is_mute: bool,
+    is_armed: bool,
+    color: TrackColor,
+    height: f64,
+    output_destination_id: Option<Uuid>,
+    effects: Vec<PluginSlot>,
+    instrument: Option<PluginSlot>,
+    parent_track_id: Option<Uuid>,
+    child_track_ids: Vec<Uuid>,
+    is_expanded: bool,
+    midi_clips: Vec<MidiClip>,
+    sampler: Option<SamplerConfig>,
+    automation_lanes: Vec<dream_models::project::AutomationLane>,
+}
+
+impl SharedTrackSnapshot {
+    fn from_track(track: &Track, prev: Option<&SharedTrackSnapshot>) -> Self {
+        let mut clips = Vec::with_capacity(track.clips.len());
+        for clip in &track.clips {
+            let reused = prev.and_then(|previous| {
+                previous
+                    .clips
+                    .iter()
+                    .find(|p| p.id == clip.id && ***p == *clip)
+                    .cloned()
+            });
+            clips.push(reused.unwrap_or_else(|| Arc::new(clip.clone())));
+        }
+
+        Self {
+            id: track.id,
+            name: track.name.clone(),
+            track_type: track.track_type,
+            clips,
+            volume: track.volume,
+            pan: track.pan,
+            is_solo: track.is_solo,
+            is_mute: track.is_mute,
+            is_armed: track.is_armed,
+            color: track.color,
+            height: track.height,
+            output_destination_id: track.output_destination_id,
+            effects: track.effects.clone(),
+            instrument: track.instrument.clone(),
+            parent_track_id: track.parent_track_id,
+            child_track_ids: track.child_track_ids.clone(),
+            is_expanded: track.is_expanded,
+            midi_clips: track.midi_clips.clone(),
+            sampler: track.sampler.clone(),
+            automation_lanes: track.automation_lanes.clone(),
+        }
+    }
+
+    fn equals_track(&self, track: &Track) -> bool {
+        self.id == track.id
+            && self.name == track.name
+            && self.track_type == track.track_type
+            && self.volume == track.volume
+            && self.pan == track.pan
+            && self.is_solo == track.is_solo
+            && self.is_mute == track.is_mute
+            && self.is_armed == track.is_armed
+            && self.color == track.color
+            && self.height == track.height
+            && self.output_destination_id == track.output_destination_id
+            && self.effects == track.effects
+            && self.instrument == track.instrument
+            && self.parent_track_id == track.parent_track_id
+            && self.child_track_ids == track.child_track_ids
+            && self.is_expanded == track.is_expanded
+            && self.midi_clips == track.midi_clips
+            && self.sampler == track.sampler
+            && self.automation_lanes == track.automation_lanes
+            && self.clips.len() == track.clips.len()
+            && self
+                .clips
+                .iter()
+                .zip(track.clips.iter())
+                .all(|(a, b)| **a == *b)
+    }
+
+    fn to_track(&self) -> Track {
+        Track {
+            id: self.id,
+            name: self.name.clone(),
+            track_type: self.track_type,
+            clips: self.clips.iter().map(|c| (**c).clone()).collect(),
+            volume: self.volume,
+            pan: self.pan,
+            is_solo: self.is_solo,
+            is_mute: self.is_mute,
+            is_armed: self.is_armed,
+            color: self.color,
+            height: self.height,
+            output_destination_id: self.output_destination_id,
+            effects: self.effects.clone(),
+            instrument: self.instrument.clone(),
+            parent_track_id: self.parent_track_id,
+            child_track_ids: self.child_track_ids.clone(),
+            is_expanded: self.is_expanded,
+            midi_clips: self.midi_clips.clone(),
+            sampler: self.sampler.clone(),
+            automation_lanes: self.automation_lanes.clone(),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct SharedProjectSnapshot {
+    id: Uuid,
+    name: String,
+    tracks: Vec<Arc<SharedTrackSnapshot>>,
+    master_track: Arc<Track>,
+    pulse_map: dream_models::pulse_map::PulseMap,
+    sample_rate: f64,
+    time_signature: TimeSignature,
+    version: String,
+    view_zoom_scale: Option<f64>,
+    view_scroll_position: Option<f64>,
+    view_browser_width: Option<f64>,
+    playhead_position_frames: i64,
+    is_looping: bool,
+    loop_start_frames: Option<i64>,
+    loop_end_frames: Option<i64>,
+    key_sig_enabled: bool,
+    key_sig_tonic: String,
+    key_sig_mode: String,
+}
+
+impl SharedProjectSnapshot {
+    fn from_project(project: &Project, prev: Option<&SharedProjectSnapshot>) -> Self {
+        let prev_tracks = prev
+            .map(|p| {
+                p.tracks
+                    .iter()
+                    .map(|t| (t.id, t))
+                    .collect::<std::collections::HashMap<Uuid, &Arc<SharedTrackSnapshot>>>()
+            })
+            .unwrap_or_default();
+
+        let tracks = project
+            .tracks
+            .iter()
+            .map(|track| {
+                if let Some(previous) = prev_tracks.get(&track.id) {
+                    if previous.equals_track(track) {
+                        return (*previous).clone();
+                    }
+                    return Arc::new(SharedTrackSnapshot::from_track(track, Some(previous)));
+                }
+                Arc::new(SharedTrackSnapshot::from_track(track, None))
+            })
+            .collect();
+
+        let master_track = if let Some(previous) = prev {
+            if *previous.master_track == project.master_track {
+                previous.master_track.clone()
+            } else {
+                Arc::new(project.master_track.clone())
+            }
+        } else {
+            Arc::new(project.master_track.clone())
+        };
+
+        Self {
+            id: project.id,
+            name: project.name.clone(),
+            tracks,
+            master_track,
+            pulse_map: project.pulse_map.clone(),
+            sample_rate: project.sample_rate,
+            time_signature: project.time_signature,
+            version: project.version.clone(),
+            view_zoom_scale: project.view_zoom_scale,
+            view_scroll_position: project.view_scroll_position,
+            view_browser_width: project.view_browser_width,
+            playhead_position_frames: project.playhead_position_frames,
+            is_looping: project.is_looping,
+            loop_start_frames: project.loop_start_frames,
+            loop_end_frames: project.loop_end_frames,
+            key_sig_enabled: project.key_sig_enabled,
+            key_sig_tonic: project.key_sig_tonic.clone(),
+            key_sig_mode: project.key_sig_mode.clone(),
+        }
+    }
+
+    fn to_project(&self) -> Project {
+        Project {
+            id: self.id,
+            name: self.name.clone(),
+            tracks: self.tracks.iter().map(|t| t.to_track()).collect(),
+            master_track: (*self.master_track).clone(),
+            pulse_map: self.pulse_map.clone(),
+            sample_rate: self.sample_rate,
+            time_signature: self.time_signature,
+            version: self.version.clone(),
+            view_zoom_scale: self.view_zoom_scale,
+            view_scroll_position: self.view_scroll_position,
+            view_browser_width: self.view_browser_width,
+            playhead_position_frames: self.playhead_position_frames,
+            is_looping: self.is_looping,
+            loop_start_frames: self.loop_start_frames,
+            loop_end_frames: self.loop_end_frames,
+            key_sig_enabled: self.key_sig_enabled,
+            key_sig_tonic: self.key_sig_tonic.clone(),
+            key_sig_mode: self.key_sig_mode.clone(),
+        }
+    }
+}
+
+/// Undo/Redo history backed by structural-sharing snapshots.
 struct UndoState {
-    undo_stack: Vec<Project>,
-    redo_stack: Vec<Project>,
+    undo_stack: Vec<SharedProjectSnapshot>,
+    redo_stack: Vec<SharedProjectSnapshot>,
 }
 
 impl UndoState {
@@ -150,16 +379,83 @@ impl ProjectState {
 /// (a new action invalidates the redo history).
 fn push_undo(project_state: &ProjectState) -> Result<(), String> {
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let snapshot = project.clone();
-    drop(project);
-
     let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
+    let previous = undo.undo_stack.last();
+    let snapshot = SharedProjectSnapshot::from_project(&project, previous);
+    drop(project);
     undo.undo_stack.push(snapshot);
     if undo.undo_stack.len() > MAX_UNDO_DEPTH {
         undo.undo_stack.remove(0);
     }
     undo.redo_stack.clear();
     Ok(())
+}
+
+fn refresh_offline_flags(project: &mut Project) {
+    for track in &mut project.tracks {
+        for clip in &mut track.clips {
+            clip.is_offline = !PathBuf::from(&clip.file_path).exists();
+        }
+    }
+}
+
+fn rebuild_automation_snapshot_from_project(
+    project: &Project,
+    automation_runtime: &AutomationRuntime,
+) {
+    fn is_track_pan_param(key: &str) -> bool {
+        matches!(key, "pan" | "track.pan" | "mixer.pan")
+    }
+
+    fn is_track_volume_param(key: &str) -> bool {
+        matches!(key, "volume" | "gain" | "track.volume" | "track.gain" | "mixer.gain")
+    }
+
+    fn canonical_plugin_param(key: &str) -> Option<&'static str> {
+        match key {
+            "plugin.gain" | "plugin/gain" | "fx.gain" | "fx/gain" => Some("__plugin_gain__"),
+            "plugin.pan" | "plugin/pan" | "fx.pan" | "fx/pan" => Some("__plugin_pan__"),
+            _ => None,
+        }
+    }
+
+    let mut lanes = vec![TrackAutomationState::default(); project.tracks.len()];
+
+    for (track_idx, track) in project.tracks.iter().enumerate() {
+        let mut state = TrackAutomationState::default();
+        for lane in &track.automation_lanes {
+            let key = lane.param_id.to_lowercase();
+            let mut points: Vec<AutomationPoint> = lane
+                .points
+                .iter()
+                .map(|p| AutomationPoint {
+                    sample_frame: project.pulse_map.sample_frame(p.beat.max(0.0)),
+                    value: p.value as f32,
+                })
+                .collect();
+            points.sort_by_key(|p| p.sample_frame);
+
+            if is_track_pan_param(&key) {
+                for p in &mut points {
+                    p.value = (p.value * 2.0 - 1.0).clamp(-1.0, 1.0);
+                }
+                state.pan = points;
+            } else if is_track_volume_param(&key) {
+                for p in &mut points {
+                    p.value = p.value.clamp(0.0, 2.0);
+                }
+                state.volume = points;
+            } else if !points.is_empty() {
+                if let Some(alias) = canonical_plugin_param(&key) {
+                    state.plugin_params.insert(alias.to_string(), points.clone());
+                }
+                state.plugin_params.insert(lane.param_id.clone(), points);
+            }
+        }
+        lanes[track_idx] = state;
+    }
+
+    automation_runtime.snapshot.swap(lanes);
 }
 
 // ── Clip Pool State (shared between UI and audio thread) ────────────
@@ -178,6 +474,9 @@ struct ClipPoolState {
 
     /// Atomic snapshot of per-track clips (lock-free audio thread access).
     snapshot: Arc<SharedClipSnapshot>,
+
+    /// Atomic snapshot of per-track routing destinations for DAG rendering.
+    routing_snapshot: Arc<SharedRoutingSnapshot>,
 }
 
 impl ClipPoolState {
@@ -186,6 +485,7 @@ impl ClipPoolState {
             pool: Arc::new(Mutex::new(ClipPool::new())),
             arc_pool: Arc::new(ArcSwap::from_pointee(ClipPool::new())),
             snapshot: Arc::new(SharedClipSnapshot::new()),
+            routing_snapshot: Arc::new(SharedRoutingSnapshot::new()),
         }
     }
 
@@ -200,6 +500,96 @@ impl ClipPoolState {
             .map(|track| track.clips.clone())
             .collect();
         self.snapshot.swap(clips_per_track);
+
+        let routing: Vec<Option<usize>> = project
+            .tracks
+            .iter()
+            .map(|track| {
+                track.output_destination_id.and_then(|dest_id| {
+                    project
+                        .tracks
+                        .iter()
+                        .position(|candidate| candidate.id == dest_id)
+                })
+            })
+            .collect();
+        self.routing_snapshot.swap(routing);
+    }
+}
+
+/// Runtime state for live recording sessions.
+struct RecordingRuntime {
+    session: Mutex<Option<RecordingSession>>,
+    armed_track_index: Mutex<Option<usize>>,
+}
+
+/// Runtime automation snapshot shared with the audio thread.
+struct AutomationRuntime {
+    snapshot: Arc<SharedAutomationSnapshot>,
+}
+
+impl AutomationRuntime {
+    fn new() -> Self {
+        Self {
+            snapshot: Arc::new(SharedAutomationSnapshot::new()),
+        }
+    }
+}
+
+/// Runtime plugin host state for native VST instance lifecycle.
+struct PluginHostState {
+    host: Mutex<PluginHost>,
+    loaded_by_key: Mutex<HashMap<String, Uuid>>,
+}
+
+impl PluginHostState {
+    fn new() -> Self {
+        Self {
+            host: Mutex::new(PluginHost::new(44100.0, 1024)),
+            loaded_by_key: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn resolve_descriptor(&self, plugin_id: &str) -> Result<PluginDescriptor, String> {
+        let path = PathBuf::from(plugin_id);
+        if path.exists() {
+            let name = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("Unknown VST")
+                .to_string();
+            return Ok(PluginDescriptor::new(
+                name,
+                "Unknown Vendor",
+                PluginFormat::VST3,
+                PluginCategory::Effect,
+                path,
+            ));
+        }
+
+        let scanner = PluginScanner::new();
+        let all = scanner.scan_all();
+        all.into_iter()
+            .find(|desc| {
+                desc.path.to_string_lossy() == plugin_id
+                    || desc.name == plugin_id
+                    || desc.id.to_string() == plugin_id
+                    || desc
+                        .unique_id
+                        .as_ref()
+                        .map(|u| u == plugin_id)
+                        .unwrap_or(false)
+            })
+            .ok_or_else(|| format!("Plugin not found: {plugin_id}"))
+    }
+}
+
+impl RecordingRuntime {
+    fn new() -> Self {
+        Self {
+            session: Mutex::new(None),
+            armed_track_index: Mutex::new(None),
+        }
     }
 }
 
@@ -510,12 +900,39 @@ struct TrackStateUpdate {
     soloed: Option<bool>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportSettingsPayload {
+    output_path: String,
+    sample_rate: u32,
+    bit_depth: u16,
+    range: String,
+    normalize: bool,
+    tail_ms: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AutomationPointPayload {
+    beat: f64,
+    value: f64,
+    curve_type: String,
+    tension: Option<f64>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RoutingTarget {
     track_id: String,
     track_name: String,
     track_type: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginEditorCapability {
+    supported: bool,
+    reason: Option<String>,
 }
 
 // ── Helper: push command with error handling ───────────────────────────
@@ -1203,6 +1620,396 @@ async fn delete_clip_cmd(
     Ok(())
 }
 
+/// Update a clip's source offset (slip editing).
+#[tauri::command]
+async fn set_clip_source_offset_cmd(
+    clip_id: String,
+    source_offset_frames: i64,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
+    push_undo(&project_state)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut updated = false;
+    for track in &mut project.tracks {
+        if let Some(clip) = track.clips.iter_mut().find(|c| c.id == uuid) {
+            clip.source_offset = AbsoluteTime::new(source_offset_frames.max(0));
+            updated = true;
+            break;
+        }
+    }
+
+    if !updated {
+        return Err(format!("Clip not found: {clip_id}"));
+    }
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    Ok(())
+}
+
+/// Set clip fades. Current engine applies always-on micro-fades; this command is
+/// accepted for IPC compatibility with interactive UI fade handles.
+#[tauri::command]
+async fn set_clip_fades_cmd(
+    clip_id: String,
+    fade_in_frames: i64,
+    fade_out_frames: i64,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
+    push_undo(&project_state)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut updated = false;
+    for track in &mut project.tracks {
+        if let Some(clip) = track.clips.iter_mut().find(|c| c.id == uuid) {
+            clip.fade_in_frames = fade_in_frames.max(0);
+            clip.fade_out_frames = fade_out_frames.max(0);
+            updated = true;
+            break;
+        }
+    }
+
+    if !updated {
+        return Err(format!("Clip not found: {clip_id}"));
+    }
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+
+    log::info!(
+        "[IPC] set_clip_fades_cmd clip={} fade_in={} fade_out={}",
+        clip_id,
+        fade_in_frames.max(0),
+        fade_out_frames.max(0)
+    );
+    Ok(())
+}
+
+/// Resolve offline media path for an existing clip.
+#[tauri::command]
+async fn resolve_missing_file_cmd(
+    clip_id: String,
+    new_path: String,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
+    if !PathBuf::from(&new_path).exists() {
+        return Err(format!("Resolved file does not exist: {new_path}"));
+    }
+
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut updated = false;
+    for track in &mut project.tracks {
+        if let Some(clip) = track.clips.iter_mut().find(|c| c.id == uuid) {
+            clip.file_path = new_path.clone();
+            clip.is_offline = false;
+            updated = true;
+            break;
+        }
+    }
+    if !updated {
+        return Err(format!("Clip not found: {clip_id}"));
+    }
+
+    // Load resolved media into clip pool so playback recovers immediately.
+    let decoded = AudioReader::read(PathBuf::from(&new_path))
+        .map_err(|e| format!("Failed to decode resolved audio: {e}"))?;
+    {
+        let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+        pool.insert(ClipAudio {
+            source_path: new_path.clone(),
+            channels: decoded.channels,
+            sample_rate: decoded.sample_rate,
+            num_frames: decoded.num_frames,
+        });
+    }
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    Ok(())
+}
+
+/// Accept automation points from frontend (throttled there to 16ms).
+#[tauri::command]
+async fn set_automation_points_cmd(
+    track_id: String,
+    param_id: String,
+    points: Vec<AutomationPointPayload>,
+    project_state: tauri::State<'_, ProjectState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
+) -> Result<(), String> {
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track ID: {e}"))?;
+    let normalized_param_id = param_id.trim().to_string();
+    if normalized_param_id.is_empty() {
+        return Err("Parameter ID cannot be empty".to_string());
+    }
+    push_undo(&project_state)?;
+    {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let track = project
+            .tracks
+            .iter_mut()
+            .find(|t| t.id == track_uuid)
+            .ok_or_else(|| format!("Track not found: {track_id}"))?;
+
+        let mut persistent_points: Vec<dream_models::project::AutomationPoint> = points
+            .iter()
+            .map(|p| dream_models::project::AutomationPoint {
+                beat: p.beat.max(0.0),
+                value: p.value,
+                curve_type: p.curve_type.clone(),
+                tension: p.tension,
+            })
+            .collect();
+        persistent_points.sort_by(|a, b| a.beat.total_cmp(&b.beat));
+
+        if let Some(existing) = track
+            .automation_lanes
+            .iter_mut()
+            .find(|lane| lane.param_id.eq_ignore_ascii_case(&normalized_param_id))
+        {
+            existing.points = persistent_points;
+            existing.param_id = normalized_param_id.clone();
+        } else {
+            track.automation_lanes.push(dream_models::project::AutomationLane {
+                param_id: normalized_param_id.clone(),
+                points: persistent_points,
+            });
+        }
+
+        // Keep project clean: remove empty lanes.
+        track.automation_lanes.retain(|lane| !lane.points.is_empty());
+
+        *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+        rebuild_automation_snapshot_from_project(&project, &automation_runtime);
+    }
+
+    log::debug!(
+        "[IPC] set_automation_points_cmd track={} param={} points={}",
+        track_id,
+        param_id,
+        points.len()
+    );
+    Ok(())
+}
+
+/// Arm/disarm a track for recording.
+#[tauri::command]
+async fn arm_track_cmd(
+    track_index: usize,
+    armed: bool,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<(), String> {
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let track = project
+        .tracks
+        .get_mut(track_index)
+        .ok_or_else(|| format!("Track index out of range: {track_index}"))?;
+    track.is_armed = armed;
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    Ok(())
+}
+
+/// Start live recording on the first armed track.
+#[tauri::command]
+async fn start_recording_cmd(
+    app: tauri::AppHandle,
+    project_state: tauri::State<'_, ProjectState>,
+    recording_runtime: tauri::State<'_, RecordingRuntime>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    if recording_runtime
+        .session
+        .lock()
+        .map_err(|e| e.to_string())?
+        .is_some()
+    {
+        return Err("Recording already in progress".to_string());
+    }
+
+    let armed_track_index = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project
+            .tracks
+            .iter()
+            .position(|t| t.is_armed)
+            .ok_or_else(|| "No armed tracks".to_string())?
+    };
+
+    let output_dir = std::env::temp_dir().join("dream_daw_recordings");
+    let start_frame = handle.master_clock.position();
+    let file_name = format!("recording_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs());
+
+    let session = RecordingSession::start(&output_dir, &file_name, start_frame)
+        .map_err(|e| format!("start_recording failed: {e}"))?;
+
+    let is_recording = Arc::clone(&session.state().is_recording);
+    let peak_left = Arc::clone(&session.state().peak_left);
+    let peak_right = Arc::clone(&session.state().peak_right);
+    let app_for_peaks = app.clone();
+    std::thread::spawn(move || {
+        while is_recording.load(Ordering::Relaxed) {
+            let left = f32::from_bits(peak_left.load(Ordering::Relaxed));
+            let right = f32::from_bits(peak_right.load(Ordering::Relaxed));
+            let payload = serde_json::json!({
+                "track_index": armed_track_index,
+                "peak": left.abs().max(right.abs()),
+                "peaks": [left, right]
+            });
+            let _ = app_for_peaks.emit("live_audio_peaks", payload);
+            std::thread::sleep(Duration::from_millis(16));
+        }
+    });
+
+    *recording_runtime.session.lock().map_err(|e| e.to_string())? = Some(session);
+    *recording_runtime
+        .armed_track_index
+        .lock()
+        .map_err(|e| e.to_string())? = Some(armed_track_index);
+
+    Ok(())
+}
+
+/// Stop recording, finalize file, and place resulting clip on armed track.
+#[tauri::command]
+async fn stop_recording_cmd(
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    recording_runtime: tauri::State<'_, RecordingRuntime>,
+) -> Result<(), String> {
+    let session = recording_runtime
+        .session
+        .lock()
+        .map_err(|e| e.to_string())?
+        .take()
+        .ok_or_else(|| "No active recording session".to_string())?;
+
+    let armed_idx = recording_runtime
+        .armed_track_index
+        .lock()
+        .map_err(|e| e.to_string())?
+        .take()
+        .ok_or_else(|| "Missing armed track index".to_string())?;
+
+    let result = session
+        .stop()
+        .map_err(|e| format!("stop_recording failed: {e}"))?;
+    let path = result.file_path.display().to_string();
+
+    let decoded = AudioReader::read(&result.file_path)
+        .map_err(|e| format!("Failed to decode recorded file: {e}"))?;
+    {
+        let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+        pool.insert(ClipAudio {
+            source_path: path.clone(),
+            channels: decoded.channels,
+            sample_rate: decoded.sample_rate,
+            num_frames: decoded.num_frames,
+        });
+    }
+
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    while project.tracks.len() <= armed_idx {
+        let track_num = project.tracks.len() + 1;
+        project.add_track(Track::new(format!("Track {track_num}")));
+    }
+
+    let clip = AudioClip::new(
+        "Recording",
+        &path,
+        AbsoluteTime::new(result.start_frame),
+        AbsoluteTime::new(result.total_frames as i64),
+    );
+    project.tracks[armed_idx].clips.push(clip);
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+
+    Ok(())
+}
+
+/// Offline bounce/export command.
+#[tauri::command]
+async fn export_mix_cmd(
+    settings: ExportSettingsPayload,
+    app: tauri::AppHandle,
+    project_state: tauri::State<'_, ProjectState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    let project_end_frame = project
+        .tracks
+        .iter()
+        .flat_map(|t| t.clips.iter())
+        .map(|c| c.position.sample_frame + c.duration.sample_frame)
+        .max()
+        .unwrap_or(0)
+        .max(1);
+
+    let (start_frame, end_frame) = if settings.range == "loop" {
+        let state = handle.playback_state.lock().map_err(|e| e.to_string())?;
+        if state.loop_enabled && state.loop_end > state.loop_start {
+            (state.loop_start, state.loop_end)
+        } else {
+            (0, project_end_frame)
+        }
+    } else {
+        (0, project_end_frame)
+    };
+
+    let mut local_pool = ClipPool::new();
+    for track in &project.tracks {
+        for clip in &track.clips {
+            if clip.file_path.is_empty() {
+                continue;
+            }
+            if local_pool.get(&clip.file_path).is_some() {
+                continue;
+            }
+            if !PathBuf::from(&clip.file_path).exists() {
+                continue;
+            }
+            if let Ok(decoded) = AudioReader::read(PathBuf::from(&clip.file_path)) {
+                local_pool.insert(ClipAudio {
+                    source_path: clip.file_path.clone(),
+                    channels: decoded.channels,
+                    sample_rate: decoded.sample_rate,
+                    num_frames: decoded.num_frames,
+                });
+            }
+        }
+    }
+
+    let cfg = BounceConfig {
+        output_path: settings.output_path.clone(),
+        sample_rate: settings.sample_rate,
+        bit_depth: settings.bit_depth,
+        start_frame,
+        end_frame,
+        normalize: settings.normalize,
+        tail_frames: ((settings.tail_ms as f64 / 1000.0) * settings.sample_rate as f64) as i64,
+    };
+    let bouncer = OfflineBouncer::new(cfg);
+    let app_for_progress = app.clone();
+    bouncer
+        .bounce(&project, &local_pool, None, move |progress| {
+            let payload = serde_json::json!({
+                "progress": (progress * 100.0).clamp(0.0, 100.0),
+                "phase": "Rendering"
+            });
+            let _ = app_for_progress.emit("bounce_progress", payload);
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Undo / Redo Commands
 // ═══════════════════════════════════════════════════════════════════════
@@ -1215,6 +2022,7 @@ async fn delete_clip_cmd(
 async fn undo_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
 ) -> Result<(), String> {
     let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
     let previous = undo.undo_stack.pop()
@@ -1222,13 +2030,14 @@ async fn undo_cmd(
 
     // Save current state to redo stack
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let current = project.clone();
-    undo.redo_stack.push(current);
-    *project = previous;
+    let current_snapshot = SharedProjectSnapshot::from_project(&project, undo.redo_stack.last());
+    undo.redo_stack.push(current_snapshot);
+    *project = previous.to_project();
     drop(undo);
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
+    rebuild_automation_snapshot_from_project(&project, &automation_runtime);
     log::info!("[IPC] undo_cmd: restored previous state");
     Ok(())
 }
@@ -1241,6 +2050,7 @@ async fn undo_cmd(
 async fn redo_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
 ) -> Result<(), String> {
     let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
     let next = undo.redo_stack.pop()
@@ -1248,13 +2058,14 @@ async fn redo_cmd(
 
     // Save current state to undo stack
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let current = project.clone();
-    undo.undo_stack.push(current);
-    *project = next;
+    let current_snapshot = SharedProjectSnapshot::from_project(&project, undo.undo_stack.last());
+    undo.undo_stack.push(current_snapshot);
+    *project = next.to_project();
     drop(undo);
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
+    rebuild_automation_snapshot_from_project(&project, &automation_runtime);
     log::info!("[IPC] redo_cmd: restored redo state");
     Ok(())
 }
@@ -1341,13 +2152,19 @@ fn expand_window(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn new_project(
     project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
     app: tauri::AppHandle,
 ) -> Result<Project, String> {
-    let new = Project::default();
+    let mut new = Project::default();
+    refresh_offline_flags(&mut new);
     *project_state.project.lock().map_err(|e| e.to_string())? = new.clone();
     *project_state.file_path.lock().map_err(|e| e.to_string())? = None;
     *project_state.project_folder.lock().map_err(|e| e.to_string())? = None;
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
+    *project_state.undo.lock().map_err(|e| e.to_string())? = UndoState::new();
+    clip_pool_state.rebuild_snapshot(&new);
+    rebuild_automation_snapshot_from_project(&new, &automation_runtime);
 
     // Update window title
     if let Some(window) = app.get_webview_window("main") {
@@ -1440,16 +2257,22 @@ fn save_project_as(
 fn open_project(
     path: String,
     project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
     app: tauri::AppHandle,
 ) -> Result<Project, String> {
     let file_path = PathBuf::from(&path);
 
-    let loaded = ProjectFile::load(&file_path)
+    let mut loaded = ProjectFile::load(&file_path)
         .map_err(|e| e.to_string())?;
+    refresh_offline_flags(&mut loaded);
 
     *project_state.project.lock().map_err(|e| e.to_string())? = loaded.clone();
     *project_state.file_path.lock().map_err(|e| e.to_string())? = Some(file_path.clone());
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
+    *project_state.undo.lock().map_err(|e| e.to_string())? = UndoState::new();
+    clip_pool_state.rebuild_snapshot(&loaded);
+    rebuild_automation_snapshot_from_project(&loaded, &automation_runtime);
 
     // Derive project folder from file path
     let folder = ProjectManager::folder_from_file(&file_path);
@@ -1487,7 +2310,8 @@ fn get_recent_projects(
 fn get_project(
     project_state: tauri::State<'_, ProjectState>,
 ) -> Result<Project, String> {
-    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    refresh_offline_flags(&mut project);
     Ok(project.clone())
 }
 
@@ -1984,15 +2808,125 @@ fn set_audio_device(
 /// Current implementation delegates lifecycle to the backend plugin host.
 /// If host-side windowing is not wired yet, this call is a no-op with logging.
 #[tauri::command]
-fn open_plugin_window(plugin_id: String) -> Result<(), String> {
-    log::info!("[IPC] open_plugin_window({plugin_id})");
+fn open_plugin_window(
+    plugin_id: String,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+) -> Result<(), String> {
+    if let Some(instance_id) = plugin_host_state
+        .loaded_by_key
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(&plugin_id)
+        .copied()
+    {
+        let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+        host.open_editor(instance_id)
+            .map_err(|e| format!("Failed to open existing plugin editor: {e}"))?;
+        log::info!("[IPC] open_plugin_window({plugin_id}) -> reuse instance {instance_id}");
+        return Ok(());
+    }
+
+    let descriptor = plugin_host_state.resolve_descriptor(&plugin_id)?;
+    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+    let instance_id = host
+        .load_vst3(descriptor.clone())
+        .map_err(|e| format!("Failed to load plugin '{}': {e}", descriptor.name))?;
+    if let Err(err) = host.open_editor(instance_id) {
+        // Roll back loaded instance on editor-open failure to avoid leaked/ghost instances.
+        let _ = host.remove(instance_id);
+        return Err(format!("Plugin loaded but editor failed to open: {err}"));
+    }
+    drop(host);
+
+    plugin_host_state
+        .loaded_by_key
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(plugin_id.clone(), instance_id);
+
+    log::info!(
+        "[IPC] open_plugin_window({plugin_id}) -> loaded VST instance {} ({})",
+        instance_id,
+        descriptor.path.display()
+    );
     Ok(())
+}
+
+#[tauri::command]
+fn can_open_plugin_editor(
+    plugin_id: String,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+) -> Result<PluginEditorCapability, String> {
+    if let Some(instance_id) = plugin_host_state
+        .loaded_by_key
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(&plugin_id)
+        .copied()
+    {
+        let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+        let supported = host
+            .supports_editor(instance_id)
+            .map_err(|e| format!("Failed to check editor capability: {e}"))?;
+        return Ok(PluginEditorCapability {
+            supported,
+            reason: if supported {
+                None
+            } else {
+                Some("Native plugin editor host bridge is not implemented yet for this instance.".to_string())
+            },
+        });
+    }
+
+    let descriptor = plugin_host_state.resolve_descriptor(&plugin_id)?;
+    let reason = match descriptor.format {
+        PluginFormat::VST3 => Some("VST3 editor host bridge is not implemented yet.".to_string()),
+        PluginFormat::CLAP => Some("CLAP editor bridge is not implemented yet.".to_string()),
+        PluginFormat::AudioUnit => Some("AudioUnit editor bridge is not implemented yet.".to_string()),
+    };
+
+    Ok(PluginEditorCapability {
+        supported: false,
+        reason,
+    })
 }
 
 /// Close plugin native GUI window.
 #[tauri::command]
-fn close_plugin_window(plugin_id: String) -> Result<(), String> {
-    log::info!("[IPC] close_plugin_window({plugin_id})");
+fn close_plugin_window(
+    plugin_id: String,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+) -> Result<(), String> {
+    let maybe_instance = plugin_host_state
+        .loaded_by_key
+        .lock()
+        .map_err(|e| e.to_string())?
+        .remove(&plugin_id);
+
+    if let Some(instance_id) = maybe_instance {
+        let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+        if let Err(err) = host.close_editor(instance_id) {
+            log::warn!(
+                "[IPC] close_plugin_window({plugin_id}) editor close failed for {instance_id}: {err}"
+            );
+        }
+        host.remove(instance_id)
+            .map_err(|e| format!("Failed to unload plugin instance {instance_id}: {e}"))?;
+        log::info!("[IPC] close_plugin_window({plugin_id}) -> removed instance {instance_id}");
+    } else {
+        log::info!("[IPC] close_plugin_window({plugin_id}) -> no loaded instance");
+    }
+    Ok(())
+}
+
+/// Unified frontend error logger (ErrorBoundary -> backend log).
+#[tauri::command]
+fn log_frontend_error(module: String, error: String, stack: Option<String>) -> Result<(), String> {
+    if let Some(stack_trace) = stack {
+        log::error!("[FrontendError] module={} error={} stack={}", module, error, stack_trace);
+    } else {
+        log::error!("[FrontendError] module={} error={}", module, error);
+    }
     Ok(())
 }
 
@@ -2028,6 +2962,7 @@ fn set_track_routing_cmd(
     track_id: String,
     target_id: String,
     project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
 ) -> Result<(), String> {
     let source_id = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let destination = if target_id == "master" {
@@ -2054,6 +2989,7 @@ fn set_track_routing_cmd(
     track.output_destination_id = destination;
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
     log::info!("[IPC] set_track_routing_cmd({track_id} -> {target_id})");
     Ok(())
 }
@@ -2083,13 +3019,19 @@ pub fn run() {
 
     // Create shared clip pool and snapshot
     let clip_pool_state = ClipPoolState::new();
+    let bootstrap_project = Project::default();
+    clip_pool_state.rebuild_snapshot(&bootstrap_project);
     let clip_pool_for_engine = Arc::clone(&clip_pool_state.arc_pool);
     let snapshot_for_engine = Arc::clone(&clip_pool_state.snapshot);
 
     // Create shared MIDI snapshot and sampler sample state
     let midi_snapshot = Arc::new(dream_engine::driver::SharedMidiSnapshot::new());
+    let automation_runtime = AutomationRuntime::new();
+    rebuild_automation_snapshot_from_project(&bootstrap_project, &automation_runtime);
     let sampler_samples = Arc::new(dream_engine::driver::SharedSamplerSamples::new());
+    let routing_snapshot_for_engine = Arc::clone(&clip_pool_state.routing_snapshot);
     let midi_snapshot_for_engine = Arc::clone(&midi_snapshot);
+    let automation_snapshot_for_engine = Arc::clone(&automation_runtime.snapshot);
     let sampler_samples_for_engine = Arc::clone(&sampler_samples);
 
     // Create preview buffer Arcs (shared between engine handle and audio driver)
@@ -2108,6 +3050,8 @@ pub fn run() {
         clip_pool_for_engine,
         snapshot_for_engine,
         midi_snapshot_for_engine,
+        routing_snapshot_for_engine,
+        automation_snapshot_for_engine,
         sampler_samples_for_engine,
         preview_buffer_for_engine,
         preview_cursor_for_engine,
@@ -2142,6 +3086,9 @@ pub fn run() {
         .manage(ProjectState::new())
         .manage(clip_pool_state)
         .manage(settings_state)
+        .manage(RecordingRuntime::new())
+        .manage(automation_runtime)
+        .manage(PluginHostState::new())
         .invoke_handler(tauri::generate_handler![
             // Transport
             play,
@@ -2196,6 +3143,15 @@ pub fn run() {
             move_clip_cmd,
             split_clip_cmd,
             delete_clip_cmd,
+            set_clip_fades_cmd,
+            set_clip_source_offset_cmd,
+            resolve_missing_file_cmd,
+            // Automation / recording / export
+            set_automation_points_cmd,
+            arm_track_cmd,
+            start_recording_cmd,
+            stop_recording_cmd,
+            export_mix_cmd,
             // Undo/Redo
             undo_cmd,
             redo_cmd,
@@ -2204,7 +3160,9 @@ pub fn run() {
             set_audio_device,
             // Epic 2: plugin windows + routing
             open_plugin_window,
+            can_open_plugin_editor,
             close_plugin_window,
+            log_frontend_error,
             get_routing_targets,
             set_track_routing_cmd,
             set_track_input_cmd,

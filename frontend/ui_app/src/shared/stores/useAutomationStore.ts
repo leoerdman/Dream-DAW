@@ -68,6 +68,7 @@ interface AutomationState {
 
     addBreakpoint: (laneId: string, beat: number, value: number, curve?: CurveType) => void;
     moveBreakpoint: (laneId: string, bpId: string, beat: number, value: number) => void;
+    setBreakpointCurve: (laneId: string, bpId: string, curve: CurveType) => void;
     removeBreakpoint: (laneId: string, bpId: string) => void;
     selectBreakpoint: (bpId: string, additive?: boolean) => void;
     clearSelection: () => void;
@@ -140,6 +141,15 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
             const bps = lane.breakpoints
                 .map((bp) => (bp.id === bpId ? { ...bp, beat, value: Math.max(0, Math.min(1, value)) } : bp))
                 .sort((a, b) => a.beat - b.beat);
+            return { lanes: { ...s.lanes, [laneId]: { ...lane, breakpoints: bps } } };
+        });
+    },
+
+    setBreakpointCurve: (laneId, bpId, curve) => {
+        set((s) => {
+            const lane = s.lanes[laneId];
+            if (!lane) return s;
+            const bps = lane.breakpoints.map((bp) => (bp.id === bpId ? { ...bp, curve } : bp));
             return { lanes: { ...s.lanes, [laneId]: { ...lane, breakpoints: bps } } };
         });
     },

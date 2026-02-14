@@ -483,7 +483,7 @@ const TrackRow = ({
     const expandedTracks = useAutomationStore((s) => s.expandedTracks);
     const addLane = useAutomationStore((s) => s.addLane);
     const getLanesForTrack = useAutomationStore((s) => s.getLanesForTrack);
-    const isAutoExpanded = expandedTracks.has(`track-${displayNum !== undefined ? displayNum - 1 : 0}`);
+    const isAutoExpanded = expandedTracks.has(track.id);
 
     // Master fixed at bottom — distinct darker styling
     const masterBg = isSelected
@@ -714,7 +714,7 @@ const TrackRow = ({
                     <button
                         onClick={e => {
                             e.stopPropagation();
-                            const trackId = `track-${displayNum !== undefined ? displayNum - 1 : 0}`;
+                            const trackId = track.id;
                             // Create default Volume lane if none exist
                             if (getLanesForTrack(trackId).length === 0) {
                                 addLane(trackId, 'Volume', 'volume', track.color);

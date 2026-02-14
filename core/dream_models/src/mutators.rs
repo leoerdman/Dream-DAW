@@ -209,6 +209,9 @@ pub fn split_clip(
         duration: AbsoluteTime::new(left_duration),
         source_offset: original.source_offset,
         gain: original.gain,
+        fade_in_frames: original.fade_in_frames,
+        fade_out_frames: 0,
+        is_offline: original.is_offline,
         is_selected: original.is_selected,
         color_override: original.color_override,
     };
@@ -225,6 +228,9 @@ pub fn split_clip(
         duration: AbsoluteTime::new(right_duration),
         source_offset: AbsoluteTime::new(right_source_offset),
         gain: original.gain,
+        fade_in_frames: 0,
+        fade_out_frames: original.fade_out_frames,
+        is_offline: original.is_offline,
         is_selected: false,
         color_override: original.color_override,
     };

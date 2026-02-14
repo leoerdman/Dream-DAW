@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useEffect } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import * as engineApi from '@/shared/api/engine';
 
@@ -51,6 +51,10 @@ interface DeviceRackProps {
 
 export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
     const [localBypass, setLocalBypass] = useState<Record<string, boolean>>({});
+    const [pluginCapability, setPluginCapability] = useState<
+        Record<string, { supported: boolean; reason?: string }>
+    >({});
+    const [uiNotice, setUiNotice] = useState<string | null>(null);
     const projectTracks = useEngineStore((s) => s.projectTracks);
     const meters = useEngineStore((s) => s.meters);
 
@@ -110,6 +114,44 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
         setLocalBypass((prev) => ({ ...prev, [id]: !(prev[id] ?? false) }));
     }, []);
 
+    useEffect(() => {
+        let cancelled = false;
+        const vstDevices = chain.filter((d) => d.isVst);
+        const missing = vstDevices.filter((d) => pluginCapability[d.pluginId] == null);
+        if (missing.length === 0) {
+            return;
+        }
+
+        (async () => {
+            const results = await Promise.all(
+                missing.map(async (device) => {
+                    try {
+                        const cap = await engineApi.canOpenPluginEditor(device.pluginId);
+                        return [device.pluginId, { supported: cap.supported, reason: cap.reason ?? undefined }] as const;
+                    } catch (err) {
+                        console.error('[DeviceRack] Capability probe failed:', err);
+                        return [device.pluginId, { supported: false, reason: 'Capability check failed.' }] as const;
+                    }
+                })
+            );
+
+            if (cancelled) {
+                return;
+            }
+            setPluginCapability((prev) => {
+                const next = { ...prev };
+                for (const [id, cap] of results) {
+                    next[id] = cap;
+                }
+                return next;
+            });
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [chain, pluginCapability]);
+
     return (
         <div style={{
             display: 'flex',
@@ -117,6 +159,18 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
             height: '100%',
             background: 'var(--color-bg-panel)',
         }}>
+            {uiNotice && (
+                <div style={{
+                    flexShrink: 0,
+                    padding: '4px 10px',
+                    fontSize: 'var(--font-size-2xs)',
+                    background: 'rgba(217, 64, 64, 0.14)',
+                    color: 'var(--color-status-error)',
+                    borderBottom: '1px solid rgba(217, 64, 64, 0.3)',
+                }}>
+                    {uiNotice}
+                </div>
+            )}
 
             {/* ── Header Bar ── */}
             <div style={{
@@ -166,11 +220,31 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
                         <DeviceNode
                             key={device.id}
                             device={device}
+                            editorSupported={pluginCapability[device.pluginId]?.supported ?? true}
+                            editorReason={pluginCapability[device.pluginId]?.reason}
                             onToggle={() => toggleDevice(device.id)}
-                            onOpenGUI={() => {
-                                engineApi.openPluginWindow(device.pluginId).catch(err =>
-                                    console.error('[DeviceRack] Failed to open plugin window:', err)
-                                );
+                            onOpenGUI={async () => {
+                                try {
+                                    const capability = await engineApi.canOpenPluginEditor(device.pluginId);
+                                    setPluginCapability((prev) => ({
+                                        ...prev,
+                                        [device.pluginId]: {
+                                            supported: capability.supported,
+                                            reason: capability.reason ?? undefined,
+                                        },
+                                    }));
+                                    if (!capability.supported) {
+                                        const reason = capability.reason ?? 'Plugin editor is not supported.';
+                                        console.warn('[DeviceRack] Plugin editor unavailable:', reason);
+                                        setUiNotice(reason);
+                                        return;
+                                    }
+                                    await engineApi.openPluginWindow(device.pluginId);
+                                    setUiNotice(null);
+                                } catch (err) {
+                                    console.error('[DeviceRack] Failed to open plugin window:', err);
+                                    setUiNotice('Failed to open plugin window.');
+                                }
                             }}
                         />
                     ))
@@ -246,10 +320,13 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
 
 const DeviceNode = ({
     device, onToggle, onOpenGUI,
+    editorSupported, editorReason,
 }: {
     device: DeviceSlot;
     onToggle: () => void;
     onOpenGUI?: () => void;
+    editorSupported?: boolean;
+    editorReason?: string;
 }) => {
     const vuWidthPercent = Math.min(100, Math.max(0, device.vuLevel * 100));
     const vuColor = device.vuLevel > 0.85 ? 'var(--color-meter-clip)' : device.vuLevel > 0.6 ? 'var(--color-meter-hot)' : 'var(--color-meter-normal)';
@@ -331,18 +408,23 @@ const DeviceNode = ({
                 </span>
                 <button
                     onClick={(e) => { e.stopPropagation(); onOpenGUI?.(); }}
-                    title="Open Plugin GUI"
+                    title={editorSupported === false ? (editorReason ?? 'Plugin editor is unavailable') : 'Open Plugin GUI'}
+                    disabled={device.isVst ? editorSupported === false : true}
                     style={{
                         background: 'none',
                         border: 'none',
-                        color: 'var(--color-text-tertiary)',
+                        color: editorSupported === false ? 'var(--color-text-tertiary)' : 'var(--color-text-tertiary)',
                         fontSize: 8,
-                        cursor: 'pointer',
+                        cursor: editorSupported === false ? 'not-allowed' : 'pointer',
                         flexShrink: 0,
                         padding: '0 2px',
                         visibility: device.isVst ? 'visible' : 'hidden',
+                        opacity: editorSupported === false ? 0.45 : 1,
                     }}
-                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent-primary)'; }}
+                    onMouseEnter={e => {
+                        if (editorSupported === false) return;
+                        e.currentTarget.style.color = 'var(--color-accent-primary)';
+                    }}
                     onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-text-tertiary)'; }}
                 >
                     Open UI

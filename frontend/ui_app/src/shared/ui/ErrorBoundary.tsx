@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import React from 'react';
+import * as engineApi from '@/shared/api/engine';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -52,6 +53,11 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
             error,
             '\nComponent stack:',
             info.componentStack,
+        );
+        void engineApi.logFrontendError(
+            this.props.module,
+            error.message || 'Unknown frontend error',
+            `${error.stack ?? ''}\n${info.componentStack ?? ''}`.trim() || undefined,
         );
     }
 

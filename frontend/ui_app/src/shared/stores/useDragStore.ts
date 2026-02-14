@@ -7,9 +7,11 @@
  * 1. AssetBrowser sets `draggingItem` on mousedown + threshold
  * 2. Global mousemove updates `cursorPos` for real-time ghost preview
  * 3. Timeline reads cursor position to render a ghost clip at exact drop location
- * 4. Global mouseup in DawShell detects if cursor is over Timeline → creates clip
+ * 4. DawShell's global mouseup handler detects cursor over Timeline → creates clip
+ * 5. DawShell calls `endDrag()` to clean up
  *
- * This approach is 100% reliable across all platforms.
+ * IMPORTANT: The mouseup cleanup is handled SOLELY by DawShell, NOT by this store.
+ * This avoids listener ordering race conditions during HMR and strict mode.
  */
 
 import { create } from 'zustand';
@@ -33,17 +35,14 @@ interface DragState {
     /** Start dragging an item. Begins tracking cursor position. */
     startDrag: (item: DragBrowserItem) => void;
 
-    /** Cancel / end the drag. */
+    /** Cancel / end the drag. Stops cursor tracking. */
     endDrag: () => void;
-
-    /** Update cursor position (called from global mousemove during drag). */
-    updateCursor: (x: number, y: number) => void;
 }
 
-/** Internal cleanup handle for the global mousemove + mouseup listeners. */
-let _cleanupGlobalListeners: (() => void) | null = null;
+/** Internal cleanup handle for the global mousemove listener. */
+let _cleanupMouseMove: (() => void) | null = null;
 
-export const useDragStore = create<DragState>((set, get) => ({
+export const useDragStore = create<DragState>((set) => ({
     draggingItem: null,
     cursorX: 0,
     cursorY: 0,
@@ -53,25 +52,13 @@ export const useDragStore = create<DragState>((set, get) => ({
         set({ draggingItem: item });
 
         // Attach global mousemove to track cursor for ghost preview rendering
-        _cleanupGlobalListeners?.();
+        _cleanupMouseMove?.();
         const onMove = (e: MouseEvent) => {
-            get().updateCursor(e.clientX, e.clientY);
-        };
-        const onUp = () => {
-            // endDrag is called from DawShell's mouseup handler (which checks
-            // whether cursor is over Timeline). This is just a safety fallback.
-            // Small delay to let DawShell handler fire first.
-            requestAnimationFrame(() => {
-                if (get().draggingItem) {
-                    get().endDrag();
-                }
-            });
+            set({ cursorX: e.clientX, cursorY: e.clientY });
         };
         window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
-        _cleanupGlobalListeners = () => {
+        _cleanupMouseMove = () => {
             window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
         };
     },
 
@@ -82,11 +69,7 @@ export const useDragStore = create<DragState>((set, get) => ({
             }
             return { draggingItem: null };
         });
-        _cleanupGlobalListeners?.();
-        _cleanupGlobalListeners = null;
-    },
-
-    updateCursor: (x, y) => {
-        set({ cursorX: x, cursorY: y });
+        _cleanupMouseMove?.();
+        _cleanupMouseMove = null;
     },
 }));

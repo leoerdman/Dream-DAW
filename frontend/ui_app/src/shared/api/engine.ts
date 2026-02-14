@@ -489,6 +489,27 @@ export const addPluginToTrack = (
         payload: { trackId, pluginId, pluginName, slot },
     });
 
+/** Set an internal plugin parameter (Utility/Sampler/EQ UI -> backend state). */
+export const setInternalPluginParam = (
+    trackId: string,
+    slotId: string,
+    paramId: string,
+    value: number,
+) =>
+    invoke<void>('set_internal_plugin_param_cmd', {
+        payload: { trackId, slotId, paramId, value },
+    });
+
+/** Assign sample file to track sampler and push into realtime sampler snapshot. */
+export const setSamplerSample = (
+    trackId: string,
+    samplePath: string,
+    rootNote?: number,
+) =>
+    invoke<void>('set_sampler_sample_cmd', {
+        payload: { trackId, samplePath, rootNote: rootNote ?? null },
+    });
+
 // ── Clip Fades ──────────────────────────────────────────────────────────
 
 /** Set fade-in and fade-out durations for a clip (in sample frames). */

@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import throttle from 'lodash.throttle';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import * as engineApi from '@/shared/api/engine';
@@ -82,12 +83,12 @@ const DEVICE_PARAM_PRESETS: Record<
         { name: 'Rel', value: 50, min: 0, max: 4000, suffix: 'ms', step: 1 },
     ],
     sampler: [
-        { name: 'Start', value: 0, min: 0, max: 100, suffix: '%', step: 1 },
-        { name: 'End', value: 100, min: 1, max: 100, suffix: '%', step: 1 },
-        { name: 'Loop', value: 0, min: 0, max: 100, suffix: '%', step: 1 },
-        { name: 'Fade', value: 0, min: 0, max: 100, suffix: '%', step: 1 },
-        { name: 'Cutoff', value: 12000, min: 20, max: 20000, suffix: 'Hz', step: 1 },
-        { name: 'Res', value: 0.2, min: 0.1, max: 1, suffix: '', step: 0.01 },
+        { name: 'Vol', value: 1, min: 0, max: 2, suffix: '', step: 0.01 },
+        { name: 'Attack', value: 0.005, min: 0.001, max: 2.0, suffix: 's', step: 0.001 },
+        { name: 'Decay', value: 0.1, min: 0.001, max: 4.0, suffix: 's', step: 0.001 },
+        { name: 'Sustain', value: 1.0, min: 0, max: 1, suffix: '', step: 0.01 },
+        { name: 'Release', value: 0.05, min: 0.001, max: 8.0, suffix: 's', step: 0.001 },
+        { name: 'Root', value: 60, min: 0, max: 127, suffix: '', step: 1 },
     ],
     saturator: [
         { name: 'Drive', value: 3, min: 0, max: 24, suffix: 'dB', step: 0.1 },
@@ -120,6 +121,7 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
     >({});
     const [openInternalDevice, setOpenInternalDevice] = useState<DeviceSlot | null>(null);
     const [uiNotice, setUiNotice] = useState<string | null>(null);
+    const throttledParamSendsRef = useRef<Map<string, (value: number) => void>>(new Map());
     const projectTracks = useEngineStore((s) => s.projectTracks);
     const meters = useEngineStore((s) => s.meters);
     const fetchProject = useEngineStore((s) => s.fetchProject);
@@ -205,6 +207,43 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
     const setDeviceParam = useCallback((deviceId: string, paramName: string, value: number) => {
         setLocalParams((prev) => ({ ...prev, [`${deviceId}:${paramName}`]: value }));
     }, []);
+
+    const sendInternalParam = useCallback(
+        (device: DeviceSlot, paramName: string, value: number) => {
+            if (!selectedTrack || selectedTrackId === 'master') return;
+            const normalizedName = paramName.toLowerCase();
+            let paramId = `${device.effectType}.${normalizedName}`;
+            if (device.effectType === 'utility') {
+                if (normalizedName === 'gain') paramId = 'plugin.gain';
+                else if (normalizedName === 'pan') paramId = 'plugin.pan';
+            } else if (device.effectType === 'sampler' || device.effectType === 'instrument') {
+                if (normalizedName === 'vol') paramId = 'sampler.volume';
+                else if (normalizedName === 'attack') paramId = 'sampler.attack';
+                else if (normalizedName === 'decay') paramId = 'sampler.decay';
+                else if (normalizedName === 'sustain') paramId = 'sampler.sustain';
+                else if (normalizedName === 'release') paramId = 'sampler.release';
+                else if (normalizedName === 'root') paramId = 'sampler.rootNote';
+            } else if (device.effectType === 'eq') {
+                if (normalizedName === 'low') paramId = 'eq.low';
+                else if (normalizedName === 'mid') paramId = 'eq.mid';
+                else if (normalizedName === 'high') paramId = 'eq.high';
+                else if (normalizedName === 'freq') paramId = 'eq.freq';
+            }
+
+            const key = `${selectedTrack.id}:${device.id}:${paramId}`;
+            let sender = throttledParamSendsRef.current.get(key);
+            if (!sender) {
+                sender = throttle((v: number) => {
+                    void engineApi.setInternalPluginParam(selectedTrack.id, device.id, paramId, v).catch((err) => {
+                        console.error('[DeviceRack] setInternalPluginParam failed:', err);
+                    });
+                }, 32);
+                throttledParamSendsRef.current.set(key, sender);
+            }
+            sender(value);
+        },
+        [selectedTrack, selectedTrackId],
+    );
 
     useEffect(() => {
         if (!openInternalDevice) return;
@@ -407,7 +446,10 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
                             editorSupported={pluginCapability[device.pluginId]?.supported ?? true}
                             editorReason={pluginCapability[device.pluginId]?.reason}
                             onToggle={() => toggleDevice(device.id)}
-                            onParamChange={(paramName, value) => setDeviceParam(device.id, paramName, value)}
+                            onParamChange={(paramName, value) => {
+                                setDeviceParam(device.id, paramName, value);
+                                sendInternalParam(device, paramName, value);
+                            }}
                             onOpenGUI={async () => {
                                 if (device.source === 'internal') {
                                     setOpenInternalDevice(device);
@@ -516,7 +558,28 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
             >
                 <InternalPluginPanel
                     device={openInternalDevice}
-                    onParamChange={(name, value) => setDeviceParam(openInternalDevice.id, name, value)}
+                    onParamChange={(name, value) => {
+                        setDeviceParam(openInternalDevice.id, name, value);
+                        sendInternalParam(openInternalDevice, name, value);
+                    }}
+                    onLoadSample={async () => {
+                        if (!selectedTrack || selectedTrackId === 'master') return;
+                        try {
+                            const { open } = await import('@tauri-apps/plugin-dialog');
+                            const picked = await open({
+                                multiple: false,
+                                title: 'Load Sampler Sample',
+                                filters: [{ name: 'Audio', extensions: ['wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg', 'm4a', 'aac'] }],
+                            });
+                            if (typeof picked === 'string' && picked.length > 0) {
+                                await engineApi.setSamplerSample(selectedTrack.id, picked);
+                                setUiNotice(null);
+                            }
+                        } catch (err) {
+                            console.error('[DeviceRack] setSamplerSample failed:', err);
+                            setUiNotice('Failed to load sampler sample.');
+                        }
+                    }}
                 />
             </PluginWindow>
         )}
@@ -798,9 +861,11 @@ const Knob = ({
 const InternalPluginPanel = ({
     device,
     onParamChange,
+    onLoadSample,
 }: {
     device: DeviceSlot;
     onParamChange: (paramName: string, value: number) => void;
+    onLoadSample?: () => void;
 }) => {
     if (device.effectType === 'sampler' || device.effectType === 'instrument') {
         return (
@@ -828,6 +893,24 @@ const InternalPluginPanel = ({
                     }}>
                         Sampler Waveform Area
                     </div>
+                    <button
+                        type="button"
+                        onClick={() => onLoadSample?.()}
+                        style={{
+                            position: 'absolute',
+                            right: 12,
+                            top: 10,
+                            border: '1px solid var(--color-divider)',
+                            borderRadius: 4,
+                            background: 'rgba(20,25,35,0.9)',
+                            color: 'var(--color-text-secondary)',
+                            fontSize: 10,
+                            padding: '4px 8px',
+                            cursor: 'pointer',
+                        }}
+                    >
+                        Load Sample
+                    </button>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                     {device.params.map((p) => (

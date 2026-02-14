@@ -408,6 +408,11 @@ impl SharedSamplerSamples {
     pub fn load_full(&self) -> Arc<Vec<Option<Arc<ClipAudio>>>> {
         self.inner.load_full()
     }
+
+    /// Atomically replaces all per-track sampler sample bindings.
+    pub fn swap(&self, samples: Vec<Option<Arc<ClipAudio>>>) {
+        self.inner.store(Arc::new(samples));
+    }
 }
 
 impl Default for SharedSamplerSamples {

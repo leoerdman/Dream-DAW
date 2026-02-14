@@ -89,6 +89,7 @@ interface TimelineProps {
     onClipMove?: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
     /** Called when an item is dropped from the AssetBrowser. */
     onDropBrowserItem?: (item: BrowserDragItem, trackIndex: number, beat: number) => void;
+    /** Called when a store-based drag item is dropped on the timeline. */
     /** Called when user double-clicks on a track lane to create a MIDI clip. */
     onDoubleClickTrack?: (trackIndex: number, beat: number) => void;
     /** Called when user double-clicks a MIDI clip (open piano roll). */
@@ -244,6 +245,60 @@ export const Timeline = ({
             type: draggingBrowserItem.type as 'audio' | 'midi',
         };
     }, [draggingBrowserItem, dragCursorX, dragCursorY, pixelsPerBeat, trackHeight, trackCount, beatsPerBar, snapBeat]);
+
+    // ── Handle store-based drops INSIDE Timeline ──
+    // When the mouse is released while a ghost preview is visible, fire onDropBrowserItem
+    // with the exact same position the ghost was showing. This is more reliable than
+    // DawShell's global mouseup because it uses Timeline's own scroll container and
+    // avoids all listener ordering issues.
+    useEffect(() => {
+        if (!draggingBrowserItem) return;
+
+        const handleMouseUp = () => {
+            const item = useDragStore.getState().draggingItem;
+            if (!item) return;
+
+            // Re-compute the drop position using the same logic as ghostPreview
+            const scrollEl = scrollContainerRef.current;
+            if (!scrollEl) return;
+            const rect = scrollEl.getBoundingClientRect();
+            const cx = useDragStore.getState().cursorX;
+            const cy = useDragStore.getState().cursorY;
+
+            // Check if cursor is actually over the timeline canvas
+            if (
+                cx < rect.left || cx > rect.right ||
+                cy < rect.top || cy > rect.bottom
+            ) {
+                // Not over timeline — just end the drag
+                useDragStore.getState().endDrag();
+                return;
+            }
+
+            const relX = cx - rect.left + scrollEl.scrollLeft;
+            const relY = cy - rect.top + scrollEl.scrollTop;
+            const trackIdx = Math.max(0, Math.min(trackCount - 1, Math.floor(relY / trackHeight)));
+            const rawBeat = relX / pixelsPerBeat;
+            const snappedBeat = Math.max(0, snapBeat(rawBeat, beatsPerBar));
+
+            console.log('[Timeline] Store-drag drop', {
+                name: item.name,
+                type: item.type,
+                path: item.path,
+                trackIndex: trackIdx,
+                beat: snappedBeat,
+            });
+
+            // End the drag BEFORE calling the callback (clears ghost preview)
+            useDragStore.getState().endDrag();
+
+            // Fire the callback with exact position
+            onDropBrowserItem?.({ name: item.name, path: item.path, type: item.type }, trackIdx, snappedBeat);
+        };
+
+        window.addEventListener('mouseup', handleMouseUp);
+        return () => window.removeEventListener('mouseup', handleMouseUp);
+    }, [draggingBrowserItem, onDropBrowserItem, pixelsPerBeat, trackHeight, trackCount, beatsPerBar, snapBeat]);
 
     const clearLiveLoop = useCallback(() => {
         if (liveRafRef.current !== null) {

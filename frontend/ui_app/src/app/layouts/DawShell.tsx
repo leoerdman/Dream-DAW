@@ -118,71 +118,25 @@ export const DawShell = () => {
         return () => window.removeEventListener('keydown', handler);
     }, []);
 
-    // ── Store-based Drag → mouseup on Timeline imports audio ───────
-    useEffect(() => {
-        const handleGlobalMouseUp = (e: MouseEvent) => {
-            const dragging = useDragStore.getState().draggingItem;
-            if (!dragging) return;
+    // ── Store-based Drag → dropped on Timeline (callback from Timeline) ────
+    const handleStoreDropItem = useCallback(
+        (item: { name: string; path: string; type: string }, trackIndex: number, beat: number) => {
+            console.log('[DawShell] handleStoreDropItem', { name: item.name, type: item.type, path: item.path, trackIndex, beat });
 
-            // Always end the drag
-            useDragStore.getState().endDrag();
-
-            // Check if cursor is over the Timeline area
-            const tl = timelineRef.current;
-            if (!tl) return;
-            const rect = tl.getBoundingClientRect();
-            const isOverTimeline =
-                e.clientX >= rect.left && e.clientX <= rect.right &&
-                e.clientY >= rect.top && e.clientY <= rect.bottom;
-
-            if (!isOverTimeline) {
-                console.log('[DawShell] Drag cancelled — not over Timeline');
+            if (!item.path || (item.type !== 'audio' && item.type !== 'midi')) {
+                console.warn('[DawShell] Drop: unsupported type or no path', item);
                 return;
             }
 
-            // Read live values from stores (not stale closures)
             const state = useEngineStore.getState();
-            const currentTrackCount = state.projectTracks.length || 9;
-
-            // Read actual layout from the shared timeline store
-            const tlState = useTimelineStore.getState();
-            const ppb = tlState.pixelsPerBeat;
-            const tlTrackHeight = tlState.trackHeight;
-            const tlRect = tlState.canvasRect;
-
-            // Use the shared canvas rect if available, otherwise fall back to the ref
-            const effectiveRect = tlRect ?? rect;
-
-            // Calculate track index and beat from cursor position
-            // Must add scroll offsets to get absolute position (not just visible area offset)
-            const y = e.clientY - effectiveRect.top + tlState.scrollTop;
-            const x = e.clientX - effectiveRect.left + tlState.scrollLeft;
-            const trackIndex = Math.max(0, Math.min(currentTrackCount - 1, Math.floor(y / tlTrackHeight)));
-
-            // Apply same grid snapping as the ghost preview
-            const rawBeat = x / ppb;
-            const beat = Math.max(0, useGridStore.getState().snapBeat(rawBeat, 4)); // magnetic snap
-
-            console.log('[DawShell] Store-drag drop on Timeline', {
-                name: dragging.name,
-                path: dragging.path,
-                trackIndex,
-                beat,
-                ppb,
-            });
-
-            if (dragging.path && dragging.type === 'audio') {
-                const bpm = state.transport.bpm || 120;
-                const sr = state.projectSampleRate || 44100;
-                const posSeconds = beat / (bpm / 60);
-                const positionFrames = Math.round(posSeconds * sr);
-                state.importFile(dragging.path, trackIndex, positionFrames);
-            }
-        };
-
-        window.addEventListener('mouseup', handleGlobalMouseUp);
-        return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
-    }, []);
+            const bpm = state.transport.bpm || 120;
+            const sr = state.projectSampleRate || 44100;
+            const posSeconds = beat / (bpm / 60);
+            const positionFrames = Math.round(posSeconds * sr);
+            state.importFile(item.path, trackIndex, positionFrames);
+        },
+        [],
+    );
 
     // ── Tauri Drag & Drop → Import Audio ───────────────────────────
     useEffect(() => {
@@ -449,6 +403,7 @@ export const DawShell = () => {
                                 onClipSelect={handleClipSelect}
                                 onClipMove={handleClipMove}
                                 onDropBrowserItem={handleBrowserDrop}
+                                onStoreDropItem={handleStoreDropItem}
                                 onDoubleClickTrack={handleDoubleClickTrack}
                                 onOpenMidiClip={handleOpenMidiClip}
                                 onScrollTop={handleTimelineScrollTop}

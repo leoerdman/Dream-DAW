@@ -649,6 +649,14 @@ export const exportMix = (settings: ExportSettings) =>
 export const cancelExport = () =>
     invoke<void>('cancel_export_cmd');
 
+// ── Undo / Redo ─────────────────────────────────────────────────────────
+
+/** Undo the last project mutation. */
+export const undo = () => invoke<void>('undo_cmd');
+
+/** Redo the previously undone project mutation. */
+export const redo = () => invoke<void>('redo_cmd');
+
 // ── Recording ───────────────────────────────────────────────────────────
 
 /** Arm a track for recording and start recording on play. */

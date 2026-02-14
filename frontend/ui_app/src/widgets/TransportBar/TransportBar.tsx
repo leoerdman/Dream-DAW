@@ -2,7 +2,6 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
-import { FileMenu } from '@/widgets/FileMenu/FileMenu';
 import * as engineApi from '@/shared/api/engine';
 
 /**
@@ -186,12 +185,6 @@ export const TransportBar = ({
                 fontSize: 'var(--font-size-xs)',
             }}
         >
-            {/* ── FILE MENU ── */}
-            <Section>
-                <FileMenu />
-            </Section>
-
-            <Divider />
 
             {/* ── LEFT: Tap + BPM + TimeSig + Quantize ── */}
             <Section>

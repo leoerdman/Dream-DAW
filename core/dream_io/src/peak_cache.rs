@@ -190,7 +190,7 @@ mod tests {
         let samples = test_sine(44100);
         let peaks = PeakCache::generate(&samples, "test", 44100);
 
-        let expected = (44100 + 255) / 256; // ceiling division
+        let expected = 44100_usize.div_ceil(256); // ceiling division
         assert_eq!(peaks.mip_levels[0].peaks.len(), expected);
     }
 
@@ -237,7 +237,7 @@ mod tests {
 
         // All amplitudes should be 0.0–1.0
         for &a in &amps {
-            assert!(a >= 0.0 && a <= 1.0, "Amplitude {a} out of range");
+            assert!((0.0..=1.0).contains(&a), "Amplitude {a} out of range");
         }
     }
 

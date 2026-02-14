@@ -122,24 +122,24 @@ impl Playhead {
         let new_position = self.position + num_frames as i64;
 
         // Check loop wrap
-        if let Some(region) = loop_region {
-            if region.enabled && self.position < region.end {
-                if new_position >= region.end {
-                    // Calculate how many frames fit before the wrap
-                    let frames_before_wrap = (region.end - self.position) as usize;
-                    let overshoot = new_position - region.end;
-                    let loop_length = region.end - region.start;
+        if let Some(region) = loop_region
+            && region.enabled
+            && self.position < region.end
+            && new_position >= region.end
+        {
+            // Calculate how many frames fit before the wrap
+            let frames_before_wrap = (region.end - self.position) as usize;
+            let overshoot = new_position - region.end;
+            let loop_length = region.end - region.start;
 
-                    if loop_length > 0 {
-                        // Wrap position back into the loop
-                        self.position = region.start + (overshoot % loop_length);
-                    } else {
-                        self.position = region.start;
-                    }
-
-                    return frames_before_wrap;
-                }
+            if loop_length > 0 {
+                // Wrap position back into the loop
+                self.position = region.start + (overshoot % loop_length);
+            } else {
+                self.position = region.start;
             }
+
+            return frames_before_wrap;
         }
 
         self.position = new_position;

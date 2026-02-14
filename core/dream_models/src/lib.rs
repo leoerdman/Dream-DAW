@@ -102,10 +102,10 @@ mod tests {
         };
         let json = serde_json::to_string(&state).expect("serialize");
         let deserialized: PlaybackState = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(deserialized.is_playing, true);
+        assert!(deserialized.is_playing);
         assert!((deserialized.bpm - 140.5).abs() < f64::EPSILON);
         assert!((deserialized.test_tone_freq - 880.0).abs() < f32::EPSILON);
-        assert_eq!(deserialized.loop_enabled, true);
+        assert!(deserialized.loop_enabled);
         assert_eq!(deserialized.loop_start, 44100);
     }
 
@@ -118,4 +118,3 @@ mod tests {
         PlaybackState::export_all(&config).expect("ts-rs export failed");
     }
 }
-

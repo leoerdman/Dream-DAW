@@ -268,7 +268,7 @@ impl GraphRenderer {
         }
 
         // Update PDC delay values
-        for (_i, &node_idx) in plan.processing_order.iter().enumerate() {
+        for &node_idx in &plan.processing_order {
             let idx = node_idx.index();
             if idx < plan.delay_compensation.len() && idx < self.pdc_delays.len() {
                 self.pdc_delays[idx].set_delay(plan.delay_compensation[idx] as usize);
@@ -306,6 +306,7 @@ impl GraphRenderer {
     /// # Real-Time Safety
     /// Zero allocations. Zero locks. Zero I/O. Bounded iteration.
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     pub fn render<FTrack, FEffect>(
         &mut self,
         plan: &ExecutionPlan,

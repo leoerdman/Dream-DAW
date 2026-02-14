@@ -55,8 +55,8 @@ pub struct ClipScheduler;
 
 impl ClipScheduler {
     /// Fills a caller-provided scratch buffer with active clips (zero alloc on hot path).
-    pub fn fill_active<'a>(
-        clips: &'a [AudioClip],
+    pub fn fill_active(
+        clips: &[AudioClip],
         playhead_pos: i64,
         buffer_size: usize,
         out: &mut Vec<ActiveClipInfo>,
@@ -101,8 +101,8 @@ impl ClipScheduler {
     }
 
     /// Loop-aware, allocation-free scheduler variant for RT callback.
-    pub fn fill_active_looped_with_tmp<'a>(
-        clips: &'a [AudioClip],
+    pub fn fill_active_looped_with_tmp(
+        clips: &[AudioClip],
         playhead_pos: i64,
         buffer_size: usize,
         loop_region: Option<&LoopRegion>,
@@ -142,8 +142,8 @@ impl ClipScheduler {
     }
 
     /// Loop-aware scheduler variant.
-    pub fn fill_active_looped<'a>(
-        clips: &'a [AudioClip],
+    pub fn fill_active_looped(
+        clips: &[AudioClip],
         playhead_pos: i64,
         buffer_size: usize,
         loop_region: Option<&LoopRegion>,

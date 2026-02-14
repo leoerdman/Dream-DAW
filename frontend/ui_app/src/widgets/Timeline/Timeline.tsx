@@ -1,6 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { open } from '@tauri-apps/plugin-dialog';
 import { ClipRenderer } from './ClipRenderer';
 import { ClipFadeHandles } from './ClipFadeHandles';
 import { AutomationLane } from './AutomationLane';
@@ -10,6 +9,15 @@ import { useDragStore } from '@/shared/stores/useDragStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import { computeGridLines } from '@/shared/lib/gridSnap';
 import * as engineApi from '@/shared/api/engine';
+
+async function openFileDialog(options: {
+    title: string;
+    multiple: boolean;
+}): Promise<string | null> {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const result = await open(options);
+    return typeof result === 'string' ? result : null;
+}
 
 /**
  * Timeline — Central arrangement canvas with ruler, grid, clips, and playhead.
@@ -634,9 +642,11 @@ export const Timeline = ({
         const beat = Math.max(0, snapBeat(rawBeat, beatsPerBar));
         const trackForCursor = Math.max(0, Math.min(trackCount - 1, editCursorTrackIndex));
         setEditCursorBeat(beat, trackForCursor);
-        // Also seek the engine playhead to this position
-        onPlayheadChange?.(beat);
-    }, [editCursorTrackIndex, trackCount, setEditCursorBeat, onPlayheadChange, snapBeat, beatsPerBar, getLivePixelsPerBeat]);
+        // When transport is running, cursor placement must not move playback head.
+        if (!isPlaying) {
+            onPlayheadChange?.(beat);
+        }
+    }, [editCursorTrackIndex, trackCount, setEditCursorBeat, isPlaying, onPlayheadChange, snapBeat, beatsPerBar, getLivePixelsPerBeat]);
 
     // ── Canvas click → set edit cursor + deselect clip + seek engine ──
     const handleCanvasClick = useCallback((e: React.MouseEvent) => {
@@ -655,9 +665,11 @@ export const Timeline = ({
         setEditCursorBeat(beat, trackIndex);
         setSelectedClips([]);
         selectTrackByIndex(trackIndex);
-        // Also seek the engine playhead to this position
-        onPlayheadChange?.(beat);
-    }, [trackHeight, selectTrackByIndex, trackCount, setEditCursorBeat, onPlayheadChange, snapBeat, beatsPerBar, getLivePixelsPerBeat, setSelectedClips]);
+        // During playback we only move the edit cursor; playhead keeps running.
+        if (!isPlaying) {
+            onPlayheadChange?.(beat);
+        }
+    }, [trackHeight, selectTrackByIndex, trackCount, setEditCursorBeat, isPlaying, onPlayheadChange, snapBeat, beatsPerBar, getLivePixelsPerBeat, setSelectedClips]);
 
     // ── Clip selection ──
     const handleClipClick = useCallback((e: React.MouseEvent, clipId: string) => {
@@ -1096,7 +1108,7 @@ export const Timeline = ({
                                     e.stopPropagation();
                                     if (clip.type === 'audio' && clip.isOffline) {
                                         try {
-                                            const file = await open({
+                                            const file = await openFileDialog({
                                                 title: 'Resolve Missing Media',
                                                 multiple: false,
                                             });

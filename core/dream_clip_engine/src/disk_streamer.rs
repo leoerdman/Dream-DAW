@@ -159,8 +159,8 @@ impl StreamingWindow {
         let mut _frames_written = 0usize;
         let mut any_hit = false;
 
-        // Apply 64-sample micro-fades
-        let fade_len = num_frames.min(64);
+        // Fades are NOT applied here — clip boundary fades are handled
+        // by the render callback (FadeCache / user-defined fades).
 
         for chunk in &self.chunks {
             let chunk_end = chunk.start_frame + chunk.num_frames as i64;
@@ -189,33 +189,17 @@ impl StreamingWindow {
             // Destination offset within the output buffers
             let dst_offset = out_offset + (overlap_start - source_start) as usize;
 
+            // Pure additive mixing — no fades, no coloration
             for i in 0..overlap_frames {
                 let src_idx = src_offset + i;
                 let dst_idx = dst_offset + i;
-                let frame_in_request = (overlap_start - source_start) as usize + i;
 
                 if dst_idx >= out_left.len() || src_idx >= chunk.left.len() {
                     break;
                 }
 
-                let sample_l = chunk.left[src_idx] * gain;
-                let sample_r = chunk.right[src_idx] * gain;
-
-                // Micro-fade
-                let fade_in = if frame_in_request < fade_len {
-                    frame_in_request as f32 / fade_len as f32
-                } else {
-                    1.0
-                };
-                let fade_out = if frame_in_request >= num_frames - fade_len {
-                    (num_frames - 1 - frame_in_request) as f32 / fade_len as f32
-                } else {
-                    1.0
-                };
-                let fade = fade_in * fade_out;
-
-                out_left[dst_idx] += sample_l * fade;
-                out_right[dst_idx] += sample_r * fade;
+                out_left[dst_idx] += chunk.left[src_idx] * gain;
+                out_right[dst_idx] += chunk.right[src_idx] * gain;
             }
 
             _frames_written += overlap_frames;
@@ -546,8 +530,8 @@ fn disk_io_thread(
                 {
                     // End of file — pad remaining with silence
                     let remaining = CHUNK_FRAMES - frames_read;
-                    left_buf.extend(std::iter::repeat(0.0f32).take(remaining));
-                    right_buf.extend(std::iter::repeat(0.0f32).take(remaining));
+                    left_buf.extend(std::iter::repeat_n(0.0f32, remaining));
+                    right_buf.extend(std::iter::repeat_n(0.0f32, remaining));
                     frames_read = CHUNK_FRAMES;
                     last_read_frame = total_frames;
                     break;

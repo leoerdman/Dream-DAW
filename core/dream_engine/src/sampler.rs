@@ -102,9 +102,9 @@ impl AdsrEnvelope {
         let sr = self.sample_rate;
 
         // 1ms minimum for any stage to prevent divide-by-zero
-        let attack_samples = (params.attack.max(0.001) * sr) as f64;
-        let decay_samples = (params.decay.max(0.001) * sr) as f64;
-        let release_samples = (params.release.max(0.001) * sr) as f64;
+        let attack_samples = params.attack.max(0.001) * sr;
+        let decay_samples = params.decay.max(0.001) * sr;
+        let release_samples = params.release.max(0.001) * sr;
 
         self.attack_rate = 1.0 / attack_samples;
         self.decay_rate = 1.0 / decay_samples;
@@ -511,8 +511,8 @@ mod tests {
 
     fn make_sine_sample(frames: usize, freq: f64, sample_rate: f64) -> Arc<ClipAudio> {
         let mut left = vec![0.0f32; frames];
-        for i in 0..frames {
-            left[i] = (2.0 * std::f64::consts::PI * freq * i as f64 / sample_rate).sin() as f32;
+        for (i, sample) in left.iter_mut().enumerate().take(frames) {
+            *sample = (2.0 * std::f64::consts::PI * freq * i as f64 / sample_rate).sin() as f32;
         }
         let right = left.clone();
         Arc::new(ClipAudio::new(

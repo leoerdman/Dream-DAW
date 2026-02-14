@@ -275,10 +275,10 @@ impl RecordingSession {
                         if let Some(&l) = chunk.first() {
                             max_l = max_l.max(l.abs());
                         }
-                        if channels > 1 {
-                            if let Some(&r) = chunk.get(1) {
-                                max_r = max_r.max(r.abs());
-                            }
+                        if channels > 1
+                            && let Some(&r) = chunk.get(1)
+                        {
+                            max_r = max_r.max(r.abs());
                         }
                     }
 

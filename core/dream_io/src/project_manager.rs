@@ -167,7 +167,7 @@ impl ProjectManager {
             .filter(|path| {
                 path.extension()
                     .and_then(|ext| ext.to_str())
-                    .map_or(false, |ext| ext == "json")
+                    == Some("json")
             })
             .collect();
 
@@ -210,11 +210,11 @@ impl ProjectManager {
                 let source = Path::new(&clip.file_path);
                 Self::copy_single_sample(source, dest)?;
             }
-            if let Some(sampler) = &track.sampler {
-                if !sampler.sample_path.trim().is_empty() {
-                    let source = Path::new(&sampler.sample_path);
-                    Self::copy_single_sample(source, dest)?;
-                }
+            if let Some(sampler) = &track.sampler
+                && !sampler.sample_path.trim().is_empty()
+            {
+                let source = Path::new(&sampler.sample_path);
+                Self::copy_single_sample(source, dest)?;
             }
         }
 
@@ -269,10 +269,10 @@ impl ProjectManager {
         if let Ok(entries) = fs::read_dir(path) {
             for entry in entries.flatten() {
                 let name = entry.file_name();
-                if let Some(name_str) = name.to_str() {
-                    if name_str.ends_with(".dream.json") {
-                        return true;
-                    }
+                if let Some(name_str) = name.to_str()
+                    && name_str.ends_with(".dream.json")
+                {
+                    return true;
                 }
             }
         }
@@ -286,11 +286,7 @@ impl ProjectManager {
     /// Otherwise returns the file's parent directory.
     pub fn folder_from_file(file_path: &Path) -> Option<PathBuf> {
         let parent = file_path.parent()?;
-        if Self::is_project_directory(parent) {
-            Some(parent.to_path_buf())
-        } else {
-            Some(parent.to_path_buf())
-        }
+        Some(parent.to_path_buf())
     }
 
     /// Lists all backup files in a project's Backup/ directory.
@@ -310,7 +306,7 @@ impl ProjectManager {
             .filter(|path| {
                 path.extension()
                     .and_then(|ext| ext.to_str())
-                    .map_or(false, |ext| ext == "json")
+                    == Some("json")
             })
             .collect();
 
@@ -388,7 +384,7 @@ fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {
 }
 
 fn is_leap(year: u64) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -489,7 +485,7 @@ mod tests {
         ProjectManager::create_backup(&project, &folder).unwrap();
 
         let backups = ProjectManager::list_backups(&folder);
-        assert!(backups.len() >= 1, "Expected at least 1 backup, got {}", backups.len());
+        assert!(!backups.is_empty(), "Expected at least 1 backup, got {}", backups.len());
 
         let _ = fs::remove_dir_all(&parent);
     }

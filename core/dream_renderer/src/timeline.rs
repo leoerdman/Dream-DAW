@@ -329,6 +329,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn max_instances_is_reasonable() {
         assert!(MAX_CLIP_INSTANCES >= 1000);
         // Verify buffer size doesn't exceed 256MB

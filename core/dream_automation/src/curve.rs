@@ -12,12 +12,13 @@
 use serde::{Serialize, Deserialize};
 
 /// Interpolation mode between automation points.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum InterpolationMode {
     /// Step: holds value until next point (MIDI CC style).
     Step,
 
     /// Linear: straight line between points.
+    #[default]
     Linear,
 
     /// Smooth: cubic Hermite (catmull-rom) interpolation.
@@ -25,12 +26,6 @@ pub enum InterpolationMode {
 
     /// Exponential curve (for volume faders).
     Exponential,
-}
-
-impl Default for InterpolationMode {
-    fn default() -> Self {
-        Self::Linear
-    }
 }
 
 /// A single automation breakpoint.

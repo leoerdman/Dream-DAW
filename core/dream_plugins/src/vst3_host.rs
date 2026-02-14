@@ -619,15 +619,15 @@ impl PluginInstance for Vst3Instance {
                 return Ok(());
             }
 
-            for ch in 0..channels {
-                let n = num_frames.min(inputs[ch].len());
+            for (ch, input) in inputs.iter().enumerate().take(channels) {
+                let n = num_frames.min(input.len());
                 if ch == 0 {
-                    self.scratch_left[..n].copy_from_slice(&inputs[ch][..n]);
+                    self.scratch_left[..n].copy_from_slice(&input[..n]);
                     if n < num_frames {
                         self.scratch_left[n..num_frames].fill(0.0);
                     }
                 } else {
-                    self.scratch_right[..n].copy_from_slice(&inputs[ch][..n]);
+                    self.scratch_right[..n].copy_from_slice(&input[..n]);
                     if n < num_frames {
                         self.scratch_right[n..num_frames].fill(0.0);
                     }

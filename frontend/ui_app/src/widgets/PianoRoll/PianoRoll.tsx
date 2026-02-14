@@ -943,7 +943,7 @@ export const PianoRoll = memo(function PianoRoll({
                                 let bg: string;
                                 if (highlightScale && k.inScale) {
                                     // In-scale keys get a subtle accent tint
-                                    bg = k.isBlack ? '#3a3a50' : '#4a4a5a';
+                                    bg = k.isBlack ? '#3a3a3a' : '#4a4a4a';
                                 } else if (highlightScale && !k.inScale) {
                                     // Out-of-scale keys are dimmed
                                     bg = k.isBlack ? '#1a1a1a' : '#2a2a2a';

@@ -321,7 +321,7 @@ fn build_dag_for_tracks(track_count: usize, routing: &[Option<usize>]) -> AudioD
     }
 
     let mut wired_to_master = vec![false; track_count];
-    for track_idx in 0..track_count {
+    for (track_idx, wired_master) in wired_to_master.iter_mut().enumerate().take(track_count) {
         let from = NodeId((track_idx as u64) + 1);
         if let Some(Some(dest_idx)) = routing.get(track_idx) {
             if *dest_idx < track_count && *dest_idx != track_idx {
@@ -340,15 +340,15 @@ fn build_dag_for_tracks(track_count: usize, routing: &[Option<usize>]) -> AudioD
                 };
                 builder = next;
             } else {
-                wired_to_master[track_idx] = true;
+                *wired_master = true;
             }
         } else {
-            wired_to_master[track_idx] = true;
+            *wired_master = true;
         }
     }
 
-    for track_idx in 0..track_count {
-        if wired_to_master[track_idx] {
+    for (track_idx, wired_master) in wired_to_master.iter().enumerate().take(track_count) {
+        if *wired_master {
             let from = NodeId((track_idx as u64) + 1);
             builder = match builder.add_edge(from, NodeId(0)) {
                 Ok(next) => next,
@@ -486,6 +486,7 @@ impl std::error::Error for AudioDriverError {}
 ///
 /// # Returns
 /// `AudioStreamHandle` — keep alive for audio to continue. Drop to stop.
+#[allow(clippy::too_many_arguments)]
 pub fn start_audio_thread(
     consumer: rtrb::Consumer<EngineCommand>,
     clock: Arc<MasterClock>,
@@ -519,6 +520,7 @@ pub fn start_audio_thread(
 ///
 /// If `preferred_output_device` is `None` or the name is not found, the
 /// default output device is used.
+#[allow(clippy::too_many_arguments)]
 pub fn start_audio_thread_on_device(
     mut consumer: rtrb::Consumer<EngineCommand>,
     clock: Arc<MasterClock>,
@@ -731,9 +733,7 @@ pub fn start_audio_thread_on_device(
                                         any_solo = track_soloed.iter().any(|s| *s);
                                         // Recalculate effective gain for ALL tracks
                                         for i in 0..render_ctx.track_slots.len().min(64) {
-                                            let eff = if track_muted[i] {
-                                                0.0
-                                            } else if any_solo && !track_soloed[i] {
+                                            let eff = if track_muted[i] || (any_solo && !track_soloed[i]) {
                                                 0.0
                                             } else {
                                                 1.0
@@ -811,12 +811,12 @@ pub fn start_audio_thread_on_device(
                                 // ── Device Chain Commands ────────────────────
                                 EngineCommand::AddDevice { track_index, slot_index, effect_type } => {
                                     let idx = track_index as usize;
-                                    if idx < render_ctx.track_slots.len() {
-                                        if let Some(etype) = BuiltinEffectType::from_u8(effect_type) {
-                                            render_ctx.track_slots[idx]
-                                                .device_chain
-                                                .add_device(slot_index as usize, etype);
-                                        }
+                                    if idx < render_ctx.track_slots.len()
+                                        && let Some(etype) = BuiltinEffectType::from_u8(effect_type)
+                                    {
+                                        render_ctx.track_slots[idx]
+                                            .device_chain
+                                            .add_device(slot_index as usize, etype);
                                     }
                                 }
                                 EngineCommand::RemoveDevice { track_index, slot_index } => {
@@ -884,10 +884,10 @@ pub fn start_audio_thread_on_device(
                                 let routing = routing_snapshot.load();
                                 let new_dag = build_dag_for_tracks(track_count, &routing);
                                 graph_dag = new_dag;
-                                if live_graph.swap_graph(&graph_dag).is_err() {
-                                    if let Ok(new_live) = LiveGraph::from_dag(&graph_dag) {
-                                        live_graph = new_live;
-                                    }
+                                if live_graph.swap_graph(&graph_dag).is_err()
+                                    && let Ok(new_live) = LiveGraph::from_dag(&graph_dag)
+                                {
+                                    live_graph = new_live;
                                 }
                                 let plan = live_graph.load();
                                 graph_renderer.update_plan(&plan, &graph_dag);
@@ -938,37 +938,28 @@ pub fn start_audio_thread_on_device(
                                             // Canonicalized in desktop_host:
                                             // __plugin_gain__ => [0..2], __plugin_pan__ => [0..1] or [-1..1]
                                             if let Some(lane) = automation.get(track_idx) {
-                                                if let Some(points) =
-                                                    lane.plugin_params.get("__plugin_gain__")
+                                                if let Some(points) = lane.plugin_params.get("__plugin_gain__")
+                                                    && let Some(gain) = eval_automation(points, playhead_pos)
                                                 {
-                                                    if let Some(gain) =
-                                                        eval_automation(points, playhead_pos)
-                                                    {
-                                                        apply_plugin_gain(
-                                                            &mut left[..c],
-                                                            &mut right[..c],
-                                                            gain,
-                                                        );
-                                                    }
+                                                    apply_plugin_gain(
+                                                        &mut left[..c],
+                                                        &mut right[..c],
+                                                        gain,
+                                                    );
                                                 }
-                                                if let Some(points) =
-                                                    lane.plugin_params.get("__plugin_pan__")
+                                                if let Some(points) = lane.plugin_params.get("__plugin_pan__")
+                                                    && let Some(raw_pan) = eval_automation(points, playhead_pos)
                                                 {
-                                                    if let Some(raw_pan) =
-                                                        eval_automation(points, playhead_pos)
-                                                    {
-                                                        let pan = if (0.0..=1.0).contains(&raw_pan)
-                                                        {
-                                                            raw_pan * 2.0 - 1.0
-                                                        } else {
-                                                            raw_pan
-                                                        };
-                                                        apply_plugin_pan(
-                                                            &mut left[..c],
-                                                            &mut right[..c],
-                                                            pan,
-                                                        );
-                                                    }
+                                                    let pan = if (0.0..=1.0).contains(&raw_pan) {
+                                                        raw_pan * 2.0 - 1.0
+                                                    } else {
+                                                        raw_pan
+                                                    };
+                                                    apply_plugin_pan(
+                                                        &mut left[..c],
+                                                        &mut right[..c],
+                                                        pan,
+                                                    );
                                                 }
                                             }
                                         }
@@ -1196,6 +1187,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn constants_are_valid() {
         assert!((DEFAULT_FREQUENCY - 440.0).abs() < f32::EPSILON);
         assert!(TEST_TONE_AMPLITUDE > 0.0 && TEST_TONE_AMPLITUDE <= 1.0);

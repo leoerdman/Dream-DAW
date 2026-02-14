@@ -90,9 +90,9 @@ impl SummingBus {
     pub fn add_mono(&mut self, mono: &[f32]) {
         let len = mono.len().min(self.left.len());
 
-        for i in 0..len {
-            self.left[i] += mono[i];
-            self.right[i] += mono[i];
+        for (i, sample) in mono.iter().copied().enumerate().take(len) {
+            self.left[i] += sample;
+            self.right[i] += sample;
         }
 
         self.source_count += 1;

@@ -16,9 +16,10 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// The current state of the transport.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TransportState {
     /// Playhead is stationary. Audio callback produces silence.
+    #[default]
     Stopped,
 
     /// Playhead is advancing. Audio callback renders clips.
@@ -26,12 +27,6 @@ pub enum TransportState {
 
     /// Playhead is advancing AND input is being recorded.
     Recording,
-}
-
-impl Default for TransportState {
-    fn default() -> Self {
-        Self::Stopped
-    }
 }
 
 /// Commands sent from the UI thread to the audio thread.

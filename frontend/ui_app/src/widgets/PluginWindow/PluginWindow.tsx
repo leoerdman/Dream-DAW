@@ -121,7 +121,7 @@ export const PluginWindow = memo(function PluginWindow({
                 zIndex: 9000,
                 display: 'flex',
                 flexDirection: 'column',
-                background: '#111114',
+                background: '#111111',
                 borderRadius: 8,
                 border: '1px solid rgba(255,255,255,0.08)',
                 boxShadow: '0 16px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05)',

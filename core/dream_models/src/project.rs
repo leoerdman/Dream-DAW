@@ -27,7 +27,7 @@ use crate::time::AbsoluteTime;
 ///
 /// 16-color palette ported from Swift `TrackColor` enum.
 /// Each variant maps to a specific hex value for the frontend.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Default)]
 #[ts(export)]
 pub enum TrackColor {
     Coral,
@@ -39,6 +39,7 @@ pub enum TrackColor {
     Teal,
     Cyan,
     Sky,
+    #[default]
     Blue,
     Indigo,
     Purple,
@@ -46,12 +47,6 @@ pub enum TrackColor {
     Pink,
     Rose,
     Slate,
-}
-
-impl Default for TrackColor {
-    fn default() -> Self {
-        Self::Blue
-    }
 }
 
 impl TrackColor {
@@ -98,10 +93,11 @@ impl TrackColor {
 /// Defines the type of content a track holds.
 ///
 /// Ported from Swift `TrackType` enum.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Default)]
 #[ts(export)]
 pub enum TrackType {
     /// Audio track — hosts audio clips.
+    #[default]
     Audio,
     /// MIDI track — hosts MIDI clips routed to an instrument.
     Midi,
@@ -109,12 +105,6 @@ pub enum TrackType {
     Group,
     /// Master output track — singleton, always present.
     Master,
-}
-
-impl Default for TrackType {
-    fn default() -> Self {
-        Self::Audio
-    }
 }
 
 // ── Time Signature ─────────────────────────────────────────────────────

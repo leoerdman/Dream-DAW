@@ -91,10 +91,10 @@ impl PluginScanner {
                 Ok(entries) => {
                     for entry in entries.flatten() {
                         let path = entry.path();
-                        if Self::matches_format(&path, extension) {
-                            if let Some(desc) = Self::descriptor_from_path(&path, format) {
-                                results.push(desc);
-                            }
+                        if Self::matches_format(&path, extension)
+                            && let Some(desc) = Self::descriptor_from_path(&path, format)
+                        {
+                            results.push(desc);
                         }
                     }
                 }

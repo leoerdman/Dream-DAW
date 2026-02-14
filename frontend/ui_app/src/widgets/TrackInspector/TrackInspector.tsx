@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
+import * as engineApi from '@/shared/api/engine';
 
 
 /**
@@ -204,8 +205,9 @@ export const TrackInspector = ({
             const idx = getTrackIndex(id);
             const newArmed = !track.isArmed;
             if (idx >= 0) {
-                // TODO: Backend arm_track command not yet implemented
-                console.warn('[TrackInspector] armTrack: backend not implemented yet, index=', idx);
+                void engineApi.armTrack(idx, newArmed).catch((err) => {
+                    console.error('[TrackInspector] armTrack failed:', err);
+                });
             }
             setLocalOverrides(prev => ({ ...prev, [id]: { ...prev[id], isArmed: newArmed } }));
         }

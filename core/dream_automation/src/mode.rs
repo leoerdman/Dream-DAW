@@ -18,12 +18,13 @@ use serde::{Serialize, Deserialize};
 ///
 /// Determines how a parameter interacts with its automation curve
 /// during playback.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum AutomationMode {
     /// Automation is not active. Parameter is manually controlled.
     Off,
 
     /// Read mode: parameter follows the curve. User input is ignored.
+    #[default]
     Read,
 
     /// Write mode: records user input continuously, overwriting the curve.
@@ -36,12 +37,6 @@ pub enum AutomationMode {
     /// Latch mode: follows curve normally. When the user touches the fader,
     /// starts recording. Continues recording at the last value until stopped.
     Latch,
-}
-
-impl Default for AutomationMode {
-    fn default() -> Self {
-        Self::Read
-    }
 }
 
 impl AutomationMode {

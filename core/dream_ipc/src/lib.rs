@@ -131,6 +131,12 @@ pub struct MasterClock {
     frames_rendered: AtomicI64,
 }
 
+impl Default for MasterClock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MasterClock {
     /// Creates a new clock at frame zero.
     pub const fn new() -> Self {

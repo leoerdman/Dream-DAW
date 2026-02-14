@@ -178,10 +178,11 @@ impl SpatialHashGrid {
             if let Some(candidates) = bins.get(&b) {
                 for id in candidates {
                     // Fine-grained intersection check against actual clip bounds
-                    if let Some(entry) = entries.get(id) {
-                        if entry.start_sample < end_sample && entry.end_sample > start_sample {
-                            result.insert(*id);
-                        }
+                    if let Some(entry) = entries.get(id)
+                        && entry.start_sample < end_sample
+                        && entry.end_sample > start_sample
+                    {
+                        result.insert(*id);
                     }
                 }
             }
@@ -209,13 +210,12 @@ impl SpatialHashGrid {
         for b in start_bin..=end_bin {
             if let Some(candidates) = bins.get(&b) {
                 for id in candidates {
-                    if let Some(entry) = entries.get(id) {
-                        if entry.start_sample < end_sample
-                            && entry.end_sample > start_sample
-                            && track_range.contains(&entry.track_index)
-                        {
-                            result.insert(*id);
-                        }
+                    if let Some(entry) = entries.get(id)
+                        && entry.start_sample < end_sample
+                        && entry.end_sample > start_sample
+                        && track_range.contains(&entry.track_index)
+                    {
+                        result.insert(*id);
                     }
                 }
             }
@@ -233,13 +233,12 @@ impl SpatialHashGrid {
 
         if let Some(candidates) = bins.get(&bin) {
             for id in candidates {
-                if let Some(entry) = entries.get(id) {
-                    if entry.track_index == track_index
-                        && sample_frame >= entry.start_sample
-                        && sample_frame < entry.end_sample
-                    {
-                        return Some(*id);
-                    }
+                if let Some(entry) = entries.get(id)
+                    && entry.track_index == track_index
+                    && sample_frame >= entry.start_sample
+                    && sample_frame < entry.end_sample
+                {
+                    return Some(*id);
                 }
             }
         }

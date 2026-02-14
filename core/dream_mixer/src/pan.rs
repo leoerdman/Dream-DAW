@@ -14,21 +14,16 @@
 ///
 /// Constant-power (equal-power) pan law is the industry standard
 /// for professional DAWs. Uses sin/cos curves for smooth transitions.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum PanLaw {
     /// Constant power (-3dB center). Industry standard.
     /// Center = -3dB per channel, hard pan = 0dB.
+    #[default]
     ConstantPower,
 
     /// Linear (-6dB center). Simpler but less perceptually accurate.
     /// Center = -6dB per channel, hard pan = 0dB.
     Linear,
-}
-
-impl Default for PanLaw {
-    fn default() -> Self {
-        Self::ConstantPower
-    }
 }
 
 /// Left/right gain coefficients from a pan position.

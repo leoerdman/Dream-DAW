@@ -278,7 +278,7 @@ mod tests {
         assert!((loaded.pulse_map.initial_bpm() - 172.0).abs() < f64::EPSILON);
         assert_eq!(loaded.time_signature, TimeSignature::new(4, 4));
         assert_eq!(loaded.playhead_position_frames, 123_456);
-        assert_eq!(loaded.is_looping, true);
+        assert!(loaded.is_looping);
         assert_eq!(loaded.loop_start_frames, Some(44_100));
         assert_eq!(loaded.loop_end_frames, Some(88_200));
         assert_eq!(loaded.view_zoom_scale, Some(22.0));

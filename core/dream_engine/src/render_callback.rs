@@ -125,10 +125,27 @@ pub struct RenderContext {
     scratch_post_wrap_clips: Vec<ActiveClipInfo>,
 }
 
+/// Transparent soft-knee limiter.
+///
+/// - Below ±1.0 (0 dBFS): **passthrough** — no coloration whatsoever.
+/// - Above ±1.0: soft-knee compression that asymptotically approaches ±1.5,
+///   preventing hard digital clipping while preserving transient shape.
+///
+/// This replaces the previous `x / (1 + |x|)` waveshaper which compressed
+/// ALL signals (even –6 dBFS content was crushed by 34%).
 #[inline]
 fn soft_clip(sample: f32) -> f32 {
-    // Smooth brickwall-style limiting: hard clamp avoided to reduce harsh harmonics.
-    (sample / (1.0 + sample.abs())).clamp(-1.0, 1.0)
+    let abs = sample.abs();
+    if abs <= 1.0 {
+        sample // transparent below 0 dBFS
+    } else {
+        // Soft-knee: 1.0 + 0.5 * tanh(excess)
+        // Uses the identity tanh(x) = 1 - 2/(e^(2x)+1) to avoid libm dependency.
+        let excess = abs - 1.0;
+        let e2x = (2.0 * excess).exp();
+        let tanh_val = (e2x - 1.0) / (e2x + 1.0);
+        sample.signum() * (1.0 + 0.5 * tanh_val)
+    }
 }
 
 impl RenderContext {

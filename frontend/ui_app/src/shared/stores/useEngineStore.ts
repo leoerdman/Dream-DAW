@@ -153,6 +153,9 @@ interface EngineStore {
     /** Project sample rate (for beat conversion). */
     projectSampleRate: number;
 
+    /** Authoritative project BPM from PulseMap (race-safe — not from telemetry). */
+    projectBpm: number;
+
     /** Last IPC error (for error boundary / status bar display). */
     lastError: string | null;
     /** Master fader volume (linear gain 0.0..2.0). */
@@ -279,6 +282,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     timelineClips: [],
     projectTracks: [],
     projectSampleRate: 44100,
+    projectBpm: 120,
     lastError: null,
     masterVolume: 1.0,
 
@@ -577,7 +581,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 pulse_map: { initial_bpm: number };
             };
 
-            const bpm = get().transport.bpm || project.pulse_map?.initial_bpm || 120;
+            // CRITICAL: Use the project's own PulseMap BPM as the authoritative SSOT
+            // for frame↔beat conversion. The telemetry loop's transport.bpm may be
+            // stale after open_project (race condition — telemetry hasn't polled yet).
+            const bpm = project.pulse_map?.initial_bpm || get().transport.bpm || 120;
             const sr = project.sample_rate || 44100;
             const beatsPerSecond = bpm / 60;
 
@@ -663,7 +670,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 }
             }
 
-            set({ timelineClips, projectTracks, projectSampleRate: sr });
+            set({ timelineClips, projectTracks, projectSampleRate: sr, projectBpm: bpm });
         } catch (e) {
             console.error('[Engine] fetchProject failed:', e);
         }

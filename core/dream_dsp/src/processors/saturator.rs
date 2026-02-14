@@ -90,6 +90,12 @@ impl SaturatorProcessor {
     }
 }
 
+impl Default for SaturatorProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DspProcessor for SaturatorProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
         if (sample_rate - self.sample_rate).abs() > 1.0 {

@@ -62,6 +62,12 @@ impl UtilityProcessor {
     }
 }
 
+impl Default for UtilityProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DspProcessor for UtilityProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], _sample_rate: f32) {
         let len = left.len().min(right.len());

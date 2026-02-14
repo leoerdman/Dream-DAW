@@ -3,6 +3,7 @@ import throttle from 'lodash.throttle';
 import { listen } from '@tauri-apps/api/event';
 import { TransportBar } from '@/widgets/TransportBar/TransportBar';
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
+import { useNativeMenu } from '@/shared/hooks/useNativeMenu';
 import { useProjectManager } from '@/shared/hooks/useProjectManager';
 import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
 import { AssetBrowser } from '@/widgets/AssetBrowser/AssetBrowser';
@@ -88,6 +89,9 @@ export const DawShell = () => {
     // ── Enterprise Project Manager (Cmd+S/⇧S/N/O, auto-backup, dirty state)
     // Hook has side effects (keyboard shortcuts, auto-backup timer) — value intentionally unused
     useProjectManager(fetchProject);
+
+    // ── Native macOS Menu Bar (File, Edit, Window) ──
+    useNativeMenu(fetchProject);
 
     // ── Global Keyboard Shortcuts (Space, Cmd+E, Delete) ──
     useKeyboardShortcuts({
@@ -202,6 +206,7 @@ export const DawShell = () => {
     // ── Engine state for Timeline ───────────────────────────────────
     const transport = useEngineStore(s => s.transport);
     const projectSampleRate = useEngineStore(s => s.projectSampleRate || 44100);
+    const projectBpm = useEngineStore(s => s.projectBpm);
     const timelineClips = useEngineStore(s => s.timelineClips);
     const projectTracks = useEngineStore(s => s.projectTracks);
     const timelineClipsForView = useMemo(
@@ -337,7 +342,8 @@ export const DawShell = () => {
         console.log('[DawShell] handleBrowserDrop', { item, trackIndex, beat });
         if (item.path) {
             // Convert drop beat → sample frames so the clip lands at the exact drop position
-            const bpm = transport.bpm || 120;
+            // Use authoritative projectBpm (from PulseMap), fall back to transport
+            const bpm = projectBpm || transport.bpm || 120;
             const sr = useEngineStore.getState().projectSampleRate || 44100;
             const posSeconds = beat / (bpm / 60);
             const positionFrames = Math.round(posSeconds * sr);
@@ -345,12 +351,12 @@ export const DawShell = () => {
         } else {
             console.error(`[DawShell] Cannot import '${item.name}': no file path (demo items are not real files)`);
         }
-    }, [importFile, transport.bpm]);
+    }, [importFile, projectBpm, transport.bpm]);
 
     // Double-click on track lane → create 1-bar MIDI clip
     const handleDoubleClickTrack = useCallback((trackIndex: number, beat: number) => {
         console.log('[DawShell] handleDoubleClickTrack', { trackIndex, beat });
-        const bpm = transport.bpm || 120;
+        const bpm = projectBpm || transport.bpm || 120;
         const sr = useEngineStore.getState().projectSampleRate || 44100;
         const beatsPerBar = 4; // 4/4 time signature
         const posSeconds = beat / (bpm / 60);
@@ -358,11 +364,11 @@ export const DawShell = () => {
         const positionFrames = Math.round(posSeconds * sr);
         const durationFrames = Math.round(barSeconds * sr);
         createMidiClip(trackIndex, positionFrames, durationFrames);
-    }, [createMidiClip, transport.bpm]);
+    }, [createMidiClip, projectBpm, transport.bpm]);
 
     // Clip drag → move clip to new position in engine (syncs audio with visual)
     const handleClipMove = useCallback((clipId: string, newStartBeat: number, newTrackIndex: number) => {
-        const bpm = transport.bpm || 120;
+        const bpm = projectBpm || transport.bpm || 120;
         const sr = useEngineStore.getState().projectSampleRate || 44100;
         const posSeconds = newStartBeat / (bpm / 60);
         const newPositionFrames = Math.round(posSeconds * sr);
@@ -373,7 +379,7 @@ export const DawShell = () => {
                 fetchProject(); // Refresh project state to reflect new position
             })
             .catch(err => console.error('[DawShell] moveClip failed:', err));
-    }, [transport.bpm, fetchProject]);
+    }, [projectBpm, transport.bpm, fetchProject]);
 
     const handleOpenMidiClip = useCallback((clipId: string) => {
         setSelectedClipId(clipId);

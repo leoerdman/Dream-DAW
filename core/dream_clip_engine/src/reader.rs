@@ -29,6 +29,12 @@ impl ClipReader {
     ///
     /// # Real-Time Safety
     /// Real-time safe — no allocations, bounded iteration.
+    /// Reads samples from a source buffer and additively mixes them into
+    /// the output buffer, applying gain.
+    ///
+    /// **Fades are NOT applied here** — clip boundary fades are handled
+    /// by the render callback (FadeCache / user-defined fades) to avoid
+    /// double-fading artifacts.
     #[inline]
     pub fn read_into(
         source: &[f32],
@@ -47,31 +53,11 @@ impl ClipReader {
             return;
         }
 
-        // Apply micro-fade at boundaries to prevent clicks
-        let fade_len = write_frames.min(64); // 64-sample micro-fade
-
+        // Pure additive mixing — no fades, no coloration
         for i in 0..write_frames {
             let src_idx = source_start + i;
             let out_idx = output_offset + i;
-
-            let sample = source[src_idx] * gain;
-
-            // Fade-in at the start of the read region
-            let fade_in = if i < fade_len {
-                i as f32 / fade_len as f32
-            } else {
-                1.0
-            };
-
-            // Fade-out at the end of the read region
-            let fade_out = if i >= write_frames - fade_len {
-                (write_frames - 1 - i) as f32 / fade_len as f32
-            } else {
-                1.0
-            };
-
-            // Additive mixing (sum with existing content)
-            output[out_idx] += sample * fade_in * fade_out;
+            output[out_idx] += source[src_idx] * gain;
         }
     }
 
@@ -80,6 +66,7 @@ impl ClipReader {
     /// # Real-Time Safety
     /// Real-time safe.
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     pub fn read_stereo_into(
         source_left: &[f32],
         source_right: &[f32],
@@ -124,8 +111,10 @@ mod tests {
 
         ClipReader::read_into(&source, 0, &mut output, 0, 256, 1.0);
 
-        // Middle samples (past 64-sample fade-in, before 64-sample fade-out) should be ~0.5
-        assert!(output[128] > 0.4);
+        // All samples should be exactly 0.5 (no micro-fade applied)
+        assert!((output[0] - 0.5).abs() < 0.001);
+        assert!((output[128] - 0.5).abs() < 0.001);
+        assert!((output[255] - 0.5).abs() < 0.001);
     }
 
     #[test]
@@ -150,8 +139,9 @@ mod tests {
         assert_eq!(output[0], 0.0);
         assert_eq!(output[49], 0.0);
 
-        // Middle samples (50+100=150) should have content, fully past micro-fade
-        assert!(output[150] > 0.9);
+        // Written samples should be exactly 1.0
+        assert!((output[50] - 1.0).abs() < 0.001);
+        assert!((output[150] - 1.0).abs() < 0.001);
     }
 
     #[test]
@@ -161,8 +151,9 @@ mod tests {
 
         ClipReader::read_into(&source, 50, &mut output, 0, 150, 1.0);
 
-        // Middle of output (past micro-fade) should have the source data
-        assert!(output[75] > 0.9);
+        // All written samples should be exactly 1.0
+        assert!((output[0] - 1.0).abs() < 0.001);
+        assert!((output[75] - 1.0).abs() < 0.001);
     }
 
     #[test]

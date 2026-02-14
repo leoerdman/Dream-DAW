@@ -23,3 +23,6 @@ pub mod svf;
 pub mod dsp_processor;
 pub mod processors;
 pub mod device_chain;
+
+#[cfg(test)]
+mod stress_tests;

@@ -93,6 +93,8 @@ pub(crate) fn invoke_handler()
         move_track_to_index_cmd,
         move_track_with_parent_cmd,
         set_track_group_cmd,
+        ungroup_track_cmd,
+        move_track_block_to_index_cmd,
         // Clip Editing
         move_clip_cmd,
         split_clip_cmd,

@@ -128,6 +128,49 @@ export const INTERNAL_EFFECT_PLUGINS: InternalPluginDefinition[] = [
 
 export const INTERNAL_PLUGIN_ALIASES: Record<string, string> = {
     'internal://instrument/simple-sine-synth': 'internal://instrument/wave-synth',
+    // Ableton-style aliases (import compatibility)
+    'ableton://device/operator': 'internal://instrument/wave-synth',
+    'ableton://device/analog': 'internal://instrument/wave-synth',
+    'ableton://device/wavetable': 'internal://instrument/wave-synth',
+    'operator': 'internal://instrument/wave-synth',
+    'analog': 'internal://instrument/wave-synth',
+    'wavetable': 'internal://instrument/wave-synth',
+    'eq eight': 'internal://effect/eq-eight',
+    'eqeight': 'internal://effect/eq-eight',
+    'eq three': 'internal://effect/eq-eight',
+    'eq3': 'internal://effect/eq-eight',
+    'eqthree': 'internal://effect/eq-eight',
+    'channel eq': 'internal://effect/eq-eight',
+    'channeleq': 'internal://effect/eq-eight',
+    'compressor': 'internal://effect/compressor',
+    'glue compressor': 'internal://effect/compressor',
+    'gluecompressor': 'internal://effect/compressor',
+    'multiband dynamics': 'internal://effect/compressor',
+    'multibanddynamics': 'internal://effect/compressor',
+    'simple delay': 'internal://effect/delay',
+    'simpledelay': 'internal://effect/delay',
+    'ping pong delay': 'internal://effect/delay',
+    'pingpongdelay': 'internal://effect/delay',
+    'echo': 'internal://effect/delay',
+    'reverb': 'internal://effect/reverb',
+    'hybrid reverb': 'internal://effect/reverb',
+    'hybridreverb': 'internal://effect/reverb',
+    'chorus-ensemble': 'internal://effect/chorus',
+    'chorus ensemble': 'internal://effect/chorus',
+    'chorusensemble': 'internal://effect/chorus',
+    'saturator': 'internal://effect/saturator',
+    'overdrive': 'internal://effect/distortion',
+    'pedal': 'internal://effect/distortion',
+    'amp': 'internal://effect/distortion',
+    'cabinet': 'internal://effect/distortion',
+    'redux': 'internal://effect/bitcrusher',
+    'auto filter': 'internal://effect/auto-filter',
+    'autofilter': 'internal://effect/auto-filter',
+    'phaser-flanger': 'internal://effect/phaser',
+    'phaserflanger': 'internal://effect/phaser',
+    'utility': 'internal://effect/utility',
+    'gate': 'internal://effect/gate',
+    'limiter': 'internal://effect/limiter',
 };
 
 const byId = new Map<string, InternalPluginDefinition>(
@@ -136,7 +179,8 @@ const byId = new Map<string, InternalPluginDefinition>(
 
 export const normalizeInternalPluginId = (pluginId: string): string => {
     const normalized = pluginId.trim().toLowerCase();
-    return INTERNAL_PLUGIN_ALIASES[normalized] ?? normalized;
+    const compact = normalized.replace(/[^a-z0-9]+/g, '');
+    return INTERNAL_PLUGIN_ALIASES[normalized] ?? INTERNAL_PLUGIN_ALIASES[compact] ?? normalized;
 };
 
 export const getInternalPluginById = (pluginId: string): InternalPluginDefinition | null => {

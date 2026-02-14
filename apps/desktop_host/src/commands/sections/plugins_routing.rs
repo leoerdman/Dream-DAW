@@ -227,6 +227,56 @@ fn add_plugin_to_track_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
+    fn canonical_internal_plugin(plugin_id: &str, plugin_name: &str) -> Option<(&'static str, &'static str, &'static str)> {
+        let merged = format!("{} {}", plugin_id, plugin_name).to_lowercase();
+        let compact = merged.replace(|c: char| !c.is_ascii_alphanumeric(), "");
+
+        // Instruments
+        if merged.contains("operator")
+            || merged.contains("analog")
+            || merged.contains("wavetable")
+            || compact.contains("simplesinesynth")
+            || merged.contains("wave synth")
+            || compact.contains("wavesynth")
+        {
+            return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument"));
+        }
+        if merged.contains("sampler") || merged.contains("simpler") {
+            return Some(("internal://instrument/sampler", "Sampler", "instrument"));
+        }
+
+        // Effects
+        if merged.contains("eq eight") || merged.contains("eq eight") || merged.contains("eq3") || merged.contains("eq three") || merged.contains("channel eq") {
+            return Some(("internal://effect/eq-eight", "EQ Eight", "effect"));
+        }
+        if merged.contains("glue compressor") || merged.contains("multiband dynamics") {
+            return Some(("internal://effect/compressor", "Compressor", "effect"));
+        }
+        if merged.contains("simple delay") || merged.contains("ping pong delay") || merged.contains("echo") {
+            return Some(("internal://effect/delay", "Delay", "effect"));
+        }
+        if merged.contains("hybrid reverb") {
+            return Some(("internal://effect/reverb", "Reverb", "effect"));
+        }
+        if merged.contains("chorus-ensemble") || merged.contains("chorus ensemble") {
+            return Some(("internal://effect/chorus", "Chorus", "effect"));
+        }
+        if merged.contains("auto filter") || merged.contains("autofilter") {
+            return Some(("internal://effect/auto-filter", "Auto Filter", "effect"));
+        }
+        if merged.contains("phaser-flanger") || merged.contains("phaser flanger") {
+            return Some(("internal://effect/phaser", "Phaser", "effect"));
+        }
+        if merged.contains("redux") {
+            return Some(("internal://effect/bitcrusher", "Bitcrusher", "effect"));
+        }
+        if merged.contains("overdrive") || merged.contains("pedal") || merged.contains("cabinet") || merged.contains("amp") {
+            return Some(("internal://effect/distortion", "Distortion", "effect"));
+        }
+
+        None
+    }
+
     fn waveform_code_from_token(token: &str) -> u8 {
         let normalized = token.trim().to_lowercase();
         if normalized.contains("triangle") || normalized.ends_with("/tri") {
@@ -315,17 +365,23 @@ fn add_plugin_to_track_cmd(
         .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
 
     let slot = payload.slot.to_lowercase();
+    let canonical = canonical_internal_plugin(&payload.plugin_id, &payload.plugin_name);
+    let effective_plugin_id = canonical.map(|v| v.0.to_string()).unwrap_or_else(|| payload.plugin_id.clone());
+    let effective_plugin_name = canonical.map(|v| v.1.to_string()).unwrap_or_else(|| payload.plugin_name.clone());
+    let canonical_slot_hint = canonical.map(|v| v.2);
     let use_instrument = match slot.as_str() {
         "instrument" => true,
         "effect" => false,
+        "auto" => canonical_slot_hint == Some("instrument")
+            || (track.track_type == TrackType::Midi && track.instrument.is_none()),
         _ => track.track_type == TrackType::Midi && track.instrument.is_none(),
     };
 
-    let plugin_id_lower = payload.plugin_id.to_lowercase();
+    let plugin_id_lower = effective_plugin_id.to_lowercase();
     let is_sampler_instrument = plugin_id_lower.starts_with("internal://instrument/sampler");
     let is_wave_synth_instrument = plugin_id_lower.starts_with("internal://instrument/wave-synth")
         || plugin_id_lower.starts_with("internal://instrument/simple-sine-synth");
-    let plugin_slot = PluginSlot::new(payload.plugin_name.clone(), payload.plugin_id.clone());
+    let plugin_slot = PluginSlot::new(effective_plugin_name.clone(), effective_plugin_id.clone());
     let mut runtime_add: Option<(Uuid, u8, u8)> = None;
     let mut runtime_waveform: Option<(Uuid, u8)> = None;
     if use_instrument {
@@ -342,8 +398,8 @@ fn add_plugin_to_track_cmd(
         }
     } else {
         track.effects.push(plugin_slot);
-        if payload.plugin_id.starts_with("internal://")
-            && let Some(effect_type) = builtin_effect_type_from_plugin_id(&payload.plugin_id)
+        if effective_plugin_id.starts_with("internal://")
+            && let Some(effect_type) = builtin_effect_type_from_plugin_id(&effective_plugin_id)
         {
             let slot_index = (track.effects.len().saturating_sub(1)).min(u8::MAX as usize) as u8;
             runtime_add = Some((track.id, slot_index, effect_type));
@@ -373,7 +429,7 @@ fn add_plugin_to_track_cmd(
     log::info!(
         "[IPC] add_plugin_to_track_cmd(track={}, plugin='{}', slot={})",
         payload.track_id,
-        payload.plugin_name,
+        effective_plugin_name,
         if use_instrument { "instrument" } else { "effect" }
     );
     Ok(())

@@ -443,7 +443,11 @@ export const DeviceRack = ({
                 else if (normalizedName === 'sustain') paramId = 'sampler.sustain';
                 else if (normalizedName === 'release') paramId = 'sampler.release';
                 else if (normalizedName === 'root') paramId = 'sampler.rootNote';
-                else if (normalizedName === 'wave') paramId = 'synth.waveform';
+                else if (normalizedName === 'wave' || normalizedName === 'osc1wave') paramId = 'synth.osc1.waveform';
+                else if (normalizedName === 'osc2wave') paramId = 'synth.osc2.waveform';
+                else if (normalizedName === 'mix') paramId = 'synth.osc.mix';
+                else if (normalizedName === 'detune') paramId = 'synth.detune';
+                else if (normalizedName === 'sub') paramId = 'synth.sub';
             } else if (device.effectType === 'eq') {
                 if (normalizedName === 'low') paramId = 'eq.low';
                 else if (normalizedName === 'lowfreq') paramId = 'eq.lowFreq';
@@ -1044,14 +1048,18 @@ const DeviceNode = ({
     };
     const typeColor = typeColorMap[device.effectType] || 'var(--color-accent-primary)';
     const rackWidth = isSelected && device.source === 'internal'
-        ? 720
+        ? device.effectType === 'waveSynth'
+            ? 980
+            : device.effectType === 'eq'
+                ? 860
+                : 720
         : device.effectType === 'sampler'
             ? 360
-            : device.effectType === 'waveSynth'
-                ? 360
-                : device.effectType === 'instrument'
-                    ? 320
-                    : device.effectType === 'eq'
+        : device.effectType === 'waveSynth'
+                ? 460
+            : device.effectType === 'instrument'
+                ? 320
+                : device.effectType === 'eq'
                         ? 280
                         : device.effectType === 'autoFilter' || device.effectType === 'phaser' || device.effectType === 'flanger'
                             ? 300
@@ -1201,7 +1209,7 @@ const DeviceNode = ({
                 }}>
                     {device.source === 'internal' && device.params.length > 0 ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
-                            {device.params.slice(0, device.effectType === 'sampler' || device.effectType === 'waveSynth' ? 4 : 3).map((p) => (
+                            {device.params.slice(0, device.effectType === 'waveSynth' ? 5 : device.effectType === 'sampler' ? 4 : 3).map((p) => (
                                 <PluginKnob key={p.name} param={p} onChange={onParamChange} />
                             ))}
                         </div>
@@ -1254,6 +1262,45 @@ const headerIconBtnStyle = (disabled: boolean) =>
         opacity: disabled ? 0.65 : 1,
         transition: 'all var(--transition-fast)',
     }) as const;
+
+const pluginPanelLayoutStyle: React.CSSProperties = {
+    display: 'grid',
+    gridTemplateRows: '90px auto',
+    gap: 8,
+    height: '100%',
+};
+
+const pluginPanelCardBaseStyle: React.CSSProperties = {
+    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
+    borderRadius: 6,
+    padding: '8px 10px',
+    display: 'grid',
+    gridTemplateRows: '1fr auto',
+    gap: 6,
+};
+
+const pluginPanelTitleStyle: React.CSSProperties = {
+    fontSize: 9,
+    color: 'var(--color-text-secondary)',
+    letterSpacing: '0.03em',
+    textTransform: 'uppercase',
+    fontWeight: 700,
+};
+
+const pluginPanelMetaStyle: React.CSSProperties = {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: 9,
+    color: 'var(--color-text-secondary)',
+    fontFamily: 'var(--font-mono)',
+};
+
+const pluginPanelKnobGrid = (columns: string): React.CSSProperties => ({
+    display: 'grid',
+    gridTemplateColumns: columns,
+    alignItems: 'center',
+    gap: 8,
+});
 
 const PluginGuiSurface = ({
     device,
@@ -1330,15 +1377,18 @@ const PluginGuiSurface = ({
     }, [dragEqBand, onParamChange]);
 
     if (device.effectType === 'waveSynth') {
-        const waveParam = device.params.find((x) => x.name.toLowerCase() === 'wave');
-        const waveIndex = Math.round(waveParam?.value ?? 0);
+        const osc1 = Math.round(device.params.find((x) => x.name.toLowerCase() === 'osc1wave')?.value ?? 0);
+        const osc2 = Math.round(device.params.find((x) => x.name.toLowerCase() === 'osc2wave')?.value ?? 0);
+        const mix = device.params.find((x) => x.name.toLowerCase() === 'mix')?.value ?? 0.35;
+        const detune = device.params.find((x) => x.name.toLowerCase() === 'detune')?.value ?? 0;
+        const sub = device.params.find((x) => x.name.toLowerCase() === 'sub')?.value ?? 0;
         const waveforms = [
             { idx: 0, label: 'Sine' },
             { idx: 1, label: 'Triangle' },
             { idx: 2, label: 'Saw' },
             { idx: 3, label: 'Square' },
         ];
-        const wavePath = (() => {
+        const wavePath = (waveIndex: number) => {
             switch (waveIndex) {
                 case 1:
                     return 'M 0 50 L 12.5 20 L 37.5 80 L 62.5 20 L 87.5 80 L 100 50';
@@ -1349,13 +1399,17 @@ const PluginGuiSurface = ({
                 default:
                     return 'M 0 50 C 8 10, 17 10, 25 50 C 33 90, 42 90, 50 50 C 58 10, 67 10, 75 50 C 83 90, 92 90, 100 50';
             }
-        })();
+        };
         const randomizePatch = () => {
             const randomInRange = (min: number, max: number, step = 0.01) => {
                 const raw = min + Math.random() * (max - min);
                 return Math.round(raw / step) * step;
             };
-            onParamChange('Wave', Math.floor(Math.random() * 4));
+            onParamChange('Osc1Wave', Math.floor(Math.random() * 4));
+            onParamChange('Osc2Wave', Math.floor(Math.random() * 4));
+            onParamChange('Mix', randomInRange(0.1, 0.9, 0.01));
+            onParamChange('Detune', randomInRange(-18, 18, 0.1));
+            onParamChange('Sub', randomInRange(0, 0.5, 0.01));
             onParamChange('Vol', randomInRange(0.7, 1.4, 0.01));
             onParamChange('Attack', randomInRange(0.001, 0.18, 0.001));
             onParamChange('Decay', randomInRange(0.03, 1.8, 0.001));
@@ -1363,23 +1417,21 @@ const PluginGuiSurface = ({
             onParamChange('Release', randomInRange(0.02, 2.2, 0.001));
         };
         return (
-            <div style={{ display: 'grid', gridTemplateRows: '110px auto', gap: 8, height: '100%' }}>
+            <div style={{ ...pluginPanelLayoutStyle, gridTemplateRows: '126px auto' }}>
                 <div style={{
-                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
-                    borderRadius: 6,
+                    ...pluginPanelCardBaseStyle,
                     background: 'linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 84%, #133026) 0%, color-mix(in srgb, var(--surface-1) 90%, #0a1612) 100%)',
-                    padding: '10px',
                     display: 'grid',
-                    gridTemplateRows: 'auto 1fr',
-                    gap: 10,
+                    gridTemplateRows: 'auto auto 1fr',
+                    gap: 8,
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                        <span style={{ fontSize: 10, color: '#d3efe3', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                            Wave Synth
+                        <span style={{ ...pluginPanelTitleStyle, fontSize: 10, color: '#d3efe3' }}>
+                            Wave Synth Pro
                         </span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <span style={{ fontSize: 10, color: '#80d7b0', fontFamily: 'var(--font-mono)' }}>
-                                {waveformLabel(waveIndex)}
+                                OSC Blend {(mix * 100).toFixed(0)}%
                             </span>
                             <button
                                 type="button"
@@ -1400,44 +1452,72 @@ const PluginGuiSurface = ({
                             </button>
                         </div>
                     </div>
-                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height: 26, opacity: 0.9 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height: 26, opacity: 0.9 }}>
+                            <rect x="0" y="0" width="100" height="100" fill="rgba(8, 17, 14, 0.55)" />
+                            <path d={wavePath(osc1)} fill="none" stroke="#64e7ad" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height: 26, opacity: 0.9 }}>
+                            <rect x="0" y="0" width="100" height="100" fill="rgba(8, 17, 14, 0.55)" />
+                            <path d={wavePath(osc2)} fill="none" stroke="#8cd1ff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto auto', alignItems: 'center', gap: 6 }}>
+                        <div style={{ fontSize: 9, color: '#8fd6b4', fontFamily: 'var(--font-mono)' }}>OSC1 {waveformLabel(osc1)}</div>
+                        <div style={{ fontSize: 9, color: '#9bc6ff', fontFamily: 'var(--font-mono)' }}>OSC2 {waveformLabel(osc2)}</div>
+                        <div style={{ fontSize: 9, color: '#a4d5c0', fontFamily: 'var(--font-mono)' }}>Detune {detune.toFixed(1)}ct</div>
+                        <div style={{ fontSize: 9, color: '#a4d5c0', fontFamily: 'var(--font-mono)' }}>Sub {(sub * 100).toFixed(0)}%</div>
+                    </div>
+                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height: 18, opacity: 0.85 }}>
                         <rect x="0" y="0" width="100" height="100" fill="rgba(8, 17, 14, 0.55)" />
-                        <path d={wavePath} fill="none" stroke="#64e7ad" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M 0 50 C 10 20, 20 80, 30 50 C 40 20, 50 80, 60 50 C 70 20, 80 80, 90 50 C 95 34, 100 60, 100 50" fill="none" stroke="#5be3a7" strokeWidth="2.2" opacity={1 - mix * 0.6} />
+                        <path d="M 0 50 C 10 76, 20 24, 30 50 C 40 76, 50 24, 60 50 C 70 76, 80 24, 90 50 C 95 66, 100 40, 100 50" fill="none" stroke="#76baff" strokeWidth="2.2" opacity={0.45 + mix * 0.55} />
                     </svg>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, minmax(0, 1fr))', gap: 6 }}>
                         {waveforms.map((wf) => (
                             <button
-                                key={wf.idx}
+                                key={`o1-${wf.idx}`}
                                 type="button"
-                                onClick={() => onParamChange('Wave', wf.idx)}
+                                onClick={() => onParamChange('Osc1Wave', wf.idx)}
                                 style={{
-                                    border: wf.idx === waveIndex ? '1px solid #5ce0a6' : '1px solid #3e5d53',
+                                    border: wf.idx === osc1 ? '1px solid #5ce0a6' : '1px solid #3e5d53',
                                     borderRadius: 4,
-                                    background: wf.idx === waveIndex ? 'rgba(92, 224, 166, 0.18)' : 'rgba(24, 44, 37, 0.72)',
-                                    color: wf.idx === waveIndex ? '#d9ffee' : '#9ac4b2',
+                                    background: wf.idx === osc1 ? 'rgba(92, 224, 166, 0.18)' : 'rgba(24, 44, 37, 0.72)',
+                                    color: wf.idx === osc1 ? '#d9ffee' : '#9ac4b2',
                                     fontSize: 10,
                                     fontWeight: 600,
                                     cursor: 'pointer',
                                     padding: '6px 4px',
                                 }}
                             >
-                                {wf.label}
+                                1:{wf.label}
+                            </button>
+                        ))}
+                        {waveforms.map((wf) => (
+                            <button
+                                key={`o2-${wf.idx}`}
+                                type="button"
+                                onClick={() => onParamChange('Osc2Wave', wf.idx)}
+                                style={{
+                                    border: wf.idx === osc2 ? '1px solid #7abfff' : '1px solid #3f5671',
+                                    borderRadius: 4,
+                                    background: wf.idx === osc2 ? 'rgba(122, 191, 255, 0.18)' : 'rgba(26, 38, 53, 0.72)',
+                                    color: wf.idx === osc2 ? '#e2f0ff' : '#a8bfd6',
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    padding: '6px 4px',
+                                }}
+                            >
+                                2:{wf.label}
                             </button>
                         ))}
                     </div>
                 </div>
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
-                    alignItems: 'center',
-                    gap: 8,
-                }}>
-                    {device.params
-                        .filter((p) => p.name.toLowerCase() !== 'wave')
-                        .slice(0, 5)
-                        .map((p) => (
-                            <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
-                        ))}
+                <div style={pluginPanelKnobGrid('repeat(10, minmax(0, 1fr))')}>
+                    {device.params.map((p) => (
+                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                    ))}
                 </div>
             </div>
         );
@@ -1456,7 +1536,7 @@ const PluginGuiSurface = ({
                 gridTemplateRows: '78px auto',
                 height: '100%',
                 gap: 4,
-                border: '1px solid color-mix(in srgb, var(--surface-3) 80%, #49505d)',
+                border: pluginPanelCardBaseStyle.border,
                 borderRadius: 6,
                 background: 'linear-gradient(180deg, color-mix(in srgb, var(--surface-3) 84%, #2f4058) 0%, color-mix(in srgb, var(--surface-2) 88%, #1c2735) 100%)',
                 overflow: 'hidden',
@@ -1619,12 +1699,12 @@ const PluginGuiSurface = ({
         const yH = yFromDb(high);
         const curve = `M 0 ${yL.toFixed(2)} C 40 ${yL.toFixed(2)}, ${xLow - 32} ${yL.toFixed(2)} ${xLow} ${yL.toFixed(2)} C ${xLow + 45} ${yL.toFixed(2)}, ${xMid - 35} ${yM.toFixed(2)} ${xMid} ${yM.toFixed(2)} C ${xMid + 35} ${yM.toFixed(2)}, ${xHigh - 45} ${yH.toFixed(2)} ${xHigh} ${yH.toFixed(2)} C ${xHigh + 35} ${yH.toFixed(2)}, 450 ${yH.toFixed(2)} 480 ${yH.toFixed(2)}`;
         return (
-            <div style={{ display: 'grid', gridTemplateRows: '96px auto', height: '100%', gap: 8 }}>
+            <div style={{ ...pluginPanelLayoutStyle, gridTemplateRows: '96px auto' }}>
                 <div style={{
-                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
-                    borderRadius: 6,
+                    ...pluginPanelCardBaseStyle,
                     background: 'linear-gradient(180deg, var(--surface-1) 0%, color-mix(in srgb, var(--surface-1) 86%, #000) 100%)',
                     overflow: 'hidden',
+                    padding: 0,
                 }}>
                     <svg ref={eqSurfaceRef} width="100%" height="100%" viewBox="0 0 480 92" preserveAspectRatio="none">
                         {Array.from({ length: 12 }).map((_, i) => (
@@ -1652,13 +1732,13 @@ const PluginGuiSurface = ({
                         ))}
                     </svg>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', alignItems: 'center', gap: 8 }}>
-                    {['Low', 'LowQ', 'Mid', 'MidQ', 'High', 'HighQ', 'Out'].map((name) => {
+                <div style={pluginPanelKnobGrid('repeat(10, minmax(0, 1fr))')}>
+                    {['LowFreq', 'Low', 'LowQ', 'MidFreq', 'Mid', 'MidQ', 'HighFreq', 'High', 'HighQ', 'Out'].map((name) => {
                         const p = device.params.find((x) => x.name.toLowerCase() === name.toLowerCase());
                         return p ? <PluginKnob key={p.name} param={p} onChange={onParamChange} compact /> : null;
                     })}
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 9, color: '#a3b8d8', fontFamily: 'var(--font-mono)' }}>
+                <div style={{ ...pluginPanelMetaStyle, alignItems: 'center' }}>
                     <span>Low {lowFreq.toFixed(0)}Hz</span>
                     <span>Mid {midFreq.toFixed(0)}Hz</span>
                     <span>High {highFreq.toFixed(0)}Hz</span>
@@ -1676,12 +1756,10 @@ const PluginGuiSurface = ({
         const panPct = Math.max(-1, Math.min(1, pan / 100));
         const widthPct = Math.max(0, Math.min(1, width / 200));
         return (
-            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+            <div style={pluginPanelLayoutStyle}>
                 <div style={{
-                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
-                    borderRadius: 6,
+                    ...pluginPanelCardBaseStyle,
                     background: 'linear-gradient(180deg, var(--surface-1) 0%, color-mix(in srgb, var(--surface-1) 88%, #000) 100%)',
-                    padding: '8px 10px',
                     display: 'grid',
                     gridTemplateColumns: '1fr 1fr',
                     gap: 10,
@@ -1713,15 +1791,14 @@ const PluginGuiSurface = ({
                             }} />
                         </div>
                     </div>
-                    <div style={{ fontSize: 9, color: '#a7b0c0' }}>Gain: <span style={{ color: '#d7dde8', fontFamily: 'var(--font-mono)' }}>{gain.toFixed(1)} dB</span></div>
-                    <div style={{ fontSize: 9, color: mono ? '#d9d9d9' : '#8593a8' }}>{mono ? 'Mono Enabled' : 'Stereo'}</div>
+                    <div style={{ ...pluginPanelTitleStyle, color: 'var(--color-text-secondary)' }}>
+                        Gain: <span style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>{gain.toFixed(1)} dB</span>
+                    </div>
+                    <div style={{ ...pluginPanelTitleStyle, color: mono ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }}>
+                        {mono ? 'Mono Enabled' : 'Stereo'}
+                    </div>
                 </div>
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-                    alignItems: 'center',
-                    gap: 8,
-                }}>
+                <div style={pluginPanelKnobGrid('repeat(4, minmax(0, 1fr))')}>
                     {device.params.slice(0, 4).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
@@ -1737,12 +1814,10 @@ const PluginGuiSurface = ({
         const ratio = device.params.find((p) => p.name.toLowerCase() === 'ratio')?.value ?? 4;
         const pseudoGr = Math.max(0, Math.min(24, ((-thr) / 60) * ratio * 2.4));
         return (
-            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+            <div style={pluginPanelLayoutStyle}>
                 <div style={{
-                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
-                    borderRadius: 6,
+                    ...pluginPanelCardBaseStyle,
                     background: 'linear-gradient(180deg, var(--surface-1) 0%, color-mix(in srgb, var(--surface-1) 88%, #000) 100%)',
-                    padding: '8px 10px',
                     display: 'grid',
                     gridTemplateColumns: '1fr auto',
                     gap: 10,
@@ -1758,12 +1833,7 @@ const PluginGuiSurface = ({
                         <div style={{ width: '100%', height: `${(pseudoGr / 24) * 100}%`, marginTop: `${100 - (pseudoGr / 24) * 100}%`, background: 'linear-gradient(180deg, #66cc33 0%, #ffcc1a 60%, #ff3333 100%)', borderRadius: 2 }} />
                     </div>
                 </div>
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: `repeat(${Math.max(1, Math.min(4, device.params.length))}, minmax(0, 1fr))`,
-                    alignItems: 'center',
-                    gap: 8,
-                }}>
+                <div style={pluginPanelKnobGrid(`repeat(${Math.max(1, Math.min(4, device.params.length))}, minmax(0, 1fr))`)}>
                     {device.params.slice(0, 4).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
@@ -1777,15 +1847,10 @@ const PluginGuiSurface = ({
         const fb = device.params.find((p) => p.name.toLowerCase() === 'fb')?.value ?? 30;
         const mix = device.params.find((p) => p.name.toLowerCase() === 'dry/wet')?.value ?? 35;
         return (
-            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+            <div style={pluginPanelLayoutStyle}>
                 <div style={{
-                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
-                    borderRadius: 6,
+                    ...pluginPanelCardBaseStyle,
                     background: 'linear-gradient(180deg, #1a2230 0%, #0f1520 100%)',
-                    padding: '8px 10px',
-                    display: 'grid',
-                    gridTemplateRows: '1fr auto',
-                    gap: 6,
                 }}>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
                         <rect x="0" y="0" width="320" height="52" fill="rgba(14,20,30,0.6)" />
@@ -1795,13 +1860,13 @@ const PluginGuiSurface = ({
                             return <rect key={i} x={x} y={26 - h / 2} width="10" height={h} fill={i === 0 ? '#7cc4ff' : '#4a9eff'} opacity={0.95 - i * 0.08} rx="1.5" />;
                         })}
                     </svg>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: '#9fb2cf', fontFamily: 'var(--font-mono)' }}>
+                    <div style={pluginPanelMetaStyle}>
                         <span>{time.toFixed(0)}ms</span>
                         <span>FB {fb.toFixed(0)}%</span>
                         <span>Mix {mix.toFixed(0)}%</span>
                     </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', alignItems: 'center', gap: 8 }}>
+                <div style={pluginPanelKnobGrid('repeat(3, minmax(0, 1fr))')}>
                     {device.params.slice(0, 3).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
@@ -1814,15 +1879,10 @@ const PluginGuiSurface = ({
         const decay = device.params.find((p) => p.name.toLowerCase() === 'decay')?.value ?? 45;
         const tone = device.params.find((p) => p.name.toLowerCase() === 'tone')?.value ?? 0;
         return (
-            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+            <div style={pluginPanelLayoutStyle}>
                 <div style={{
-                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
-                    borderRadius: 6,
+                    ...pluginPanelCardBaseStyle,
                     background: 'radial-gradient(circle at 30% 20%, rgba(137, 89, 194, 0.5) 0%, rgba(28, 24, 38, 0.92) 65%)',
-                    padding: '8px 10px',
-                    display: 'grid',
-                    gridTemplateRows: '1fr auto',
-                    gap: 6,
                 }}>
                     <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 4, background: 'rgba(10,10,12,0.45)' }}>
                         {Array.from({ length: 5 }).map((_, i) => (
@@ -1841,12 +1901,12 @@ const PluginGuiSurface = ({
                             />
                         ))}
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: '#c8b8e7', fontFamily: 'var(--font-mono)' }}>
+                    <div style={pluginPanelMetaStyle}>
                         <span>Decay {decay.toFixed(0)}%</span>
                         <span>Tone {tone.toFixed(0)}%</span>
                     </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', alignItems: 'center', gap: 8 }}>
+                <div style={pluginPanelKnobGrid('repeat(3, minmax(0, 1fr))')}>
                     {device.params.slice(0, 3).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
@@ -1859,27 +1919,22 @@ const PluginGuiSurface = ({
         const rate = device.params.find((p) => p.name.toLowerCase() === 'rate')?.value ?? 1.2;
         const depth = device.params.find((p) => p.name.toLowerCase() === 'depth')?.value ?? 40;
         return (
-            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+            <div style={pluginPanelLayoutStyle}>
                 <div style={{
-                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
-                    borderRadius: 6,
+                    ...pluginPanelCardBaseStyle,
                     background: 'linear-gradient(180deg, #24172a 0%, #14111b 100%)',
-                    padding: '8px 10px',
-                    display: 'grid',
-                    gridTemplateRows: '1fr auto',
-                    gap: 6,
                 }}>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
                         <rect x="0" y="0" width="320" height="52" fill="rgba(12, 11, 18, 0.65)" />
                         <path d="M 0 26 C 40 8, 80 44, 120 26 C 160 8, 200 44, 240 26 C 280 8, 320 44, 320 26" fill="none" stroke="#c867ff" strokeWidth="2.2" />
                         <path d="M 0 26 C 40 44, 80 8, 120 26 C 160 44, 200 8, 240 26 C 280 44, 320 8, 320 26" fill="none" stroke="#4ac0ff" strokeWidth="2.2" opacity="0.9" />
                     </svg>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: '#c6b9de', fontFamily: 'var(--font-mono)' }}>
+                    <div style={pluginPanelMetaStyle}>
                         <span>{rate.toFixed(1)}Hz</span>
                         <span>Depth {depth.toFixed(0)}%</span>
                     </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', alignItems: 'center', gap: 8 }}>
+                <div style={pluginPanelKnobGrid('repeat(3, minmax(0, 1fr))')}>
                     {device.params.slice(0, 3).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
@@ -1891,23 +1946,18 @@ const PluginGuiSurface = ({
     if (device.effectType === 'saturator') {
         const drive = device.params.find((p) => p.name.toLowerCase() === 'drive')?.value ?? 3;
         return (
-            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+            <div style={pluginPanelLayoutStyle}>
                 <div style={{
-                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
-                    borderRadius: 6,
+                    ...pluginPanelCardBaseStyle,
                     background: 'linear-gradient(180deg, #2d1d13 0%, #1a120d 100%)',
-                    padding: '8px 10px',
-                    display: 'grid',
-                    gridTemplateRows: '1fr auto',
-                    gap: 6,
                 }}>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
                         <rect x="0" y="0" width="320" height="52" fill="rgba(20, 13, 9, 0.7)" />
                         <path d="M 12 46 C 72 46, 112 6, 160 6 C 208 6, 248 46, 308 46" fill="none" stroke="#ffac59" strokeWidth={Math.max(2, 2 + drive / 8)} strokeLinecap="round" />
                     </svg>
-                    <div style={{ fontSize: 9, color: '#e1be95', fontFamily: 'var(--font-mono)' }}>Drive {drive.toFixed(1)} dB</div>
+                    <div style={pluginPanelMetaStyle}><span>Drive {drive.toFixed(1)} dB</span></div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', alignItems: 'center', gap: 8 }}>
+                <div style={pluginPanelKnobGrid('repeat(3, minmax(0, 1fr))')}>
                     {device.params.slice(0, 3).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
@@ -1921,18 +1971,18 @@ const PluginGuiSurface = ({
         const ceil = device.params.find((p) => p.name.toLowerCase() === 'ceil')?.value ?? -0.1;
         const safety = Math.max(0, Math.min(1, 1 - Math.abs(thr - ceil) / 30));
         return (
-            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
-                <div style={{ border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)', borderRadius: 6, background: 'linear-gradient(180deg, #152625 0%, #0f1616 100%)', padding: '8px 10px' }}>
-                    <div style={{ fontSize: 9, color: '#a4d9d3', marginBottom: 6 }}>Lookahead Limiter</div>
+            <div style={pluginPanelLayoutStyle}>
+                <div style={{ ...pluginPanelCardBaseStyle, background: 'linear-gradient(180deg, #152625 0%, #0f1616 100%)' }}>
+                    <div style={{ ...pluginPanelTitleStyle, color: '#a4d9d3' }}>Lookahead Limiter</div>
                     <div style={{ height: 10, borderRadius: 999, background: '#222d2e', overflow: 'hidden' }}>
                         <div style={{ width: `${(safety * 100).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #4bc4b2 0%, #89f0de 100%)' }} />
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 9, color: '#a4c8c3', fontFamily: 'var(--font-mono)' }}>
+                    <div style={pluginPanelMetaStyle}>
                         <span>Thr {thr.toFixed(1)} dB</span>
                         <span>Ceil {ceil.toFixed(1)} dB</span>
                     </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', alignItems: 'center', gap: 8 }}>
+                <div style={pluginPanelKnobGrid('repeat(3, minmax(0, 1fr))')}>
                     {device.params.slice(0, 3).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
@@ -1946,18 +1996,18 @@ const PluginGuiSurface = ({
         const range = device.params.find((p) => p.name.toLowerCase() === 'range')?.value ?? -80;
         const openness = Math.max(0, Math.min(1, (80 + thr) / 80));
         return (
-            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
-                <div style={{ border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)', borderRadius: 6, background: 'linear-gradient(180deg, #1a2415 0%, #101611 100%)', padding: '8px 10px' }}>
-                    <div style={{ fontSize: 9, color: '#b8dfad', marginBottom: 6 }}>Noise Gate</div>
+            <div style={pluginPanelLayoutStyle}>
+                <div style={{ ...pluginPanelCardBaseStyle, background: 'linear-gradient(180deg, #1a2415 0%, #101611 100%)' }}>
+                    <div style={{ ...pluginPanelTitleStyle, color: '#b8dfad' }}>Noise Gate</div>
                     <div style={{ height: 34, borderRadius: 4, background: '#1b2018', position: 'relative' }}>
                         <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${(openness * 100).toFixed(1)}%`, background: 'linear-gradient(90deg, #6bc66e 0%, #d2f18b 100%)' }} />
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 9, color: '#a8caa1', fontFamily: 'var(--font-mono)' }}>
+                    <div style={pluginPanelMetaStyle}>
                         <span>Thr {thr.toFixed(1)} dB</span>
                         <span>Range {range.toFixed(1)} dB</span>
                     </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', alignItems: 'center', gap: 8 }}>
+                <div style={pluginPanelKnobGrid('repeat(5, minmax(0, 1fr))')}>
                     {device.params.slice(0, 5).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
@@ -1971,26 +2021,21 @@ const PluginGuiSurface = ({
         const title = device.effectType === 'autoFilter' ? 'Auto Filter' : device.effectType === 'phaser' ? 'Phaser' : 'Flanger';
         const hue = device.effectType === 'autoFilter' ? '#4cc9d8' : device.effectType === 'phaser' ? '#998bff' : '#66b3ff';
         return (
-            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+            <div style={pluginPanelLayoutStyle}>
                 <div style={{
-                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
-                    borderRadius: 6,
+                    ...pluginPanelCardBaseStyle,
                     background: 'linear-gradient(180deg, #151a24 0%, #0f141b 100%)',
-                    padding: '8px 10px',
-                    display: 'grid',
-                    gridTemplateRows: '1fr auto',
-                    gap: 6,
                 }}>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
                         <rect x="0" y="0" width="320" height="52" fill="rgba(8, 10, 14, 0.65)" />
                         <path d="M 0 30 C 32 10, 64 46, 96 26 C 128 6, 160 44, 192 24 C 224 8, 256 42, 288 22 C 304 12, 320 26, 320 26" fill="none" stroke={hue} strokeWidth="2.4" />
                     </svg>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: '#a6b2c4' }}>
+                    <div style={pluginPanelMetaStyle}>
                         <span>{title}</span>
                         <span style={{ fontFamily: 'var(--font-mono)' }}>{params.length} params</span>
                     </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(6, Math.max(3, params.length))}, minmax(0, 1fr))`, alignItems: 'center', gap: 8 }}>
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(6, Math.max(3, params.length))}, minmax(0, 1fr))`)}>
                     {params.slice(0, 6).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
@@ -2003,20 +2048,18 @@ const PluginGuiSurface = ({
         const title = device.effectType === 'distortion' ? 'Distortion' : 'Bitcrusher';
         const color = device.effectType === 'distortion' ? '#ff965e' : '#f2de72';
         return (
-            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+            <div style={pluginPanelLayoutStyle}>
                 <div style={{
-                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
-                    borderRadius: 6,
+                    ...pluginPanelCardBaseStyle,
                     background: 'linear-gradient(180deg, #261a12 0%, #15100c 100%)',
-                    padding: '8px 10px',
                 }}>
-                    <div style={{ fontSize: 9, color: '#d6c1a5', marginBottom: 6 }}>{title}</div>
+                    <div style={{ ...pluginPanelTitleStyle, color: '#d6c1a5' }}>{title}</div>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: 44 }}>
                         <rect x="0" y="0" width="320" height="52" fill="rgba(20, 13, 9, 0.65)" />
                         <path d="M 8 44 L 48 12 L 88 44 L 128 12 L 168 44 L 208 12 L 248 44 L 312 16" fill="none" stroke={color} strokeWidth="2.2" />
                     </svg>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(4, Math.max(3, device.params.length))}, minmax(0, 1fr))`, alignItems: 'center', gap: 8 }}>
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(4, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
                     {device.params.slice(0, 4).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
@@ -2027,28 +2070,20 @@ const PluginGuiSurface = ({
 
     if (device.effectType === 'instrument') {
         return (
-            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+            <div style={pluginPanelLayoutStyle}>
                 <div style={{
-                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
-                    borderRadius: 6,
+                    ...pluginPanelCardBaseStyle,
                     background: 'linear-gradient(180deg, #16243a 0%, #101726 100%)',
-                    padding: '8px 10px',
-                    display: 'grid',
-                    gridTemplateRows: '1fr auto',
-                    gap: 6,
                 }}>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
                         <rect x="0" y="0" width="320" height="52" fill="rgba(9, 14, 22, 0.75)" />
                         <path d="M 10 48 L 40 10 L 85 26 L 140 26 L 180 14 L 240 20 L 308 48" fill="none" stroke="#64b1ff" strokeWidth="2.6" strokeLinejoin="round" strokeLinecap="round" />
                     </svg>
-                    <div style={{ fontSize: 9, color: '#9cbde2' }}>Core Instrument Controls</div>
+                    <div style={{ ...pluginPanelMetaStyle, color: '#9cbde2' }}>
+                        <span>Core Instrument Controls</span>
+                    </div>
                 </div>
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: `repeat(${Math.max(1, Math.min(6, device.params.length))}, minmax(0, 1fr))`,
-                    alignItems: 'center',
-                    gap: 8,
-                }}>
+                <div style={pluginPanelKnobGrid(`repeat(${Math.max(1, Math.min(6, device.params.length))}, minmax(0, 1fr))`)}>
                     {device.params.slice(0, 6).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}

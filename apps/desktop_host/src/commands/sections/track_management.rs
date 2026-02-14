@@ -151,6 +151,15 @@ fn track_is_descendant_of(project: &Project, candidate_id: Uuid, ancestor_id: Uu
     false
 }
 
+fn collect_block_track_ids(project: &Project, root_id: Uuid) -> Vec<Uuid> {
+    project
+        .tracks
+        .iter()
+        .filter(|t| t.id == root_id || track_is_descendant_of(project, t.id, root_id))
+        .map(|t| t.id)
+        .collect()
+}
+
 #[tauri::command]
 async fn create_group_cmd(
     track_ids: Vec<String>,
@@ -394,5 +403,96 @@ async fn set_track_group_cmd(
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
     log::info!("[IPC] set_track_group_cmd({track_id} -> {:?})", target_group);
+    Ok(())
+}
+
+#[tauri::command]
+async fn ungroup_track_cmd(
+    group_id: String,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let gid = Uuid::parse_str(&group_id).map_err(|_| format!("Invalid group_id: {group_id}"))?;
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    let group_index = project
+        .tracks
+        .iter()
+        .position(|t| t.id == gid)
+        .ok_or_else(|| format!("Group track not found: {group_id}"))?;
+
+    let parent_of_group = project.tracks[group_index].parent_track_id;
+    if project.tracks[group_index].track_type != TrackType::Group {
+        return Err("Selected track is not a group".to_string());
+    }
+
+    for t in &mut project.tracks {
+        if t.parent_track_id == Some(gid) {
+            t.parent_track_id = parent_of_group;
+            t.output_destination_id = parent_of_group;
+        }
+    }
+
+    project.tracks.remove(group_index);
+    rebuild_group_children(&mut project);
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    log::info!("[IPC] ungroup_track_cmd({group_id})");
+    Ok(())
+}
+
+#[tauri::command]
+async fn move_track_block_to_index_cmd(
+    root_track_id: String,
+    target_index: usize,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let root_id = Uuid::parse_str(&root_track_id).map_err(|_| format!("Invalid root_track_id: {root_track_id}"))?;
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    let block_ids = collect_block_track_ids(&project, root_id);
+    if block_ids.is_empty() {
+        return Err(format!("Track not found: {root_track_id}"));
+    }
+
+    let mut block_indices: Vec<usize> = project
+        .tracks
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, t)| if block_ids.contains(&t.id) { Some(idx) } else { None })
+        .collect();
+    block_indices.sort_unstable();
+
+    let first_index = block_indices[0];
+    let block_len = block_indices.len();
+
+    let mut block_tracks: Vec<Track> = Vec::with_capacity(block_len);
+    for idx in block_indices.iter().rev() {
+        block_tracks.push(project.tracks.remove(*idx));
+    }
+    block_tracks.reverse();
+
+    let removed_before_target = block_indices.iter().filter(|idx| **idx < target_index).count();
+    let mut adjusted_target = target_index.saturating_sub(removed_before_target);
+    if adjusted_target > project.tracks.len() {
+        adjusted_target = project.tracks.len();
+    }
+
+    for (offset, t) in block_tracks.into_iter().enumerate() {
+        project.tracks.insert(adjusted_target + offset, t);
+    }
+
+    rebuild_group_children(&mut project);
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    log::info!(
+        "[IPC] move_track_block_to_index_cmd({root_track_id}: {} -> {}, len={})",
+        first_index,
+        adjusted_target,
+        block_len
+    );
     Ok(())
 }

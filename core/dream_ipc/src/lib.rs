@@ -102,6 +102,15 @@ pub enum EngineCommand {
     /// Set sub oscillator level (0.0..1.0), one octave below osc1.
     SetSamplerSubLevel { track_index: u16, level: f32 },
 
+    /// Set synth voice filter cutoff frequency in Hz (20..20000).
+    SetSamplerFilterCutoff { track_index: u16, cutoff: f32 },
+
+    /// Set synth voice filter resonance (0.0..0.99).
+    SetSamplerFilterResonance { track_index: u16, resonance: f32 },
+
+    /// Set synth voice filter type (0=LP, 1=HP, 2=BP, 3=Notch).
+    SetSamplerFilterType { track_index: u16, filter_type: u8 },
+
     /// Turn off all active notes on a track's sampler.
     SamplerAllNotesOff { track_index: u16 },
 

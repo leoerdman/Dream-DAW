@@ -1041,19 +1041,29 @@ const TriColorVU = ({ peakDb, isMidi, compact = false }: { peakDb: number; isMid
     const holdTimerRef = useRef<number | null>(null);
 
     useEffect(() => {
-        setPeakHoldNorm((prev) => Math.max(prev, normalizedLevel));
-        if (peakDb >= 0) setClipLatched(true);
+        let rafId: number | null = null;
+        let clipLatchTimer: number | null = null;
+        if (normalizedLevel > peakHoldNorm) {
+            rafId = window.requestAnimationFrame(() => {
+                setPeakHoldNorm(normalizedLevel);
+            });
+        }
+        if (peakDb >= 0) {
+            clipLatchTimer = window.setTimeout(() => setClipLatched(true), 0);
+        }
         if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current);
         holdTimerRef.current = window.setTimeout(() => {
             setPeakHoldNorm(normalizedLevel);
         }, 650);
         return () => {
+            if (rafId !== null) window.cancelAnimationFrame(rafId);
+            if (clipLatchTimer !== null) window.clearTimeout(clipLatchTimer);
             if (holdTimerRef.current !== null) {
                 window.clearTimeout(holdTimerRef.current);
                 holdTimerRef.current = null;
             }
         };
-    }, [normalizedLevel, peakDb]);
+    }, [normalizedLevel, peakDb, peakHoldNorm]);
 
     // Segment thresholds in normalized space
     const minus2Norm = vuNorm(-2);  // where -2 dB sits

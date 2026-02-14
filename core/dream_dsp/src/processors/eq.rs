@@ -128,6 +128,12 @@ impl DspProcessor for EqProcessor {
                 right[i] *= g;
             }
         }
+        // Soft-clip to prevent cascaded filter boosts from going unbounded
+        // tanh(x/6)*6 preserves linearity up to ~±4 and soft-clips beyond
+        for i in 0..left.len().min(right.len()) {
+            left[i] = (left[i] / 6.0).tanh() * 6.0;
+            right[i] = (right[i] / 6.0).tanh() * 6.0;
+        }
     }
 
     fn set_param(&mut self, index: u8, value: f32) {

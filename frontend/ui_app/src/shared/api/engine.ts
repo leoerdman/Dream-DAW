@@ -263,6 +263,14 @@ export const setTrackGroup = (trackId: string, groupId?: string | null) =>
         groupId: groupId ?? null,
     });
 
+/** Remove a group track, lifting its children one level up. */
+export const ungroupTrack = (groupId: string) =>
+    invoke<void>('ungroup_track_cmd', { groupId });
+
+/** Move a group block (group + descendants) as a contiguous unit. */
+export const moveTrackBlockToIndex = (rootTrackId: string, targetIndex: number) =>
+    invoke<void>('move_track_block_to_index_cmd', { rootTrackId, targetIndex });
+
 // ── State Queries ────────────────────────────────────────────────────────
 
 /** Get current engine state snapshot. */

@@ -20,6 +20,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use dream_clip_engine::pool::ClipAudio;
+use dream_dsp::svf::{SvfCoeffs, SvfState};
 use std::sync::Arc;
 
 // ── Constants ──────────────────────────────────────────────────────────
@@ -45,6 +46,28 @@ impl Waveform {
             2 => Self::Saw,
             3 => Self::Square,
             _ => Self::Sine,
+        }
+    }
+}
+
+// ── Filter Type ────────────────────────────────────────────────────────
+
+/// SVF filter mode for the synth voice filter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SynthFilterType {
+    Lowpass = 0,
+    Highpass = 1,
+    Bandpass = 2,
+    Notch = 3,
+}
+
+impl SynthFilterType {
+    pub fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::Highpass,
+            2 => Self::Bandpass,
+            3 => Self::Notch,
+            _ => Self::Lowpass,
         }
     }
 }
@@ -231,6 +254,9 @@ pub struct SamplerVoice {
     /// Per-voice ADSR envelope.
     pub envelope: AdsrEnvelope,
 
+    /// Per-voice SVF filter state (reset per note-on for consistent timbre).
+    pub filter_state: SvfState,
+
     sample_rate: f64,
 }
 
@@ -245,6 +271,7 @@ impl SamplerVoice {
             pitch_ratio: 1.0,
             phase_increment: 0.0,
             envelope: AdsrEnvelope::new(sample_rate),
+            filter_state: SvfState::default(),
             sample_rate,
         }
     }
@@ -260,6 +287,7 @@ impl SamplerVoice {
         let freq_hz = 440.0_f64 * 2.0_f64.powf((note as f64 - 69.0) / 12.0);
         self.phase_increment = (freq_hz / self.sample_rate).clamp(0.0, 0.5);
         self.envelope.note_on();
+        self.filter_state.reset(); // Fresh filter state per note
     }
 
     /// Release the note (enters ADSR release phase).
@@ -341,6 +369,7 @@ impl SamplerVoice {
         self.cursor = 0.0;
         self.phase_increment = 0.0;
         self.envelope.reset();
+        self.filter_state.reset();
     }
 }
 
@@ -379,6 +408,14 @@ pub struct SamplerEngine {
     detune_cents: f32,
     sub_level: f32,
 
+    /// SVF filter parameters for the oscillator path.
+    filter_enabled: bool,
+    filter_cutoff: f32,
+    filter_resonance: f32,
+    filter_type: SynthFilterType,
+    /// Pre-computed SVF coefficients (recalculated when cutoff/res change).
+    filter_coeffs: SvfCoeffs,
+
     /// Engine sample rate (stored for future use, e.g. resampling).
     _sample_rate: f64,
 }
@@ -399,6 +436,11 @@ impl SamplerEngine {
             osc_mix: 0.35,
             detune_cents: 0.0,
             sub_level: 0.0,
+            filter_enabled: false,
+            filter_cutoff: 20000.0,
+            filter_resonance: 0.0,
+            filter_type: SynthFilterType::Lowpass,
+            filter_coeffs: SvfCoeffs::new(20000.0, 0.0, sample_rate),
             _sample_rate: sample_rate,
         }
     }
@@ -430,6 +472,33 @@ impl SamplerEngine {
 
     pub fn set_sub_level(&mut self, level: f32) {
         self.sub_level = level.clamp(0.0, 1.0);
+    }
+
+    /// Set filter cutoff frequency in Hz (20–20000).
+    pub fn set_filter_cutoff(&mut self, cutoff: f32) {
+        self.filter_cutoff = cutoff.clamp(20.0, 20000.0);
+        self.filter_enabled = self.filter_cutoff < 19999.0 || self.filter_resonance > 0.01;
+        self.filter_coeffs = SvfCoeffs::new(
+            self.filter_cutoff as f64,
+            self.filter_resonance as f64,
+            self._sample_rate,
+        );
+    }
+
+    /// Set filter resonance (0.0–1.0, where 1.0 = self-oscillation).
+    pub fn set_filter_resonance(&mut self, resonance: f32) {
+        self.filter_resonance = resonance.clamp(0.0, 0.99);
+        self.filter_enabled = self.filter_cutoff < 19999.0 || self.filter_resonance > 0.01;
+        self.filter_coeffs = SvfCoeffs::new(
+            self.filter_cutoff as f64,
+            self.filter_resonance as f64,
+            self._sample_rate,
+        );
+    }
+
+    /// Set filter type (0=LP, 1=HP, 2=BP, 3=Notch).
+    pub fn set_filter_type(&mut self, filter_type: u8) {
+        self.filter_type = SynthFilterType::from_u8(filter_type);
     }
 
     /// Change the root note.
@@ -540,6 +609,9 @@ impl SamplerEngine {
                     self.osc_mix,
                     self.detune_cents,
                     self.sub_level,
+                    self.filter_enabled,
+                    &self.filter_coeffs,
+                    self.filter_type,
                     left_out,
                     right_out,
                     frame_count,
@@ -578,20 +650,89 @@ impl SamplerEngine {
     }
 }
 
+// ── PolyBLEP Anti-Aliased Oscillators ──────────────────────────────────
+//
+// PolyBLEP (Polynomial Band-Limited Step) corrects waveform discontinuities
+// by subtracting a 2nd-order polynomial residual near each transition point.
+// This dramatically reduces aliasing for Saw, Square, and Triangle waveforms
+// with negligible CPU overhead (~2 extra multiplies per sample).
+//
+// Reference: Välimäki & Franck, "Polynomial Transition Regions" (2012)
+
+/// PolyBLEP residual — corrects the aliasing at waveform discontinuities.
+///
+/// `t` = distance from the discontinuity in phase units (0..1).
+/// `dt` = phase increment per sample (normalized frequency).
+///
+/// Returns the correction value to subtract from the naive waveform.
 #[inline]
-fn oscillator_sample(waveform: Waveform, phase: f64) -> f32 {
-    let p = phase.fract();
+fn poly_blep(t: f64, dt: f64) -> f64 {
+    if dt <= 0.0 {
+        return 0.0;
+    }
+    if t < dt {
+        // t is just past the discontinuity (0..dt)
+        let x = t / dt;
+        // 2x - x² - 1
+        2.0 * x - x * x - 1.0
+    } else if t > 1.0 - dt {
+        // t is just before the discontinuity ((1-dt)..1)
+        let x = (t - 1.0) / dt;
+        // x² + 2x + 1
+        x * x + 2.0 * x + 1.0
+    } else {
+        0.0
+    }
+}
+
+/// PolyBLEP-corrected oscillator sample.
+///
+/// - **Sine**: Already band-limited, no correction needed.
+/// - **Saw**: Naive saw minus PolyBLEP at the wrap discontinuity.
+/// - **Square**: Naive square minus PolyBLEP at both 0 and 0.5 transitions.
+/// - **Triangle**: Leaky-integrated PolyBLEP square (produces band-limited triangle).
+#[inline]
+fn oscillator_sample_blep(waveform: Waveform, phase: f64, dt: f64, tri_state: &mut f64) -> f32 {
+    let p = phase.fract().max(0.0);
     match waveform {
         Waveform::Sine => (p * std::f64::consts::TAU).sin() as f32,
-        Waveform::Triangle => {
-            let v = 4.0 * (p - 0.5).abs() - 1.0;
-            (-v) as f32
+        Waveform::Saw => {
+            // Naive saw: ramp from -1 to +1 over one cycle
+            let naive = 2.0 * p - 1.0;
+            // Subtract PolyBLEP at the discontinuity (phase=0/1)
+            let corrected = naive - poly_blep(p, dt);
+            corrected as f32
         }
-        Waveform::Saw => (2.0 * p - 1.0) as f32,
         Waveform::Square => {
-            if p < 0.5 { 1.0 } else { -1.0 }
+            // Naive square: +1 for first half, -1 for second half
+            let naive: f64 = if p < 0.5 { 1.0 } else { -1.0 };
+            // PolyBLEP correction at both transitions (0 and 0.5)
+            let blep1 = poly_blep(p, dt);
+            let blep2 = poly_blep((p + 0.5) % 1.0, dt);
+            let corrected = naive + blep1 - blep2;
+            corrected as f32
+        }
+        Waveform::Triangle => {
+            // Derive band-limited triangle by integrating PolyBLEP square.
+            // Uses a leaky integrator to prevent DC drift.
+            let naive_sq: f64 = if p < 0.5 { 1.0 } else { -1.0 };
+            let blep1 = poly_blep(p, dt);
+            let blep2 = poly_blep((p + 0.5) % 1.0, dt);
+            let sq = naive_sq + blep1 - blep2;
+            // Leaky integrator: integrates the square to get triangle
+            // Factor 4*dt scales so amplitude ≈ 1.0
+            *tri_state = 0.999 * *tri_state + 4.0 * dt * sq;
+            (*tri_state).clamp(-1.0, 1.0) as f32
         }
     }
+}
+
+/// Fallback for contexts where we don't track per-osc triangle state
+/// (e.g. sub oscillator which is always square).
+#[inline]
+fn oscillator_sample_blep_stateless(waveform: Waveform, phase: f64, dt: f64) -> f32 {
+    let mut dummy = 0.0;
+    oscillator_sample_blep(waveform, phase, dt, &mut dummy)
 }
 
 fn render_oscillator_voice(
@@ -601,6 +742,9 @@ fn render_oscillator_voice(
     osc_mix: f32,
     detune_cents: f32,
     sub_level: f32,
+    filter_enabled: bool,
+    filter_coeffs: &SvfCoeffs,
+    filter_type: SynthFilterType,
     left_out: &mut [f32],
     right_out: &mut [f32],
     frame_count: usize,
@@ -609,6 +753,15 @@ fn render_oscillator_voice(
     let mix1 = 1.0 - mix2;
     let detune_ratio = 2.0_f64.powf(detune_cents as f64 / 1200.0);
     let sub = sub_level.clamp(0.0, 1.0);
+    let dt = voice.phase_increment;
+    let dt2 = dt * detune_ratio;
+    let dt_sub = dt * 0.5; // sub oscillator is one octave below
+
+    // Per-oscillator triangle integrator state (persists across calls via voice)
+    // We use local state here since voices are short-lived enough
+    let mut tri1 = 0.0_f64;
+    let mut tri2 = 0.0_f64;
+
     for i in 0..frame_count {
         let env = voice.envelope.process();
         if voice.envelope.is_idle() {
@@ -618,10 +771,40 @@ fn render_oscillator_voice(
         let phase1 = voice.cursor;
         let phase2 = (voice.cursor * detune_ratio).fract();
         let sub_phase = (voice.cursor * 0.5).fract();
-        let osc1 = oscillator_sample(waveform, phase1);
-        let osc2 = oscillator_sample(waveform2, phase2);
-        let sub_osc = oscillator_sample(Waveform::Square, sub_phase);
-        let sample = osc1 * mix1 + osc2 * mix2 + sub_osc * sub;
+
+        let osc1 = oscillator_sample_blep(waveform, phase1, dt, &mut tri1);
+        let osc2 = oscillator_sample_blep(waveform2, phase2, dt2, &mut tri2);
+        // Sub oscillator is always square, one octave down
+        let sub_osc = oscillator_sample_blep_stateless(Waveform::Square, sub_phase, dt_sub);
+
+        let mut sample = osc1 * mix1 + osc2 * mix2 + sub_osc * sub;
+
+        // ── Per-voice SVF filter ──────────────────────────────────────
+        if filter_enabled {
+            let c = filter_coeffs;
+            let s = &mut voice.filter_state;
+            let input = sample;
+
+            let v3 = input - s.ic2eq;
+            let v1 = c.a1 * s.ic1eq + c.a2 * v3;
+            let v2 = s.ic2eq + c.a2 * s.ic1eq + c.a3 * v3;
+
+            s.ic1eq = 2.0 * v1 - s.ic1eq;
+            s.ic2eq = 2.0 * v2 - s.ic2eq;
+
+            sample = match filter_type {
+                SynthFilterType::Lowpass => v2,
+                SynthFilterType::Highpass => input - c.k * v1 - v2,
+                SynthFilterType::Bandpass => v1,
+                SynthFilterType::Notch => {
+                    // Notch = LP + HP (reject band around cutoff)
+                    let lp = v2;
+                    let hp = input - c.k * v1 - v2;
+                    lp + hp
+                }
+            };
+        }
+
         let gain = voice.velocity * env;
         left_out[i] += sample * gain;
         right_out[i] += sample * gain;

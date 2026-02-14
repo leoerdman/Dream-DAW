@@ -331,6 +331,23 @@ export const TrackInspector = ({
         setContextMenu(null);
     }, [getTrackIndex, deleteTrack]);
 
+    const handleDeleteSelectedTracks = useCallback(() => {
+        const selected = Array.from(selectedTrackIds)
+            .map((id) => ({ id, idx: getTrackIndex(id) }))
+            .filter((v) => v.idx >= 0)
+            .sort((a, b) => b.idx - a.idx);
+        if (selected.length === 0) return;
+        void (async () => {
+            for (const item of selected) {
+                await engineApi.deleteTrack(item.idx);
+            }
+            setSelectedTrackIds(new Set());
+            await useEngineStore.getState().fetchProject();
+        })().catch((err) => {
+            console.error('[TrackInspector] delete selected tracks failed:', err);
+        });
+    }, [selectedTrackIds, getTrackIndex]);
+
     const handleGroupTrack = useCallback((trackId: string) => {
         void engineApi.createGroup([trackId]).then(() => {
             void useEngineStore.getState().fetchProject();
@@ -395,10 +412,14 @@ export const TrackInspector = ({
                     });
                 }
             }
+            if ((e.key === 'Delete' || e.key === 'Backspace') && selectedTrackIds.size > 0) {
+                e.preventDefault();
+                handleDeleteSelectedTracks();
+            }
         };
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
-    }, [selectedTrackId, selectedTrackIds, tracks, handleRenameStart, handleGroupTrack]);
+    }, [selectedTrackId, selectedTrackIds, tracks, handleRenameStart, handleGroupTrack, handleDeleteSelectedTracks]);
 
     const computeRawInsertIndex = useCallback((visibleInsertIndex: number): number => {
         if (visibleTracks.length === 0) return 0;

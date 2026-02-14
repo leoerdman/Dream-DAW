@@ -41,10 +41,12 @@ export const PluginKnob = ({
     param,
     compact = false,
     onChange,
+    onContextMenu,
 }: {
     param: PluginParam;
     compact?: boolean;
     onChange: (paramName: string, value: number) => void;
+    onContextMenu?: (e: React.MouseEvent, paramName: string) => void;
 }) => {
     const pct = Math.max(0, Math.min(1, (param.value - param.min) / Math.max(1e-9, param.max - param.min)));
     const angle = -135 + pct * 270;
@@ -53,7 +55,10 @@ export const PluginKnob = ({
     const markerTopOffset = compact ? '-84%' : '-88%';
 
     return (
-        <label style={knobLabelStyle(compact)}>
+        <label
+            style={knobLabelStyle(compact)}
+            onContextMenu={onContextMenu ? (e) => { e.preventDefault(); onContextMenu(e, param.name); } : undefined}
+        >
             <span style={knobParamNameStyle}>{param.name}</span>
             <div style={{ position: 'relative', width: size, height: size }}>
                 <div style={knobDialStyle}>

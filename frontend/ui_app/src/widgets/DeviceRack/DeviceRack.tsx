@@ -3,6 +3,7 @@ import throttle from 'lodash.throttle';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
+import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import * as engineApi from '@/shared/api/engine';
 import { PluginWindow } from '@/widgets/PluginWindow/PluginWindow';
 import {
@@ -291,6 +292,35 @@ export const DeviceRack = ({
     const fetchProject = useEngineStore((s) => s.fetchProject);
     const rackRef = useRef<HTMLDivElement>(null);
     const [isDropActive, setIsDropActive] = useState(false);
+
+    // ── Automation context menu state ──
+    const [autoCtxMenu, setAutoCtxMenu] = useState<{
+        x: number;
+        y: number;
+        paramName: string;
+        deviceId: string;
+    } | null>(null);
+    const addAutomationLane = useAutomationStore((s) => s.addLane);
+    const removeAutomationLane = useAutomationStore((s) => s.removeLane);
+    const automationLanes = useAutomationStore((s) => s.lanes);
+    const toggleGlobalAutomation = useAutomationStore((s) => s.toggleGlobalVisible);
+
+    const handleParamContextMenu = useCallback(
+        (e: React.MouseEvent, paramName: string, deviceId: string) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setAutoCtxMenu({ x: e.clientX, y: e.clientY, paramName, deviceId });
+        },
+        [],
+    );
+
+    // Close context menu on click outside
+    useEffect(() => {
+        if (!autoCtxMenu) return;
+        const close = () => setAutoCtxMenu(null);
+        window.addEventListener('mousedown', close);
+        return () => window.removeEventListener('mousedown', close);
+    }, [autoCtxMenu]);
 
     // Find the track index for meter lookup
     const isMaster = selectedTrackId === 'master';
@@ -651,7 +681,7 @@ export const DeviceRack = ({
         };
     }, [isDropActive, isMaster, selectedTrack, projectTracks, fetchProject, statusClear, statusError, onDropPluginToTrack]);
 
-    return (
+    const rackContent = (
         <>
             <div
                 ref={rackRef}
@@ -738,6 +768,7 @@ export const DeviceRack = ({
                                     setPluginParam(device.id, name, value);
                                     sendInternalParam(device, name, value);
                                 }}
+                                onParamContextMenu={(e, paramName) => handleParamContextMenu(e, paramName, device.id)}
                                 onDropSample={async (samplePath) => {
                                     if (!selectedTrack || selectedTrackId === 'master') return;
                                     try {
@@ -1000,9 +1031,113 @@ export const DeviceRack = ({
             )}
         </>
     );
+
+    // ── Automation context menu popup ──
+    const renderCtxMenuPopup = () => {
+        if (!autoCtxMenu) return null;
+        const existingLane = Object.values(automationLanes).find(
+            (l) =>
+                l.trackId === selectedTrackId &&
+                l.paramKey === `${autoCtxMenu.deviceId}:${autoCtxMenu.paramName}`,
+        );
+
+        return (
+            <div
+                onMouseDown={(e) => e.stopPropagation()}
+                style={{
+                    position: 'fixed',
+                    left: autoCtxMenu.x,
+                    top: autoCtxMenu.y,
+                    zIndex: 9999,
+                    background: 'var(--color-bg-elevated)',
+                    border: '1px solid var(--color-divider)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: 4,
+                    minWidth: 200,
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                }}
+            >
+                <div
+                    style={{
+                        fontSize: 10,
+                        color: 'var(--color-text-tertiary)',
+                        padding: '4px 8px',
+                        fontWeight: 600,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                    }}
+                >
+                    Automation: {autoCtxMenu.paramName}
+                </div>
+                {existingLane ? (
+                    <button
+                        onClick={() => {
+                            removeAutomationLane(existingLane.id);
+                            setAutoCtxMenu(null);
+                        }}
+                        style={autoCtxMenuItemStyle}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'var(--color-bg-hover)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'transparent';
+                        }}
+                    >
+                        ✕ Remove Automation Lane
+                    </button>
+                ) : (
+                    <button
+                        onClick={() => {
+                            addAutomationLane(
+                                selectedTrackId,
+                                autoCtxMenu.paramName,
+                                `${autoCtxMenu.deviceId}:${autoCtxMenu.paramName}`,
+                            );
+                            // Ensure automation is visible
+                            if (!useAutomationStore.getState().globalVisible) {
+                                toggleGlobalAutomation();
+                            }
+                            setAutoCtxMenu(null);
+                        }}
+                        style={autoCtxMenuItemStyle}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'var(--color-bg-hover)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'transparent';
+                        }}
+                    >
+                        ⊕ Add Automation Lane
+                    </button>
+                )}
+            </div>
+        );
+    };
+
+    return (
+        <>
+            {rackContent}
+            {renderCtxMenuPopup()}
+        </>
+    );
 };
 
 // ── DeviceNode ──────────────────────────────────────────
+
+const autoCtxMenuItemStyle: React.CSSProperties = {
+    display: 'block',
+    width: '100%',
+    padding: '5px 8px',
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--color-text-primary)',
+    fontSize: 11,
+    fontWeight: 500,
+    textAlign: 'left',
+    cursor: 'pointer',
+    borderRadius: 3,
+    transition: 'background var(--transition-fast)',
+};
 
 const DeviceNode = ({
     order,
@@ -1014,6 +1149,7 @@ const DeviceNode = ({
     onDropSample,
     onLoadSample,
     editorSupported, editorReason,
+    onParamContextMenu,
 }: {
     order: number;
     device: DeviceSlot;
@@ -1027,6 +1163,7 @@ const DeviceNode = ({
     onOpenGUI?: () => void;
     editorSupported?: boolean;
     editorReason?: string;
+    onParamContextMenu?: (e: React.MouseEvent, paramName: string) => void;
 }) => {
     const vuWidthPercent = Math.min(100, Math.max(0, device.vuLevel * 100));
     const vuColor = device.vuLevel > 0.85 ? 'var(--color-meter-clip)' : device.vuLevel > 0.6 ? 'var(--color-meter-hot)' : 'var(--color-meter-normal)';
@@ -1216,7 +1353,7 @@ const DeviceNode = ({
                     {device.source === 'internal' && device.params.length > 0 ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
                             {device.params.slice(0, device.effectType === 'waveSynth' ? 8 : device.effectType === 'sampler' ? 4 : 3).map((p) => (
-                                <PluginKnob key={p.name} param={p} onChange={onParamChange} />
+                                <PluginKnob key={p.name} param={p} onChange={onParamChange} onContextMenu={onParamContextMenu} />
                             ))}
                         </div>
                     ) : (

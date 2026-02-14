@@ -13,6 +13,7 @@ import { useGridStore } from '@/shared/stores/useGridStore';
 import type { BrowserDragItem, TimelineClip } from '@/shared/types/Arrangement';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
 import { TimelineCommandBus } from '@/shared/lib/TimelineCommandBus';
+import { AutomationOverlay } from './AutomationOverlay';
 
 interface TimelineProps {
     bpm?: number;
@@ -44,6 +45,7 @@ interface TimelineProps {
     onTrackSelect?: (trackId: string, trackIndex: number) => void;
     onScrollTop?: (scrollTop: number) => void;
     followPlayhead?: boolean;
+    automationVisible?: boolean;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -509,6 +511,16 @@ export const Timeline = (props: TimelineProps) => {
                     height: '100%',
                 }}
             />
+            {props.automationVisible && (
+                <AutomationOverlay
+                    visible
+                    trackCount={trackCount}
+                    trackHeight={trackHeight}
+                    scrollTop={engineRef.current?.viewport.scrollY ?? 0}
+                    width={rootRef.current?.clientWidth ?? 800}
+                    bpm={bpm}
+                />
+            )}
         </div>
     );
 };

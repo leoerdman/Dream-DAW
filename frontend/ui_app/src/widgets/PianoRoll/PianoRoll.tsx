@@ -161,6 +161,51 @@ export const PianoRoll = memo(function PianoRoll({
     const [scaleName, setScaleName] = useState<ScaleName>('Major');
     const [clipTranspose, setClipTranspose] = useState(0);
 
+    // ── Undo/Redo History Stack (enterprise-grade, max 50 levels) ──
+    const MAX_HISTORY = 50;
+    const historyRef = useRef<MidiNote[][]>([]);
+    const redoStackRef = useRef<MidiNote[][]>([]);
+    const clipboardRef = useRef<MidiNote[]>([]);
+    const lastCommittedRef = useRef<MidiNote[]>(notes);
+
+    // Keep lastCommittedRef in sync with the notes prop
+    useEffect(() => { lastCommittedRef.current = notes; }, [notes]);
+
+    /** Push current state onto the undo stack, clear redo, then apply new notes. */
+    const commitNotesChange = useCallback((nextNotes: MidiNote[]) => {
+        const prev = lastCommittedRef.current;
+        historyRef.current.push(prev);
+        if (historyRef.current.length > MAX_HISTORY) {
+            historyRef.current.shift();
+        }
+        redoStackRef.current = []; // new edit invalidates redo
+        lastCommittedRef.current = nextNotes;
+        onNotesChange(nextNotes);
+    }, [onNotesChange]);
+
+    const undo = useCallback(() => {
+        if (historyRef.current.length === 0) return;
+        const prev = historyRef.current.pop()!;
+        redoStackRef.current.push(lastCommittedRef.current);
+        lastCommittedRef.current = prev;
+        onNotesChange(prev);
+    }, [onNotesChange]);
+
+    const redo = useCallback(() => {
+        if (redoStackRef.current.length === 0) return;
+        const next = redoStackRef.current.pop()!;
+        historyRef.current.push(lastCommittedRef.current);
+        lastCommittedRef.current = next;
+        onNotesChange(next);
+    }, [onNotesChange]);
+
+    const copySelection = useCallback(() => {
+        const targets = notes.filter((n) => selectedNotes.has(n.id));
+        if (targets.length === 0) return;
+        clipboardRef.current = targets;
+    }, [notes, selectedNotes]);
+
+
     const scrollRef = useRef<HTMLDivElement>(null);
     const noteCanvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -187,6 +232,22 @@ export const PianoRoll = memo(function PianoRoll({
         ? Math.max(MIN_PPB, Math.min(MAX_PPB, zoomOverrideH))
         : autoFitPPB;
     const totalBeats = Math.max(clipBeats, gridAreaWidth / pixelsPerBeat);
+
+    const pasteClipboard = useCallback(() => {
+        if (clipboardRef.current.length === 0) return;
+        const minBeat = Math.min(...clipboardRef.current.map((n) => n.startBeat));
+        const pasteAt = playheadBeat != null
+            ? playheadBeat
+            : Math.max(0, ...notes.map((n) => n.startBeat + n.durationBeats));
+        const offset = pasteAt - minBeat;
+        const pasted = clipboardRef.current.map((n) => ({
+            ...n,
+            id: genNoteId(),
+            startBeat: Math.max(0, Math.min(totalBeats - 0.125, n.startBeat + offset)),
+        }));
+        commitNotesChange([...notes, ...pasted]);
+        setSelectedNotes(new Set(pasted.map((n) => n.id)));
+    }, [notes, playheadBeat, totalBeats, commitNotesChange]);
 
     const canvasWidth = totalBeats * pixelsPerBeat;
     const canvasHeight = TOTAL_KEYS * noteHeight;
@@ -338,7 +399,7 @@ export const PianoRoll = memo(function PianoRoll({
                     durationBeats: duration,
                     velocity: 100,
                 };
-                onNotesChange([...notes, newNote]);
+                commitNotesChange([...notes, newNote]);
             }
         },
         [tool, yToPitch, pixelsPerBeat, snapBeat, beatsPerBar, notes, onNotesChange, totalBeats, currentGridInterval],
@@ -349,7 +410,7 @@ export const PianoRoll = memo(function PianoRoll({
             e.stopPropagation();
             editorRootRef.current?.focus();
             if (tool === 'erase') {
-                onNotesChange(notes.filter((n) => n.id !== noteId));
+                commitNotesChange(notes.filter((n) => n.id !== noteId));
                 return;
             }
             if (tool === 'select') {
@@ -555,7 +616,7 @@ export const PianoRoll = memo(function PianoRoll({
                 durationBeats: Math.max(step, snappedDur),
             };
         });
-        onNotesChange(next);
+        commitNotesChange(next);
     }, [notes, onNotesChange, currentGridInterval, snapBeat, beatsPerBar, totalBeats, selectedNotes]);
 
     const duplicateSelection = useCallback(() => {
@@ -570,7 +631,7 @@ export const PianoRoll = memo(function PianoRoll({
             startBeat: Math.max(0, Math.min(totalBeats - 0.125, n.startBeat + shift)),
             selected: false,
         }));
-        onNotesChange([...notes, ...clones]);
+        commitNotesChange([...notes, ...clones]);
         setSelectedNotes(new Set(clones.map((n) => n.id)));
     }, [selectedNotes, notes, currentGridInterval, totalBeats, onNotesChange]);
 
@@ -587,8 +648,8 @@ export const PianoRoll = memo(function PianoRoll({
                 velocity: Math.max(1, Math.min(127, n.velocity + velocity)),
             };
         });
-        onNotesChange(next);
-    }, [selectedNotes, notes, currentGridInterval, totalBeats, onNotesChange]);
+        commitNotesChange(next);
+    }, [selectedNotes, notes, currentGridInterval, totalBeats, commitNotesChange]);
 
     const applyLegato = useCallback(() => {
         const targets = selectedNotes.size > 0 ? selectedNotes : new Set(notes.map((n) => n.id));
@@ -610,7 +671,7 @@ export const PianoRoll = memo(function PianoRoll({
             }
         });
         if (durationById.size === 0) return;
-        onNotesChange(notes.map((n) => (
+        commitNotesChange(notes.map((n) => (
             durationById.has(n.id)
                 ? { ...n, durationBeats: Math.max(0.125, Math.min(clipBeats - n.startBeat, durationById.get(n.id) ?? n.durationBeats)) }
                 : n
@@ -676,8 +737,41 @@ export const PianoRoll = memo(function PianoRoll({
                 if (!hasSelected) return;
                 e.preventDefault();
                 e.stopPropagation();
-                onNotesChange(notes.filter((n) => !selectedNotes.has(n.id)));
+                commitNotesChange(notes.filter((n) => !selectedNotes.has(n.id)));
                 setSelectedNotes(new Set());
+                return;
+            }
+
+            // Ctrl+Z / Cmd+Z — Undo
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+                e.preventDefault();
+                e.stopPropagation();
+                undo();
+                return;
+            }
+
+            // Ctrl+Shift+Z / Cmd+Shift+Z / Ctrl+Y — Redo
+            if (((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z') ||
+                ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y')) {
+                e.preventDefault();
+                e.stopPropagation();
+                redo();
+                return;
+            }
+
+            // Ctrl+C / Cmd+C — Copy selected notes
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+                e.preventDefault();
+                e.stopPropagation();
+                copySelection();
+                return;
+            }
+
+            // Ctrl+V / Cmd+V — Paste notes from clipboard
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+                e.preventDefault();
+                e.stopPropagation();
+                pasteClipboard();
                 return;
             }
 
@@ -742,7 +836,7 @@ export const PianoRoll = memo(function PianoRoll({
                 }
                 return { ...n, startBeat: Math.min(totalBeats - 0.125, n.startBeat + beatStep) };
             });
-            onNotesChange(moved);
+            commitNotesChange(moved);
         };
         window.addEventListener('keydown', onKeyDown, { capture: true });
         return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
@@ -750,13 +844,17 @@ export const PianoRoll = memo(function PianoRoll({
         isEditorFocused,
         selectedNotes,
         notes,
-        onNotesChange,
+        commitNotesChange,
         currentGridInterval,
         totalBeats,
         duplicateSelection,
         quantizeAllNotesToGrid,
         humanizeSelection,
         applyLegato,
+        undo,
+        redo,
+        copySelection,
+        pasteClipboard,
     ]);
 
     // Clip duration label
@@ -1397,7 +1495,7 @@ export const PianoRoll = memo(function PianoRoll({
                                         onDoubleClick={(e) => {
                                             e.stopPropagation();
                                             if (tool === 'draw' || tool === 'erase') {
-                                                onNotesChange(notes.filter((n) => n.id !== note.id));
+                                                commitNotesChange(notes.filter((n) => n.id !== note.id));
                                             }
                                         }}
                                         style={{

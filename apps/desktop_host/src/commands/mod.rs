@@ -50,6 +50,7 @@ pub(crate) fn invoke_handler()
         save_project,
         save_project_as,
         open_project,
+        import_ableton_project,
         get_recent_projects,
         get_project,
         get_project_status,

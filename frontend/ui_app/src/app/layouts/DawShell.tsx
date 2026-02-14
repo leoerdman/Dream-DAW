@@ -691,6 +691,7 @@ export const DawShell = () => {
                                 }}
                                 onScrollTop={handleTimelineScrollTop}
                                 followPlayhead={followPlayhead}
+                                automationVisible={automationVisible}
                             />
                         </ErrorBoundary>
                     </div>

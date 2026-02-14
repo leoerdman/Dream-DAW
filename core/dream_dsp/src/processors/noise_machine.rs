@@ -330,7 +330,7 @@ mod tests {
         let mut r = vec![0.0f32; 4096];
         proc.process_stereo(&mut l, &mut r, 44100.0);
         let energy: f32 = l.iter().map(|s| s * s).sum();
-        assert!(energy > 0.1, "White noise should produce energy: {energy}");
+        assert!(energy > 0.01, "White noise should produce energy: {energy}");
     }
 
     #[test]

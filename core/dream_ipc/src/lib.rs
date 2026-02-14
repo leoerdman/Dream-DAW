@@ -90,6 +90,18 @@ pub enum EngineCommand {
     /// `waveform`: 0=sine, 1=triangle, 2=saw, 3=square.
     SetSamplerWaveform { track_index: u16, waveform: u8 },
 
+    /// Set oscillator 2 waveform (0=sine, 1=triangle, 2=saw, 3=square).
+    SetSamplerOsc2Waveform { track_index: u16, waveform: u8 },
+
+    /// Set blend between oscillator 1 and 2 (0.0..1.0).
+    SetSamplerOscMix { track_index: u16, mix: f32 },
+
+    /// Set oscillator 2 detune in cents (-50..+50).
+    SetSamplerDetuneCents { track_index: u16, cents: f32 },
+
+    /// Set sub oscillator level (0.0..1.0), one octave below osc1.
+    SetSamplerSubLevel { track_index: u16, level: f32 },
+
     /// Turn off all active notes on a track's sampler.
     SamplerAllNotesOff { track_index: u16 },
 

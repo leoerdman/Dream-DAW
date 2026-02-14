@@ -152,7 +152,11 @@ const DEVICE_PARAM_PRESETS: Record<
         { name: 'Root', value: 60, min: 0, max: 127, suffix: '', step: 1 },
     ],
     waveSynth: [
-        { name: 'Wave', value: 0, min: 0, max: 3, suffix: '', step: 1 },
+        { name: 'Osc1Wave', value: 0, min: 0, max: 3, suffix: '', step: 1 },
+        { name: 'Osc2Wave', value: 0, min: 0, max: 3, suffix: '', step: 1 },
+        { name: 'Mix', value: 0.35, min: 0, max: 1, suffix: '', step: 0.01 },
+        { name: 'Detune', value: 0, min: -50, max: 50, suffix: 'ct', step: 0.1 },
+        { name: 'Sub', value: 0, min: 0, max: 1, suffix: '', step: 0.01 },
         { name: 'Vol', value: 1, min: 0, max: 2, suffix: '', step: 0.01 },
         { name: 'Attack', value: 0.005, min: 0.001, max: 2.0, suffix: 's', step: 0.001 },
         { name: 'Decay', value: 0.1, min: 0.001, max: 4.0, suffix: 's', step: 0.001 },
@@ -356,7 +360,11 @@ export const DeviceRack = ({
                     let backendValue = template.value;
                     if ((effectType === 'sampler' || effectType === 'instrument' || effectType === 'waveSynth') && selectedTrack.sampler) {
                         const n = template.name.toLowerCase();
-                        if (n === 'wave') backendValue = waveformIndexFromSamplePath(selectedTrack.sampler.sample_path);
+                        if (n === 'wave' || n === 'osc1wave') backendValue = waveformIndexFromSamplePath(selectedTrack.sampler.sample_path);
+                        else if (n === 'osc2wave') backendValue = Math.max(0, Math.min(3, selectedTrack.sampler.osc2_waveform ?? 0));
+                        else if (n === 'mix') backendValue = Math.max(0, Math.min(1, selectedTrack.sampler.osc_mix ?? 0.35));
+                        else if (n === 'detune') backendValue = Math.max(-50, Math.min(50, selectedTrack.sampler.detune_cents ?? 0));
+                        else if (n === 'sub') backendValue = Math.max(0, Math.min(1, selectedTrack.sampler.sub_level ?? 0));
                         else if (n === 'vol') backendValue = selectedTrack.sampler.volume;
                         else if (n === 'attack') backendValue = selectedTrack.sampler.attack;
                         else if (n === 'decay') backendValue = selectedTrack.sampler.decay;

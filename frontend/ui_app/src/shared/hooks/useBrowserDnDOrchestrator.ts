@@ -31,13 +31,20 @@ export const useBrowserDnDOrchestrator = ({
     importFile,
     fetchProject,
 }: UseBrowserDnDOrchestratorArgs) => {
+    const buildPluginSlotAttempts = (
+        primary: 'instrument' | 'effect',
+    ): Array<'instrument' | 'effect' | 'auto'> => {
+        const fallback: 'instrument' | 'effect' = primary === 'instrument' ? 'effect' : 'instrument';
+        const attempts: Array<'instrument' | 'effect' | 'auto'> = [primary, 'auto', fallback];
+        return attempts.filter((slot, index) => attempts.indexOf(slot) === index);
+    };
+
     const dropPluginOnTrack = useCallback(async (item: BrowserDragItem, trackId: string) => {
         const track = projectTracks.find((t) => t.id === trackId);
         if (!track || !item.path) return;
         const slot = resolvePluginSlot(track, item.slotHint);
-        const fallbackSlot = slot === 'instrument' ? 'effect' : 'instrument';
         let lastErr: unknown = null;
-        const attempts: Array<'instrument' | 'effect' | 'auto'> = [slot, 'auto', fallbackSlot];
+        const attempts = buildPluginSlotAttempts(slot);
         for (const attempt of attempts) {
             try {
                 await engineApi.addPluginToTrack(track.id, item.path, item.name, attempt);

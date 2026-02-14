@@ -70,6 +70,10 @@ export interface ProjectTrack {
         decay: number;
         sustain: number;
         release: number;
+        osc2_waveform?: number;
+        osc_mix?: number;
+        detune_cents?: number;
+        sub_level?: number;
     } | null;
 }
 

@@ -814,6 +814,30 @@ pub fn start_audio_thread_on_device(
                                         sampler_engines[idx].set_waveform(Waveform::from_u8(waveform));
                                     }
                                 }
+                                EngineCommand::SetSamplerOsc2Waveform { track_index, waveform } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_waveform2(Waveform::from_u8(waveform));
+                                    }
+                                }
+                                EngineCommand::SetSamplerOscMix { track_index, mix } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_osc_mix(mix);
+                                    }
+                                }
+                                EngineCommand::SetSamplerDetuneCents { track_index, cents } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_detune_cents(cents);
+                                    }
+                                }
+                                EngineCommand::SetSamplerSubLevel { track_index, level } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_sub_level(level);
+                                    }
+                                }
                                 EngineCommand::SamplerAllNotesOff { track_index } => {
                                     let idx = track_index as usize;
                                     if idx < sampler_engines.len() {

@@ -1,11 +1,27 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — Distortion / Amp Processor
+// Dream DAW — Distortion / Amp Processor (Enterprise)
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// Multi-mode distortion with tone shaping and dry/wet mix.
-// Modes: Overdrive(0), Crunch(1), Lead(2), Fuzz(3)
+// Multi-mode guitar/synth distortion with cabinet simulation:
+//   Mode 0: Overdrive (soft asymmetric clip — blues/country)
+//   Mode 1: Crunch    (medium symmetric — rock rhythm)
+//   Mode 2: Lead      (heavy harmonic saturation — solo)
+//   Mode 3: Fuzz      (square wave clip — stoner/doom)
+//   Mode 4: Rectifier (full-wave rectification — synth destruction)
 //
-// Params: 0=Drive(0–100), 1=Tone(0–1), 2=Mix(0–1), 3=Mode(0–3)
+// Signal: Input → HP DC → Pre-gain → Waveshaper → Tone EQ → Cab Sim → Mix
+//
+// Parameters:
+//   0: Drive     (0–100%, default 50%)
+//   1: Tone      (0–100%, default 50%) — tilt EQ
+//   2: Mix       (0–100%, default 100%)
+//   3: Mode      (0–4, default 0)
+//   4: Output    (-24 to +6 dB, default 0)
+//   5: Cab Sim   (0 or 1, default 1) — simple cabinet LP filter
+//   6: Tightness (0–100%, default 50%) — HP freq before drive (bass tightness)
+//   7: Bias      (-100 to 100%, default 0%) — waveshaper asymmetry
+//
+// Real-Time Safety: Zero allocations. O(N) per buffer.
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -16,72 +32,161 @@ pub struct DistortionProcessor {
     tone: f32,
     mix: f32,
     mode: u8,
+    output_db: f32,
+    output_lin: f32,
+    cab_sim: bool,
+    tightness: f32,
+    bias: f32,
+    // Filter states
+    hp_state_l: f32,
+    hp_state_r: f32,
     tone_state_l: f32,
     tone_state_r: f32,
+    cab_state_l: f32,
+    cab_state_r: f32,
+    sample_rate: f32,
 }
 
 impl DistortionProcessor {
     pub fn new() -> Self {
-        Self { drive: 30.0, tone: 0.5, mix: 1.0, mode: 0, tone_state_l: 0.0, tone_state_r: 0.0 }
+        Self {
+            drive: 0.5,
+            tone: 0.5,
+            mix: 1.0,
+            mode: 0,
+            output_db: 0.0,
+            output_lin: 1.0,
+            cab_sim: true,
+            tightness: 0.5,
+            bias: 0.0,
+            hp_state_l: 0.0,
+            hp_state_r: 0.0,
+            tone_state_l: 0.0,
+            tone_state_r: 0.0,
+            cab_state_l: 0.0,
+            cab_state_r: 0.0,
+            sample_rate: 44100.0,
+        }
     }
 
     #[inline]
-    fn waveshape(sample: f32, drive: f32, mode: u8) -> f32 {
-        let driven = sample * (1.0 + drive * 0.5);
+    fn waveshape(x: f32, mode: u8, bias: f32) -> f32 {
+        let biased = x + bias * 0.3;
         match mode {
-            0 => driven.tanh(),
+            0 => {
+                // Overdrive: asymmetric soft clip
+                if biased >= 0.0 {
+                    (biased * 2.0).tanh() * 0.8
+                } else {
+                    (biased * 1.5).tanh() * 0.9
+                }
+            }
             1 => {
-                let x = driven.clamp(-2.0, 2.0);
-                if x >= 0.0 { 1.0 - (1.0 - x.min(1.0)).powi(3) }
-                else { -1.0 + (1.0 - (-x).min(1.0)).powi(2) }
+                // Crunch: harder symmetric
+                (biased * 3.0).tanh() * 0.7
             }
             2 => {
-                let clipped = driven.clamp(-1.0, 1.0);
-                clipped - (driven - clipped) * 0.3
+                // Lead: aggressive, harmonic-rich
+                let x2 = biased * 4.0;
+                x2 / (1.0 + x2.abs()) * 0.9
             }
             3 => {
-                let shaped = driven.signum() * (1.0 - (-driven.abs() * 3.0).exp());
-                shaped * 0.7 + driven.abs().min(1.0) * 0.3 * driven.signum()
+                // Fuzz: near-square clip
+                biased.clamp(-0.6, 0.6) * (1.0 / 0.6)
             }
-            _ => driven.tanh(),
+            4 => {
+                // Rectifier: full-wave rectification
+                (biased * 2.0).abs().tanh()
+            }
+            _ => biased.tanh(),
         }
     }
 }
 
+impl Default for DistortionProcessor {
+    fn default() -> Self { Self::new() }
+}
+
 impl DspProcessor for DistortionProcessor {
-    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
+    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], _sample_rate: f32) {
         let len = left.len().min(right.len());
-        let tone_freq = 500.0 + self.tone * 15000.0;
-        let tone_coeff = (std::f32::consts::TAU * tone_freq / sample_rate).min(1.0);
-        let comp = 1.0 / (1.0 + self.drive * 0.1).sqrt();
+        let gain = 1.0 + self.drive * 30.0; // up to 31x
+        let mode = self.mode;
+        let bias = self.bias;
+        let out = self.output_lin;
+        let mix = self.mix;
+
+        // HP coefficient for tightness (50–500Hz based on tightness)
+        let hp_freq = 50.0 + self.tightness * 450.0;
+        let hp_c = 1.0 / (1.0 + std::f32::consts::TAU * hp_freq / self.sample_rate);
+
+        // Tone: tilt EQ (LP amount)
+        let tone_c = (std::f32::consts::TAU * (1000.0 + self.tone * 19000.0) / self.sample_rate).min(0.99);
+
+        // Cabinet simulation LP (~4.5kHz)
+        let cab_c = if self.cab_sim {
+            (std::f32::consts::TAU * 4500.0 / self.sample_rate).min(0.99)
+        } else {
+            1.0 // passthrough
+        };
 
         for i in 0..len {
-            let (dry_l, dry_r) = (left[i], right[i]);
-            let mut wet_l = Self::waveshape(dry_l, self.drive, self.mode);
-            let mut wet_r = Self::waveshape(dry_r, self.drive, self.mode);
-            // Tone filter (one-pole LP)
-            self.tone_state_l += tone_coeff * (wet_l - self.tone_state_l);
-            self.tone_state_r += tone_coeff * (wet_r - self.tone_state_r);
-            wet_l = self.tone_state_l * comp;
-            wet_r = self.tone_state_r * comp;
-            left[i] = dry_l * (1.0 - self.mix) + wet_l * self.mix;
-            right[i] = dry_r * (1.0 - self.mix) + wet_r * self.mix;
+            let dry_l = left[i];
+            let dry_r = right[i];
+
+            // HP filter (remove sub-bass before drive for tightness)
+            let prev_l = self.hp_state_l;
+            let prev_r = self.hp_state_r;
+            self.hp_state_l = hp_c * (prev_l + dry_l);
+            self.hp_state_r = hp_c * (prev_r + dry_r);
+            let hp_l = dry_l - self.hp_state_l + prev_l * hp_c;
+            let hp_r = dry_r - self.hp_state_r + prev_r * hp_c;
+
+            // Drive + waveshape
+            let shaped_l = Self::waveshape(hp_l * gain, mode, bias);
+            let shaped_r = Self::waveshape(hp_r * gain, mode, bias);
+
+            // Tone (LP)
+            self.tone_state_l += tone_c * (shaped_l - self.tone_state_l);
+            self.tone_state_r += tone_c * (shaped_r - self.tone_state_r);
+
+            // Cab sim (LP)
+            let mut wet_l = self.tone_state_l;
+            let mut wet_r = self.tone_state_r;
+            if self.cab_sim {
+                self.cab_state_l += cab_c * (wet_l - self.cab_state_l);
+                self.cab_state_r += cab_c * (wet_r - self.cab_state_r);
+                wet_l = self.cab_state_l;
+                wet_r = self.cab_state_r;
+            }
+
+            // Output gain + mix
+            left[i] = dry_l * (1.0 - mix) + wet_l * out * mix;
+            right[i] = dry_r * (1.0 - mix) + wet_r * out * mix;
         }
     }
 
     fn set_param(&mut self, index: u8, value: f32) {
         match index {
-            0 => self.drive = value.clamp(0.0, 100.0),
-            1 => self.tone = value.clamp(0.0, 1.0),
-            2 => self.mix = value.clamp(0.0, 1.0),
-            3 => self.mode = (value as u8).min(3),
+            0 => self.drive = (value / 100.0).clamp(0.0, 1.0),
+            1 => self.tone = (value / 100.0).clamp(0.0, 1.0),
+            2 => self.mix = (value / 100.0).clamp(0.0, 1.0),
+            3 => self.mode = (value as u8).min(4),
+            4 => { self.output_db = value.clamp(-24.0, 6.0); self.output_lin = 10.0_f32.powf(self.output_db / 20.0); }
+            5 => self.cab_sim = value > 0.5,
+            6 => self.tightness = (value / 100.0).clamp(0.0, 1.0),
+            7 => self.bias = (value / 100.0).clamp(-1.0, 1.0),
             _ => {}
         }
     }
 
     fn reset(&mut self) {
+        self.hp_state_l = 0.0;
+        self.hp_state_r = 0.0;
         self.tone_state_l = 0.0;
         self.tone_state_r = 0.0;
+        self.cab_state_l = 0.0;
+        self.cab_state_r = 0.0;
     }
 }
 
@@ -92,24 +197,23 @@ mod tests {
     #[test]
     fn distortion_clips_loud_signal() {
         let mut proc = DistortionProcessor::new();
-        proc.set_param(0, 80.0);
-        proc.set_param(2, 1.0);
-        let mut left = vec![0.8f32; 2048];
-        let mut right = vec![0.8f32; 2048];
-        proc.process_stereo(&mut left, &mut right, 44100.0);
-        let max_out = left.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-        assert!(max_out < 2.0, "Distortion output too hot: {max_out}");
+        proc.set_param(0, 100.0);
+        proc.set_param(2, 100.0);
+        let mut l = vec![0.5f32; 512];
+        let mut r = vec![0.5f32; 512];
+        proc.process_stereo(&mut l, &mut r, 44100.0);
+        for s in &l { assert!(s.abs() <= 1.5, "Too hot: {s}"); }
     }
 
     #[test]
     fn all_modes_work() {
-        for mode in 0..=3u8 {
+        for m in 0..=4u8 {
             let mut proc = DistortionProcessor::new();
-            proc.set_param(3, mode as f32);
-            proc.set_param(0, 50.0);
-            let mut left = vec![0.5f32; 512];
-            let mut right = vec![0.5f32; 512];
-            proc.process_stereo(&mut left, &mut right, 44100.0);
+            proc.set_param(3, m as f32);
+            proc.set_param(0, 75.0);
+            let mut l = vec![0.3f32; 512];
+            let mut r = vec![0.3f32; 512];
+            proc.process_stereo(&mut l, &mut r, 44100.0);
         }
     }
 }

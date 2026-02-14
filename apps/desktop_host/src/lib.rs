@@ -535,7 +535,7 @@ fn rebuild_sampler_snapshot_from_project(
     }
 
     let mut samples: Vec<Option<Arc<ClipAudio>>> = vec![None; project.tracks.len()];
-    let mut synth_waveforms: Vec<(usize, u8)> = Vec::new();
+    let mut synth_settings: Vec<(usize, u8, u8, f32, f32, f32)> = Vec::new();
     if let Ok(pool) = clip_pool_state.pool.lock() {
         for (idx, track) in project.tracks.iter().enumerate() {
             let plugin_id_lower = track
@@ -546,12 +546,20 @@ fn rebuild_sampler_snapshot_from_project(
             let is_wave_synth = plugin_id_lower.starts_with("internal://instrument/wave-synth")
                 || plugin_id_lower.starts_with("internal://instrument/simple-sine-synth");
             if is_wave_synth {
-                let waveform = track
+                let (waveform, osc2, mix, detune, sub) = track
                     .sampler
                     .as_ref()
-                    .map(|cfg| waveform_code_from_token(&cfg.sample_path))
-                    .unwrap_or(0);
-                synth_waveforms.push((idx, waveform));
+                    .map(|cfg| {
+                        (
+                            waveform_code_from_token(&cfg.sample_path),
+                            cfg.osc2_waveform.min(3),
+                            cfg.osc_mix.clamp(0.0, 1.0) as f32,
+                            cfg.detune_cents.clamp(-50.0, 50.0) as f32,
+                            cfg.sub_level.clamp(0.0, 1.0) as f32,
+                        )
+                    })
+                    .unwrap_or((0, 0, 0.35, 0.0, 0.0));
+                synth_settings.push((idx, waveform, osc2, mix, detune, sub));
             }
             if let Some(cfg) = &track.sampler
                 && !cfg.sample_path.trim().is_empty()
@@ -563,7 +571,7 @@ fn rebuild_sampler_snapshot_from_project(
         }
     }
     handle.sampler_samples.swap(samples);
-    for (track_idx, waveform) in synth_waveforms {
+    for (track_idx, waveform, osc2, mix, detune, sub) in synth_settings {
         if let Err(err) = push_command(
             handle,
             EngineCommand::SetSamplerWaveform {
@@ -577,6 +585,34 @@ fn rebuild_sampler_snapshot_from_project(
                 err
             );
         }
+        let _ = push_command(
+            handle,
+            EngineCommand::SetSamplerOsc2Waveform {
+                track_index: track_idx as u16,
+                waveform: osc2,
+            },
+        );
+        let _ = push_command(
+            handle,
+            EngineCommand::SetSamplerOscMix {
+                track_index: track_idx as u16,
+                mix,
+            },
+        );
+        let _ = push_command(
+            handle,
+            EngineCommand::SetSamplerDetuneCents {
+                track_index: track_idx as u16,
+                cents: detune,
+            },
+        );
+        let _ = push_command(
+            handle,
+            EngineCommand::SetSamplerSubLevel {
+                track_index: track_idx as u16,
+                level: sub,
+            },
+        );
     }
 }
 

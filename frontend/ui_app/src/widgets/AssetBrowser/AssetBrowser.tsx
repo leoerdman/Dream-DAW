@@ -577,7 +577,8 @@ export const AssetBrowser = () => {
                 const primary: 'instrument' | 'effect' | 'auto' = item.slotHint ?? 'auto';
                 const fallbackSlot = primary === 'instrument' ? 'effect' : 'instrument';
                 let lastErr: unknown = null;
-                const attempts: Array<'instrument' | 'effect' | 'auto'> = [primary, 'auto', fallbackSlot];
+                const attempts: Array<'instrument' | 'effect' | 'auto'> = [primary, 'auto', fallbackSlot]
+                    .filter((slot, index, arr) => arr.indexOf(slot) === index);
                 for (const attempt of attempts) {
                     try {
                         await engineApi.addPluginToTrack(track.id, item.path, item.name, attempt);

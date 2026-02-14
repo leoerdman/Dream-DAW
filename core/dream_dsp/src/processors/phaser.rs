@@ -85,9 +85,14 @@ impl PhaserProcessor {
     /// First-order allpass: y = (x - state) * a + state; state = y * a + x
     #[inline]
     fn allpass(input: f32, state: &mut f32, coeff: f32) -> f32 {
+        // Guard: if state is NaN/Inf, reset it
+        if !state.is_finite() { *state = 0.0; }
+        let input = if input.is_finite() { input } else { 0.0 };
         let y = *state + coeff * (input - *state);
         *state = input + coeff * (y - input);
-        y
+        // Clamp state to prevent runaway
+        *state = state.clamp(-10.0, 10.0);
+        y.clamp(-10.0, 10.0)
     }
 }
 
@@ -97,8 +102,8 @@ impl DspProcessor for PhaserProcessor {
         let sr = self.sample_rate;
         let lfo_inc = self.rate as f64 / sr as f64;
         let stages = self.num_stages.min(MAX_STAGES);
-        let center_log = (self.center_freq / 20.0).ln();
-        let range_log = (self.range / 20.0).ln();
+        let center_log = (self.center_freq / 20.0).max(0.001).ln();
+        let range_log = (self.range / 20.0).max(0.001).ln().max(0.001);
 
         for i in 0..len {
             let phase_l = (self.lfo_phase as f32).fract();
@@ -115,9 +120,9 @@ impl DspProcessor for PhaserProcessor {
 
             // Allpass coefficient from frequency
             let coeff_l = (std::f32::consts::PI * freq_l / sr).tan();
-            let coeff_l = (coeff_l - 1.0) / (coeff_l + 1.0);
+            let coeff_l = ((coeff_l - 1.0) / (coeff_l + 1.0)).clamp(-0.999, 0.999);
             let coeff_r = (std::f32::consts::PI * freq_r / sr).tan();
-            let coeff_r = (coeff_r - 1.0) / (coeff_r + 1.0);
+            let coeff_r = ((coeff_r - 1.0) / (coeff_r + 1.0)).clamp(-0.999, 0.999);
 
             // Input with feedback
             let in_l = left[i] + self.fb_l * self.feedback;
@@ -131,8 +136,8 @@ impl DspProcessor for PhaserProcessor {
                 out_r = Self::allpass(out_r, &mut self.ap_state_r[s], coeff_r);
             }
 
-            self.fb_l = out_l;
-            self.fb_r = out_r;
+            self.fb_l = if out_l.is_finite() { out_l.clamp(-5.0, 5.0) } else { 0.0 };
+            self.fb_r = if out_r.is_finite() { out_r.clamp(-5.0, 5.0) } else { 0.0 };
 
             // Mix
             left[i] = left[i] * (1.0 - self.mix) + out_l * self.mix;

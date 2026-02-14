@@ -35,4 +35,20 @@ sustain: number,
 /**
  * ADSR envelope — release time in seconds.
  */
-release: number, };
+release: number, 
+/**
+ * Waveform for oscillator 2 (0=sine, 1=triangle, 2=saw, 3=square).
+ */
+osc2_waveform: number, 
+/**
+ * Blend between oscillator 1 and 2 (0.0..1.0).
+ */
+osc_mix: number, 
+/**
+ * Detune amount for oscillator 2 in cents (-50..+50).
+ */
+detune_cents: number, 
+/**
+ * Sub oscillator level (0.0..1.0), one octave below osc1.
+ */
+sub_level: number, };

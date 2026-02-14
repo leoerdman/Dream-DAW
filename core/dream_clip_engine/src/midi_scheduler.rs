@@ -64,6 +64,11 @@ impl MidiScheduler {
         let mut events = Vec::new();
 
         for clip in clips {
+            // Skip muted clips — they remain visible but produce no MIDI output.
+            if clip.is_muted {
+                continue;
+            }
+
             let clip_start = clip.position.sample_frame;
             let clip_end = clip.end_position().sample_frame;
 

@@ -387,6 +387,10 @@ mod tests {
             decay: 0.12,
             sustain: 0.85,
             release: 0.09,
+            osc2_waveform: 2,
+            osc_mix: 0.42,
+            detune_cents: 7.0,
+            sub_level: 0.18,
         });
         midi_track.automation_lanes.push(AutomationLane {
             param_id: "volume".to_string(),

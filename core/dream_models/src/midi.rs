@@ -215,6 +215,23 @@ pub struct SamplerConfig {
 
     /// ADSR envelope — release time in seconds.
     pub release: f64,
+
+    /// Waveform for oscillator 2 (0=sine, 1=triangle, 2=saw, 3=square).
+    #[serde(default)]
+    pub osc2_waveform: u8,
+
+    /// Blend between oscillator 1 and 2 (0.0..1.0).
+    /// 0.0 = only osc1, 1.0 = only osc2.
+    #[serde(default = "default_sampler_osc_mix")]
+    pub osc_mix: f64,
+
+    /// Detune amount for oscillator 2 in cents (-50..+50).
+    #[serde(default)]
+    pub detune_cents: f64,
+
+    /// Optional sub oscillator level (0.0..1.0), one octave below osc1.
+    #[serde(default)]
+    pub sub_level: f64,
 }
 
 impl Default for SamplerConfig {
@@ -227,8 +244,16 @@ impl Default for SamplerConfig {
             decay: 0.1,
             sustain: 1.0,
             release: 0.05,   // 50ms — smooth release
+            osc2_waveform: 0,
+            osc_mix: default_sampler_osc_mix(),
+            detune_cents: 0.0,
+            sub_level: 0.0,
         }
     }
+}
+
+fn default_sampler_osc_mix() -> f64 {
+    0.35
 }
 
 impl SamplerConfig {

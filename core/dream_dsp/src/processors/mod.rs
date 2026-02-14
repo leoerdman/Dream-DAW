@@ -17,3 +17,4 @@ pub mod phaser;
 pub mod flanger;
 pub mod distortion;
 pub mod bitcrusher;
+pub mod noise_machine;

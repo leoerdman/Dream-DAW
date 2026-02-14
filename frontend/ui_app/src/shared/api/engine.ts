@@ -244,6 +244,25 @@ export const setGroupExpanded = (groupId: string, expanded: boolean) =>
 export const moveTrackToIndex = (trackId: string, targetIndex: number) =>
     invoke<void>('move_track_to_index_cmd', { trackId, targetIndex });
 
+/** Move track to index and (optionally) re-parent under a group track. */
+export const moveTrackWithParent = (
+    trackId: string,
+    targetIndex: number,
+    targetParentGroupId?: string | null,
+) =>
+    invoke<void>('move_track_with_parent_cmd', {
+        trackId,
+        targetIndex,
+        targetParentGroupId: targetParentGroupId ?? null,
+    });
+
+/** Assign track to group (or top-level when groupId is null). */
+export const setTrackGroup = (trackId: string, groupId?: string | null) =>
+    invoke<void>('set_track_group_cmd', {
+        trackId,
+        groupId: groupId ?? null,
+    });
+
 // ── State Queries ────────────────────────────────────────────────────────
 
 /** Get current engine state snapshot. */

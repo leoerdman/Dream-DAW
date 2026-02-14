@@ -288,6 +288,7 @@ export const Timeline = (props: TimelineProps) => {
             fadeIn: c.fadeIn,
             fadeOut: c.fadeOut,
             isOffline: c.isOffline,
+            muted: c.muted,
             midiNotes: c.midiNotes,
         }));
 

@@ -461,6 +461,7 @@ async fn update_midi_clip_cmd(
                 duration: legacy.duration,
                 notes: normalized,
                 is_selected: false,
+                is_muted: false,
             });
         }
         UpdateTarget::Noop => {}

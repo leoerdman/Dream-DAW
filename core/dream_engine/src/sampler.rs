@@ -374,6 +374,10 @@ pub struct SamplerEngine {
     /// Optional oscillator mode (used by basic wave synth instrument).
     oscillator_enabled: bool,
     waveform: Waveform,
+    waveform2: Waveform,
+    osc_mix: f32,
+    detune_cents: f32,
+    sub_level: f32,
 
     /// Engine sample rate (stored for future use, e.g. resampling).
     _sample_rate: f64,
@@ -391,6 +395,10 @@ impl SamplerEngine {
             adsr_params: AdsrParams::default(),
             oscillator_enabled: false,
             waveform: Waveform::Sine,
+            waveform2: Waveform::Sine,
+            osc_mix: 0.35,
+            detune_cents: 0.0,
+            sub_level: 0.0,
             _sample_rate: sample_rate,
         }
     }
@@ -405,6 +413,23 @@ impl SamplerEngine {
     pub fn set_waveform(&mut self, waveform: Waveform) {
         self.waveform = waveform;
         self.oscillator_enabled = true;
+    }
+
+    pub fn set_waveform2(&mut self, waveform: Waveform) {
+        self.waveform2 = waveform;
+        self.oscillator_enabled = true;
+    }
+
+    pub fn set_osc_mix(&mut self, mix: f32) {
+        self.osc_mix = mix.clamp(0.0, 1.0);
+    }
+
+    pub fn set_detune_cents(&mut self, cents: f32) {
+        self.detune_cents = cents.clamp(-50.0, 50.0);
+    }
+
+    pub fn set_sub_level(&mut self, level: f32) {
+        self.sub_level = level.clamp(0.0, 1.0);
     }
 
     /// Change the root note.
@@ -508,7 +533,17 @@ impl SamplerEngine {
                 if !voice.active {
                     continue;
                 }
-                render_oscillator_voice(voice, self.waveform, left_out, right_out, frame_count);
+                render_oscillator_voice(
+                    voice,
+                    self.waveform,
+                    self.waveform2,
+                    self.osc_mix,
+                    self.detune_cents,
+                    self.sub_level,
+                    left_out,
+                    right_out,
+                    frame_count,
+                );
             }
         }
 
@@ -562,17 +597,31 @@ fn oscillator_sample(waveform: Waveform, phase: f64) -> f32 {
 fn render_oscillator_voice(
     voice: &mut SamplerVoice,
     waveform: Waveform,
+    waveform2: Waveform,
+    osc_mix: f32,
+    detune_cents: f32,
+    sub_level: f32,
     left_out: &mut [f32],
     right_out: &mut [f32],
     frame_count: usize,
 ) {
+    let mix2 = osc_mix.clamp(0.0, 1.0);
+    let mix1 = 1.0 - mix2;
+    let detune_ratio = 2.0_f64.powf(detune_cents as f64 / 1200.0);
+    let sub = sub_level.clamp(0.0, 1.0);
     for i in 0..frame_count {
         let env = voice.envelope.process();
         if voice.envelope.is_idle() {
             voice.active = false;
             return;
         }
-        let sample = oscillator_sample(waveform, voice.cursor);
+        let phase1 = voice.cursor;
+        let phase2 = (voice.cursor * detune_ratio).fract();
+        let sub_phase = (voice.cursor * 0.5).fract();
+        let osc1 = oscillator_sample(waveform, phase1);
+        let osc2 = oscillator_sample(waveform2, phase2);
+        let sub_osc = oscillator_sample(Waveform::Square, sub_phase);
+        let sample = osc1 * mix1 + osc2 * mix2 + sub_osc * sub;
         let gain = voice.velocity * env;
         left_out[i] += sample * gain;
         right_out[i] += sample * gain;

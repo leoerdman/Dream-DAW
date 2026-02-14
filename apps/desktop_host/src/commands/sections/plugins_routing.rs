@@ -503,6 +503,10 @@ fn set_internal_plugin_param_cmd(
     let key = payload.param_id.to_lowercase();
     let mut sampler_command_needed = false;
     let mut sampler_waveform: Option<u8> = None;
+    let mut sampler_waveform2: Option<u8> = None;
+    let mut sampler_osc_mix: Option<f32> = None;
+    let mut sampler_detune_cents: Option<f32> = None;
+    let mut sampler_sub_level: Option<f32> = None;
     let (track_index, sampler_cfg_for_rt) = {
         let (idx, track) = project
             .tracks
@@ -569,6 +573,36 @@ fn set_internal_plugin_param_cmd(
                 cfg.sample_path = token.to_string();
                 sampler_waveform = Some(code);
             }
+            "synth.osc1.waveform" | "synth.osc1.wave" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                let (token, code) = waveform_token_and_code(payload.value);
+                cfg.sample_path = token.to_string();
+                sampler_waveform = Some(code);
+            }
+            "synth.osc2.waveform" | "synth.osc2.wave" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                let (_, code) = waveform_token_and_code(payload.value);
+                cfg.osc2_waveform = code;
+                sampler_waveform2 = Some(code);
+            }
+            "synth.osc.mix" | "synth.oscmix" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                let mix = payload.value.clamp(0.0, 1.0) as f32;
+                cfg.osc_mix = mix as f64;
+                sampler_osc_mix = Some(mix);
+            }
+            "synth.detune" | "synth.detunecents" | "synth.osc2.detune" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                let cents = payload.value.clamp(-50.0, 50.0) as f32;
+                cfg.detune_cents = cents as f64;
+                sampler_detune_cents = Some(cents);
+            }
+            "synth.sub" | "synth.sublevel" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                let level = payload.value.clamp(0.0, 1.0) as f32;
+                cfg.sub_level = level as f64;
+                sampler_sub_level = Some(level);
+            }
             _ => {
                 // Keep unknown params round-trippable in automation lanes.
                 upsert_static_automation_lane(track, &payload.param_id, payload.value);
@@ -611,6 +645,30 @@ fn set_internal_plugin_param_cmd(
         push_command(&handle, EngineCommand::SetSamplerWaveform {
             track_index: track_index as u16,
             waveform,
+        })?;
+    }
+    if let Some(waveform) = sampler_waveform2 {
+        push_command(&handle, EngineCommand::SetSamplerOsc2Waveform {
+            track_index: track_index as u16,
+            waveform,
+        })?;
+    }
+    if let Some(mix) = sampler_osc_mix {
+        push_command(&handle, EngineCommand::SetSamplerOscMix {
+            track_index: track_index as u16,
+            mix,
+        })?;
+    }
+    if let Some(cents) = sampler_detune_cents {
+        push_command(&handle, EngineCommand::SetSamplerDetuneCents {
+            track_index: track_index as u16,
+            cents,
+        })?;
+    }
+    if let Some(level) = sampler_sub_level {
+        push_command(&handle, EngineCommand::SetSamplerSubLevel {
+            track_index: track_index as u16,
+            level,
         })?;
     }
 
@@ -690,6 +748,22 @@ fn set_sampler_sample_cmd(
         decay: sampler_cfg.decay as f32,
         sustain: sampler_cfg.sustain as f32,
         release: sampler_cfg.release as f32,
+    })?;
+    push_command(&handle, EngineCommand::SetSamplerOsc2Waveform {
+        track_index: idx,
+        waveform: sampler_cfg.osc2_waveform.min(3),
+    })?;
+    push_command(&handle, EngineCommand::SetSamplerOscMix {
+        track_index: idx,
+        mix: sampler_cfg.osc_mix.clamp(0.0, 1.0) as f32,
+    })?;
+    push_command(&handle, EngineCommand::SetSamplerDetuneCents {
+        track_index: idx,
+        cents: sampler_cfg.detune_cents.clamp(-50.0, 50.0) as f32,
+    })?;
+    push_command(&handle, EngineCommand::SetSamplerSubLevel {
+        track_index: idx,
+        level: sampler_cfg.sub_level.clamp(0.0, 1.0) as f32,
     })?;
 
     log::info!(

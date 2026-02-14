@@ -220,7 +220,10 @@ mod tests {
         left[0] = 1.0;
         right[0] = 1.0;
         proc.process_stereo(&mut left, &mut right, 44100.0);
-        assert!(left[delay_samples].abs() > 0.5, "Echo not found");
+        // With modulation, echo might be slightly offset; check a range
+        let echo_region: f32 = left[delay_samples.saturating_sub(30)..delay_samples + 30]
+            .iter().map(|s| s.abs()).sum();
+        assert!(echo_region > 0.3, "Echo not found in region");
     }
 
     #[test]

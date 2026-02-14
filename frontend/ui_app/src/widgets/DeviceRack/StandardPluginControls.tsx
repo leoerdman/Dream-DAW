@@ -32,7 +32,7 @@ export const PluginSlider = ({
             step={param.step ?? (param.max - param.min) / 100}
             value={param.value}
             onChange={(e) => onChange(param.name, Number(e.target.value))}
-            style={{ width: '100%' }}
+            style={sliderInputStyle}
         />
     </label>
 );
@@ -90,10 +90,24 @@ const sliderLabelStyle: CSSProperties = {
 const sliderTextStyle: CSSProperties = {
     fontSize: 10,
     color: 'var(--color-text-secondary)',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
 };
 
 const sliderValueStyle: CSSProperties = {
-    color: 'var(--color-text-tertiary)',
+    color: 'var(--color-text-primary)',
+    fontFamily: 'var(--font-mono)',
+};
+
+const sliderInputStyle: CSSProperties = {
+    width: '100%',
+    accentColor: 'var(--color-accent-primary)',
+    cursor: 'ew-resize',
+    height: 14,
+    borderRadius: 999,
+    background: 'transparent',
 };
 
 const knobLabelStyle = (compact: boolean): CSSProperties => ({
@@ -109,15 +123,17 @@ const knobParamNameStyle: CSSProperties = {
     color: 'var(--color-text-secondary)',
     textAlign: 'center',
     lineHeight: 1.1,
+    textTransform: 'uppercase',
+    letterSpacing: '0.03em',
 };
 
 const knobDialStyle: CSSProperties = {
     width: '100%',
     height: '100%',
     borderRadius: '50%',
-    background: 'radial-gradient(circle at 35% 30%, #303030 0%, #191919 58%, #0e0e0e 100%)',
-    border: '1px solid rgba(255,255,255,0.2)',
-    boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.08), inset 0 -2px 4px rgba(0,0,0,0.5)',
+    background: 'radial-gradient(circle at 35% 28%, #3a3f47 0%, #232831 54%, #13171d 100%)',
+    border: '1px solid color-mix(in srgb, var(--color-accent-primary) 24%, rgba(255,255,255,0.2))',
+    boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.09), inset 0 -2px 5px rgba(0,0,0,0.58), 0 0 0 1px rgba(10,14,18,0.6)',
     position: 'relative',
 };
 
@@ -129,7 +145,7 @@ const knobMarkerStyle: CSSProperties = {
     background: 'var(--color-accent-primary)',
     transformOrigin: '50% 90%',
     borderRadius: 999,
-    boxShadow: '0 0 3px rgba(74,144,217,0.7)',
+    boxShadow: '0 0 5px color-mix(in srgb, var(--color-accent-primary) 68%, transparent)',
 };
 
 const knobInputOverlayStyle: CSSProperties = {
@@ -143,4 +159,5 @@ const knobValueStyle = (compact: boolean): CSSProperties => ({
     fontSize: compact ? 9 : 10,
     color: 'var(--color-text-primary)',
     fontFamily: 'var(--font-mono)',
+    opacity: 0.92,
 });

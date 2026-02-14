@@ -115,6 +115,18 @@ function fileTypeToItemType(ft: string): BrowserItem['type'] {
     }
 }
 
+function selectBestPeakLevel(levels: { peaks: PeakPair[] }[]): PeakPair[] | null {
+    for (let i = levels.length - 1; i >= 0; i -= 1) {
+        const peaks = levels[i]?.peaks;
+        if (peaks && peaks.length > 0) return peaks;
+    }
+    for (let i = 0; i < levels.length; i += 1) {
+        const peaks = levels[i]?.peaks;
+        if (peaks && peaks.length > 0) return peaks;
+    }
+    return null;
+}
+
 // ── Component ──────────────────────────────────────────
 
 export const AssetBrowser = () => {
@@ -129,8 +141,6 @@ export const AssetBrowser = () => {
 
     // Preview waveform state
     const [previewPeaks, setPreviewPeaks] = useState<PeakPair[] | null>(null);
-    const [previewFileName, setPreviewFileName] = useState<string>('');
-    const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
 
     // ── User folders (PLACES section) ──
     const [userFolders, setUserFolders] = useState<string[]>([]);
@@ -748,27 +758,25 @@ export const AssetBrowser = () => {
 
                                         setSelectedItemId(prev => {
                                             const newId = prev === item.id ? null : item.id;
-                                            // Audio preview
-                                            if (previewEnabled && isAudio && item.path && newId) {
-                                                setIsPreviewPlaying(true);
-                                                setPreviewFileName(item.name);
-                                                engineApi.previewAudioFile(item.path)
-                                                    .catch(err => {
-                                                        console.warn('[Preview]', err);
-                                                        setIsPreviewPlaying(false);
-                                                    });
-                                                // Fetch waveform peaks for preview panel
+                                            // Selected audio: always fetch waveform for footer line
+                                            if (isAudio && item.path && newId) {
                                                 engineApi.getWaveformPeaks(item.path)
                                                     .then(peaks => {
-                                                        const level = peaks.mip_levels[peaks.mip_levels.length - 1];
-                                                        setPreviewPeaks(level?.peaks ?? null);
+                                                        setPreviewPeaks(selectBestPeakLevel(peaks.mip_levels));
                                                     })
                                                     .catch(() => setPreviewPeaks(null));
+                                                // Autoplay depends on preview toggle state
+                                                if (previewEnabled) {
+                                                    engineApi.previewAudioFile(item.path)
+                                                        .catch(err => {
+                                                            console.warn('[Preview]', err);
+                                                        });
+                                                } else {
+                                                    engineApi.stopPreview().catch(() => { });
+                                                }
                                             } else {
                                                 engineApi.stopPreview().catch(() => { });
-                                                setIsPreviewPlaying(false);
                                                 setPreviewPeaks(null);
-                                                setPreviewFileName('');
                                             }
                                             return newId;
                                         });
@@ -882,63 +890,38 @@ export const AssetBrowser = () => {
                 borderTop: '1px solid var(--color-divider)',
                 background: 'var(--color-bg-header)',
             }}>
-                {/* Waveform Preview Area */}
-                {previewEnabled && isPreviewPlaying && previewPeaks && (
-                    <div style={{
-                        padding: '4px 8px 2px',
-                    }}>
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            marginBottom: 2,
-                        }}>
-                            <span style={{
-                                fontSize: 9,
-                                color: 'var(--color-text-secondary)',
-                                fontWeight: 500,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                maxWidth: '70%',
-                            }}>
-                                ▶ {previewFileName}
-                            </span>
-                            <button
-                                onClick={() => {
-                                    engineApi.stopPreview().catch(() => { });
-                                    setIsPreviewPlaying(false);
-                                    setPreviewPeaks(null);
-                                    setPreviewFileName('');
-                                    setSelectedItemId(null);
-                                }}
-                                style={{
-                                    background: 'transparent',
-                                    border: 'none',
-                                    color: 'var(--color-text-tertiary)',
-                                    cursor: 'pointer',
-                                    fontSize: 10,
-                                    padding: '0 2px',
-                                }}
-                                title="Stop preview"
-                            >
-                                ■
-                            </button>
-                        </div>
-                        <PreviewWaveform peaks={previewPeaks} height={48} />
-                    </div>
-                )}
-
-                {/* Footer bar: count + toggle */}
+                {/* Footer bar: count + integrated waveform + round headphone toggle */}
                 <div style={{
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '4px 8px',
+                    padding: '3px 8px',
+                    gap: 6,
                     fontSize: 'var(--font-size-2xs)',
                     color: 'var(--color-text-tertiary)',
                 }}>
-                    <span>{items.length} items</span>
+                    <div style={{
+                        flex: 1,
+                        minWidth: 0,
+                        height: 18,
+                        borderRadius: 4,
+                        border: '1px solid var(--color-border-subtle)',
+                        background: 'rgba(0,0,0,0.24)',
+                        overflow: 'hidden',
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '0 4px',
+                    }}>
+                        {previewPeaks ? (
+                            <PreviewWaveform peaks={previewPeaks} height={14} />
+                        ) : (
+                            <div style={{
+                                width: '100%',
+                                height: 10,
+                                borderRadius: 2,
+                                background: 'rgba(255,255,255,0.04)',
+                            }} />
+                        )}
+                    </div>
 
                     <button
                         onClick={() => {
@@ -946,23 +929,31 @@ export const AssetBrowser = () => {
                             setPreviewEnabled(next);
                             if (!next) {
                                 engineApi.stopPreview().catch(() => { });
-                                setIsPreviewPlaying(false);
-                                setPreviewPeaks(null);
-                                setPreviewFileName('');
+                                return;
+                            }
+                            const selected = items.find(i => i.id === selectedItemId);
+                            if (selected?.type === 'audio' && selected.path) {
+                                engineApi.previewAudioFile(selected.path).catch(() => { });
                             }
                         }}
-                        title="Toggle Preview"
+                        title={previewEnabled ? 'Preview on' : 'Preview off'}
                         style={{
-                            background: previewEnabled ? 'var(--color-accent-primary-dim)' : 'transparent',
-                            border: 'none',
-                            color: previewEnabled ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
-                            borderRadius: 'var(--radius-xs)',
-                            padding: '2px 6px',
+                            width: 20,
+                            height: 20,
+                            minWidth: 20,
+                            borderRadius: '50%',
+                            border: '1px solid var(--color-border-subtle)',
+                            background: previewEnabled ? 'var(--color-accent-primary-dim)' : 'var(--color-control-bg)',
+                            color: previewEnabled ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)',
                             cursor: 'pointer',
-                            fontSize: 'var(--font-size-2xs)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 10,
                         }}
+                        aria-pressed={previewEnabled}
                     >
-                        🎧 Preview
+                        🎧
                     </button>
                 </div>
             </div>

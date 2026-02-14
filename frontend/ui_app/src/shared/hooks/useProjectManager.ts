@@ -60,6 +60,8 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 filePath: status.filePath,
                 projectFolder: status.projectFolder,
             }));
+            // Sync window title with dirty state (adds/removes *)
+            await engineApi.syncTitle();
         } catch (err) {
             console.error('[ProjectManager] Failed to refresh status:', err);
         }

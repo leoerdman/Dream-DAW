@@ -298,6 +298,9 @@ export const createBackup = () => invoke<string>('create_backup_cmd');
 /** Mark the project as having unsaved changes (dirty state). */
 export const markDirty = () => invoke<void>('mark_dirty_cmd');
 
+/** Sync the window title with the current dirty state (adds/removes *). */
+export const syncTitle = () => invoke<void>('sync_title_cmd');
+
 // ── Settings ─────────────────────────────────────────────────────────────
 
 /** Get current application settings. */

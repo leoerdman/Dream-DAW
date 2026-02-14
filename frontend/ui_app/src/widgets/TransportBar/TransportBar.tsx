@@ -22,9 +22,17 @@ interface TransportBarProps {
     onSettingsClick?: () => void;
     onOpenExport?: () => void;
     onRecordingStateChange?: (state: { active: boolean; trackIndex: number }) => void;
+    followPlayhead?: boolean;
+    onFollowPlayheadChange?: (enabled: boolean) => void;
 }
 
-export const TransportBar = ({ onSettingsClick, onOpenExport, onRecordingStateChange }: TransportBarProps) => {
+export const TransportBar = ({
+    onSettingsClick,
+    onOpenExport,
+    onRecordingStateChange,
+    followPlayhead = false,
+    onFollowPlayheadChange,
+}: TransportBarProps) => {
     // ── Engine Store (REAL IPC) ──────────────────────────────────────
     const isPlaying = useEngineStore((s) => s.transport.is_playing);
     const bpm = useEngineStore((s) => s.transport.bpm);
@@ -307,6 +315,22 @@ export const TransportBar = ({ onSettingsClick, onOpenExport, onRecordingStateCh
                     }}
                 >
                     ⟲
+                </button>
+                <button
+                    onClick={() => onFollowPlayheadChange?.(!followPlayhead)}
+                    title="Follow Playhead"
+                    style={{
+                        background: followPlayhead ? 'var(--color-accent-primary-dim)' : 'transparent',
+                        border: 'none',
+                        color: followPlayhead ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
+                        borderRadius: 'var(--radius-xs)',
+                        padding: '2px 6px',
+                        cursor: 'pointer',
+                        fontSize: 'var(--font-size-xs)',
+                        fontWeight: 600,
+                    }}
+                >
+                    →
                 </button>
             </Section>
 

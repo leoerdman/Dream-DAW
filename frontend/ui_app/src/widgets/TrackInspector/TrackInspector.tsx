@@ -81,13 +81,7 @@ function vuNorm(peakDb: number): number {
     return (clamped + 60) / 66;
 }
 
-/** Returns color for the VU meter fill based on level and signal type. */
-function vuColor(peakDb: number, isMidi: boolean): string {
-    if (!isFinite(peakDb) || peakDb < -60) return 'transparent';
-    if (peakDb > -3) return '#ff3b30';
-    if (peakDb > -12) return isMidi ? '#ff9500' : '#ffcc00';
-    return '#40cc5a';
-}
+
 
 // ── 16-Color Ableton Palette (from Swift TrackColor enum) ──
 
@@ -130,6 +124,7 @@ export const TrackInspector = ({
     const projectTracks = useEngineStore((s) => s.projectTracks);
     const engineSetTrackMute = useEngineStore((s) => s.setTrackMute);
     const engineSetTrackSolo = useEngineStore((s) => s.setTrackSolo);
+    const engineSetTrackVolume = useEngineStore((s) => s.setTrackVolume);
     const addTrack = useEngineStore((s) => s.addTrack);
     const deleteTrack = useEngineStore((s) => s.deleteTrack);
     const renameTrackAction = useEngineStore((s) => s.renameTrack);
@@ -349,6 +344,9 @@ export const TrackInspector = ({
                             onToggleSolo={() => toggleSolo(track.id)}
                             onToggleArm={() => toggleArm(track.id)}
                             onToggleCollapse={isGroup ? () => toggleGroupCollapse(track.id) : undefined}
+                            onVolumeChange={(gain: number) => {
+                                if (trackIndex >= 0) engineSetTrackVolume(trackIndex, gain);
+                            }}
                             onContextMenu={(e) => handleContextMenu(e, track.id, trackIndex)}
                         />
                     );
@@ -396,6 +394,7 @@ export const TrackInspector = ({
                 onToggleMute={() => { }}
                 onToggleSolo={() => { }}
                 onToggleArm={() => { }}
+                onVolumeChange={() => { }}
                 onContextMenu={() => { }}
                 isMasterFixed
             />
@@ -488,24 +487,211 @@ const ContextMenuPopup = ({
     );
 };
 
-// ── TrackRow (two-row Ableton-style layout) ──────────────────────────────
+// ── dB ↔ Linear conversions ──────────────────────────────
 
-const routingSelectStyle: React.CSSProperties = {
-    fontSize: 8, fontWeight: 500,
-    color: 'var(--color-text-primary)',
-    background: 'var(--color-control-bg)',
-    border: '1px solid var(--color-control-border)',
-    borderRadius: 2, padding: '0px 4px', cursor: 'pointer',
-    maxWidth: 72, minWidth: 44, flexShrink: 0,
-    appearance: 'auto' as React.CSSProperties['appearance'],
-    lineHeight: '14px', height: 14,
+/** Linear gain (0..2) → dB. 0 gain → -Infinity. */
+function gainToDb(gain: number): number {
+    if (gain <= 0) return -Infinity;
+    return 20 * Math.log10(gain);
+}
+
+/** dB → linear gain. Clamps to [0, ~+6 dB]. */
+function dbToGain(db: number): number {
+    if (!isFinite(db) || db <= -100) return 0;
+    return Math.pow(10, db / 20);
+}
+
+/** Format dB for display. */
+function formatDb(db: number): string {
+    if (!isFinite(db) || db <= -60) return '-∞';
+    if (Math.abs(db) < 0.05) return '0';
+    return db > 0 ? `+${db.toFixed(1)}` : db.toFixed(1);
+}
+
+/** Fader position (0..1) → dB using quasi-log curve. 0 = -inf, ~0.77 = 0dB, 1 = +6dB */
+function faderToDb(pos: number): number {
+    if (pos <= 0) return -Infinity;
+    if (pos >= 1) return 6;
+    // Use a log-like curve: map 0..1 to -inf..+6
+    // The 0 dB point sits at ~77% of the fader
+    const zeroPt = 0.77;
+    if (pos <= zeroPt) {
+        // Map 0..zeroPt → -60..0 with a power curve
+        const t = pos / zeroPt;
+        const db = -60 * Math.pow(1 - t, 3);
+        return Math.max(-60, db);
+    } else {
+        // Map zeroPt..1 → 0..+6 linearly
+        const t = (pos - zeroPt) / (1 - zeroPt);
+        return t * 6;
+    }
+}
+
+/** dB → fader position (0..1), inverse of faderToDb. */
+function dbToFader(db: number): number {
+    if (!isFinite(db) || db <= -60) return 0;
+    if (db >= 6) return 1;
+    const zeroPt = 0.77;
+    if (db <= 0) {
+        // Inverse of: db = -60 * (1 - t)^3 where t = pos / zeroPt
+        const ratio = Math.max(0, db / -60);
+        const t = 1 - Math.pow(ratio, 1 / 3);
+        return t * zeroPt;
+    } else {
+        // Inverse of: db = t * 6 where t = (pos - zeroPt) / (1 - zeroPt)
+        return zeroPt + (db / 6) * (1 - zeroPt);
+    }
+}
+
+// ── Volume Fader (horizontal blue slider) ─────────────────
+
+const VolumeFader = ({
+    volumeLinear,
+    onVolumeChange,
+}: {
+    volumeLinear: number;
+    onVolumeChange: (gain: number) => void;
+}) => {
+    const trackRef = useRef<HTMLDivElement>(null);
+    const [isDragging, setIsDragging] = useState(false);
+    const db = gainToDb(volumeLinear);
+    const faderPos = dbToFader(db);
+
+    const applyFromEvent = useCallback((clientX: number) => {
+        const el = trackRef.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        const newDb = faderToDb(pos);
+        onVolumeChange(dbToGain(newDb));
+    }, [onVolumeChange]);
+
+    useEffect(() => {
+        if (!isDragging) return;
+        const onMove = (e: MouseEvent) => applyFromEvent(e.clientX);
+        const onUp = () => setIsDragging(false);
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        return () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+    }, [isDragging, applyFromEvent]);
+
+    // Zero-dB tick position
+    const zeroTickPos = dbToFader(0);
+
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3, flex: 1, minWidth: 0 }}>
+            <div
+                ref={trackRef}
+                onMouseDown={(e) => { e.stopPropagation(); setIsDragging(true); applyFromEvent(e.clientX); }}
+                onDoubleClick={(e) => { e.stopPropagation(); onVolumeChange(1.0); /* reset to 0 dB */ }}
+                style={{
+                    position: 'relative', flex: 1, height: 8, minWidth: 40,
+                    background: '#2a2a30', borderRadius: 2, cursor: 'ew-resize',
+                    overflow: 'hidden',
+                }}
+            >
+                {/* Zero-dB tick mark */}
+                <div style={{
+                    position: 'absolute', left: `${zeroTickPos * 100}%`, top: 0, bottom: 0,
+                    width: 1, background: 'rgba(255,255,255,0.2)', zIndex: 1,
+                }} />
+                {/* Fill */}
+                <div style={{
+                    position: 'absolute', left: 0, top: 0, bottom: 0,
+                    width: `${faderPos * 100}%`,
+                    background: faderPos > zeroTickPos
+                        ? 'linear-gradient(to right, #3b82f6, #60a5fa)'
+                        : '#3b82f6',
+                    borderRadius: 2,
+                    transition: isDragging ? 'none' : 'width 60ms linear',
+                }} />
+                {/* Thumb */}
+                <div style={{
+                    position: 'absolute',
+                    left: `calc(${faderPos * 100}% - 3px)`,
+                    top: 0, width: 6, height: '100%',
+                    background: '#e0e0e8', borderRadius: 1,
+                    boxShadow: '0 0 3px rgba(0,0,0,0.5)',
+                    transition: isDragging ? 'none' : 'left 60ms linear',
+                }} />
+            </div>
+            {/* dB label */}
+            <span style={{
+                fontSize: 8, fontWeight: 600, fontFamily: 'var(--font-mono)',
+                color: 'var(--color-text-secondary)', minWidth: 22, textAlign: 'right',
+                flexShrink: 0, whiteSpace: 'nowrap',
+            }}>
+                {formatDb(db)}
+            </span>
+        </div>
+    );
 };
+
+// ── Tri-Color VU Meter (vertical) ──────────────────────────
+
+const TriColorVU = ({ peakDb, isMidi }: { peakDb: number; isMidi: boolean }) => {
+    const normalizedLevel = vuNorm(peakDb); // 0..1
+    const meterHeight = 22;
+    const fillHeight = normalizedLevel * meterHeight;
+
+    // Segment thresholds in normalized space
+    const minus2Norm = vuNorm(-2);  // where -2 dB sits
+    const zeroNorm = vuNorm(0);     // where 0 dB sits
+
+    return (
+        <div style={{
+            width: 5, height: meterHeight,
+            background: '#1a1a1e', borderRadius: 1,
+            overflow: 'hidden', flexShrink: 0,
+            position: 'relative',
+        }}>
+            {/* Green segment: 0 to -2dB zone */}
+            <div style={{
+                position: 'absolute', bottom: 0, left: 0, right: 0,
+                height: `${minus2Norm * 100}%`,
+                background: '#40cc5a',
+                transform: `scaleY(${Math.min(1, fillHeight / (minus2Norm * meterHeight || 1))})`,
+                transformOrigin: 'bottom',
+                transition: 'transform 80ms linear',
+            }} />
+            {/* Yellow segment: -2dB to 0dB zone */}
+            {normalizedLevel > minus2Norm && (
+                <div style={{
+                    position: 'absolute', left: 0, right: 0,
+                    bottom: `${minus2Norm * 100}%`,
+                    height: `${(zeroNorm - minus2Norm) * 100}%`,
+                    background: isMidi ? '#ff9500' : '#ffcc00',
+                    transform: `scaleY(${Math.min(1, Math.max(0, (fillHeight - minus2Norm * meterHeight) / ((zeroNorm - minus2Norm) * meterHeight || 1)))})`,
+                    transformOrigin: 'bottom',
+                    transition: 'transform 80ms linear',
+                }} />
+            )}
+            {/* Red segment: above 0dB zone */}
+            {normalizedLevel > zeroNorm && (
+                <div style={{
+                    position: 'absolute', left: 0, right: 0,
+                    bottom: `${zeroNorm * 100}%`,
+                    height: `${(1 - zeroNorm) * 100}%`,
+                    background: '#ff3b30',
+                    transform: `scaleY(${Math.min(1, Math.max(0, (fillHeight - zeroNorm * meterHeight) / ((1 - zeroNorm) * meterHeight || 1)))})`,
+                    transformOrigin: 'bottom',
+                    transition: 'transform 80ms linear',
+                }} />
+            )}
+        </div>
+    );
+};
+
+// ── TrackRow (3-block Ableton-style layout) ──────────────────────────────
 
 const TrackRow = ({
     track, allTracks, trackHeight, displayNum, isSelected, isCollapsed, depth,
     isRenaming, renameValue, onRenameChange, onRenameCommit, onRenameCancel,
     onClick, onToggleMute, onToggleSolo, onToggleArm, onToggleCollapse,
-    onContextMenu, isMasterFixed,
+    onVolumeChange, onContextMenu, isMasterFixed,
 }: {
     track: TrackData;
     allTracks: TrackData[];
@@ -524,6 +710,7 @@ const TrackRow = ({
     onToggleSolo: () => void;
     onToggleArm: () => void;
     onToggleCollapse?: () => void;
+    onVolumeChange?: (gain: number) => void;
     onContextMenu?: (e: React.MouseEvent) => void;
     isMasterFixed?: boolean;
 }) => {
@@ -550,17 +737,8 @@ const TrackRow = ({
 
     const showRouting = !isMasterFixed && trackHeight >= 48;
 
-    // Master styling
-    const masterBg = isSelected ? '#2a2a2e' : isHovered ? '#222226' : '#1a1a1e';
-
-    // Vibrant color-mixed backgrounds
-    const bgColor = isMasterFixed
-        ? masterBg
-        : isSelected
-            ? `color-mix(in srgb, ${track.color} 40%, var(--color-bg-panel))`
-            : isHovered
-                ? `color-mix(in srgb, ${track.color} 32%, var(--color-bg-panel))`
-                : `color-mix(in srgb, ${track.color} 22%, var(--color-bg-panel))`;
+    // Subdue track visually when disabled (muted)
+    const isEnabled = !track.isMuted;
 
     return (
         <div
@@ -572,54 +750,46 @@ const TrackRow = ({
                 display: 'flex', alignItems: 'stretch', height: trackHeight,
                 borderBottom: isMasterFixed ? 'none' : '1px solid var(--color-divider)',
                 borderTop: isMasterFixed ? '1px solid var(--color-divider)' : 'none',
-                background: bgColor, cursor: 'default',
-                opacity: track.isMuted ? 0.45 : 1,
+                background: isSelected ? '#222228' : isHovered ? '#1e1e24' : '#1a1a1e',
+                cursor: 'default',
+                opacity: isEnabled ? 1 : 0.45,
                 transition: 'background 0.12s ease, opacity 0.12s ease',
                 position: 'relative', paddingLeft: depth * 10, flexShrink: 0,
             }}
         >
-            {/* Color stripe (4px) */}
+            {/* ════ BLOCK 1: Track Header (colored) ════ */}
             <div style={{
-                position: 'absolute', left: 0, top: 0, bottom: 0, width: 4,
-                background: isMasterFixed ? '#666' : track.color,
-                borderRadius: '0 1px 1px 0',
-            }} />
-
-            {/* Main content (two rows) */}
-            <div style={{
-                display: 'flex', flexDirection: 'column', flex: 1,
-                paddingLeft: 8, paddingRight: 4,
-                justifyContent: 'center', gap: 1, minWidth: 0,
+                display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                minWidth: isMasterFixed ? 80 : 90, maxWidth: 120,
+                padding: '2px 6px 2px 4px',
+                background: isMasterFixed
+                    ? (isSelected ? '#2a2a2e' : '#222226')
+                    : `color-mix(in srgb, ${track.color} ${isSelected ? '45%' : isHovered ? '35%' : '25%'}, #1a1a1e)`,
+                borderRight: '1px solid rgba(255,255,255,0.06)',
+                gap: 1,
             }}>
-                {/* ── Row 1: Name + Controls ── */}
-                <div style={{
-                    display: 'flex', alignItems: 'center', gap: 4, minHeight: 18,
-                }}>
-                    {/* Icon / Collapse */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                    {/* Collapse / Type icon */}
                     {isGroup && onToggleCollapse ? (
                         <button
                             onClick={e => { e.stopPropagation(); onToggleCollapse(); }}
                             style={{
-                                width: 14, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                width: 12, display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 background: 'none', border: 'none', color: 'var(--color-text-secondary)',
                                 fontSize: 8, cursor: 'pointer', flexShrink: 0, padding: 0,
                             }}
                         >
-                            {isCollapsed ? '⊕' : '⊖'}
+                            {isCollapsed ? '▶' : '▼'}
                         </button>
                     ) : !isMasterFixed ? (
-                        <div style={{ width: 14, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <span style={{ fontSize: 7, color: track.color, opacity: 0.8 }}>
-                                {track.type === 'midi' ? '♪' : '◉'}
-                            </span>
-                        </div>
+                        <span style={{ fontSize: 7, color: track.color, opacity: 0.9, flexShrink: 0, width: 10 }}>
+                            {track.type === 'midi' ? '♪' : '●'}
+                        </span>
                     ) : (
-                        <div style={{ width: 14, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <span style={{ fontSize: 8, color: 'var(--color-text-secondary)' }}>▶</span>
-                        </div>
+                        <span style={{ fontSize: 8, color: 'var(--color-text-secondary)', flexShrink: 0, width: 10 }}>▶</span>
                     )}
 
-                    {/* Track Name / Rename Input */}
+                    {/* Track Name */}
                     {isRenaming ? (
                         <input
                             ref={renameInputRef}
@@ -632,146 +802,105 @@ const TrackRow = ({
                             onBlur={onRenameCommit}
                             onClick={e => e.stopPropagation()}
                             style={{
-                                flex: 1, fontSize: 10, fontWeight: 500,
-                                background: 'rgba(0,0,0,0.3)',
+                                flex: 1, fontSize: 10, fontWeight: 600,
+                                background: 'rgba(0,0,0,0.4)',
                                 border: `1px solid ${track.color}`,
-                                borderRadius: 3, color: '#fff',
-                                padding: '1px 4px', outline: 'none', minWidth: 0,
+                                borderRadius: 2, color: '#fff',
+                                padding: '1px 3px', outline: 'none', minWidth: 0,
                             }}
                         />
                     ) : (
                         <span style={{
                             flex: 1, fontSize: 10,
-                            fontWeight: isGroup || isMasterFixed ? 700 : 500,
-                            color: 'var(--color-text-primary)',
+                            fontWeight: isGroup || isMasterFixed ? 700 : 600,
+                            color: '#fff',
                             whiteSpace: 'nowrap', overflow: 'hidden',
                             textOverflow: 'ellipsis', minWidth: 0,
                         }}>
                             {track.name}
                         </span>
                     )}
+                </div>
 
-                    {/* Track Number Badge */}
-                    {displayNum !== undefined && (
+                {/* Track Number Badge */}
+                {displayNum !== undefined && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 3, paddingLeft: 10 }}>
                         <span style={{
-                            width: 16, height: 14,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: track.color, color: '#fff',
-                            borderRadius: 2, fontSize: 8, fontWeight: 700, flexShrink: 0,
+                            fontSize: 7, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                            color: track.color, opacity: 0.7,
                         }}>
                             {displayNum}
                         </span>
-                    )}
-
-                    {/* Stacked M / S buttons */}
-                    {!isMaster && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
-                            <button
-                                onClick={e => { e.stopPropagation(); onToggleMute(); }}
-                                title="Mute"
-                                style={{
-                                    width: 16, height: 12,
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    background: track.isMuted ? '#e05050' : 'rgba(255,255,255,0.06)',
-                                    color: track.isMuted ? '#fff' : 'var(--color-text-tertiary)',
-                                    border: 'none', borderRadius: 2,
-                                    fontSize: 7, fontWeight: 700, cursor: 'pointer', padding: 0,
-                                }}
-                            >M</button>
-                            <button
-                                onClick={e => { e.stopPropagation(); onToggleSolo(); }}
-                                title="Solo"
-                                style={{
-                                    width: 16, height: 12,
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    background: track.isSoloed ? 'var(--color-btn-solo)' : 'rgba(255,255,255,0.06)',
-                                    color: track.isSoloed ? '#fff' : 'var(--color-text-tertiary)',
-                                    border: 'none', borderRadius: 2,
-                                    fontSize: 7, fontWeight: 700, cursor: 'pointer', padding: 0,
-                                }}
-                            >S</button>
-                        </div>
-                    )}
-
-                    {/* Arm button */}
-                    {!isMaster && !isGroup && (
-                        <button
-                            onClick={e => { e.stopPropagation(); onToggleArm(); }}
-                            title="Arm for recording"
-                            style={{
-                                width: 14, height: 14,
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                background: track.isArmed ? 'var(--color-btn-arm)' : 'transparent',
-                                color: track.isArmed ? '#fff' : 'var(--color-text-tertiary)',
-                                border: track.isArmed ? 'none' : '1px solid var(--color-control-border)',
-                                borderRadius: '50%', fontSize: 7,
-                                cursor: 'pointer', flexShrink: 0, padding: 0,
-                            }}
-                        >●</button>
-                    )}
-
-                    {/* VU Meter */}
-                    {!isGroup && (
-                        <div style={{
-                            width: 4, height: 18,
-                            background: 'rgba(255,255,255,0.06)',
-                            borderRadius: 2, overflow: 'hidden',
-                            flexShrink: 0, position: 'relative',
-                        }}>
-                            <div style={{
-                                position: 'absolute', bottom: 0, left: 0, right: 0,
-                                height: '100%',
-                                background: vuColor(track.vuLevel, track.type === 'midi'),
-                                transform: `scaleY(${vuNorm(track.vuLevel)})`,
-                                transformOrigin: 'bottom',
-                                transition: 'transform 80ms linear, background-color 120ms ease',
-                                borderRadius: 2, willChange: 'transform',
-                            }} />
-                        </div>
-                    )}
-
-                    {/* Master label */}
-                    {isMasterFixed && (
                         <span style={{
-                            fontSize: 8, fontWeight: 600,
-                            color: 'var(--color-text-tertiary)', flexShrink: 0,
-                        }}>Main</span>
-                    )}
-                </div>
+                            fontSize: 7, color: 'var(--color-text-tertiary)',
+                            textTransform: 'capitalize',
+                        }}>
+                            {track.type}
+                        </span>
+                    </div>
+                )}
 
-                {/* ── Row 2: Routing ── */}
-                {showRouting && (
-                    <div style={{
-                        display: 'flex', alignItems: 'center', gap: 4, paddingLeft: 14,
-                    }}>
-                        <span style={{ fontSize: 7, color: 'var(--color-text-tertiary)', flexShrink: 0 }}>→</span>
+                {/* Master label */}
+                {isMasterFixed && (
+                    <span style={{ fontSize: 7, color: 'var(--color-text-tertiary)', paddingLeft: 10 }}>Main</span>
+                )}
+            </div>
+
+            {/* ════ BLOCK 2: Routing (gray) ════ */}
+            {showRouting && (
+                <div style={{
+                    display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                    gap: 2, padding: '2px 4px',
+                    borderRight: '1px solid rgba(255,255,255,0.06)',
+                    minWidth: 80,
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <span style={{ fontSize: 6, color: 'var(--color-text-tertiary)', flexShrink: 0 }}>→</span>
                         <select
                             onClick={e => e.stopPropagation()}
                             value={outputValue}
                             onChange={(e) => {
                                 e.stopPropagation();
-                                // TODO: Backend set_track_routing command not yet implemented
                                 console.warn('[TrackInspector] setTrackRouting: backend not implemented yet, track=', track.id, 'target=', e.target.value);
                             }}
                             title="Audio To"
-                            style={routingSelectStyle}
+                            style={{
+                                fontSize: 8, fontWeight: 500,
+                                color: 'var(--color-text-primary)',
+                                background: 'var(--color-control-bg)',
+                                border: '1px solid var(--color-control-border)',
+                                borderRadius: 2, padding: '0px 2px', cursor: 'pointer',
+                                maxWidth: 70, minWidth: 40, flexShrink: 0, flex: 1,
+                                appearance: 'auto' as React.CSSProperties['appearance'],
+                                lineHeight: '13px', height: 13,
+                            }}
                         >
                             <option value="master">Master</option>
                             {availableRoutingTargets.map(t => (
                                 <option key={t.id} value={t.id}>{t.name}</option>
                             ))}
                         </select>
-                        <span style={{ fontSize: 7, color: 'var(--color-text-tertiary)', flexShrink: 0 }}>←</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <span style={{ fontSize: 6, color: 'var(--color-text-tertiary)', flexShrink: 0 }}>←</span>
                         <select
                             onClick={e => e.stopPropagation()}
                             value={inputValue}
                             onChange={(e) => {
                                 e.stopPropagation();
-                                // TODO: Backend set_track_input command not yet implemented
                                 console.warn('[TrackInspector] setTrackInput: backend not implemented yet, track=', track.id, 'input=', e.target.value);
                             }}
                             title="Audio From"
-                            style={routingSelectStyle}
+                            style={{
+                                fontSize: 8, fontWeight: 500,
+                                color: 'var(--color-text-primary)',
+                                background: 'var(--color-control-bg)',
+                                border: '1px solid var(--color-control-border)',
+                                borderRadius: 2, padding: '0px 2px', cursor: 'pointer',
+                                maxWidth: 70, minWidth: 40, flexShrink: 0, flex: 1,
+                                appearance: 'auto' as React.CSSProperties['appearance'],
+                                lineHeight: '13px', height: 13,
+                            }}
                         >
                             <option value="none">No Input</option>
                             <option value="ext-1">Ext. In 1</option>
@@ -781,6 +910,79 @@ const TrackRow = ({
                             ))}
                         </select>
                     </div>
+                </div>
+            )}
+
+            {/* ════ BLOCK 3: Mixer (gray) ════ */}
+            <div style={{
+                display: 'flex', alignItems: 'center',
+                gap: 3, padding: '2px 4px', flex: 1, minWidth: 0,
+            }}>
+                {/* Enable button (replaces Mute) — green when active, gray when disabled */}
+                {!isMaster && (
+                    <button
+                        onClick={e => { e.stopPropagation(); onToggleMute(); }}
+                        title={isEnabled ? 'Disable track' : 'Enable track'}
+                        style={{
+                            width: 16, height: 16,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: isEnabled ? '#40cc5a' : '#3a3a3e',
+                            color: isEnabled ? '#fff' : '#666',
+                            border: 'none', borderRadius: 3,
+                            fontSize: 9, fontWeight: 700, cursor: 'pointer',
+                            padding: 0, flexShrink: 0,
+                            transition: 'background 0.1s ease',
+                        }}
+                    >●</button>
+                )}
+
+                {/* Solo button */}
+                {!isMaster && (
+                    <button
+                        onClick={e => { e.stopPropagation(); onToggleSolo(); }}
+                        title="Solo"
+                        style={{
+                            width: 16, height: 16,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: track.isSoloed ? 'var(--color-btn-solo)' : '#3a3a3e',
+                            color: track.isSoloed ? '#fff' : '#666',
+                            border: 'none', borderRadius: 3,
+                            fontSize: 8, fontWeight: 700, cursor: 'pointer',
+                            padding: 0, flexShrink: 0,
+                            transition: 'background 0.1s ease',
+                        }}
+                    >S</button>
+                )}
+
+                {/* Record arm button (R) */}
+                {!isMaster && !isGroup && (
+                    <button
+                        onClick={e => { e.stopPropagation(); onToggleArm(); }}
+                        title="Arm for recording"
+                        style={{
+                            width: 16, height: 16,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: track.isArmed ? '#ff3b30' : '#3a3a3e',
+                            color: track.isArmed ? '#fff' : '#666',
+                            border: 'none', borderRadius: 3,
+                            fontSize: 8, fontWeight: 700, cursor: 'pointer',
+                            padding: 0, flexShrink: 0,
+                            transition: 'background 0.1s ease',
+                        }}
+                    >R</button>
+                )}
+
+                {/* Volume Fader — horizontal blue slider */}
+                {!isGroup && onVolumeChange && (
+                    <VolumeFader
+                        volumeLinear={track.volume}
+                        onVolumeChange={onVolumeChange}
+                    />
+                )}
+
+                {/* Tri-Color VU Meter */}
+                {!isGroup && (
+                    <TriColorVU peakDb={track.vuLevel} isMidi={track.type === 'midi'} />
                 )}
             </div>
         </div>

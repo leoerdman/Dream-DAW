@@ -4589,6 +4589,7 @@ pub fn run() {
             // Project Management (extended)
             create_backup_cmd,
             mark_dirty_cmd,
+            sync_title_cmd,
         ])
         .setup(|app| {
             // ── Telemetry Push Thread (30fps) ─────────────────────────

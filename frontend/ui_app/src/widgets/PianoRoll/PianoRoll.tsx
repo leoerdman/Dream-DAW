@@ -129,9 +129,11 @@ export const PianoRoll = memo(function PianoRoll({
 }: PianoRollProps) {
     const [tool, setTool] = useState<PianoRollTool>('draw');
     const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set());
+    const [selectionRect, setSelectionRect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
     const [containerWidth, setContainerWidth] = useState(0);
     const [zoomOverrideH, setZoomOverrideH] = useState<number | null>(null);
     const [noteHeight, setNoteHeight] = useState(DEFAULT_NOTE_HEIGHT);
+    const [isEditorFocused, setIsEditorFocused] = useState(false);
 
     // Scale state
     const [highlightScale, setHighlightScale] = useState(false);
@@ -142,7 +144,9 @@ export const PianoRoll = memo(function PianoRoll({
     const noteCanvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const keyboardScrollRef = useRef<HTMLDivElement>(null);
+    const editorRootRef = useRef<HTMLDivElement>(null);
     const snapBeat = useGridStore((s) => s.snapBeat);
+    const gridInterval = useGridStore((s) => s.gridInterval);
 
     const beatsPerBar = timeSignature[0];
     const clipBeats = Math.max(0.25, clipLengthBeats ?? (totalBars * beatsPerBar));
@@ -276,6 +280,7 @@ export const PianoRoll = memo(function PianoRoll({
     // ── Note Actions ──
     const handleGridClick = useCallback(
         (e: React.MouseEvent) => {
+            editorRootRef.current?.focus();
             const rect = e.currentTarget.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
@@ -294,8 +299,6 @@ export const PianoRoll = memo(function PianoRoll({
                     velocity: 100,
                 };
                 onNotesChange([...notes, newNote]);
-            } else if (tool === 'select') {
-                setSelectedNotes(new Set());
             }
         },
         [tool, yToPitch, pixelsPerBeat, snapBeat, beatsPerBar, notes, onNotesChange, totalBeats],
@@ -304,6 +307,7 @@ export const PianoRoll = memo(function PianoRoll({
     const handleNoteClick = useCallback(
         (e: React.MouseEvent, noteId: string) => {
             e.stopPropagation();
+            editorRootRef.current?.focus();
             if (tool === 'erase') {
                 onNotesChange(notes.filter((n) => n.id !== noteId));
                 return;
@@ -325,21 +329,74 @@ export const PianoRoll = memo(function PianoRoll({
         [tool, notes, onNotesChange],
     );
 
+    const handleGridSelectionStart = useCallback((e: React.MouseEvent) => {
+        if (tool !== 'select') return;
+        editorRootRef.current?.focus();
+        e.preventDefault();
+        const rect = e.currentTarget.getBoundingClientRect();
+        const startX = e.clientX - rect.left;
+        const startY = e.clientY - rect.top;
+        setSelectionRect({ x1: startX, y1: startY, x2: startX, y2: startY });
+
+        const keepExisting = e.shiftKey;
+        if (!keepExisting) setSelectedNotes(new Set());
+
+        const onMove = (ev: MouseEvent) => {
+            const x = Math.max(0, Math.min(canvasWidth, ev.clientX - rect.left));
+            const y = Math.max(0, Math.min(canvasHeight, ev.clientY - rect.top));
+            setSelectionRect({ x1: startX, y1: startY, x2: x, y2: y });
+        };
+
+        const onUp = () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            setSelectionRect((current) => {
+                if (!current) return null;
+                const minX = Math.min(current.x1, current.x2);
+                const maxX = Math.max(current.x1, current.x2);
+                const minY = Math.min(current.y1, current.y2);
+                const maxY = Math.max(current.y1, current.y2);
+                const isClick = Math.abs(maxX - minX) < 3 && Math.abs(maxY - minY) < 3;
+                if (isClick) return null;
+
+                const hits = new Set<string>();
+                for (const note of notes) {
+                    const nx = note.startBeat * pixelsPerBeat;
+                    const ny = pitchToY(note.pitch) + 1;
+                    const nw = Math.max(4, note.durationBeats * pixelsPerBeat - 1);
+                    const nh = noteHeight - 2;
+                    const overlap = nx < maxX && nx + nw > minX && ny < maxY && ny + nh > minY;
+                    if (overlap) hits.add(note.id);
+                }
+                setSelectedNotes((prev) => {
+                    if (keepExisting) {
+                        const merged = new Set(prev);
+                        hits.forEach((id) => merged.add(id));
+                        return merged;
+                    }
+                    return hits;
+                });
+                return null;
+            });
+        };
+
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+    }, [tool, canvasWidth, canvasHeight, notes, pixelsPerBeat, pitchToY, noteHeight]);
+
     // Note drag
     const handleNoteDrag = useCallback(
         (e: React.MouseEvent, noteId: string) => {
             if (tool !== 'select' && tool !== 'draw') return;
             e.stopPropagation();
             e.preventDefault();
+            editorRootRef.current?.focus();
 
             const startX = e.clientX;
             const startY = e.clientY;
             const note = notes.find((n) => n.id === noteId);
             if (!note) return;
 
-            const startBeat = note.startBeat;
-            const startPitch = note.pitch;
-            const startDuration = note.durationBeats;
             const target = e.currentTarget as HTMLElement;
             const edgeGripPx = 6;
             const mode = e.nativeEvent.offsetX >= target.clientWidth - edgeGripPx
@@ -347,6 +404,15 @@ export const PianoRoll = memo(function PianoRoll({
                 : e.nativeEvent.offsetX <= edgeGripPx
                     ? 'resize-left'
                     : 'move';
+            const selectedIds = selectedNotes.has(noteId) ? new Set(selectedNotes) : new Set([noteId]);
+            if (!selectedNotes.has(noteId)) {
+                setSelectedNotes(new Set([noteId]));
+            }
+            const startStates = new Map(
+                notes
+                    .filter((n) => selectedIds.has(n.id))
+                    .map((n) => [n.id, { startBeat: n.startBeat, pitch: n.pitch, durationBeats: n.durationBeats }] as const),
+            );
 
             const onMove = (ev: MouseEvent) => {
                 const dx = ev.clientX - startX;
@@ -355,17 +421,29 @@ export const PianoRoll = memo(function PianoRoll({
                 const pitchDelta = -Math.round(dy / noteHeight);
 
                 const updated = notes.map((n) => {
-                    if (n.id !== noteId) return n;
+                    if (!selectedIds.has(n.id)) return n;
+                    const original = startStates.get(n.id);
+                    if (!original) return n;
                     if (mode === 'resize-right') {
-                        const maxDur = Math.max(0.125, totalBeats - startBeat);
-                        return { ...n, durationBeats: Math.min(maxDur, Math.max(0.125, snapBeat(startDuration + beatDelta, beatsPerBar))) };
+                        // Resize only the grabbed note to avoid destructive multi-resize.
+                        if (n.id !== noteId) return n;
+                        const maxDur = Math.max(0.125, totalBeats - original.startBeat);
+                        return {
+                            ...n,
+                            durationBeats: Math.min(maxDur, Math.max(0.125, snapBeat(original.durationBeats + beatDelta, beatsPerBar))),
+                        };
                     }
                     if (mode === 'resize-left') {
-                        const snappedBeat = Math.max(0, Math.min(totalBeats - 0.125, snapBeat(startBeat + beatDelta, beatsPerBar)));
-                        return { ...n, startBeat: snappedBeat, durationBeats: Math.max(0.125, startDuration + (startBeat - snappedBeat)) };
+                        if (n.id !== noteId) return n;
+                        const snappedBeat = Math.max(0, Math.min(totalBeats - 0.125, snapBeat(original.startBeat + beatDelta, beatsPerBar)));
+                        return {
+                            ...n,
+                            startBeat: snappedBeat,
+                            durationBeats: Math.max(0.125, original.durationBeats + (original.startBeat - snappedBeat)),
+                        };
                     }
-                    const newBeat = Math.max(0, Math.min(totalBeats - 0.125, snapBeat(startBeat + beatDelta, beatsPerBar)));
-                    const newPitch = Math.max(LOWEST_PITCH, Math.min(LOWEST_PITCH + TOTAL_KEYS - 1, startPitch + pitchDelta));
+                    const newBeat = Math.max(0, Math.min(totalBeats - 0.125, snapBeat(original.startBeat + beatDelta, beatsPerBar)));
+                    const newPitch = Math.max(LOWEST_PITCH, Math.min(LOWEST_PITCH + TOTAL_KEYS - 1, original.pitch + pitchDelta));
                     return { ...n, startBeat: newBeat, pitch: newPitch };
                 });
                 onNotesChange(updated);
@@ -378,7 +456,7 @@ export const PianoRoll = memo(function PianoRoll({
             window.addEventListener('mousemove', onMove);
             window.addEventListener('mouseup', onUp);
         },
-        [tool, notes, onNotesChange, pixelsPerBeat, noteHeight, snapBeat, beatsPerBar, totalBeats],
+        [tool, notes, onNotesChange, pixelsPerBeat, noteHeight, snapBeat, beatsPerBar, totalBeats, selectedNotes],
     );
 
     // Velocity change
@@ -440,6 +518,50 @@ export const PianoRoll = memo(function PianoRoll({
         ctx.globalAlpha = 1;
     }, [notes, selectedNotes, canvasWidth, canvasHeight, pixelsPerBeat, noteHeight, color, pitchToY]);
 
+    // MIDI-editor-local keyboard editing (active only when this editor has focus).
+    useEffect(() => {
+        if (!isEditorFocused) return;
+        const onKeyDown = (e: KeyboardEvent) => {
+            const hasSelected = selectedNotes.size > 0;
+            const stepBeatRaw = gridInterval(beatsPerBar);
+            const stepBeat = stepBeatRaw > 0 ? stepBeatRaw : 0.25;
+
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (!hasSelected) return;
+                e.preventDefault();
+                e.stopPropagation();
+                onNotesChange(notes.filter((n) => !selectedNotes.has(n.id)));
+                setSelectedNotes(new Set());
+                return;
+            }
+
+            if (!hasSelected) return;
+            if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            const pitchStep = e.shiftKey ? 12 : 1;
+            const beatStep = stepBeat;
+            const moved = notes.map((n) => {
+                if (!selectedNotes.has(n.id)) return n;
+                if (e.key === 'ArrowUp') {
+                    return { ...n, pitch: Math.min(HIGHEST_PITCH, n.pitch + pitchStep) };
+                }
+                if (e.key === 'ArrowDown') {
+                    return { ...n, pitch: Math.max(LOWEST_PITCH, n.pitch - pitchStep) };
+                }
+                if (e.key === 'ArrowLeft') {
+                    return { ...n, startBeat: Math.max(0, n.startBeat - beatStep) };
+                }
+                return { ...n, startBeat: Math.min(totalBeats - 0.125, n.startBeat + beatStep) };
+            });
+            onNotesChange(moved);
+        };
+        window.addEventListener('keydown', onKeyDown, { capture: true });
+        return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
+    }, [isEditorFocused, selectedNotes, notes, onNotesChange, gridInterval, beatsPerBar, totalBeats]);
+
     // Clip duration label
     const clipDurationLabel = useMemo(() => {
         const bars = Math.floor(clipBeats / beatsPerBar);
@@ -463,7 +585,16 @@ export const PianoRoll = memo(function PianoRoll({
 
     return (
         <div
-            ref={containerRef}
+            ref={(el) => {
+                editorRootRef.current = el;
+                containerRef.current = el;
+            }}
+            tabIndex={0}
+            data-keyboard-scope="piano-roll"
+            data-selected-notes={selectedNotes.size}
+            onFocus={() => setIsEditorFocused(true)}
+            onBlur={() => setIsEditorFocused(false)}
+            onMouseDown={() => editorRootRef.current?.focus()}
             style={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -851,6 +982,7 @@ export const PianoRoll = memo(function PianoRoll({
                         {/* ── Clickable grid ── */}
                         <div
                             onClick={handleGridClick}
+                            onMouseDown={handleGridSelectionStart}
                             style={{
                                 position: 'absolute',
                                 top: RULER_HEIGHT,
@@ -897,6 +1029,22 @@ export const PianoRoll = memo(function PianoRoll({
                                     />
                                 );
                             })}
+                            {selectionRect && (
+                                <div
+                                    style={{
+                                        position: 'absolute',
+                                        left: Math.min(selectionRect.x1, selectionRect.x2),
+                                        top: Math.min(selectionRect.y1, selectionRect.y2),
+                                        width: Math.abs(selectionRect.x2 - selectionRect.x1),
+                                        height: Math.abs(selectionRect.y2 - selectionRect.y1),
+                                        background: 'rgba(74, 158, 255, 0.15)',
+                                        border: '1px solid rgba(74, 158, 255, 0.85)',
+                                        borderRadius: 2,
+                                        pointerEvents: 'none',
+                                        zIndex: 9,
+                                    }}
+                                />
+                            )}
                         </div>
 
                         {/* ── Playhead ── */}

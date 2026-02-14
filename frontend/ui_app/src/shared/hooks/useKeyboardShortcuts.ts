@@ -43,6 +43,18 @@ function isModKey(e: KeyboardEvent): boolean {
     return isMac ? e.metaKey : e.ctrlKey;
 }
 
+function getScopedEditorElement(e: KeyboardEvent, scope: string): HTMLElement | null {
+    const target = e.target as HTMLElement | null;
+    const closest = target?.closest?.(`[data-keyboard-scope="${scope}"]`) ?? null;
+    if (closest) return closest as HTMLElement;
+    const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+    for (const node of path) {
+        if (!(node instanceof HTMLElement)) continue;
+        if (node.dataset?.keyboardScope === scope) return node;
+    }
+    return null;
+}
+
 // ── Hook Implementation ──────────────────────────────────────────────────
 
 /**
@@ -82,8 +94,12 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 return;
             }
 
+            const pianoRollScope = getScopedEditorElement(e, 'piano-roll');
+            const inPianoRoll = Boolean(pianoRollScope);
+
             // ── Space: Toggle Playback ─────────────────────────────
             if (e.code === 'Space' && !e.repeat) {
+                if (inPianoRoll) return;
                 e.preventDefault();
                 e.stopPropagation();
                 onTogglePlayback();
@@ -92,6 +108,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
 
             // ── Cmd/Ctrl + E: Split at Playhead ────────────────────
             if (isModKey(e) && e.key.toLowerCase() === 'e') {
+                if (inPianoRoll) return;
                 e.preventDefault();
                 e.stopPropagation();
 
@@ -108,6 +125,11 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
 
             // ── Backspace / Delete: Delete Selected Clip ───────────
             if (e.key === 'Backspace' || e.key === 'Delete') {
+                if (inPianoRoll) {
+                    const selectedCount = Number(pianoRollScope?.dataset?.selectedNotes ?? '0');
+                    // When notes are selected, PianoRoll owns Delete/Backspace.
+                    if (selectedCount > 0) return;
+                }
                 e.preventDefault();
                 e.stopPropagation();
 

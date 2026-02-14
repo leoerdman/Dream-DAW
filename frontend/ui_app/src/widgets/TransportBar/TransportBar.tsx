@@ -36,6 +36,9 @@ export const TransportBar = ({
     const isPlaying = useEngineStore((s) => s.transport.is_playing);
     const bpm = useEngineStore((s) => s.transport.bpm);
     const isLooping = useEngineStore((s) => s.transport.loop_enabled);
+    const loopStartFrames = useEngineStore((s) => s.transport.loop_start);
+    const loopEndFrames = useEngineStore((s) => s.transport.loop_end);
+    const sampleRate = useEngineStore((s) => s.transport.sample_rate);
     const posBeats = useEngineStore((s) => s.transport.position_beats ?? 0);
     const togglePlay = useEngineStore((s) => s.togglePlay);
     const engineStop = useEngineStore((s) => s.stop);
@@ -73,6 +76,20 @@ export const TransportBar = ({
         const sub = Math.floor((posBeats % 1) * 96);
         return { bar, beat, sub };
     })();
+
+    // Loop marker display (frames → bar.beat.sub)
+    const framesToDisplay = (frames: number): string => {
+        const sr = sampleRate || 44100;
+        const currentBpm = bpm || 120;
+        const framesPerBeat = sr * 60 / currentBpm;
+        const beats = frames / framesPerBeat;
+        const bar = Math.floor(beats / timeSigNum) + 1;
+        const b = Math.floor(beats % timeSigNum) + 1;
+        const sub = Math.floor((beats % 1) * 96);
+        return `${bar}.${b}.${sub.toString().padStart(2, '0')}`;
+    };
+    const loopStartDisplay = framesToDisplay(loopStartFrames);
+    const loopEndDisplay = framesToDisplay(loopEndFrames);
 
     // Tap tempo
     const tapTimestamps = useRef<number[]>([]);
@@ -293,21 +310,73 @@ export const TransportBar = ({
             {/* ── LOOP ── */}
             <Section>
                 <button
-                    onClick={() => engineSetLoop(!isLooping, 0, 0)}
-                    title="Loop"
+                    onClick={() => {
+                        const newEnabled = !isLooping;
+                        if (newEnabled && loopStartFrames === 0 && loopEndFrames === 0) {
+                            // First-time enable: set 4-beat loop from current position
+                            const sr = sampleRate || 44100;
+                            const currentBpm = bpm || 120;
+                            const framesPerBeat = sr * 60 / currentBpm;
+                            const startF = Math.round(posBeats * framesPerBeat);
+                            const endF = Math.round((posBeats + timeSigNum) * framesPerBeat);
+                            void engineSetLoop(true, startF, endF);
+                        } else {
+                            void engineSetLoop(newEnabled, loopStartFrames, loopEndFrames);
+                        }
+                    }}
+                    title="Toggle Loop"
                     style={{
-                        background: isLooping ? 'var(--color-accent-primary-dim)' : 'transparent',
-                        border: 'none',
-                        color: isLooping ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
+                        background: isLooping ? 'rgba(30, 120, 255, 0.25)' : 'transparent',
+                        border: isLooping ? '1px solid rgba(30, 120, 255, 0.5)' : '1px solid transparent',
+                        color: isLooping ? '#3b9eff' : 'var(--color-text-tertiary)',
                         borderRadius: 'var(--radius-xs)',
                         padding: '2px 6px',
                         cursor: 'pointer',
                         fontSize: 'var(--font-size-xs)',
-                        fontWeight: 500,
+                        fontWeight: 600,
+                        transition: 'all 0.15s ease',
                     }}
                 >
                     ⟲
                 </button>
+                {/* Loop Start marker */}
+                <span
+                    title="Loop Start"
+                    style={{
+                        fontSize: 9,
+                        fontFamily: 'var(--font-mono, monospace)',
+                        color: isLooping ? '#3b9eff' : 'var(--color-text-tertiary)',
+                        padding: '1px 4px',
+                        borderRadius: 'var(--radius-xs)',
+                        background: isLooping ? 'rgba(30, 120, 255, 0.1)' : 'transparent',
+                        cursor: 'default',
+                        userSelect: 'none',
+                        letterSpacing: '0.02em',
+                    }}
+                >
+                    {loopStartDisplay}
+                </span>
+                <span style={{ color: 'var(--color-text-quaternary)', fontSize: 9 }}>→</span>
+                {/* Loop End marker */}
+                <span
+                    title="Loop End"
+                    style={{
+                        fontSize: 9,
+                        fontFamily: 'var(--font-mono, monospace)',
+                        color: isLooping ? '#3b9eff' : 'var(--color-text-tertiary)',
+                        padding: '1px 4px',
+                        borderRadius: 'var(--radius-xs)',
+                        background: isLooping ? 'rgba(30, 120, 255, 0.1)' : 'transparent',
+                        cursor: 'default',
+                        userSelect: 'none',
+                        letterSpacing: '0.02em',
+                    }}
+                >
+                    {loopEndDisplay}
+                </span>
+
+                <Divider />
+
                 <button
                     onClick={() => onFollowPlayheadChange?.(!followPlayhead)}
                     title="Follow Playhead"

@@ -21,6 +21,12 @@ use crate::midi::{MidiClip, SamplerConfig};
 use crate::pulse_map::PulseMap;
 use crate::time::AbsoluteTime;
 
+/// Current on-disk project document format version.
+///
+/// Bump this only when serialized project schema changes incompatibly
+/// and provide a migration path in `dream_io::project_file`.
+pub const PROJECT_FORMAT_VERSION: u32 = 2;
+
 // ── Track Color (16 Ableton-style palette) ─────────────────────────────
 
 /// Predefined track colors matching the Ableton-style palette.

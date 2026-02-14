@@ -16,7 +16,8 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
-use dream_models::project::Project;
+use dream_models::project::{Project, PROJECT_FORMAT_VERSION};
+use serde::{Deserialize, Serialize};
 
 /// Errors during project file operations.
 #[derive(Debug)]
@@ -26,6 +27,12 @@ pub enum ProjectFileError {
 
     /// JSON serialization/deserialization error.
     SerializationError(String),
+
+    /// Project file format version is newer than this build supports.
+    UnsupportedFormatVersion {
+        found: u32,
+        supported: u32,
+    },
 }
 
 impl std::fmt::Display for ProjectFileError {
@@ -33,6 +40,10 @@ impl std::fmt::Display for ProjectFileError {
         match self {
             Self::IoError(e) => write!(f, "Project file I/O error: {e}"),
             Self::SerializationError(e) => write!(f, "Serialization error: {e}"),
+            Self::UnsupportedFormatVersion { found, supported } => write!(
+                f,
+                "Unsupported project format version {found} (this build supports up to {supported})"
+            ),
         }
     }
 }
@@ -48,6 +59,12 @@ impl From<std::io::Error> for ProjectFileError {
 /// Handles saving and loading Dream DAW project files.
 pub struct ProjectFile;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ProjectEnvelope {
+    format_version: u32,
+    project: Project,
+}
+
 impl ProjectFile {
     /// Saves a project to a JSON file using atomic write.
     ///
@@ -61,7 +78,12 @@ impl ProjectFile {
     pub fn save(project: &Project, path: impl AsRef<Path>) -> Result<(), ProjectFileError> {
         let path = path.as_ref();
 
-        let json = serde_json::to_string_pretty(project)
+        let envelope = ProjectEnvelope {
+            format_version: PROJECT_FORMAT_VERSION,
+            project: project.clone(),
+        };
+
+        let json = serde_json::to_string_pretty(&envelope)
             .map_err(|e| ProjectFileError::SerializationError(e.to_string()))?;
 
         // Ensure parent directory exists
@@ -109,11 +131,39 @@ impl ProjectFile {
     /// - `path`: Path to the project file (`.dream.json`).
     pub fn load(path: impl AsRef<Path>) -> Result<Project, ProjectFileError> {
         let path = path.as_ref();
+        let bak_path = path.with_extension("bak");
 
-        let data = fs::read_to_string(path)?;
-
-        let project: Project = serde_json::from_str(&data)
-            .map_err(|e| ProjectFileError::SerializationError(e.to_string()))?;
+        let project = match fs::read_to_string(path) {
+            Ok(data) => match Self::parse_project_document(&data) {
+                Ok(project) => project,
+                Err(err) => {
+                    if bak_path.exists() {
+                        log::warn!(
+                            "Primary project file failed to parse ({}). Attempting backup: {}",
+                            err,
+                            bak_path.display()
+                        );
+                        let backup_data = fs::read_to_string(&bak_path)?;
+                        Self::parse_project_document(&backup_data)?
+                    } else {
+                        return Err(err);
+                    }
+                }
+            },
+            Err(primary_read_err) => {
+                if bak_path.exists() {
+                    log::warn!(
+                        "Primary project file could not be read ({}). Attempting backup: {}",
+                        primary_read_err,
+                        bak_path.display()
+                    );
+                    let backup_data = fs::read_to_string(&bak_path)?;
+                    Self::parse_project_document(&backup_data)?
+                } else {
+                    return Err(ProjectFileError::IoError(primary_read_err));
+                }
+            }
+        };
 
         log::info!(
             "Project loaded: {} — '{}' ({} tracks)",
@@ -130,6 +180,44 @@ impl ProjectFile {
     /// Returns `true` if the file can be parsed as a valid Project.
     pub fn validate(path: impl AsRef<Path>) -> bool {
         Self::load(path).is_ok()
+    }
+
+    fn parse_project_document(data: &str) -> Result<Project, ProjectFileError> {
+        // V2+ envelope format.
+        if let Ok(envelope) = serde_json::from_str::<ProjectEnvelope>(data) {
+            if envelope.format_version > PROJECT_FORMAT_VERSION {
+                return Err(ProjectFileError::UnsupportedFormatVersion {
+                    found: envelope.format_version,
+                    supported: PROJECT_FORMAT_VERSION,
+                });
+            }
+            return Ok(Self::migrate_project(envelope.project, envelope.format_version));
+        }
+
+        // Legacy V1 raw-Project format compatibility.
+        if let Ok(project) = serde_json::from_str::<Project>(data) {
+            return Ok(Self::migrate_project(project, 1));
+        }
+
+        Err(ProjectFileError::SerializationError(
+            "Failed to parse project as envelope or legacy project format".to_string(),
+        ))
+    }
+
+    fn migrate_project(mut project: Project, from_version: u32) -> Project {
+        // Placeholder migration pipeline.
+        // Keep deterministic defaults for fields introduced after legacy versions.
+        if from_version < 2 {
+            // Ensure loop invariants are sane for legacy projects.
+            if let (Some(start), Some(end)) = (project.loop_start_frames, project.loop_end_frames)
+                && end <= start
+            {
+                project.loop_start_frames = None;
+                project.loop_end_frames = None;
+                project.is_looping = false;
+            }
+        }
+        project
     }
 }
 
@@ -200,6 +288,63 @@ mod tests {
         fs::write(&path, "not valid json").unwrap();
 
         assert!(!ProjectFile::validate(&path));
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_legacy_raw_project_format() {
+        let path = temp_path("legacy_raw_format");
+
+        let project = Project::new("Legacy Project", 120.0, 44100.0);
+        let legacy_json = serde_json::to_string_pretty(&project).unwrap();
+        fs::write(&path, legacy_json).unwrap();
+
+        let loaded = ProjectFile::load(&path).unwrap();
+        assert_eq!(loaded.name, "Legacy Project");
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_uses_backup_when_primary_is_corrupt() {
+        let path = temp_path("load_backup_on_corrupt_primary");
+        let bak = path.with_extension("bak");
+
+        fs::write(&path, "{this is corrupt json").unwrap();
+
+        let project = Project::new("Recovered", 124.0, 44100.0);
+        let envelope = ProjectEnvelope {
+            format_version: PROJECT_FORMAT_VERSION,
+            project,
+        };
+        fs::write(&bak, serde_json::to_string_pretty(&envelope).unwrap()).unwrap();
+
+        let loaded = ProjectFile::load(&path).unwrap();
+        assert_eq!(loaded.name, "Recovered");
+
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(&bak);
+    }
+
+    #[test]
+    fn reject_future_project_format() {
+        let path = temp_path("reject_future_format");
+        let project = Project::new("Future", 128.0, 44100.0);
+        let future_envelope = serde_json::json!({
+            "format_version": PROJECT_FORMAT_VERSION + 10,
+            "project": project
+        });
+        fs::write(&path, serde_json::to_string_pretty(&future_envelope).unwrap()).unwrap();
+
+        let err = ProjectFile::load(&path).unwrap_err();
+        match err {
+            ProjectFileError::UnsupportedFormatVersion { found, supported } => {
+                assert_eq!(found, PROJECT_FORMAT_VERSION + 10);
+                assert_eq!(supported, PROJECT_FORMAT_VERSION);
+            }
+            other => panic!("Unexpected error variant: {other}"),
+        }
 
         let _ = fs::remove_file(&path);
     }

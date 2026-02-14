@@ -53,6 +53,9 @@ pub enum EngineCommand {
     /// Set a track's pan position (-1.0 = hard left, 0.0 = center, 1.0 = hard right).
     SetTrackPan { track_index: u16, pan: f32 },
 
+    /// Set master output volume (linear gain, 0.0–2.0).
+    SetMasterVolume { volume: f32 },
+
     /// Mute or unmute a track.
     SetTrackMute { track_index: u16, muted: bool },
 

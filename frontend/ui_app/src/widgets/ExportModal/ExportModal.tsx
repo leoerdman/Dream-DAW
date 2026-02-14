@@ -292,7 +292,7 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                 transform: 'translate(-50%, -50%)',
                 zIndex: 9001,
                 width: 400,
-                background: 'var(--color-bg-panel, #1a1a1e)',
+                background: 'var(--color-bg-panel, #1a1a1a)',
                 border: '1px solid var(--color-border-subtle, #333)',
                 borderRadius: 12,
                 padding: 24,

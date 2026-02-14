@@ -606,6 +606,8 @@ pub fn start_audio_thread_on_device(
     // ── 5. Playback state ───────────────────────────────────────────
     let mut is_playing: bool = false;
     let mut _bpm: f64 = 120.0;
+    let mut master_gain_target: f32 = 1.0;
+    let mut master_gain_current: f32 = 1.0;
     // per-track mute/solo state (used for effective gain calculation)
     let mut track_muted: [bool; 64] = [false; 64];
     let mut track_soloed: [bool; 64] = [false; 64];
@@ -702,6 +704,9 @@ pub fn start_audio_thread_on_device(
                                     if idx < render_ctx.track_slots.len() {
                                         render_ctx.track_slots[idx].strip.set_pan(pan);
                                     }
+                                }
+                                EngineCommand::SetMasterVolume { volume } => {
+                                    master_gain_target = volume.clamp(0.0, 2.0);
                                 }
                                 EngineCommand::SetTrackMute { track_index, muted } => {
                                     let idx = track_index as usize;
@@ -1102,6 +1107,14 @@ pub fn start_audio_thread_on_device(
                                 }
                                 preview_cursor.store(end, Ordering::Relaxed);
                             }
+                        }
+
+                        // ── C2. Master fader + final safety clip ─────────
+                        // Smooth target to avoid zipper noise while dragging.
+                        for sample in data.iter_mut() {
+                            master_gain_current +=
+                                (master_gain_target - master_gain_current) * 0.005;
+                            *sample = soft_clip(*sample * master_gain_current);
                         }
 
                         // ── D. Advance master clock ─────────────────────

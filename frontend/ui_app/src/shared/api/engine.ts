@@ -26,7 +26,9 @@ export interface TransportState {
     is_playing: boolean;
     position_frames: number;
     position_seconds: number;
+    position_beats: number;
     bpm: number;
+    sample_rate: number;
     loop_enabled: boolean;
     loop_start: number;
     loop_end: number;
@@ -116,6 +118,10 @@ export const seek = (positionFrames: number) =>
 export const seekSeconds = (seconds: number) =>
     invoke<void>('seek_seconds', { seconds });
 
+/** Seek to a specific beat position (uses engine BPM + sample rate for precision). */
+export const seekToBeat = (beat: number) =>
+    invoke<void>('seek_to_beat', { beat });
+
 /** Set project tempo (BPM). Range: 20–999. */
 export const setBpm = (bpm: number) => invoke<void>('set_bpm', { bpm });
 
@@ -132,6 +138,10 @@ export const setTrackVolume = (trackIndex: number, volume: number) =>
 /** Set track pan (-1.0 to 1.0). */
 export const setTrackPan = (trackIndex: number, pan: number) =>
     invoke<void>('set_track_pan', { trackIndex, pan });
+
+/** Set master volume (linear gain 0.0–2.0). */
+export const setMasterVolume = (volume: number) =>
+    invoke<void>('set_master_volume', { volume });
 
 /** Mute/unmute a track. */
 export const setTrackMute = (trackIndex: number, muted: boolean) =>

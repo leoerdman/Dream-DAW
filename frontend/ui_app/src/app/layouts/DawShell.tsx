@@ -194,6 +194,7 @@ export const DawShell = () => {
 
     // ── Engine state for Timeline ───────────────────────────────────
     const transport = useEngineStore(s => s.transport);
+    const projectSampleRate = useEngineStore(s => s.projectSampleRate || 44100);
     const timelineClips = useEngineStore(s => s.timelineClips);
     const projectTracks = useEngineStore(s => s.projectTracks);
     const timelineClipsForView = useMemo(
@@ -222,11 +223,8 @@ export const DawShell = () => {
         }
     }, [projectTracks, selectedTrackId]);
 
-    // Convert position_seconds → beats using BPM
-    const playheadBeat = useMemo(() => {
-        const bpm = transport.bpm || 120;
-        return transport.position_seconds * (bpm / 60);
-    }, [transport.position_seconds, transport.bpm]);
+    // Use position_beats directly from engine (single-source, no float round-trip)
+    const playheadBeat = transport.position_beats ?? 0;
 
     const trackCount = Math.max(projectTracks.length, 8);
     const trackIds = useMemo(() => projectTracks.map((t) => t.id), [projectTracks]);
@@ -286,7 +284,7 @@ export const DawShell = () => {
 
     // ── Shared layout constants (SSOT for height sync) ──────────────
     const TRACK_HEIGHT = 48;
-    const RULER_HEIGHT = 24;
+    const RULER_HEIGHT = 28;
 
     // ── Scroll sync between Timeline and TrackInspector ─────────────
     const [timelineScrollTop, setTimelineScrollTop] = useState(0);
@@ -294,17 +292,20 @@ export const DawShell = () => {
         setTimelineScrollTop(st);
     }, []);
 
-    // Seek callback: Timeline click → seek in engine
+    // Seek callback: Timeline ruler click → seek in engine (beat-precision)
     const handlePlayheadChange = useCallback((beat: number) => {
-        const bpm = transport.bpm || 120;
-        const seconds = beat / (bpm / 60);
-        engineApi.seekSeconds(seconds);
-    }, [transport.bpm]);
+        engineApi.seekToBeat(Math.max(0, beat));
+    }, []);
 
     const handleEditCursorChange = useCallback((beat: number, trackIndex: number) => {
-        setEditCursorBeat(Math.max(0, beat));
+        const clampedBeat = Math.max(0, beat);
+        setEditCursorBeat(clampedBeat);
         setEditCursorTrackIndex(Math.max(0, trackIndex));
-    }, []);
+        // When NOT playing, also seek engine so playback starts from cursor
+        if (!transport.is_playing) {
+            engineApi.seekToBeat(clampedBeat);
+        }
+    }, [transport.is_playing]);
 
     // Start playback from the edit cursor position.
     const prevIsPlayingRef = useRef(false);
@@ -312,15 +313,11 @@ export const DawShell = () => {
         const justStarted = transport.is_playing && !prevIsPlayingRef.current;
         prevIsPlayingRef.current = transport.is_playing;
         if (!justStarted) return;
-        const bpm = transport.bpm || 120;
-        const cursorSeconds = Math.max(0, editCursorBeat / (bpm / 60));
-        const drift = Math.abs((transport.position_seconds ?? 0) - cursorSeconds);
-        if (drift > 0.002) {
-            void engineApi.seekSeconds(cursorSeconds).catch((err) => {
-                console.error('[DawShell] seek to edit cursor failed:', err);
-            });
-        }
-    }, [transport.is_playing, transport.bpm, transport.position_seconds, editCursorBeat]);
+        // Always seek to edit cursor when playback starts
+        void engineApi.seekToBeat(Math.max(0, editCursorBeat)).catch((err) => {
+            console.error('[DawShell] seek to edit cursor failed:', err);
+        });
+    }, [transport.is_playing, editCursorBeat]);
 
     // Clip selection callback
     const handleClipSelect = useCallback((clipId: string) => {
@@ -464,6 +461,9 @@ export const DawShell = () => {
                                 recordingActive={recordingState.active}
                                 recordingTrackIndex={recordingState.trackIndex}
                                 trackIds={trackIds}
+                                loopStart={(transport.loop_start / projectSampleRate) * ((transport.bpm || 120) / 60)}
+                                loopEnd={(transport.loop_end / projectSampleRate) * ((transport.bpm || 120) / 60)}
+                                loopEnabled={transport.loop_enabled}
                                 trackCount={trackCount}
                                 trackHeight={TRACK_HEIGHT}
                                 onPlayheadChange={handlePlayheadChange}

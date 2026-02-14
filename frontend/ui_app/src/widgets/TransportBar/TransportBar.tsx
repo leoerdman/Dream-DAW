@@ -37,7 +37,7 @@ export const TransportBar = ({
     const isPlaying = useEngineStore((s) => s.transport.is_playing);
     const bpm = useEngineStore((s) => s.transport.bpm);
     const isLooping = useEngineStore((s) => s.transport.loop_enabled);
-    const positionSeconds = useEngineStore((s) => s.transport.position_seconds);
+    const posBeats = useEngineStore((s) => s.transport.position_beats ?? 0);
     const togglePlay = useEngineStore((s) => s.togglePlay);
     const engineStop = useEngineStore((s) => s.stop);
     const engineSetBpm = useEngineStore((s) => s.setBpm);
@@ -67,12 +67,11 @@ export const TransportBar = ({
     const [keyTonic, setKeyTonic] = useState(0);
     const [keyMode, setKeyMode] = useState(0);
 
-    // Position — computed from engine's live playhead
+    // Position — computed from engine's live playhead beats (single source of truth)
     const position = (() => {
-        const totalBeats = (positionSeconds / 60) * bpm;
-        const bar = Math.floor(totalBeats / timeSigNum) + 1;
-        const beat = Math.floor(totalBeats % timeSigNum) + 1;
-        const sub = Math.floor((totalBeats % 1) * 96);
+        const bar = Math.floor(posBeats / timeSigNum) + 1;
+        const beat = Math.floor(posBeats % timeSigNum) + 1;
+        const sub = Math.floor((posBeats % 1) * 96);
         return { bar, beat, sub };
     })();
 

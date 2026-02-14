@@ -28,10 +28,35 @@ import { useDragStore } from '@/shared/stores/useDragStore';
 
 // ── Types ──────────────────────────────────────────────────
 
+type BrowserIconName =
+    | 'star'
+    | 'folder-tree'
+    | 'grid'
+    | 'wave'
+    | 'music'
+    | 'drum'
+    | 'piano'
+    | 'plug'
+    | 'sliders'
+    | 'clapper'
+    | 'sine'
+    | 'hard-drive'
+    | 'package'
+    | 'user'
+    | 'file'
+    | 'folder'
+    | 'folder-plus'
+    | 'chevron-right'
+    | 'chevron-down'
+    | 'arrow-left'
+    | 'hourglass'
+    | 'triangle-alert'
+    | 'headphones';
+
 interface BrowserCategory {
     id: string;
     title: string;
-    icon: string;
+    icon: BrowserIconName;
     kind: 'section' | 'leaf';
     /** For user-added folders — the absolute path */
     folderPath?: string;
@@ -56,19 +81,19 @@ interface BrowserItem {
 // ── Static Categories ────────────────────────────────────
 
 const STATIC_CATEGORIES: BrowserCategory[] = [
-    { id: 'sec-collections', title: 'Collections', icon: '★', kind: 'section' },
-    { id: 'favorites', title: 'Favorites', icon: '★', kind: 'leaf' },
+    { id: 'sec-collections', title: 'Collections', icon: 'star', kind: 'section' },
+    { id: 'favorites', title: 'Favorites', icon: 'star', kind: 'leaf' },
 
-    { id: 'sec-library', title: 'Library', icon: '📁', kind: 'section' },
-    { id: 'all', title: 'All', icon: '≡', kind: 'leaf' },
-    { id: 'samples', title: 'Samples', icon: '♫', kind: 'leaf' },
-    { id: 'sounds', title: 'Sounds', icon: '♪', kind: 'leaf' },
-    { id: 'drums', title: 'Drums', icon: '▪', kind: 'leaf' },
-    { id: 'instruments', title: 'Instruments', icon: '🎹', kind: 'leaf' },
-    { id: 'plugins', title: 'Plug-Ins', icon: '🧩', kind: 'leaf' },
-    { id: 'audioEffects', title: 'Audio Eff…', icon: '✦', kind: 'leaf' },
-    { id: 'clips', title: 'Clips', icon: '🎬', kind: 'leaf' },
-    { id: 'grooves', title: 'Grooves', icon: '∿', kind: 'leaf' },
+    { id: 'sec-library', title: 'Library', icon: 'folder-tree', kind: 'section' },
+    { id: 'all', title: 'All', icon: 'grid', kind: 'leaf' },
+    { id: 'samples', title: 'Samples', icon: 'wave', kind: 'leaf' },
+    { id: 'sounds', title: 'Sounds', icon: 'music', kind: 'leaf' },
+    { id: 'drums', title: 'Drums', icon: 'drum', kind: 'leaf' },
+    { id: 'instruments', title: 'Instruments', icon: 'piano', kind: 'leaf' },
+    { id: 'plugins', title: 'Plug-Ins', icon: 'plug', kind: 'leaf' },
+    { id: 'audioEffects', title: 'Audio Eff…', icon: 'sliders', kind: 'leaf' },
+    { id: 'clips', title: 'Clips', icon: 'clapper', kind: 'leaf' },
+    { id: 'grooves', title: 'Grooves', icon: 'sine', kind: 'leaf' },
 ];
 
 const SOURCE_FILTERS = ['Source: All', 'Source: Library', 'Source: Samples', 'Source: Plug-ins'] as const;
@@ -164,7 +189,7 @@ export const AssetBrowser = () => {
             return {
                 id: `user-folder-${i}`,
                 title: name.length > 10 ? name.slice(0, 9) + '…' : name,
-                icon: '📁',
+                icon: 'folder',
                 kind: 'leaf' as const,
                 folderPath: p,
                 removable: true,
@@ -173,12 +198,12 @@ export const AssetBrowser = () => {
 
         return [
             ...STATIC_CATEGORIES,
-            { id: 'sec-places', title: 'Places', icon: '💾', kind: 'section' as const },
-            { id: 'packs', title: 'Packs', icon: '📦', kind: 'leaf' as const },
-            { id: 'userLibrary', title: 'User Lib…', icon: '👤', kind: 'leaf' as const },
-            { id: 'currentProject', title: 'Current…', icon: '📋', kind: 'leaf' as const },
+            { id: 'sec-places', title: 'Places', icon: 'hard-drive', kind: 'section' as const },
+            { id: 'packs', title: 'Packs', icon: 'package', kind: 'leaf' as const },
+            { id: 'userLibrary', title: 'User Lib…', icon: 'user', kind: 'leaf' as const },
+            { id: 'currentProject', title: 'Current…', icon: 'file', kind: 'leaf' as const },
             ...folderCats,
-            { id: 'addFolder', title: 'Add Fol…', icon: '＋', kind: 'leaf' as const },
+            { id: 'addFolder', title: 'Add Fol…', icon: 'folder-plus', kind: 'leaf' as const },
         ];
     }, [userFolders]);
 
@@ -194,13 +219,6 @@ export const AssetBrowser = () => {
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
     }, []);
-
-    // While searching, force "All" category so results are global.
-    useEffect(() => {
-        if (searchQuery.trim().length > 0 && selectedCategoryId !== 'all') {
-            setSelectedCategoryId('all');
-        }
-    }, [searchQuery, selectedCategoryId]);
 
     const toggleSection = useCallback((id: string) => {
         setCollapsedSections(prev => {
@@ -571,6 +589,7 @@ export const AssetBrowser = () => {
                                         transform: collapsed ? 'rotate(-90deg)' : 'rotate(0)',
                                         transition: 'transform 0.15s',
                                     }}>▼</span>
+                                    <BrowserGlyph name={cat.icon} size={11} />
                                     {cat.title}
                                 </button>
                             );
@@ -580,7 +599,9 @@ export const AssetBrowser = () => {
                         const parentSectionId = currentSection;
                         if (parentSectionId && collapsedSections.has(parentSectionId)) return null;
 
-                        const isSelected = selectedCategoryId === cat.id;
+                        const searchActive = searchQuery.trim().length > 0;
+                        const effectiveSelectedCategoryId = searchActive ? 'all' : selectedCategoryId;
+                        const isSelected = effectiveSelectedCategoryId === cat.id;
 
                         // Special: Add Folder button
                         if (cat.id === 'addFolder') {
@@ -605,7 +626,9 @@ export const AssetBrowser = () => {
                                         opacity: 0.8,
                                     }}
                                 >
-                                    <span style={{ width: 13, textAlign: 'center', fontSize: 12, flexShrink: 0 }}>{cat.icon}</span>
+                                    <span style={{ width: 13, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
+                                        <BrowserGlyph name={cat.icon} size={12} />
+                                    </span>
                                     <span>Add Fol…</span>
                                 </button>
                             );
@@ -615,7 +638,7 @@ export const AssetBrowser = () => {
                             <button
                                 key={cat.id}
                                 onClick={() => {
-                                    setSelectedCategoryId(cat.id);
+                                    setSelectedCategoryId(searchActive ? 'all' : cat.id);
                                     setVisibleCount(RENDER_BATCH);
                                 }}
                                 onContextMenu={cat.removable ? (e) => {
@@ -640,7 +663,9 @@ export const AssetBrowser = () => {
                                     lineHeight: 1.6,
                                 }}
                             >
-                                <span style={{ width: 13, textAlign: 'center', fontSize: 10, flexShrink: 0 }}>{cat.icon}</span>
+                                <span style={{ width: 13, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
+                                    <BrowserGlyph name={cat.icon} size={11} />
+                                </span>
                                 <span style={{
                                     whiteSpace: 'nowrap',
                                     overflow: 'hidden',
@@ -683,7 +708,10 @@ export const AssetBrowser = () => {
                                     fontWeight: 600,
                                 }}
                             >
-                                ← Back
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                    <BrowserGlyph name="arrow-left" size={10} />
+                                    Back
+                                </span>
                             </button>
                         ) : (
                             <>
@@ -718,7 +746,10 @@ export const AssetBrowser = () => {
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
                         }}>
-                            📁 {folderStack[folderStack.length - 1]?.split('/').pop()}
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <BrowserGlyph name="folder" size={10} />
+                                {folderStack[folderStack.length - 1]?.split('/').pop()}
+                            </span>
                         </div>
                     )}
 
@@ -737,7 +768,10 @@ export const AssetBrowser = () => {
                                 fontSize: 10,
                                 animation: 'pulse 1.5s ease-in-out infinite',
                             }}>
-                                ⏳ Scanning…
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                    <BrowserGlyph name="hourglass" size={11} />
+                                    Scanning…
+                                </span>
                             </div>
                         )}
                         {scanError && !scanLoading && (
@@ -747,7 +781,11 @@ export const AssetBrowser = () => {
                                 fontSize: 10,
                                 lineHeight: 1.4,
                             }}>
-                                ⚠️ Could not scan folder<br />
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
+                                    <BrowserGlyph name="triangle-alert" size={11} />
+                                    Could not scan folder
+                                </span>
+                                <br />
                                 <span style={{ opacity: 0.7, fontFamily: 'var(--font-mono)', fontSize: 9 }}>{scanError}</span>
                             </div>
                         )}
@@ -837,9 +875,11 @@ export const AssetBrowser = () => {
                                         gap: 5,
                                     }}>
                                         {item.isDirectory ? (
-                                            <span style={{ fontSize: 10, flexShrink: 0 }}>📁</span>
+                                            <span style={{ display: 'inline-flex', flexShrink: 0 }}>
+                                                <BrowserGlyph name="folder" size={11} />
+                                            </span>
                                         ) : (
-                                            <TypeDot type={item.type} />
+                                            <TypeIcon type={item.type} />
                                         )}
                                         <span style={{
                                             color: 'var(--color-text-primary)',
@@ -856,7 +896,11 @@ export const AssetBrowser = () => {
                                                 marginLeft: 'auto',
                                                 color: 'var(--color-text-tertiary)',
                                                 fontSize: 9,
-                                            }}>›</span>
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                            }}>
+                                                <BrowserGlyph name="chevron-right" size={10} />
+                                            </span>
                                         )}
                                     </div>
                                     {item.meta && !item.isDirectory && (
@@ -964,7 +1008,7 @@ export const AssetBrowser = () => {
                         }}
                         aria-pressed={previewEnabled}
                     >
-                        🎧
+                        <BrowserGlyph name="headphones" size={11} />
                     </button>
                 </div>
             </div>
@@ -974,26 +1018,108 @@ export const AssetBrowser = () => {
 
 // ── Sub-components ──────────────────────────────────────
 
-const TypeDot = ({ type }: { type: BrowserItem['type'] }) => {
-    const colorMap: Record<string, string> = {
-        audio: 'var(--color-browser-audio)',
-        instrument: 'var(--color-browser-midi)',
-        audioEffect: 'var(--color-browser-plugin)',
-        midiEffect: 'var(--color-browser-preset)',
-        plugin: 'var(--color-browser-plugin)',
-        project: '#6ecf9f',
-        preset: '#c4a7e7',
-        folder: '#b7934c',
-        other: 'var(--color-text-tertiary)',
+const itemTypeToIcon: Record<BrowserItem['type'], BrowserIconName> = {
+    audio: 'wave',
+    instrument: 'piano',
+    audioEffect: 'sliders',
+    midiEffect: 'music',
+    plugin: 'plug',
+    folder: 'folder',
+    project: 'file',
+    preset: 'star',
+    other: 'grid',
+};
+
+const itemTypeToColor: Record<BrowserItem['type'], string> = {
+    audio: 'var(--color-browser-audio)',
+    instrument: 'var(--color-browser-midi)',
+    audioEffect: 'var(--color-browser-plugin)',
+    midiEffect: 'var(--color-browser-preset)',
+    plugin: 'var(--color-browser-plugin)',
+    folder: '#b7934c',
+    project: '#6ecf9f',
+    preset: '#c4a7e7',
+    other: 'var(--color-text-tertiary)',
+};
+
+const TypeIcon = ({ type }: { type: BrowserItem['type'] }) => (
+    <span style={{ display: 'inline-flex', color: itemTypeToColor[type] }}>
+        <BrowserGlyph name={itemTypeToIcon[type]} size={11} />
+    </span>
+);
+
+const BrowserGlyph = ({
+    name,
+    size = 12,
+    color = 'currentColor',
+    stroke = 1.8,
+}: {
+    name: BrowserIconName;
+    size?: number;
+    color?: string;
+    stroke?: number;
+}) => {
+    const commonProps = {
+        width: size,
+        height: size,
+        viewBox: '0 0 24 24',
+        fill: 'none',
+        stroke: color,
+        strokeWidth: stroke,
+        strokeLinecap: 'round' as const,
+        strokeLinejoin: 'round' as const,
     };
-    return (
-        <span style={{
-            width: 5, height: 5,
-            borderRadius: '50%',
-            background: colorMap[type] || 'var(--color-text-tertiary)',
-            flexShrink: 0,
-        }} />
-    );
+
+    switch (name) {
+        case 'star':
+            return <svg {...commonProps}><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z" /></svg>;
+        case 'folder-tree':
+            return <svg {...commonProps}><path d="M3 19h7M3 12h7M3 5h7M10 12h4v7h7" /><path d="M14 19h7" /></svg>;
+        case 'grid':
+            return <svg {...commonProps}><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></svg>;
+        case 'wave':
+            return <svg {...commonProps}><path d="M2 12c2.2 0 2.2-6 4.4-6s2.2 12 4.4 12 2.2-12 4.4-12 2.2 6 4.4 6 2.2-6 4.4-6" /></svg>;
+        case 'music':
+            return <svg {...commonProps}><path d="M9 18V6l10-2v12" /><circle cx="7" cy="18" r="2" /><circle cx="17" cy="16" r="2" /></svg>;
+        case 'drum':
+            return <svg {...commonProps}><ellipse cx="12" cy="8" rx="8" ry="3" /><path d="M4 8v7c0 1.7 3.6 3 8 3s8-1.3 8-3V8" /></svg>;
+        case 'piano':
+            return <svg {...commonProps}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M8 4v10M12 4v10M16 4v10" /></svg>;
+        case 'plug':
+            return <svg {...commonProps}><path d="M7 9h10v4a5 5 0 0 1-5 5 5 5 0 0 1-5-5Z" /><path d="M10 5v4M14 5v4M12 18v3" /></svg>;
+        case 'sliders':
+            return <svg {...commonProps}><path d="M4 21v-7M4 10V3M12 21v-4M12 13V3M20 21v-9M20 8V3" /><path d="M2 14h4M10 13h4M18 8h4" /></svg>;
+        case 'clapper':
+            return <svg {...commonProps}><rect x="3" y="8" width="18" height="13" rx="2" /><path d="m3 8 3-5h15v5M8 3l-3 5M13 3l-3 5M18 3l-3 5" /></svg>;
+        case 'sine':
+            return <svg {...commonProps}><path d="M2 12c2.7 0 2.7-6 5.4-6s2.7 12 5.4 12 2.7-12 5.4-12S21 12 22 12" /></svg>;
+        case 'hard-drive':
+            return <svg {...commonProps}><rect x="3" y="4" width="18" height="14" rx="2" /><path d="M3 13h18M8 16h.01M12 16h.01" /></svg>;
+        case 'package':
+            return <svg {...commonProps}><path d="m12 3 8 4-8 4-8-4 8-4Z" /><path d="M4 7v10l8 4 8-4V7" /><path d="M12 11v10" /></svg>;
+        case 'user':
+            return <svg {...commonProps}><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>;
+        case 'file':
+            return <svg {...commonProps}><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" /><path d="M14 3v6h6" /></svg>;
+        case 'folder':
+            return <svg {...commonProps}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /></svg>;
+        case 'folder-plus':
+            return <svg {...commonProps}><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /><path d="M12 10v6M9 13h6" /></svg>;
+        case 'chevron-right':
+            return <svg {...commonProps}><path d="m9 6 6 6-6 6" /></svg>;
+        case 'chevron-down':
+            return <svg {...commonProps}><path d="m6 9 6 6 6-6" /></svg>;
+        case 'arrow-left':
+            return <svg {...commonProps}><path d="M19 12H5M12 19l-7-7 7-7" /></svg>;
+        case 'hourglass':
+            return <svg {...commonProps}><path d="M6 3h12M6 21h12M8 3c0 4 8 4 8 9s-8 5-8 9M16 3c0 4-8 4-8 9s8 5 8 9" /></svg>;
+        case 'triangle-alert':
+            return <svg {...commonProps}><path d="M12 3 2 21h20L12 3Z" /><path d="M12 9v5M12 18h.01" /></svg>;
+        case 'headphones':
+            return <svg {...commonProps}><path d="M4 12a8 8 0 0 1 16 0v6a2 2 0 0 1-2 2h-2v-6h4M4 14h4v6H6a2 2 0 0 1-2-2z" /></svg>;
+        default:
+            return <svg {...commonProps}><circle cx="12" cy="12" r="4" /></svg>;
+    }
 };
 
 const FilterPill = ({

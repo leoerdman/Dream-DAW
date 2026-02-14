@@ -1103,7 +1103,9 @@ struct TransportState {
     is_playing: bool,
     position_frames: i64,
     position_seconds: f64,
+    position_beats: f64,
     bpm: f64,
+    sample_rate: f64,
     loop_enabled: bool,
     loop_start: i64,
     loop_end: i64,
@@ -1297,6 +1299,27 @@ fn seek_seconds(
     Ok(())
 }
 
+/// Seeks to a specific position in beats (uses current BPM + sample rate).
+#[tauri::command]
+fn seek_to_beat(
+    beat: f64,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    let state = handle
+        .playback_state
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {e}"))?;
+    let bpm = state.bpm;
+    let sample_rate = state.sample_rate;
+    drop(state);
+
+    let seconds = beat * 60.0 / bpm;
+    let frames = (seconds * sample_rate) as i64;
+    push_command(&handle, EngineCommand::Seek(frames))?;
+    log::info!("[IPC] seek_to_beat({beat:.4} beat → {frames} frames)");
+    Ok(())
+}
+
 /// Sets the project tempo (BPM).
 #[tauri::command]
 fn set_bpm(
@@ -1469,6 +1492,18 @@ fn set_track_pan(
     Ok(())
 }
 
+/// Sets master output volume (linear gain 0.0–2.0).
+#[tauri::command]
+fn set_master_volume(
+    volume: f32,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    let clamped = volume.clamp(0.0, 2.0);
+    push_command(&handle, EngineCommand::SetMasterVolume { volume: clamped })?;
+    log::debug!("[IPC] set_master_volume(vol={clamped})");
+    Ok(())
+}
+
 /// Mutes or unmutes a track.
 #[tauri::command]
 fn set_track_mute(
@@ -1637,13 +1672,17 @@ fn get_transport(handle: tauri::State<'_, AudioEngineHandle>) -> Result<Transpor
         .map_err(|e| format!("Lock poisoned: {e}"))?;
 
     let frames = handle.master_clock.position();
-    let seconds = frames as f64 / state.sample_rate;
+    let sample_rate = state.sample_rate;
+    let seconds = frames as f64 / sample_rate;
+    let position_beats = seconds * state.bpm / 60.0;
 
     Ok(TransportState {
         is_playing: state.is_playing,
         position_frames: frames,
         position_seconds: seconds,
+        position_beats,
         bpm: state.bpm,
+        sample_rate,
         loop_enabled: state.loop_enabled,
         loop_start: state.loop_start,
         loop_end: state.loop_end,
@@ -4716,11 +4755,13 @@ pub fn run() {
             toggle_playback,
             seek,
             seek_seconds,
+            seek_to_beat,
             set_bpm,
             set_loop,
             // Track Control
             set_track_volume,
             set_track_pan,
+            set_master_volume,
             set_track_mute,
             set_track_solo,
             update_track,

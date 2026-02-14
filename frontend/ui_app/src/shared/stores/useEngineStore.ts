@@ -123,6 +123,10 @@ const throttledVolumeSends = new Map<number, (volume: number) => void>();
 const throttledPanSends = new Map<number, (pan: number) => void>();
 const pendingVolumeValues = new Map<number, number>();
 const pendingPanValues = new Map<number, number>();
+let pendingMasterVolume: number | null = null;
+const throttledMasterVolumeSend = throttle((volume: number) => {
+    void engine.setMasterVolume(volume);
+}, 16);
 
 // ── Store Types ──────────────────────────────────────────────────────────
 
@@ -151,6 +155,8 @@ interface EngineStore {
 
     /** Last IPC error (for error boundary / status bar display). */
     lastError: string | null;
+    /** Master fader volume (linear gain 0.0..2.0). */
+    masterVolume: number;
 
     // ── Actions ──────────────────────────────────────────────────────────
 
@@ -169,6 +175,9 @@ interface EngineStore {
     /** Seek to a position in seconds. */
     seekSeconds: (seconds: number) => Promise<void>;
 
+    /** Seek to a beat position (precision: single conversion on Rust side). */
+    seekToBeat: (beat: number) => Promise<void>;
+
     /** Set loop region. */
     setLoop: (enabled: boolean, startFrames: number, endFrames: number) => Promise<void>;
 
@@ -180,6 +189,8 @@ interface EngineStore {
 
     /** Track control: set pan. */
     setTrackPan: (trackIndex: number, pan: number) => Promise<void>;
+    /** Master control: set volume. */
+    setMasterVolume: (volume: number) => Promise<void>;
     /** Flush final unthrottled track control values (call on mouse/pointer up). */
     flushTrackControlFinals: () => Promise<void>;
 
@@ -230,7 +241,9 @@ const DEFAULT_TRANSPORT: TransportState = {
     is_playing: false,
     position_frames: 0,
     position_seconds: 0,
+    position_beats: 0,
     bpm: 120,
+    sample_rate: 44100,
     loop_enabled: false,
     loop_start: 0,
     loop_end: 0,
@@ -267,6 +280,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     projectTracks: [],
     projectSampleRate: 44100,
     lastError: null,
+    masterVolume: 1.0,
 
     // ── Transport Actions ──────────────────────────────────────────────
 
@@ -320,6 +334,15 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     seekSeconds: async (seconds: number) => {
         try {
             await engine.seekSeconds(seconds);
+            set({ lastError: null });
+        } catch (e) {
+            set({ lastError: String(e) });
+        }
+    },
+
+    seekToBeat: async (beat: number) => {
+        try {
+            await engine.seekToBeat(beat);
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
@@ -387,6 +410,17 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         }
     },
 
+    setMasterVolume: async (volume: number) => {
+        try {
+            const clamped = Math.max(0, Math.min(2, volume));
+            pendingMasterVolume = clamped;
+            set({ masterVolume: clamped });
+            throttledMasterVolumeSend(clamped);
+        } catch (e) {
+            set({ lastError: String(e) });
+        }
+    },
+
     flushTrackControlFinals: async () => {
         try {
             const volumeEntries = Array.from(pendingVolumeValues.entries());
@@ -396,9 +430,13 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 ...volumeEntries.map(([trackIndex, volume]) => engine.setTrackVolume(trackIndex, volume)),
                 ...panEntries.map(([trackIndex, pan]) => engine.setTrackPan(trackIndex, pan)),
             ]);
+            if (pendingMasterVolume != null) {
+                await engine.setMasterVolume(pendingMasterVolume);
+            }
 
             pendingVolumeValues.clear();
             pendingPanValues.clear();
+            pendingMasterVolume = null;
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });

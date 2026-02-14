@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { ClipRenderer } from './ClipRenderer';
@@ -110,7 +111,7 @@ interface TimelineProps {
 
 // ── Constants ──────────────────────────────────────────────
 
-const RULER_HEIGHT = 24;
+const RULER_HEIGHT = 28;
 const MIN_PPB = 8;
 const MAX_PPB = 120;
 const DEFAULT_PPB = 20;
@@ -119,7 +120,7 @@ const DEFAULT_PPB = 20;
 
 export const Timeline = ({
     timeSignature = [4, 4],
-    totalBars = 32,
+    totalBars = 256,
     trackCount = 9,
     trackHeight = 48,
     clips: externalClips,
@@ -132,7 +133,7 @@ export const Timeline = ({
     trackIds = [],
     loopStart = 4,
     loopEnd = 20,
-    loopEnabled = true,
+    loopEnabled = false,
     onEditCursorChange,
     onClipSelect,
     onClipMove,
@@ -141,6 +142,7 @@ export const Timeline = ({
     onOpenMidiClip,
     onTrackSelect,
     onScrollTop,
+    onPlayheadChange,
     followPlayhead = false,
 }: TimelineProps) => {
     const [pixelsPerBeat, setPixelsPerBeat] = useState(DEFAULT_PPB);
@@ -183,6 +185,9 @@ export const Timeline = ({
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const rulerContentRef = useRef<HTMLDivElement>(null);
+    const rulerLoopRef = useRef<HTMLDivElement>(null);
+    const masterLaneContentRef = useRef<HTMLDivElement>(null);
     const phantomClipRef = useRef<HTMLDivElement>(null);
     const phantomCanvasRef = useRef<HTMLCanvasElement>(null);
     const peakQueueRef = useRef<number[]>([]);
@@ -486,25 +491,40 @@ export const Timeline = ({
     }, [slippingClip]);
 
     // ── Scroll handler ──
+    const syncHorizontalLayers = useCallback((left: number) => {
+        const tx = `translateX(${-left}px)`;
+        if (rulerContentRef.current) {
+            rulerContentRef.current.style.transform = tx;
+        }
+        if (masterLaneContentRef.current) {
+            masterLaneContentRef.current.style.transform = tx;
+        }
+        if (rulerLoopRef.current) {
+            rulerLoopRef.current.style.transform = tx;
+        }
+    }, []);
+
     const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
         const target = e.currentTarget;
         setScrollLeft(target.scrollLeft);
         setViewportWidth(target.clientWidth);
+        syncHorizontalLayers(target.scrollLeft);
         onScrollTop?.(target.scrollTop);
         // Sync both scroll offsets to shared store for drag-drop accuracy
         setTimelineLayout({ scrollLeft: target.scrollLeft, scrollTop: target.scrollTop });
-    }, [onScrollTop, setTimelineLayout]);
+    }, [onScrollTop, setTimelineLayout, syncHorizontalLayers]);
 
     useEffect(() => {
         const syncViewport = () => {
             if (scrollContainerRef.current) {
                 setViewportWidth(scrollContainerRef.current.clientWidth);
+                syncHorizontalLayers(scrollContainerRef.current.scrollLeft);
             }
         };
         syncViewport();
         window.addEventListener('resize', syncViewport);
         return () => window.removeEventListener('resize', syncViewport);
-    }, []);
+    }, [syncHorizontalLayers]);
 
     // ── Zoom (Ctrl+Scroll or pinch) ──
     useEffect(() => {
@@ -528,9 +548,9 @@ export const Timeline = ({
                 const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, anchorBeat * nextPpb - pointerX));
 
                 setPixelsPerBeat(nextPpb);
-                requestAnimationFrame(() => {
-                    el.scrollLeft = nextScrollLeft;
-                });
+                // Synchronous scroll + layer sync → single-frame zoom (no jelly)
+                el.scrollLeft = nextScrollLeft;
+                syncHorizontalLayers(nextScrollLeft);
             }
         };
         el.addEventListener('wheel', onWheel, { passive: false });
@@ -558,16 +578,21 @@ export const Timeline = ({
         }
     }, [externalPlayhead, followPlayhead, isPlaying, pixelsPerBeat]);
 
-    // ── Ruler click → set edit cursor position ──
+    // ── Ruler click → set edit cursor position + seek engine ──
+    // Uses live DOM scrollLeft (not React state) to avoid stale values during zoom transitions
     const handleRulerClick = useCallback((e: React.MouseEvent) => {
         const rect = e.currentTarget.getBoundingClientRect();
-        const x = e.clientX - rect.left + scrollLeft;
-        const beat = x / pixelsPerBeat;
+        const liveScrollLeft = scrollContainerRef.current?.scrollLeft ?? 0;
+        const x = e.clientX - rect.left + liveScrollLeft;
+        const rawBeat = x / pixelsPerBeat;
+        const beat = Math.max(0, snapBeat(rawBeat, beatsPerBar));
         const trackForCursor = Math.max(0, Math.min(trackCount - 1, editCursorTrackIndex));
         setEditCursorBeat(beat, trackForCursor);
-    }, [pixelsPerBeat, scrollLeft, editCursorTrackIndex, trackCount, setEditCursorBeat]);
+        // Also seek the engine playhead to this position
+        onPlayheadChange?.(beat);
+    }, [pixelsPerBeat, editCursorTrackIndex, trackCount, setEditCursorBeat, onPlayheadChange, snapBeat, beatsPerBar]);
 
-    // ── Canvas click → set edit cursor + deselect clip ──
+    // ── Canvas click → set edit cursor + deselect clip + seek engine ──
     const handleCanvasClick = useCallback((e: React.MouseEvent) => {
         if ((e.target as HTMLElement).dataset.clip) return;
         const rect = e.currentTarget.getBoundingClientRect();
@@ -576,11 +601,14 @@ export const Timeline = ({
         const scrollTop = scrollContainerRef.current?.scrollTop ?? 0;
         const y = e.clientY - rect.top + scrollTop;
         const trackIndex = Math.max(0, Math.min(trackCount - 1, Math.floor(y / trackHeight)));
-        const beat = x / pixelsPerBeat;
+        const rawBeat = x / pixelsPerBeat;
+        const beat = Math.max(0, snapBeat(rawBeat, beatsPerBar));
         setEditCursorBeat(beat, trackIndex);
         setSelectedClipId(null);
         selectTrackByIndex(trackIndex);
-    }, [pixelsPerBeat, trackHeight, selectTrackByIndex, trackCount, setEditCursorBeat]);
+        // Also seek the engine playhead to this position
+        onPlayheadChange?.(beat);
+    }, [pixelsPerBeat, trackHeight, selectTrackByIndex, trackCount, setEditCursorBeat, onPlayheadChange, snapBeat, beatsPerBar]);
 
     // ── Clip selection ──
     const handleClipClick = useCallback((e: React.MouseEvent, clipId: string) => {
@@ -672,7 +700,9 @@ export const Timeline = ({
     // Ruler marks
     const rulerMarks = useMemo(() => {
         const marks: { beat: number; label: string; isBar: boolean }[] = [];
-        for (let beat = 0; beat <= totalBeats; beat++) {
+        const minBeat = Math.max(0, Math.floor((scrollLeft - 300) / pixelsPerBeat));
+        const maxBeat = Math.min(totalBeats, Math.ceil((scrollLeft + viewportWidth + 300) / pixelsPerBeat));
+        for (let beat = minBeat; beat <= maxBeat; beat++) {
             const barIndex = Math.floor(beat / beatsPerBar) + 1;
             const beatInBar = beat % beatsPerBar;
             if (beatInBar === 0) {
@@ -682,7 +712,7 @@ export const Timeline = ({
             }
         }
         return marks;
-    }, [totalBeats, beatsPerBar]);
+    }, [totalBeats, beatsPerBar, scrollLeft, pixelsPerBeat, viewportWidth]);
 
     // ── Timeline culling (mount only visible clips + edge buffer) ──
     const clipRenderBufferPx = 200;
@@ -723,14 +753,15 @@ export const Timeline = ({
                     cursor: 'pointer',
                 }}
             >
-                <div style={{
+                <div ref={rulerContentRef} style={{
                     position: 'absolute',
                     top: 0,
-                    left: -scrollLeft,
+                    left: 0,
                     width: canvasWidth,
                     height: '100%',
                     display: 'flex',
                     alignItems: 'flex-end',
+                    willChange: 'transform',
                 }}>
                     {rulerMarks.map(mark => (
                         <div
@@ -741,16 +772,19 @@ export const Timeline = ({
                                 height: '100%',
                                 display: 'flex',
                                 flexDirection: 'column',
+                                alignItems: 'center',
                                 justifyContent: 'space-between',
                             }}
                         >
                             {mark.isBar && (
                                 <span style={{
-                                    fontSize: 9,
+                                    fontSize: 11,
                                     fontFamily: 'var(--font-mono)',
                                     color: 'var(--color-text-secondary)',
-                                    padding: '2px 3px 0',
+                                    padding: '3px 0 0',
                                     fontWeight: 500,
+                                    transform: 'translateX(-50%)',
+                                    whiteSpace: 'nowrap',
                                 }}>
                                     {mark.label}
                                 </span>
@@ -759,7 +793,6 @@ export const Timeline = ({
                                 width: 1,
                                 height: mark.isBar ? 10 : 5,
                                 background: mark.isBar ? 'var(--color-text-tertiary)' : 'var(--color-divider)',
-                                alignSelf: 'flex-start',
                             }} />
                         </div>
                     ))}
@@ -790,22 +823,23 @@ export const Timeline = ({
                         transition: 'opacity 820ms ease-in-out',
                         pointerEvents: 'none',
                     }} />
-                </div>
 
-                {/* Loop region on ruler */}
-                {loopEnabled && (
+                    {/* Loop region on ruler — always visible, blue when enabled, gray when disabled */}
                     <div style={{
                         position: 'absolute',
-                        left: loopStart * pixelsPerBeat - scrollLeft,
+                        left: loopStart * pixelsPerBeat,
                         width: (loopEnd - loopStart) * pixelsPerBeat,
                         top: 0,
                         height: '100%',
-                        background: 'color-mix(in srgb, var(--color-accent-primary) 15%, transparent)',
-                        borderLeft: '1px solid var(--color-accent-primary)',
-                        borderRight: '1px solid var(--color-accent-primary)',
+                        background: loopEnabled
+                            ? 'color-mix(in srgb, var(--color-accent-primary) 15%, transparent)'
+                            : 'rgba(255,255,255,0.04)',
+                        borderLeft: `1px solid ${loopEnabled ? 'var(--color-accent-primary)' : 'rgba(255,255,255,0.1)'}`,
+                        borderRight: `1px solid ${loopEnabled ? 'var(--color-accent-primary)' : 'rgba(255,255,255,0.1)'}`,
                         pointerEvents: 'none',
+                        transition: 'background 0.2s ease, border-color 0.2s ease',
                     }} />
-                )}
+                </div>
             </div>
 
             {/* ── Canvas (scrollable) ── */}
@@ -952,19 +986,22 @@ export const Timeline = ({
                         })}
                     </svg>
 
-                    {/* ── Loop region overlay ── */}
-                    {loopEnabled && (
-                        <div style={{
-                            position: 'absolute',
-                            left: loopStart * pixelsPerBeat,
-                            width: (loopEnd - loopStart) * pixelsPerBeat,
-                            top: 0,
-                            height: '100%',
-                            background: 'color-mix(in srgb, var(--color-accent-primary) 5%, transparent)',
-                            pointerEvents: 'none',
-                            zIndex: 1,
-                        }} />
-                    )}
+                    {/* ── Loop region overlay — always visible, blue when enabled, gray when disabled ── */}
+                    <div style={{
+                        position: 'absolute',
+                        left: loopStart * pixelsPerBeat,
+                        width: (loopEnd - loopStart) * pixelsPerBeat,
+                        top: 0,
+                        height: '100%',
+                        background: loopEnabled
+                            ? 'color-mix(in srgb, var(--color-accent-primary) 5%, transparent)'
+                            : 'rgba(255,255,255,0.015)',
+                        borderLeft: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 40%, transparent)' : 'rgba(255,255,255,0.05)'}`,
+                        borderRight: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 40%, transparent)' : 'rgba(255,255,255,0.05)'}`,
+                        pointerEvents: 'none',
+                        zIndex: 1,
+                        transition: 'background 0.2s ease, border-color 0.2s ease',
+                    }} />
 
                     {/* ── Clips ── */}
                     {visibleClips.map(clip => {
@@ -1022,7 +1059,7 @@ export const Timeline = ({
                             >
                                 {/* Clip title */}
                                 <span style={{
-                                    fontSize: 9,
+                                    fontSize: 11,
                                     fontWeight: 600,
                                     color: '#fff',
                                     textShadow: '0 1px 2px rgba(0,0,0,0.5)',
@@ -1184,7 +1221,7 @@ export const Timeline = ({
                             transition: 'left 60ms ease-out, top 60ms ease-out',
                         }}>
                             <span style={{
-                                fontSize: 9,
+                                fontSize: 11,
                                 fontWeight: 600,
                                 color: 'var(--color-accent-primary)',
                                 padding: '2px 5px',
@@ -1224,7 +1261,7 @@ export const Timeline = ({
                             overflow: 'hidden',
                         }}>
                             <span style={{
-                                fontSize: 9,
+                                fontSize: 11,
                                 fontWeight: 600,
                                 color: '#fff',
                                 textShadow: '0 1px 2px rgba(0,0,0,0.5)',
@@ -1278,7 +1315,7 @@ export const Timeline = ({
                     {/* ── Playhead ── */}
                     <div style={{
                         position: 'absolute',
-                        left: playheadBeat * pixelsPerBeat,
+                        left: 0,
                         top: 0,
                         width: 1.5,
                         height: '100%',
@@ -1286,6 +1323,8 @@ export const Timeline = ({
                         zIndex: 20,
                         pointerEvents: 'none',
                         boxShadow: '0 0 6px var(--color-accent-primary)',
+                        transform: `translateX(${playheadBeat * pixelsPerBeat}px)`,
+                        willChange: 'transform',
                     }} />
 
                     {/* ── Edit Cursor (blinking marker) ── */}
@@ -1301,6 +1340,92 @@ export const Timeline = ({
                         opacity: cursorBlinkOn ? 0.62 : 0.22,
                         boxShadow: cursorBlinkOn ? '0 0 3px rgba(255,255,255,0.55)' : 'none',
                         transition: 'opacity 820ms ease-in-out, box-shadow 820ms ease-in-out',
+                    }} />
+                </div>
+            </div>
+
+            {/* ── Master Track Lane (pinned at bottom with grid) ── */}
+            <div style={{
+                height: trackHeight,
+                flexShrink: 0,
+                position: 'relative',
+                overflow: 'hidden',
+                borderTop: '1px solid var(--color-divider)',
+                background: 'var(--color-bg-canvas)',
+            }}>
+                <div
+                    ref={masterLaneContentRef}
+                    style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: canvasWidth,
+                        height: '100%',
+                        willChange: 'transform',
+                    }}
+                >
+                    <svg
+                        width={canvasWidth}
+                        height={trackHeight}
+                        style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            pointerEvents: 'none',
+                        }}
+                    >
+                        {/* Vertical grid lines for master lane */}
+                        {gridLines.map((gl, idx) => {
+                            const opacity = gl.isBar ? 0.6
+                                : gl.isMainBeat ? 0.3
+                                    : gl.depth === 2 ? 0.15
+                                        : gl.depth === 3 ? 0.1
+                                            : 0.07;
+                            return (
+                                <line
+                                    key={`m-${idx}`}
+                                    x1={gl.beat * pixelsPerBeat}
+                                    y1={0}
+                                    x2={gl.beat * pixelsPerBeat}
+                                    y2={trackHeight}
+                                    stroke={gl.isBar ? 'var(--color-divider)' : 'var(--color-divider-light)'}
+                                    strokeWidth={gl.isBar ? 1 : 0.5}
+                                    opacity={opacity}
+                                />
+                            );
+                        })}
+                    </svg>
+
+                    {/* Loop region on master lane — always visible */}
+                    <div
+                        style={{
+                            position: 'absolute',
+                            left: loopStart * pixelsPerBeat,
+                            width: (loopEnd - loopStart) * pixelsPerBeat,
+                            top: 0,
+                            height: '100%',
+                            background: loopEnabled
+                                ? 'color-mix(in srgb, var(--color-accent-primary) 5%, transparent)'
+                                : 'rgba(255,255,255,0.015)',
+                            borderLeft: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 75%, transparent)' : 'rgba(255,255,255,0.05)'}`,
+                            borderRight: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 75%, transparent)' : 'rgba(255,255,255,0.05)'}`,
+                            pointerEvents: 'none',
+                            zIndex: 1,
+                            transition: 'background 0.2s ease, border-color 0.2s ease',
+                        }}
+                    />
+
+                    {/* Master playhead */}
+                    <div style={{
+                        position: 'absolute',
+                        left: playheadBeat * pixelsPerBeat,
+                        top: 0,
+                        width: 1.5,
+                        height: '100%',
+                        background: 'var(--color-accent-primary)',
+                        zIndex: 20,
+                        pointerEvents: 'none',
+                        boxShadow: '0 0 6px var(--color-accent-primary)',
                     }} />
                 </div>
             </div>

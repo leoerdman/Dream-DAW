@@ -329,7 +329,7 @@ const overlayStyle: React.CSSProperties = {
 const dialogStyle: React.CSSProperties = {
     width: 440,
     maxHeight: '80vh',
-    background: '#1a1a1e',
+    background: '#1a1a1a',
     borderRadius: 12,
     border: '1px solid rgba(255,255,255,0.08)',
     boxShadow: '0 24px 80px rgba(0,0,0,0.6)',

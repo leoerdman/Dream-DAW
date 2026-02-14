@@ -125,6 +125,8 @@ export const TrackInspector = ({
     const engineSetTrackMute = useEngineStore((s) => s.setTrackMute);
     const engineSetTrackSolo = useEngineStore((s) => s.setTrackSolo);
     const engineSetTrackVolume = useEngineStore((s) => s.setTrackVolume);
+    const engineSetMasterVolume = useEngineStore((s) => s.setMasterVolume);
+    const masterVolume = useEngineStore((s) => s.masterVolume);
     const addTrack = useEngineStore((s) => s.addTrack);
     const deleteTrack = useEngineStore((s) => s.deleteTrack);
     const renameTrackAction = useEngineStore((s) => s.renameTrack);
@@ -147,10 +149,10 @@ export const TrackInspector = ({
         const masterVu = Math.max(meters.master_left.peak, meters.master_right.peak);
         return {
             id: 'master', name: 'Master', type: 'master', color: '#666',
-            volume: 0, pan: 0, isMuted: false, isSoloed: false, isArmed: false,
+            volume: masterVolume, pan: 0, isMuted: false, isSoloed: false, isArmed: false,
             vuLevel: masterVu, routing: '', sends: [], input: '', output: 'Main',
         };
-    }, [meters]);
+    }, [meters, masterVolume]);
 
     // Local overrides
     const [localOverrides, setLocalOverrides] = useState<Record<string, Partial<TrackData>>>({});
@@ -394,7 +396,9 @@ export const TrackInspector = ({
                 onToggleMute={() => { }}
                 onToggleSolo={() => { }}
                 onToggleArm={() => { }}
-                onVolumeChange={() => { }}
+                onVolumeChange={(gain: number) => {
+                    void engineSetMasterVolume(gain);
+                }}
                 onContextMenu={() => { }}
                 isMasterFixed
             />
@@ -554,6 +558,7 @@ const VolumeFader = ({
 }) => {
     const trackRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
+    const activePointerId = useRef<number | null>(null);
     const db = gainToDb(volumeLinear);
     const faderPos = dbToFader(db);
 
@@ -566,17 +571,18 @@ const VolumeFader = ({
         onVolumeChange(dbToGain(newDb));
     }, [onVolumeChange]);
 
-    useEffect(() => {
-        if (!isDragging) return;
-        const onMove = (e: MouseEvent) => applyFromEvent(e.clientX);
-        const onUp = () => setIsDragging(false);
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
-        return () => {
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-        };
-    }, [isDragging, applyFromEvent]);
+    const beginDrag = useCallback((clientX: number, pointerId?: number) => {
+        setIsDragging(true);
+        if (typeof pointerId === 'number') activePointerId.current = pointerId;
+        applyFromEvent(clientX);
+    }, [applyFromEvent]);
+
+    const endDrag = useCallback(() => {
+        setIsDragging(false);
+        activePointerId.current = null;
+        // Force-send final value without throttle.
+        void useEngineStore.getState().flushTrackControlFinals();
+    }, []);
 
     // Zero-dB tick position
     const zeroTickPos = dbToFader(0);
@@ -585,12 +591,33 @@ const VolumeFader = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
             <div
                 ref={trackRef}
-                onMouseDown={(e) => { e.stopPropagation(); setIsDragging(true); applyFromEvent(e.clientX); }}
-                onDoubleClick={(e) => { e.stopPropagation(); onVolumeChange(1.0); /* reset to 0 dB */ }}
+                onPointerDown={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+                    beginDrag(e.clientX, e.pointerId);
+                }}
+                onPointerMove={(e) => {
+                    if (!isDragging) return;
+                    if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return;
+                    applyFromEvent(e.clientX);
+                }}
+                onPointerUp={(e) => {
+                    if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return;
+                    (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
+                    endDrag();
+                }}
+                onPointerCancel={endDrag}
+                onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    onVolumeChange(1.0); /* reset to 0 dB */
+                    void useEngineStore.getState().flushTrackControlFinals();
+                }}
                 style={{
-                    position: 'relative', flex: 1, height: 8, minWidth: 40,
-                    background: '#2a2a30', borderRadius: 2, cursor: 'ew-resize',
+                    position: 'relative', flex: 1, height: 6, minWidth: 40,
+                    background: '#2a2a2a', borderRadius: 2, cursor: 'ew-resize',
                     overflow: 'hidden',
+                    touchAction: 'none',
                 }}
             >
                 {/* Zero-dB tick mark */}
@@ -613,7 +640,7 @@ const VolumeFader = ({
                     position: 'absolute',
                     left: `calc(${faderPos * 100}% - 3px)`,
                     top: 0, width: 6, height: '100%',
-                    background: '#e0e0e8', borderRadius: 1,
+                    background: '#e0e0e0', borderRadius: 1,
                     boxShadow: '0 0 3px rgba(0,0,0,0.5)',
                     transition: isDragging ? 'none' : 'left 60ms linear',
                 }} />
@@ -644,7 +671,7 @@ const TriColorVU = ({ peakDb, isMidi }: { peakDb: number; isMidi: boolean }) => 
     return (
         <div style={{
             width: 10, height: meterHeight,
-            background: '#2a2a30', borderRadius: 2,
+            background: '#2a2a2a', borderRadius: 2,
             overflow: 'hidden', flexShrink: 0,
             position: 'relative',
             border: '1px solid rgba(255,255,255,0.1)',
@@ -752,7 +779,7 @@ const TrackRow = ({
                 display: 'flex', alignItems: 'stretch', height: trackHeight,
                 borderBottom: isMasterFixed ? 'none' : '1px solid var(--color-divider)',
                 borderTop: isMasterFixed ? '1px solid var(--color-divider)' : 'none',
-                background: isSelected ? '#222228' : isHovered ? '#1e1e24' : '#1a1a1e',
+                background: isSelected ? '#222222' : isHovered ? '#1e1e1e' : '#1a1a1a',
                 cursor: 'default',
                 opacity: isEnabled ? 1 : 0.45,
                 transition: 'background 0.12s ease, opacity 0.12s ease',
@@ -764,14 +791,13 @@ const TrackRow = ({
                 display: 'flex', flexDirection: 'column', justifyContent: 'center',
                 minWidth: isMasterFixed ? 80 : 90, maxWidth: 120,
                 padding: '2px 6px 2px 4px',
-                background: isMasterFixed
-                    ? (isSelected ? '#2a2a2e' : '#222226')
-                    : `color-mix(in srgb, ${track.color} ${isSelected ? '90%' : isHovered ? '80%' : '70%'}, #1a1a1e)`,
+                background: `color-mix(in srgb, ${track.color} ${isSelected ? '90%' : isHovered ? '80%' : '70%'}, #1a1a1a)`,
                 borderRight: '1px solid rgba(255,255,255,0.08)',
                 gap: 1,
+                position: 'relative',
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                    {/* Collapse / Type icon */}
+                    {/* Collapse / Group icon */}
                     {isGroup && onToggleCollapse ? (
                         <button
                             onClick={e => { e.stopPropagation(); onToggleCollapse(); }}
@@ -783,13 +809,9 @@ const TrackRow = ({
                         >
                             {isCollapsed ? '▶' : '▼'}
                         </button>
-                    ) : !isMasterFixed ? (
-                        <span style={{ fontSize: 7, color: '#fff', flexShrink: 0, width: 10 }}>
-                            {track.type === 'midi' ? '♪' : '●'}
-                        </span>
-                    ) : (
+                    ) : isMasterFixed ? (
                         <span style={{ fontSize: 8, color: 'var(--color-text-secondary)', flexShrink: 0, width: 10 }}>▶</span>
-                    )}
+                    ) : null}
 
                     {/* Track Name */}
                     {isRenaming ? (
@@ -804,7 +826,7 @@ const TrackRow = ({
                             onBlur={onRenameCommit}
                             onClick={e => e.stopPropagation()}
                             style={{
-                                flex: 1, fontSize: 10, fontWeight: 600,
+                                fontSize: 10, fontWeight: 600,
                                 background: 'rgba(0,0,0,0.4)',
                                 border: `1px solid ${track.color}`,
                                 borderRadius: 2, color: '#fff',
@@ -813,7 +835,7 @@ const TrackRow = ({
                         />
                     ) : (
                         <span style={{
-                            flex: 1, fontSize: 10,
+                            flex: 1, fontSize: 12,
                             fontWeight: isGroup || isMasterFixed ? 700 : 600,
                             color: '#fff',
                             whiteSpace: 'nowrap', overflow: 'hidden',
@@ -824,27 +846,35 @@ const TrackRow = ({
                     )}
                 </div>
 
-                {/* Track Number Badge */}
-                {displayNum !== undefined && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 3, paddingLeft: 10 }}>
-                        <span style={{
-                            fontSize: 7, fontWeight: 700, fontFamily: 'var(--font-mono)',
-                            color: '#fff', opacity: 0.8,
-                        }}>
-                            {displayNum}
-                        </span>
-                        <span style={{
-                            fontSize: 7, color: 'rgba(255,255,255,0.6)',
-                            textTransform: 'capitalize',
-                        }}>
-                            {track.type}
-                        </span>
-                    </div>
-                )}
-
                 {/* Master label */}
                 {isMasterFixed && (
-                    <span style={{ fontSize: 7, color: 'var(--color-text-tertiary)', paddingLeft: 10 }}>Main</span>
+                    <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)', paddingLeft: 10 }}>Main</span>
+                )}
+
+                {/* ── Type Icon (absolute top-right) ── */}
+                {!isMasterFixed && !isGroup && (
+                    <span style={{
+                        position: 'absolute',
+                        top: 3,
+                        right: 4,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        opacity: 0.55,
+                    }}>
+                        {track.type === 'midi' ? (
+                            <svg width="9" height="9" viewBox="0 0 12 12" fill="none">
+                                <rect x="0" y="1" width="3" height="10" rx="0.5" fill="#fff" />
+                                <rect x="4.5" y="1" width="3" height="10" rx="0.5" fill="#fff" />
+                                <rect x="9" y="1" width="3" height="10" rx="0.5" fill="#fff" />
+                                <rect x="2" y="1" width="2" height="6" rx="0.3" fill="#1a1a1a" />
+                                <rect x="6.5" y="1" width="2" height="6" rx="0.3" fill="#1a1a1a" />
+                            </svg>
+                        ) : (
+                            <svg width="9" height="9" viewBox="0 0 14 10" fill="none">
+                                <path d="M1 5 L2.5 2 L4 7 L5.5 1 L7 9 L8.5 3 L10 6 L11.5 4 L13 5" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                        )}
+                    </span>
                 )}
             </div>
 
@@ -867,7 +897,7 @@ const TrackRow = ({
                             }}
                             title="Audio To"
                             style={{
-                                fontSize: 8, fontWeight: 500,
+                                fontSize: 10, fontWeight: 500,
                                 color: 'var(--color-text-primary)',
                                 background: 'var(--color-control-bg)',
                                 border: '1px solid var(--color-control-border)',
@@ -894,7 +924,7 @@ const TrackRow = ({
                             }}
                             title="Audio From"
                             style={{
-                                fontSize: 8, fontWeight: 500,
+                                fontSize: 10, fontWeight: 500,
                                 color: 'var(--color-text-primary)',
                                 background: 'var(--color-control-bg)',
                                 border: '1px solid var(--color-control-border)',
@@ -915,11 +945,12 @@ const TrackRow = ({
                 </div>
             )}
 
-            {/* ════ BLOCK 3: Mixer (gray) ════ */}
+            {/* ════ BLOCK 3: Mixer (gray background) ════ */}
             <div style={{
                 display: 'flex', alignItems: 'center',
                 gap: 4, padding: '2px 8px 2px 4px', flex: 1, minWidth: 0,
                 overflow: 'hidden',
+                background: '#2a2a2a',
             }}>
                 {/* Buttons column (vertical stack) */}
                 {!isMaster && (
@@ -927,46 +958,46 @@ const TrackRow = ({
                         display: 'flex', flexDirection: 'column',
                         gap: 1, flexShrink: 0,
                     }}>
-                        {/* Enable button — green when active */}
+                        {/* Enable button — green when active, shows track number */}
                         <button
                             onClick={e => { e.stopPropagation(); onToggleMute(); }}
                             title={isEnabled ? 'Disable track' : 'Enable track'}
                             style={{
-                                width: 18, height: 12,
+                                width: 20, height: 14,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                background: isEnabled ? '#40cc5a' : '#3a3a3e',
+                                background: isEnabled ? '#40cc5a' : '#3a3a3a',
                                 color: isEnabled ? '#fff' : '#666',
                                 border: 'none', borderRadius: 2,
-                                fontSize: 7, fontWeight: 700, cursor: 'pointer',
+                                fontSize: 8, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                                cursor: 'pointer',
                                 padding: 0, transition: 'background 0.1s ease',
                             }}
-                        >●</button>
+                        >{displayNum ?? '●'}</button>
                         {/* Solo button */}
                         <button
                             onClick={e => { e.stopPropagation(); onToggleSolo(); }}
                             title="Solo"
                             style={{
-                                width: 18, height: 12,
+                                width: 20, height: 14,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                background: track.isSoloed ? 'var(--color-btn-solo)' : '#3a3a3e',
+                                background: track.isSoloed ? 'var(--color-btn-solo)' : '#3a3a3a',
                                 color: track.isSoloed ? '#fff' : '#666',
                                 border: 'none', borderRadius: 2,
-                                fontSize: 7, fontWeight: 700, cursor: 'pointer',
+                                fontSize: 8, fontWeight: 700, cursor: 'pointer',
                                 padding: 0, transition: 'background 0.1s ease',
                             }}
                         >S</button>
-                        {/* Record arm button (R) */}
                         {!isGroup && (
                             <button
                                 onClick={e => { e.stopPropagation(); onToggleArm(); }}
                                 title="Arm for recording"
                                 style={{
-                                    width: 18, height: 12,
+                                    width: 20, height: 14,
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    background: track.isArmed ? '#ff3b30' : '#3a3a3e',
+                                    background: track.isArmed ? '#ff3b30' : '#3a3a3a',
                                     color: track.isArmed ? '#fff' : '#666',
                                     border: 'none', borderRadius: 2,
-                                    fontSize: 7, fontWeight: 700, cursor: 'pointer',
+                                    fontSize: 8, fontWeight: 700, cursor: 'pointer',
                                     padding: 0, transition: 'background 0.1s ease',
                                 }}
                             >R</button>

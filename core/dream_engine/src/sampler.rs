@@ -30,6 +30,25 @@ pub const MAX_VOICES: usize = 16;
 /// Default root note: C4 (middle C).
 pub const DEFAULT_ROOT_NOTE: u8 = 60;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Waveform {
+    Sine = 0,
+    Triangle = 1,
+    Saw = 2,
+    Square = 3,
+}
+
+impl Waveform {
+    pub fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::Triangle,
+            2 => Self::Saw,
+            3 => Self::Square,
+            _ => Self::Sine,
+        }
+    }
+}
+
 // ── ADSR Envelope ──────────────────────────────────────────────────────
 
 /// ADSR envelope state machine.
@@ -206,8 +225,13 @@ pub struct SamplerVoice {
     /// Playback speed ratio: 2^((note - root) / 12).
     pub pitch_ratio: f64,
 
+    /// Phase increment per sample (oscillator mode).
+    pub phase_increment: f64,
+
     /// Per-voice ADSR envelope.
     pub envelope: AdsrEnvelope,
+
+    sample_rate: f64,
 }
 
 impl SamplerVoice {
@@ -219,7 +243,9 @@ impl SamplerVoice {
             velocity: 0.0,
             cursor: 0.0,
             pitch_ratio: 1.0,
+            phase_increment: 0.0,
             envelope: AdsrEnvelope::new(sample_rate),
+            sample_rate,
         }
     }
 
@@ -231,6 +257,8 @@ impl SamplerVoice {
         self.velocity = velocity as f32 / 127.0;
         self.cursor = 0.0;
         self.pitch_ratio = 2.0_f64.powf((note as f64 - root_note as f64) / 12.0);
+        let freq_hz = 440.0_f64 * 2.0_f64.powf((note as f64 - 69.0) / 12.0);
+        self.phase_increment = (freq_hz / self.sample_rate).clamp(0.0, 0.5);
         self.envelope.note_on();
     }
 
@@ -311,6 +339,7 @@ impl SamplerVoice {
         self.note = 0;
         self.velocity = 0.0;
         self.cursor = 0.0;
+        self.phase_increment = 0.0;
         self.envelope.reset();
     }
 }
@@ -342,6 +371,10 @@ pub struct SamplerEngine {
     /// ADSR parameters shared across all voices.
     adsr_params: AdsrParams,
 
+    /// Optional oscillator mode (used by basic wave synth instrument).
+    oscillator_enabled: bool,
+    waveform: Waveform,
+
     /// Engine sample rate (stored for future use, e.g. resampling).
     _sample_rate: f64,
 }
@@ -356,6 +389,8 @@ impl SamplerEngine {
             volume: 1.0,
             voices,
             adsr_params: AdsrParams::default(),
+            oscillator_enabled: false,
+            waveform: Waveform::Sine,
             _sample_rate: sample_rate,
         }
     }
@@ -365,6 +400,11 @@ impl SamplerEngine {
         self.sample = Some(audio);
         // Stop all voices when swapping sample to prevent garbage playback
         self.all_notes_off();
+    }
+
+    pub fn set_waveform(&mut self, waveform: Waveform) {
+        self.waveform = waveform;
+        self.oscillator_enabled = true;
     }
 
     /// Change the root note.
@@ -385,7 +425,7 @@ impl SamplerEngine {
     /// Finds the first idle voice. If none available, steals the oldest
     /// active voice (simple round-robin voice stealing).
     pub fn note_on(&mut self, note: u8, velocity: u8) {
-        if self.sample.is_none() || velocity == 0 {
+        if (self.sample.is_none() && !self.oscillator_enabled) || velocity == 0 {
             // Velocity 0 = note-off in MIDI spec
             self.note_off(note);
             return;
@@ -440,34 +480,36 @@ impl SamplerEngine {
     /// # Real-Time Safety
     /// Zero allocations. Bounded by MAX_VOICES iterations.
     pub fn render(&mut self, left_out: &mut [f32], right_out: &mut [f32], frame_count: usize) {
-        let sample = match &self.sample {
-            Some(s) => s,
-            None => return,
-        };
-
-        let sample_left = sample.left();
-        let sample_right = sample.right();
-        let sample_len = sample.num_frames;
-
-        if sample_len == 0 {
-            return;
-        }
-
         let vol = self.volume;
 
-        for voice in &mut self.voices {
-            if !voice.active {
-                continue;
-            }
+        if let Some(sample) = &self.sample {
+            let sample_left = sample.left();
+            let sample_right = sample.right();
+            let sample_len = sample.num_frames;
 
-            voice.render(
-                left_out,
-                right_out,
-                sample_left,
-                sample_right,
-                sample_len,
-                frame_count,
-            );
+            if sample_len > 0 {
+                for voice in &mut self.voices {
+                    if !voice.active {
+                        continue;
+                    }
+
+                    voice.render(
+                        left_out,
+                        right_out,
+                        sample_left,
+                        sample_right,
+                        sample_len,
+                        frame_count,
+                    );
+                }
+            }
+        } else if self.oscillator_enabled {
+            for voice in &mut self.voices {
+                if !voice.active {
+                    continue;
+                }
+                render_oscillator_voice(voice, self.waveform, left_out, right_out, frame_count);
+            }
         }
 
         // Apply master volume
@@ -498,6 +540,46 @@ impl SamplerEngine {
     /// Returns whether a sample is loaded.
     pub fn has_sample(&self) -> bool {
         self.sample.is_some()
+    }
+}
+
+#[inline]
+fn oscillator_sample(waveform: Waveform, phase: f64) -> f32 {
+    let p = phase.fract();
+    match waveform {
+        Waveform::Sine => (p * std::f64::consts::TAU).sin() as f32,
+        Waveform::Triangle => {
+            let v = 4.0 * (p - 0.5).abs() - 1.0;
+            (-v) as f32
+        }
+        Waveform::Saw => (2.0 * p - 1.0) as f32,
+        Waveform::Square => {
+            if p < 0.5 { 1.0 } else { -1.0 }
+        }
+    }
+}
+
+fn render_oscillator_voice(
+    voice: &mut SamplerVoice,
+    waveform: Waveform,
+    left_out: &mut [f32],
+    right_out: &mut [f32],
+    frame_count: usize,
+) {
+    for i in 0..frame_count {
+        let env = voice.envelope.process();
+        if voice.envelope.is_idle() {
+            voice.active = false;
+            return;
+        }
+        let sample = oscillator_sample(waveform, voice.cursor);
+        let gain = voice.velocity * env;
+        left_out[i] += sample * gain;
+        right_out[i] += sample * gain;
+        voice.cursor += voice.phase_increment;
+        if voice.cursor >= 1.0 {
+            voice.cursor -= 1.0;
+        }
     }
 }
 

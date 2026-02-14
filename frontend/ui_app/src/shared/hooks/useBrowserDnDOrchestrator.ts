@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import * as engineApi from '@/shared/api/engine';
 import type { BrowserDragItem } from '@/shared/types/Arrangement';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
+import { defaultInternalPluginForTrack } from '@/shared/lib/internalPlugins';
 
 interface UseBrowserDnDOrchestratorArgs {
     projectTracks: ProjectTrack[];
@@ -41,10 +42,10 @@ export const useBrowserDnDOrchestrator = ({
     const addDefaultDeviceToTrack = useCallback(async (trackId: string) => {
         const track = projectTracks.find((t) => t.id === trackId);
         if (!track) return;
-        const addInstrument = track.track_type === 'Midi' && !track.instrument;
-        const pluginId = addInstrument ? 'internal://instrument/sampler' : 'internal://effect/utility';
-        const pluginName = addInstrument ? 'Sampler' : 'Utility';
-        const slot: 'instrument' | 'effect' = addInstrument ? 'instrument' : 'effect';
+        const def = defaultInternalPluginForTrack(track.track_type, Boolean(track.instrument));
+        const pluginId = def.pluginId;
+        const pluginName = def.pluginName;
+        const slot = def.slot;
         await engineApi.addPluginToTrack(track.id, pluginId, pluginName, slot);
         await fetchProject();
     }, [projectTracks, fetchProject]);

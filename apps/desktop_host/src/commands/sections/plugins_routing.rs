@@ -227,6 +227,20 @@ fn add_plugin_to_track_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
+    fn waveform_code_from_token(token: &str) -> u8 {
+        let normalized = token.trim().to_lowercase();
+        if normalized.contains("triangle") || normalized.ends_with("/tri") {
+            return 1;
+        }
+        if normalized.contains("saw") {
+            return 2;
+        }
+        if normalized.contains("square") || normalized.ends_with("/pulse") {
+            return 3;
+        }
+        0
+    }
+
     fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
         // Must match dream_dsp::dsp_processor::BuiltinEffectType discriminants.
         const FX_EQ: u8 = 0;
@@ -279,12 +293,24 @@ fn add_plugin_to_track_cmd(
         _ => track.track_type == TrackType::Midi && track.instrument.is_none(),
     };
 
+    let plugin_id_lower = payload.plugin_id.to_lowercase();
+    let is_sampler_instrument = plugin_id_lower.starts_with("internal://instrument/sampler");
+    let is_wave_synth_instrument = plugin_id_lower.starts_with("internal://instrument/wave-synth")
+        || plugin_id_lower.starts_with("internal://instrument/simple-sine-synth");
     let plugin_slot = PluginSlot::new(payload.plugin_name.clone(), payload.plugin_id.clone());
     let mut runtime_add: Option<(Uuid, u8, u8)> = None;
+    let mut runtime_waveform: Option<(Uuid, u8)> = None;
     if use_instrument {
         track.instrument = Some(plugin_slot);
-        if payload.plugin_id.starts_with("internal://instrument/sampler") && track.sampler.is_none() {
+        if (is_sampler_instrument || is_wave_synth_instrument) && track.sampler.is_none() {
             track.sampler = Some(SamplerConfig::default());
+        }
+        if is_wave_synth_instrument {
+            let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+            if cfg.sample_path.trim().is_empty() {
+                cfg.sample_path = "internal://waveform/sine".to_string();
+            }
+            runtime_waveform = Some((track.id, waveform_code_from_token(&cfg.sample_path)));
         }
     } else {
         track.effects.push(plugin_slot);
@@ -305,6 +331,14 @@ fn add_plugin_to_track_cmd(
                 track_index: runtime_track_index as u16,
                 slot_index,
                 effect_type,
+            })?;
+        }
+    }
+    if let Some((track_id, waveform)) = runtime_waveform {
+        if let Some(runtime_track_index) = project.tracks.iter().position(|t| t.id == track_id) {
+            push_command(&handle, EngineCommand::SetSamplerWaveform {
+                track_index: runtime_track_index as u16,
+                waveform,
             })?;
         }
     }
@@ -345,7 +379,11 @@ fn remove_plugin_from_track_cmd(
     {
         let removed_plugin_id = inst.plugin_id.clone();
         track.instrument = None;
-        if removed_plugin_id.starts_with("internal://instrument/sampler") {
+        let removed_lower = removed_plugin_id.to_lowercase();
+        if removed_lower.starts_with("internal://instrument/sampler")
+            || removed_lower.starts_with("internal://instrument/wave-synth")
+            || removed_lower.starts_with("internal://instrument/simple-sine-synth")
+        {
             track.sampler = None;
         }
         removed = true;
@@ -420,12 +458,23 @@ fn set_internal_plugin_param_cmd(
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
+    fn waveform_token_and_code(value: f64) -> (&'static str, u8) {
+        let idx = value.round().clamp(0.0, 3.0) as u8;
+        match idx {
+            1 => ("internal://waveform/triangle", 1),
+            2 => ("internal://waveform/saw", 2),
+            3 => ("internal://waveform/square", 3),
+            _ => ("internal://waveform/sine", 0),
+        }
+    }
+
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
     push_undo(&project_state)?;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let key = payload.param_id.to_lowercase();
     let mut sampler_command_needed = false;
+    let mut sampler_waveform: Option<u8> = None;
     let (track_index, sampler_cfg_for_rt) = {
         let (idx, track) = project
             .tracks
@@ -486,6 +535,12 @@ fn set_internal_plugin_param_cmd(
                 cfg.root_note = payload.value.round().clamp(0.0, 127.0) as u8;
                 sampler_command_needed = true;
             }
+            "synth.waveform" | "waveform" | "sampler.waveform" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                let (token, code) = waveform_token_and_code(payload.value);
+                cfg.sample_path = token.to_string();
+                sampler_waveform = Some(code);
+            }
             _ => {
                 // Keep unknown params round-trippable in automation lanes.
                 upsert_static_automation_lane(track, &payload.param_id, payload.value);
@@ -522,6 +577,12 @@ fn set_internal_plugin_param_cmd(
             decay: cfg.decay as f32,
             sustain: cfg.sustain as f32,
             release: cfg.release as f32,
+        })?;
+    }
+    if let Some(waveform) = sampler_waveform {
+        push_command(&handle, EngineCommand::SetSamplerWaveform {
+            track_index: track_index as u16,
+            waveform,
         })?;
     }
 

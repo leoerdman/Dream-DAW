@@ -520,11 +520,42 @@ fn rebuild_sampler_snapshot_from_project(
     clip_pool_state: &ClipPoolState,
     handle: &AudioEngineHandle,
 ) {
+    fn waveform_code_from_token(token: &str) -> u8 {
+        let normalized = token.trim().to_lowercase();
+        if normalized.contains("triangle") || normalized.ends_with("/tri") {
+            return 1;
+        }
+        if normalized.contains("saw") {
+            return 2;
+        }
+        if normalized.contains("square") || normalized.ends_with("/pulse") {
+            return 3;
+        }
+        0
+    }
+
     let mut samples: Vec<Option<Arc<ClipAudio>>> = vec![None; project.tracks.len()];
+    let mut synth_waveforms: Vec<(usize, u8)> = Vec::new();
     if let Ok(pool) = clip_pool_state.pool.lock() {
         for (idx, track) in project.tracks.iter().enumerate() {
+            let plugin_id_lower = track
+                .instrument
+                .as_ref()
+                .map(|inst| inst.plugin_id.to_lowercase())
+                .unwrap_or_default();
+            let is_wave_synth = plugin_id_lower.starts_with("internal://instrument/wave-synth")
+                || plugin_id_lower.starts_with("internal://instrument/simple-sine-synth");
+            if is_wave_synth {
+                let waveform = track
+                    .sampler
+                    .as_ref()
+                    .map(|cfg| waveform_code_from_token(&cfg.sample_path))
+                    .unwrap_or(0);
+                synth_waveforms.push((idx, waveform));
+            }
             if let Some(cfg) = &track.sampler
                 && !cfg.sample_path.trim().is_empty()
+                && !cfg.sample_path.starts_with("internal://")
                 && let Some(audio) = pool.get(&cfg.sample_path)
             {
                 samples[idx] = Some(audio);
@@ -532,6 +563,21 @@ fn rebuild_sampler_snapshot_from_project(
         }
     }
     handle.sampler_samples.swap(samples);
+    for (track_idx, waveform) in synth_waveforms {
+        if let Err(err) = push_command(
+            handle,
+            EngineCommand::SetSamplerWaveform {
+                track_index: track_idx as u16,
+                waveform,
+            },
+        ) {
+            log::warn!(
+                "[Sampler] Failed to restore waveform for track {}: {}",
+                track_idx,
+                err
+            );
+        }
+    }
 }
 
 fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
@@ -749,6 +795,9 @@ impl ClipPoolState {
 
         let mut load_path = |source_path: &str| {
             if source_path.trim().is_empty() {
+                return;
+            }
+            if source_path.starts_with("internal://") {
                 return;
             }
             if pool.get(source_path).is_some() {

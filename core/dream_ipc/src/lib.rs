@@ -86,6 +86,10 @@ pub enum EngineCommand {
         release: f32,
     },
 
+    /// Enable oscillator mode for the sampler engine and set waveform.
+    /// `waveform`: 0=sine, 1=triangle, 2=saw, 3=square.
+    SetSamplerWaveform { track_index: u16, waveform: u8 },
+
     /// Turn off all active notes on a track's sampler.
     SamplerAllNotesOff { track_index: u16 },
 

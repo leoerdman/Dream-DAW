@@ -213,6 +213,24 @@ export const TrackInspector = ({
         }
     }, [tracks, getTrackIndex]);
 
+    const setTrackOutput = useCallback(async (trackId: string, targetId: string) => {
+        try {
+            await engineApi.setTrackRouting(trackId, targetId);
+            setLocalOverrides(prev => ({ ...prev, [trackId]: { ...prev[trackId], output: targetId } }));
+        } catch (err) {
+            console.error('[TrackInspector] setTrackRouting failed:', err);
+        }
+    }, []);
+
+    const setTrackInput = useCallback(async (trackId: string, inputId: string) => {
+        try {
+            await engineApi.setTrackInput(trackId, inputId);
+            setLocalOverrides(prev => ({ ...prev, [trackId]: { ...prev[trackId], input: inputId } }));
+        } catch (err) {
+            console.error('[TrackInspector] setTrackInput failed:', err);
+        }
+    }, []);
+
     const toggleGroupCollapse = useCallback((groupId: string) => {
         setCollapsedGroups(prev => {
             const next = new Set(prev);
@@ -299,7 +317,7 @@ export const TrackInspector = ({
     let trackNum = 0;
 
     return (
-        <div style={{
+        <div data-testid="track-inspector" style={{
             display: 'flex', flexDirection: 'column', height: '100%',
             background: 'var(--color-bg-panel)', fontSize: 10,
         }}>
@@ -351,6 +369,8 @@ export const TrackInspector = ({
                             onVolumeChange={(gain: number) => {
                                 if (trackIndex >= 0) engineSetTrackVolume(trackIndex, gain);
                             }}
+                            onOutputChange={(targetId) => { void setTrackOutput(track.id, targetId); }}
+                            onInputChange={(inputId) => { void setTrackInput(track.id, inputId); }}
                             onContextMenu={(e) => handleContextMenu(e, track.id, trackIndex)}
                         />
                     );
@@ -401,6 +421,8 @@ export const TrackInspector = ({
                 onVolumeChange={(gain: number) => {
                     void engineSetMasterVolume(gain);
                 }}
+                onOutputChange={() => { }}
+                onInputChange={() => { }}
                 onContextMenu={() => { }}
                 isMasterFixed
             />
@@ -469,23 +491,23 @@ const ContextMenuPopup = ({
     return (
         <div ref={ref} style={{
             position: 'fixed', left: clampedX, top: clampedY, width: 160,
-            background: '#1e1e1e', border: '1px solid var(--color-border-subtle)',
+            background: 'var(--surface-2)', border: '1px solid var(--color-border-subtle)',
             borderRadius: 8, padding: 4, zIndex: 9999,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+            boxShadow: 'var(--shadow-panel)',
         }}>
             <button style={itemStyle} onClick={onRename}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
                 <span style={{ width: 14, fontSize: 12 }}>✏️</span> Rename
             </button>
             <button style={itemStyle} onClick={onChangeColor}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
                 <span style={{ width: 14, fontSize: 12 }}>🎨</span> Change Color
             </button>
             <div style={{ height: 1, background: 'var(--color-divider)', margin: '2px 8px' }} />
             <button style={{ ...itemStyle, color: '#ff6b6b' }} onClick={onDelete}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,107,107,0.12)'; }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--color-status-error) 18%, transparent)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
                 <span style={{ width: 14, fontSize: 12 }}>🗑</span> Delete Track
             </button>
@@ -617,7 +639,7 @@ const VolumeFader = ({
                 }}
                 style={{
                     position: 'relative', flex: 1, height: 6, minWidth: 40,
-                    background: '#2a2a2a', borderRadius: 2, cursor: 'ew-resize',
+                    background: 'var(--surface-elevated)', borderRadius: 2, cursor: 'ew-resize',
                     overflow: 'hidden',
                     touchAction: 'none',
                 }}
@@ -625,15 +647,15 @@ const VolumeFader = ({
                 {/* Zero-dB tick mark */}
                 <div style={{
                     position: 'absolute', left: `${zeroTickPos * 100}%`, top: 0, bottom: 0,
-                    width: 1, background: 'rgba(255,255,255,0.2)', zIndex: 1,
+                    width: 1, background: 'var(--color-divider-light)', zIndex: 1,
                 }} />
                 {/* Fill */}
                 <div style={{
                     position: 'absolute', left: 0, top: 0, bottom: 0,
                     width: `${faderPos * 100}%`,
                     background: faderPos > zeroTickPos
-                        ? 'linear-gradient(to right, #3b82f6, #60a5fa)'
-                        : '#3b82f6',
+                        ? 'linear-gradient(to right, var(--accent), var(--accent-strong))'
+                        : 'var(--accent)',
                     borderRadius: 2,
                     transition: isDragging ? 'none' : 'width 60ms linear',
                 }} />
@@ -642,8 +664,8 @@ const VolumeFader = ({
                     position: 'absolute',
                     left: `calc(${faderPos * 100}% - 3px)`,
                     top: 0, width: 6, height: '100%',
-                    background: '#e0e0e0', borderRadius: 1,
-                    boxShadow: '0 0 3px rgba(0,0,0,0.5)',
+                    background: 'var(--text-primary)', borderRadius: 1,
+                    boxShadow: '0 0 3px color-mix(in srgb, var(--surface-1) 55%, #000)',
                     transition: isDragging ? 'none' : 'left 60ms linear',
                 }} />
             </div>
@@ -673,10 +695,10 @@ const TriColorVU = ({ peakDb, isMidi }: { peakDb: number; isMidi: boolean }) => 
     return (
         <div style={{
             width: 10, height: meterHeight,
-            background: '#2a2a2a', borderRadius: 2,
+            background: 'var(--surface-elevated)', borderRadius: 2,
             overflow: 'hidden', flexShrink: 0,
             position: 'relative',
-            border: '1px solid rgba(255,255,255,0.1)',
+            border: '1px solid color-mix(in srgb, var(--text-primary) 10%, transparent)',
             marginLeft: 2,
         }}>
             {/* Green segment: 0 to -2dB zone */}
@@ -722,7 +744,7 @@ const TrackRow = ({
     track, allTracks, trackHeight, displayNum, isSelected, isCollapsed, depth,
     isRenaming, renameValue, onRenameChange, onRenameCommit, onRenameCancel,
     onClick, onToggleMute, onToggleSolo, onToggleArm, onToggleCollapse,
-    onVolumeChange, onContextMenu, isMasterFixed,
+    onVolumeChange, onOutputChange, onInputChange, onContextMenu, isMasterFixed,
 }: {
     track: TrackData;
     allTracks: TrackData[];
@@ -742,6 +764,8 @@ const TrackRow = ({
     onToggleArm: () => void;
     onToggleCollapse?: () => void;
     onVolumeChange?: (gain: number) => void;
+    onOutputChange?: (targetId: string) => void;
+    onInputChange?: (inputId: string) => void;
     onContextMenu?: (e: React.MouseEvent) => void;
     isMasterFixed?: boolean;
 }) => {
@@ -766,7 +790,8 @@ const TrackRow = ({
         }
     }, [isRenaming]);
 
-    const showRouting = !isMasterFixed && trackHeight >= 48;
+    const showRoutingExpanded = !isMasterFixed && trackHeight >= 48 && (isSelected || isHovered);
+    const showRoutingCompact = !isMasterFixed && !showRoutingExpanded;
 
     // Subdue track visually when disabled (muted)
     const isEnabled = !track.isMuted;
@@ -781,7 +806,11 @@ const TrackRow = ({
                 display: 'flex', alignItems: 'stretch', height: trackHeight,
                 borderBottom: isMasterFixed ? 'none' : '1px solid var(--color-divider)',
                 borderTop: isMasterFixed ? '1px solid var(--color-divider)' : 'none',
-                background: isSelected ? '#222222' : isHovered ? '#1e1e1e' : '#1a1a1a',
+                background: isSelected
+                    ? 'color-mix(in srgb, var(--surface-2) 88%, #000)'
+                    : isHovered
+                        ? 'color-mix(in srgb, var(--surface-2) 76%, #000)'
+                        : 'var(--surface-1)',
                 cursor: 'default',
                 opacity: isEnabled ? 1 : 0.45,
                 transition: 'background 0.12s ease, opacity 0.12s ease',
@@ -805,7 +834,7 @@ const TrackRow = ({
                             onClick={e => { e.stopPropagation(); onToggleCollapse(); }}
                             style={{
                                 width: 12, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                background: 'none', border: 'none', color: '#fff',
+                                background: 'none', border: 'none', color: 'var(--text-primary)',
                                 fontSize: 8, cursor: 'pointer', flexShrink: 0, padding: 0,
                             }}
                         >
@@ -829,9 +858,9 @@ const TrackRow = ({
                             onClick={e => e.stopPropagation()}
                             style={{
                                 fontSize: 10, fontWeight: 600,
-                                background: 'rgba(0,0,0,0.4)',
+                                background: 'color-mix(in srgb, var(--surface-1) 72%, #000)',
                                 border: `1px solid ${track.color}`,
-                                borderRadius: 2, color: '#fff',
+                                borderRadius: 2, color: 'var(--text-primary)',
                                 padding: '1px 3px', outline: 'none', minWidth: 0,
                             }}
                         />
@@ -839,7 +868,7 @@ const TrackRow = ({
                         <span style={{
                             flex: 1, fontSize: 12,
                             fontWeight: isGroup || isMasterFixed ? 700 : 600,
-                            color: '#fff',
+                            color: 'var(--text-primary)',
                             whiteSpace: 'nowrap', overflow: 'hidden',
                             textOverflow: 'ellipsis', minWidth: 0,
                         }}>
@@ -850,7 +879,7 @@ const TrackRow = ({
 
                 {/* Master label */}
                 {isMasterFixed && (
-                    <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)', paddingLeft: 10 }}>Main</span>
+                    <span style={{ fontSize: 9, color: 'var(--text-muted)', paddingLeft: 10 }}>Main</span>
                 )}
 
                 {/* ── Type Icon (absolute top-right) ── */}
@@ -881,7 +910,7 @@ const TrackRow = ({
             </div>
 
             {/* ════ BLOCK 2: Routing (gray) ════ */}
-            {showRouting && (
+            {showRoutingExpanded && (
                 <div style={{
                     display: 'flex', flexDirection: 'column', justifyContent: 'center',
                     gap: 2, padding: '2px 4px',
@@ -895,7 +924,7 @@ const TrackRow = ({
                             value={outputValue}
                             onChange={(e) => {
                                 e.stopPropagation();
-                                console.warn('[TrackInspector] setTrackRouting: backend not implemented yet, track=', track.id, 'target=', e.target.value);
+                                onOutputChange?.(e.target.value);
                             }}
                             title="Audio To"
                             style={{
@@ -922,7 +951,7 @@ const TrackRow = ({
                             value={inputValue}
                             onChange={(e) => {
                                 e.stopPropagation();
-                                console.warn('[TrackInspector] setTrackInput: backend not implemented yet, track=', track.id, 'input=', e.target.value);
+                                onInputChange?.(e.target.value);
                             }}
                             title="Audio From"
                             style={{
@@ -947,12 +976,28 @@ const TrackRow = ({
                 </div>
             )}
 
+            {showRoutingCompact && (
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minWidth: 64,
+                    maxWidth: 76,
+                    borderRight: '1px solid color-mix(in srgb, var(--surface-elevated) 72%, #000)',
+                    color: 'var(--text-muted)',
+                    fontSize: 9,
+                    fontFamily: 'var(--font-mono)',
+                }}>
+                    {outputValue === 'master' ? '→M' : '→T'} · {inputValue === 'none' ? '←∅' : '←IN'}
+                </div>
+            )}
+
             {/* ════ BLOCK 3: Mixer (gray background) ════ */}
             <div style={{
                 display: 'flex', alignItems: 'center',
                 gap: 4, padding: '2px 8px 2px 4px', flex: 1, minWidth: 0,
                 overflow: 'hidden',
-                background: '#2a2a2a',
+                background: 'var(--surface-2)',
             }}>
                 {/* Buttons column (vertical stack) */}
                 {!isMaster && (
@@ -967,8 +1012,8 @@ const TrackRow = ({
                             style={{
                                 width: 20, height: 14,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                background: isEnabled ? '#40cc5a' : '#3a3a3a',
-                                color: isEnabled ? '#fff' : '#666',
+                                background: isEnabled ? 'var(--color-status-success)' : 'var(--surface-elevated)',
+                                color: isEnabled ? 'var(--text-primary)' : 'var(--text-muted)',
                                 border: 'none', borderRadius: 2,
                                 fontSize: 8, fontWeight: 700, fontFamily: 'var(--font-mono)',
                                 cursor: 'pointer',
@@ -982,8 +1027,8 @@ const TrackRow = ({
                             style={{
                                 width: 20, height: 14,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                background: track.isSoloed ? 'var(--color-btn-solo)' : '#3a3a3a',
-                                color: track.isSoloed ? '#fff' : '#666',
+                                background: track.isSoloed ? 'var(--color-btn-solo)' : 'var(--surface-elevated)',
+                                color: track.isSoloed ? 'var(--text-primary)' : 'var(--text-muted)',
                                 border: 'none', borderRadius: 2,
                                 fontSize: 8, fontWeight: 700, cursor: 'pointer',
                                 padding: 0, transition: 'background 0.1s ease',
@@ -996,8 +1041,8 @@ const TrackRow = ({
                                 style={{
                                     width: 20, height: 14,
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    background: track.isArmed ? '#ff3b30' : '#3a3a3a',
-                                    color: track.isArmed ? '#fff' : '#666',
+                                    background: track.isArmed ? 'var(--color-status-error)' : 'var(--surface-elevated)',
+                                    color: track.isArmed ? 'var(--text-primary)' : 'var(--text-muted)',
                                     border: 'none', borderRadius: 2,
                                     fontSize: 8, fontWeight: 700, cursor: 'pointer',
                                     padding: 0, transition: 'background 0.1s ease',

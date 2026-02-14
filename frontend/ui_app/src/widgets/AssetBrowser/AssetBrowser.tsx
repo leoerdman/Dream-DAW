@@ -3,6 +3,10 @@ import * as engineApi from '@/shared/api/engine';
 import type { AudioFileEntry, BrowserFileEntry, PeakPair } from '@/shared/api/engine';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import {
+    INTERNAL_EFFECT_PLUGINS,
+    INTERNAL_INSTRUMENT_PLUGINS,
+} from '@/shared/lib/internalPlugins';
 
 /**
  * AssetBrowser — Ableton-style two-pane vertical-split sidebar browser.
@@ -34,6 +38,7 @@ type BrowserIconName =
     | 'folder-tree'
     | 'grid'
     | 'wave'
+    | 'wave-bars'
     | 'music'
     | 'drum'
     | 'piano'
@@ -89,14 +94,12 @@ const STATIC_CATEGORIES: BrowserCategory[] = [
 
     { id: 'sec-library', title: 'Library', icon: 'folder-tree', kind: 'section' },
     { id: 'all', title: 'All', icon: 'grid', kind: 'leaf' },
-    { id: 'samples', title: 'Samples', icon: 'wave', kind: 'leaf' },
+    { id: 'samples', title: 'Samples', icon: 'wave-bars', kind: 'leaf' },
     { id: 'sounds', title: 'Sounds', icon: 'music', kind: 'leaf' },
     { id: 'drums', title: 'Drums', icon: 'drum', kind: 'leaf' },
     { id: 'instruments', title: 'Instruments', icon: 'piano', kind: 'leaf' },
     { id: 'plugins', title: 'Plug-Ins', icon: 'plug', kind: 'leaf' },
     { id: 'audioEffects', title: 'Audio Eff…', icon: 'sliders', kind: 'leaf' },
-    { id: 'clips', title: 'Clips', icon: 'clapper', kind: 'leaf' },
-    { id: 'grooves', title: 'Grooves', icon: 'sine', kind: 'leaf' },
 ];
 
 const SOURCE_FILTERS = ['Source: All', 'Source: Library', 'Source: Samples', 'Source: Plug-ins'] as const;
@@ -105,32 +108,23 @@ const AUDIO_FILTERS = ['Audio: All', 'Loops', 'One Shot', 'Drums', 'Vocals'] as 
 const SORT_FILTERS = ['Sort: Name ↑', 'Sort: Name ↓', 'Sort: Size ↑', 'Sort: Size ↓'] as const;
 const SIZE_FILTERS = ['Filter: All', '< 1 MB', '≥ 1 MB'] as const;
 
-const INTERNAL_INSTRUMENT_ITEMS: BrowserItem[] = [
-    {
-        id: 'internal-inst-simple-sine',
-        name: 'Simple Sine Synth',
-        type: 'plugin',
-        meta: 'Internal Instrument',
-        path: 'internal://instrument/simple-sine-synth',
-        slotHint: 'instrument',
-    },
-    {
-        id: 'internal-inst-sampler',
-        name: 'Sampler',
-        type: 'plugin',
-        meta: 'Internal Instrument',
-        path: 'internal://instrument/sampler',
-        slotHint: 'instrument',
-    },
-];
+const INTERNAL_INSTRUMENT_ITEMS: BrowserItem[] = INTERNAL_INSTRUMENT_PLUGINS.map((plugin) => ({
+    id: `internal-inst-${plugin.name.toLowerCase().replace(/\\s+/g, '-')}`,
+    name: plugin.name,
+    type: 'plugin',
+    meta: 'Internal Instrument',
+    path: plugin.id,
+    slotHint: plugin.slotHint,
+}));
 
-const INTERNAL_EFFECT_ITEMS: BrowserItem[] = [
-    { id: 'internal-fx-eq8', name: 'EQ Eight', type: 'plugin', meta: 'Internal Audio FX', path: 'internal://effect/eq-eight', slotHint: 'effect' },
-    { id: 'internal-fx-compressor', name: 'Compressor', type: 'plugin', meta: 'Internal Audio FX', path: 'internal://effect/compressor', slotHint: 'effect' },
-    { id: 'internal-fx-delay', name: 'Delay', type: 'plugin', meta: 'Internal Audio FX', path: 'internal://effect/delay', slotHint: 'effect' },
-    { id: 'internal-fx-reverb', name: 'Reverb', type: 'plugin', meta: 'Internal Audio FX', path: 'internal://effect/reverb', slotHint: 'effect' },
-    { id: 'internal-fx-utility', name: 'Utility', type: 'plugin', meta: 'Internal Audio FX', path: 'internal://effect/utility', slotHint: 'effect' },
-];
+const INTERNAL_EFFECT_ITEMS: BrowserItem[] = INTERNAL_EFFECT_PLUGINS.map((plugin) => ({
+    id: `internal-fx-${plugin.name.toLowerCase().replace(/\\s+/g, '-')}`,
+    name: plugin.name,
+    type: 'plugin',
+    meta: 'Internal Audio FX',
+    path: plugin.id,
+    slotHint: plugin.slotHint,
+}));
 
 // ── File type helpers ───────────────────────────────────
 
@@ -168,8 +162,10 @@ export const AssetBrowser = () => {
     const [audioFilter, setAudioFilter] = useState(0);
     const [sortFilter, setSortFilter] = useState(0);
     const [sizeFilter, setSizeFilter] = useState(0);
+    const [showSizeColumn, setShowSizeColumn] = useState(true);
     const [previewEnabled, setPreviewEnabled] = useState(true);
     const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+    const [leftPaneWidth, setLeftPaneWidth] = useState(108);
     const projectTracks = useEngineStore((s) => s.projectTracks);
 
     // Preview waveform state
@@ -183,6 +179,9 @@ export const AssetBrowser = () => {
     const [folderStack, setFolderStack] = useState<string[]>([]);
 
     const searchRef = useRef<HTMLInputElement>(null);
+    const fileListRef = useRef<HTMLDivElement>(null);
+    const splitRootRef = useRef<HTMLDivElement>(null);
+    const itemRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
     // ── Load user folders on mount ──
     useEffect(() => {
@@ -197,7 +196,7 @@ export const AssetBrowser = () => {
             const name = p.split('/').pop() || p;
             return {
                 id: `user-folder-${i}`,
-                title: name.length > 10 ? name.slice(0, 9) + '…' : name,
+                title: name,
                 icon: 'folder',
                 kind: 'leaf' as const,
                 folderPath: p,
@@ -244,7 +243,7 @@ export const AssetBrowser = () => {
     const [scanError, setScanError] = useState<string | null>(null);
     const scanTriggeredRef = useRef(false);
 
-    const isSamplesCategory = ['samples', 'all', 'sounds', 'drums', 'clips'].includes(selectedCategoryId);
+    const isSamplesCategory = ['samples', 'all', 'sounds', 'drums'].includes(selectedCategoryId);
 
     useEffect(() => {
         if (!isSamplesCategory || scanTriggeredRef.current) return;
@@ -409,36 +408,27 @@ export const AssetBrowser = () => {
         } else {
             switch (selectedCategoryId) {
                 case 'all':
-                    // "All" shows EVERYTHING: samples + instruments + effects + plugins, merged & sorted
+                    // "All" shows library audio + internal plugins only.
+                    // Third-party plugins are intentionally isolated in "Plug-Ins".
                     base = [
                         ...realBrowserItems,
                         ...INTERNAL_INSTRUMENT_ITEMS,
                         ...INTERNAL_EFFECT_ITEMS,
-                        ...pluginBrowserItems,
                     ].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
                     break;
                 case 'samples':
                 case 'sounds':
                 case 'drums':
-                case 'clips':
                     base = realBrowserItems;
                     break;
                 case 'plugins':
                     base = pluginBrowserItems;
                     break;
                 case 'audioEffects':
-                    base = [...INTERNAL_EFFECT_ITEMS, ...pluginBrowserItems];
+                    base = [...INTERNAL_EFFECT_ITEMS];
                     break;
                 case 'instruments':
-                    base = [
-                        ...INTERNAL_INSTRUMENT_ITEMS,
-                        ...pluginBrowserItems.filter(p =>
-                            /synth|sampl|piano|organ|drum|instrument/i.test(p.name)
-                        ),
-                    ];
-                    if (base.length === INTERNAL_INSTRUMENT_ITEMS.length) {
-                        base = [...INTERNAL_INSTRUMENT_ITEMS, ...pluginBrowserItems];
-                    }
+                    base = [...INTERNAL_INSTRUMENT_ITEMS];
                     break;
                 case 'favorites':
                     base = realBrowserItems.filter(i => i.favorite);
@@ -478,6 +468,16 @@ export const AssetBrowser = () => {
 
     const visibleItems = useMemo(() => items.slice(0, visibleCount), [items, visibleCount]);
     const hasMore = visibleCount < items.length;
+
+    useEffect(() => {
+        if (items.length === 0) {
+            setSelectedItemId(null);
+            return;
+        }
+        if (!selectedItemId || !items.some((it) => it.id === selectedItemId)) {
+            setSelectedItemId(items[0].id);
+        }
+    }, [items, selectedItemId]);
 
     const handleFileListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
         const el = e.currentTarget;
@@ -524,35 +524,143 @@ export const AssetBrowser = () => {
         setFolderScanPath(null); // Force re-scan
     }, []);
 
-    const resolveSelectedTrackId = useCallback((): string | null => {
+    const resolveSelectedTrack = useCallback(() => {
         const selected = window.__dreamSelectedTrackId;
-        if (selected && selected !== 'master') return selected;
+        if (selected && selected !== 'master') {
+            const selectedTrack = projectTracks.find((t) => t.id === selected);
+            if (selectedTrack) return selectedTrack;
+        }
         const firstUsable = projectTracks.find((t) => t.track_type !== 'Master');
-        return firstUsable?.id ?? null;
+        return firstUsable ?? null;
     }, [projectTracks]);
 
     const handleItemEnter = useCallback(async (item: BrowserItem | null) => {
         if (!item) return;
-        if (item.type !== 'plugin') return;
         if (!item.path) return;
 
-        const trackId = resolveSelectedTrackId();
-        if (!trackId) return;
+        const track = resolveSelectedTrack();
+        if (!track) return;
 
-        const slot: 'instrument' | 'effect' | 'auto' = item.slotHint ?? 'auto';
         try {
-            await engineApi.addPluginToTrack(trackId, item.path, item.name, slot);
-            await useEngineStore.getState().fetchProject();
+            if (item.type === 'plugin') {
+                const slot: 'instrument' | 'effect' | 'auto' = item.slotHint ?? 'auto';
+                await engineApi.addPluginToTrack(track.id, item.path, item.name, slot);
+                await useEngineStore.getState().fetchProject();
+                return;
+            }
+
+            if (item.type !== 'audio') return;
+            if (track.track_type === 'Midi') {
+                const hasSamplerInstrument = !!track.instrument && /sampler/i.test(
+                    `${track.instrument.plugin_id} ${track.instrument.name}`,
+                );
+                if (!hasSamplerInstrument) {
+                    await engineApi.addPluginToTrack(
+                        track.id,
+                        'internal://instrument/sampler',
+                        'Sampler',
+                        'instrument',
+                    );
+                }
+                await engineApi.setSamplerSample(track.id, item.path);
+                await useEngineStore.getState().fetchProject();
+                return;
+            }
+
+            const trackIndex = projectTracks.findIndex((t) => t.id === track.id);
+            if (trackIndex < 0) return;
+            const store = useEngineStore.getState();
+            const bpm = store.projectBpm || store.transport.bpm || 120;
+            const sampleRate = store.projectSampleRate || store.transport.sample_rate || 44100;
+            const posSeconds = (store.transport.position_beats ?? 0) / (bpm / 60);
+            const positionFrames = Math.max(0, Math.round(posSeconds * sampleRate));
+            await engineApi.importAudioFile(item.path, trackIndex, positionFrames);
+            await store.fetchProject();
         } catch (err) {
-            console.error('[AssetBrowser] addPluginToTrack via Enter failed:', err);
+            console.error('[AssetBrowser] Enter action failed:', err);
         }
-    }, [resolveSelectedTrackId]);
+    }, [resolveSelectedTrack, projectTracks]);
+
+    const scrollSelectedIntoView = useCallback((itemId: string | null) => {
+        if (!itemId) return;
+        const row = itemRowRefs.current[itemId];
+        row?.scrollIntoView({ block: 'nearest' });
+    }, []);
+
+    useEffect(() => {
+        scrollSelectedIntoView(selectedItemId);
+    }, [selectedItemId, visibleItems.length, scrollSelectedIntoView]);
+
+    const moveSelection = useCallback((delta: number) => {
+        if (items.length === 0) return;
+        const currentIndex = selectedItemId
+            ? items.findIndex((it) => it.id === selectedItemId)
+            : -1;
+        const fallbackIndex = delta >= 0 ? 0 : items.length - 1;
+        const rawNextIndex = currentIndex < 0 ? fallbackIndex : currentIndex + delta;
+        const nextIndex = Math.max(0, Math.min(items.length - 1, rawNextIndex));
+        const next = items[nextIndex];
+        if (!next) return;
+        setSelectedItemId(next.id);
+        if (nextIndex >= visibleCount) {
+            setVisibleCount((prev) => Math.min(Math.max(prev + RENDER_BATCH, nextIndex + 1), items.length));
+        }
+    }, [items, selectedItemId, visibleCount]);
+
+    const focusResults = useCallback(() => {
+        fileListRef.current?.focus();
+    }, []);
+
+    const handleBrowserKeyDown = useCallback((e: React.KeyboardEvent) => {
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            moveSelection(1);
+            focusResults();
+            return;
+        }
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            moveSelection(-1);
+            focusResults();
+            return;
+        }
+        if (e.key !== 'Enter') return;
+
+        e.preventDefault();
+        const selected = items.find((it) => it.id === selectedItemId) ?? visibleItems[0] ?? null;
+        if (!selected) return;
+
+        const activeEl = document.activeElement;
+        if (activeEl === searchRef.current) {
+            if (!selectedItemId) setSelectedItemId(selected.id);
+            focusResults();
+            return;
+        }
+        void handleItemEnter(selected);
+    }, [focusResults, handleItemEnter, items, moveSelection, selectedItemId, visibleItems]);
+
+    const beginSplitResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        const root = splitRootRef.current;
+        if (!root) return;
+        const rootRect = root.getBoundingClientRect();
+        const onMove = (me: MouseEvent) => {
+            const nextWidth = Math.max(88, Math.min(220, Math.round(me.clientX - rootRect.left)));
+            setLeftPaneWidth(nextWidth);
+        };
+        const onUp = () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+    }, []);
 
     // Track current section for collapse logic
     let currentSection: string | null = null;
 
     return (
-        <div style={{
+        <div data-testid="asset-browser" style={{
             display: 'flex',
             flexDirection: 'column',
             height: '100%',
@@ -579,12 +687,7 @@ export const AssetBrowser = () => {
                         }
                         setVisibleCount(RENDER_BATCH);
                     }}
-                    onKeyDown={(e) => {
-                        if (e.key !== 'Enter') return;
-                        e.preventDefault();
-                        const selected = items.find((it) => it.id === selectedItemId) ?? visibleItems[0] ?? null;
-                        void handleItemEnter(selected);
-                    }}
+                    onKeyDown={handleBrowserKeyDown}
                     style={{
                         width: '100%',
                         padding: '6px 10px',
@@ -606,13 +709,13 @@ export const AssetBrowser = () => {
                 flex: 1,
                 display: 'flex',
                 overflow: 'hidden',
-            }}>
+            }} ref={splitRootRef}>
                 {/* ── LEFT PANE: Category Tree ── */}
                 <div
                     className="scrollbar-hide"
                     style={{
-                        width: 95,
-                        minWidth: 85,
+                        width: leftPaneWidth,
+                        minWidth: 88,
                         flexShrink: 0,
                         overflowY: 'auto',
                         borderRight: '1px solid var(--color-divider)',
@@ -736,6 +839,15 @@ export const AssetBrowser = () => {
                         );
                     })}
                 </div>
+                <div
+                    onMouseDown={beginSplitResize}
+                    style={{
+                        width: 6,
+                        cursor: 'ew-resize',
+                        background: 'transparent',
+                        flexShrink: 0,
+                    }}
+                />
 
                 {/* ── RIGHT PANE: Filters + File List ── */}
                 <div style={{
@@ -801,6 +913,23 @@ export const AssetBrowser = () => {
                                     value={sizeFilter}
                                     onChange={setSizeFilter}
                                 />
+                                <button
+                                    onClick={() => setShowSizeColumn((prev) => !prev)}
+                                    style={{
+                                        marginLeft: 'auto',
+                                        background: showSizeColumn ? 'var(--color-control-bg-active)' : 'var(--color-control-bg)',
+                                        color: showSizeColumn ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                                        border: 'none',
+                                        borderRadius: 'var(--radius-xs)',
+                                        padding: '3px 6px',
+                                        fontSize: 10,
+                                        cursor: 'pointer',
+                                        fontWeight: 600,
+                                        whiteSpace: 'nowrap',
+                                    }}
+                                >
+                                    Size
+                                </button>
                             </>
                         )}
                     </div>
@@ -825,11 +954,35 @@ export const AssetBrowser = () => {
                     )}
 
                     {/* File List */}
-                    <div className="scrollbar-hide" onScroll={handleFileListScroll} style={{
+                    <div
+                        ref={fileListRef}
+                        className="scrollbar-hide"
+                        onScroll={handleFileListScroll}
+                        onKeyDown={handleBrowserKeyDown}
+                        tabIndex={0}
+                        style={{
                         flex: 1,
                         overflowY: 'auto',
                         overflowX: 'hidden',
+                        outline: 'none',
                     }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '3px 8px',
+                            borderBottom: '1px solid var(--color-divider-light)',
+                            color: 'var(--color-text-tertiary)',
+                            fontSize: 10,
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                        }}>
+                            <span style={{ flex: 1, minWidth: 0 }}>Name</span>
+                            {showSizeColumn && (
+                                <span style={{ minWidth: 44, textAlign: 'right', flexShrink: 0 }}>Size</span>
+                            )}
+                        </div>
                         {/* Scan Status */}
                         {scanLoading && (
                             <div style={{
@@ -865,10 +1018,18 @@ export const AssetBrowser = () => {
                             const isAudio = item.type === 'audio';
                             const isPlugin = item.type === 'plugin';
                             const isDraggable = isAudio || isPlugin;
+                            const sizeLabel = item.sizeBytes && !item.isDirectory
+                                ? (item.sizeBytes >= 1024 * 1024
+                                    ? `${(item.sizeBytes / (1024 * 1024)).toFixed(1)} MB`
+                                    : `${Math.round(item.sizeBytes / 1024)} KB`)
+                                : '';
 
                             return (
                                 <div
                                     key={item.id}
+                                    ref={(el) => {
+                                        itemRowRefs.current[item.id] = el;
+                                    }}
                                     onClick={() => {
                                         // Folder navigation
                                         if (item.isDirectory && item.path) {
@@ -958,7 +1119,8 @@ export const AssetBrowser = () => {
                                     }}
                                     style={{
                                         display: 'flex',
-                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        gap: 8,
                                         padding: '4px 8px',
                                         cursor: item.isDirectory ? 'pointer' : (isDraggable ? 'grab' : 'default'),
                                         background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
@@ -966,47 +1128,48 @@ export const AssetBrowser = () => {
                                         transition: 'background var(--transition-fast)',
                                     }}
                                 >
-                                    <div style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 5,
-                                    }}>
-                                        {item.isDirectory ? (
-                                            <span style={{ display: 'inline-flex', flexShrink: 0 }}>
-                                                <BrowserGlyph name="folder" size={11} />
-                                            </span>
-                                        ) : (
-                                            <TypeIcon type={item.type} />
-                                        )}
-                                        <span style={{
-                                            color: 'var(--color-text-primary)',
-                                            fontSize: 12,
-                                            fontWeight: 500,
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                            whiteSpace: 'nowrap',
-                                        }}>
-                                            {item.name}
+                                    {item.isDirectory ? (
+                                        <span style={{ display: 'inline-flex', flexShrink: 0 }}>
+                                            <BrowserGlyph name="folder" size={11} />
                                         </span>
-                                        {item.isDirectory && (
-                                            <span style={{
-                                                marginLeft: 'auto',
-                                                color: 'var(--color-text-tertiary)',
-                                                fontSize: 9,
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                            }}>
-                                                <BrowserGlyph name="chevron-right" size={10} />
-                                            </span>
-                                        )}
-                                    </div>
-                                    {item.meta && !item.isDirectory && (
+                                    ) : (
+                                        <TypeIcon type={item.type} />
+                                    )}
+                                    <span style={{
+                                        color: 'var(--color-text-primary)',
+                                        fontSize: 12,
+                                        fontWeight: 500,
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap',
+                                        flex: 1,
+                                        minWidth: 0,
+                                    }}>
+                                        {item.name}
+                                    </span>
+                                    {showSizeColumn && (
                                         <span style={{
+                                            minWidth: 44,
+                                            maxWidth: 56,
                                             color: 'var(--color-text-secondary)',
                                             fontSize: 10,
-                                            paddingLeft: 16,
+                                            textAlign: 'right',
+                                            whiteSpace: 'nowrap',
+                                            flexShrink: 0,
                                         }}>
-                                            {item.meta}
+                                            {sizeLabel}
+                                        </span>
+                                    )}
+                                    {item.isDirectory && (
+                                        <span style={{
+                                            color: 'var(--color-text-tertiary)',
+                                            fontSize: 9,
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            marginLeft: 2,
+                                            flexShrink: 0,
+                                        }}>
+                                            <BrowserGlyph name="chevron-right" size={10} />
                                         </span>
                                     )}
                                 </div>
@@ -1116,7 +1279,7 @@ export const AssetBrowser = () => {
 // ── Sub-components ──────────────────────────────────────
 
 const itemTypeToIcon: Record<BrowserItem['type'], BrowserIconName> = {
-    audio: 'wave',
+    audio: 'wave-bars',
     instrument: 'piano',
     audioEffect: 'sliders',
     midiEffect: 'music',
@@ -1176,6 +1339,8 @@ const BrowserGlyph = ({
             return <svg {...commonProps}><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></svg>;
         case 'wave':
             return <svg {...commonProps}><path d="M2 12c2.2 0 2.2-6 4.4-6s2.2 12 4.4 12 2.2-12 4.4-12 2.2 6 4.4 6 2.2-6 4.4-6" /></svg>;
+        case 'wave-bars':
+            return <svg {...commonProps}><path d="M4 18V8M8 20V6M12 16V10M16 19V7M20 14v-4" /></svg>;
         case 'music':
             return <svg {...commonProps}><path d="M9 18V6l10-2v12" /><circle cx="7" cy="18" r="2" /><circle cx="17" cy="16" r="2" /></svg>;
         case 'drum':

@@ -524,8 +524,8 @@ export class CanvasClipRenderer {
             ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'left';
-            const maxTextW = w - 10;
-            const textX = x + 5;
+            const maxTextW = w - 6;
+            const textX = x + 3;
             const textY = y + 1 + headerH / 2;
             ctx.save();
             ctx.beginPath();
@@ -876,24 +876,17 @@ export class CanvasClipRenderer {
             ctx.font = '11px Inter, -apple-system, sans-serif';
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'left';
-            const pad = 5;
-            const maxTextWidth = Math.max(0, w - pad * 2);
-            let label = ghost.name;
-            const ellipsis = '...';
-            if (ctx.measureText(label).width > maxTextWidth) {
-                while (label.length > 0 && ctx.measureText(label + ellipsis).width > maxTextWidth) {
-                    label = label.slice(0, -1);
-                }
-                label = label.length > 0 ? `${label}${ellipsis}` : '';
-            }
+            const pad = 3;
 
             // Hard clip text to clip bounds so it never spills visually.
             ctx.save();
             ctx.beginPath();
             ctx.rect(x + pad, y + 1, Math.max(0, w - pad * 2), h);
             ctx.clip();
-            if (label) {
-                ctx.fillText(label, x + pad, y + 1 + h / 2);
+            if (ghost.name) {
+                // Draw raw label and rely on clip bounds, so text uses maximum width
+                // instead of collapsing to "x..." too early.
+                ctx.fillText(ghost.name, x + pad, y + 1 + h / 2);
             }
             ctx.restore();
         }

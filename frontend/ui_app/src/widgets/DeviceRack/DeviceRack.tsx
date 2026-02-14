@@ -5,7 +5,20 @@ import { useDragStore } from '@/shared/stores/useDragStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import * as engineApi from '@/shared/api/engine';
 import { PluginWindow } from '@/widgets/PluginWindow/PluginWindow';
+import {
+    PluginKnob,
+    PluginSlider,
+    type PluginParam,
+} from '@/widgets/DeviceRack/StandardPluginControls';
 import type { BrowserDragItem } from '@/shared/types/Arrangement';
+import { canDropInZone } from '@/shared/lib/dndMatrix';
+import {
+    defaultInternalPluginForTrack,
+    getInternalPluginById,
+    normalizeInternalPluginId,
+    waveformIndexFromSamplePath,
+    waveformLabel,
+} from '@/shared/lib/internalPlugins';
 
 /**
  * DeviceRack — Bottom panel: instrument & effects signal chain.
@@ -19,21 +32,12 @@ import type { BrowserDragItem } from '@/shared/types/Arrangement';
 
 // ── Types ──────────────────────────────────────────────────
 
-interface DeviceParam {
-    name: string;
-    value: number;
-    min: number;
-    max: number;
-    suffix: string;
-    step?: number;
-}
-
 interface DeviceSlot {
     id: string;
     name: string;
-    effectType: 'eq' | 'compressor' | 'delay' | 'reverb' | 'chorus' | 'utility' | 'vst' | 'instrument' | 'sampler' | 'saturator';
+    effectType: 'eq' | 'compressor' | 'delay' | 'reverb' | 'chorus' | 'utility' | 'vst' | 'instrument' | 'sampler' | 'saturator' | 'waveSynth';
     isEnabled: boolean;
-    params: DeviceParam[];
+    params: PluginParam[];
     vuLevel: number;
     pluginId: string;
     isVst: boolean;
@@ -43,7 +47,7 @@ interface DeviceSlot {
 
 const DEVICE_PARAM_PRESETS: Record<
     DeviceSlot['effectType'],
-    Array<Omit<DeviceParam, 'value'> & { value: number }>
+    Array<Omit<PluginParam, 'value'> & { value: number }>
 > = {
     eq: [
         { name: 'Low', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
@@ -91,6 +95,14 @@ const DEVICE_PARAM_PRESETS: Record<
         { name: 'Sustain', value: 1.0, min: 0, max: 1, suffix: '', step: 0.01 },
         { name: 'Release', value: 0.05, min: 0.001, max: 8.0, suffix: 's', step: 0.001 },
         { name: 'Root', value: 60, min: 0, max: 127, suffix: '', step: 1 },
+    ],
+    waveSynth: [
+        { name: 'Wave', value: 0, min: 0, max: 3, suffix: '', step: 1 },
+        { name: 'Vol', value: 1, min: 0, max: 2, suffix: '', step: 0.01 },
+        { name: 'Attack', value: 0.005, min: 0.001, max: 2.0, suffix: 's', step: 0.001 },
+        { name: 'Decay', value: 0.1, min: 0.001, max: 4.0, suffix: 's', step: 0.001 },
+        { name: 'Sustain', value: 1.0, min: 0, max: 1, suffix: '', step: 0.01 },
+        { name: 'Release', value: 0.05, min: 0.001, max: 8.0, suffix: 's', step: 0.001 },
     ],
     saturator: [
         { name: 'Drive', value: 3, min: 0, max: 24, suffix: 'dB', step: 0.1 },
@@ -207,14 +219,16 @@ export const DeviceRack = ({
         ];
         return slots.map((slot) => {
             const pluginId = slot.plugin_id || slot.id;
-            const pluginIdLower = pluginId.toLowerCase();
+            const pluginIdLower = normalizeInternalPluginId(pluginId.toLowerCase());
             const isVst = pluginIdLower.includes('vst3') || pluginIdLower.includes('.vst') || pluginIdLower.includes('vst');
             const isInternal = pluginIdLower.startsWith('internal://');
 
             const normalized = `${slot.name} ${pluginId}`.toLowerCase();
             let effectType: DeviceSlot['effectType'] =
                 selectedTrack.instrument?.id === slot.id ? 'instrument' : isVst ? 'vst' : 'utility';
-            if (normalized.includes('sampler')) effectType = 'sampler';
+            const internalDef = getInternalPluginById(pluginIdLower);
+            if (internalDef?.id === 'internal://instrument/wave-synth') effectType = 'waveSynth';
+            else if (normalized.includes('sampler')) effectType = 'sampler';
             else if (normalized.includes('eq')) effectType = 'eq';
             else if (normalized.includes('compressor')) effectType = 'compressor';
             else if (normalized.includes('delay')) effectType = 'delay';
@@ -231,9 +245,10 @@ export const DeviceRack = ({
                 params: (DEVICE_PARAM_PRESETS[effectType] ?? []).map((template) => {
                     const key = `${slot.id}:${template.name}`;
                     let backendValue = template.value;
-                    if ((effectType === 'sampler' || effectType === 'instrument') && selectedTrack.sampler) {
+                    if ((effectType === 'sampler' || effectType === 'instrument' || effectType === 'waveSynth') && selectedTrack.sampler) {
                         const n = template.name.toLowerCase();
-                        if (n === 'vol') backendValue = selectedTrack.sampler.volume;
+                        if (n === 'wave') backendValue = waveformIndexFromSamplePath(selectedTrack.sampler.sample_path);
+                        else if (n === 'vol') backendValue = selectedTrack.sampler.volume;
                         else if (n === 'attack') backendValue = selectedTrack.sampler.attack;
                         else if (n === 'decay') backendValue = selectedTrack.sampler.decay;
                         else if (n === 'sustain') backendValue = selectedTrack.sampler.sustain;
@@ -249,7 +264,7 @@ export const DeviceRack = ({
                 pluginId,
                 isVst,
                 source: isInternal ? 'internal' : isVst ? 'vst' : 'unknown',
-                samplePath: effectType === 'sampler' || effectType === 'instrument'
+                samplePath: effectType === 'sampler' || effectType === 'instrument' || effectType === 'waveSynth'
                     ? (selectedTrack.sampler?.sample_path ?? undefined)
                     : undefined,
             };
@@ -271,7 +286,7 @@ export const DeviceRack = ({
         });
     }, [localBypass, selectedTrack, selectedTrackId, projectTracks]);
 
-    const setDeviceParam = useCallback((deviceId: string, paramName: string, value: number) => {
+    const setPluginParam = useCallback((deviceId: string, paramName: string, value: number) => {
         setLocalParams((prev) => ({ ...prev, [`${deviceId}:${paramName}`]: value }));
     }, []);
 
@@ -280,7 +295,7 @@ export const DeviceRack = ({
             if (!selectedTrack || selectedTrackId === 'master') return;
             const trackIdx = projectTracks.findIndex((t) => t.id === selectedTrack.id);
             const effectSlotIdx = selectedTrack.effects.findIndex((fx) => fx.id === device.id);
-            const pushDeviceParam = (paramIndex: number, paramValue: number) => {
+            const pushPluginParam = (paramIndex: number, paramValue: number) => {
                 if (trackIdx < 0 || effectSlotIdx < 0) return;
                 void engineApi.setDeviceParam(trackIdx, effectSlotIdx, paramIndex, paramValue).catch((err) => {
                     console.error('[DeviceRack] setDeviceParam failed:', err);
@@ -290,17 +305,17 @@ export const DeviceRack = ({
             // Runtime DSP path for built-in effects (EQ/Utility) — this is the audible path.
             if (device.source === 'internal' && device.effectType === 'eq') {
                 const key = paramName.toLowerCase();
-                if (key === 'low') pushDeviceParam(0, value);
-                else if (key === 'mid') pushDeviceParam(1, value);
-                else if (key === 'high') pushDeviceParam(2, value);
+                if (key === 'low') pushPluginParam(0, value);
+                else if (key === 'mid') pushPluginParam(1, value);
+                else if (key === 'high') pushPluginParam(2, value);
                 return;
             }
             if (device.source === 'internal' && device.effectType === 'utility') {
                 const key = paramName.toLowerCase();
-                if (key === 'gain') pushDeviceParam(0, value);
-                else if (key === 'pan') pushDeviceParam(1, value);
-                else if (key === 'width') pushDeviceParam(2, value);
-                else if (key === 'mono') pushDeviceParam(3, value);
+                if (key === 'gain') pushPluginParam(0, value);
+                else if (key === 'pan') pushPluginParam(1, value);
+                else if (key === 'width') pushPluginParam(2, value);
+                else if (key === 'mono') pushPluginParam(3, value);
                 return;
             }
 
@@ -309,13 +324,14 @@ export const DeviceRack = ({
             if (device.effectType === 'utility') {
                 if (normalizedName === 'gain') paramId = 'plugin.gain';
                 else if (normalizedName === 'pan') paramId = 'plugin.pan';
-            } else if (device.effectType === 'sampler' || device.effectType === 'instrument') {
+            } else if (device.effectType === 'sampler' || device.effectType === 'instrument' || device.effectType === 'waveSynth') {
                 if (normalizedName === 'vol') paramId = 'sampler.volume';
                 else if (normalizedName === 'attack') paramId = 'sampler.attack';
                 else if (normalizedName === 'decay') paramId = 'sampler.decay';
                 else if (normalizedName === 'sustain') paramId = 'sampler.sustain';
                 else if (normalizedName === 'release') paramId = 'sampler.release';
                 else if (normalizedName === 'root') paramId = 'sampler.rootNote';
+                else if (normalizedName === 'wave') paramId = 'synth.waveform';
             } else if (device.effectType === 'eq') {
                 if (normalizedName === 'low') paramId = 'eq.low';
                 else if (normalizedName === 'mid') paramId = 'eq.mid';
@@ -427,7 +443,7 @@ export const DeviceRack = ({
     useEffect(() => {
         const onMouseMove = (e: MouseEvent) => {
             const dragging = useDragStore.getState().draggingItem;
-            if (!dragging || dragging.type !== 'plugin' || isMaster) {
+            if (!dragging || isMaster || !canDropInZone(dragging, 'device-rack').allowed) {
                 if (isDropActive) {
                     setIsDropActive(false);
                 }
@@ -447,7 +463,7 @@ export const DeviceRack = ({
 
         const onMouseUp = async (e: MouseEvent) => {
             const dragging = useDragStore.getState().draggingItem;
-            if (!dragging || dragging.type !== 'plugin' || isMaster) return;
+            if (!dragging || isMaster || !canDropInZone(dragging, 'device-rack').allowed) return;
             const rect = rackRef.current?.getBoundingClientRect();
             if (!rect) return;
             const inside =
@@ -556,10 +572,11 @@ export const DeviceRack = ({
                 {/* ── Device Chain (horizontal scroll) ── */}
                 <div className="scrollbar-hide" style={{
                     display: 'flex',
-                    alignItems: 'flex-start',
+                    alignItems: 'stretch',
                     gap: 6,
                     padding: '8px 10px',
                     flex: 1,
+                    minHeight: 0,
                     overflowX: 'auto',
                     overflowY: 'hidden',
                 }}>
@@ -590,7 +607,7 @@ export const DeviceRack = ({
                                     statusClear();
                                 }}
                                 onParamChange={(name, value) => {
-                                    setDeviceParam(device.id, name, value);
+                                    setPluginParam(device.id, name, value);
                                     sendInternalParam(device, name, value);
                                 }}
                                 onDropSample={async (samplePath) => {
@@ -704,13 +721,18 @@ export const DeviceRack = ({
                                 if (onAddDefaultDeviceToTrack) {
                                     await onAddDefaultDeviceToTrack(targetTrack.id);
                                 } else {
-                                    const addInstrument = targetTrack.track_type === 'Midi' && !targetTrack.instrument;
-                                    const pluginId = addInstrument ? 'internal://instrument/sampler' : 'internal://effect/utility';
-                                    const pluginName = addInstrument ? 'Sampler' : 'Utility';
-                                    const slot: 'instrument' | 'effect' = addInstrument ? 'instrument' : 'effect';
-                                    await engineApi.addPluginToTrack(targetTrack.id, pluginId, pluginName, slot);
+                                    const def = defaultInternalPluginForTrack(
+                                        targetTrack.track_type,
+                                        Boolean(targetTrack.instrument),
+                                    );
+                                    await engineApi.addPluginToTrack(
+                                        targetTrack.id,
+                                        def.pluginId,
+                                        def.pluginName,
+                                        def.slot,
+                                    );
+                                    await fetchProject();
                                 }
-                                await fetchProject();
                                 statusClear();
                             } catch (err) {
                                 console.error('[DeviceRack] add default device failed:', err);
@@ -760,13 +782,13 @@ export const DeviceRack = ({
                     isBypassed={!openGuiDevice.isEnabled}
                     onToggleBypass={() => toggleDevice(openGuiDevice)}
                     onClose={() => setOpenGuiDevice(null)}
-                    width={openGuiDevice.isVst ? 960 : openGuiDevice.effectType === 'eq' ? 760 : openGuiDevice.effectType === 'sampler' ? 820 : 640}
-                    height={openGuiDevice.effectType === 'eq' ? 420 : openGuiDevice.effectType === 'sampler' ? 460 : 380}
+                    width={openGuiDevice.isVst ? 960 : openGuiDevice.effectType === 'eq' ? 760 : openGuiDevice.effectType === 'sampler' ? 820 : openGuiDevice.effectType === 'waveSynth' ? 780 : 640}
+                    height={openGuiDevice.effectType === 'eq' ? 420 : openGuiDevice.effectType === 'sampler' ? 460 : openGuiDevice.effectType === 'waveSynth' ? 420 : 380}
                 >
                     <PluginGuiSurface
                         device={openGuiDevice}
                         onParamChange={(name, value) => {
-                            setDeviceParam(openGuiDevice.id, name, value);
+                            setPluginParam(openGuiDevice.id, name, value);
                             sendInternalParam(openGuiDevice, name, value);
                         }}
                         onDropSample={async (samplePath) => {
@@ -822,7 +844,7 @@ export const DeviceRack = ({
                     <PluginSettingsPanel
                         device={openSettingsDevice}
                         onParamChange={(name, value) => {
-                            setDeviceParam(openSettingsDevice.id, name, value);
+                            setPluginParam(openSettingsDevice.id, name, value);
                             sendInternalParam(openSettingsDevice, name, value);
                         }}
                         onLoadSample={async () => {
@@ -885,6 +907,7 @@ const DeviceNode = ({
     const typeColorMap: Record<string, string> = {
         instrument: '#4a9eff',
         sampler: '#4a9eff',
+        waveSynth: '#62d2a2',
         eq: '#d9a625',
         compressor: '#66cc33',
         delay: '#33a6d9',
@@ -899,6 +922,8 @@ const DeviceNode = ({
         ? 720
         : device.effectType === 'sampler'
             ? 360
+            : device.effectType === 'waveSynth'
+                ? 360
             : device.effectType === 'instrument'
                 ? 320
                 : device.effectType === 'eq'
@@ -921,22 +946,23 @@ const DeviceNode = ({
                 opacity: device.isEnabled ? 1 : 0.5,
                 transition: 'opacity var(--transition-fast)',
                 flexShrink: 0,
-                minHeight: isSelected && device.source === 'internal' ? 172 : 120,
-                maxHeight: isSelected && device.source === 'internal' ? 172 : 120,
+                height: '100%',
+                minHeight: '100%',
                 position: 'relative',
                 boxShadow: isSelected ? '0 0 0 1px var(--color-accent-primary), 0 0 12px rgba(74,144,217,0.35)' : 'none',
             }}
-            onMouseUp={() => {
-                const dragging = useDragStore.getState().draggingItem;
-                const isSamplerDevice =
-                    device.source === 'internal' &&
-                    (device.effectType === 'sampler' || device.effectType === 'instrument');
-                if (!isSamplerDevice) return;
-                if (dragging?.type === 'audio' && dragging.path) {
-                    onDropSample?.(dragging.path);
-                    useDragStore.getState().endDrag();
-                }
-            }}
+                    onMouseUp={() => {
+                        const dragging = useDragStore.getState().draggingItem;
+                        const acceptance = dragging ? canDropInZone(dragging, 'sampler-surface') : { allowed: false };
+                        const isSamplerDevice =
+                            device.source === 'internal' &&
+                            (device.effectType === 'sampler' || device.effectType === 'instrument');
+                        if (!isSamplerDevice) return;
+                        if (dragging?.path && acceptance.allowed) {
+                            onDropSample?.(dragging.path);
+                            useDragStore.getState().endDrag();
+                        }
+                    }}
         >
             {/* Type color stripe at top (2px) */}
             <div style={{
@@ -1026,7 +1052,7 @@ const DeviceNode = ({
             </div>
 
             {isSelected && device.source === 'internal' ? (
-                <div style={{ padding: 6 }}>
+                <div style={{ padding: 6, flex: 1, minHeight: 0 }}>
                     <PluginGuiSurface
                         device={device}
                         onParamChange={onParamChange}
@@ -1040,13 +1066,14 @@ const DeviceNode = ({
                     alignItems: 'center',
                     gap: 8,
                     padding: '8px',
-                    minHeight: 82,
+                    flex: 1,
+                    minHeight: 0,
                     overflow: 'hidden',
                 }}>
                     {device.source === 'internal' && device.params.length > 0 ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
-                            {device.params.slice(0, device.effectType === 'sampler' ? 4 : 3).map((p) => (
-                                <ParamKnob key={p.name} param={p} onChange={onParamChange} />
+                            {device.params.slice(0, device.effectType === 'sampler' || device.effectType === 'waveSynth' ? 4 : 3).map((p) => (
+                                <PluginKnob key={p.name} param={p} onChange={onParamChange} />
                             ))}
                         </div>
                     ) : (
@@ -1136,6 +1163,73 @@ const PluginGuiSurface = ({
         };
     }, [device.samplePath]);
 
+    if (device.effectType === 'waveSynth') {
+        const waveParam = device.params.find((x) => x.name.toLowerCase() === 'wave');
+        const waveIndex = Math.round(waveParam?.value ?? 0);
+        const waveforms = [
+            { idx: 0, label: 'Sine' },
+            { idx: 1, label: 'Triangle' },
+            { idx: 2, label: 'Saw' },
+            { idx: 3, label: 'Square' },
+        ];
+        return (
+            <div style={{ display: 'grid', gridTemplateRows: '110px auto', gap: 8, height: '100%' }}>
+                <div style={{
+                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
+                    borderRadius: 6,
+                    background: 'linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 84%, #133026) 0%, color-mix(in srgb, var(--surface-1) 90%, #0a1612) 100%)',
+                    padding: '10px',
+                    display: 'grid',
+                    gridTemplateRows: 'auto 1fr',
+                    gap: 10,
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                        <span style={{ fontSize: 10, color: '#d3efe3', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                            Waveform
+                        </span>
+                        <span style={{ fontSize: 10, color: '#80d7b0', fontFamily: 'var(--font-mono)' }}>
+                            {waveformLabel(waveIndex)}
+                        </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6 }}>
+                        {waveforms.map((wf) => (
+                            <button
+                                key={wf.idx}
+                                type="button"
+                                onClick={() => onParamChange('Wave', wf.idx)}
+                                style={{
+                                    border: wf.idx === waveIndex ? '1px solid #5ce0a6' : '1px solid #3e5d53',
+                                    borderRadius: 4,
+                                    background: wf.idx === waveIndex ? 'rgba(92, 224, 166, 0.18)' : 'rgba(24, 44, 37, 0.72)',
+                                    color: wf.idx === waveIndex ? '#d9ffee' : '#9ac4b2',
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    padding: '6px 4px',
+                                }}
+                            >
+                                {wf.label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+                    alignItems: 'center',
+                    gap: 8,
+                }}>
+                    {device.params
+                        .filter((p) => p.name.toLowerCase() !== 'wave')
+                        .slice(0, 5)
+                        .map((p) => (
+                            <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        ))}
+                </div>
+            </div>
+        );
+    }
+
     if (device.effectType === 'sampler' || device.effectType === 'instrument') {
         const getParam = (name: string, fallback: string) => {
             const p = device.params.find((x) => x.name.toLowerCase() === name.toLowerCase());
@@ -1162,7 +1256,8 @@ const PluginGuiSurface = ({
                     }}
                     onMouseUp={() => {
                         const dragging = useDragStore.getState().draggingItem;
-                        if (dragging?.type === 'audio' && dragging.path) {
+                        const acceptance = dragging ? canDropInZone(dragging, 'sampler-surface') : { allowed: false };
+                        if (dragging?.path && acceptance.allowed) {
                             onDropSample?.(dragging.path);
                             useDragStore.getState().endDrag();
                         }
@@ -1283,7 +1378,7 @@ const PluginGuiSurface = ({
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         {device.params.slice(0, 6).map((p) => (
-                            <ParamKnob key={p.name} param={p} onChange={onParamChange} compact />
+                            <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                         ))}
                     </div>
                 </div>
@@ -1321,7 +1416,7 @@ const PluginGuiSurface = ({
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                     {device.params.slice(0, 3).map((p) => (
-                        <ParamKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
                 </div>
             </div>
@@ -1383,7 +1478,7 @@ const PluginGuiSurface = ({
                     gap: 8,
                 }}>
                     {device.params.slice(0, 4).map((p) => (
-                        <ParamKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
                 </div>
             </div>
@@ -1393,7 +1488,7 @@ const PluginGuiSurface = ({
     return (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
             {device.params.map((p) => (
-                <ParamKnob key={p.name} param={p} onChange={onParamChange} />
+                <PluginKnob key={p.name} param={p} onChange={onParamChange} />
             ))}
         </div>
     );
@@ -1433,105 +1528,11 @@ const PluginSettingsPanel = ({
             gap: 10,
         }}>
             {device.params.map((p) => (
-                <ParamSlider key={p.name} param={p} onChange={onParamChange} />
+                <PluginSlider key={p.name} param={p} onChange={onParamChange} />
             ))}
         </div>
     </div>
 );
-
-const ParamSlider = ({
-    param,
-    onChange,
-}: {
-    param: DeviceParam;
-    onChange: (paramName: string, value: number) => void;
-}) => (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 110 }}>
-        <span style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>
-            {param.name} <span style={{ color: 'var(--color-text-tertiary)' }}>{param.value.toFixed(param.step && param.step < 1 ? 2 : 0)}{param.suffix}</span>
-        </span>
-        <input
-            type="range"
-            min={param.min}
-            max={param.max}
-            step={param.step ?? (param.max - param.min) / 100}
-            value={param.value}
-            onChange={(e) => onChange(param.name, Number(e.target.value))}
-            style={{ width: '100%' }}
-        />
-    </label>
-);
-
-const ParamKnob = ({
-    param,
-    compact = false,
-    onChange,
-}: {
-    param: DeviceParam;
-    compact?: boolean;
-    onChange: (paramName: string, value: number) => void;
-}) => {
-    const pct = Math.max(0, Math.min(1, (param.value - param.min) / Math.max(1e-9, param.max - param.min)));
-    const angle = -135 + pct * 270;
-    const valueText = param.value.toFixed(param.step && param.step < 1 ? 2 : 0);
-    const size = compact ? 34 : 42;
-    const markerHeight = compact ? 11 : 14;
-    const markerTopOffset = compact ? '-84%' : '-88%';
-    return (
-        <label style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: compact ? 3 : 5,
-            minWidth: compact ? 56 : 86,
-        }}>
-            <span style={{ fontSize: 10, color: 'var(--color-text-secondary)', textAlign: 'center', lineHeight: 1.1 }}>
-                {param.name}
-            </span>
-            <div style={{ position: 'relative', width: size, height: size }}>
-                <div style={{
-                    width: '100%',
-                    height: '100%',
-                    borderRadius: '50%',
-                    background: 'radial-gradient(circle at 35% 30%, #303030 0%, #191919 58%, #0e0e0e 100%)',
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.08), inset 0 -2px 4px rgba(0,0,0,0.5)',
-                    position: 'relative',
-                }}>
-                    <div style={{
-                        position: 'absolute',
-                        left: '50%',
-                        top: '50%',
-                        width: 2,
-                        height: markerHeight,
-                        background: 'var(--color-accent-primary)',
-                        transformOrigin: '50% 90%',
-                        transform: `translate(-50%, ${markerTopOffset}) rotate(${angle}deg)`,
-                        borderRadius: 999,
-                        boxShadow: '0 0 3px rgba(74,144,217,0.7)',
-                    }} />
-                </div>
-                <input
-                    type="range"
-                    min={param.min}
-                    max={param.max}
-                    step={param.step ?? (param.max - param.min) / 100}
-                    value={param.value}
-                    onChange={(e) => onChange(param.name, Number(e.target.value))}
-                    style={{
-                        position: 'absolute',
-                        inset: 0,
-                        opacity: 0,
-                        cursor: 'ns-resize',
-                    }}
-                />
-            </div>
-            <span style={{ fontSize: compact ? 9 : 10, color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>
-                {valueText}{param.suffix}
-            </span>
-        </label>
-    );
-};
 
 // ── MeterBar (small vertical signal meter) ──────────────
 

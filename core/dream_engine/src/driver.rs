@@ -37,7 +37,7 @@ use dream_models::midi::MidiClip;
 use dream_models::project::AudioClip;
 
 use crate::render_callback::RenderContext;
-use crate::sampler::{AdsrParams, SamplerEngine};
+use crate::sampler::{AdsrParams, SamplerEngine, Waveform};
 
 // ── Shared Clip Snapshot (LOCK-FREE) ───────────────────────────────────
 
@@ -808,6 +808,12 @@ pub fn start_audio_thread_on_device(
                                         });
                                     }
                                 }
+                                EngineCommand::SetSamplerWaveform { track_index, waveform } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_waveform(Waveform::from_u8(waveform));
+                                    }
+                                }
                                 EngineCommand::SamplerAllNotesOff { track_index } => {
                                     let idx = track_index as usize;
                                     if idx < sampler_engines.len() {
@@ -1065,9 +1071,6 @@ pub fn start_audio_thread_on_device(
                                 }
 
                                 let engine = &mut sampler_engines[track_idx];
-                                if engine.sample.is_none() {
-                                    continue; // no sample loaded — skip
-                                }
 
                                 // Schedule active notes for this buffer
                                 let events = MidiScheduler::find_active(

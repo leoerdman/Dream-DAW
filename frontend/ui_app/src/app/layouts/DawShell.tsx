@@ -74,6 +74,7 @@ export const DawShell = () => {
     const [followPlayhead, setFollowPlayhead] = useState(false);
     const [midiNotesByClip, setMidiNotesByClip] = useState<Record<string, MidiNote[]>>({});
     const [aiVariationBusy, setAiVariationBusy] = useState(false);
+    const [browserWidth, setBrowserWidth] = useState(240);
     const midiSaveThrottlesRef = useRef<Map<string, (notes: MidiNote[]) => void>>(new Map());
     const latestMidiNotesRef = useRef<Record<string, MidiNote[]>>({});
     const importFile = useEngineStore(s => s.importFile);
@@ -86,6 +87,7 @@ export const DawShell = () => {
     const projectTracksSnapshot = useEngineStore(s => s.projectTracks);
     const importingRef = useRef(false);
     const timelineRef = useRef<HTMLDivElement>(null);
+    const mainSplitRef = useRef<HTMLElement>(null);
     const queuedStartBeatRef = useRef<number | null>(null);
 
     // ── Enterprise Project Manager (Cmd+S/⇧S/N/O, auto-backup, dirty state)
@@ -189,6 +191,22 @@ export const DawShell = () => {
 
     const openSettings = useCallback(() => setSettingsOpen(true), []);
     const handleSelectTrack = useCallback((id: string) => setSelectedTrackId(id), []);
+    const beginBrowserResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        const splitRoot = mainSplitRef.current;
+        if (!splitRoot) return;
+        const rootRect = splitRoot.getBoundingClientRect();
+        const onMove = (me: MouseEvent) => {
+            const nextWidth = Math.max(200, Math.min(460, Math.round(me.clientX - rootRect.left)));
+            setBrowserWidth(nextWidth);
+        };
+        const onUp = () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+    }, []);
 
     // Safety-net bootstrap: if splash transition missed telemetry startup,
     // mount of workspace guarantees playhead + meters start updating.
@@ -209,6 +227,7 @@ export const DawShell = () => {
     const transport = useEngineStore(s => s.transport);
     const projectSampleRate = useEngineStore(s => s.projectSampleRate || 44100);
     const projectBpm = useEngineStore(s => s.projectBpm);
+    const projectSampleRateFromStore = useEngineStore(s => s.projectSampleRate);
     const timelineClips = useEngineStore(s => s.timelineClips);
     const projectTracks = useEngineStore(s => s.projectTracks);
     const timelineClipsForView = useMemo(
@@ -423,7 +442,7 @@ export const DawShell = () => {
         projectTracks,
         projectBpm,
         transportBpm: transport.bpm || 120,
-        projectSampleRate: useEngineStore.getState().projectSampleRate || 44100,
+        projectSampleRate: projectSampleRateFromStore || 44100,
         importFile,
         fetchProject,
     });
@@ -574,13 +593,13 @@ export const DawShell = () => {
                 </header>
 
                 {/* ── CENTER: Split Layout (Browser | Timeline | TrackList) ── */}
-                <main className="flex flex-1 overflow-hidden" style={{ gap: 0 }}>
+                <main ref={mainSplitRef} className="flex flex-1 overflow-hidden" style={{ gap: 0 }}>
 
                     {/* Left Sidebar (Asset Browser) */}
                     <aside
                         className="shrink-0 h-full z-40 flex flex-col overflow-hidden"
                         style={{
-                            width: 'var(--daw-sidebar-width)',
+                            width: browserWidth,
                             background: 'var(--color-bg-panel)',
                             borderRight: '1px solid var(--color-divider)',
                         }}
@@ -589,6 +608,15 @@ export const DawShell = () => {
                             <AssetBrowser />
                         </ErrorBoundary>
                     </aside>
+                    <div
+                        onMouseDown={beginBrowserResize}
+                        style={{
+                            width: 6,
+                            cursor: 'ew-resize',
+                            background: 'transparent',
+                            flexShrink: 0,
+                        }}
+                    />
 
                     {/* ═ TIMELINE (replaces the "hole-punch" transparent zone) ═ */}
                     <div

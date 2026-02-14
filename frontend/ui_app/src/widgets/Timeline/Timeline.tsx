@@ -11,6 +11,8 @@ import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import type { BrowserDragItem, TimelineClip } from '@/shared/types/Arrangement';
+import { canDropInZone } from '@/shared/lib/dndMatrix';
+import { TimelineCommandBus } from '@/shared/lib/TimelineCommandBus';
 
 interface TimelineProps {
     bpm?: number;
@@ -112,6 +114,7 @@ export const Timeline = (props: TimelineProps) => {
     const rootRef = useRef<HTMLDivElement | null>(null);
     const propsRef = useRef(props);
     propsRef.current = props;
+    const commandBusRef = useRef<TimelineCommandBus>(new TimelineCommandBus());
 
     // ── Store refs for callbacks (avoid stale closures) ───────────────
     const callbacksRef = useRef({
@@ -141,58 +144,107 @@ export const Timeline = (props: TimelineProps) => {
         onScrollTop,
     };
 
+    useEffect(() => {
+        const unsubscribe = commandBusRef.current.subscribe((command) => {
+            switch (command.type) {
+                case 'seek':
+                    callbacksRef.current.onPlayheadChange?.(command.beat);
+                    break;
+                case 'edit-cursor':
+                    callbacksRef.current.onEditCursorChange?.(command.beat, command.trackIndex);
+                    break;
+                case 'clip-select':
+                    if (command.additive) {
+                        const prev = selectedClipIdsRef.current;
+                        const next = prev.includes(command.clipId)
+                            ? prev.filter((id) => id !== command.clipId)
+                            : [...prev, command.clipId];
+                        callbacksRef.current.onClipSelectionChange?.(next);
+                    } else {
+                        callbacksRef.current.onClipSelect?.(command.clipId);
+                    }
+                    break;
+                case 'clip-selection':
+                    callbacksRef.current.onClipSelectionChange?.(command.clipIds);
+                    break;
+                case 'clip-move':
+                    callbacksRef.current.onClipMove?.(command.clipId, command.beat, command.trackIndex);
+                    break;
+                case 'clip-resize':
+                    callbacksRef.current.onClipResize?.(command.clipId, command.startBeat, command.duration);
+                    break;
+                case 'track-dblclick':
+                    callbacksRef.current.onDoubleClickTrack?.(command.trackIndex, command.beat);
+                    break;
+                case 'clip-dblclick':
+                    callbacksRef.current.onOpenMidiClip?.(command.clipId, command.trackIndex);
+                    break;
+                case 'track-select': {
+                    const id = trackIdsRef.current[command.trackIndex] ?? `track-${command.trackIndex}`;
+                    callbacksRef.current.onTrackSelect?.(id, command.trackIndex);
+                    break;
+                }
+                case 'drop':
+                    callbacksRef.current.onDropBrowserItem?.(command.item, command.trackIndex, command.beat);
+                    break;
+                case 'scroll-top':
+                    callbacksRef.current.onScrollTop?.(command.value);
+                    break;
+                default:
+                    break;
+            }
+        });
+        return unsubscribe;
+    }, []);
+
     // ── Wire engine callbacks ─────────────────────────────────────────
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
 
         engine.onPlayheadSeek = (beat) => {
-            callbacksRef.current.onPlayheadChange?.(beat);
+            commandBusRef.current.emit({ type: 'seek', beat });
         };
 
         engine.onEditCursorChange = (beat, track) => {
-            callbacksRef.current.onEditCursorChange?.(beat, track);
+            commandBusRef.current.emit({ type: 'edit-cursor', beat, trackIndex: track });
         };
 
         engine.onClipClick = (clipId, addToSelection) => {
-            if (addToSelection) {
-                const prev = selectedClipIdsRef.current;
-                const next = prev.includes(clipId)
-                    ? prev.filter(id => id !== clipId)
-                    : [...prev, clipId];
-                callbacksRef.current.onClipSelectionChange?.(next);
-            } else {
-                callbacksRef.current.onClipSelect?.(clipId);
-            }
+            commandBusRef.current.emit({ type: 'clip-select', clipId, additive: addToSelection });
         };
 
         engine.onClipMove = (clipId, newBeat, newTrack) => {
-            callbacksRef.current.onClipMove?.(clipId, newBeat, newTrack);
+            commandBusRef.current.emit({ type: 'clip-move', clipId, beat: newBeat, trackIndex: newTrack });
         };
 
         engine.onClipBoxSelection = (clipIds) => {
-            callbacksRef.current.onClipSelectionChange?.(clipIds);
+            commandBusRef.current.emit({ type: 'clip-selection', clipIds });
         };
 
         engine.onClipResize = (clipId, newStartBeat, newDuration) => {
-            callbacksRef.current.onClipResize?.(clipId, newStartBeat, newDuration);
+            commandBusRef.current.emit({
+                type: 'clip-resize',
+                clipId,
+                startBeat: newStartBeat,
+                duration: newDuration,
+            });
         };
 
         engine.onDoubleClickTrack = (trackIndex, beat) => {
-            callbacksRef.current.onDoubleClickTrack?.(trackIndex, beat);
+            commandBusRef.current.emit({ type: 'track-dblclick', trackIndex, beat });
         };
 
         engine.onDoubleClickClip = (clipId, trackIndex) => {
-            callbacksRef.current.onOpenMidiClip?.(clipId, trackIndex);
+            commandBusRef.current.emit({ type: 'clip-dblclick', clipId, trackIndex });
         };
 
         engine.onTrackSelect = (trackIndex) => {
-            const id = trackIdsRef.current[trackIndex] ?? `track-${trackIndex}`;
-            callbacksRef.current.onTrackSelect?.(id, trackIndex);
+            commandBusRef.current.emit({ type: 'track-select', trackIndex });
         };
 
         engine.onScrollTop = (scrollTop) => {
-            callbacksRef.current.onScrollTop?.(scrollTop);
+            commandBusRef.current.emit({ type: 'scroll-top', value: scrollTop });
         };
 
         engine.onLoopChange = (loop) => {
@@ -315,6 +367,11 @@ export const Timeline = (props: TimelineProps) => {
         const track = engine.viewport.screenToTrack(e.clientY, rect);
 
         if (storeDrag) {
+            const acceptance = canDropInZone(storeDrag, 'timeline-track');
+            if (!acceptance.allowed) {
+                useDragStore.getState().endDrag();
+                return;
+            }
             const browserItem: BrowserDragItem = {
                 id: storeDrag.id,
                 name: storeDrag.name,
@@ -322,7 +379,7 @@ export const Timeline = (props: TimelineProps) => {
                 path: storeDrag.path ?? '',
                 slotHint: storeDrag.slotHint,
             };
-            callbacksRef.current.onDropBrowserItem?.(browserItem, track, beat);
+            commandBusRef.current.emit({ type: 'drop', item: browserItem, trackIndex: track, beat });
             useDragStore.getState().endDrag();
             return;
         }
@@ -332,7 +389,7 @@ export const Timeline = (props: TimelineProps) => {
             const raw = e.dataTransfer.getData('application/json');
             if (raw) {
                 const item = JSON.parse(raw) as BrowserDragItem;
-                callbacksRef.current.onDropBrowserItem?.(item, track, beat);
+                commandBusRef.current.emit({ type: 'drop', item, trackIndex: track, beat });
             }
         } catch {
             // Not a valid drop
@@ -353,7 +410,8 @@ export const Timeline = (props: TimelineProps) => {
             dragCursorY >= rect.top &&
             dragCursorY <= rect.bottom;
 
-        if (inside && (draggingItem.type === 'audio' || draggingItem.type === 'midi')) {
+        const acceptance = canDropInZone(draggingItem, 'timeline-track');
+        if (inside && acceptance.allowed && (draggingItem.type === 'audio' || draggingItem.type === 'midi')) {
             const beat = Math.max(0, Math.round(engine.viewport.screenToBeats(dragCursorX, rect)));
             const track = engine.viewport.screenToTrack(dragCursorY, rect);
             engine.setDropTarget(null);
@@ -391,11 +449,13 @@ export const Timeline = (props: TimelineProps) => {
                 e.clientY >= rect.top &&
                 e.clientY <= rect.bottom;
 
-            if (inside) {
+            const acceptance = canDropInZone(draggingItem, 'timeline-track');
+            if (inside && acceptance.allowed) {
                 const beat = Math.max(0, Math.round(engine.viewport.screenToBeats(e.clientX, rect)));
                 const track = engine.viewport.screenToTrack(e.clientY, rect);
-                callbacksRef.current.onDropBrowserItem?.(
-                    {
+                commandBusRef.current.emit({
+                    type: 'drop',
+                    item: {
                         id: draggingItem.id,
                         name: draggingItem.name,
                         type: draggingItem.type,
@@ -403,9 +463,9 @@ export const Timeline = (props: TimelineProps) => {
                         durationSeconds: draggingItem.durationSeconds,
                         slotHint: draggingItem.slotHint,
                     },
-                    track,
+                    trackIndex: track,
                     beat,
-                );
+                });
             }
 
             engine.setDropTarget(null);
@@ -433,7 +493,7 @@ export const Timeline = (props: TimelineProps) => {
                 height: '100%',
                 position: 'relative',
                 overflow: 'hidden',
-                background: '#1a1a2e',
+                background: 'var(--surface-1)',
             }}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}

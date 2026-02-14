@@ -15,6 +15,12 @@ import {
 
 const KEY_TONICS = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'] as const;
 const KEY_MODES = ['Major', 'Minor', 'Dorian', 'Mixolydian', 'Phrygian', 'Lydian'] as const;
+const TIME_SIGNATURES: ReadonlyArray<[number, number]> = [
+    [4, 4],
+    [3, 4],
+    [6, 8],
+    [5, 4],
+];
 
 interface TransportBarProps {
     onSettingsClick?: () => void;
@@ -49,8 +55,8 @@ export const TransportBar = ({
     const [bpmText, setBpmText] = useState(bpm.toFixed(2));
     const bpmRef = useRef<HTMLInputElement>(null);
 
-    const [timeSigNum] = useState(4);
-    const [timeSigDen] = useState(4);
+    const [timeSigIndex, setTimeSigIndex] = useState(0);
+    const [timeSigNum, timeSigDen] = TIME_SIGNATURES[timeSigIndex] ?? [4, 4];
     const [keyEnabled, setKeyEnabled] = useState(false);
     const [keyTonic, setKeyTonic] = useState(0);
     const [keyMode, setKeyMode] = useState(0);
@@ -100,7 +106,21 @@ export const TransportBar = ({
 
     const cycleKeyTonic = () => setKeyTonic((i) => (i + 1) % KEY_TONICS.length);
     const cycleKeyMode = () => setKeyMode((i) => (i + 1) % KEY_MODES.length);
+    const cycleTimeSignature = () => setTimeSigIndex((i) => (i + 1) % TIME_SIGNATURES.length);
     const posString = `${position.bar}.${position.beat}.${position.sub.toString().padStart(2, '0')}`;
+    const valueChipStyle: React.CSSProperties = {
+        fontFamily: 'var(--font-mono)',
+        fontSize: 'var(--font-size-sm)',
+        fontWeight: 700,
+        color: 'var(--color-text-primary)',
+        background: 'var(--color-bg-input)',
+        borderRadius: 'var(--radius-xs)',
+        padding: '2px 8px',
+        minWidth: 56,
+        textAlign: 'center',
+        border: 'none',
+        cursor: 'pointer',
+    };
 
     const handleRecordToggle = useCallback(async () => {
         const armedTrackIndex = Math.max(0, projectTracks.findIndex((t) => t.is_armed));
@@ -148,183 +168,165 @@ export const TransportBar = ({
 
     return (
         <div className="glass-pill" style={{ height: 'var(--daw-transport-height)', zIndex: 'var(--z-transport)' }}>
-            <PillSection>
-                <ControlButton label="Tap" onClick={handleTapTempo} />
-                {bpmEditing ? (
-                    <input
-                        ref={bpmRef}
-                        type="text"
-                        value={bpmText}
-                        onChange={(e) => setBpmText(e.target.value)}
-                        onBlur={commitBpm}
-                        onKeyDown={(e) => e.key === 'Enter' && commitBpm()}
-                        autoFocus
-                        style={{
-                            width: 56,
-                            background: 'var(--color-bg-input)',
-                            color: 'var(--color-text-primary)',
-                            border: '1px solid var(--color-accent-primary)',
-                            borderRadius: 'var(--radius-xs)',
-                            fontFamily: 'var(--font-mono)',
-                            fontSize: 'var(--font-size-sm)',
-                            fontWeight: 600,
-                            textAlign: 'center',
-                            padding: '1px 4px',
-                            outline: 'none',
-                        }}
-                    />
-                ) : (
-                    <button
-                        onClick={() => { setBpmEditing(true); setBpmText(bpm.toFixed(2)); }}
-                        style={{
-                            background: 'var(--color-bg-input)',
-                            border: 'none',
-                            borderRadius: 'var(--radius-xs)',
-                            color: 'var(--color-text-primary)',
-                            fontFamily: 'var(--font-mono)',
-                            fontSize: 'var(--font-size-sm)',
-                            fontWeight: 700,
-                            padding: '1px 8px',
-                            cursor: 'pointer',
-                            minWidth: 56,
-                            textAlign: 'center',
-                        }}
-                    >
-                        {bpm.toFixed(2)}
-                    </button>
-                )}
-                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)', fontWeight: 600, padding: '0 4px' }}>
-                    {timeSigNum}<span style={{ color: 'var(--color-text-secondary)', margin: '0 1px' }}>/</span>{timeSigDen}
-                </span>
-            </PillSection>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '100%', width: '100%' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <PillSection>
+                        <ControlButton label="Tap" onClick={handleTapTempo} />
+                        {bpmEditing ? (
+                            <input
+                                ref={bpmRef}
+                                type="text"
+                                value={bpmText}
+                                onChange={(e) => setBpmText(e.target.value)}
+                                onBlur={commitBpm}
+                                onKeyDown={(e) => e.key === 'Enter' && commitBpm()}
+                                autoFocus
+                                style={{
+                                    width: 56,
+                                    background: valueChipStyle.background,
+                                    color: 'var(--color-text-primary)',
+                                    border: '1px solid var(--color-accent-primary)',
+                                    borderRadius: 'var(--radius-xs)',
+                                    fontFamily: valueChipStyle.fontFamily,
+                                    fontSize: valueChipStyle.fontSize,
+                                    fontWeight: valueChipStyle.fontWeight,
+                                    textAlign: 'center',
+                                    padding: '2px 6px',
+                                    outline: 'none',
+                                }}
+                            />
+                        ) : (
+                            <button
+                                onClick={() => { setBpmEditing(true); setBpmText(bpm.toFixed(2)); }}
+                                style={valueChipStyle}
+                            >
+                                {bpm.toFixed(2)}
+                            </button>
+                        )}
+                        <button onClick={cycleTimeSignature} style={valueChipStyle} title="Time Signature">
+                            {timeSigNum}<span style={{ color: 'var(--color-text-secondary)', margin: '0 1px' }}>/</span>{timeSigDen}
+                        </button>
+                    </PillSection>
 
-            <PillSection>
-                <TransportBtn icon={<Rewind size={14} fill="currentColor" />} title="Rewind" onClick={() => {}} />
-                <TransportBtn
-                    icon={<Play size={14} fill={isPlaying ? 'currentColor' : 'none'} />}
-                    title="Play"
-                    isActive={isPlaying}
-                    activeColor="var(--color-status-success)"
-                    onClick={togglePlay}
-                />
-                <TransportBtn
-                    icon={<Square size={13} fill="currentColor" />}
-                    title="Stop"
-                    onClick={() => {
-                        engineStop();
-                        if (isRecording) {
-                            engineApi.stopRecording().catch((err) => console.error('[TransportBar] stopRecording failed:', err));
-                            setIsRecording(false);
-                            onRecordingStateChange?.({
-                                active: false,
-                                trackIndex: Math.max(0, projectTracks.findIndex((t) => t.is_armed)),
-                            });
-                        }
-                    }}
-                />
-                <TransportBtn
-                    icon={<Circle size={12} fill={isRecording ? 'currentColor' : 'none'} />}
-                    title="Record"
-                    isActive={isRecording}
-                    activeColor="var(--color-status-record)"
-                    className={isRecording ? 'animate-pulse-record' : ''}
-                    onClick={() => { void handleRecordToggle(); }}
-                />
-                <TransportBtn
-                    icon={<RotateCcw size={14} />}
-                    title="Toggle Loop"
-                    isActive={isLooping}
-                    activeColor="var(--color-accent-primary)"
-                    onClick={() => {
-                        const newEnabled = !isLooping;
-                        if (newEnabled && loopStartFrames === 0 && loopEndFrames === 0) {
-                            const sr = sampleRate || 44100;
-                            const currentBpm = bpm || 120;
-                            const framesPerBeat = sr * 60 / currentBpm;
-                            const startF = Math.round(posBeats * framesPerBeat);
-                            const endF = Math.round((posBeats + timeSigNum) * framesPerBeat);
-                            void engineSetLoop(true, startF, endF);
-                        } else {
-                            void engineSetLoop(newEnabled, loopStartFrames, loopEndFrames);
-                        }
-                    }}
-                />
-                <TransportBtn
-                    icon={<ArrowRight size={14} strokeWidth={followPlayhead ? 3 : 2} />}
-                    title="Follow Playhead"
-                    isActive={followPlayhead}
-                    activeColor="var(--color-accent-primary)"
-                    onClick={() => onFollowPlayheadChange?.(!followPlayhead)}
-                />
-                <span
-                    style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 'var(--font-size-sm)',
-                        fontWeight: 700,
-                        color: 'var(--color-text-primary)',
-                        background: 'var(--color-bg-input)',
-                        borderRadius: 'var(--radius-xs)',
-                        padding: '2px 8px',
-                        minWidth: 74,
-                        textAlign: 'right',
-                        display: 'inline-block',
-                    }}
-                >
-                    {posString}
-                </span>
-            </PillSection>
+                    <PillSection>
+                        <TransportBtn
+                            icon={<Music size={13} fill={keyEnabled ? 'currentColor' : 'none'} />}
+                            title="Enable Key"
+                            isActive={keyEnabled}
+                            activeColor="var(--color-accent-primary)"
+                            onClick={() => setKeyEnabled(!keyEnabled)}
+                        />
+                        <ControlButton label={KEY_TONICS[keyTonic]} onClick={cycleKeyTonic} />
+                        <ControlButton label={KEY_MODES[keyMode]} onClick={cycleKeyMode} />
+                    </PillSection>
+                </div>
 
-            <PillSection>
-                <TransportBtn
-                    icon={<Music size={13} fill={keyEnabled ? 'currentColor' : 'none'} />}
-                    title="Enable Key"
-                    isActive={keyEnabled}
-                    activeColor="var(--color-accent-primary)"
-                    onClick={() => setKeyEnabled(!keyEnabled)}
-                />
-                <ControlButton label={KEY_TONICS[keyTonic]} onClick={cycleKeyTonic} dimmed={!keyEnabled} />
-                <ControlButton label={KEY_MODES[keyMode]} onClick={cycleKeyMode} dimmed={!keyEnabled} />
-            </PillSection>
+                <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
+                    <PillSection>
+                        <TransportBtn icon={<Rewind size={13} fill="currentColor" />} title="Rewind" onClick={() => {}} />
+                        <TransportBtn
+                            icon={<Play size={13} fill="currentColor" />}
+                            title="Play"
+                            isActive={isPlaying}
+                            activeColor="var(--color-status-success)"
+                            activeBackground={false}
+                            onClick={togglePlay}
+                        />
+                        <TransportBtn
+                            icon={<Square size={13} fill="currentColor" />}
+                            title="Stop"
+                            onClick={() => {
+                                engineStop();
+                                if (isRecording) {
+                                    engineApi.stopRecording().catch((err) => console.error('[TransportBar] stopRecording failed:', err));
+                                    setIsRecording(false);
+                                    onRecordingStateChange?.({
+                                        active: false,
+                                        trackIndex: Math.max(0, projectTracks.findIndex((t) => t.is_armed)),
+                                    });
+                                }
+                            }}
+                        />
+                        <TransportBtn
+                            icon={<Circle size={12} fill="currentColor" />}
+                            title="Record"
+                            isActive={isRecording}
+                            activeColor="var(--color-status-record)"
+                            className={isRecording ? 'animate-pulse-record' : ''}
+                            onClick={() => { void handleRecordToggle(); }}
+                        />
+                        <TransportBtn
+                            icon={<RotateCcw size={13} />}
+                            title="Toggle Loop"
+                            isActive={isLooping}
+                            activeColor="var(--color-accent-primary)"
+                            onClick={() => {
+                                const newEnabled = !isLooping;
+                                if (newEnabled && loopStartFrames === 0 && loopEndFrames === 0) {
+                                    const sr = sampleRate || 44100;
+                                    const currentBpm = bpm || 120;
+                                    const framesPerBeat = sr * 60 / currentBpm;
+                                    const startF = Math.round(posBeats * framesPerBeat);
+                                    const endF = Math.round((posBeats + timeSigNum) * framesPerBeat);
+                                    void engineSetLoop(true, startF, endF);
+                                } else {
+                                    void engineSetLoop(newEnabled, loopStartFrames, loopEndFrames);
+                                }
+                            }}
+                        />
+                        <TransportBtn
+                            icon={<ArrowRight size={13} strokeWidth={followPlayhead ? 3 : 2} />}
+                            title="Follow Playhead"
+                            isActive={followPlayhead}
+                            activeColor="var(--color-accent-primary)"
+                            onClick={() => onFollowPlayheadChange?.(!followPlayhead)}
+                        />
+                        <span style={{ ...valueChipStyle, minWidth: 74, textAlign: 'right', display: 'inline-block', cursor: 'default' }}>
+                            {posString}
+                        </span>
+                    </PillSection>
+                </div>
 
-            <div style={{ flex: 1 }} />
-
-            <PillSection>
-                <ControlButton label="Bounce" onClick={() => onOpenExport?.()} />
-                <span
-                    ref={midiLedRef}
-                    style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        background: '#33d17a',
-                        opacity: 0.35,
-                        boxShadow: '0 0 8px rgba(51, 209, 122, 0.75)',
-                        transition: 'opacity 40ms linear',
-                    }}
-                />
-                <span style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 600, color: 'var(--color-midi-indicator)' }}>MIDI</span>
-                <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-                    CPU {cpuPercent}%
-                </span>
-                <button
-                    onClick={onSettingsClick}
-                    title="Settings (⌘,)"
-                    style={{
-                        width: 24,
-                        height: 24,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        background: 'transparent',
-                        border: 'none',
-                        borderRadius: 'var(--radius-xs)',
-                        color: 'var(--color-text-secondary)',
-                        cursor: 'pointer',
-                    }}
-                >
-                    <Settings size={15} />
-                </button>
-            </PillSection>
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
+                    <PillSection>
+                        <ControlButton label="Bounce" onClick={() => onOpenExport?.()} />
+                        <span
+                            ref={midiLedRef}
+                            style={{
+                                width: 8,
+                                height: 8,
+                                borderRadius: '50%',
+                                background: '#33d17a',
+                                opacity: 0.35,
+                                boxShadow: '0 0 8px rgba(51, 209, 122, 0.75)',
+                                transition: 'opacity 40ms linear',
+                            }}
+                        />
+                        <span style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 600, color: 'var(--color-midi-indicator)' }}>MIDI</span>
+                        <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                            CPU {cpuPercent}%
+                        </span>
+                        <button
+                            onClick={onSettingsClick}
+                            title="Settings (⌘,)"
+                            style={{
+                                width: 24,
+                                height: 24,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                background: 'transparent',
+                                border: 'none',
+                                borderRadius: 'var(--radius-xs)',
+                                color: 'var(--color-text-secondary)',
+                                cursor: 'pointer',
+                            }}
+                        >
+                            <Settings size={15} />
+                        </button>
+                    </PillSection>
+                </div>
+            </div>
         </div>
     );
 };
@@ -366,6 +368,7 @@ const TransportBtn = ({
     title,
     isActive,
     activeColor,
+    activeBackground = true,
     onClick,
     className,
 }: {
@@ -373,6 +376,7 @@ const TransportBtn = ({
     title: string;
     isActive?: boolean;
     activeColor?: string;
+    activeBackground?: boolean;
     onClick: () => void;
     className?: string;
 }) => (
@@ -381,12 +385,12 @@ const TransportBtn = ({
         title={title}
         className={className}
         style={{
-            width: 24,
-            height: 24,
+            width: 22,
+            height: 22,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: isActive ? `color-mix(in srgb, ${activeColor} 15%, transparent)` : 'transparent',
+            background: isActive && activeBackground ? `color-mix(in srgb, ${activeColor} 15%, transparent)` : 'transparent',
             border: 'none',
             borderRadius: 'var(--radius-xs)',
             color: isActive ? activeColor : 'var(--color-text-secondary)',

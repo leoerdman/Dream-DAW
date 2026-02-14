@@ -85,6 +85,7 @@ export const DawShell = () => {
     const projectTracksSnapshot = useEngineStore(s => s.projectTracks);
     const importingRef = useRef(false);
     const timelineRef = useRef<HTMLDivElement>(null);
+    const queuedStartBeatRef = useRef<number | null>(null);
 
     // ── Enterprise Project Manager (Cmd+S/⇧S/N/O, auto-backup, dirty state)
     // Hook has side effects (keyboard shortcuts, auto-backup timer) — value intentionally unused
@@ -313,11 +314,13 @@ export const DawShell = () => {
         const clampedBeat = Math.max(0, beat);
         setEditCursorBeat(clampedBeat);
         setEditCursorTrackIndex(Math.max(0, trackIndex));
-        // When NOT playing, also seek engine so playback starts from cursor
-        if (!transport.is_playing) {
-            engineApi.seekToBeat(clampedBeat);
+        // Hard separation: edit cursor NEVER forces playhead reposition while transport is running.
+        // Use latest store state (not render-time closure) to avoid race on play-toggle boundary.
+        if (!useEngineStore.getState().transport.is_playing) {
+            queuedStartBeatRef.current = clampedBeat;
+            void engineApi.seekToBeat(clampedBeat);
         }
-    }, [transport.is_playing]);
+    }, []);
 
     // Start playback from the edit cursor position.
     const prevIsPlayingRef = useRef(false);
@@ -325,8 +328,10 @@ export const DawShell = () => {
         const justStarted = transport.is_playing && !prevIsPlayingRef.current;
         prevIsPlayingRef.current = transport.is_playing;
         if (!justStarted) return;
-        // Always seek to edit cursor when playback starts
-        void engineApi.seekToBeat(Math.max(0, editCursorBeat)).catch((err) => {
+        const startBeat = queuedStartBeatRef.current ?? editCursorBeat;
+        queuedStartBeatRef.current = null;
+        // Playback start anchor: start from queued edit cursor (from paused state).
+        void engineApi.seekToBeat(Math.max(0, startBeat)).catch((err) => {
             console.error('[DawShell] seek to edit cursor failed:', err);
         });
     }, [transport.is_playing, editCursorBeat]);

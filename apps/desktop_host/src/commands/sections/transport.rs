@@ -217,13 +217,26 @@ fn set_loop(
     end_frames: i64,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
-    if end_frames <= start_frames {
-        return Err("Loop end must be after loop start".to_string());
+    // Update shared playback_state FIRST so telemetry reads correct values immediately
+    {
+        let mut state = handle
+            .playback_state
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        state.loop_enabled = enabled;
+        if end_frames > start_frames {
+            state.loop_start = start_frames;
+            state.loop_end = end_frames;
+        }
     }
-    push_command(&handle, EngineCommand::SetLoopRegion {
-        start: start_frames,
-        end: end_frames,
-    })?;
+
+    // Push commands to the realtime audio thread
+    if end_frames > start_frames {
+        push_command(&handle, EngineCommand::SetLoopRegion {
+            start: start_frames,
+            end: end_frames,
+        })?;
+    }
     push_command(&handle, EngineCommand::SetLoopEnabled(enabled))?;
 
     log::info!("[IPC] set_loop(enabled={enabled}, {start_frames}–{end_frames})");

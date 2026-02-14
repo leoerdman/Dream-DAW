@@ -116,6 +116,7 @@ export class CanvasClipRenderer {
         editCursorTrack: number,
         loop: LoopRegion | null,
         beatsPerBar: number,
+        snapBeats: number,
         ghost: GhostClipData | null,
         dropTarget: { track: number; beat: number } | null,
         sampleRate: number,
@@ -146,7 +147,7 @@ export class CanvasClipRenderer {
         ctx.rect(0, vp.rulerHeight, w, h - vp.rulerHeight);
         ctx.clip();
 
-        this._drawGrid(ctx, vp, range, beatsPerBar);
+        this._drawGrid(ctx, vp, range, beatsPerBar, snapBeats);
         this._drawLoopRegion(ctx, vp, loop);
         this._drawClips(ctx, vp, clips, range, sampleRate);
         this._drawDropTarget(ctx, vp, dropTarget);
@@ -171,19 +172,23 @@ export class CanvasClipRenderer {
         vp: ViewportMatrix,
         range: VisibleRange,
         beatsPerBar: number,
+        snapBeats: number,
     ): void {
         const ppb = vp.pixelsPerBeat;
         const trackH = vp.trackHeight;
         const rulerH = vp.rulerHeight;
 
         // ── Vertical grid lines ──────────────────────────────────────
-        // Choose grid resolution based on zoom
-        let gridStep = 1; // beats
-        if (ppb < 8) gridStep = beatsPerBar * 4;
-        else if (ppb < 15) gridStep = beatsPerBar;
-        else if (ppb < 40) gridStep = beatsPerBar;
-        else if (ppb < 80) gridStep = 1;
-        else gridStep = 0.5;
+        // If snap is enabled, timeline grid follows the selected musical division immediately.
+        // If snap is OFF, fall back to adaptive visual density.
+        let gridStep = snapBeats;
+        if (gridStep <= 0) {
+            if (ppb < 8) gridStep = beatsPerBar * 4;
+            else if (ppb < 15) gridStep = beatsPerBar;
+            else if (ppb < 40) gridStep = beatsPerBar;
+            else if (ppb < 80) gridStep = 1;
+            else gridStep = 0.5;
+        }
 
         const startBeat = Math.floor(range.startBeat / gridStep) * gridStep;
         const endBeat = Math.ceil(range.endBeat / gridStep) * gridStep;
@@ -192,7 +197,8 @@ export class CanvasClipRenderer {
             const x = vp.beatsToScreenX(beat);
             if (x < -1 || x > vp.viewportWidth + 1) continue;
 
-            const isBar = beat % beatsPerBar === 0;
+            const barPhase = beat / beatsPerBar;
+            const isBar = Math.abs(barPhase - Math.round(barPhase)) < 1e-6;
             ctx.strokeStyle = isBar ? GRID_BAR_COLOR : GRID_LINE_COLOR;
             ctx.lineWidth = isBar ? 1 : 0.5;
             ctx.beginPath();
@@ -247,7 +253,7 @@ export class CanvasClipRenderer {
         ctx.font = '10px Inter, -apple-system, sans-serif';
         ctx.fillStyle = RULER_TEXT_COLOR;
         ctx.textBaseline = 'bottom';
-        ctx.textAlign = 'left';
+        ctx.textAlign = 'center';
 
         const startMark = Math.floor(range.startBeat / markStep) * markStep;
         const endMark = Math.ceil(range.endBeat / markStep) * markStep;
@@ -258,7 +264,7 @@ export class CanvasClipRenderer {
 
             // Bar number
             const barNumber = Math.floor(beat / beatsPerBar) + 1;
-            ctx.fillText(String(barNumber), x + 3, rulerH - 4);
+            ctx.fillText(String(barNumber), x, rulerH - 4);
 
             // Tick mark
             ctx.strokeStyle = RULER_TEXT_COLOR;
@@ -613,8 +619,10 @@ export class CanvasClipRenderer {
 
         const y = vp.rulerHeight + track * vp.trackHeight - vp.scrollY;
 
-        // Thin white line across the track
-        ctx.strokeStyle = EDIT_CURSOR_COLOR;
+        // Thin white line across selected track with slow, smooth breathing alpha.
+        const t = performance.now() / 1000;
+        const blink = 0.52 + 0.28 * (0.5 + 0.5 * Math.sin(t * Math.PI * 0.6));
+        ctx.strokeStyle = `rgba(255, 255, 255, ${blink.toFixed(3)})`;
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 3]);
         ctx.beginPath();

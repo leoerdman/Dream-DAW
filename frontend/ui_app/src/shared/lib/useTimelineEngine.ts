@@ -121,15 +121,6 @@ export function useTimelineEngine(
         config.rulerHeight, config.snapBeats,
     ]);
 
-    // ── Canvas ref callback (delayed attach for SSR compat) ───────────
-    useEffect(() => {
-        const engine = engineRef.current;
-        const canvas = canvasRef.current;
-        if (engine && canvas && !engine.viewport) {
-            engine.attach(canvas);
-        }
-    });
-
     return useMemo(() => ({
         canvasRef,
         engineRef,

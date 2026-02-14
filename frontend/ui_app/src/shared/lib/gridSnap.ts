@@ -12,18 +12,24 @@
 
 /** Supported grid division values — mirrors professional DAW quantize menus. */
 export type GridDivision =
-    | '1/1'   // Whole note (bar)
-    | '1/2'   // Half note
-    | '1/4'   // Quarter note (default)
-    | '1/8'   // Eighth note
-    | '1/16'  // Sixteenth note
-    | '1/32'  // Thirty-second note
-    | 'OFF';  // No snapping (free positioning)
+    | '1/1'      // Whole note (bar)
+    | '1/2'      // Half note
+    | '1/4'      // Quarter note (default)
+    | '1/8'      // Eighth note
+    | '1/16'     // Sixteenth note
+    | '1/32'     // Thirty-second note
+    | 'ADAPTIVE' // Auto-adjusts based on zoom level
+    | 'OFF';     // No snapping (free positioning)
+
+/** All selectable divisions for dropdown menus (ordered coarse → fine). */
+export const ALL_DIVISIONS: GridDivision[] = [
+    'ADAPTIVE', '1/1', '1/2', '1/4', '1/8', '1/16', '1/32', 'OFF',
+];
 
 // ── Division → Numeric Divisor ──────────────────────────────────────────
 
 /** Maps a GridDivision to its numeric divisor relative to a whole bar. */
-const DIVISION_DIVISORS: Record<Exclude<GridDivision, 'OFF'>, number> = {
+const DIVISION_DIVISORS: Record<Exclude<GridDivision, 'OFF' | 'ADAPTIVE'>, number> = {
     '1/1': 1,
     '1/2': 2,
     '1/4': 4,
@@ -31,6 +37,26 @@ const DIVISION_DIVISORS: Record<Exclude<GridDivision, 'OFF'>, number> = {
     '1/16': 16,
     '1/32': 32,
 };
+
+// ── Adaptive Grid ───────────────────────────────────────────────────────
+
+/**
+ * Returns a grid interval that automatically adapts to the current zoom level.
+ * Finer subdivisions appear as you zoom in — matching Ableton Live's adaptive grid.
+ *
+ * @param ppb - Current pixels-per-beat zoom level
+ * @param beatsPerBar - Beats per bar from time signature
+ * @returns Beat interval appropriate for the current zoom
+ */
+export function adaptiveInterval(ppb: number, beatsPerBar: number): number {
+    // Thresholds: when ppb is high enough, use finer subdivision
+    if (ppb >= 120) return beatsPerBar / 32; // 1/32
+    if (ppb >= 60) return beatsPerBar / 16; // 1/16
+    if (ppb >= 30) return beatsPerBar / 8;  // 1/8
+    if (ppb >= 15) return beatsPerBar / 4;  // 1/4
+    if (ppb >= 8) return beatsPerBar / 2;  // 1/2
+    return beatsPerBar;                       // 1/1
+}
 
 // ── Core Math ───────────────────────────────────────────────────────────
 
@@ -52,8 +78,10 @@ export function divisionToInterval(
     division: GridDivision,
     beatsPerBar: number,
     triplet: boolean,
+    ppb?: number,
 ): number {
     if (division === 'OFF') return 0;
+    if (division === 'ADAPTIVE') return adaptiveInterval(ppb ?? 20, beatsPerBar);
     const divisor = DIVISION_DIVISORS[division];
     const interval = beatsPerBar / divisor;
     return triplet ? interval * (2 / 3) : interval;

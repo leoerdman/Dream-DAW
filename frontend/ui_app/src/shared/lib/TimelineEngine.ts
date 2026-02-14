@@ -43,15 +43,22 @@ export interface HitTestResult {
     clipId?: string;
     beat: number;
     trackIndex: number;
+    /** If the cursor is near a clip edge, indicates which edge. */
+    edge?: 'left' | 'right';
 }
 
+/** Edge detection threshold in screen pixels. */
+const EDGE_GRIP_PX = 6;
+
 /** Drag state machine. */
-type DragMode = 0 | 1 | 2 | 3;
+type DragMode = 0 | 1 | 2 | 3 | 4 | 5;
 const DragMode = {
     None: 0 as const,
     ClipMove: 1 as const,
     RulerScrub: 2 as const,
     MarqueeSelect: 3 as const,
+    ClipResizeLeft: 4 as const,
+    ClipResizeRight: 5 as const,
 };
 
 interface DragState {
@@ -70,6 +77,8 @@ interface DragState {
     clipOriginalBeat: number;
     /** Original clip trackIndex (for computing delta). */
     clipOriginalTrack: number;
+    /** Original clip durationBeats (for resize operations). */
+    clipOriginalDuration: number;
 }
 
 // ── Engine Class ──────────────────────────────────────────────────────────
@@ -111,7 +120,11 @@ export class TimelineEngine {
         currentTrack: 0,
         clipOriginalBeat: 0,
         clipOriginalTrack: 0,
+        clipOriginalDuration: 0,
     };
+
+    /** Whether metaKey (⌘) is currently held — bypasses snap. */
+    private _metaKeyHeld = false;
 
     // ── Bound event handlers (for cleanup) ────────────────────────────
     private _boundWheel: (e: WheelEvent) => void;
@@ -124,6 +137,7 @@ export class TimelineEngine {
     // ── Callbacks (to React shell) ────────────────────────────────────
     onClipClick?: (clipId: string, addToSelection: boolean) => void;
     onClipMove?: (clipId: string, newBeat: number, newTrack: number) => void;
+    onClipResize?: (clipId: string, newStartBeat: number, newDuration: number) => void;
     onPlayheadSeek?: (beat: number) => void;
     onEditCursorChange?: (beat: number, trackIndex: number) => void;
     onDoubleClickTrack?: (trackIndex: number, beat: number) => void;
@@ -321,6 +335,7 @@ export class TimelineEngine {
             this._editCursorTrack,
             this._loop,
             this._beatsPerBar,
+            this._snapBeats,
             this._ghost,
             this._dropTarget,
             this._sampleRate,
@@ -403,7 +418,18 @@ export class TimelineEngine {
             const clip = this._clips[i];
             if (clip.trackIndex !== trackIndex) continue;
             if (beat >= clip.startBeat && beat <= clip.startBeat + clip.durationBeats) {
-                return { type: 'clip', clipId: clip.id, beat, trackIndex };
+                // Edge detection: check if cursor is within EDGE_GRIP_PX of left/right edge
+                const clipLeftPx = this._viewport.beatsToScreenX(clip.startBeat);
+                const clipRightPx = this._viewport.beatsToScreenX(clip.startBeat + clip.durationBeats);
+                const localX = clientX - rect.left;
+
+                let edge: 'left' | 'right' | undefined;
+                if (Math.abs(localX - clipLeftPx) <= EDGE_GRIP_PX) {
+                    edge = 'left';
+                } else if (Math.abs(localX - clipRightPx) <= EDGE_GRIP_PX) {
+                    edge = 'right';
+                }
+                return { type: 'clip', clipId: clip.id, beat, trackIndex, edge };
             }
         }
 
@@ -418,6 +444,7 @@ export class TimelineEngine {
         if (e.button !== 0) return; // Left click only
         if (!this._canvas) return;
 
+        this._metaKeyHeld = e.metaKey;
         const hit = this.hitTest(e.clientX, e.clientY);
 
         switch (hit.type) {
@@ -433,6 +460,7 @@ export class TimelineEngine {
                     currentTrack: 0,
                     clipOriginalBeat: 0,
                     clipOriginalTrack: 0,
+                    clipOriginalDuration: 0,
                 };
                 this.onPlayheadSeek?.(snapped);
                 break;
@@ -441,13 +469,43 @@ export class TimelineEngine {
             case 'clip': {
                 if (!hit.clipId) break;
 
-                // Select the clip
-                this.onClipClick?.(hit.clipId, e.shiftKey || e.metaKey);
-                this.onTrackSelect?.(hit.trackIndex);
-
-                // Start clip drag
                 const clip = this._clips.find(c => c.id === hit.clipId);
-                if (clip) {
+                if (!clip) break;
+
+                // Determine drag mode based on edge detection
+                if (hit.edge === 'left') {
+                    // Start left-edge resize
+                    this.onTrackSelect?.(hit.trackIndex);
+                    this._drag = {
+                        mode: DragMode.ClipResizeLeft,
+                        clipId: hit.clipId,
+                        startBeat: hit.beat,
+                        startTrack: hit.trackIndex,
+                        currentBeat: hit.beat,
+                        currentTrack: hit.trackIndex,
+                        clipOriginalBeat: clip.startBeat,
+                        clipOriginalTrack: clip.trackIndex,
+                        clipOriginalDuration: clip.durationBeats,
+                    };
+                } else if (hit.edge === 'right') {
+                    // Start right-edge resize
+                    this.onTrackSelect?.(hit.trackIndex);
+                    this._drag = {
+                        mode: DragMode.ClipResizeRight,
+                        clipId: hit.clipId,
+                        startBeat: hit.beat,
+                        startTrack: hit.trackIndex,
+                        currentBeat: hit.beat,
+                        currentTrack: hit.trackIndex,
+                        clipOriginalBeat: clip.startBeat,
+                        clipOriginalTrack: clip.trackIndex,
+                        clipOriginalDuration: clip.durationBeats,
+                    };
+                } else {
+                    // Standard clip move
+                    this.onClipClick?.(hit.clipId, e.shiftKey || e.metaKey);
+                    this.onTrackSelect?.(hit.trackIndex);
+
                     this._drag = {
                         mode: DragMode.ClipMove,
                         clipId: hit.clipId,
@@ -457,6 +515,7 @@ export class TimelineEngine {
                         currentTrack: hit.trackIndex,
                         clipOriginalBeat: clip.startBeat,
                         clipOriginalTrack: clip.trackIndex,
+                        clipOriginalDuration: clip.durationBeats,
                     };
                 }
                 break;
@@ -473,9 +532,22 @@ export class TimelineEngine {
     }
 
     private _onMouseMove(e: MouseEvent): void {
-        if (this._drag.mode === DragMode.None) return;
+        this._metaKeyHeld = e.metaKey;
         const canvas = this._canvas;
         if (!canvas) return;
+
+        // ── Cursor management (when NOT dragging) ──
+        if (this._drag.mode === DragMode.None) {
+            const hit = this.hitTest(e.clientX, e.clientY);
+            if (hit.type === 'clip' && hit.edge) {
+                canvas.style.cursor = 'col-resize';
+            } else if (hit.type === 'clip') {
+                canvas.style.cursor = 'grab';
+            } else {
+                canvas.style.cursor = 'default';
+            }
+            return;
+        }
 
         const rect = canvas.getBoundingClientRect();
         const beat = this._viewport.screenToBeats(e.clientX, rect);
@@ -492,6 +564,7 @@ export class TimelineEngine {
             }
 
             case DragMode.ClipMove: {
+                canvas.style.cursor = 'grabbing';
                 // Compute delta from drag start and apply to original position
                 const deltaBeat = beat - this._drag.startBeat;
                 const deltaTrack = track - this._drag.startTrack;
@@ -512,16 +585,50 @@ export class TimelineEngine {
                 }
                 break;
             }
+
+            case DragMode.ClipResizeLeft: {
+                canvas.style.cursor = 'col-resize';
+                const clip = this._clips.find(c => c.id === this._drag.clipId);
+                if (!clip) break;
+
+                const deltaBeat = beat - this._drag.startBeat;
+                const rawNewStart = this._drag.clipOriginalBeat + deltaBeat;
+                const newStart = this._snapBeat(Math.max(0, rawNewStart));
+                // Duration adjusts inversely — clip end stays fixed
+                const clipEnd = this._drag.clipOriginalBeat + this._drag.clipOriginalDuration;
+                const newDuration = Math.max(0.25, clipEnd - newStart);
+
+                clip.startBeat = newStart;
+                clip.durationBeats = newDuration;
+                this._requestRedraw();
+                break;
+            }
+
+            case DragMode.ClipResizeRight: {
+                canvas.style.cursor = 'col-resize';
+                const clip = this._clips.find(c => c.id === this._drag.clipId);
+                if (!clip) break;
+
+                const rawNewEnd = beat;
+                const snappedEnd = this._snapBeat(Math.max(this._drag.clipOriginalBeat + 0.25, rawNewEnd));
+                const newDuration = Math.max(0.25, snappedEnd - this._drag.clipOriginalBeat);
+
+                clip.durationBeats = newDuration;
+                this._requestRedraw();
+                break;
+            }
         }
     }
 
     private _onMouseUp(e: MouseEvent): void {
         if (this._drag.mode === DragMode.None) return;
 
+        const canvas = this._canvas;
+        if (canvas) canvas.style.cursor = 'default';
+
         switch (this._drag.mode) {
             case DragMode.ClipMove: {
                 if (this._drag.clipId) {
-                    const canvas = this._canvas;
                     if (!canvas) break;
 
                     const rect = canvas.getBoundingClientRect();
@@ -548,6 +655,23 @@ export class TimelineEngine {
                 }
                 break;
             }
+
+            case DragMode.ClipResizeLeft:
+            case DragMode.ClipResizeRight: {
+                if (this._drag.clipId) {
+                    const clip = this._clips.find(c => c.id === this._drag.clipId);
+                    if (clip) {
+                        // Only fire if something actually changed
+                        if (
+                            clip.startBeat !== this._drag.clipOriginalBeat ||
+                            clip.durationBeats !== this._drag.clipOriginalDuration
+                        ) {
+                            this.onClipResize?.(this._drag.clipId, clip.startBeat, clip.durationBeats);
+                        }
+                    }
+                }
+                break;
+            }
         }
 
         this._drag = {
@@ -559,6 +683,7 @@ export class TimelineEngine {
             currentTrack: 0,
             clipOriginalBeat: 0,
             clipOriginalTrack: 0,
+            clipOriginalDuration: 0,
         };
     }
 
@@ -613,6 +738,8 @@ export class TimelineEngine {
     // ═══════════════════════════════════════════════════════════════════
 
     private _snapBeat(beat: number): number {
+        // ⌘ key override — free positioning when held
+        if (this._metaKeyHeld) return beat;
         if (this._snapBeats <= 0) return beat;
         return Math.round(beat / this._snapBeats) * this._snapBeats;
     }

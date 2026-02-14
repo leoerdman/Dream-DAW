@@ -1,36 +1,15 @@
 /**
  * Timeline — Canvas-based arrangement timeline.
  *
- * This is a thin React shell that creates a single <canvas> element
- * and delegates ALL rendering + interaction to the TimelineEngine.
- *
- * The engine runs a requestAnimationFrame render loop,
- * handles mouse/wheel events directly on the canvas,
- * and performs mathematical hit-testing (no DOM elements for clips).
- *
- * React only:
- *   - Provides the <canvas> element
- *   - Feeds data (clips, playhead, loop) via useEffect
- *   - Receives callbacks (onClipClick, onClipMove, onSeek)
- *   - Handles store-based DragOverlay (DawShell → Timeline)
- *
- * Layout (identical to old):
- *   ┌──────────────── ruler (drawn on canvas) ──────────────────────┐
- *   │  1   2   3   4  |  5   6   7   8  |  9  10  11  12  | ...    │
- *   ├───────────────────────────────────────────────────────────────┤
- *   │  [Track 0 lane]  [clip] [clip] [clip]    ← all canvas paint  │
- *   │  [Track 1 lane]       [clip]    [clip]                       │
- *   │  [Track 2 lane]  [midi clip] [midi clip]                     │
- *   │  ...                                                         │
- *   └───────────────────────────────────────────────────────────────┘
- *   ▲ playhead (canvas vertical line)
+ * Thin React shell around the TimelineEngine canvas.
  */
 
-import { useEffect, useCallback, useRef } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 import { useTimelineEngine, type UseTimelineEngineConfig } from '@/shared/lib/useTimelineEngine';
 import type { TimelineClipData, GhostClipData } from '@/shared/lib/CanvasClipRenderer';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useGridStore } from '@/shared/stores/useGridStore';
 
 // ── Types (exported for DawShell compatibility) ───────────────────────────
 
@@ -89,6 +68,7 @@ interface TimelineProps {
     selectedClipIds?: string[];
     onClipSelectionChange?: (clipIds: string[]) => void;
     onClipMove?: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
+    onClipResize?: (clipId: string, newStartBeat: number, newDuration: number) => void;
     onDropBrowserItem?: (item: BrowserDragItem, trackIndex: number, beat: number) => void;
     onDoubleClickTrack?: (trackIndex: number, beat: number) => void;
     onOpenMidiClip?: (clipId: string, trackIndex: number) => void;
@@ -132,6 +112,7 @@ export const Timeline = (props: TimelineProps) => {
         onOpenMidiClip,
         onTrackSelect,
         onScrollTop,
+        onClipResize,
         followPlayhead = false,
     } = props;
 
@@ -140,6 +121,10 @@ export const Timeline = (props: TimelineProps) => {
 
     // Read live sample rate from engine (could be 44100, 48000, 96000+)
     const engineSampleRate = useEngineStore((s) => s.transport.sample_rate);
+
+    // ── Grid store for dynamic snap ───────────────────────────────────
+    const gridInterval = useGridStore((s) => s.gridInterval);
+    const snapBeatsValue = gridInterval(beatsPerBar);
 
     // ── Engine config ─────────────────────────────────────────────────
     const engineConfig: UseTimelineEngineConfig = {
@@ -151,7 +136,7 @@ export const Timeline = (props: TimelineProps) => {
         trackHeight,
         rulerHeight: RULER_HEIGHT,
         initialPpb: DEFAULT_PPB,
-        snapBeats: 1,
+        snapBeats: snapBeatsValue,
     };
 
     const { canvasRef, engineRef } = useTimelineEngine(engineConfig);
@@ -163,6 +148,7 @@ export const Timeline = (props: TimelineProps) => {
         onClipSelect,
         onClipSelectionChange,
         onClipMove,
+        onClipResize,
         onDropBrowserItem,
         onDoubleClickTrack,
         onOpenMidiClip,
@@ -175,6 +161,7 @@ export const Timeline = (props: TimelineProps) => {
         onClipSelect,
         onClipSelectionChange,
         onClipMove,
+        onClipResize,
         onDropBrowserItem,
         onDoubleClickTrack,
         onOpenMidiClip,
@@ -209,6 +196,10 @@ export const Timeline = (props: TimelineProps) => {
 
         engine.onClipMove = (clipId, newBeat, newTrack) => {
             callbacksRef.current.onClipMove?.(clipId, newBeat, newTrack);
+        };
+
+        engine.onClipResize = (clipId, newStartBeat, newDuration) => {
+            callbacksRef.current.onClipResize?.(clipId, newStartBeat, newDuration);
         };
 
         engine.onDoubleClickTrack = (trackIndex, beat) => {

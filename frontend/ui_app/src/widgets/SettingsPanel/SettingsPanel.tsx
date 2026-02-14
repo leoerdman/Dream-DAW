@@ -356,7 +356,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                                 </div>
                                 <div>
                                     <div style={{ fontSize: 18, fontWeight: 700 }}>Dream DAW</div>
-                                    <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>Version 1.2.234 (2026.02.13.155)</div>
+                                    <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>Version {__APP_VERSION__}</div>
                                     <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>© 2025-2026 Dream DAW Team</div>
                                 </div>
                             </div>

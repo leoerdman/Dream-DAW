@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
+import { ALL_DIVISIONS } from '@/shared/lib/gridSnap';
 import * as engineApi from '@/shared/api/engine';
 
 /**
@@ -61,8 +62,13 @@ export const TransportBar = ({
     // Quantize — from global grid store
     const gridDivision = useGridStore((s) => s.division);
     const gridTriplet = useGridStore((s) => s.triplet);
-    const cycleDivision = useGridStore((s) => s.cycleDivision);
-    const setGridTriplet = useGridStore((s) => s.setTriplet);
+    const setGridDivision = useGridStore((s) => s.setDivision);
+    const snapEnabled = useGridStore((s) => s.snapEnabled);
+    const setSnapEnabled = useGridStore((s) => s.setSnapEnabled);
+
+    // Grid dropdown
+    const [gridDropdownOpen, setGridDropdownOpen] = useState(false);
+    const gridDropdownRef = useRef<HTMLDivElement>(null);
 
     // Key signature
     const [keyEnabled, setKeyEnabled] = useState(false);
@@ -76,20 +82,6 @@ export const TransportBar = ({
         const sub = Math.floor((posBeats % 1) * 96);
         return { bar, beat, sub };
     })();
-
-    // Loop marker display (frames → bar.beat.sub)
-    const framesToDisplay = (frames: number): string => {
-        const sr = sampleRate || 44100;
-        const currentBpm = bpm || 120;
-        const framesPerBeat = sr * 60 / currentBpm;
-        const beats = frames / framesPerBeat;
-        const bar = Math.floor(beats / timeSigNum) + 1;
-        const b = Math.floor(beats % timeSigNum) + 1;
-        const sub = Math.floor((beats % 1) * 96);
-        return `${bar}.${b}.${sub.toString().padStart(2, '0')}`;
-    };
-    const loopStartDisplay = framesToDisplay(loopStartFrames);
-    const loopEndDisplay = framesToDisplay(loopEndFrames);
 
     // Tap tempo
     const tapTimestamps = useRef<number[]>([]);
@@ -130,20 +122,21 @@ export const TransportBar = ({
         setBpmEditing(false);
     };
 
-    const quantizeLabel = gridTriplet ? `${gridDivision}T` : gridDivision;
-    const cycleQuantize = () => {
-        // Cycle: 1/4 → 1/4T → 1/8 → 1/8T → 1/16 → 1/16T → 1/32 → OFF → 1/4
-        if (gridDivision !== 'OFF' && gridDivision !== '1/1' && gridDivision !== '1/2' && gridDivision !== '1/32' && !gridTriplet) {
-            setGridTriplet(true);
-        } else if (gridTriplet) {
-            setGridTriplet(false);
-            cycleDivision();
-        } else {
-            cycleDivision();
-        }
-    };
+    const quantizeLabel = gridDivision === 'ADAPTIVE' ? 'Auto' : gridTriplet ? `${gridDivision}T` : gridDivision;
     const cycleKeyTonic = () => setKeyTonic(i => (i + 1) % KEY_TONICS.length);
     const cycleKeyMode = () => setKeyMode(i => (i + 1) % KEY_MODES.length);
+
+    // Close grid dropdown on outside click
+    useEffect(() => {
+        if (!gridDropdownOpen) return;
+        const handler = (e: MouseEvent) => {
+            if (gridDropdownRef.current && !gridDropdownRef.current.contains(e.target as Node)) {
+                setGridDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [gridDropdownOpen]);
 
     const posString = `${position.bar}.${position.beat}.${position.sub.toString().padStart(2, '0')}`;
 
@@ -255,11 +248,100 @@ export const TransportBar = ({
                     {timeSigNum}<span style={{ color: 'var(--color-text-tertiary)', margin: '0 1px' }}>/</span>{timeSigDen}
                 </span>
 
-                <ControlButton
-                    label={quantizeLabel}
-                    onClick={cycleQuantize}
-                    dimmed={gridDivision === 'OFF'}
-                />
+                {/* Magnet toggle */}
+                <button
+                    onClick={() => setSnapEnabled(!snapEnabled)}
+                    title={snapEnabled ? 'Snap enabled (click to disable)' : 'Snap disabled (click to enable)'}
+                    style={{
+                        background: snapEnabled ? 'rgba(74, 158, 255, 0.2)' : 'transparent',
+                        border: snapEnabled ? '1px solid rgba(74, 158, 255, 0.45)' : '1px solid transparent',
+                        color: snapEnabled ? '#4a9eff' : 'var(--color-text-quaternary)',
+                        borderRadius: 'var(--radius-xs)',
+                        padding: '2px 5px',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        transition: 'all 0.15s ease',
+                        lineHeight: 1,
+                    }}
+                >
+                    🧲
+                </button>
+
+                {/* Grid dropdown */}
+                <div ref={gridDropdownRef} style={{ position: 'relative' }}>
+                    <button
+                        onClick={() => setGridDropdownOpen(!gridDropdownOpen)}
+                        className="btn-control"
+                        style={{
+                            fontFamily: 'var(--font-mono)',
+                            opacity: gridDivision === 'OFF' ? 0.45 : 1,
+                            minWidth: 36,
+                            textAlign: 'center',
+                        }}
+                        title="Grid Division"
+                    >
+                        {quantizeLabel} ▾
+                    </button>
+
+                    {gridDropdownOpen && (
+                        <div
+                            style={{
+                                position: 'absolute',
+                                top: '100%',
+                                left: 0,
+                                marginTop: 4,
+                                background: 'rgba(30, 30, 40, 0.96)',
+                                backdropFilter: 'blur(16px)',
+                                border: '1px solid rgba(255, 255, 255, 0.08)',
+                                borderRadius: 'var(--radius-sm)',
+                                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+                                padding: '4px 0',
+                                zIndex: 9999,
+                                minWidth: 110,
+                            }}
+                        >
+                            {ALL_DIVISIONS.map((div) => {
+                                const isActive = gridDivision === div;
+                                const label = div === 'ADAPTIVE' ? '✨ Adaptive' : div;
+                                return (
+                                    <button
+                                        key={div}
+                                        onClick={() => {
+                                            setGridDivision(div);
+                                            setGridDropdownOpen(false);
+                                        }}
+                                        style={{
+                                            display: 'block',
+                                            width: '100%',
+                                            padding: '5px 12px',
+                                            background: isActive
+                                                ? 'rgba(74, 158, 255, 0.18)'
+                                                : 'transparent',
+                                            border: 'none',
+                                            color: isActive
+                                                ? '#4a9eff'
+                                                : 'var(--color-text-secondary)',
+                                            fontFamily: 'var(--font-mono)',
+                                            fontSize: 'var(--font-size-xs)',
+                                            fontWeight: isActive ? 600 : 400,
+                                            textAlign: 'left',
+                                            cursor: 'pointer',
+                                            transition: 'background 0.1s ease',
+                                        }}
+                                        onMouseEnter={e =>
+                                            !isActive && (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)')
+                                        }
+                                        onMouseLeave={e =>
+                                            !isActive && (e.currentTarget.style.background = 'transparent')
+                                        }
+                                    >
+                                        {label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
             </Section>
 
             <Divider />
@@ -339,41 +421,6 @@ export const TransportBar = ({
                 >
                     ⟲
                 </button>
-                {/* Loop Start marker */}
-                <span
-                    title="Loop Start"
-                    style={{
-                        fontSize: 9,
-                        fontFamily: 'var(--font-mono, monospace)',
-                        color: isLooping ? '#3b9eff' : 'var(--color-text-tertiary)',
-                        padding: '1px 4px',
-                        borderRadius: 'var(--radius-xs)',
-                        background: isLooping ? 'rgba(30, 120, 255, 0.1)' : 'transparent',
-                        cursor: 'default',
-                        userSelect: 'none',
-                        letterSpacing: '0.02em',
-                    }}
-                >
-                    {loopStartDisplay}
-                </span>
-                <span style={{ color: 'var(--color-text-quaternary)', fontSize: 9 }}>→</span>
-                {/* Loop End marker */}
-                <span
-                    title="Loop End"
-                    style={{
-                        fontSize: 9,
-                        fontFamily: 'var(--font-mono, monospace)',
-                        color: isLooping ? '#3b9eff' : 'var(--color-text-tertiary)',
-                        padding: '1px 4px',
-                        borderRadius: 'var(--radius-xs)',
-                        background: isLooping ? 'rgba(30, 120, 255, 0.1)' : 'transparent',
-                        cursor: 'default',
-                        userSelect: 'none',
-                        letterSpacing: '0.02em',
-                    }}
-                >
-                    {loopEndDisplay}
-                </span>
 
                 <Divider />
 
@@ -520,7 +567,7 @@ export const TransportBar = ({
                     ⚙
                 </button>
             </Section>
-        </div>
+        </div >
     );
 };
 

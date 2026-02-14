@@ -339,9 +339,9 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                     return;
                 }
                 if (inPianoRoll) {
-                    const selectedCount = Number(pianoRollScope?.dataset?.selectedNotes ?? '0');
-                    // When notes are selected, PianoRoll owns Delete/Backspace.
-                    if (selectedCount > 0) return;
+                    // PianoRoll owns Delete/Backspace whenever editor focus is inside it.
+                    // This prevents accidental clip/track deletions while editing notes.
+                    return;
                 }
                 e.preventDefault();
                 e.stopPropagation();

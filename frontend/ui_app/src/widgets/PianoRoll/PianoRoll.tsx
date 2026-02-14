@@ -22,6 +22,14 @@ import { useState, useCallback, useRef, useMemo, useEffect, memo } from 'react';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import type { GridDivision } from '@/shared/lib/gridSnap';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
+import {
+    Pencil,
+    MousePointer2,
+    Eraser,
+    Sparkles,
+    RotateCw,
+    Music
+} from 'lucide-react';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -39,6 +47,8 @@ export type PianoRollTool = 'draw' | 'select' | 'erase';
 interface PianoRollProps {
     notes: MidiNote[];
     onNotesChange: (notes: MidiNote[]) => void;
+    onGenerateVariation?: () => void | Promise<void>;
+    aiVariationBusy?: boolean;
     color?: string;
     timeSignature?: [number, number];
     totalBars?: number;
@@ -130,6 +140,8 @@ const genNoteId = () => `note_${nextNoteId++}`;
 export const PianoRoll = memo(function PianoRoll({
     notes,
     onNotesChange,
+    onGenerateVariation,
+    aiVariationBusy = false,
     color = '#4a9eff',
     timeSignature = [4, 4],
     totalBars = 8,
@@ -408,6 +420,8 @@ export const PianoRoll = memo(function PianoRoll({
         window.addEventListener('mouseup', onUp);
     }, [tool, canvasWidth, canvasHeight, notes, pixelsPerBeat, pitchToY, noteHeight]);
 
+    const snapEnabled = useGridStore((s) => s.snapEnabled);
+
     // Note drag
     const handleNoteDrag = useCallback(
         (e: React.MouseEvent, noteId: string) => {
@@ -428,6 +442,7 @@ export const PianoRoll = memo(function PianoRoll({
                 : e.nativeEvent.offsetX <= edgeGripPx
                     ? 'resize-left'
                     : 'move';
+
             const selectedIds = selectedNotes.has(noteId) ? new Set(selectedNotes) : new Set([noteId]);
             if (!selectedNotes.has(noteId)) {
                 setSelectedNotes(new Set([noteId]));
@@ -444,29 +459,37 @@ export const PianoRoll = memo(function PianoRoll({
                 const beatDelta = dx / pixelsPerBeat;
                 const pitchDelta = -Math.round(dy / noteHeight);
 
+                // Check for snap override (metaKey/Command)
+                const shouldSnap = snapEnabled && !ev.metaKey;
+
                 const updated = notes.map((n) => {
                     if (!selectedIds.has(n.id)) return n;
                     const original = startStates.get(n.id);
                     if (!original) return n;
+
                     if (mode === 'resize-right') {
-                        // Resize only the grabbed note to avoid destructive multi-resize.
                         if (n.id !== noteId) return n;
                         const maxDur = Math.max(0.125, totalBeats - original.startBeat);
+                        const rawDur = original.durationBeats + beatDelta;
+                        const finalDur = shouldSnap ? snapBeat(rawDur, beatsPerBar) : rawDur;
                         return {
                             ...n,
-                            durationBeats: Math.min(maxDur, Math.max(0.125, snapBeat(original.durationBeats + beatDelta, beatsPerBar))),
+                            durationBeats: Math.min(maxDur, Math.max(0.125, finalDur)),
                         };
                     }
                     if (mode === 'resize-left') {
                         if (n.id !== noteId) return n;
-                        const snappedBeat = Math.max(0, Math.min(totalBeats - 0.125, snapBeat(original.startBeat + beatDelta, beatsPerBar)));
+                        const rawStart = original.startBeat + beatDelta;
+                        const snappedBeat = Math.max(0, Math.min(totalBeats - 0.125, shouldSnap ? snapBeat(rawStart, beatsPerBar) : rawStart));
                         return {
                             ...n,
                             startBeat: snappedBeat,
                             durationBeats: Math.max(0.125, original.durationBeats + (original.startBeat - snappedBeat)),
                         };
                     }
-                    const newBeat = Math.max(0, Math.min(totalBeats - 0.125, snapBeat(original.startBeat + beatDelta, beatsPerBar)));
+
+                    const rawStart = original.startBeat + beatDelta;
+                    const newBeat = Math.max(0, Math.min(totalBeats - 0.125, shouldSnap ? snapBeat(rawStart, beatsPerBar) : rawStart));
                     const newPitch = Math.max(LOWEST_PITCH, Math.min(LOWEST_PITCH + TOTAL_KEYS - 1, original.pitch + pitchDelta));
                     return { ...n, startBeat: newBeat, pitch: newPitch };
                 });
@@ -480,8 +503,17 @@ export const PianoRoll = memo(function PianoRoll({
             window.addEventListener('mousemove', onMove);
             window.addEventListener('mouseup', onUp);
         },
-        [tool, notes, onNotesChange, pixelsPerBeat, noteHeight, snapBeat, beatsPerBar, totalBeats, selectedNotes],
+        [tool, notes, onNotesChange, pixelsPerBeat, noteHeight, snapBeat, beatsPerBar, totalBeats, selectedNotes, snapEnabled],
     );
+
+    const [hoveredNoteEdge, setHoveredNoteEdge] = useState<string | null>(null);
+
+    const handleNoteMouseMove = (e: React.MouseEvent, noteId: string) => {
+        const target = e.currentTarget as HTMLElement;
+        const edgeGripPx = 6;
+        const isEdge = e.nativeEvent.offsetX >= target.clientWidth - edgeGripPx || e.nativeEvent.offsetX <= edgeGripPx;
+        setHoveredNoteEdge(isEdge ? noteId : null);
+    };
 
     // Velocity change
     const handleVelocityClick = useCallback(
@@ -665,27 +697,40 @@ export const PianoRoll = memo(function PianoRoll({
                 flexShrink: 0,
             }}>
                 {/* Tool buttons */}
-                {(['draw', 'select', 'erase'] as const).map((t) => (
-                    <button
-                        key={t}
-                        onClick={() => setTool(t)}
-                        style={{
-                            padding: '3px 10px',
-                            background: tool === t ? color : 'var(--color-bg-secondary)',
-                            color: tool === t ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
-                            border: tool === t ? 'none' : '1px solid var(--color-control-border)',
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: 'var(--font-size-2xs)',
-                            fontFamily: 'var(--font-family)',
-                            fontWeight: tool === t ? 600 : 400,
-                            cursor: 'pointer',
-                            transition: 'all var(--transition-fast)',
-                            letterSpacing: 'var(--letter-spacing-wide)',
-                        }}
-                    >
-                        {t === 'draw' ? '✏ Draw' : t === 'select' ? '◻ Select' : '✕ Erase'}
-                    </button>
-                ))}
+                {(['draw', 'select', 'erase'] as const).map((t) => {
+                    const isActive = tool === t;
+                    let Icon;
+                    let label;
+                    if (t === 'draw') { Icon = Pencil; label = 'Draw'; }
+                    else if (t === 'select') { Icon = MousePointer2; label = 'Select'; }
+                    else { Icon = Eraser; label = 'Erase'; }
+
+                    return (
+                        <button
+                            key={t}
+                            onClick={() => setTool(t)}
+                            style={{
+                                padding: '3px 8px',
+                                background: isActive ? color : 'var(--color-bg-secondary)',
+                                color: isActive ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
+                                border: isActive ? 'none' : '1px solid var(--color-control-border)',
+                                borderRadius: 'var(--radius-sm)',
+                                fontSize: 'var(--font-size-2xs)',
+                                fontFamily: 'var(--font-family)',
+                                fontWeight: isActive ? 600 : 400,
+                                cursor: 'pointer',
+                                transition: 'all var(--transition-fast)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                            }}
+                            title={`${label} Tool`}
+                        >
+                            <Icon size={13} fill={isActive && t !== 'select' ? 'currentColor' : 'none'} fillOpacity={0.2} />
+                            <span style={{ marginTop: 1 }}>{label}</span>
+                        </button>
+                    );
+                })}
 
                 {/* Divider */}
                 <div style={{ width: 1, height: 16, background: 'var(--color-divider-light)', margin: '0 var(--space-1)' }} />
@@ -741,10 +786,14 @@ export const PianoRoll = memo(function PianoRoll({
                         fontWeight: highlightScale ? 600 : 400,
                         cursor: 'pointer',
                         transition: 'all var(--transition-fast)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
                     }}
                     title="Highlight notes in the selected scale"
                 >
-                    ♪ Scale
+                    <Music size={13} fill={highlightScale ? 'currentColor' : 'none'} fillOpacity={0.2} />
+                    <span style={{ marginTop: 1 }}>Scale</span>
                 </button>
 
                 {/* Root + Scale selectors (shown when active) */}
@@ -791,6 +840,31 @@ export const PianoRoll = memo(function PianoRoll({
 
                 <div style={{ flex: 1 }} />
 
+                <button
+                    onClick={() => { void onGenerateVariation?.(); }}
+                    disabled={!onGenerateVariation || aiVariationBusy}
+                    style={{
+                        padding: '3px 12px',
+                        background: aiVariationBusy ? 'var(--color-bg-secondary)' : 'var(--color-accent-primary)',
+                        color: aiVariationBusy ? 'var(--color-text-tertiary)' : 'var(--color-text-on-accent)',
+                        border: aiVariationBusy ? '1px solid var(--color-control-border)' : 'none',
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: 'var(--font-size-2xs)',
+                        fontFamily: 'var(--font-family)',
+                        fontWeight: 700,
+                        cursor: !onGenerateVariation || aiVariationBusy ? 'not-allowed' : 'pointer',
+                        opacity: !onGenerateVariation ? 0.6 : 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        boxShadow: aiVariationBusy ? 'none' : '0 2px 8px rgba(74, 158, 255, 0.3)',
+                    }}
+                    title="Generate AI variation for this MIDI clip"
+                >
+                    <Sparkles size={13} className={aiVariationBusy ? 'animate-spin' : ''} />
+                    <span style={{ marginTop: 1 }}>{aiVariationBusy ? 'Generating…' : 'AI Variation'}</span>
+                </button>
+
                 {/* Zoom hint */}
                 <span style={{
                     fontSize: 'var(--font-size-micro)',
@@ -814,11 +888,15 @@ export const PianoRoll = memo(function PianoRoll({
                             fontFamily: 'var(--font-family)',
                             color: 'var(--color-text-secondary)',
                             cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
                             transition: 'all var(--transition-fast)',
                         }}
                         title="Reset zoom to auto-fit"
                     >
-                        ↻ Fit
+                        <RotateCw size={11} />
+                        <span style={{ marginTop: 1 }}>Fit</span>
                     </button>
                 )}
 
@@ -1182,6 +1260,12 @@ export const PianoRoll = memo(function PianoRoll({
                                         key={note.id}
                                         onClick={(e) => handleNoteClick(e, note.id)}
                                         onMouseDown={(e) => handleNoteDrag(e, note.id)}
+                                        onMouseMove={(e) => handleNoteMouseMove(e, note.id)}
+                                        onMouseLeave={() => setHoveredNoteEdge(null)}
+                                        onDoubleClick={(e) => {
+                                            e.stopPropagation();
+                                            onNotesChange(notes.filter((n) => n.id !== note.id));
+                                        }}
                                         style={{
                                             position: 'absolute',
                                             left: x,
@@ -1190,7 +1274,7 @@ export const PianoRoll = memo(function PianoRoll({
                                             height: noteHeight - 2,
                                             background: 'transparent',
                                             borderRadius: 'var(--radius-xs)',
-                                            cursor: tool === 'erase' ? 'not-allowed' : 'grab',
+                                            cursor: tool === 'erase' ? 'not-allowed' : (hoveredNoteEdge === note.id ? 'col-resize' : 'grab'),
                                             zIndex: isSelected ? 5 : 2,
                                         }}
                                     />

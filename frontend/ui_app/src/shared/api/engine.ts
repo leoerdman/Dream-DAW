@@ -87,6 +87,7 @@ export interface AppSettings {
     samplesPath: string;
     vst2Path: string;
     vst3Path: string;
+    openRouterApiKey: string;
 }
 
 /** Recent project entry. */
@@ -280,6 +281,31 @@ export interface MidiClipNoteUpdate {
     durationFrames: number;
 }
 
+export interface MidiVariationNote {
+    pitch: number;
+    velocity: number;
+    startBeat: number;
+    durationBeats: number;
+}
+
+export interface MidiVariationTrackContext {
+    trackName: string;
+    trackType: string;
+    instrumentName: string | null;
+    effectNames: string[];
+    samplerSamplePath: string | null;
+}
+
+export interface GenerateMidiVariationInput {
+    bpm: number;
+    beatsPerBar: number;
+    clipName: string;
+    clipDurationBeats: number;
+    notes: MidiVariationNote[];
+    trackContext: MidiVariationTrackContext;
+    model?: string;
+}
+
 /** Create an empty MIDI clip on a track at the given position. */
 export const createMidiClip = (
     trackIndex: number,
@@ -308,6 +334,11 @@ export const updateMidiClip = (
             duration_frames: Math.max(1, Math.round(n.durationFrames)),
         })),
     });
+
+/** Generate a MIDI clip variation using backend OpenRouter integration. */
+export const generateMidiVariation = (input: GenerateMidiVariationInput) =>
+    invoke<{ notes: MidiVariationNote[] }>('generate_midi_variation_cmd', { request: input })
+        .then((res) => res.notes);
 
 /** Enumerate available MIDI input devices from backend. */
 export const getMidiInputs = () =>
@@ -551,6 +582,10 @@ export interface MergeClipsResponse {
 /** Move a clip to a new track and/or position (sample frames). */
 export const moveClip = (clipId: string, newTrackIndex: number, newPositionFrames: number) =>
     invoke<void>('move_clip_cmd', { clipId, newTrackIndex, newPositionFrames });
+
+/** Resize a clip to a new position and duration (sample frames). */
+export const resizeClip = (clipId: string, newPositionFrames: number, newDurationFrames: number) =>
+    invoke<void>('resize_clip_cmd', { clipId, newPositionFrames, newDurationFrames });
 
 /** Split a clip at the given sample frame. Returns IDs of both halves. */
 export const splitClip = (clipId: string, splitFrame: number) =>

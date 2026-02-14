@@ -103,6 +103,78 @@ async fn move_clip_cmd(
     Ok(())
 }
 
+fn resize_midi_clip_in_project(
+    project: &mut Project,
+    clip_id: Uuid,
+    new_position: AbsoluteTime,
+    new_duration: AbsoluteTime,
+) -> bool {
+    let mut extracted = None;
+    let mut source_track_idx = None;
+
+    for (track_idx, track) in project.tracks.iter_mut().enumerate() {
+        if let Some(idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
+            let mut clip = track.midi_clips.remove(idx);
+            clip.position = new_position;
+            clip.duration = new_duration;
+            extracted = Some(clip);
+            source_track_idx = Some(track_idx);
+            break;
+        }
+    }
+
+    let Some(clip) = extracted else {
+        return false;
+    };
+    
+    // Safety check: re-insert into the same track if found
+    if let Some(ti) = source_track_idx {
+        let target = &mut project.tracks[ti];
+        let insert_pos = target
+            .midi_clips
+            .binary_search_by(|c| c.position.cmp(&clip.position))
+            .unwrap_or_else(|i| i);
+        target.midi_clips.insert(insert_pos, clip);
+        true
+    } else {
+        false
+    }
+}
+
+/// Resizes a clip to a new position and duration.
+#[tauri::command]
+async fn resize_clip_cmd(
+    clip_id: String,
+    new_position_frames: i64,
+    new_duration_frames: i64,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    let uuid = Uuid::parse_str(&clip_id)
+        .map_err(|e| format!("Invalid clip ID: {e}"))?;
+
+    push_undo(&project_state)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    let new_position = AbsoluteTime::new(new_position_frames);
+    let new_duration = AbsoluteTime::new(new_duration_frames);
+
+    if let Err(audio_err) = mutators::resize_clip(&mut project, uuid, new_position, new_duration) {
+        // If this is not an audio clip, attempt MIDI clip resize using same UUID.
+        if !resize_midi_clip_in_project(&mut project, uuid, new_position, new_duration) {
+            return Err(mutator_err_to_string(audio_err));
+        }
+    }
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
+
+    Ok(())
+}
+
 /// Splits a clip at the given sample frame position.
 ///
 /// Returns the UUIDs of the two resulting clips (left keeps original UUID).

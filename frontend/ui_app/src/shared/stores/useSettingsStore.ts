@@ -57,6 +57,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     samplesPath: '~/Music/Dream DAW/Samples',
     vst2Path: '/Library/Audio/Plug-Ins/VST',
     vst3Path: '/Library/Audio/Plug-Ins/VST3',
+    openRouterApiKey: '',
 };
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({

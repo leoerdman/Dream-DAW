@@ -79,6 +79,7 @@ pub(crate) fn invoke_handler()
         import_audio_file,
         create_midi_clip_cmd,
         update_midi_clip_cmd,
+        generate_midi_variation_cmd,
         // Waveform
         get_waveform_peaks,
         get_waveform_peaks_binary,
@@ -92,6 +93,7 @@ pub(crate) fn invoke_handler()
         duplicate_clip_cmd,
         merge_clips_cmd,
         delete_clip_cmd,
+        resize_clip_cmd,
         set_clip_fades_cmd,
         set_clip_source_offset_cmd,
         resolve_missing_file_cmd,

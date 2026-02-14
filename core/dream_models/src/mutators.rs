@@ -134,6 +134,47 @@ pub fn move_clip(
     Ok(())
 }
 
+// ── Resize Clip ──────────────────────────────────────────────────────────
+
+/// Resizes a clip by updating its position and duration on the timeline.
+///
+/// # Arguments
+/// - `project`: The project to mutate.
+/// - `clip_id`: UUID of the clip to resize.
+/// - `new_position`: New timeline position (sample frames).
+/// - `new_duration`: New duration (sample frames).
+pub fn resize_clip(
+    project: &mut Project,
+    clip_id: Uuid,
+    new_position: AbsoluteTime,
+    new_duration: AbsoluteTime,
+) -> Result<(), MutatorError> {
+    // Validate duration
+    if new_duration.sample_frame < MIN_CLIP_FRAMES {
+        return Err(MutatorError::ClipTooShort {
+            clip_duration: new_duration.sample_frame,
+            min_duration: MIN_CLIP_FRAMES,
+        });
+    }
+
+    // Find and remove the clip
+    let (track_idx, mut clip) = find_and_remove_clip(project, clip_id)?;
+
+    // Update bounds
+    clip.position = new_position;
+    clip.duration = new_duration;
+
+    // Re-insert into the same track (sorted)
+    let track = &mut project.tracks[track_idx];
+    let insert_pos = track
+        .clips
+        .binary_search_by(|c| c.position.cmp(&clip.position))
+        .unwrap_or_else(|i| i);
+    track.clips.insert(insert_pos, clip);
+
+    Ok(())
+}
+
 // ── Split Clip ────────────────────────────────────────────────────────────
 
 /// Result of a successful clip split operation.

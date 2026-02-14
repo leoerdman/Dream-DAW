@@ -70,6 +70,245 @@ struct MidiNotePayload {
     duration_frames: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MidiVariationNotePayload {
+    pitch: u8,
+    velocity: u8,
+    start_beat: f64,
+    duration_beats: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MidiVariationTrackContextPayload {
+    track_name: String,
+    track_type: String,
+    instrument_name: Option<String>,
+    effect_names: Vec<String>,
+    sampler_sample_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GenerateMidiVariationRequest {
+    bpm: f64,
+    beats_per_bar: u8,
+    clip_name: String,
+    clip_duration_beats: f64,
+    notes: Vec<MidiVariationNotePayload>,
+    track_context: MidiVariationTrackContextPayload,
+    model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenerateMidiVariationResponse {
+    notes: Vec<MidiVariationNotePayload>,
+}
+
+fn extract_json_object(raw: &str) -> Result<String, String> {
+    let candidate = raw.trim();
+    let first = candidate.find('{').ok_or_else(|| "AI response does not contain JSON object".to_string())?;
+    let last = candidate.rfind('}').ok_or_else(|| "AI response does not contain JSON object".to_string())?;
+    if last <= first {
+        return Err("AI response does not contain JSON object".to_string());
+    }
+    Ok(candidate[first..=last].to_string())
+}
+
+fn normalize_variation_notes(
+    notes: &[serde_json::Value],
+    clip_duration_beats: f64,
+) -> Vec<MidiVariationNotePayload> {
+    let max_beat = clip_duration_beats.max(0.125);
+    let mut normalized = Vec::new();
+
+    for item in notes {
+        let Some(obj) = item.as_object() else { continue };
+        let pitch = obj.get("pitch").and_then(|v| v.as_i64()).unwrap_or(60).clamp(0, 127) as u8;
+        let velocity = obj.get("velocity").and_then(|v| v.as_i64()).unwrap_or(100).clamp(1, 127) as u8;
+        let start_beat = obj
+            .get("startBeat")
+            .or_else(|| obj.get("start_beat"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0)
+            .clamp(0.0, (max_beat - 0.0625).max(0.0));
+        let duration_beats = obj
+            .get("durationBeats")
+            .or_else(|| obj.get("duration_beats"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.25)
+            .clamp(0.0625, (max_beat - start_beat).max(0.0625));
+
+        if !start_beat.is_finite() || !duration_beats.is_finite() {
+            continue;
+        }
+
+        normalized.push(MidiVariationNotePayload {
+            pitch,
+            velocity,
+            start_beat,
+            duration_beats,
+        });
+    }
+
+    normalized.sort_by(|a, b| a.start_beat.total_cmp(&b.start_beat));
+    normalized
+}
+
+/// Generate a MIDI variation by sending clip/track context to OpenRouter.
+#[tauri::command]
+async fn generate_midi_variation_cmd(
+    request: GenerateMidiVariationRequest,
+    settings_state: tauri::State<'_, SettingsState>,
+) -> Result<GenerateMidiVariationResponse, String> {
+    let api_key = {
+        let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+        settings.open_router_api_key.trim().to_string()
+    };
+    if api_key.is_empty() {
+        return Err("OpenRouter API key is empty. Set it in Settings → MIDI.".to_string());
+    }
+
+    let model = request
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .unwrap_or("openai/gpt-4o-mini");
+
+    let clip_duration_beats = request.clip_duration_beats.max(0.125);
+    let seed_notes: Vec<serde_json::Value> = request
+        .notes
+        .iter()
+        .map(|n| {
+            serde_json::json!({
+                "pitch": n.pitch.clamp(0, 127),
+                "velocity": n.velocity.clamp(1, 127),
+                "startBeat": n.start_beat.max(0.0),
+                "durationBeats": n.duration_beats.max(0.0625),
+            })
+        })
+        .collect();
+
+    let user_payload = serde_json::json!({
+        "task": "Generate a variation of this MIDI clip while preserving musical intent and clip length.",
+        "output_format": {
+            "description": "Return strictly JSON with notes. No markdown.",
+            "example": {
+                "notes": [
+                    { "pitch": 60, "velocity": 100, "startBeat": 0.0, "durationBeats": 0.5 }
+                ]
+            }
+        },
+        "context": {
+            "bpm": request.bpm,
+            "beatsPerBar": request.beats_per_bar.max(1),
+            "clipName": request.clip_name,
+            "clipDurationBeats": clip_duration_beats,
+            "track": request.track_context,
+        },
+        "source_clip_mdc": {
+            "notes": seed_notes,
+        },
+        "rules": [
+            "Keep notes inside clip boundaries.",
+            "Use valid MIDI ranges: pitch 0-127, velocity 1-127.",
+            "Keep rhythmic coherence and avoid random noise patterns.",
+            "Return at least one note."
+        ]
+    });
+
+    let req_payload = serde_json::json!({
+        "model": model,
+        "temperature": 0.8,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are an expert MIDI variation generator for a DAW. Reply with JSON only."
+            },
+            {
+                "role": "user",
+                "content": user_payload.to_string()
+            }
+        ]
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(45))
+        .build()
+        .map_err(|e| format!("Failed to build OpenRouter client: {e}"))?;
+
+    let response = client
+        .post("https://openrouter.ai/api/v1/chat/completions")
+        .bearer_auth(api_key)
+        .header("Content-Type", "application/json")
+        .json(&req_payload)
+        .send()
+        .await
+        .map_err(|e| format!("OpenRouter request failed: {e}"))?;
+
+    let status = response.status();
+    let raw_body = response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read OpenRouter response: {e}"))?;
+
+    if !status.is_success() {
+        let msg = serde_json::from_str::<serde_json::Value>(&raw_body)
+            .ok()
+            .and_then(|v| {
+                v.get("error")
+                    .and_then(|e| e.get("message"))
+                    .and_then(|m| m.as_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_else(|| format!("OpenRouter request failed ({status})"));
+        return Err(msg);
+    }
+
+    let parsed = serde_json::from_str::<serde_json::Value>(&raw_body)
+        .map_err(|e| format!("Invalid OpenRouter JSON response: {e}"))?;
+    let content_raw = parsed
+        .get("choices")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|choice| choice.get("message"))
+        .and_then(|msg| msg.get("content"))
+        .ok_or_else(|| "OpenRouter response missing choices[0].message.content".to_string())?;
+
+    let content = if let Some(s) = content_raw.as_str() {
+        s.to_string()
+    } else if let Some(parts) = content_raw.as_array() {
+        parts
+            .iter()
+            .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        String::new()
+    };
+    let json_fragment = extract_json_object(&content)?;
+    let variation = serde_json::from_str::<serde_json::Value>(&json_fragment)
+        .map_err(|e| format!("AI JSON parse failed: {e}"))?;
+
+    let notes_raw = variation
+        .get("notes")
+        .and_then(|v| v.as_array())
+        .or_else(|| variation.get("mdcClip").and_then(|v| v.get("notes")).and_then(|v| v.as_array()))
+        .or_else(|| variation.get("mdc_clip").and_then(|v| v.get("notes")).and_then(|v| v.as_array()))
+        .cloned()
+        .unwrap_or_default();
+
+    let normalized = normalize_variation_notes(&notes_raw, clip_duration_beats);
+    if normalized.is_empty() {
+        return Err("AI returned empty/invalid notes".to_string());
+    }
+
+    Ok(GenerateMidiVariationResponse { notes: normalized })
+}
+
 /// Replace all notes in a MIDI clip.
 #[tauri::command]
 async fn update_midi_clip_cmd(
@@ -157,4 +396,3 @@ async fn update_midi_clip_cmd(
     rebuild_midi_snapshot_from_project(&project, &handle);
     Ok(())
 }
-

@@ -77,8 +77,9 @@ const SELECTION_GLOW_COLOR = 'rgba(255, 255, 255, 0.9)';
 const PLAYHEAD_COLOR = '#ff3b30';
 const PLAYHEAD_WIDTH = 2;
 const EDIT_CURSOR_COLOR = 'rgba(255, 255, 255, 0.68)';
-const LOOP_OVERLAY_COLOR = 'rgba(100, 149, 237, 0.12)';
-const LOOP_BORDER_COLOR = 'rgba(100, 149, 237, 0.5)';
+const LOOP_OVERLAY_COLOR = 'rgba(100, 149, 237, 0.07)';
+const LOOP_BORDER_COLOR = 'rgba(100, 149, 237, 0.7)';
+const LOOP_MARKER_COLOR = '#4a9eff';
 const DROP_TARGET_COLOR = 'rgba(100, 200, 255, 0.25)';
 const DROP_TARGET_BORDER = 'rgba(100, 200, 255, 0.7)';
 const GHOST_CLIP_ALPHA = 0.45;
@@ -158,7 +159,7 @@ export class CanvasClipRenderer {
         ctx.restore();
 
         // Draw ruler on top (always visible)
-        this._drawRuler(ctx, vp, range, beatsPerBar, playheadBeat, editCursorBeat);
+        this._drawRuler(ctx, vp, range, beatsPerBar, playheadBeat, editCursorBeat, loop);
 
         ctx.restore(); // ← Pop DPR scale (matches ctx.save() above)
     }
@@ -231,6 +232,7 @@ export class CanvasClipRenderer {
         beatsPerBar: number,
         playheadBeat: number,
         editCursorBeat: number,
+        loop: LoopRegion | null,
     ): void {
         const rulerH = vp.rulerHeight;
 
@@ -297,6 +299,52 @@ export class CanvasClipRenderer {
             ctx.lineTo(ecX + 5, rulerH - 6);
             ctx.closePath();
             ctx.fill();
+        }
+
+        // Loop markers on ruler (triangles with bars)
+        if (loop && loop.enabled) {
+            const lStart = vp.beatsToScreenX(loop.start);
+            const lEnd = vp.beatsToScreenX(loop.end);
+
+            ctx.fillStyle = LOOP_MARKER_COLOR;
+
+            // Start marker handle (flag-like)
+            if (lStart >= -10 && lStart <= vp.viewportWidth + 10) {
+                ctx.beginPath();
+                ctx.moveTo(lStart, 0);
+                ctx.lineTo(lStart + 8, 0);
+                ctx.lineTo(lStart + 8, 8);
+                ctx.lineTo(lStart, 16);
+                ctx.closePath();
+                ctx.fill();
+
+                // Vertical anchor line on ruler
+                ctx.strokeStyle = LOOP_MARKER_COLOR;
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(lStart, 0);
+                ctx.lineTo(lStart, rulerH);
+                ctx.stroke();
+            }
+
+            // End marker handle (flag-like)
+            if (lEnd >= -10 && lEnd <= vp.viewportWidth + 10) {
+                ctx.beginPath();
+                ctx.moveTo(lEnd, 0);
+                ctx.lineTo(lEnd - 8, 0);
+                ctx.lineTo(lEnd - 8, 8);
+                ctx.lineTo(lEnd, 16);
+                ctx.closePath();
+                ctx.fill();
+
+                // Vertical anchor line on ruler
+                ctx.strokeStyle = LOOP_MARKER_COLOR;
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(lEnd, 0);
+                ctx.lineTo(lEnd, rulerH);
+                ctx.stroke();
+            }
         }
     }
 

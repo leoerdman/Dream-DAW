@@ -863,6 +863,8 @@ struct AppSettings {
     vst2_path: String,
     #[serde(default = "default_vst3_path", alias = "vst3Path")]
     vst3_path: String,
+    #[serde(default, alias = "openRouterApiKey")]
+    open_router_api_key: String,
 }
 
 fn default_language() -> String { "English".into() }
@@ -911,6 +913,7 @@ impl Default for AppSettings {
             vst2_path: "/Library/Audio/Plug-Ins/VST".into(),
             vst3_path: "/Library/Audio/Plug-Ins/VST3".into(),
             browser_folders: Vec::new(),
+            open_router_api_key: String::new(),
         }
     }
 }

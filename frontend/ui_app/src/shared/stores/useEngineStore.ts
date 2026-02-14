@@ -328,9 +328,15 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     setBpm: async (bpm: number) => {
         // Optimistic update — UI responds instantly.
-        set((s) => ({ transport: { ...s.transport, bpm } }));
+        // Keep transport + project tempo in sync to avoid frame↔beat mismatches
+        // during drag/move/loop calculations before the next project refresh.
+        set((s) => ({ transport: { ...s.transport, bpm }, projectBpm: bpm }));
         try {
             await engine.setBpm(bpm);
+            // Backend mutates pulse map + retimes persisted project structures.
+            // Pull refreshed project snapshot immediately so timeline conversions
+            // and clip geometry remain mathematically consistent.
+            await get().fetchProject();
             set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });

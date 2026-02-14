@@ -339,6 +339,21 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                                     </div>
                                 )}
                             </SettingRow>
+                            <div style={dividerStyle} />
+                            <SettingRow label="OpenRouter API Key">
+                                <input
+                                    type="password"
+                                    placeholder="sk-or-..."
+                                    value={settings.openRouterApiKey}
+                                    onChange={(e) => updateSetting('openRouterApiKey', e.target.value)}
+                                    style={{ ...inputStyle, width: 300 }}
+                                    autoComplete="off"
+                                    spellCheck={false}
+                                />
+                            </SettingRow>
+                            <div style={{ ...valueStyle, marginTop: 6 }}>
+                                Used by MIDI Clip Editor AI variation.
+                            </div>
                         </div>
                     )}
 

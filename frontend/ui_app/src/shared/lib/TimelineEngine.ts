@@ -36,6 +36,8 @@ export interface TimelineEngineConfig {
     viewport: ViewportConfig;
     /** Grid snap resolution in beats (e.g. 1 = snap to beats, 0.25 = snap to 16ths). */
     snapBeats?: number;
+    /** Whether magnetic snap is enabled. */
+    snapEnabled?: boolean;
 }
 
 export interface HitTestResult {
@@ -45,13 +47,15 @@ export interface HitTestResult {
     trackIndex: number;
     /** If the cursor is near a clip edge, indicates which edge. */
     edge?: 'left' | 'right';
+    /** If the cursor is near a loop marker handle on the ruler. */
+    loopHandle?: 'start' | 'end';
 }
 
 /** Edge detection threshold in screen pixels. */
 const EDGE_GRIP_PX = 6;
 
 /** Drag state machine. */
-type DragMode = 0 | 1 | 2 | 3 | 4 | 5;
+type DragMode = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 const DragMode = {
     None: 0 as const,
     ClipMove: 1 as const,
@@ -59,6 +63,8 @@ const DragMode = {
     MarqueeSelect: 3 as const,
     ClipResizeLeft: 4 as const,
     ClipResizeRight: 5 as const,
+    LoopStartMove: 6 as const,
+    LoopEndMove: 7 as const,
 };
 
 interface DragState {
@@ -109,6 +115,7 @@ export class TimelineEngine {
     private _bpm: number;
     private _sampleRate: number;
     private _snapBeats: number;
+    private _snapEnabled: boolean;
 
     // ── Drag state ────────────────────────────────────────────────────
     private _drag: DragState = {
@@ -145,6 +152,7 @@ export class TimelineEngine {
     onTrackSelect?: (trackIndex: number) => void;
     onViewportFlush?: (snapshot: ViewportSnapshot) => void;
     onScrollTop?: (scrollTop: number) => void;
+    onLoopChange?: (loop: LoopRegion) => void;
 
     // ═══════════════════════════════════════════════════════════════════
     // CONSTRUCTOR
@@ -155,6 +163,7 @@ export class TimelineEngine {
         this._bpm = config.bpm;
         this._sampleRate = config.sampleRate;
         this._snapBeats = config.snapBeats ?? 1;
+        this._snapEnabled = config.snapEnabled ?? true;
 
         this._waveformCache = new WaveformCache();
         this._renderer = new CanvasClipRenderer(this._waveformCache);
@@ -286,6 +295,7 @@ export class TimelineEngine {
         if (config.bpm !== undefined) this._bpm = config.bpm;
         if (config.sampleRate !== undefined) this._sampleRate = config.sampleRate;
         if (config.snapBeats !== undefined) this._snapBeats = config.snapBeats;
+        if (config.snapEnabled !== undefined) this._snapEnabled = config.snapEnabled;
         if (config.viewport) {
             this._viewport.updateConfig(config.viewport);
         }
@@ -407,6 +417,23 @@ export class TimelineEngine {
         // Check if in ruler area
         if (localY < this._viewport.rulerHeight) {
             const beat = this._viewport.screenToBeats(clientX, rect);
+
+            // Loop handle hit testing
+            if (this._loop && this._loop.enabled) {
+                const startPx = this._viewport.beatsToScreenX(this._loop.start);
+                const endPx = this._viewport.beatsToScreenX(this._loop.end);
+                const localX = clientX - rect.left;
+
+                // Start handle
+                if (Math.abs(localX - startPx) <= EDGE_GRIP_PX + 2) {
+                    return { type: 'ruler', beat, trackIndex: -1, loopHandle: 'start' };
+                }
+                // End handle
+                if (Math.abs(localX - endPx) <= EDGE_GRIP_PX + 2) {
+                    return { type: 'ruler', beat, trackIndex: -1, loopHandle: 'end' };
+                }
+            }
+
             return { type: 'ruler', beat, trackIndex: -1 };
         }
 
@@ -449,20 +476,46 @@ export class TimelineEngine {
 
         switch (hit.type) {
             case 'ruler': {
-                // Start ruler scrub (seek playhead)
-                const snapped = this._snapBeat(hit.beat);
-                this._drag = {
-                    mode: DragMode.RulerScrub,
-                    clipId: null,
-                    startBeat: snapped,
-                    startTrack: 0,
-                    currentBeat: snapped,
-                    currentTrack: 0,
-                    clipOriginalBeat: 0,
-                    clipOriginalTrack: 0,
-                    clipOriginalDuration: 0,
-                };
-                this.onPlayheadSeek?.(snapped);
+                if (hit.loopHandle === 'start') {
+                    this._drag = {
+                        mode: DragMode.LoopStartMove,
+                        clipId: null,
+                        startBeat: hit.beat,
+                        startTrack: 0,
+                        currentBeat: hit.beat,
+                        currentTrack: 0,
+                        clipOriginalBeat: this._loop?.start || 0,
+                        clipOriginalTrack: 0,
+                        clipOriginalDuration: 0,
+                    };
+                } else if (hit.loopHandle === 'end') {
+                    this._drag = {
+                        mode: DragMode.LoopEndMove,
+                        clipId: null,
+                        startBeat: hit.beat,
+                        startTrack: 0,
+                        currentBeat: hit.beat,
+                        currentTrack: 0,
+                        clipOriginalBeat: this._loop?.end || 0,
+                        clipOriginalTrack: 0,
+                        clipOriginalDuration: 0,
+                    };
+                } else {
+                    // Start ruler scrub (seek playhead)
+                    const snapped = this._snapBeat(hit.beat);
+                    this._drag = {
+                        mode: DragMode.RulerScrub,
+                        clipId: null,
+                        startBeat: snapped,
+                        startTrack: 0,
+                        currentBeat: snapped,
+                        currentTrack: 0,
+                        clipOriginalBeat: 0,
+                        clipOriginalTrack: 0,
+                        clipOriginalDuration: 0,
+                    };
+                    this.onPlayheadSeek?.(snapped);
+                }
                 break;
             }
 
@@ -543,6 +596,8 @@ export class TimelineEngine {
                 canvas.style.cursor = 'col-resize';
             } else if (hit.type === 'clip') {
                 canvas.style.cursor = 'grab';
+            } else if (hit.type === 'ruler' && hit.loopHandle) {
+                canvas.style.cursor = 'col-resize';
             } else {
                 canvas.style.cursor = 'default';
             }
@@ -615,6 +670,30 @@ export class TimelineEngine {
 
                 clip.durationBeats = newDuration;
                 this._requestRedraw();
+                break;
+            }
+
+            case DragMode.LoopStartMove: {
+                const snapped = this._snapBeat(beat);
+                if (this._loop) {
+                    const newStart = Math.min(snapped, this._loop.end - 0.25);
+                    if (newStart !== this._loop.start) {
+                        this._loop = { ...this._loop, start: newStart };
+                        this.onLoopChange?.(this._loop);
+                    }
+                }
+                break;
+            }
+
+            case DragMode.LoopEndMove: {
+                const snapped = this._snapBeat(beat);
+                if (this._loop) {
+                    const newEnd = Math.max(snapped, this._loop.start + 0.25);
+                    if (newEnd !== this._loop.end) {
+                        this._loop = { ...this._loop, end: newEnd };
+                        this.onLoopChange?.(this._loop);
+                    }
+                }
                 break;
             }
         }
@@ -740,7 +819,7 @@ export class TimelineEngine {
     private _snapBeat(beat: number): number {
         // ⌘ key override — free positioning when held
         if (this._metaKeyHeld) return beat;
-        if (this._snapBeats <= 0) return beat;
+        if (!this._snapEnabled || this._snapBeats <= 0) return beat;
         return Math.round(beat / this._snapBeats) * this._snapBeats;
     }
 }

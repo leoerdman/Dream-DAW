@@ -73,6 +73,7 @@ export const DawShell = () => {
     });
     const [followPlayhead, setFollowPlayhead] = useState(false);
     const [midiNotesByClip, setMidiNotesByClip] = useState<Record<string, MidiNote[]>>({});
+    const [aiVariationBusy, setAiVariationBusy] = useState(false);
     const midiSaveThrottlesRef = useRef<Map<string, (notes: MidiNote[]) => void>>(new Map());
     const latestMidiNotesRef = useRef<Record<string, MidiNote[]>>({});
     const importFile = useEngineStore(s => s.importFile);
@@ -249,6 +250,67 @@ export const DawShell = () => {
         if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return 8;
         return Math.max(1, Math.ceil(selectedTimelineClip.durationBeats / 4));
     }, [selectedTimelineClip]);
+    const handleGenerateMidiVariation = useCallback(async () => {
+        if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return;
+        const clip = selectedTimelineClip;
+        const notes = midiNotesByClip[clip.id] ?? [];
+        const track = projectTracks[clip.trackIndex];
+        const bpm = projectBpm || transport.bpm || 120;
+        const beatsPerBar = 4;
+        const sampleRate = useEngineStore.getState().projectSampleRate || 44100;
+        const beatsPerSecond = bpm / 60;
+
+        setAiVariationBusy(true);
+        try {
+            const variedNotes = await engineApi.generateMidiVariation({
+                bpm,
+                beatsPerBar,
+                clipName: clip.name,
+                clipDurationBeats: clip.durationBeats,
+                notes,
+                trackContext: {
+                    trackName: track?.name ?? `Track ${clip.trackIndex + 1}`,
+                    trackType: track?.track_type ?? 'Midi',
+                    instrumentName: track?.instrument?.name ?? null,
+                    effectNames: (track?.effects ?? []).map((e) => e.name),
+                    samplerSamplePath: track?.sampler?.sample_path ?? null,
+                },
+            });
+
+            const normalizedForUi: MidiNote[] = variedNotes.map((n, idx) => ({
+                id: `ai_${Date.now()}_${idx}`,
+                pitch: n.pitch,
+                velocity: n.velocity,
+                startBeat: n.startBeat,
+                durationBeats: n.durationBeats,
+            }));
+
+            setMidiNotesByClip((prev) => ({ ...prev, [clip.id]: normalizedForUi }));
+            await engineApi.updateMidiClip(
+                clip.id,
+                normalizedForUi.map((n) => ({
+                    pitch: n.pitch,
+                    velocity: n.velocity,
+                    startFrames: Math.max(0, Math.round((n.startBeat / beatsPerSecond) * sampleRate)),
+                    durationFrames: Math.max(1, Math.round((n.durationBeats / beatsPerSecond) * sampleRate)),
+                })),
+            );
+            await fetchProject();
+        } catch (err) {
+            console.error('[DawShell] AI MIDI variation failed:', err);
+            const message = err instanceof Error ? err.message : 'Unknown AI error';
+            window.alert(`Не удалось сгенерировать вариацию: ${message}`);
+        } finally {
+            setAiVariationBusy(false);
+        }
+    }, [
+        selectedTimelineClip,
+        midiNotesByClip,
+        projectTracks,
+        projectBpm,
+        transport.bpm,
+        fetchProject,
+    ]);
 
     useEffect(() => {
         const incoming: Record<string, MidiNote[]> = {};
@@ -386,6 +448,23 @@ export const DawShell = () => {
             .catch(err => console.error('[DawShell] moveClip failed:', err));
     }, [projectBpm, transport.bpm, fetchProject]);
 
+    // Clip resize → update position and duration in engine
+    const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number) => {
+        const bpm = projectBpm || transport.bpm || 120;
+        const sr = useEngineStore.getState().projectSampleRate || 44100;
+        const posSeconds = newStartBeat / (bpm / 60);
+        const durSeconds = newDurationBeats / (bpm / 60);
+        const newPositionFrames = Math.round(posSeconds * sr);
+        const newDurationFrames = Math.max(128, Math.round(durSeconds * sr));
+
+        engineApi.resizeClip(clipId, newPositionFrames, newDurationFrames)
+            .then(() => {
+                console.log('[DawShell] Clip resized', { clipId, newStartBeat, newDurationBeats });
+                fetchProject(); // Refresh project state
+            })
+            .catch(err => console.error('[DawShell] resizeClip failed:', err));
+    }, [projectBpm, transport.bpm, fetchProject]);
+
     const handleOpenMidiClip = useCallback((clipId: string) => {
         setSelectedClipId(clipId);
         setBottomPanelMode('clip');
@@ -494,6 +573,7 @@ export const DawShell = () => {
                                     setSelectedClipId(ids[ids.length - 1] ?? null);
                                 }}
                                 onClipMove={handleClipMove}
+                                onClipResize={handleClipResize}
                                 onDropBrowserItem={handleBrowserDrop}
                                 onDoubleClickTrack={handleDoubleClickTrack}
                                 onOpenMidiClip={handleOpenMidiClip}
@@ -571,6 +651,8 @@ export const DawShell = () => {
                                         }
                                         send(notes);
                                     }}
+                                    onGenerateVariation={handleGenerateMidiVariation}
+                                    aiVariationBusy={aiVariationBusy}
                                     playheadBeat={playheadBeat}
                                     totalBars={selectedMidiTotalBars}
                                     clipLengthBeats={selectedTimelineClip.durationBeats}

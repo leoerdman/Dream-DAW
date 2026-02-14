@@ -4,6 +4,18 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { ALL_DIVISIONS } from '@/shared/lib/gridSnap';
 import * as engineApi from '@/shared/api/engine';
+import {
+    Magnet,
+    ChevronDown,
+    Play,
+    Square,
+    Circle,
+    Rewind,
+    RotateCcw,
+    ArrowRight,
+    Music,
+    Settings
+} from 'lucide-react';
 
 /**
  * TransportBar — Full Ableton-style top control bar.
@@ -248,7 +260,6 @@ export const TransportBar = ({
                     {timeSigNum}<span style={{ color: 'var(--color-text-tertiary)', margin: '0 1px' }}>/</span>{timeSigDen}
                 </span>
 
-                {/* Magnet toggle */}
                 <button
                     onClick={() => setSnapEnabled(!snapEnabled)}
                     title={snapEnabled ? 'Snap enabled (click to disable)' : 'Snap disabled (click to enable)'}
@@ -257,14 +268,15 @@ export const TransportBar = ({
                         border: snapEnabled ? '1px solid rgba(74, 158, 255, 0.45)' : '1px solid transparent',
                         color: snapEnabled ? '#4a9eff' : 'var(--color-text-quaternary)',
                         borderRadius: 'var(--radius-xs)',
-                        padding: '2px 5px',
+                        padding: '2px 4px',
                         cursor: 'pointer',
-                        fontSize: 12,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                         transition: 'all 0.15s ease',
-                        lineHeight: 1,
                     }}
                 >
-                    🧲
+                    <Magnet size={14} style={{ transform: snapEnabled ? 'none' : 'rotate(-15deg)', transition: 'transform 0.2s' }} />
                 </button>
 
                 {/* Grid dropdown */}
@@ -275,12 +287,16 @@ export const TransportBar = ({
                         style={{
                             fontFamily: 'var(--font-mono)',
                             opacity: gridDivision === 'OFF' ? 0.45 : 1,
-                            minWidth: 36,
-                            textAlign: 'center',
+                            minWidth: 44,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            justifyContent: 'center',
                         }}
                         title="Grid Division"
                     >
-                        {quantizeLabel} ▾
+                        {quantizeLabel}
+                        <ChevronDown size={11} style={{ opacity: 0.5 }} />
                     </button>
 
                     {gridDropdownOpen && (
@@ -349,19 +365,19 @@ export const TransportBar = ({
             {/* ── CENTER: Transport Controls ── */}
             <Section>
                 <TransportBtn
-                    icon="◀"
+                    icon={<Rewind size={14} fill="currentColor" />}
                     title="Rewind"
                     onClick={() => { }}
                 />
                 <TransportBtn
-                    icon="▶"
+                    icon={<Play size={14} fill={isPlaying ? "currentColor" : "none"} />}
                     title="Play"
                     isActive={isPlaying}
                     activeColor="var(--color-status-success)"
                     onClick={togglePlay}
                 />
                 <TransportBtn
-                    icon="■"
+                    icon={<Square size={13} fill="currentColor" />}
                     title="Stop"
                     onClick={() => {
                         engineStop();
@@ -378,7 +394,7 @@ export const TransportBar = ({
                     }}
                 />
                 <TransportBtn
-                    icon="●"
+                    icon={<Circle size={12} fill={isRecording ? "currentColor" : "none"} />}
                     title="Record"
                     isActive={isRecording}
                     activeColor="var(--color-status-record)"
@@ -412,14 +428,15 @@ export const TransportBar = ({
                         border: isLooping ? '1px solid rgba(30, 120, 255, 0.5)' : '1px solid transparent',
                         color: isLooping ? '#3b9eff' : 'var(--color-text-tertiary)',
                         borderRadius: 'var(--radius-xs)',
-                        padding: '2px 6px',
+                        padding: '2px 4px',
                         cursor: 'pointer',
-                        fontSize: 'var(--font-size-xs)',
-                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                         transition: 'all 0.15s ease',
                     }}
                 >
-                    ⟲
+                    <RotateCcw size={14} style={{ transform: isLooping ? 'none' : 'rotate(-45deg)', transition: 'transform 0.3s' }} />
                 </button>
 
                 <Divider />
@@ -432,13 +449,14 @@ export const TransportBar = ({
                         border: 'none',
                         color: followPlayhead ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
                         borderRadius: 'var(--radius-xs)',
-                        padding: '2px 6px',
+                        padding: '2px 4px',
                         cursor: 'pointer',
-                        fontSize: 'var(--font-size-xs)',
-                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                     }}
                 >
-                    →
+                    <ArrowRight size={14} strokeWidth={followPlayhead ? 3 : 2} />
                 </button>
             </Section>
 
@@ -455,11 +473,13 @@ export const TransportBar = ({
                         borderRadius: 'var(--radius-xs)',
                         padding: '2px 4px',
                         cursor: 'pointer',
-                        fontSize: 'var(--font-size-xs)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                     }}
                     title="Enable Key"
                 >
-                    ♪
+                    <Music size={13} fill={keyEnabled ? "currentColor" : "none"} />
                 </button>
                 <ControlButton
                     label={KEY_TONICS[keyTonic]}
@@ -557,14 +577,13 @@ export const TransportBar = ({
                         border: 'none',
                         borderRadius: 'var(--radius-xs)',
                         color: 'var(--color-text-tertiary)',
-                        fontSize: 13,
                         cursor: 'pointer',
                         transition: 'color var(--transition-fast)',
                     }}
                     onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-text-primary)')}
                     onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-text-tertiary)')}
                 >
-                    ⚙
+                    <Settings size={15} />
                 </button>
             </Section>
         </div >
@@ -604,7 +623,7 @@ const ControlButton = ({ label, onClick, dimmed }: { label: string; onClick: () 
 const TransportBtn = ({
     icon, title, isActive, activeColor, onClick, className,
 }: {
-    icon: string; title: string; isActive?: boolean; activeColor?: string; onClick: () => void; className?: string;
+    icon: React.ReactNode; title: string; isActive?: boolean; activeColor?: string; onClick: () => void; className?: string;
 }) => (
     <button
         onClick={onClick}

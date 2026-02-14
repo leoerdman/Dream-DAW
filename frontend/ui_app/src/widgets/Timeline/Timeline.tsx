@@ -99,7 +99,7 @@ export const Timeline = (props: TimelineProps) => {
         isPlaying = false,
         trackIds = [],
         loopStart = 0,
-        loopEnd = 0,
+        loopEnd = 4,
         loopEnabled = false,
         selectedClipIds = [],
         onPlayheadChange,
@@ -140,6 +140,8 @@ export const Timeline = (props: TimelineProps) => {
     };
 
     const { canvasRef, engineRef } = useTimelineEngine(engineConfig);
+    const propsRef = useRef(props);
+    propsRef.current = props;
 
     // ── Store refs for callbacks (avoid stale closures) ───────────────
     const callbacksRef = useRef({
@@ -217,6 +219,18 @@ export const Timeline = (props: TimelineProps) => {
 
         engine.onScrollTop = (scrollTop) => {
             callbacksRef.current.onScrollTop?.(scrollTop);
+        };
+
+        engine.onLoopChange = (loop) => {
+            const currentBpm = propsRef.current.bpm || 120;
+            const currentSampleRate = useEngineStore.getState().transport.sample_rate || 44100;
+
+            // Convert beats back to frames for the engine
+            const startFrames = Math.round((loop.start * 60 * currentSampleRate) / currentBpm);
+            const endFrames = Math.round((loop.end * 60 * currentSampleRate) / currentBpm);
+
+            // setLoop from useEngineStore
+            useEngineStore.getState().setLoop(loop.enabled, startFrames, endFrames);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);

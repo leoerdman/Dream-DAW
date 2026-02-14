@@ -17,8 +17,10 @@
 pub mod scheduler;
 pub mod reader;
 pub mod pool;
+pub mod midi_scheduler;
 
 pub use scheduler::{ClipScheduler, LoopRegion};
 pub use reader::ClipReader;
 pub use pool::ClipPool;
+pub use midi_scheduler::MidiScheduler;
 

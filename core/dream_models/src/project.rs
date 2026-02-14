@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
+use crate::midi::{MidiClip, SamplerConfig};
 use crate::pulse_map::PulseMap;
 use crate::time::AbsoluteTime;
 
@@ -351,6 +352,14 @@ pub struct Track {
 
     /// Whether a group track is expanded (showing children).
     pub is_expanded: bool,
+
+    // ── MIDI ───────────────────────────────────────────────────────────
+
+    /// MIDI clips on this track (for MIDI tracks).
+    pub midi_clips: Vec<MidiClip>,
+
+    /// Sampler instrument configuration (for MIDI tracks).
+    pub sampler: Option<SamplerConfig>,
 }
 
 impl Track {
@@ -374,6 +383,8 @@ impl Track {
             parent_track_id: None,
             child_track_ids: Vec::new(),
             is_expanded: true,
+            midi_clips: Vec::new(),
+            sampler: None,
         }
     }
 
@@ -402,9 +413,9 @@ impl Track {
         instrument_latency + effects_latency
     }
 
-    /// Whether this track has any content (clips or MIDI data).
+    /// Whether this track has any content (clips, MIDI clips, or data).
     pub fn is_empty(&self) -> bool {
-        self.clips.is_empty()
+        self.clips.is_empty() && self.midi_clips.is_empty()
     }
 
     /// End position of the last clip on this track.

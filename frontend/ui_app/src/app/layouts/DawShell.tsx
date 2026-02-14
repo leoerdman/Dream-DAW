@@ -313,6 +313,21 @@ export const DawShell = () => {
         createMidiClip(trackIndex, positionFrames, durationFrames);
     }, [createMidiClip, transport.bpm]);
 
+    // Clip drag → move clip to new position in engine (syncs audio with visual)
+    const handleClipMove = useCallback((clipId: string, newStartBeat: number, newTrackIndex: number) => {
+        const bpm = transport.bpm || 120;
+        const sr = useEngineStore.getState().projectSampleRate || 44100;
+        const posSeconds = newStartBeat / (bpm / 60);
+        const newPositionFrames = Math.round(posSeconds * sr);
+
+        engineApi.moveClip(clipId, newTrackIndex, newPositionFrames)
+            .then(() => {
+                console.log('[DawShell] Clip moved', { clipId, newTrackIndex, newStartBeat, newPositionFrames });
+                fetchProject(); // Refresh project state to reflect new position
+            })
+            .catch(err => console.error('[DawShell] moveClip failed:', err));
+    }, [transport.bpm, fetchProject]);
+
     return (
         <div className="relative w-screen h-screen overflow-hidden bg-bg-app text-text-primary">
 
@@ -357,6 +372,7 @@ export const DawShell = () => {
                             trackHeight={TRACK_HEIGHT}
                             onPlayheadChange={handlePlayheadChange}
                             onClipSelect={handleClipSelect}
+                            onClipMove={handleClipMove}
                             onDropBrowserItem={handleBrowserDrop}
                             onDoubleClickTrack={handleDoubleClickTrack}
                             onScrollTop={handleTimelineScrollTop}

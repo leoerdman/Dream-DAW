@@ -15,3 +15,4 @@
 
 pub mod driver;
 pub mod render_callback;
+pub mod sampler;

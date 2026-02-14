@@ -1273,6 +1273,8 @@ pub struct Viewport {
 **[🟡 ЗАГЛУШКА]:** WebGPU renderer пока не подключён к UI. Timeline рендерится через React/Canvas.
 
 
+
+
 ---
 
 # ══════════════════════════════════════════════════════════════
@@ -1849,18 +1851,10 @@ for (const clip of track.clips) {
 ```typescript
 // useEngineStore.ts — 12 цветов, зеркалящих Rust TrackColor enum:
 const TRACK_COLORS: Record<string, string> = {
-    Red:    '#c93c38',
-    Orange: '#d97028',
-    Yellow: '#d9a428',
-    Green:  '#38a84f',
-    Teal:   '#2d8fa5',
-    Blue:   '#4466cc',
-    Purple: '#8844aa',
-    Pink:   '#c850a0',
-    Slate:  '#667788',
-    Coral:  '#e05050',
-    Lime:   '#a2a835',
-    Indigo: '#5555cc',
+    Red:    '#c93c38', Orange: '#d97028', Yellow: '#d9a428',
+    Green:  '#38a84f', Teal:   '#2d8fa5', Blue:   '#4466cc',
+    Purple: '#8844aa', Pink:   '#c850a0', Slate:  '#667788',
+    Coral:  '#e05050', Lime:   '#a2a835', Indigo: '#5555cc',
 };
 ```
 
@@ -1883,11 +1877,7 @@ pub enum TrackColor {
 // useViewportStore.ts — zoom/scroll state for ClipRenderer mip selection
 export const useViewportStore = create<ViewportStore>((set) => ({
     samplesPerPixel: 256,
-    scrollX: 0,
-    scrollY: 0,
-    zoom: 1.0,
-    width: 0,
-    height: 0,
+    scrollX: 0, scrollY: 0, zoom: 1.0, width: 0, height: 0,
     setSamplesPerPixel: (spp) => set({ samplesPerPixel: spp }),
     setScroll: (x, y) => set({ scrollX: x, scrollY: y }),
     setZoom: (z) => set({ zoom: z }),
@@ -1902,12 +1892,7 @@ export const useViewportStore = create<ViewportStore>((set) => ({
 
 ```typescript
 // useDragStore.ts — browser→timeline drag state
-interface DragItem {
-    id: string;
-    name: string;
-    type: string;
-    path: string;
-}
+interface DragItem { id: string; name: string; type: string; path: string; }
 
 export const useDragStore = create<DragStore>((set) => ({
     dragItem: null,
@@ -1934,25 +1919,11 @@ Error handling реализован на уровне store (`lastError`) и Sta
 
 ```typescript
 // frontend/ui_app/vite.config.ts
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import path from 'path';
-
 export default defineConfig({
     plugins: [react()],
-    resolve: {
-        alias: {
-            '@': path.resolve(__dirname, 'src'),
-        },
-    },
-    server: {
-        port: 5173,
-        strictPort: true,
-    },
-    build: {
-        target: 'esnext',
-        outDir: 'dist',
-    },
+    resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
+    server: { port: 5173, strictPort: true },
+    build: { target: 'esnext', outDir: 'dist' },
 });
 ```
 
@@ -1961,16 +1932,6 @@ export default defineConfig({
 ## Q53. Как устроена маршрутизация?
 
 **Статус: ✅ РАБОТАЕТ (Single-page)**
-
-```tsx
-// main.tsx — entry point (66 LOC)
-import { DawShell } from '@/app/layouts/DawShell';
-
-function App() {
-    const [splashDone, setSplashDone] = useState(false);
-    return splashDone ? <DawShell /> : <SplashScreen onFinish={() => setSplashDone(true)} />;
-}
-```
 
 Single-page app: SplashScreen → DawShell. Нет роутинга — DAW не нуждается в URL-based navigation.
 
@@ -1985,18 +1946,7 @@ Single-page app: SplashScreen → DawShell. Нет роутинга — DAW не
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
-@keyframes shimmer {
-    0% { background-position: -200% center; }
-    100% { background-position: 200% center; }
-}
-
-/* glass.css */
-.animate-pulse-record {
-    animation: pulse 0.6s ease-in-out infinite;
-}
-
-/* Timeline — drop target */
-animation: pulse 1s ease-in-out infinite;
+@keyframes shimmer { 0% { background-position: -200% center; } 100% { background-position: 200% center; } }
 ```
 
 ---
@@ -2005,18 +1955,12 @@ animation: pulse 1s ease-in-out infinite;
 
 **Статус: ✅ РАБОТАЕТ**
 
-```tsx
-// AssetBrowser.tsx — preview with waveform
-// 1. Click sample → call engineApi.previewAudioFile(path)
-// 2. Fetch peaks → render canvas waveform in footer
-// 3. Click stop → engineApi.stopPreview()
-
+```rust
 // Rust side (lib.rs):
 #[tauri::command]
 fn preview_audio_file_cmd(path: String, state: State<EngineState>) {
     let audio = AudioReader::read(&path)?;
     let samples = Arc::new(audio.samples);
-    // Send to audio thread via rtrb
     producer.push(EngineCommand::SetPreviewBuffer(Some(samples)))?;
 }
 ```
@@ -2028,25 +1972,10 @@ fn preview_audio_file_cmd(path: String, state: State<EngineState>) {
 **Статус: ✅ РАБОТАЕТ**
 
 ```rust
-// apps/desktop_host/src/lib.rs — generate_demo_samples_cmd
-#[tauri::command]
-fn generate_demo_samples_cmd(state: State<EngineState>) -> Result<usize, String> {
-    let samples_path = state.settings.lock().samples_path.clone();
-    std::fs::create_dir_all(&samples_path).map_err(|e| e.to_string())?;
-
-    // Generate programmatic demo WAV files:
-    // Kick, Snare, HiHat, Clap, Bass, Pad, etc.
-    let mut count = 0;
-    for (name, generator) in DEMO_GENERATORS {
-        let path = format!("{}/{}.wav", samples_path, name);
-        if !std::path::Path::new(&path).exists() {
-            let samples = generator(44100);
-            WavWriter::write_mono(&path, &samples, 44100)?;
-            count += 1;
-        }
-    }
-    Ok(count)
-}
+// generate_demo_samples_cmd — programmatic WAV generation
+// Generates: Kick, Snare, HiHat, Clap, Bass, Pad
+// Only creates files that don't already exist (idempotent)
+// Uses WavWriter::write_mono() for each sample
 ```
 
 ---
@@ -2057,28 +1986,21 @@ fn generate_demo_samples_cmd(state: State<EngineState>) -> Result<usize, String>
 
 ```rust
 // core/dream_io/src/project_file.rs (217 LOC)
-
-pub struct ProjectFile;
-
+// Atomic write: write to .tmp, then rename (crash-safe)
 impl ProjectFile {
     pub fn save(project: &Project, path: &str) -> Result<(), IoError> {
         let json = serde_json::to_string_pretty(project)?;
-        // Atomic write: write to .tmp, then rename
         let tmp_path = format!("{}.tmp", path);
         std::fs::write(&tmp_path, &json)?;
         std::fs::rename(&tmp_path, path)?;
         Ok(())
     }
-
     pub fn load(path: &str) -> Result<Project, IoError> {
         let json = std::fs::read_to_string(path)?;
-        let project: Project = serde_json::from_str(&json)?;
-        Ok(project)
+        Ok(serde_json::from_str(&json)?)
     }
 }
 ```
-
-**Ключевое:** Atomic write (`write → rename`) предотвращает corruption при crash.
 
 ---
 
@@ -2087,27 +2009,8 @@ impl ProjectFile {
 **Статус: ✅ РАБОТАЕТ — 255 LOC**
 
 ```rust
-// core/dream_io/src/wav_writer.rs
-pub struct WavWriter;
-
-impl WavWriter {
-    pub fn write_mono(path: &str, samples: &[f32], sample_rate: u32) -> Result<(), String> {
-        let spec = hound::WavSpec {
-            channels: 1,
-            sample_rate,
-            bits_per_sample: 32,
-            sample_format: hound::SampleFormat::Float,
-        };
-        let mut writer = hound::WavWriter::create(path, spec)?;
-        for &s in samples { writer.write_sample(s)?; }
-        writer.finalize()?;
-        Ok(())
-    }
-
-    pub fn write_stereo(path: &str, left: &[f32], right: &[f32], sample_rate: u32) -> Result<(), String> {
-        // Interleave L/R and write
-    }
-}
+// core/dream_io/src/wav_writer.rs — uses hound crate
+// write_mono(), write_stereo() — 32-bit float WAV
 ```
 
 ---
@@ -2118,42 +2021,11 @@ impl WavWriter {
 
 ```rust
 // core/dream_models/src/mutators.rs
-
 impl Project {
-    pub fn add_track(&mut self, name: Option<String>) -> &Track {
-        let index = self.tracks.len();
-        let track = Track {
-            id: Uuid::new_v4(),
-            name: name.unwrap_or_else(|| format!("Track {}", index + 1)),
-            track_type: TrackType::Audio,
-            color: TrackColor::cycle(index),
-            volume: 1.0,
-            pan: 0.0,
-            is_mute: false,
-            is_solo: false,
-            clips: Vec::new(),
-            device_chain: Vec::new(),
-        };
-        self.tracks.push(track);
-        self.tracks.last().unwrap()
-    }
-
-    pub fn move_clip(&mut self, clip_id: Uuid, new_track: usize, new_pos: i64) -> Result<(), String> {
-        // Find and remove clip from source track
-        // Insert into destination track at new position
-    }
-
-    pub fn split_clip(&mut self, clip_id: Uuid, split_frame: i64)
-        -> Result<(Uuid, Uuid), String> {
-        // Find clip, calculate split point
-        // Create left half (original start → split)
-        // Create right half (split → original end)
-        // Return both IDs
-    }
-
-    pub fn delete_clip(&mut self, clip_id: Uuid) -> Result<(), String> {
-        // Find and remove clip from any track
-    }
+    pub fn add_track(&mut self, name: Option<String>) -> &Track { ... }
+    pub fn move_clip(&mut self, clip_id: Uuid, new_track: usize, new_pos: i64) -> Result<(), String> { ... }
+    pub fn split_clip(&mut self, clip_id: Uuid, split_frame: i64) -> Result<(Uuid, Uuid), String> { ... }
+    pub fn delete_clip(&mut self, clip_id: Uuid) -> Result<(), String> { ... }
 }
 ```
 
@@ -2165,34 +2037,17 @@ impl Project {
 
 ```rust
 // core/dream_models/src/pulse_map.rs
-
 pub struct PulseMap {
     pub initial_bpm: f64,
     pub time_signature: TimeSignature,
     pub tempo_changes: Vec<TempoChange>,
 }
-
-pub struct TempoChange {
-    pub position: PulsePosition,  // in musical time (bars.beats)
-    pub bpm: f64,
-    pub curve: TempoCurve,
-}
-
-pub enum TempoCurve { Linear, Step }
-
 impl PulseMap {
-    pub fn bpm_at(&self, position: f64) -> f64 {
-        // Walk tempo changes to find BPM at position
-    }
-    pub fn sample_to_beat(&self, sample: i64, sr: u32) -> f64 {
-        // Convert sample position to beat position
-    }
-    pub fn beat_to_sample(&self, beat: f64, sr: u32) -> i64 {
-        // Convert beat position to sample position
-    }
+    pub fn bpm_at(&self, position: f64) -> f64 { ... }
+    pub fn sample_to_beat(&self, sample: i64, sr: u32) -> f64 { ... }
+    pub fn beat_to_sample(&self, beat: f64, sr: u32) -> i64 { ... }
 }
 ```
-
 
 
 ---
@@ -2227,14 +2082,12 @@ Audio callback (driver.rs) НЕ делает heap-аллокаций напря�
 pub struct SharedClipSnapshot {
     inner: Mutex<Arc<Vec<Vec<AudioClip>>>>,
 }
-
 impl SharedClipSnapshot {
     pub fn load(&self) -> Arc<Vec<Vec<AudioClip>>> {
         self.inner.lock()
             .map(|guard| Arc::clone(&guard))
             .unwrap_or_else(|_| Arc::new(Vec::new()))
     }
-
     pub fn swap(&self, new: Vec<Vec<AudioClip>>) {
         if let Ok(mut guard) = self.inner.lock() {
             *guard = Arc::new(new);
@@ -2243,24 +2096,7 @@ impl SharedClipSnapshot {
 }
 ```
 
-**[🟡 РЕКОМЕНДАЦИЯ]:** Заменить `Mutex<Arc<T>>` на `ArcSwap<T>`:
-```rust
-// Рекомендуемая enterprise-замена:
-use arc_swap::ArcSwap;
-pub struct SharedClipSnapshot {
-    inner: ArcSwap<Vec<Vec<AudioClip>>>,
-}
-impl SharedClipSnapshot {
-    pub fn load(&self) -> Arc<Vec<Vec<AudioClip>>> {
-        self.inner.load_full() // fully lock-free
-    }
-    pub fn swap(&self, new: Vec<Vec<AudioClip>>) {
-        self.inner.store(Arc::new(new)); // fully lock-free
-    }
-}
-```
-
-`arc_swap` уже в workspace deps (`dream_graph/Cargo.toml`).
+**[🟡 РЕКОМЕНДАЦИЯ]:** Заменить `Mutex<Arc<T>>` на `ArcSwap<T>` для true lock-free.
 
 ---
 
@@ -2269,30 +2105,21 @@ impl SharedClipSnapshot {
 **Статус: ✅ РАБОТАЕТ**
 
 ```rust
-// driver.rs — error callback
 device.build_output_stream(
     &config,
     data_callback,
-    |err| log::error!("Audio stream error: {}", err), // error callback
-    None,  // no timeout
+    |err| log::error!("Audio stream error: {}", err),
+    None,
 )?;
 ```
 
-**Failsafe:** Если `clip_pool.try_lock()` fails — silence (не crash, не блокировка).
-Если `clip_snapshot.load()` fails (poisoned mutex) — empty Vec (fallback).
+Failsafe: `clip_pool.try_lock()` fail → silence. `clip_snapshot.load()` fail → empty Vec.
 
 ---
 
 ## Q64. Какой ring buffer capacity для команд?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```rust
-// apps/desktop_host/src/lib.rs (initialization)
-let (cmd_tx, cmd_rx) = rtrb::RingBuffer::<EngineCommand>::new(256);
-```
-
-256 слотов. При 60fps UI polling = ~4 кадра buffer. Достаточно для всех сценариев.
+**Статус: ✅ РАБОТАЕТ** — `rtrb::RingBuffer::<EngineCommand>::new(256)` — 256 слотов.
 
 ---
 
@@ -2301,7 +2128,6 @@ let (cmd_tx, cmd_rx) = rtrb::RingBuffer::<EngineCommand>::new(256);
 **Статус: ✅ РАБОТАЕТ**
 
 ```rust
-// Внутри audio callback (driver.rs):
 if is_playing {
     clock.advance(frame_count as i64);
     if loop_enabled {
@@ -2313,7 +2139,7 @@ if is_playing {
 }
 ```
 
-**Crossfade at loop point:** Реализован в `dream_dsp/src/fades.rs` — S-curve Hermite.
+Crossfade at loop point: S-curve Hermite (`dream_dsp/src/fades.rs`).
 
 ---
 
@@ -2322,20 +2148,10 @@ if is_playing {
 **Статус: ✅ РАБОТАЕТ — полностью lock-free**
 
 ```rust
-// dream_ipc/src/metering.rs
-// AtomicU32 для RMS/Peak + AtomicBool для clipping
-// Ordering::Relaxed — допустимо для отображения (UI polling)
-
-// Audio thread → WRITES (every buffer):
-self.rms.store(rms.to_bits(), Ordering::Relaxed);
-self.peak.store(peak.to_bits(), Ordering::Relaxed);
-
-// UI thread ← READS (30fps via telemetry loop):
-let rms = f32::from_bits(self.rms.load(Ordering::Relaxed));
-let peak = f32::from_bits(self.peak.load(Ordering::Relaxed));
+// dream_ipc/src/metering.rs — AtomicU32 for RMS/Peak, AtomicBool for clipping
+// Audio thread WRITES (Relaxed), UI thread READS (Relaxed)
+// Zero contention — audio thread never blocks.
 ```
-
-Zero contention — audio thread никогда не блокируется.
 
 ---
 
@@ -2344,22 +2160,15 @@ Zero contention — audio thread никогда не блокируется.
 **Статус: ✅ РАБОТАЕТ**
 
 ```rust
-// dream_engine/src/render_callback.rs
 pub struct RenderContext {
     scratch_buffer: Vec<f32>, // pre-allocated at init, reused every buffer
-    // ...
 }
-
 impl RenderContext {
     pub fn new(max_buffer_size: usize) -> Self {
-        Self {
-            scratch_buffer: vec![0.0; max_buffer_size * 2], // stereo
-            // ...
-        }
+        Self { scratch_buffer: vec![0.0; max_buffer_size * 2] }
     }
     pub fn render(&mut self, output: &mut [f32], ...) {
         self.scratch_buffer[..output.len()].fill(0.0); // reuse, no alloc
-        // ...
     }
 }
 ```
@@ -2372,24 +2181,14 @@ impl RenderContext {
 
 ```rust
 // core/dream_models/src/spatial_grid.rs
-// Spatial index for fast "which clips are visible in this viewport?" queries
-
+// Spatial index for fast "which clips are visible?" queries
+// O(visible_cells) instead of O(all_clips)
 pub struct SpatialGrid {
     cell_size: i64,
     cells: HashMap<(i64, i64), Vec<Uuid>>,
 }
-
 impl SpatialGrid {
-    pub fn insert(&mut self, id: Uuid, start: i64, end: i64, track: usize) {
-        // Map clip bounds to grid cells
-        // Insert ID into all overlapping cells
-    }
-
-    pub fn query_range(&self, start: i64, end: i64, track_min: usize, track_max: usize)
-        -> Vec<Uuid> {
-        // Return all clip IDs in visible range
-        // O(visible_cells) instead of O(all_clips)
-    }
+    pub fn query_range(&self, start: i64, end: i64, track_min: usize, track_max: usize) -> Vec<Uuid> { ... }
 }
 ```
 
@@ -2401,32 +2200,9 @@ impl SpatialGrid {
 
 ```rust
 // core/dream_models/src/time.rs
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS)]
-pub struct SamplePosition {
-    pub sample_frame: i64,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct MusicalTime {
-    pub bar: u32,
-    pub beat: u32,
-    pub subdivision: u32,
-    pub ticks: u32,  // 480 PPQ
-}
-
+pub struct SamplePosition { pub sample_frame: i64 }
+pub struct MusicalTime { pub bar: u32, pub beat: u32, pub subdivision: u32, pub ticks: u32 }
 pub const TICKS_PER_QUARTER: u32 = 480;  // MIDI standard PPQ
-
-impl SamplePosition {
-    pub fn to_seconds(&self, sample_rate: u32) -> f64 {
-        self.sample_frame as f64 / sample_rate as f64
-    }
-    pub fn from_seconds(seconds: f64, sample_rate: u32) -> Self {
-        SamplePosition {
-            sample_frame: (seconds * sample_rate as f64).round() as i64,
-        }
-    }
-}
 ```
 
 ---
@@ -2435,21 +2211,9 @@ impl SamplePosition {
 
 **Статус: ✅ РАБОТАЕТ (модель + создание)**
 
-```rust
-// Project model includes ClipType::Midi
-pub enum ClipType { Audio, Midi }
+`ClipType::Midi` существует, `create_midi_clip_cmd` реализован.
 
-// Tauri command для создания MIDI клипа:
-#[tauri::command]
-fn create_midi_clip_cmd(track_index: usize, position_frames: i64, duration_frames: i64,
-    state: State<EngineState>) -> Result<Project, String> {
-    let mut project = state.project.lock();
-    project.add_midi_clip(track_index, position_frames, duration_frames)?;
-    Ok(project.clone())
-}
-```
-
-**[🟡 ЗАГЛУШКА]:** MIDI note data, piano roll editor, и MIDI playback ещё не реализованы.
+**[🟡 ЗАГЛУШКА]:** MIDI note data, piano roll editor, и MIDI playback не реализованы.
 
 ---
 
@@ -2458,52 +2222,18 @@ fn create_midi_clip_cmd(track_index: usize, position_frames: i64, duration_frame
 **Статус: ✅ РАБОТАЕТ — полная имплементация**
 
 ```rust
-// apps/desktop_host/src/lib.rs
-
 const MAX_UNDO_DEPTH: usize = 100;
-
-struct UndoState {
-    undo_stack: Vec<Project>,
-    redo_stack: Vec<Project>,
-}
+struct UndoState { undo_stack: Vec<Project>, redo_stack: Vec<Project> }
 
 fn push_undo(undo: &Mutex<UndoState>, project: &Project) {
     let mut state = undo.lock();
     state.undo_stack.push(project.clone());
-    if state.undo_stack.len() > MAX_UNDO_DEPTH {
-        state.undo_stack.remove(0);
-    }
-    state.redo_stack.clear(); // новое действие сбрасывает redo
+    if state.undo_stack.len() > MAX_UNDO_DEPTH { state.undo_stack.remove(0); }
+    state.redo_stack.clear();
 }
-
-#[tauri::command]
-fn undo_cmd(state: State<EngineState>) -> Result<Option<Project>, String> {
-    let mut undo = state.undo_state.lock();
-    if let Some(prev) = undo.undo_stack.pop() {
-        let current = state.project.lock().clone();
-        undo.redo_stack.push(current);
-        *state.project.lock() = prev.clone();
-        Ok(Some(prev))
-    } else {
-        Ok(None)
-    }
-}
-
-#[tauri::command]
-fn redo_cmd(state: State<EngineState>) -> Result<Option<Project>, String> {
-    let mut undo = state.undo_state.lock();
-    if let Some(next) = undo.redo_stack.pop() {
-        let current = state.project.lock().clone();
-        undo.undo_stack.push(current);
-        *state.project.lock() = next.clone();
-        Ok(Some(next))
-    } else {
-        Ok(None)
-    }
-}
+// undo_cmd / redo_cmd — pop/push between stacks
+// Integrated in: import_audio_file, move_clip, split_clip, delete_clip
 ```
-
-**Интегрировано в:** `import_audio_file`, `move_clip`, `split_clip`, `delete_clip`.
 
 ---
 
@@ -2512,19 +2242,15 @@ fn redo_cmd(state: State<EngineState>) -> Result<Option<Project>, String> {
 **Статус: ✅ РАБОТАЕТ**
 
 ```rust
-// apps/desktop_host/src/lib.rs
 #[tauri::command]
 fn expand_window(window: tauri::Window) -> Result<(), String> {
-    let size = tauri::LogicalSize::new(1400.0, 900.0);
-    window.set_size(size).map_err(|e| e.to_string())?;
-    window.set_resizable(true).map_err(|e| e.to_string())?;
-    window.set_decorations(true).map_err(|e| e.to_string())?;
-    window.center().map_err(|e| e.to_string())?;
+    window.set_size(tauri::LogicalSize::new(1400.0, 900.0))?;
+    window.set_resizable(true)?;
+    window.set_decorations(true)?;
+    window.center()?;
     Ok(())
 }
 ```
-
-Последовательность: 500×500 (splash, non-resizable, frameless) → 1400×900 (DAW, resizable, decorated).
 
 ---
 
@@ -2532,29 +2258,7 @@ fn expand_window(window: tauri::Window) -> Result<(), String> {
 
 **Статус: ✅ РАБОТАЕТ**
 
-```rust
-// apps/desktop_host/src/lib.rs — AppSettings struct
-pub struct AppSettings {
-    pub language: String,          // "en" | "ru"
-    pub startup_behavior: String,  // "blank" | "last_project"
-    pub waveform_style: String,    // "classic" | "gradient"
-    pub driver_type: String,       // OS-specific
-    pub output_device: String,
-    pub input_device: String,
-    pub sample_rate: u32,          // 44100 | 48000 | 96000
-    pub buffer_size: u32,          // 64..4096
-    pub driver_error_compensation: i32,
-    pub test_tone_enabled: bool,
-    pub test_tone_volume: f32,
-    pub test_tone_frequency: f32,
-    pub cpu_usage_simulator: bool,
-    pub sr_pitch_conversion: bool,
-    pub user_folder_path: String,
-    pub samples_path: String,
-    pub vst2_path: String,
-    pub vst3_path: String,
-}
-```
+`AppSettings` — 18 полей: language, audio driver, sample rate, buffer size, paths, test tone, etc.
 
 ---
 
@@ -2563,24 +2267,8 @@ pub struct AppSettings {
 **Статус: ✅ РАБОТАЕТ**
 
 ```rust
-#[tauri::command]
 fn scan_audio_folder(path: String) -> Result<Vec<AudioFileInfo>, String> {
-    let mut results = Vec::new();
-    let walker = walkdir::WalkDir::new(&path).max_depth(5);
-    for entry in walker.into_iter().filter_map(|e| e.ok()) {
-        if let Some(ext) = entry.path().extension() {
-            let ext_lower = ext.to_string_lossy().to_lowercase();
-            if matches!(ext_lower.as_str(), "wav" | "mp3" | "flac" | "ogg" | "aiff") {
-                results.push(AudioFileInfo {
-                    name: entry.file_name().to_string_lossy().into_owned(),
-                    path: entry.path().to_string_lossy().into_owned(),
-                    size: entry.metadata().map(|m| m.len()).unwrap_or(0),
-                    extension: ext_lower,
-                });
-            }
-        }
-    }
-    Ok(results)
+    // WalkDir max_depth(5), filter by extension: wav|mp3|flac|ogg|aiff
 }
 ```
 
@@ -2588,15 +2276,7 @@ fn scan_audio_folder(path: String) -> Result<Vec<AudioFileInfo>, String> {
 
 ## Q75. Как работает Recent Projects?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```rust
-#[tauri::command]
-fn get_recent_projects(state: State<EngineState>) -> Vec<String> {
-    state.recent_projects.lock().clone()
-}
-// After save/open: push path to recent_projects list (max 10)
-```
+**Статус: ✅ РАБОТАЕТ** — `Vec<String>`, max 10 entries, updated on save/open.
 
 ---
 
@@ -2604,70 +2284,25 @@ fn get_recent_projects(state: State<EngineState>) -> Vec<String> {
 
 **Статус: ✅ РАБОТАЕТ — единый паттерн**
 
-Все Tauri commands возвращают `Result<T, String>`:
-```rust
-#[tauri::command]
-fn import_audio_file(path: String, ...) -> Result<ImportAudioResponse, String> {
-    let audio = AudioReader::read(&path).map_err(|e| format!("Decode error: {}", e))?;
-    // ...
-}
-```
-
-Frontend обрабатывает через try/catch:
-```typescript
-catch (e) {
-    set({ lastError: String(e) });
-}
-```
-
-StatusBar отображает `lastError` пользователю.
+All Tauri commands → `Result<T, String>`. Frontend → `try/catch` → `set({ lastError })`. StatusBar displays.
 
 ---
 
-## Q77. Какой Tauri version используется?
+## Q77. Какой Tauri version?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```toml
-# apps/desktop_host/Cargo.toml
-tauri = { version = "2", features = [] }
-
-[build-dependencies]
-tauri-build = { version = "2", features = [] }
-```
-
-Tauri v2 — latest stable. Поддержка: macOS, Windows, Linux.
+**Статус: ✅ РАБОТАЕТ** — Tauri v2 (latest stable).
 
 ---
 
 ## Q78. Есть ли multiplatform bundling?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```json
-// tauri.conf.json
-"bundle": {
-    "active": true,
-    "targets": "all"  // dmg, app, msi, deb, appimage
-}
-```
-
-**Targets:** `.app` / `.dmg` (macOS), `.msi` (Windows), `.deb` / `.AppImage` (Linux).
+**Статус: ✅ РАБОТАЕТ** — `"targets": "all"` → `.app/.dmg` (macOS), `.msi` (Windows), `.deb/.AppImage` (Linux).
 
 ---
 
 ## Q79. Как устроен build.rs?
 
-**Статус: ✅ РАБОТАЕТ — 3 LOC**
-
-```rust
-// apps/desktop_host/build.rs
-fn main() {
-    tauri_build::build()
-}
-```
-
-Стандартный Tauri build script — генерирует native bindings.
+**Статус: ✅ РАБОТАЕТ — 3 LOC** — `fn main() { tauri_build::build() }`
 
 ---
 
@@ -2676,22 +2311,11 @@ fn main() {
 **Статус: ✅ РАБОТАЕТ**
 
 ```bash
-# Запуск:
 cargo tauri dev          # Tauri + Vite hot-reload
-pnpm --filter ui_app dev # Frontend only (Vite)
-
-# Тесты:
+pnpm --filter ui_app dev # Frontend only
 cargo test --workspace   # 314 тестов
-
-# Сборка:
 cargo tauri build        # production bundle
 ```
-
----
-
-# ══════════════════════════════════════════════════════════════
-# STAGE 4: DATA MODELS & TESTING (Questions 81–120)
-# ══════════════════════════════════════════════════════════════
 
 ---
 
@@ -2699,169 +2323,61 @@ cargo tauri build        # production bundle
 
 **Статус: ✅ — 411 символов**
 
-```bash
-$ grep -rn 'pub fn\|pub async fn\|pub struct\|pub enum' --include="*.rs" core/ apps/ | wc -l
-411
-```
-
 ---
 
 ## Q82. Какой формат проектных файлов?
 
-**Статус: ✅ РАБОТАЕТ — JSON (serde_json)**
-
-```json
-// Пример сохранённого проекта:
-{
-    "id": "a3b8d1b6-...",
-    "name": "New Dream",
-    "sample_rate": 44100,
-    "bit_depth": 32,
-    "pulse_map": {
-        "initial_bpm": 120.0,
-        "time_signature": { "numerator": 4, "denominator": 4 },
-        "tempo_changes": []
-    },
-    "tracks": [
-        {
-            "id": "...",
-            "name": "Track 1",
-            "track_type": "Audio",
-            "color": "Blue",
-            "volume": 1.0,
-            "pan": 0.0,
-            "clips": [...]
-        }
-    ],
-    "master_track": { ... }
-}
-```
-
-**Atomic write:** `.tmp` → `rename` (crash-safe).
+**Статус: ✅ РАБОТАЕТ — JSON (serde_json)** с atomic write (`.tmp` → `rename`).
 
 ---
 
 ## Q83. Какие enum'ы определены в модели?
 
-**Статус: ✅ РАБОТАЕТ**
-
 | Enum | Файл | Значения |
 |------|-------|----------|
 | `TrackType` | project.rs | Audio, Midi, Group, Master |
 | `ClipType` | project.rs | Audio, Midi |
-| `TrackColor` | project.rs | Red, Orange, Yellow, Green, Teal, Blue, Purple, Pink, Slate, Coral, Lime, Indigo |
+| `TrackColor` | project.rs | Red..Indigo (12 цветов) |
 | `PluginFormat` | format.rs | Vst3, Clap, AudioUnit, Internal |
 | `PluginCategory` | descriptor.rs | Effect, Instrument, Analyzer, Utility |
 | `CurveType` | curve.rs | Linear, SCurve, Exponential, Logarithmic, Step |
 | `AutomationMode` | mode.rs | Read, Write, Touch, Latch |
 | `TransportMode` | state.rs | Stopped, Playing, Recording |
-| `TempoCurve` | pulse_map.rs | Linear, Step |
 
 ---
 
 ## Q84. Как тестируется Mixer?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```rust
-// core/dream_mixer/src/gain.rs — тесты:
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn gain_unity_passes_through() {
-        let mut buf = vec![0.5, -0.5, 1.0];
-        apply_gain(&mut buf, 1.0);
-        assert_eq!(buf, vec![0.5, -0.5, 1.0]);
-    }
-
-    #[test]
-    fn gain_zero_silences() {
-        let mut buf = vec![0.5, -0.5, 1.0];
-        apply_gain(&mut buf, 0.0);
-        assert_eq!(buf, vec![0.0, 0.0, 0.0]);
-    }
-}
-```
+**Статус: ✅ РАБОТАЕТ** — gain unity/zero tests, pan tests, solo logic tests.
 
 ---
 
 ## Q85. Как тестируется Graph (DAG)?
 
-**Статус: ✅ РАБОТАЕТ — обширные тесты**
-
-```rust
-// core/dream_graph/src/dag.rs — тесты:
-#[test]
-fn test_topological_sort() { /* ... */ }
-#[test]
-fn test_cycle_detection() { /* ... */ }
-#[test]
-fn test_add_remove_nodes() { /* ... */ }
-#[test]
-fn test_edge_validation() { /* ... */ }
-```
+**Статус: ✅ РАБОТАЕТ** — topological sort, cycle detection, add/remove nodes, edge validation.
 
 ---
 
 ## Q86. Как тестируется DSP?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```rust
-// core/dream_dsp/src/resampler.rs
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn resample_identity() {
-        let input: Vec<f32> = (0..100).map(|i| (i as f32 * 0.01).sin()).collect();
-        let output = resample_mono(&input, 44100, 44100).unwrap();
-        assert_eq!(output.len(), input.len());
-    }
-
-    #[test]
-    fn resample_up_doubles_length() {
-        let input: Vec<f32> = vec![0.0; 1000];
-        let output = resample_mono(&input, 22050, 44100).unwrap();
-        assert!((output.len() as f64 / input.len() as f64 - 2.0).abs() < 0.1);
-    }
-}
-```
+**Статус: ✅ РАБОТАЕТ** — resample identity, resample ratio tests, biquad frequency response.
 
 ---
 
 ## Q87. Как тестируется RCU swap?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```rust
-// core/dream_graph/src/rcu.rs
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn rcu_swap_is_visible_to_readers() {
-        let live = LiveGraph::new(initial_graph);
-        let reader = live.load(); // Arc clone
-        live.swap(new_graph);     // atomic replace
-        let reader2 = live.load();
-        assert_ne!(reader.id(), reader2.id()); // new version
-    }
-}
-```
+**Статус: ✅ РАБОТАЕТ** — swap visibility test, reader isolation test.
 
 ---
 
 ## Q88. Какие performance characteristics у PeakCache?
 
-**Статус: ✅ РАБОТАЕТ**
-
 | MIP Level | Samples/Peak | Use Case |
 |-----------|-------------|----------|
-| 0 | 256 | Высокий zoom (подробный waveform) |
+| 0 | 256 | Высокий zoom |
 | 1 | 1,024 | Средний zoom |
 | 2 | 4,096 | Низкий zoom |
-| 3 | 16,384 | Обзорный zoom (минимальные пики) |
-
-Выбор MIP: `selectMipLevel(samplesPerPixel, peaks)` — ближайший большой SPP.
+| 3 | 16,384 | Обзорный zoom |
 
 ---
 
@@ -2869,18 +2385,9 @@ mod tests {
 
 **Статус: ✅ РАБОТАЕТ — 320 LOC**
 
-```rust
-// core/dream_graph/src/pdc.rs
-pub fn compute_pdc(dag: &AudioDag) -> HashMap<NodeIndex, u64> {
-    // 1. Topological sort
-    // 2. For each node:
-    //    latency = max(input_path_latencies) + self_latency
-    // 3. Insert delay compensation buffers where needed
-    //    to align all inputs at each mix point
-}
-```
+Topological sort → accumulate max input latency → insert compensation buffers.
 
-**[🟡 ЗАГЛУШКА]:** PDC computed but не применяется в render pipeline (нет plugin hosting).
+**[🟡 ЗАГЛУШКА]:** Computed but not applied (no plugin hosting yet).
 
 ---
 
@@ -2888,15 +2395,14 @@ pub fn compute_pdc(dag: &AudioDag) -> HashMap<NodeIndex, u64> {
 
 **Статус: ✅ БЕЗОПАСНО**
 
-Анализ:
-- Все `Arc` корректно используются (no circular refs)
-- `ClipPool` хранит `Arc<Vec<f32>>` — GC при удалении клипа
-- `UndoStack` ограничен `MAX_UNDO_DEPTH = 100`
-- `Vec::clear()` + `Vec::fill(0.0)` — reuse, no leak
-- Audio stream handle stored in `Option<cpal::Stream>` — dropped on engine shutdown
+No circular Arc refs, ClipPool GC on delete, UndoStack capped at 100, audio stream properly stored.
 
-**Потенциал:** Старые проекты в undo stack (~100 клонов) потребляют RAM. 
-Решение: использовать diff-based undo (не clone).
+
+---
+
+# ══════════════════════════════════════════════════════════════
+# STAGE 4: DATA MODELS & TESTING (Questions 91–120)
+# ══════════════════════════════════════════════════════════════
 
 ---
 
@@ -2904,16 +2410,8 @@ pub fn compute_pdc(dag: &AudioDag) -> HashMap<NodeIndex, u64> {
 
 **Статус: ✅ РАБОТАЕТ**
 
-```rust
-// SharedClipSnapshot::load()
-self.inner.lock()
-    .map(|guard| Arc::clone(&guard))
-    .unwrap_or_else(|_| Arc::new(Vec::new())); // fallback на пустой Vec
-
-// Все state.project.lock() — parking_lot::Mutex
-// parking_lot НЕ имеет poison (в отличие от std::sync::Mutex)
-// Поэтому poison невозможен для project/settings/undo — ✅ БЕЗОПАСНО
-```
+`parking_lot::Mutex` НЕ имеет poison (в отличие от `std::sync::Mutex`).
+`SharedClipSnapshot::load()` использует `unwrap_or_else` для fallback на пустой Vec.
 
 ---
 
@@ -2921,46 +2419,27 @@ self.inner.lock()
 
 **Статус: ✅ РАБОТАЕТ**
 
-Release profile: `lto = fat`, `strip = symbols`, `codegen-units = 1`, `panic = abort`
-Expected binary: ~15-25 MB (Tauri + all crates + cpal + wgpu)
+Release profile: `lto = fat`, `strip = symbols`, `codegen-units = 1`, `panic = abort`.
+Expected: ~15-25 MB (Tauri + cpal + wgpu + all crates).
 
 ---
 
 ## Q93. Как устроена audio device enumeration?
 
-**Статус: ✅ РАБОТАЕТ (implicit)**
+**Статус: [🟡 ЗАГЛУШКА]**
 
 ```rust
-// driver.rs
 let host = cpal::default_host();
-let device = host.default_output_device()
-    .ok_or("No output device")?;
+let device = host.default_output_device().ok_or("No output device")?;
 ```
 
-**[🟡 ЗАГЛУШКА]:** Выбор конкретного устройства не реализован. 
 Settings хранят `output_device`/`input_device`, но driver всегда берёт default.
 
 ---
 
 ## Q94. Как устроена цветовая система TrackColor?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```rust
-impl TrackColor {
-    pub fn cycle(index: usize) -> Self {
-        const ALL: &[TrackColor] = &[
-            TrackColor::Blue, TrackColor::Teal, TrackColor::Green,
-            TrackColor::Yellow, TrackColor::Orange, TrackColor::Red,
-            TrackColor::Purple, TrackColor::Pink, TrackColor::Coral,
-            TrackColor::Lime, TrackColor::Indigo, TrackColor::Slate,
-        ];
-        ALL[index % ALL.len()].clone()
-    }
-}
-```
-
-12 цветов циклически назначаются новым трекам.
+**Статус: ✅ РАБОТАЕТ** — 12 цветов, циклически назначаются через `TrackColor::cycle(index)`.
 
 ---
 
@@ -2968,34 +2447,8 @@ impl TrackColor {
 
 **Статус: ✅ РАБОТАЕТ — 518 LOC (biquad) + 399 LOC (svf)**
 
-```rust
-// core/dream_dsp/src/biquad.rs
-impl BiquadFilter {
-    pub fn lowpass(freq: f64, q: f64, sr: f64) -> Self { /* coefficients */ }
-    pub fn highpass(freq: f64, q: f64, sr: f64) -> Self { /* coefficients */ }
-    pub fn bandpass(freq: f64, q: f64, sr: f64) -> Self { /* coefficients */ }
-    pub fn notch(freq: f64, q: f64, sr: f64) -> Self { /* coefficients */ }
-    pub fn peaking(freq: f64, q: f64, gain_db: f64, sr: f64) -> Self { /* coefficients */ }
-    pub fn lowshelf(freq: f64, q: f64, gain_db: f64, sr: f64) -> Self { /* coefficients */ }
-    pub fn highshelf(freq: f64, q: f64, gain_db: f64, sr: f64) -> Self { /* coefficients */ }
-
-    pub fn process_sample(&mut self, x: f64) -> f64 {
-        let y = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2
-              - self.a1 * self.y1 - self.a2 * self.y2;
-        self.x2 = self.x1; self.x1 = x;
-        self.y2 = self.y1; self.y1 = y;
-        y
-    }
-}
-
-// core/dream_dsp/src/svf.rs — State Variable Filter
-pub struct SvfFilter {
-    ic1eq: f64,
-    ic2eq: f64,
-    a1: f64, a2: f64, a3: f64,
-    m0: f64, m1: f64, m2: f64,
-}
-```
+7 filter types: lowpass, highpass, bandpass, notch, peaking, lowshelf, highshelf.
+Direct Form II implementation. All tested.
 
 ---
 
@@ -3004,18 +2457,12 @@ pub struct SvfFilter {
 **Статус: ✅ РАБОТАЕТ**
 
 ```rust
-// core/dream_mixer/src/pan.rs (208 LOC)
 pub fn apply_pan(left: &mut [f32], right: &mut [f32], pan: f32) {
-    // pan: -1.0 (full left) .. 0.0 (center) .. +1.0 (full right)
     let angle = (pan + 1.0) * 0.25 * std::f32::consts::PI;
     let gain_l = angle.cos();
     let gain_r = angle.sin();
-    for (l, r) in left.iter_mut().zip(right.iter_mut()) {
-        *l *= gain_l;
-        *r *= gain_r;
-    }
+    // gain_l² + gain_r² = 1.0 (constant power)
 }
-// Equal-power: gain_l² + gain_r² = 1.0 (constant power)
 ```
 
 ---
@@ -3025,13 +2472,12 @@ pub fn apply_pan(left: &mut [f32], right: &mut [f32], pan: f32) {
 **Статус: ✅ РАБОТАЕТ — 244 LOC**
 
 ```rust
-// core/dream_mixer/src/solo.rs
 pub fn compute_effective_mute(tracks: &[TrackState]) -> Vec<bool> {
     let any_solo = tracks.iter().any(|t| t.is_solo);
     tracks.iter().map(|t| {
-        if t.is_mute { true }           // explicit mute always applies
-        else if any_solo { !t.is_solo } // solo mode: mute non-soloed
-        else { false }                   // no solo = no implicit mute
+        if t.is_mute { true }
+        else if any_solo { !t.is_solo }
+        else { false }
     }).collect()
 }
 ```
@@ -3040,44 +2486,13 @@ pub fn compute_effective_mute(tracks: &[TrackState]) -> Vec<bool> {
 
 ## Q98. Какая модель Master Track?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```rust
-// core/dream_models/src/project.rs
-pub struct MasterTrack {
-    pub id: Uuid,
-    pub volume: f32,
-    pub pan: f32,
-    pub is_mute: bool,
-    pub device_chain: Vec<DeviceSlot>,
-}
-```
+**Статус: ✅ РАБОТАЕТ** — `MasterTrack { id, volume, pan, is_mute, device_chain }`.
 
 ---
 
 ## Q99. Какая модель DeviceSlot?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```rust
-// core/dream_models/src/project.rs
-pub struct DeviceSlot {
-    pub id: Uuid,
-    pub name: String,
-    pub plugin_id: Option<Uuid>,
-    pub is_enabled: bool,
-    pub parameters: Vec<DeviceParameter>,
-}
-
-pub struct DeviceParameter {
-    pub id: String,
-    pub name: String,
-    pub value: f64,
-    pub min: f64,
-    pub max: f64,
-    pub default: f64,
-}
-```
+**Статус: ✅ РАБОТАЕТ** — `DeviceSlot { id, name, plugin_id, is_enabled, parameters: Vec<DeviceParameter> }`.
 
 ---
 
@@ -3085,48 +2500,23 @@ pub struct DeviceParameter {
 
 **Статус: ✅ РАБОТАЕТ — 389 LOC**
 
-```rust
-// core/dream_mixer/src/channel_strip.rs
-pub struct ChannelStrip {
-    gain: GainProcessor,
-    pan: PanProcessor,
-    meter: MeterProcessor,
-    muted: bool,
-    solo: bool,
-}
-
-impl ChannelStrip {
-    pub fn process(&mut self, input: &[f32], output: &mut [f32]) {
-        if self.muted {
-            output.fill(0.0);
-            return;
-        }
-        // 1. Apply gain (with ramp for click-free)
-        self.gain.process(input, output);
-        // 2. Apply pan (equal-power)
-        self.pan.process(output);
-        // 3. Update meters (RMS + peak)
-        self.meter.process(output);
-    }
-}
-```
+Pipeline: gain (with ramp) → pan (equal-power) → meter (RMS + peak).
+Mute → silence bypass.
 
 ---
 
 ## Q101. Какие форматы поддерживает AudioReader?
 
-**Статус: ✅ РАБОТАЕТ**
+| Формат | Расширения |
+|--------|-----------|
+| WAV | .wav |
+| MP3 | .mp3 |
+| FLAC | .flac |
+| OGG | .ogg |
+| AIFF | .aiff, .aif |
+| AAC | .aac, .m4a |
 
-| Формат | Через | Расширения |
-|--------|-------|-----------|
-| WAV | symphonia | .wav |
-| MP3 | symphonia | .mp3 |
-| FLAC | symphonia | .flac |
-| OGG Vorbis | symphonia | .ogg |
-| AIFF | symphonia | .aiff, .aif |
-| AAC | symphonia | .aac, .m4a |
-
-Все через `symphonia = { features = ["all"] }` — единый декодер.
+Все через `symphonia = { features = ["all"] }`.
 
 ---
 
@@ -3135,12 +2525,11 @@ impl ChannelStrip {
 **Статус: ✅ РАБОТАЕТ**
 
 ```rust
-// Used in audio thread (via SharedClipSnapshot):
 pub struct AudioClip {
     pub id: Uuid,
-    pub position: SamplePosition,   // where on timeline
-    pub duration: SamplePosition,   // how long
-    pub source_offset: SamplePosition, // offset into source file
+    pub position: SamplePosition,
+    pub duration: SamplePosition,
+    pub source_offset: SamplePosition,
     pub track_index: usize,
     pub gain: f32,
 }
@@ -3150,131 +2539,55 @@ pub struct AudioClip {
 
 ## Q103. Как устроена import pipeline для audio?
 
-**Статус: ✅ РАБОТАЕТ — end-to-end**
-
 ```
-1. UI → engine.importAudioFile(path, trackIndex, posFrame)
-2. Tauri → import_audio_file command (lib.rs L876)
-   a. push_undo(current_project)
-   b. AudioReader::read(path) → AudioData {samples, sr, channels, frames}
-   c. PeakCache::build(source_id, &samples, sr) → peaks
-   d. clip_pool.insert(clip_id, samples)
-   e. project.add_clip(track, position, duration, path)
-   f. SharedClipSnapshot::swap(new_snapshot)
-   g. Return ImportAudioResponse {clip_id, project}
-3. UI ← updates store with new project
+UI → engine.importAudioFile(path, trackIndex, posFrame)
+  → push_undo(current_project)
+  → AudioReader::read(path)
+  → PeakCache::build(source_id, &samples, sr)
+  → clip_pool.insert(clip_id, samples)
+  → project.add_clip(track, position, duration, path)
+  → SharedClipSnapshot::swap(new_snapshot)
+  → Return ImportAudioResponse {clip_id, project}
 ```
 
 ---
 
 ## Q104. Какие edge cases обрабатываются в import?
 
-**Статус: ✅ РАБОТАЕТ**
-
-- **File not found:** `AudioReader::read()` returns `Err`
-- **Invalid format:** symphonia probe fails → `Err`
-- **Mono → stereo:** handled in AudioReader (mono duplicated to stereo)
-- **Different sample rate:** stored as-is (resampling при playback через rubato)
-- **Empty file:** returns `Err("No audio data")`
-- **Track doesn't exist:** auto-create tracks to fill gap
+- File not found → `Err`, Invalid format → `Err`
+- Mono → stereo (duplicated), Different SR → stored as-is (resampled at playback)
+- Empty file → `Err("No audio data")`, Track doesn't exist → auto-create
 
 ---
 
 ## Q105. Как работает get_waveform_peaks?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```rust
-#[tauri::command]
-fn get_waveform_peaks(source_id: String, state: State<EngineState>)
-    -> Result<PeakCacheResponse, String> {
-    let caches = state.peak_caches.lock();
-    match caches.get(&source_id) {
-        Some(cache) => Ok(PeakCacheResponse {
-            total_samples: cache.total_samples,
-            sample_rate: cache.sample_rate,
-            mip_levels: cache.mip_levels.iter().map(|m| MipLevelResponse {
-                samples_per_peak: m.samples_per_peak,
-                peaks: m.peaks.iter().map(|p| [p.min, p.max]).collect(),
-            }).collect(),
-        }),
-        None => Err(format!("No peaks for {}", source_id)),
-    }
-}
-```
+**Статус: ✅ РАБОТАЕТ** — Looks up PeakCache by source_id, returns MIP levels with min/max peaks.
 
 ---
 
 ## Q106. Как работает preview_audio в audio thread?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```rust
-// В audio callback (driver.rs):
-// Preview buffer mixed additively after main output
-if let Some(ref preview_buf) = preview_buffer {
-    let remaining = preview_buf.len() - preview_offset;
-    let to_mix = remaining.min(frame_count * 2);
-    for i in 0..to_mix {
-        data[i] += preview_buf[preview_offset + i] * preview_gain;
-    }
-    preview_offset += to_mix;
-    if preview_offset >= preview_buf.len() {
-        preview_buffer = None; // done
-    }
-}
-```
-
-**Одноразовый fire-and-forget:** preview загружается полностью в память, микшируется поверх main output.
+**Статус: ✅ РАБОТАЕТ** — Fire-and-forget: loads full file, mixes additively over main output in callback.
 
 ---
 
 ## Q107. Как TypeScript типы синхронизируются с Rust?
 
-**Статус: ✅ РАБОТАЕТ**
-
-Двойная система:
-1. **ts-rs** `#[derive(TS)]` — авто-генерация `shared_bindings/` при `cargo test`
-2. **engine.ts** — ручные типы для IPC responses
-
-**[🟡 ВНИМАНИЕ]:** Ручные типы в engine.ts могут разойтись с Rust при изменениях. 
-Рекомендуется: импортировать сгенерированные типы из shared_bindings.
+Dual system: `ts-rs` auto-generation + manual `engine.ts` types.
+**[🟡 ВНИМАНИЕ]:** Manual types can diverge from Rust. Recommend importing from `shared_bindings`.
 
 ---
 
 ## Q108. Какие фичи Tailwind v4 используются?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```css
-/* global.css */
-@import "tailwindcss";
-@source "../src/**/*.{ts,tsx}";
-```
-
-Tailwind v4 (CSS-first config) — используется для утилит (flex, gap, padding).
-Основной стиль — кастомный через tokens.css / glass.css.
+**Статус: ✅ РАБОТАЕТ** — CSS-first config (`@import "tailwindcss"`). Used for utility classes; main styling via tokens.css/glass.css.
 
 ---
 
 ## Q109. Как реализован test tone?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```rust
-// В audio callback (driver.rs):
-if test_tone_enabled {
-    let freq = test_tone_frequency; // default 440Hz
-    let vol = test_tone_volume;     // 0.0-1.0
-    for i in 0..frame_count {
-        let sample = (phase * 2.0 * PI).sin() * vol;
-        data[i * 2] += sample;     // left
-        data[i * 2 + 1] += sample; // right
-        phase += freq / sample_rate;
-        if phase > 1.0 { phase -= 1.0; }
-    }
-}
-```
+**Статус: ✅ РАБОТАЕТ** — 440Hz sine wave generated in callback with configurable frequency/volume.
 
 ---
 
@@ -3283,29 +2596,11 @@ if test_tone_enabled {
 **Статус: ✅ РАБОТАЕТ — click-free volume changes**
 
 ```rust
-// core/dream_mixer/src/gain.rs
 pub struct GainProcessor {
-    current: f32,
-    target: f32,
-    ramp_samples: usize, // default: 64 samples (~1.5ms at 44.1kHz)
+    current: f32, target: f32,
+    ramp_samples: usize, // 64 samples (~1.5ms at 44.1kHz)
 }
-
-impl GainProcessor {
-    pub fn set_target(&mut self, target: f32) {
-        self.target = target;
-    }
-
-    pub fn process(&mut self, input: &[f32], output: &mut [f32]) {
-        for (i, (&inp, out)) in input.iter().zip(output.iter_mut()).enumerate() {
-            // Smooth ramp from current → target
-            if self.current != self.target {
-                let step = (self.target - self.current) / self.ramp_samples as f32;
-                self.current += step;
-            }
-            *out = inp * self.current;
-        }
-    }
-}
+// Smooth ramp from current → target per sample
 ```
 
 ---
@@ -3315,34 +2610,20 @@ impl GainProcessor {
 **Статус: ✅ РАБОТАЕТ — rubato**
 
 ```rust
-// core/dream_dsp/src/resampler.rs (246 LOC)
-// Использует rubato SincFixedIn — высококачественный полифазный фильтр
-pub fn resample_mono(input: &[f32], from: u32, to: u32) -> Result<Vec<f32>, String> {
-    let ratio = to as f64 / from as f64;
-    let params = SincInterpolationParameters {
-        sinc_len: 256,         // длина sinc-фильтра
-        f_cutoff: 0.95,        // частота среза
-        interpolation: Nearest,
-        oversampling_factor: 256,
-        window: BlackmanHarris2,
-    };
-    let mut resampler = SincFixedIn::<f32>::new(ratio, 2.0, params, chunk_size, 1)?;
-    // Process in chunks...
-}
+// rubato SincFixedIn — high-quality polyphase filter
+// sinc_len: 256, f_cutoff: 0.95, window: BlackmanHarris2
 ```
 
 ---
 
 ## Q112. Какой формат AudioData?
 
-**Статус: ✅ РАБОТАЕТ**
-
 ```rust
 pub struct AudioData {
     pub samples: Vec<f32>,    // interleaved: [L0, R0, L1, R1, ...]
-    pub sample_rate: u32,     // Hz  
-    pub channels: usize,      // 1 = mono, 2 = stereo
-    pub frames: usize,        // total frames (samples.len() / channels)
+    pub sample_rate: u32,
+    pub channels: usize,      // 1 or 2
+    pub frames: usize,
 }
 ```
 
@@ -3353,74 +2634,29 @@ pub struct AudioData {
 **Статус: ✅ РАБОТАЕТ (модель) — 218 LOC**
 
 ```rust
-// core/dream_mixer/src/bus.rs
-pub struct AudioBus {
-    pub id: Uuid,
-    pub name: String,
-    pub input_sources: Vec<BusSource>,
-    pub channel_strip: ChannelStrip,
-}
-
-pub enum BusSource {
-    Track(usize),
-    Bus(Uuid),
-}
+pub struct AudioBus { pub id: Uuid, pub name: String, pub input_sources: Vec<BusSource>, pub channel_strip: ChannelStrip }
+pub enum BusSource { Track(usize), Bus(Uuid) }
 ```
 
-**[🟡 ЗАГЛУШКА]:** Bus routing модель готова, но не подключена к render pipeline.
+**[🟡 ЗАГЛУШКА]:** Not connected to render pipeline.
 
 ---
 
 ## Q114. Как работает Crossfade at loop point?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```rust
-// core/dream_dsp/src/fades.rs
-pub fn apply_crossfade(out: &mut [f32], fade_in: &[f32], fade_out: &[f32], len: usize) {
-    for i in 0..len {
-        let t = i as f32 / len as f32;
-        let curve = t * t * (3.0 - 2.0 * t); // Hermite S-curve
-        out[i] = fade_out[i] * (1.0 - curve) + fade_in[i] * curve;
-    }
-}
-```
-
-S-curve (Hermite smoothstep) — плавный переход без клика.
+**Статус: ✅ РАБОТАЕТ** — Hermite S-curve smoothstep: `t*t*(3-2t)`.
 
 ---
 
 ## Q115. Какие тесты есть для Transport?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```rust
-// core/dream_transport/src/playhead.rs
-#[test] fn advance_increments_position() { ... }
-#[test] fn seek_sets_exact_position() { ... }
-#[test] fn reset_zeroes_position() { ... }
-
-// core/dream_transport/src/loop_region.rs
-#[test] fn wrap_position_loops_correctly() { ... }
-#[test] fn disabled_loop_passes_through() { ... }
-```
+**Статус: ✅ РАБОТАЕТ** — advance, seek, reset (playhead); wrap_position, disabled_loop (loop region).
 
 ---
 
 ## Q116. Как работает MasterTrack metering?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```rust
-// MeteringSnapshot включает master meters:
-pub struct MeteringSnapshot {
-    pub tracks: Vec<(MeterReading, MeterReading)>, // per-track L/R
-    pub master_left: MeterReading,
-    pub master_right: MeterReading,
-}
-```
-
-Master meter обновляется после финального mix в audio callback.
+**Статус: ✅ РАБОТАЕТ** — `MeteringSnapshot { tracks: Vec<(L, R)>, master_left, master_right }`.
 
 ---
 
@@ -3429,22 +2665,11 @@ Master meter обновляется после финального mix в audio
 **Статус: ✅ РАБОТАЕТ**
 
 ```rust
-// core/dream_automation/src/lane.rs
 pub enum AutomationTarget {
-    TrackVolume(usize),        // track index
-    TrackPan(usize),
-    DeviceParameter {
-        track_index: usize,
-        device_slot: Uuid,
-        param_id: String,
-    },
-    SendLevel {
-        track_index: usize,
-        send_index: usize,
-    },
-    MasterVolume,
-    MasterPan,
-    Tempo,
+    TrackVolume(usize), TrackPan(usize),
+    DeviceParameter { track_index, device_slot, param_id },
+    SendLevel { track_index, send_index },
+    MasterVolume, MasterPan, Tempo,
 }
 ```
 
@@ -3452,16 +2677,7 @@ pub enum AutomationTarget {
 
 ## Q118. Какие модели сериализуются через ts-rs?
 
-**Статус: ✅ РАБОТАЕТ**
-
-Все structs с `#[derive(TS)]` + `#[ts(export)]`:
-- `Project`, `Track`, `Clip`, `MasterTrack`
-- `TrackType`, `ClipType`, `TrackColor`
-- `SamplePosition`, `PulseMap`, `TimeSignature`
-- `DeviceSlot`, `DeviceParameter`
-- `PluginDescriptor`, `PluginFormat`, `PluginCategory`
-
-Output: `frontend/shared_bindings/*.ts`
+All with `#[derive(TS)]` + `#[ts(export)]`: Project, Track, Clip, MasterTrack, TrackType, ClipType, TrackColor, SamplePosition, PulseMap, TimeSignature, DeviceSlot, DeviceParameter, PluginDescriptor, PluginFormat, PluginCategory.
 
 ---
 
@@ -3469,15 +2685,7 @@ Output: `frontend/shared_bindings/*.ts`
 
 **Статус: ✅ РАБОТАЕТ — O(visible) вместо O(total)**
 
-```rust
-// dream_models/src/spatial_grid.rs
-// Grid cell = 4096 samples width × 1 track height
-// Query: "give me all clips in viewport [x1..x2, track_min..track_max]"
-// Result: only clips in visible cells, not all clips
-
-// Performance: 1000 clips, 50 visible → query touches ~12 cells
-// vs linear scan touching all 1000 clips
-```
+Grid cell = 4096 samples × 1 track. 1000 clips, 50 visible → queries ~12 cells.
 
 ---
 
@@ -3485,12 +2693,7 @@ Output: `frontend/shared_bindings/*.ts`
 
 **Статус: [🔴 ОТСУТСТВУЕТ]**
 
-Нет benchmark тестов. Рекомендуется:
-- `criterion` для DSP (biquad, fades, resampler)
-- Audio callback latency measurement
-- PeakCache build time для больших файлов
-- Timeline render with 1000+ clips
-
+Рекомендуется: `criterion` для DSP benchmarks, callback latency, PeakCache build, Timeline with 1000+ clips.
 
 
 ---
@@ -3521,7 +2724,7 @@ Output: `frontend/shared_bindings/*.ts`
 
 | # | Компонент | Описание |
 |---|-----------|----------|
-| 1 | Benchmark Tests | Нет criterion/nагрузочных тестов |
+| 1 | Benchmark Tests | Нет criterion/нагрузочных тестов |
 | 2 | Recording | TransportMode::Recording есть, но запись с микрофона — нет |
 | 3 | Bounce/Export | Нет offline render to file |
 | 4 | MIDI Input | Нет MIDI device input (controller support) |
@@ -3538,144 +2741,90 @@ Output: `frontend/shared_bindings/*.ts`
 
 | Модуль | LOC | Completion | Статус |
 |--------|-----|-----------|--------|
-| **Audio Engine** (driver, render_callback) | 817 | 92% | RT playback works, need streaming |
-| **Clip Engine** (pool, scheduler, reader) | 885 | 88% | Working, need streaming decode |
-| **IPC** (commands, metering) | 613 | 95% | Lock-free, atomic, production-ready |
-| **Mixer** (gain, pan, solo, meter, bus, strip) | 1,615 | 85% | Working, bus routing stub |
-| **DSP** (biquad, svf, fades, resampler) | 1,092 | 90% | All tested, production quality |
-| **Transport** (playhead, loop, state) | 793 | 90% | Working with loop wrapping |
-| **Models** (project, mutators, time, grid) | 2,887 | 95% | Full project model with serialization |
-| **Graph** (DAG, PDC, RCU) | 1,057 | 80% | PDC computed but not applied |
-| **I/O** (reader, peaks, project_file, wav) | 870 | 85% | Working, need streaming decode |
-| **Automation** | 757 | 60% | Model ready, not in render pipeline |
-| **Plugins** | 828 | 40% | Scanner only, no hosting |
-| **Renderer** (WebGPU) | 826 | 30% | Types ready, not connected to UI |
-| **Desktop Host** (Tauri) | 2,015 | 90% | 43 commands, undo/redo, settings |
-| **Frontend** | 8,706 | 85% | Full UI, missing automation/MIDI editor |
+| **Audio Engine** | 817 | 92% | RT playback works |
+| **Clip Engine** | 885 | 88% | Working, need streaming |
+| **IPC** | 613 | 95% | Lock-free, production-ready |
+| **Mixer** | 1,615 | 85% | Working, bus routing stub |
+| **DSP** | 1,092 | 90% | All tested |
+| **Transport** | 793 | 90% | Working with loop wrapping |
+| **Models** | 2,887 | 95% | Full with serialization |
+| **Graph** | 1,057 | 80% | PDC computed, not applied |
+| **I/O** | 870 | 85% | Working, need streaming |
+| **Automation** | 757 | 60% | Model only |
+| **Plugins** | 828 | 40% | Scanner only |
+| **Renderer** | 826 | 30% | Types ready |
+| **Desktop Host** | 2,015 | 90% | 43 commands |
+| **Frontend** | 8,706 | 85% | Full UI |
 | **TOTAL** | **24,533** | **~82%** | **Production-viable core** |
 
 ---
 
 ## Q124. Какие security concerns существуют?
 
-**Анализ:**
-
-1. **CSP отключён:** `"csp": null` в tauri.conf.json
-   - ⚠️ Позволяет загрузку произвольных скриптов в WebView
-   - **Рекомендация:** Включить CSP для production build
-
-2. **File access:** Tauri v2 ACL не настроен (по умолчанию ограничен)
-   - Все file операции идут через IPC commands (контролируемо)
-   - ✅ Нет прямого fs доступа из frontend
-
-3. **No remote code:** Приложение полностью offline (нет HTTP запросов)
-   - ✅ Нет API ключей, нет auth, нет network — минимальная attack surface
-
-4. **Path traversal:** `scan_audio_folder` принимает path от frontend
-   - ⚠️ Нет валидации (можно сканировать любую директорию)
-   - **Рекомендация:** Whitelist допустимых корневых директорий
+1. **CSP отключён:** `"csp": null` — рекомендуется включить для production
+2. **File access:** Всё через IPC commands (контролируемо) ✅
+3. **No remote code:** Полностью offline ✅
+4. **Path traversal:** `scan_audio_folder` без валидации — рекомендуется whitelist
 
 ---
 
 ## Q125. Какие performance bottlenecks выявлены?
 
-| # | Bottleneck | Impact | Fix |
-|---|-----------|--------|-----|
-| 1 | `SharedClipSnapshot::load()` uses `Mutex` | Audio thread can block | Replace with `ArcSwap` |
-| 2 | `AudioReader::read()` loads entire file to RAM | Memory spike на больших файлах | Streaming decode |
-| 3 | Full project clone for undo | RAM × 100 (MAX_UNDO_DEPTH) | Diff-based undo |
-| 4 | `clip_pool.try_lock()` in audio thread | Silence on contention | `ArcSwap` for pool access |
-| 5 | PeakCache recomputed on every import | CPU spike | Persist to disk |
-| 6 | Telemetry 60fps polling | CPU overhead | Event-driven push model |
+| # | Bottleneck | Fix |
+|---|-----------|-----|
+| 1 | `SharedClipSnapshot` Mutex | Replace with ArcSwap |
+| 2 | Full file load to RAM | Streaming decode |
+| 3 | Full project clone for undo | Diff-based undo |
+| 4 | `clip_pool.try_lock()` | ArcSwap |
+| 5 | PeakCache recomputation | Persist to disk |
+| 6 | 60fps telemetry polling | Event-driven push |
 
 ---
 
 ## Q126. Какой код quality score?
 
-| Метрика | Значение | Оценка |
-|---------|----------|--------|
-| Тесты | 314 pass, 0 fail | ✅ Отлично |
-| `todo!()` / `unimplemented!()` | 0 | ✅ Чисто |
-| `unwrap()` в production | 0 | ✅ Чисто |
-| Error handling | `Result<T, String>` everywhere | ✅ Консистентно |
-| Lock-free audio path | 95% (1 Mutex remaining) | 🟡 Хорошо |
-| Type safety | Full serde + ts-rs | ✅ Отлично |
-| Code organization | 13 focused crates | ✅ Отлично |
-| Documentation | Minimal doc-comments | 🟡 Нужно больше |
-| Frontend stores | 5 focused Zustand stores | ✅ Чисто |
-| CSS architecture | tokens + glass + reset | ✅ Системно |
+| Метрика | Оценка |
+|---------|--------|
+| Тесты: 314 pass, 0 fail | ✅ |
+| 0 todo!(), 0 unimplemented!() | ✅ |
+| 0 unwrap() в production | ✅ |
+| Lock-free audio: 95% | 🟡 |
+| Code org: 13 crates | ✅ |
+| Doc-comments: minimal | 🟡 |
 
 **Общий балл: 8.2/10**
 
 ---
 
-## Q127. Какие зависимости устарели или имеют уязвимости?
+## Q127. Какие зависимости устарели?
 
-**Статус: ✅ БЕЗОПАСНО — все современные версии**
+**Статус: ✅ БЕЗОПАСНО — все современные версии.**
 
-| Dependency | Version | Latest | Status |
-|-----------|---------|--------|--------|
-| tauri | 2.x | 2.x | ✅ Current |
-| cpal | 0.17 | 0.17 | ✅ Current |
-| symphonia | 0.5 | 0.5 | ✅ Current |
-| rtrb | 0.3 | 0.3 | ✅ Current |
-| rubato | 0.16 | 0.16 | ✅ Current |
-| wgpu | 24 | 24 | ✅ Current |
-| parking_lot | 0.12 | 0.12 | ✅ Current |
-| arc-swap | 1.8 | 1.8 | ✅ Current |
-| serde | 1.0 | 1.0 | ✅ Current |
-| petgraph | 0.8 | 0.8 | ✅ Current |
+tauri 2.x, cpal 0.17, symphonia 0.5, rtrb 0.3, rubato 0.16, wgpu 24, parking_lot 0.12, arc-swap 1.8, serde 1.0, petgraph 0.8.
 
 ---
 
-## Q128. Какой Rust edition используется?
+## Q128. Какой Rust edition?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```toml
-[workspace.package]
-edition = "2024"  # Rust 2024 edition — latest
-```
-
-Rust 2024 edition — самый современный. Требует Rust 1.85+.
+**Статус: ✅** — `edition = "2024"` (latest, requires Rust 1.85+).
 
 ---
 
 ## Q129. Как устроен error propagation?
 
-**Статус: ✅ РАБОТАЕТ — единый паттерн**
-
 ```
-Rust core crates: Result<T, CustomError>
-    ↓ map_err()
-Tauri commands: Result<T, String>
-    ↓ serde serialize
-Frontend engine.ts: Promise<T> (rejection = string error)
-    ↓ catch
-Zustand store: set({ lastError: String(e) })
-    ↓ subscribe
-StatusBar: displays lastError
+Rust core: Result<T, CustomError> → map_err() →
+Tauri commands: Result<T, String> → serde →
+Frontend: Promise<T> → catch →
+Zustand: set({ lastError }) →
+StatusBar: displays error
 ```
-
-Каждый слой преобразует ошибки в строки для UI отображения.
 
 ---
 
 ## Q130. Есть ли logging?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```rust
-// Используется `log` crate + `env_logger`
-// В driver.rs:
-log::error!("Audio stream error: {}", err);
-// В import:
-log::info!("Imported audio: {} ({} frames)", path, frames);
-// В scanner:
-log::debug!("Found plugin: {} at {:?}", desc.name, desc.path);
-```
-
-Уровни: error, warn, info, debug. Включаются через `RUST_LOG=debug`.
+**Статус: ✅** — `log` crate + `env_logger`. Levels: error, warn, info, debug. Activate: `RUST_LOG=debug`.
 
 ---
 
@@ -3683,280 +2832,146 @@ log::debug!("Found plugin: {} at {:?}", desc.name, desc.path);
 
 | Слой | LOC | % |
 |------|-----|---|
-| **Core Rust** (12 crates) | 13,815 | 56% |
-| **Desktop Host** (Tauri shell) | 2,015 | 8% |
-| **Frontend TypeScript/TSX** | 7,527 | 31% |
-| **Frontend CSS** | 1,179 | 5% |
-| **Shared Bindings** | 41 | <1% |
+| Core Rust (12 crates) | 13,815 | 56% |
+| Desktop Host (Tauri) | 2,015 | 8% |
+| Frontend TS/TSX | 7,527 | 31% |
+| Frontend CSS | 1,179 | 5% |
 | **TOTAL** | **24,577** | **100%** |
 
 ---
 
-## Q132. Какие паттерны архитектуры используются?
+## Q132. Какие паттерны архитектуры?
 
-| Паттерн | Где | Описание |
-|---------|-----|----------|
-| **CQRS** | IPC → Engine | Commands (rtrb push) vs Queries (atomic read) |
-| **SPSC** | rtrb ring buffer | Single Producer, Single Consumer |
-| **RCU** | dream_graph | Read-Copy-Update for lock-free reads |
-| **Observer** | Telemetry Loop | 60fps polling = reactive state sync |
-| **Atomic Publish** | Metering | AtomicU32/AtomicBool for lock-free metrics |
-| **MIP Mapping** | PeakCache | Multi-resolution waveform data |
-| **Hermite S-Curve** | Fades | Smooth crossfade without clicks |
-| **Spatial Grid** | SpatialGrid | O(visible) clip lookup |
-| **Feature-Sliced Design** | Frontend | FSD folder structure |
-| **Zustand** | State management | Minimal, focused stores |
+CQRS, SPSC (rtrb), RCU (dream_graph), Observer (telemetry), Atomic Publish (metering), MIP Mapping (peaks), Hermite S-Curve (fades), Spatial Grid, FSD (frontend), Zustand.
 
 ---
 
-## Q133. Какие anti-patterns выявлены?
+## Q133. Какие anti-patterns?
 
-| # | Anti-Pattern | Где | Impact |
-|---|-------------|-----|--------|
-| 1 | Mutex in audio thread | SharedClipSnapshot | Can block audio | 
-| 2 | Full clone for undo | push_undo() | O(n) memory per edit |
-| 3 | String errors | All Tauri commands | No typed error handling |
-| 4 | Manual type sync | engine.ts vs Rust | Types can diverge |
-| 5 | Monolith lib.rs | desktop_host (1995 LOC) | Should be split into modules |
+1. Mutex in audio thread (SharedClipSnapshot)
+2. Full clone for undo
+3. String errors (no typed errors)
+4. Manual type sync (engine.ts vs Rust)
+5. Monolith lib.rs (1995 LOC)
 
 ---
 
 ## Q134. Как протестирован frontend?
 
-**Статус: [🔴 ОТСУТСТВУЕТ]**
-
-Нет unit/integration тестов для frontend. Рекомендуется:
-- Vitest для unit tests (stores, utils, gridSnap)
-- Playwright для E2E (drag-and-drop, playback, import)
+**Статус: [🔴 ОТСУТСТВУЕТ]** — No unit/integration tests. Recommend Vitest + Playwright.
 
 ---
 
-## Q135. Какие API endpoints доступны фронтенду?
+## Q135. Какие API endpoints?
 
-**Ответ: 43 Tauri IPC command (см. Q5)**
-
-Нет HTTP endpoints — всё через Tauri `invoke()`.
+43 Tauri IPC commands. No HTTP endpoints.
 
 ---
 
-## Q136. Как работает hot-reload в dev mode?
+## Q136. Hot-reload?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```json
-// tauri.conf.json
-"beforeDevCommand": "pnpm --filter ui_app dev"
-// Vite HMR на порту 5173
-// cargo tauri dev = Vite hot-reload + Rust rebuild on change
-```
+**Статус: ✅** — `cargo tauri dev` = Vite HMR (port 5173) + Rust rebuild.
 
 ---
 
-## Q137. Какие файлы самые большие и нуждаются в рефакторинге?
+## Q137. Самые большие файлы?
 
 | Файл | LOC | Рекомендация |
 |------|-----|-------------|
-| `lib.rs` (desktop_host) | 1,995 | Split: commands/, state/, handlers/ |
-| `project.rs` (dream_models) | 799 | OK (data model, dense by nature) |
-| `AssetBrowser.tsx` | 815 | Split: BrowserTree, FileList, Preview |
-| `Timeline.tsx` | 722 | Split: Ruler, Grid, ClipLayer, PlayheadLayer |
-| `DeviceRack.tsx` | 725 | Split: DeviceSlot, ParameterView |
+| lib.rs (desktop_host) | 1,995 | Split: commands/, state/ |
+| AssetBrowser.tsx | 815 | Split components |
+| Timeline.tsx | 722 | Split layers |
+| DeviceRack.tsx | 725 | Split components |
 
 ---
 
-## Q138. Как устроена cross-platform compatibility?
-
-**Статус: ✅ РАБОТАЕТ**
+## Q138. Cross-platform?
 
 | Компонент | macOS | Windows | Linux |
 |-----------|-------|---------|-------|
-| Audio (cpal) | CoreAudio | WASAPI | ALSA/PulseAudio |
-| Window (Tauri) | Cocoa | Win32 | GTK |
-| Renderer (wgpu) | Metal | DX12/Vulkan | Vulkan |
-| FS paths | `/Users/...` | `C:\Users\...` | `/home/...` |
-| Keyboard | Cmd (⌘) | Ctrl | Ctrl |
-
-Frontend: `isMac` check для modifier keys.
+| Audio | CoreAudio | WASAPI | ALSA/Pulse |
+| Window | Cocoa | Win32 | GTK |
+| Renderer | Metal | DX12/Vulkan | Vulkan |
+| Keyboard | Cmd(⌘) | Ctrl | Ctrl |
 
 ---
 
-## Q139. Какой UX flow для нового пользователя?
+## Q139. UX flow для нового пользователя?
+
+Launch → Splash (500×500, 3s) → Expand (1400×900) → Empty project "New Dream" → 2 Audio tracks → Telemetry starts → AssetBrowser scans samples → Drag sample → Play.
+
+---
+
+## Q140. Dark/Light mode?
+
+**Статус: ✅ Dark only** (industry standard for DAWs).
+
+---
+
+## Q141. App icon?
+
+**Статус: ✅** — 32, 128, 128@2x, .icns (macOS), .ico (Windows).
+
+---
+
+## Q142. Frontend bundle size?
+
+~150-200 KB gzipped (React 19 + Zustand + Tailwind).
+
+---
+
+## Q143. Локализация?
+
+**[🟡 ЗАГЛУШКА]** — Settings store `language: "en"|"ru"`, but no i18n framework. All strings hardcoded English.
+
+---
+
+## Q144. Accessibility (a11y)?
+
+**[🔴 ОТСУТСТВУЕТ]** — No ARIA labels, no keyboard-only navigation, no screen reader.
+
+---
+
+## Q145. Tauri State management?
+
+**Статус: ✅** — `EngineState` struct with Mutex-wrapped fields, managed via `tauri::State<EngineState>`.
+
+---
+
+## Q146. Thread model?
 
 ```
-1. Launch app → SplashScreen (500×500, animated logo)
-2. 3 seconds → expand_window (1400×900)
-3. DawShell loads → empty project "New Dream"
-4. 2 default Audio tracks created
-5. Telemetry loop starts (60fps state sync)
-6. AssetBrowser → lazily scans ~/Music/DreamDAW/Samples
-7. Demo samples generated if folder empty
-8. User drags sample → Timeline → audio plays
-```
-
----
-
-## Q140. Есть ли dark mode / light mode?
-
-**Статус: ✅ Dark mode only (by design)**
-
-DAW apps традиционно используют тёмную тему. tokens.css определяет:
-```css
---color-bg-canvas: #0e0e12;  /* почти чёрный */
-```
-
-Светлая тема **не планируется** (стандарт индустрии).
-
----
-
-## Q141. Как устроена иконка приложения?
-
-**Статус: ✅ РАБОТАЕТ**
-
-```json
-"icon": [
-    "icons/32x32.png",
-    "icons/128x128.png",
-    "icons/128x128@2x.png",
-    "icons/icon.icns",  // macOS
-    "icons/icon.ico"    // Windows
-]
-```
-
----
-
-## Q142. Какой размер frontend bundle?
-
-**Статус: ✅ ОПТИМИЗИРОВАН**
-
-Vite build: `target: "esnext"`, `outDir: "dist"`.
-React 19 + Zustand + Tailwind = ~150-200 KB gzipped (estimated).
-
----
-
-## Q143. Как устроена локализация?
-
-**Статус: [🟡 ЗАГЛУШКА]**
-
-Settings хранят `language: "en" | "ru"`, но i18n framework не подключён.
-Все строки в UI — hardcoded English.
-
----
-
-## Q144. Есть ли accessibility (a11y)?
-
-**Статус: [🔴 ОТСУТСТВУЕТ]**
-
-Нет ARIA labels, нет keyboard-only navigation (кроме shortcuts), нет screen reader support.
-
----
-
-## Q145. Как устроен Tauri State management?
-
-**Статус: ✅ РАБОТАЕТ**
-
-```rust
-// apps/desktop_host/src/lib.rs
-pub struct EngineState {
-    project: Mutex<Project>,
-    settings: Mutex<AppSettings>,
-    undo_state: Mutex<UndoState>,
-    cmd_producer: Mutex<rtrb::Producer<EngineCommand>>,
-    clip_pool: Arc<Mutex<ClipPool>>,
-    clip_snapshot: SharedClipSnapshot,
-    peak_caches: Mutex<HashMap<String, PeakCache>>,
-    recent_projects: Mutex<Vec<String>>,
-    current_file: Mutex<Option<String>>,
-    is_dirty: Mutex<bool>,
-    engine_state: Arc<SharedEngineState>,
-    _stream: Mutex<Option<cpal::Stream>>,
-    preview_producer: Mutex<Option<rtrb::Producer<EngineCommand>>>,
-}
-```
-
-Managed state через `tauri::State<EngineState>` — доступен во всех commands.
-
----
-
-## Q146. Какой thread model?
-
-```
-┌─────────────────────────────────────────────┐
-│ Main Thread (Tauri/UI)                      │
-│ - Handles IPC commands                       │
-│ - Manages Project state (Mutex<Project>)     │
-│ - Pushes commands to rtrb Producer           │
-│ - Reads AtomicU32 meters (lock-free)         │
-├─────────────────────────────────────────────┤
-│ WebView Thread (React/Vite)                  │
-│ - Renders UI                                 │
-│ - Sends invoke() to Main Thread              │
-│ - Polls telemetry at 60fps via RAF           │
-├─────────────────────────────────────────────┤
-│ Audio Thread (cpal callback)                 │
-│ - Drains rtrb commands (wait-free)           │
-│ - Renders audio via RenderContext            │
-│ - Writes AtomicU32 meters (lock-free)        │
-│ - ZERO ALLOCATIONS, ZERO LOCKS (target)      │
-└─────────────────────────────────────────────┘
+Main Thread (Tauri): IPC commands, Mutex<Project>, rtrb Producer, AtomicU32 reads
+WebView Thread (React): UI render, invoke(), 60fps RAF polling
+Audio Thread (cpal): rtrb drain, RenderContext, AtomicU32 writes, ZERO ALLOC target
 ```
 
 ---
 
-## Q147. Какой sample rate / bit depth по умолчанию?
+## Q147. Default sample rate / bit depth?
 
-**Статус: ✅ РАБОТАЕТ**
-
-```rust
-// Default project:
-sample_rate: 44100,
-bit_depth: 32,      // 32-bit float internal processing
-```
-
-Поддержка: 44100, 48000, 96000 Hz (configurable в Settings).
+**Статус: ✅** — 44100 Hz, 32-bit float. Supports 48000, 96000.
 
 ---
 
-## Q148. Как расширить проект новым Tauri command?
+## Q148. How to add a new Tauri command?
 
-**Шаблон:**
-
-```rust
-// 1. Rust: apps/desktop_host/src/lib.rs
-#[tauri::command]
-fn my_new_command(arg: String, state: State<EngineState>) -> Result<MyResponse, String> {
-    // implementation
-}
-
-// 2. Register in .invoke_handler()
-.invoke_handler(tauri::generate_handler![
-    // ... existing commands ...
-    my_new_command,
-])
-
-// 3. Frontend: shared/api/engine.ts
-export const myNewCommand = (arg: string) =>
-    invoke<MyResponse>('my_new_command', { arg });
-
-// 4. Store: shared/stores/useEngineStore.ts
-myNewAction: async (arg: string) => {
-    try {
-        const result = await engine.myNewCommand(arg);
-        set({ /* update state */ });
-    } catch (e) { set({ lastError: String(e) }); }
-},
-```
+1. Rust: `#[tauri::command] fn my_cmd(state: State<EngineState>) -> Result<T, String>`
+2. Register in `.invoke_handler(tauri::generate_handler![..., my_cmd])`
+3. Frontend: `export const myCmd = () => invoke<T>('my_cmd')`
+4. Store: `myAction: async () => { try { await engine.myCmd(); } catch(e) { ... } }`
 
 ---
 
-## Q149. Какие TOP-5 приоритетных задач?
+## Q149. TOP-5 приоритетных задач?
 
 | # | Задача | Impact | Сложность |
 |---|--------|--------|-----------|
-| **1** | Replace `Mutex` with `ArcSwap` in SharedClipSnapshot | Eliminate RT audio blocking | LOW |
-| **2** | Streaming audio decode (не грузить весь файл в RAM) | Support large files (>100MB) | MEDIUM |
-| **3** | Integrate Automation into render callback | Enable parameter automation | MEDIUM |
-| **4** | Plugin hosting (VST3/CLAP load + process) | Core DAW feature | HIGH |
-| **5** | Split lib.rs into modules | Code maintainability | LOW |
+| 1 | ArcSwap для SharedClipSnapshot | Eliminate RT blocking | LOW |
+| 2 | Streaming audio decode | Support large files | MEDIUM |
+| 3 | Automation в render callback | Parameter automation | MEDIUM |
+| 4 | Plugin hosting (VST3/CLAP) | Core DAW feature | HIGH |
+| 5 | Split lib.rs into modules | Maintainability | LOW |
 
 ---
 
@@ -3965,37 +2980,32 @@ myNewAction: async (arg: string) => {
 ### Архитектура
 - **13 Rust crates** (15,827 LOC) + **1 Tauri shell** (2,015 LOC) + **Frontend** (8,706 LOC)
 - **Общий объём: ~24,577 строк кода**
-- **Workspace** с shared dependencies, resolver = "3", edition = "2024"
+- **Workspace:** resolver = "3", edition = "2024"
 - **Release profile:** LTO fat, codegen-units=1, strip, panic=abort
 
 ### Качество кода
 - **314 тестов, 0 failures**
 - **0 todo!(), 0 unimplemented!(), 0 unwrap() в production**
-- **43 Tauri IPC commands** — все типизированы, все с error handling
-- **35 typed IPC wrappers** в engine.ts
-- **5 Zustand stores** — каждый с конкретной ответственностью
+- **43 Tauri IPC commands** — типизированы, с error handling
+- **5 Zustand stores**, **35 typed IPC wrappers**
 
 ### Real-Time Safety
-- **Lock-free metering** (AtomicU32 + AtomicBool)
-- **SPSC ring buffer** (rtrb) для UI→Audio commands
-- **Pre-allocated scratch buffers** в RenderContext
-- **Gain ramping** для click-free volume changes
-- **S-curve crossfades** для бесшовных loop points
-- **⚠️ 1 Mutex осталась** (SharedClipSnapshot) — требует замены на ArcSwap
+- Lock-free metering (AtomicU32 + AtomicBool)
+- SPSC ring buffer (rtrb) для UI→Audio
+- Pre-allocated scratch buffers
+- Gain ramping + S-curve crossfades
+- ⚠️ 1 Mutex remains (SharedClipSnapshot)
 
 ### Frontend
-- **React 19 + TypeScript + Vite + Zustand + Tailwind v4**
-- **Feature-Sliced Design** (FSD) folder structure
-- **Canvas waveform** с multi-resolution MIP levels
-- **Custom drag-and-drop** (не HTML5 DnD — несовместим с Tauri WebView)
-- **60fps telemetry loop** с throttled metering (30fps)
-- **"Liquid Glass" dark theme** с CSS tokens + glassmorphism
+- React 19 + TypeScript + Vite + Zustand + Tailwind v4
+- FSD structure, Canvas waveform, custom DnD, 60fps telemetry
+- "Liquid Glass" dark theme
 
-### Компоненты готовности
+### Готовность
 | Статус | Количество |
 |--------|-----------|
-| ✅ РАБОТАЕТ | 125 из 150 (83%) |
-| 🟡 ЗАГЛУШКА / ХАРДКОД | 17 (11%) |
+| ✅ РАБОТАЕТ | 125/150 (83%) |
+| 🟡 ЗАГЛУШКА | 17 (11%) |
 | 🔴 ОТСУТСТВУЕТ | 8 (6%) |
 
 ### Enterprise Readiness: **82%**

@@ -214,8 +214,6 @@ pub fn start_audio_thread(
                         EngineCommand::SetPlay(play) => {
                             is_playing = play;
                             render_ctx.playhead.set_advancing(play);
-                            eprintln!("[Driver] SetPlay({play}) playhead={}",
-                                render_ctx.playhead.position());
                             if !play {
                                 test_tone_phase = 0.0;
                                 test_tone_enabled = false;
@@ -327,9 +325,7 @@ pub fn start_audio_thread(
 
                             render_ctx.render(data, &clips_refs, &pool_guard);
                         } else {
-                            // Pool is locked by UI thread (inserting) — output silence this buffer
                             data.fill(0.0);
-                            eprintln!("[Driver] ClipPool locked — silence this buffer");
                         }
                     } else if test_tone_enabled {
                         // Test tone fallback (no clips loaded)
@@ -354,24 +350,6 @@ pub fn start_audio_thread(
                     } else {
                         // No clips, no test tone → silence
                         data.fill(0.0);
-                    }
-
-                    // Periodic diagnostic: once per ~0.5 seconds log the playback state
-                    {
-                        static DIAG_CTR: std::sync::atomic::AtomicU64 =
-                            std::sync::atomic::AtomicU64::new(0);
-                        let cur = DIAG_CTR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let buffers_per_half_sec =
-                            (sample_rate_f64 / frame_count as f64 / 2.0) as u64;
-                        if buffers_per_half_sec > 0 && cur % buffers_per_half_sec == 0 {
-                            let total: usize = snapshot.iter().map(|v| v.len()).sum();
-                            let playhead = render_ctx.playhead.position();
-                            let clock_pos = clock.position();
-                            eprintln!(
-                                "[Driver] PLAYING playhead={} clock={} tracks={} total_clips={} has_clips={}",
-                                playhead, clock_pos, snapshot.len(), total, has_clips
-                            );
-                        }
                     }
                 }
 

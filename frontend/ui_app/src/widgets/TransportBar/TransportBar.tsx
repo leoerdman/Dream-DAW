@@ -1,17 +1,18 @@
 import { useState, useRef, useCallback } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useGridStore } from '@/shared/stores/useGridStore';
+import { FileMenu } from '@/widgets/FileMenu/FileMenu';
 
 /**
  * TransportBar — Full Ableton-style top control bar.
  * 
  * Layout (from TransportBarView.swift):
- * [Tap | BPM | TimeSig | Quantize] | [◀ ▶ ■ ● Rec] | [Loop] | [Key On/Off | Note | Mode] | [Position] ... [MIDI] [CPU]
+ * [File | Tap | BPM | TimeSig | Quantize] | [◀ ▶ ■ ● Rec] | [Loop] | [Key On/Off | Note | Mode] | [Position] ... [MIDI] [CPU]
  *
  * Height: 32px (controlBarHeight from DreamTheme.swift)
  * Background: bgElevated with bottom divider
  */
 
-const QUANTIZE_VALUES = ['1/4', '1/8', '1/16', '1/32', '1/4T', '1/8T', '1/16T', 'OFF'] as const;
 const KEY_TONICS = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'] as const;
 const KEY_MODES = ['Major', 'Minor', 'Dorian', 'Mixolydian', 'Phrygian', 'Lydian'] as const;
 
@@ -42,8 +43,11 @@ export const TransportBar = ({ onSettingsClick }: TransportBarProps) => {
     const [timeSigNum] = useState(4);
     const [timeSigDen] = useState(4);
 
-    // Quantize
-    const [quantizeIdx, setQuantizeIdx] = useState(0);
+    // Quantize — from global grid store
+    const gridDivision = useGridStore((s) => s.division);
+    const gridTriplet = useGridStore((s) => s.triplet);
+    const cycleDivision = useGridStore((s) => s.cycleDivision);
+    const setGridTriplet = useGridStore((s) => s.setTriplet);
 
     // Key signature
     const [keyEnabled, setKeyEnabled] = useState(false);
@@ -96,7 +100,18 @@ export const TransportBar = ({ onSettingsClick }: TransportBarProps) => {
         setBpmEditing(false);
     };
 
-    const cycleQuantize = () => setQuantizeIdx(i => (i + 1) % QUANTIZE_VALUES.length);
+    const quantizeLabel = gridTriplet ? `${gridDivision}T` : gridDivision;
+    const cycleQuantize = () => {
+        // Cycle: 1/4 → 1/4T → 1/8 → 1/8T → 1/16 → 1/16T → 1/32 → OFF → 1/4
+        if (gridDivision !== 'OFF' && gridDivision !== '1/1' && gridDivision !== '1/2' && gridDivision !== '1/32' && !gridTriplet) {
+            setGridTriplet(true);
+        } else if (gridTriplet) {
+            setGridTriplet(false);
+            cycleDivision();
+        } else {
+            cycleDivision();
+        }
+    };
     const cycleKeyTonic = () => setKeyTonic(i => (i + 1) % KEY_TONICS.length);
     const cycleKeyMode = () => setKeyMode(i => (i + 1) % KEY_MODES.length);
 
@@ -111,6 +126,13 @@ export const TransportBar = ({ onSettingsClick }: TransportBarProps) => {
                 fontSize: 'var(--font-size-xs)',
             }}
         >
+            {/* ── FILE MENU ── */}
+            <Section>
+                <FileMenu />
+            </Section>
+
+            <Divider />
+
             {/* ── LEFT: Tap + BPM + TimeSig + Quantize ── */}
             <Section>
                 <ControlButton label="Tap" onClick={handleTapTempo} />
@@ -164,9 +186,9 @@ export const TransportBar = ({ onSettingsClick }: TransportBarProps) => {
                 </span>
 
                 <ControlButton
-                    label={QUANTIZE_VALUES[quantizeIdx]}
+                    label={quantizeLabel}
                     onClick={cycleQuantize}
-                    dimmed={quantizeIdx === QUANTIZE_VALUES.length - 1}
+                    dimmed={gridDivision === 'OFF'}
                 />
             </Section>
 

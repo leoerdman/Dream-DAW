@@ -21,21 +21,24 @@ interface StatusBarProps {
 export const StatusBar = ({
     projectEnd = '48.1.00',
     duration = '2:28.430',
-    trackCount = 9,
 }: StatusBarProps) => {
     // Live engine data
     const isPlaying = useEngineStore((s) => s.transport.is_playing);
     const positionSeconds = useEngineStore((s) => s.transport.position_seconds);
     const bpm = useEngineStore((s) => s.transport.bpm);
     const connected = useEngineStore((s) => s.connected);
+    const projectSampleRate = useEngineStore((s) => s.projectSampleRate);
+    const projectTracks = useEngineStore((s) => s.projectTracks);
+
+    // Live values from engine store
+    const sampleRate = projectSampleRate || 44100;
+    const trackCount = projectTracks.length;
 
     // Compute bar.beat.sub from live playhead
     const bar = Math.floor((positionSeconds / 60) * bpm / 4) + 1;
     const beat = Math.floor(((positionSeconds / 60) * bpm) % 4) + 1;
     const sub = Math.floor((((positionSeconds / 60) * bpm) % 1) * 96);
     const position = `${bar}.${beat}.${sub.toString().padStart(2, '0')}`;
-
-    const sampleRate = 44100; // TODO: read from engine state when available
 
     return (
         <div style={{

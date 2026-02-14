@@ -54,6 +54,8 @@ fn main() {
         meter_for_audio,
         clip_pool,
         clip_snapshot,
+        Arc::new(std::sync::Mutex::new(None)), // preview buffer (unused in standalone)
+        Arc::new(std::sync::atomic::AtomicUsize::new(0)), // preview cursor
     ) {
         Ok(handle) => {
             log::info!("✅ Audio driver initialized");

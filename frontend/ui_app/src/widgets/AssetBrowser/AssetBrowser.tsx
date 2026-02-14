@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import * as engineApi from '@/shared/api/engine';
-import type { AudioFileEntry } from '@/shared/api/engine';
+import type { AudioFileEntry, PeakPair } from '@/shared/api/engine';
+import { useDragStore } from '@/shared/stores/useDragStore';
 
 /**
  * AssetBrowser — Ableton-style two-pane vertical-split sidebar browser.
@@ -152,6 +153,11 @@ export const AssetBrowser = () => {
     const [previewEnabled, setPreviewEnabled] = useState(true);
     const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
+    // Preview waveform state
+    const [previewPeaks, setPreviewPeaks] = useState<PeakPair[] | null>(null);
+    const [previewFileName, setPreviewFileName] = useState<string>('');
+    const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+
     const searchRef = useRef<HTMLInputElement>(null);
 
     // Keyboard shortcut
@@ -192,20 +198,28 @@ export const AssetBrowser = () => {
         let cancelled = false;
 
         // Defer IPC briefly to avoid blocking initial render
-        // Note: requestIdleCallback is NOT available in WKWebView (Tauri/Safari)
         const timerId = setTimeout(() => {
             if (cancelled) return;
             setScanLoading(true);
             setScanError(null);
 
-            // Chain: get path → scan folder
-            engineApi.getSamplesPath()
+            // Chain: generate demo samples (idempotent) → get path → scan folder
+            engineApi.generateDemoSamples()
+                .catch(err => {
+                    console.warn('[AssetBrowser] Demo sample generation skipped:', err);
+                })
+                .then(() => {
+                    if (cancelled) return Promise.reject('cancelled');
+                    return engineApi.getSamplesPath();
+                })
                 .then(path => {
                     if (cancelled) return Promise.reject('cancelled');
                     return engineApi.scanAudioFolder(path);
                 })
                 .then(files => {
                     if (!cancelled) {
+                        console.log('[AssetBrowser] Scan complete:', files.length, 'files found');
+                        files.forEach(f => console.log('  -', f.name, f.path));
                         setRealFiles(files);
                         setScanLoading(false);
                     }
@@ -222,6 +236,8 @@ export const AssetBrowser = () => {
         return () => {
             cancelled = true;
             clearTimeout(timerId);
+            // Reset ref so React StrictMode re-mount can trigger scan again
+            scanTriggeredRef.current = false;
         };
     }, [isSamplesCategory]);
 
@@ -476,40 +492,64 @@ export const AssetBrowser = () => {
                             return (
                                 <div
                                     key={item.id}
-                                    draggable={isAudio}
-                                    onClick={() => setSelectedItemId(item.id)}
-                                    onDragStart={(e) => {
-                                        if (!isAudio) return;
-                                        // Mark as in-app drag so DawShell doesn't show Tauri overlay
-                                        (window as any).__dreamInAppDrag = true;
-                                        // Set drag data for Timeline drop zone
-                                        e.dataTransfer.effectAllowed = 'copy';
-                                        e.dataTransfer.setData('application/x-dream-browser-item', JSON.stringify({
-                                            id: item.id,
-                                            name: item.name,
-                                            type: item.type,
-                                            path: item.path || '',
-                                        }));
-                                        e.dataTransfer.setData('text/plain', item.name);
-
-                                        // Custom drag ghost
-                                        const ghost = document.createElement('div');
-                                        ghost.textContent = `🎵 ${item.name}`;
-                                        ghost.style.cssText = `
-                                            position: fixed; top: -100px; left: -100px;
-                                            padding: 4px 10px; border-radius: 4px;
-                                            background: var(--color-accent-primary);
-                                            color: #fff; font-size: 11px; font-weight: 600;
-                                            font-family: var(--font-mono);
-                                            white-space: nowrap; pointer-events: none;
-                                            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-                                        `;
-                                        document.body.appendChild(ghost);
-                                        e.dataTransfer.setDragImage(ghost, 0, 0);
-                                        requestAnimationFrame(() => document.body.removeChild(ghost));
+                                    onClick={() => {
+                                        setSelectedItemId(prev => {
+                                            const newId = prev === item.id ? null : item.id;
+                                            // Audio preview
+                                            if (previewEnabled && isAudio && item.path && newId) {
+                                                setIsPreviewPlaying(true);
+                                                setPreviewFileName(item.name);
+                                                engineApi.previewAudioFile(item.path)
+                                                    .catch(err => {
+                                                        console.warn('[Preview]', err);
+                                                        setIsPreviewPlaying(false);
+                                                    });
+                                                // Fetch waveform peaks for preview panel
+                                                engineApi.getWaveformPeaks(item.path)
+                                                    .then(peaks => {
+                                                        // Use the coarsest mip level for the small preview
+                                                        const level = peaks.mip_levels[peaks.mip_levels.length - 1];
+                                                        setPreviewPeaks(level?.peaks ?? null);
+                                                    })
+                                                    .catch(() => setPreviewPeaks(null));
+                                            } else {
+                                                engineApi.stopPreview().catch(() => { });
+                                                setIsPreviewPlaying(false);
+                                                setPreviewPeaks(null);
+                                                setPreviewFileName('');
+                                            }
+                                            return newId;
+                                        });
                                     }}
-                                    onDragEnd={() => {
-                                        (window as any).__dreamInAppDrag = false;
+                                    onMouseDown={(e) => {
+                                        // Store-based drag: start tracking on mousedown
+                                        // (HTML5 DnD doesn't work in Tauri WebView)
+                                        if (!isAudio || !item.path || e.button !== 0) return;
+
+                                        const startX = e.clientX;
+                                        const startY = e.clientY;
+                                        const DRAG_THRESHOLD = 5; // px before confirming drag
+                                        let dragStarted = false;
+
+                                        const onMove = (me: MouseEvent) => {
+                                            const dx = me.clientX - startX;
+                                            const dy = me.clientY - startY;
+                                            if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+                                                dragStarted = true;
+                                                useDragStore.getState().startDrag({
+                                                    id: item.id,
+                                                    name: item.name,
+                                                    type: 'audio',
+                                                    path: item.path!,
+                                                });
+                                            }
+                                        };
+                                        const onUp = () => {
+                                            window.removeEventListener('mousemove', onMove);
+                                            window.removeEventListener('mouseup', onUp);
+                                        };
+                                        window.addEventListener('mousemove', onMove);
+                                        window.addEventListener('mouseup', onUp);
                                     }}
                                     style={{
                                         display: 'flex',
@@ -554,34 +594,94 @@ export const AssetBrowser = () => {
                 </div>
             </div>
 
-            {/* ── Footer: Count + Preview ────────── */}
+            {/* ── Footer: Preview Panel ────────── */}
             <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '4px 8px',
                 borderTop: '1px solid var(--color-divider)',
                 background: 'var(--color-bg-header)',
-                fontSize: 'var(--font-size-2xs)',
-                color: 'var(--color-text-tertiary)',
             }}>
-                <span>{items.length} items</span>
+                {/* Waveform Preview Area */}
+                {previewEnabled && isPreviewPlaying && previewPeaks && (
+                    <div style={{
+                        padding: '4px 8px 2px',
+                    }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: 2,
+                        }}>
+                            <span style={{
+                                fontSize: 9,
+                                color: 'var(--color-text-secondary)',
+                                fontWeight: 500,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                maxWidth: '70%',
+                            }}>
+                                ▶ {previewFileName}
+                            </span>
+                            <button
+                                onClick={() => {
+                                    engineApi.stopPreview().catch(() => { });
+                                    setIsPreviewPlaying(false);
+                                    setPreviewPeaks(null);
+                                    setPreviewFileName('');
+                                    setSelectedItemId(null);
+                                }}
+                                style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: 'var(--color-text-tertiary)',
+                                    cursor: 'pointer',
+                                    fontSize: 10,
+                                    padding: '0 2px',
+                                }}
+                                title="Stop preview"
+                            >
+                                ■
+                            </button>
+                        </div>
+                        <PreviewWaveform peaks={previewPeaks} height={48} />
+                    </div>
+                )}
 
-                <button
-                    onClick={() => setPreviewEnabled(!previewEnabled)}
-                    title="Toggle Preview"
-                    style={{
-                        background: previewEnabled ? 'var(--color-accent-primary-dim)' : 'transparent',
-                        border: 'none',
-                        color: previewEnabled ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
-                        borderRadius: 'var(--radius-xs)',
-                        padding: '2px 6px',
-                        cursor: 'pointer',
-                        fontSize: 'var(--font-size-2xs)',
-                    }}
-                >
-                    🎧 Preview
-                </button>
+                {/* Footer bar: count + toggle */}
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '4px 8px',
+                    fontSize: 'var(--font-size-2xs)',
+                    color: 'var(--color-text-tertiary)',
+                }}>
+                    <span>{items.length} items</span>
+
+                    <button
+                        onClick={() => {
+                            const next = !previewEnabled;
+                            setPreviewEnabled(next);
+                            if (!next) {
+                                engineApi.stopPreview().catch(() => { });
+                                setIsPreviewPlaying(false);
+                                setPreviewPeaks(null);
+                                setPreviewFileName('');
+                            }
+                        }}
+                        title="Toggle Preview"
+                        style={{
+                            background: previewEnabled ? 'var(--color-accent-primary-dim)' : 'transparent',
+                            border: 'none',
+                            color: previewEnabled ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
+                            borderRadius: 'var(--radius-xs)',
+                            padding: '2px 6px',
+                            cursor: 'pointer',
+                            fontSize: 'var(--font-size-2xs)',
+                        }}
+                    >
+                        🎧 Preview
+                    </button>
+                </div>
             </div>
         </div>
     );
@@ -631,3 +731,85 @@ const FilterPill = ({
         {options[value]}
     </button>
 );
+
+// ── Preview Waveform Canvas ──────────────────────────
+
+/** Canvas-rendered waveform for the browser preview panel. */
+const PreviewWaveform = ({ peaks, height = 48 }: { peaks: PeakPair[]; height?: number }) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        const container = containerRef.current;
+        if (!canvas || !container || peaks.length === 0) return;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        // Measure real pixel width
+        const rect = container.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const w = Math.floor(rect.width);
+        const h = height;
+
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
+        ctx.scale(dpr, dpr);
+
+        // Clear
+        ctx.clearRect(0, 0, w, h);
+
+        // Background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.beginPath();
+        ctx.roundRect(0, 0, w, h, 4);
+        ctx.fill();
+
+        // Center line
+        const mid = h / 2;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(0, mid);
+        ctx.lineTo(w, mid);
+        ctx.stroke();
+
+        // Draw peaks as vertical bars
+        const peakCount = peaks.length;
+        const barWidth = w / peakCount;
+
+        // Gradient for the waveform
+        const gradient = ctx.createLinearGradient(0, 0, 0, h);
+        gradient.addColorStop(0, 'rgba(74, 158, 255, 0.9)');
+        gradient.addColorStop(0.45, 'rgba(74, 158, 255, 0.6)');
+        gradient.addColorStop(0.55, 'rgba(74, 158, 255, 0.6)');
+        gradient.addColorStop(1, 'rgba(74, 158, 255, 0.9)');
+        ctx.fillStyle = gradient;
+
+        for (let i = 0; i < peakCount; i++) {
+            const { min, max } = peaks[i];
+            const x = i * barWidth;
+            // Map [-1, 1] to [h, 0]
+            const yMax = mid - max * mid;
+            const yMin = mid - min * mid;
+            const barH = Math.max(1, yMin - yMax);
+            ctx.fillRect(x, yMax, Math.max(0.8, barWidth - 0.3), barH);
+        }
+    }, [peaks, height]);
+
+    return (
+        <div ref={containerRef} style={{ width: '100%', overflow: 'hidden', borderRadius: 4 }}>
+            <canvas
+                ref={canvasRef}
+                style={{
+                    display: 'block',
+                    width: '100%',
+                    height,
+                }}
+            />
+        </div>
+    );
+};

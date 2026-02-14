@@ -17,6 +17,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+pub mod mutators;
 pub mod project;
 pub mod pulse_map;
 pub mod spatial_grid;

@@ -35,12 +35,19 @@ export interface TimelineClip {
     type: 'audio' | 'midi';
     color: string;
     selected?: boolean;
+    /** Absolute path to source audio file (for waveform rendering). */
+    filePath?: string;
+    /** Duration in samples (for waveform rendering). */
+    durationSamples?: number;
+    /** Source offset in samples (for trimmed clips). */
+    sourceOffset?: number;
 }
 
 /** Track info from Rust project. */
 export interface ProjectTrack {
     id: string;
     name: string;
+    track_type: string; // "Audio" | "Midi" | "Group" | "Master" (from Rust TrackType)
     color: string;
     volume: number;
     pan: number;
@@ -135,8 +142,14 @@ interface EngineStore {
     /** Track control: solo/unsolo. */
     setTrackSolo: (trackIndex: number, soloed: boolean) => Promise<void>;
 
-    /** Import an audio file onto a track. */
-    importFile: (path: string, trackIndex: number) => Promise<ImportAudioResponse | null>;
+    /** Add a new track to the project. */
+    addTrack: (name?: string) => Promise<void>;
+
+    /** Import an audio file onto a track, optionally at a specific position. */
+    importFile: (path: string, trackIndex: number, positionFrames?: number) => Promise<ImportAudioResponse | null>;
+
+    /** Create an empty MIDI clip on a track at a given position. */
+    createMidiClip: (trackIndex: number, positionFrames: number, durationFrames: number) => Promise<void>;
 
     /** Fetch project state from Rust and convert to timeline format. */
     fetchProject: () => Promise<void>;
@@ -317,9 +330,19 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     // ── Audio Import ───────────────────────────────────────────────────
 
-    importFile: async (path: string, trackIndex: number) => {
+    addTrack: async (name?: string) => {
         try {
-            const response = await engine.importAudioFile(path, trackIndex);
+            await engine.addTrack(name);
+            await get().fetchProject();
+            set({ lastError: null });
+        } catch (e) {
+            set({ lastError: String(e) });
+        }
+    },
+
+    importFile: async (path: string, trackIndex: number, positionFrames?: number) => {
+        try {
+            const response = await engine.importAudioFile(path, trackIndex, positionFrames);
             console.log(
                 `[Engine] Imported '${response.clip_name}' → track ${trackIndex} (${response.duration_seconds.toFixed(1)}s)`,
             );
@@ -334,6 +357,20 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         }
     },
 
+    createMidiClip: async (trackIndex: number, positionFrames: number, durationFrames: number) => {
+        try {
+            const response = await engine.createMidiClip(trackIndex, positionFrames, durationFrames);
+            console.log(
+                `[Engine] Created MIDI clip '${response.clip_name}' → track ${trackIndex} @ frame ${positionFrames}`,
+            );
+            await get().fetchProject();
+        } catch (err) {
+            const msg = `Create MIDI clip failed: ${err}`;
+            console.error(`[Engine] ${msg}`);
+            set({ lastError: msg });
+        }
+    },
+
     // ── Project Sync ───────────────────────────────────────────────────
 
     fetchProject: async () => {
@@ -342,6 +379,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 tracks: Array<{
                     id: string;
                     name: string;
+                    track_type: string;
                     color: unknown;
                     volume: number;
                     pan: number;
@@ -350,8 +388,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     clips: Array<{
                         id: string;
                         name: string;
+                        file_path: string;
                         position: { sample_frame: number };
                         duration: { sample_frame: number };
+                        source_offset: { sample_frame: number };
                         color_override: unknown;
                     }>;
                 }>;
@@ -373,6 +413,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 projectTracks.push({
                     id: track.id,
                     name: track.name,
+                    track_type: track.track_type || 'Audio',
                     color: resolveTrackColor(track.color),
                     volume: track.volume,
                     pan: track.pan,
@@ -391,10 +432,13 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         trackIndex: trackIdx,
                         startBeat: posSeconds * beatsPerSecond,
                         durationBeats: durSeconds * beatsPerSecond,
-                        type: 'audio',
+                        type: clip.file_path ? 'audio' : 'midi',
                         color: resolveTrackColor(clip.color_override) !== '#667788'
                             ? resolveTrackColor(clip.color_override)
                             : trackColor,
+                        filePath: clip.file_path,
+                        durationSamples: clip.duration.sample_frame,
+                        sourceOffset: clip.source_offset?.sample_frame ?? 0,
                     });
                 }
             }

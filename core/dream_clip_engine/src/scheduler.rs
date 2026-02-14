@@ -28,6 +28,14 @@ pub struct ActiveClip<'a> {
 
     /// Number of frames to read from this clip in this buffer.
     pub frames_to_read: usize,
+
+    /// `true` when this buffer contains the clip's first audio frame.
+    /// Used by the render callback to apply a Hann fade-in (anti-click).
+    pub is_clip_head: bool,
+
+    /// `true` when this buffer contains the clip's last audio frame.
+    /// Used by the render callback to apply a Hann fade-out (anti-click).
+    pub is_clip_tail: bool,
 }
 
 /// Schedules clips for playback based on the current playhead position.
@@ -84,11 +92,21 @@ impl ClipScheduler {
             let source_start_frame = clip.source_offset.sample_frame
                 + (intersect_start - clip_start);
 
+            // Clip boundary detection for micro-fade application:
+            // - is_clip_head: the clip's first audio frame is in this buffer
+            //   (i.e. we're reading from the very start of the clip's source region)
+            // - is_clip_tail: the clip's last audio frame is in this buffer
+            //   (i.e. the clip ends before the buffer window ends)
+            let is_clip_head = intersect_start == clip_start;
+            let is_clip_tail = intersect_end == clip_end;
+
             active.push(ActiveClip {
                 clip,
                 source_start_frame,
                 buffer_offset,
                 frames_to_read,
+                is_clip_head,
+                is_clip_tail,
             });
         }
 

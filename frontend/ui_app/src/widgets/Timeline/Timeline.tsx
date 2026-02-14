@@ -1,4 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { ClipRenderer } from './ClipRenderer';
+import { useGridStore } from '@/shared/stores/useGridStore';
+import { computeGridLines } from '@/shared/lib/gridSnap';
 
 /**
  * Timeline — Central arrangement canvas with ruler, grid, clips, and playhead.
@@ -28,6 +31,12 @@ export interface TimelineClip {
     type: 'audio' | 'midi';
     color: string;
     selected?: boolean;
+    /** Absolute path to source audio file (for waveform rendering). */
+    filePath?: string;
+    /** Duration in samples (for waveform rendering). */
+    durationSamples?: number;
+    /** Source offset in samples (for trimmed clips). */
+    sourceOffset?: number;
 }
 
 /** Data transferred when dragging from AssetBrowser. */
@@ -55,69 +64,14 @@ interface TimelineProps {
     onClipMove?: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
     /** Called when an item is dropped from the AssetBrowser. */
     onDropBrowserItem?: (item: BrowserDragItem, trackIndex: number, beat: number) => void;
+    /** Called when user double-clicks on a track lane to create a MIDI clip. */
+    onDoubleClickTrack?: (trackIndex: number, beat: number) => void;
+    /** Called on vertical scroll — for syncing TrackInspector. */
+    onScrollTop?: (scrollTop: number) => void;
 }
 
-// ── Demo Data (matching the Swift DAW screenshot) ──────────
 
-const TRACK_COLORS = [
-    '#c93c38', '#c93c38', '#2d8fa5', '#2d8fa5',
-    '#d97028', '#a2a835', '#38a84f', '#c850a0',
-    '#4466cc',
-];
 
-const DEMO_CLIPS: TimelineClip[] = [
-    // DRUMS group
-    { id: 'c1', name: 'MIDI 1', trackIndex: 0, startBeat: 4, durationBeats: 32, type: 'midi', color: TRACK_COLORS[0] },
-    { id: 'c1b', name: 'MIDI 1', trackIndex: 0, startBeat: 40, durationBeats: 8, type: 'midi', color: TRACK_COLORS[0] },
-    { id: 'c1c', name: 'MIDI 1', trackIndex: 0, startBeat: 52, durationBeats: 8, type: 'midi', color: TRACK_COLORS[0] },
-    { id: 'c1d', name: 'MIDI 1', trackIndex: 0, startBeat: 64, durationBeats: 8, type: 'midi', color: TRACK_COLORS[0] },
-    { id: 'c1e', name: 'MIDI 1', trackIndex: 0, startBeat: 76, durationBeats: 8, type: 'midi', color: TRACK_COLORS[0] },
-    { id: 'c1f', name: 'MIDI 1', trackIndex: 0, startBeat: 88, durationBeats: 8, type: 'midi', color: TRACK_COLORS[0] },
-    { id: 'c1g', name: 'MIDI 1', trackIndex: 0, startBeat: 100, durationBeats: 8, type: 'midi', color: TRACK_COLORS[0] },
-
-    // Kick
-    { id: 'c2', name: 'MIDI 2', trackIndex: 1, startBeat: 16, durationBeats: 16, type: 'midi', color: '#d9a428' },
-    { id: 'c2b', name: 'MIDI 2', trackIndex: 1, startBeat: 36, durationBeats: 8, type: 'midi', color: '#d9a428' },
-    { id: 'c2c', name: 'MIDI 2', trackIndex: 1, startBeat: 48, durationBeats: 8, type: 'midi', color: '#d9a428' },
-    { id: 'c2d', name: 'MIDI 2', trackIndex: 1, startBeat: 60, durationBeats: 8, type: 'midi', color: '#d9a428' },
-
-    // Snare
-    { id: 'c3', name: 'MID...', trackIndex: 2, startBeat: 8, durationBeats: 4, type: 'midi', color: '#6baa55' },
-    { id: 'c3b', name: 'MID...', trackIndex: 2, startBeat: 16, durationBeats: 4, type: 'midi', color: '#6baa55' },
-    { id: 'c3c', name: 'MID...', trackIndex: 2, startBeat: 24, durationBeats: 4, type: 'midi', color: '#6baa55' },
-    { id: 'c3d', name: 'MID...', trackIndex: 2, startBeat: 32, durationBeats: 4, type: 'midi', color: '#6baa55' },
-    { id: 'c3e', name: 'MID...', trackIndex: 2, startBeat: 40, durationBeats: 4, type: 'midi', color: '#6baa55' },
-    { id: 'c3f', name: 'MID...', trackIndex: 2, startBeat: 48, durationBeats: 4, type: 'midi', color: '#6baa55' },
-    { id: 'c3g', name: 'MID...', trackIndex: 2, startBeat: 56, durationBeats: 4, type: 'midi', color: '#6baa55' },
-    { id: 'c3h', name: 'MID...', trackIndex: 2, startBeat: 64, durationBeats: 4, type: 'midi', color: '#6baa55' },
-    { id: 'c3i', name: 'MID...', trackIndex: 2, startBeat: 72, durationBeats: 4, type: 'midi', color: '#6baa55' },
-    { id: 'c3j', name: 'MID...', trackIndex: 2, startBeat: 80, durationBeats: 4, type: 'midi', color: '#6baa55' },
-
-    // Hihat - Metropolis Pad
-    { id: 'c4', name: 'Metropolis Pad - 3B', trackIndex: 3, startBeat: 0, durationBeats: 16, type: 'audio', color: '#d97028' },
-    { id: 'c4b', name: 'Metropolis Pad - 3B', trackIndex: 3, startBeat: 20, durationBeats: 16, type: 'audio', color: '#d97028' },
-    { id: 'c4c', name: 'Metropolis Pad - 3B', trackIndex: 3, startBeat: 40, durationBeats: 16, type: 'audio', color: '#d97028' },
-    { id: 'c4d', name: 'Metropolis Pad - 3B', trackIndex: 3, startBeat: 60, durationBeats: 16, type: 'audio', color: '#d97028' },
-    { id: 'c4e', name: 'Metropolis Pad - 3B', trackIndex: 3, startBeat: 80, durationBeats: 16, type: 'audio', color: '#d97028' },
-
-    // Hihat Pad (green-yellow waveform)
-    { id: 'c5', name: 'Hihat Pad', trackIndex: 4, startBeat: 0, durationBeats: 32, type: 'audio', color: '#a2a835' },
-    { id: 'c5b', name: 'Hihat Pad', trackIndex: 4, startBeat: 36, durationBeats: 32, type: 'audio', color: '#a2a835' },
-    { id: 'c5c', name: 'Hihat Pad', trackIndex: 4, startBeat: 72, durationBeats: 32, type: 'audio', color: '#a2a835' },
-
-    // BASS
-    { id: 'c6', name: '10_AB_VOL51_bassloop_E', trackIndex: 5, startBeat: 32, durationBeats: 12, type: 'audio', color: '#c850a0' },
-    { id: 'c6b', name: '10_AB_VOL51_bassloop_E', trackIndex: 5, startBeat: 48, durationBeats: 12, type: 'audio', color: '#c850a0' },
-    { id: 'c6c', name: '10_AB_VOL51_bassloop_E', trackIndex: 5, startBeat: 64, durationBeats: 12, type: 'audio', color: '#c850a0' },
-
-    // MIDI 7
-    { id: 'c7', name: 'MIDI 7', trackIndex: 6, startBeat: 0, durationBeats: 40, type: 'midi', color: '#4466cc' },
-    { id: 'c7b', name: 'MIDI 7', trackIndex: 6, startBeat: 44, durationBeats: 40, type: 'midi', color: '#4466cc' },
-
-    // MIDI 8
-    { id: 'c8', name: 'MIDI 8', trackIndex: 7, startBeat: 0, durationBeats: 40, type: 'midi', color: '#8844aa' },
-    { id: 'c8b', name: 'MIDI 8', trackIndex: 7, startBeat: 44, durationBeats: 20, type: 'midi', color: '#8844aa' },
-];
 
 // ── Constants ──────────────────────────────────────────────
 
@@ -143,6 +97,8 @@ export const Timeline = ({
     onClipSelect,
     onClipMove,
     onDropBrowserItem,
+    onDoubleClickTrack,
+    onScrollTop,
 }: TimelineProps) => {
     const [pixelsPerBeat, setPixelsPerBeat] = useState(DEFAULT_PPB);
     const [scrollLeft, setScrollLeft] = useState(0);
@@ -166,8 +122,8 @@ export const Timeline = ({
         setInternalPlayhead(beat);
     };
 
-    // Show empty tracks when no clips provided (don't fall back to demo)
-    const clips = externalClips ?? DEMO_CLIPS;
+    // Use clips from engine store (passed via DawShell) — no demo fallback
+    const clips = externalClips ?? [];
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -177,11 +133,19 @@ export const Timeline = ({
     const canvasWidth = totalBeats * pixelsPerBeat;
     const canvasHeight = trackCount * trackHeight;
 
+    // ── Grid snap ──
+    const snapBeat = useGridStore((s) => s.snapBeat);
+    const gridLines = useMemo(
+        () => computeGridLines(totalBeats, beatsPerBar, pixelsPerBeat),
+        [totalBeats, beatsPerBar, pixelsPerBeat],
+    );
+
     // ── Scroll handler ──
     const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
         const target = e.currentTarget;
         setScrollLeft(target.scrollLeft);
-    }, []);
+        onScrollTop?.(target.scrollTop);
+    }, [onScrollTop]);
 
     // ── Zoom (Ctrl+Scroll or pinch) ──
     useEffect(() => {
@@ -272,7 +236,10 @@ export const Timeline = ({
             const rect = canvasRef.current.getBoundingClientRect();
             const x = e.clientX - rect.left - draggingClip.offsetX;
             const y = e.clientY - rect.top - draggingClip.offsetY;
-            const newBeat = Math.max(0, Math.round((x / pixelsPerBeat) * 4) / 4);
+            const newBeat = Math.max(0, e.altKey
+                ? (x / pixelsPerBeat)
+                : snapBeat(x / pixelsPerBeat, beatsPerBar)
+            );
             const newTrack = Math.max(0, Math.min(trackCount - 1, Math.floor(y / trackHeight)));
             // Update in real-time for visual feedback via CSS transform
             const el = document.getElementById(`clip-${draggingClip.clipId}`);
@@ -287,7 +254,10 @@ export const Timeline = ({
             const rect = canvasRef.current.getBoundingClientRect();
             const x = e.clientX - rect.left - draggingClip.offsetX;
             const y = e.clientY - rect.top - draggingClip.offsetY;
-            const newBeat = Math.max(0, Math.round((x / pixelsPerBeat) * 4) / 4);
+            const newBeat = Math.max(0, e.altKey
+                ? (x / pixelsPerBeat)
+                : snapBeat(x / pixelsPerBeat, beatsPerBar)
+            );
             const newTrack = Math.max(0, Math.min(trackCount - 1, Math.floor(y / trackHeight)));
             onClipMove?.(draggingClip.clipId, newBeat, newTrack);
             setDraggingClip(null);
@@ -417,6 +387,32 @@ export const Timeline = ({
                 ref={scrollContainerRef}
                 onScroll={handleScroll}
                 className="scrollbar-hide"
+                onDragOver={(e) => {
+                    if (e.dataTransfer.types.includes('application/x-dream-browser-item')) {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'copy';
+                    }
+                }}
+                onDrop={(e) => {
+                    e.preventDefault();
+                    const raw = e.dataTransfer.getData('application/x-dream-browser-item');
+                    if (!raw) return;
+                    try {
+                        const item = JSON.parse(raw) as BrowserDragItem;
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const y = e.clientY - rect.top;
+                        const x = e.clientX - rect.left;
+                        const track = Math.min(Math.floor(y / trackHeight), trackCount - 1);
+                        const beat = Math.max(0, snapBeat(x / pixelsPerBeat, beatsPerBar));
+                        console.log('[Timeline] Drop on scroll container', { item, track, beat });
+                        onDropBrowserItem?.(item, track, beat);
+                    } catch (err) {
+                        console.error('[Timeline] Scroll container drop parse error:', err);
+                    } finally {
+                        setDropTargetTrack(null);
+                        setDropTargetBeat(null);
+                    }
+                }}
                 style={{
                     flex: 1,
                     overflow: 'auto',
@@ -426,6 +422,18 @@ export const Timeline = ({
                 <div
                     ref={canvasRef}
                     onClick={handleCanvasClick}
+                    onDoubleClick={(e) => {
+                        // Double-click on a track lane → create MIDI clip
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const y = e.clientY - rect.top;
+                        const x = e.clientX - rect.left;
+                        const track = Math.min(Math.floor(y / trackHeight), trackCount - 1);
+                        const beat = Math.max(0, e.altKey
+                            ? (x / pixelsPerBeat)
+                            : snapBeat(x / pixelsPerBeat, beatsPerBar)
+                        );
+                        onDoubleClickTrack?.(track, beat);
+                    }}
                     onDragOver={(e) => {
                         // Accept drops only if we have browser item data
                         if (e.dataTransfer.types.includes('application/x-dream-browser-item')) {
@@ -436,7 +444,7 @@ export const Timeline = ({
                             const y = e.clientY - rect.top;
                             const x = e.clientX - rect.left;
                             const track = Math.min(Math.floor(y / trackHeight), trackCount - 1);
-                            const beat = Math.max(0, Math.round((x / pixelsPerBeat) * 4) / 4); // snap to 1/4 beat
+                            const beat = Math.max(0, snapBeat(x / pixelsPerBeat, beatsPerBar)); // magnetic snap
                             setDropTargetTrack(track);
                             setDropTargetBeat(beat);
                         }
@@ -455,7 +463,7 @@ export const Timeline = ({
                             const y = e.clientY - rect.top;
                             const x = e.clientX - rect.left;
                             const track = Math.min(Math.floor(y / trackHeight), trackCount - 1);
-                            const beat = Math.max(0, Math.round((x / pixelsPerBeat) * 4) / 4);
+                            const beat = Math.max(0, snapBeat(x / pixelsPerBeat, beatsPerBar));
                             onDropBrowserItem?.(item, track, beat);
                         } catch (err) {
                             console.error('[Timeline] Drop parse error:', err);
@@ -471,7 +479,7 @@ export const Timeline = ({
                         minHeight: '100%',
                     }}
                 >
-                    {/* ── Grid lines ── */}
+                    {/* ── Grid lines (adaptive sub-division) ── */}
                     <svg
                         width={canvasWidth}
                         height={canvasHeight}
@@ -490,19 +498,23 @@ export const Timeline = ({
                             />
                         ))}
 
-                        {/* Vertical beat lines */}
-                        {Array.from({ length: totalBeats + 1 }, (_, beat) => {
-                            const isBar = beat % beatsPerBar === 0;
+                        {/* Vertical grid lines — dynamic resolution based on zoom */}
+                        {gridLines.map((gl, idx) => {
+                            const opacity = gl.isBar ? 0.6
+                                : gl.isMainBeat ? 0.3
+                                    : gl.depth === 2 ? 0.15
+                                        : gl.depth === 3 ? 0.1
+                                            : 0.07;
                             return (
                                 <line
-                                    key={`v-${beat}`}
-                                    x1={beat * pixelsPerBeat}
+                                    key={`v-${idx}`}
+                                    x1={gl.beat * pixelsPerBeat}
                                     y1={0}
-                                    x2={beat * pixelsPerBeat}
+                                    x2={gl.beat * pixelsPerBeat}
                                     y2={canvasHeight}
-                                    stroke={isBar ? 'var(--color-divider)' : 'var(--color-divider-light)'}
-                                    strokeWidth={isBar ? 1 : 0.5}
-                                    opacity={isBar ? 0.6 : 0.25}
+                                    stroke={gl.isBar ? 'var(--color-divider)' : 'var(--color-divider-light)'}
+                                    strokeWidth={gl.isBar ? 1 : 0.5}
+                                    opacity={opacity}
                                 />
                             );
                         })}
@@ -570,16 +582,25 @@ export const Timeline = ({
                                     {clip.name}
                                 </span>
 
-                                {/* Waveform / MIDI note placeholder */}
+                                {/* Waveform / MIDI note visualization */}
                                 <div style={{
                                     flex: 1,
                                     position: 'relative',
                                     overflow: 'hidden',
                                 }}>
-                                    {clip.type === 'audio' ? (
-                                        <WaveformPlaceholder color={clip.color} width={width} />
+                                    {clip.type === 'audio' && clip.filePath && clip.durationSamples ? (
+                                        <ClipRenderer
+                                            filePath={clip.filePath}
+                                            width={width}
+                                            height={trackHeight - 16}
+                                            durationSamples={clip.durationSamples}
+                                            sourceOffset={clip.sourceOffset}
+                                            isSelected={isSelected}
+                                        />
+                                    ) : clip.type === 'audio' ? (
+                                        <AudioWaveformFallback width={width} />
                                     ) : (
-                                        <MidiNotePlaceholder color={clip.color} width={width} height={trackHeight - 16} />
+                                        <MidiNoteFallback width={width} height={trackHeight - 16} />
                                     )}
                                 </div>
                             </div>
@@ -633,10 +654,8 @@ export const Timeline = ({
     );
 };
 
-// ── Sub-components ──────────────────────────────────────
-
-/** Fake waveform representation inside audio clips */
-const WaveformPlaceholder = ({ width }: { color?: string; width: number }) => {
+/** Minimal waveform bars — used when peaks data is unavailable */
+const AudioWaveformFallback = ({ width }: { width: number }) => {
     const segmentCount = Math.max(4, Math.floor(width / 3));
     return (
         <svg
@@ -664,9 +683,17 @@ const WaveformPlaceholder = ({ width }: { color?: string; width: number }) => {
     );
 };
 
-/** MIDI note blocks inside midi clips */
-const MidiNotePlaceholder = ({ width }: { color?: string; width: number; height?: number }) => {
+/** MIDI note blocks — compact piano-roll style */
+const MidiNoteFallback = ({ width }: { width: number; height?: number }) => {
     const noteCount = Math.max(2, Math.floor(width / 8));
+    // Deterministic pseudo-random: seed-based hash so notes don't jump on re-render
+    const seed = (i: number) => {
+        let h = i * 2654435761; // Knuth multiplicative hash
+        h = ((h >>> 16) ^ h) * 0x45d9f3b;
+        h = ((h >>> 16) ^ h) * 0x45d9f3b;
+        h = (h >>> 16) ^ h;
+        return (h & 0xffff) / 0xffff; // 0..1
+    };
     return (
         <svg
             width="100%"
@@ -676,8 +703,8 @@ const MidiNotePlaceholder = ({ width }: { color?: string; width: number; height?
             style={{ opacity: 0.5 }}
         >
             {Array.from({ length: noteCount }, (_, i) => {
-                const y = 1 + Math.floor(Math.random() * 9);
-                const w = 0.8 + Math.random() * 1.5;
+                const y = 1 + Math.floor(seed(i) * 9);
+                const w = 0.8 + seed(i + 1000) * 1.5;
                 return (
                     <rect
                         key={i}

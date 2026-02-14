@@ -523,13 +523,15 @@ impl Default for Project {
     fn default() -> Self {
         let mut project = Self::new("Untitled Project", 120.0, 44100.0);
 
-        // Start with 8 audio tracks (matching Swift DAW default layout)
-        let track_names = [
-            "Audio 1", "Audio 2", "Audio 3", "Audio 4",
-            "Audio 5", "Audio 6", "Audio 7", "Audio 8",
-        ];
-        for (i, name) in track_names.iter().enumerate() {
+        // Start with 4 Audio + 4 MIDI tracks (typical DAW layout)
+        let audio_names = ["Audio 1", "Audio 2", "Audio 3", "Audio 4"];
+        let midi_names = ["MIDI 1", "MIDI 2", "MIDI 3", "MIDI 4"];
+
+        for (i, name) in audio_names.iter().enumerate() {
             project.add_track(Track::with_type(*name, TrackType::Audio, i));
+        }
+        for (i, name) in midi_names.iter().enumerate() {
+            project.add_track(Track::with_type(*name, TrackType::Midi, audio_names.len() + i));
         }
 
         project

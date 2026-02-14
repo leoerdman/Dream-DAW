@@ -55,26 +55,26 @@ export interface TrackStateUpdate {
     soloed?: boolean;
 }
 
-/** Application settings — mirrors Rust `AppSettings`. */
+/** Application settings — mirrors Rust `AppSettings` (camelCase serialization). */
 export interface AppSettings {
     language: string;
-    startup_behavior: string;
-    waveform_style: string;
-    driver_type: string;
-    output_device: string;
-    input_device: string;
-    sample_rate: number;
-    buffer_size: number;
-    driver_error_compensation: number;
-    test_tone_enabled: boolean;
-    test_tone_volume: number;
-    test_tone_frequency: number;
-    cpu_usage_simulator: boolean;
-    sr_pitch_conversion: boolean;
-    user_folder_path: string;
-    samples_path: string;
-    vst2_path: string;
-    vst3_path: string;
+    startupBehavior: string;
+    waveformStyle: string;
+    driverType: string;
+    outputDevice: string;
+    inputDevice: string;
+    sampleRate: number;
+    bufferSize: number;
+    driverErrorCompensation: number;
+    testToneEnabled: boolean;
+    testToneVolume: number;
+    testToneFrequency: number;
+    cpuUsageSimulator: boolean;
+    srPitchConversion: boolean;
+    userFolderPath: string;
+    samplesPath: string;
+    vst2Path: string;
+    vst3Path: string;
 }
 
 /** Recent project entry. */
@@ -140,6 +140,10 @@ export const setTrackSolo = (trackIndex: number, soloed: boolean) =>
 export const updateTrack = (update: TrackStateUpdate) =>
     invoke<void>('update_track', { update });
 
+/** Add a new audio track to the project. Auto-names if name is null. */
+export const addTrack = (name?: string) =>
+    invoke<void>('add_track_cmd', { name: name ?? null });
+
 // ── State Queries ────────────────────────────────────────────────────────
 
 /** Get current engine state snapshot. */
@@ -170,8 +174,49 @@ export interface ImportAudioResponse {
 }
 
 /** Import an audio file, decode it, and place a clip on the specified track. */
-export const importAudioFile = (path: string, trackIndex: number) =>
-    invoke<ImportAudioResponse>('import_audio_file', { path, trackIndex });
+export const importAudioFile = (path: string, trackIndex: number, positionFrames?: number) =>
+    invoke<ImportAudioResponse>('import_audio_file', {
+        path,
+        trackIndex,
+        positionFrames: positionFrames ?? null,
+    });
+
+// ── MIDI Clip ────────────────────────────────────────────────────────────
+
+interface CreateMidiClipResponse {
+    clip_id: string;
+    clip_name: string;
+    position_frames: number;
+    duration_frames: number;
+}
+
+/** Create an empty MIDI clip on a track at the given position. */
+export const createMidiClip = (
+    trackIndex: number,
+    positionFrames: number,
+    durationFrames: number,
+    name?: string,
+) =>
+    invoke<CreateMidiClipResponse>('create_midi_clip_cmd', {
+        trackIndex,
+        positionFrames,
+        durationFrames,
+        name: name ?? null,
+    });
+
+// ── Audio Preview ────────────────────────────────────────────────────────
+
+/** Generate demo WAV samples in the Samples folder. Returns count of generated files. */
+export const generateDemoSamples = () =>
+    invoke<number>('generate_demo_samples_cmd');
+
+/** Preview (audition) an audio file through the system output. */
+export const previewAudioFile = (path: string) =>
+    invoke<void>('preview_audio_file_cmd', { path });
+
+/** Stop the current audio preview. */
+export const stopPreview = () =>
+    invoke<void>('stop_preview_cmd');
 
 // ── Splash / Window ──────────────────────────────────────────────────────
 
@@ -235,3 +280,57 @@ export const getSamplesPath = () =>
 /** Open a native folder picker dialog. Returns null if cancelled. */
 export const pickFolder = () =>
     invoke<string | null>('pick_folder');
+
+/** Open a native file picker filtered to .ddpj files. Returns null if cancelled. */
+export const pickProjectFile = () =>
+    invoke<string | null>('pick_project_file');
+
+/** Open a native save dialog for .ddpj files. Returns null if cancelled. */
+export const saveProjectDialog = () =>
+    invoke<string | null>('save_project_dialog');
+
+// ── Waveform Peaks ──────────────────────────────────────────────────────
+
+/** A single min/max peak pair — mirrors Rust `PeakPair`. */
+export interface PeakPair {
+    min: number;
+    max: number;
+}
+
+/** Waveform peaks at a single mip level — mirrors Rust `PeakMipLevel`. */
+export interface PeakMipLevel {
+    samples_per_peak: number;
+    peaks: PeakPair[];
+}
+
+/** Multi-resolution waveform peak data — mirrors Rust `WaveformPeaks`. */
+export interface WaveformPeaks {
+    source_id: string;
+    sample_rate: number;
+    total_samples: number;
+    mip_levels: PeakMipLevel[];
+}
+
+/** Get multi-resolution waveform peaks for a loaded audio file. */
+export const getWaveformPeaks = (filePath: string) =>
+    invoke<WaveformPeaks>('get_waveform_peaks', { filePath });
+
+// ── Clip Editing ─────────────────────────────────────────────────────────
+
+/** Response from splitting a clip — contains the IDs of both halves. */
+export interface SplitClipResponse {
+    left_id: string;
+    right_id: string;
+}
+
+/** Move a clip to a new track and/or position (sample frames). */
+export const moveClip = (clipId: string, newTrackIndex: number, newPositionFrames: number) =>
+    invoke<void>('move_clip_cmd', { clipId, newTrackIndex, newPositionFrames });
+
+/** Split a clip at the given sample frame. Returns IDs of both halves. */
+export const splitClip = (clipId: string, splitFrame: number) =>
+    invoke<SplitClipResponse>('split_clip_cmd', { clipId, splitFrame });
+
+/** Delete a clip by UUID. */
+export const deleteClip = (clipId: string) =>
+    invoke<void>('delete_clip_cmd', { clipId });

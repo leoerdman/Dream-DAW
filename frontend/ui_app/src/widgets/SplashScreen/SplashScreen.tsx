@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useEngineStore } from '@/shared/stores/useEngineStore'
+import { useSettingsStore } from '@/shared/stores/useSettingsStore'
 import * as engineApi from '@/shared/api/engine'
 import './SplashScreen.css'
 
@@ -27,6 +28,13 @@ export function SplashScreen({ minDuration = 2400, onComplete }: SplashScreenPro
     const startTelemetryLoop = useEngineStore((s) => s.startTelemetryLoop)
 
     const dismiss = useCallback(async () => {
+        // Load user settings from disk BEFORE expanding to workspace
+        try {
+            await useSettingsStore.getState().loadSettings()
+        } catch (e) {
+            console.warn('[Splash] Failed to load settings:', e)
+        }
+
         // Expand the window to full DAW size
         try {
             await engineApi.expandWindow()

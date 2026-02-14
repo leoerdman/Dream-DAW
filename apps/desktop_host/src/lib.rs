@@ -23,15 +23,19 @@ use std::sync::{Arc, Mutex};
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
 use dream_engine::driver::SharedClipSnapshot;
 use dream_io::audio_reader::AudioReader;
+use dream_io::peak_cache::{PeakCache, WaveformPeaks};
 use dream_io::project_file::ProjectFile;
+use dream_io::wav_writer::WavWriter;
 use dream_ipc::metering::MeterBank;
 use dream_ipc::{EngineCommand, MasterClock};
+use dream_models::mutators::{self, MutatorError};
 use dream_models::project::{AudioClip, Project, Track};
 use dream_models::time::AbsoluteTime;
 use dream_models::PlaybackState;
 use tauri::Manager;
 use rtrb;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 // ── Audio Engine State ─────────────────────────────────────────────────
 
@@ -55,12 +59,78 @@ struct AudioEngineHandle {
 
     /// Handle to the audio stream (kept alive to prevent drop).
     _stream: Mutex<Option<Box<dyn std::any::Any + Send>>>,
+
+    /// Preview buffer — interleaved stereo f32 samples for browser audition.
+    preview_buffer: Arc<Mutex<Option<Vec<f32>>>>,
+
+    /// Preview playback cursor (frame index × 2 for stereo interleaved).
+    preview_cursor: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl AudioEngineHandle {
+    /// Load an interleaved stereo buffer for preview playback.
+    fn set_preview_buffer(&self, buffer: Vec<f32>) {
+        self.preview_cursor.store(0, std::sync::atomic::Ordering::SeqCst);
+        *self.preview_buffer.lock().unwrap() = Some(buffer);
+    }
+
+    /// Stop preview and discard the buffer.
+    fn clear_preview_buffer(&self) {
+        *self.preview_buffer.lock().unwrap() = None;
+        self.preview_cursor.store(0, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Read `num_frames` of stereo preview audio into output, advancing cursor.
+    /// Returns true if preview is active, false if done or no preview.
+    fn read_preview_samples(&self, output: &mut [f32], num_frames: usize) -> bool {
+        let buf = self.preview_buffer.lock().unwrap();
+        let Some(ref data) = *buf else { return false; };
+
+        let cursor = self.preview_cursor.load(std::sync::atomic::Ordering::Relaxed);
+        let total = data.len();
+        if cursor >= total {
+            return false;
+        }
+
+        let end = (cursor + num_frames * 2).min(total);
+        for i in cursor..end {
+            if i - cursor < output.len() {
+                output[i - cursor] += data[i];
+            }
+        }
+
+        self.preview_cursor.store(end, std::sync::atomic::Ordering::Relaxed);
+        end < total
+    }
 }
 
 // ── Project State (managed by Tauri) ──────────────────────────────────
 
-/// Thread-safe handle to the current project's state.
+
+
+/// Undo/Redo history — stores full `Project` snapshots.
 ///
+/// Since `Project` derives `Clone` and is relatively lightweight (metadata +
+/// clip references, not audio data), cloning is fast and memory-efficient.
+/// Audio samples remain in the `ClipPool` and are never duplicated.
+struct UndoState {
+    undo_stack: Vec<Project>,
+    redo_stack: Vec<Project>,
+}
+
+impl UndoState {
+    fn new() -> Self {
+        Self {
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+        }
+    }
+}
+
+/// Maximum number of undo snapshots to retain.
+const MAX_UNDO_DEPTH: usize = 100;
+
+/// Thread-safe handle to the current project's state.
 /// The project is independently managed from the audio engine.
 /// Changes to the project trigger serialization and engine re-sync.
 struct ProjectState {
@@ -72,6 +142,9 @@ struct ProjectState {
 
     /// Whether the project has unsaved changes.
     is_dirty: Mutex<bool>,
+
+    /// Undo/Redo history.
+    undo: Mutex<UndoState>,
 }
 
 impl ProjectState {
@@ -80,8 +153,27 @@ impl ProjectState {
             project: Mutex::new(Project::default()),
             file_path: Mutex::new(None),
             is_dirty: Mutex::new(false),
+            undo: Mutex::new(UndoState::new()),
         }
     }
+}
+
+/// Snapshots the current project state onto the undo stack.
+///
+/// Must be called BEFORE any mutation. Clears the redo stack
+/// (a new action invalidates the redo history).
+fn push_undo(project_state: &ProjectState) -> Result<(), String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let snapshot = project.clone();
+    drop(project);
+
+    let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
+    undo.undo_stack.push(snapshot);
+    if undo.undo_stack.len() > MAX_UNDO_DEPTH {
+        undo.undo_stack.remove(0);
+    }
+    undo.redo_stack.clear();
+    Ok(())
 }
 
 // ── Clip Pool State (shared between UI and audio thread) ────────────
@@ -126,28 +218,73 @@ impl ClipPoolState {
 /// Persisted application settings.
 ///
 /// Mirrors the Swift `AppSettings` — stored as `settings.json` in the
-/// application data directory.
+/// user folder's `User Info/` directory (matching Swift convention).
+/// Path: `{user_folder_path}/User Info/settings.json`
+///
+/// Uses camelCase serialization to maintain compatibility with the
+/// existing Swift-generated settings.json files.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AppSettings {
+    #[serde(default = "default_language")]
     language: String,
+    #[serde(default = "default_startup_behavior")]
     startup_behavior: String,
+    #[serde(default = "default_waveform_style")]
     waveform_style: String,
+    #[serde(default = "default_driver_type")]
     driver_type: String,
+    #[serde(default = "default_output_device", alias = "audioOutputDeviceUID")]
     output_device: String,
+    #[serde(default = "default_input_device", alias = "audioInputDeviceUID")]
     input_device: String,
+    #[serde(default = "default_sample_rate", alias = "audioSampleRate")]
     sample_rate: u32,
+    #[serde(default = "default_buffer_size", alias = "audioBufferSize")]
     buffer_size: u32,
+    #[serde(default)]
     driver_error_compensation: f64,
+    #[serde(default)]
     test_tone_enabled: bool,
+    #[serde(default = "default_test_tone_volume")]
     test_tone_volume: f64,
+    #[serde(default = "default_test_tone_frequency")]
     test_tone_frequency: f64,
+    #[serde(default, alias = "cpuUsageSimulator")]
     cpu_usage_simulator: bool,
+    #[serde(default = "default_true", alias = "srPitchConversionHighQuality")]
     sr_pitch_conversion: bool,
+    #[serde(default = "default_user_folder")]
     user_folder_path: String,
+    #[serde(default = "default_samples_path")]
     samples_path: String,
+    #[serde(default = "default_vst2_path", alias = "vst2Path")]
     vst2_path: String,
+    #[serde(default = "default_vst3_path", alias = "vst3Path")]
     vst3_path: String,
 }
+
+fn default_language() -> String { "English".into() }
+fn default_startup_behavior() -> String { "new".into() }
+fn default_waveform_style() -> String { "colored".into() }
+fn default_driver_type() -> String { "CoreAudio".into() }
+fn default_output_device() -> String { "Default Output".into() }
+fn default_input_device() -> String { "Default Input".into() }
+fn default_sample_rate() -> u32 { 44100 }
+fn default_buffer_size() -> u32 { 512 }
+fn default_test_tone_volume() -> f64 { -20.0 }
+fn default_test_tone_frequency() -> f64 { 440.0 }
+fn default_true() -> bool { true }
+fn default_user_folder() -> String {
+    let home = dirs::home_dir().unwrap_or_default();
+    home.join("Music").join("Dream DAW").display().to_string()
+}
+fn default_samples_path() -> String {
+    let home = dirs::home_dir().unwrap_or_default();
+    home.join("Music").join("Dream DAW").join("Samples").display().to_string()
+}
+fn default_vst2_path() -> String { "/Library/Audio/Plug-Ins/VST".into() }
+fn default_vst3_path() -> String { "/Library/Audio/Plug-Ins/VST3".into() }
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -176,34 +313,101 @@ impl Default for AppSettings {
     }
 }
 
+impl AppSettings {
+    /// Returns the path to the User Info directory for the current user folder.
+    fn user_info_dir(&self) -> PathBuf {
+        PathBuf::from(&self.user_folder_path).join("User Info")
+    }
+
+    /// Returns the path to the settings.json file in the User Info directory.
+    fn settings_file_path(&self) -> PathBuf {
+        self.user_info_dir().join("settings.json")
+    }
+}
+
 /// Thread-safe settings state.
 struct SettingsState {
     settings: Mutex<AppSettings>,
 }
 
 impl SettingsState {
+    /// Load settings from disk using the Swift-compatible pattern:
+    /// 1. Try `{user_folder_path}/User Info/settings.json` (primary)
+    /// 2. Try `{app_data_dir}/settings.json` (legacy/fallback)
+    /// 3. Fall back to defaults
     fn load_from_disk(app_data_dir: &std::path::Path) -> Self {
-        let settings_path = app_data_dir.join("settings.json");
-        let settings = if settings_path.exists() {
-            match std::fs::read_to_string(&settings_path) {
-                Ok(json) => serde_json::from_str(&json).unwrap_or_default(),
-                Err(_) => AppSettings::default(),
+        // First build defaults to get the default user_folder_path
+        let defaults = AppSettings::default();
+        let user_info_path = defaults.settings_file_path();
+
+        // Primary: load from user folder's User Info directory
+        if user_info_path.exists() {
+            if let Ok(json) = std::fs::read_to_string(&user_info_path) {
+                if let Ok(settings) = serde_json::from_str::<AppSettings>(&json) {
+                    log::info!("Settings loaded from: {}", user_info_path.display());
+                    return Self { settings: Mutex::new(settings) };
+                }
             }
-        } else {
-            AppSettings::default()
-        };
-        Self {
-            settings: Mutex::new(settings),
         }
+
+        // Fallback: load from app_data_dir (legacy Tauri location)
+        let legacy_path = app_data_dir.join("settings.json");
+        if legacy_path.exists() {
+            if let Ok(json) = std::fs::read_to_string(&legacy_path) {
+                if let Ok(settings) = serde_json::from_str::<AppSettings>(&json) {
+                    log::info!("Settings loaded from legacy path: {}", legacy_path.display());
+                    // Migrate: save to user folder and clean up
+                    let state = Self { settings: Mutex::new(settings) };
+                    if let Err(e) = state.save_to_user_folder() {
+                        log::warn!("Failed to migrate settings: {}", e);
+                    }
+                    return state;
+                }
+            }
+        }
+
+        log::info!("No settings found, using defaults");
+        Self { settings: Mutex::new(defaults) }
     }
 
-    fn save_to_disk(&self, app_data_dir: &std::path::Path) -> Result<(), String> {
+    /// Save settings to `{user_folder_path}/User Info/settings.json`.
+    /// Creates the directory structure if it doesn't exist.
+    fn save_to_user_folder(&self) -> Result<(), String> {
         let settings = self.settings.lock().map_err(|e| e.to_string())?;
+        let user_info_dir = settings.user_info_dir();
+        let settings_path = settings.settings_file_path();
+
+        std::fs::create_dir_all(&user_info_dir)
+            .map_err(|e| format!("Failed to create User Info dir: {}", e))?;
+
         let json = serde_json::to_string_pretty(&*settings)
-            .map_err(|e| e.to_string())?;
-        let settings_path = app_data_dir.join("settings.json");
-        std::fs::create_dir_all(app_data_dir).map_err(|e| e.to_string())?;
-        std::fs::write(&settings_path, json).map_err(|e| e.to_string())?;
+            .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+        std::fs::write(&settings_path, &json)
+            .map_err(|e| format!("Failed to write settings: {}", e))?;
+
+        log::info!("Settings saved to: {}", settings_path.display());
+        Ok(())
+    }
+
+    /// When the user_folder_path changes, migrate settings.json to the new location.
+    fn migrate_to_new_folder(&self, old_path: &str, new_path: &str) -> Result<(), String> {
+        let old_settings_file = PathBuf::from(old_path).join("User Info").join("settings.json");
+        let new_user_info_dir = PathBuf::from(new_path).join("User Info");
+        let new_settings_file = new_user_info_dir.join("settings.json");
+
+        // Create new User Info directory
+        std::fs::create_dir_all(&new_user_info_dir)
+            .map_err(|e| format!("Failed to create new User Info dir: {}", e))?;
+
+        // Copy old settings if they exist
+        if old_settings_file.exists() && !new_settings_file.exists() {
+            std::fs::copy(&old_settings_file, &new_settings_file)
+                .map_err(|e| format!("Failed to copy settings: {}", e))?;
+            log::info!("Settings migrated from {} to {}", old_settings_file.display(), new_settings_file.display());
+        }
+
+        // Now save current state to the new location
+        self.save_to_user_folder()?;
         Ok(())
     }
 }
@@ -673,10 +877,12 @@ struct ImportAudioResponse {
 async fn import_audio_file(
     path: String,
     track_index: u16,
+    position_frames: Option<i64>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     project_state: tauri::State<'_, ProjectState>,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<ImportAudioResponse, String> {
+    log::info!("[IPC] import_audio_file: path='{}' track={} pos={:?}", path, track_index, position_frames);
     let file_path = PathBuf::from(&path);
 
     // Validate file exists
@@ -693,6 +899,9 @@ async fn import_audio_file(
     if !matches!(ext.as_str(), "wav" | "mp3" | "flac" | "aiff" | "aif" | "ogg" | "m4a" | "aac") {
         return Err(format!("Unsupported audio format: .{ext}"));
     }
+
+    // Snapshot for undo BEFORE mutation
+    push_undo(&project_state)?;
 
     // Decode audio file (NOT real-time safe — runs on async thread pool)
     let decoded = AudioReader::read(&file_path)
@@ -723,20 +932,26 @@ async fn import_audio_file(
         pool.insert(clip_audio);
     }
 
-    // Get playhead position for clip placement
-    let playhead_frames = handle.master_clock.position();
+    // Determine clip position: use provided drop position, or fall back to playhead
+    let clip_position = match position_frames {
+        Some(frames) => frames,
+        None => handle.master_clock.position(),
+    };
 
     // Create AudioClip in the project
     let clip = AudioClip::new(
         &clip_name,
         &path,
-        AbsoluteTime::new(playhead_frames),
+        AbsoluteTime::new(clip_position),
         AbsoluteTime::new(num_frames as i64),
     );
     let clip_id = clip.id.to_string();
 
     // Add clip to the specified track (create track if needed)
     {
+        // Snapshot for undo BEFORE mutation
+        push_undo(&project_state)?;
+
         let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
 
         let idx = track_index as usize;
@@ -770,46 +985,348 @@ async fn import_audio_file(
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// MIDI Clip Creation
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Response from creating a MIDI clip.
+#[derive(Debug, Serialize, Deserialize)]
+struct CreateMidiClipResponse {
+    clip_id: String,
+    clip_name: String,
+    position_frames: i64,
+    duration_frames: i64,
+}
+
+/// Creates an empty MIDI clip on a track at a specified position.
+///
+/// Used when the user double-clicks on a MIDI track to create a new
+/// 1-bar (or N-bar) MIDI clip for note input.
+#[tauri::command]
+async fn create_midi_clip_cmd(
+    track_index: u32,
+    position_frames: i64,
+    duration_frames: i64,
+    name: Option<String>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<CreateMidiClipResponse, String> {
+    let clip_name = name.unwrap_or_else(|| "MIDI Clip".to_string());
+    log::info!("[IPC] create_midi_clip_cmd: '{}' track={} pos={} dur={}", clip_name, track_index, position_frames, duration_frames);
+
+    let clip = AudioClip::new(
+        &clip_name,
+        "", // empty path = MIDI clip (no audio source file)
+        AbsoluteTime::new(position_frames),
+        AbsoluteTime::new(duration_frames),
+    );
+    let clip_id = clip.id.to_string();
+
+    {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+        let idx = track_index as usize;
+        while project.tracks.len() <= idx {
+            let track_num = project.tracks.len() + 1;
+            project.add_track(Track::new(format!("Track {track_num}")));
+        }
+
+        project.tracks[idx].clips.push(clip);
+
+        *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+
+        clip_pool_state.rebuild_snapshot(&project);
+    }
+
+    log::info!(
+        "[IPC] create_midi_clip: '{}' → track {} @ frame {} ({} frames)",
+        clip_name, track_index, position_frames, duration_frames
+    );
+
+    Ok(CreateMidiClipResponse {
+        clip_id,
+        clip_name,
+        position_frames,
+        duration_frames,
+    })
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Waveform Peaks
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Returns multi-resolution waveform peak data for a given audio file.
+///
+/// Peak data is generated from the decoded audio in the ClipPool.
+/// The frontend uses this to draw high-performance canvas waveforms.
+/// Returns 4 mip levels (256/1K/4K/16K samples-per-peak) for the
+/// renderer to pick from based on the current zoom level.
+#[tauri::command]
+async fn get_waveform_peaks(
+    file_path: String,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<WaveformPeaks, String> {
+    let pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+
+    let audio = pool
+        .get(&file_path)
+        .ok_or_else(|| format!("Audio not loaded: {file_path}"))?;
+
+    // Convert stereo to mono for peak generation (average L+R)
+    let left = audio.left();
+    let right = audio.right();
+    let mono: Vec<f32> = if right.is_empty() {
+        left.to_vec()
+    } else {
+        left.iter()
+            .zip(right.iter())
+            .map(|(l, r)| (l + r) * 0.5)
+            .collect()
+    };
+
+    let peaks = PeakCache::generate(&mono, &file_path, audio.sample_rate);
+
+    log::info!(
+        "[IPC] get_waveform_peaks: '{}' → {} samples, 4 mip levels",
+        file_path,
+        mono.len(),
+    );
+
+    Ok(peaks)
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Clip Mutator Commands
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Response type for the split_clip command.
+#[derive(Debug, Serialize, Deserialize)]
+struct SplitClipResponse {
+    left_id: String,
+    right_id: String,
+}
+
+fn mutator_err_to_string(e: MutatorError) -> String {
+    e.to_string()
+}
+
+/// Moves a clip to a new track and/or position.
+///
+/// The clip is identified by UUID string. After mutation, the
+/// clip snapshot is atomically rebuilt for the audio thread.
+#[tauri::command]
+async fn move_clip_cmd(
+    clip_id: String,
+    new_track_index: usize,
+    new_position_frames: i64,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let uuid = Uuid::parse_str(&clip_id)
+        .map_err(|e| format!("Invalid clip ID: {e}"))?;
+
+    // Snapshot for undo BEFORE mutation
+    push_undo(&project_state)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    mutators::move_clip(
+        &mut project,
+        uuid,
+        new_track_index,
+        AbsoluteTime::new(new_position_frames),
+    )
+    .map_err(mutator_err_to_string)?;
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+
+    Ok(())
+}
+
+/// Splits a clip at the given sample frame position.
+///
+/// Returns the UUIDs of the two resulting clips (left keeps original UUID).
+/// Both halves preserve correct source_offset for seamless playback.
+#[tauri::command]
+async fn split_clip_cmd(
+    clip_id: String,
+    split_frame: i64,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<SplitClipResponse, String> {
+    let uuid = Uuid::parse_str(&clip_id)
+        .map_err(|e| format!("Invalid clip ID: {e}"))?;
+
+    // Snapshot for undo BEFORE mutation
+    push_undo(&project_state)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    let result = mutators::split_clip(&mut project, uuid, split_frame)
+        .map_err(mutator_err_to_string)?;
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+
+    Ok(SplitClipResponse {
+        left_id: result.left_id.to_string(),
+        right_id: result.right_id.to_string(),
+    })
+}
+
+/// Deletes a clip from the project by UUID.
+///
+/// The removed clip data is returned for potential client-side undo.
+#[tauri::command]
+async fn delete_clip_cmd(
+    clip_id: String,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let uuid = Uuid::parse_str(&clip_id)
+        .map_err(|e| format!("Invalid clip ID: {e}"))?;
+
+    // Snapshot for undo BEFORE mutation
+    push_undo(&project_state)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    mutators::delete_clip(&mut project, uuid)
+        .map_err(mutator_err_to_string)?;
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Undo / Redo Commands
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Undo the last project mutation.
+///
+/// Pops the most recent snapshot from the undo stack and swaps it
+/// into the current project. The current state is pushed onto redo.
+#[tauri::command]
+async fn undo_cmd(
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
+    let previous = undo.undo_stack.pop()
+        .ok_or_else(|| "Nothing to undo".to_string())?;
+
+    // Save current state to redo stack
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let current = project.clone();
+    undo.redo_stack.push(current);
+    *project = previous;
+    drop(undo);
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    log::info!("[IPC] undo_cmd: restored previous state");
+    Ok(())
+}
+
+/// Redo a previously undone mutation.
+///
+/// Pops from the redo stack, pushes current state onto undo, and
+/// swaps the redo snapshot into the project.
+#[tauri::command]
+async fn redo_cmd(
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
+    let next = undo.redo_stack.pop()
+        .ok_or_else(|| "Nothing to redo".to_string())?;
+
+    // Save current state to undo stack
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let current = project.clone();
+    undo.undo_stack.push(current);
+    *project = next;
+    drop(undo);
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    log::info!("[IPC] redo_cmd: restored redo state");
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Track Management Commands
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Adds a new audio track to the project.
+///
+/// If `name` is `None`, auto-generates a name ("Audio N").
+/// The track is auto-assigned a color from the 16-color palette.
+#[tauri::command]
+async fn add_track_cmd(
+    name: Option<String>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    // Snapshot for undo BEFORE mutation
+    drop(project);
+    push_undo(&project_state)?;
+    project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    let track_num = project.tracks.len() + 1;
+    let track_name = name.unwrap_or_else(|| format!("Audio {}", track_num));
+    project.add_track(Track::new(&track_name));
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    log::info!("[IPC] add_track_cmd: '{}' (now {} tracks)", track_name, project.tracks.len());
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Splash Screen → Main Window Transition
 // ═══════════════════════════════════════════════════════════════════════
 
-/// Expands the main window from splash mode (450×450) to full DAW mode.
+/// Expands the main window from splash mode (500×500) to full DAW mode.
 ///
 /// Called from the React splash screen after the loading animation completes.
 /// This provides the native "small window → big window" UX identical to
 /// the original Swift implementation.
 ///
 /// Transitions:
-///   450×450 borderless → 1400×900 with decorations + resizable
+///   500×500 borderless → maximized with decorations + resizable + fullscreen button
 #[tauri::command]
 fn expand_window(app: tauri::AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
         .ok_or("Main window not found")?;
 
-    // Enable decorations (title bar, traffic lights)
+    // 1. Enable decorations FIRST (title bar, traffic lights)
     window.set_decorations(true)
         .map_err(|e| format!("Failed to set decorations: {e}"))?;
 
-    // Resize to full DAW dimensions
-    let size = tauri::LogicalSize::new(1400.0_f64, 900.0_f64);
-    window.set_size(size)
-        .map_err(|e| format!("Failed to resize: {e}"))?;
+    // 2. Enable resizing before changing size
+    window.set_resizable(true)
+        .map_err(|e| format!("Failed to set resizable: {e}"))?;
 
-    // Set minimum size
+    // 3. Set minimum size
     let min_size = tauri::LogicalSize::new(900.0_f64, 600.0_f64);
     window.set_min_size(Some(min_size))
         .map_err(|e| format!("Failed to set min size: {e}"))?;
 
-    // Enable resizing
-    window.set_resizable(true)
-        .map_err(|e| format!("Failed to set resizable: {e}"))?;
+    // 4. Maximize — fills entire screen minus Dock and menu bar
+    window.maximize()
+        .map_err(|e| format!("Failed to maximize: {e}"))?;
 
-    // Center the resized window
-    window.center()
-        .map_err(|e| format!("Failed to center: {e}"))?;
+    // 5. Re-set decorations after layout to ensure traffic lights render
+    //    (WKWebView sometimes misses the initial set_decorations call)
+    window.set_decorations(true)
+        .map_err(|e| format!("Failed to re-set decorations: {e}"))?;
 
-    log::info!("[Splash] Window expanded to full DAW mode (1400×900)");
+    log::info!("[Splash] Window expanded to maximized DAW mode");
     Ok(())
 }
 
@@ -976,30 +1493,54 @@ fn get_samples_path(app: tauri::AppHandle) -> Result<String, String> {
         .map_err(|e| format!("Cannot resolve app data dir: {}", e))?;
     let settings_path = app_data_dir.join("settings.json");
 
-    if settings_path.exists() {
+    let samples_path = if settings_path.exists() {
         if let Ok(json) = std::fs::read_to_string(&settings_path) {
             if let Ok(settings) = serde_json::from_str::<AppSettings>(&json) {
-                return Ok(settings.samples_path);
+                settings.samples_path
+            } else {
+                default_samples_path()
             }
+        } else {
+            default_samples_path()
         }
+    } else {
+        default_samples_path()
+    };
+
+    // Auto-create the samples directory if it doesn't exist
+    let path = std::path::Path::new(&samples_path);
+    if !path.exists() {
+        let _ = std::fs::create_dir_all(path);
+        log::info!("[Settings] Created samples directory: {}", samples_path);
     }
 
-    // Fall back to default
-    let home = dirs::home_dir().unwrap_or_default();
-    Ok(home.join("Music").join("Dream DAW").join("Samples").to_string_lossy().to_string())
+    Ok(samples_path)
 }
 
 /// Updates application settings and persists to disk.
+/// If `user_folder_path` changed, migrates settings to the new location.
 #[tauri::command]
 fn update_settings(
     new_settings: AppSettings,
     settings_state: tauri::State<'_, SettingsState>,
-    app: tauri::AppHandle,
 ) -> Result<(), String> {
+    // Check if user_folder_path changed (need to migrate)
+    let old_folder_path = {
+        let current = settings_state.settings.lock().map_err(|e| e.to_string())?;
+        current.user_folder_path.clone()
+    };
+
+    let folder_changed = old_folder_path != new_settings.user_folder_path;
+    let new_folder_path = new_settings.user_folder_path.clone();
+
+    // Update in-memory state
     *settings_state.settings.lock().map_err(|e| e.to_string())? = new_settings;
 
-    if let Ok(app_data_dir) = app.path().app_data_dir() {
-        settings_state.save_to_disk(&app_data_dir)?;
+    // Persist to disk
+    if folder_changed {
+        settings_state.migrate_to_new_folder(&old_folder_path, &new_folder_path)?;
+    } else {
+        settings_state.save_to_user_folder()?;
     }
 
     log::info!("Settings updated and persisted");
@@ -1025,9 +1566,164 @@ const AUDIO_EXTENSIONS: &[&str] = &[
     "wav", "wave", "aiff", "aif", "mp3", "m4a", "flac", "ogg", "caf",
 ];
 
+/// Generates a set of demo WAV samples in the Samples folder so the browser
+/// has real draggable audio files from the very first launch.
+#[tauri::command]
+fn generate_demo_samples_cmd(
+    app: tauri::AppHandle,
+) -> Result<u32, String> {
+    // Resolve samples path (also creates the directory)
+    let samples_path = get_samples_path(app)?;
+    let dir = std::path::Path::new(&samples_path);
+
+    // Only generate if the folder is empty or doesn't have our marker
+    let marker = dir.join(".dream_demo_generated");
+    if marker.exists() {
+        log::info!("[DemoSamples] Marker exists, skipping generation");
+        return Ok(0);
+    }
+
+    const SR: u32 = 44100;
+    let mut count: u32 = 0;
+
+    // Helper functions for synthesis
+    fn gen_sine(sr: u32, freq: f32, dur: f32, amp: f32) -> Vec<f32> {
+        let n = (sr as f32 * dur) as usize;
+        (0..n).map(|i| {
+            let t = i as f32 / sr as f32;
+            let env = if t < 0.005 { t / 0.005 }
+                      else if t > dur - 0.01 { (dur - t) / 0.01 }
+                      else { 1.0 };
+            (t * freq * std::f32::consts::TAU).sin() * amp * env.clamp(0.0, 1.0)
+        }).collect()
+    }
+
+    fn gen_noise_burst(sr: u32, dur: f32, amp: f32) -> Vec<f32> {
+        let n = (sr as f32 * dur) as usize;
+        let mut rng: u64 = 0xDEAD_BEEF;
+        (0..n).map(|i| {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let noise = ((rng >> 33) as f32 / (u32::MAX >> 1) as f32) * 2.0 - 1.0;
+            let t = i as f32 / sr as f32;
+            let env = (-t * 20.0).exp();
+            noise * amp * env
+        }).collect()
+    }
+
+    fn gen_kick(sr: u32, amp: f32) -> Vec<f32> {
+        let dur: f32 = 0.35;
+        let n = (sr as f32 * dur) as usize;
+        (0..n).map(|i| {
+            let t = i as f32 / sr as f32;
+            let freq = 150.0 * (-t * 8.0).exp() + 40.0;
+            let env = (-t * 6.0).exp();
+            (t * freq * std::f32::consts::TAU).sin() * amp * env
+        }).collect()
+    }
+
+    // Generate all demo samples eagerly
+    let demos: Vec<(&str, Vec<f32>)> = vec![
+        ("Kick_808_Deep", gen_kick(SR, 0.85)),
+        ("Kick_Acoustic", gen_kick(SR, 0.7)),
+        ("Snare_Tight", {
+            let body = gen_sine(SR, 200.0, 0.15, 0.5);
+            let noise = gen_noise_burst(SR, 0.15, 0.6);
+            body.iter().zip(noise.iter()).map(|(a, b)| a + b).collect()
+        }),
+        ("HiHat_Closed", gen_noise_burst(SR, 0.06, 0.4)),
+        ("HiHat_Open", gen_noise_burst(SR, 0.25, 0.35)),
+        ("Clap_Vinyl", {
+            let mut out = Vec::new();
+            for _ in 0..3 {
+                out.extend(gen_noise_burst(SR, 0.01, 0.5).iter());
+                out.extend(vec![0.0; 220]);
+            }
+            out.extend(gen_noise_burst(SR, 0.12, 0.6).iter());
+            out
+        }),
+        ("Bass_Sub", gen_sine(SR, 55.0, 1.0, 0.7)),
+        ("Pad_Ambient_Dm", {
+            let dur: f32 = 2.0;
+            let n = (SR as f32 * dur) as usize;
+            (0..n).map(|i| {
+                let t = i as f32 / SR as f32;
+                let env = if t < 0.2 { t / 0.2 } else if t > dur - 0.3 { (dur - t) / 0.3 } else { 1.0 };
+                let s1 = (t * 293.66 * std::f32::consts::TAU).sin();
+                let s2 = (t * 349.23 * std::f32::consts::TAU).sin();
+                let s3 = (t * 440.0 * std::f32::consts::TAU).sin();
+                (s1 + s2 * 0.7 + s3 * 0.5) * 0.2 * env.clamp(0.0, 1.0)
+            }).collect()
+        }),
+    ];
+
+    for (name, samples) in &demos {
+        let path = dir.join(format!("{}.wav", name));
+        if path.exists() { continue; }
+        if let Err(e) = WavWriter::write_interleaved(&path, samples, SR, 1, 24) {
+            log::warn!("[DemoSamples] Failed to write {}: {}", name, e);
+            continue;
+        }
+        count += 1;
+    }
+
+    // Write marker file
+    let _ = std::fs::write(&marker, "generated");
+    log::info!("[DemoSamples] Generated {} demo samples in {}", count, samples_path);
+    Ok(count)
+}
+
+/// Preview (audition) an audio file through system audio output.
+/// Decodes the file and sends it to a one-shot playback thread.
+#[tauri::command]
+async fn preview_audio_file_cmd(
+    path: String,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    let file_path = std::path::PathBuf::from(&path);
+    if !file_path.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+
+    // Decode the audio file
+    let decoded = AudioReader::read(&file_path)
+        .map_err(|e| format!("Failed to decode: {e}"))?;
+
+    // Build interleaved buffer for preview
+    let num_ch = decoded.channels.len().min(2);
+    let num_frames = decoded.num_frames;
+    let mut interleaved = vec![0.0f32; num_frames * 2]; // always stereo output
+
+    for frame in 0..num_frames {
+        let l = decoded.channels[0][frame];
+        let r = if num_ch > 1 { decoded.channels[1][frame] } else { l };
+        interleaved[frame * 2] = l;
+        interleaved[frame * 2 + 1] = r;
+    }
+
+    // Store preview buffer in engine for mixing into output
+    // The audio driver will pick it up and mix it in
+    handle.set_preview_buffer(interleaved);
+
+    log::info!("[Preview] Playing '{}' ({} frames, {}Hz)", 
+        file_path.file_name().unwrap_or_default().to_string_lossy(),
+        num_frames, decoded.sample_rate);
+    Ok(())
+}
+
+/// Stop any active audio preview.
+#[tauri::command]
+async fn stop_preview_cmd(
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    handle.clear_preview_buffer();
+    log::info!("[Preview] Stopped");
+    Ok(())
+}
+
 /// Recursively scans the given directory for audio files.
 #[tauri::command]
 fn scan_audio_folder(path: String) -> Result<Vec<AudioFileEntry>, String> {
+    log::info!("[IPC] scan_audio_folder: {}", path);
     let root = std::path::Path::new(&path);
     if !root.exists() {
         return Err(format!("Folder does not exist: {}", path));
@@ -1107,6 +1803,58 @@ async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
     .await
     .map_err(|e| format!("Join error: {}", e))?
 }
+
+/// Opens a native file picker dialog for .ddpj project files.
+#[tauri::command]
+async fn pick_project_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    app.dialog().file()
+        .add_filter("Dream DAW Project", &["ddpj", "json"])
+        .set_title("Open Project")
+        .pick_file(move |file| {
+            let _ = tx.send(file.map(|p| p.to_string()));
+        });
+
+    tauri::async_runtime::spawn_blocking(move || {
+        rx.recv().map_err(|e| format!("Dialog error: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Join error: {}", e))?
+}
+
+/// Opens a native save dialog for .ddpj project files.
+#[tauri::command]
+async fn save_project_dialog(
+    app: tauri::AppHandle,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    // Use current project name as default filename
+    let default_name = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        format!("{}.ddpj", project.name)
+    };
+
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    app.dialog().file()
+        .add_filter("Dream DAW Project", &["ddpj"])
+        .set_title("Save Project As")
+        .set_file_name(&default_name)
+        .save_file(move |file| {
+            let _ = tx.send(file.map(|p| p.to_string()));
+        });
+
+    tauri::async_runtime::spawn_blocking(move || {
+        rx.recv().map_err(|e| format!("Dialog error: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Join error: {}", e))?
+}
 // ═══════════════════════════════════════════════════════════════════════
 // Application Setup
 // ═══════════════════════════════════════════════════════════════════════
@@ -1128,6 +1876,12 @@ pub fn run() {
     let clip_pool_for_engine = Arc::clone(&clip_pool_state.pool);
     let snapshot_for_engine = Arc::clone(&clip_pool_state.snapshot);
 
+    // Create preview buffer Arcs (shared between engine handle and audio driver)
+    let preview_buffer: Arc<Mutex<Option<Vec<f32>>>> = Arc::new(Mutex::new(None));
+    let preview_cursor: Arc<std::sync::atomic::AtomicUsize> = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let preview_buffer_for_engine = Arc::clone(&preview_buffer);
+    let preview_cursor_for_engine = Arc::clone(&preview_cursor);
+
     // Start the audio engine on a dedicated thread
     let clock_for_engine = Arc::clone(&master_clock);
     let meter_for_engine = Arc::clone(&meter_bank);
@@ -1137,6 +1891,8 @@ pub fn run() {
         meter_for_engine,
         clip_pool_for_engine,
         snapshot_for_engine,
+        preview_buffer_for_engine,
+        preview_cursor_for_engine,
     )
     .expect("Fatal: failed to start audio engine");
 
@@ -1146,13 +1902,20 @@ pub fn run() {
         playback_state: Mutex::new(PlaybackState::default()),
         meter_bank,
         _stream: Mutex::new(Some(Box::new(stream))),
+        preview_buffer,
+        preview_cursor,
     };
 
-    // Load settings from disk
+    // Load settings from user folder (primary) or app_data_dir (fallback)
     let app_data_dir_for_settings = dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("com.dreamdaw.app");
+        .join("com.dreamdaw.desktop");
     let settings_state = SettingsState::load_from_disk(&app_data_dir_for_settings);
+
+    // Ensure User Info directory and initial settings.json exist
+    if let Err(e) = settings_state.save_to_user_folder() {
+        log::warn!("Failed to create initial settings file: {}", e);
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -1193,20 +1956,37 @@ pub fn run() {
             update_settings,
             get_samples_path,
             // File Browser
+            generate_demo_samples_cmd,
             scan_audio_folder,
+            preview_audio_file_cmd,
+            stop_preview_cmd,
             pick_folder,
+            pick_project_file,
+            save_project_dialog,
             // Splash
             expand_window,
             // Legacy
             set_frequency,
             // Audio Import
             import_audio_file,
+            create_midi_clip_cmd,
+            // Waveform
+            get_waveform_peaks,
+            // Track Management
+            add_track_cmd,
+            // Clip Editing
+            move_clip_cmd,
+            split_clip_cmd,
+            delete_clip_cmd,
+            // Undo/Redo
+            undo_cmd,
+            redo_cmd,
         ])
         .setup(|app| {
             log::info!(
                 "Dream DAW v{} — Audio engine initialized ({} IPC commands registered)",
                 app.package_info().version,
-                25
+                31
             );
             Ok(())
         })

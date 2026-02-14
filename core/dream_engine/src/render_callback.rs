@@ -168,6 +168,10 @@ impl RenderContext {
         self.master_bus.clear(frame_count);
 
         // ── 2. Schedule clips per track ─────────────────────────────
+        // Diagnostic: track total active clips this buffer
+        let mut _total_active = 0usize;
+        let mut _total_pool_hits = 0usize;
+
         for (track_idx, clips) in clips_per_track.iter().enumerate() {
             if track_idx >= self.track_slots.len() {
                 break;
@@ -184,6 +188,7 @@ impl RenderContext {
                 continue;
             }
 
+            _total_active += active_clips.len();
             let slot = &mut self.track_slots[track_idx];
             slot.active = true;
 
@@ -192,6 +197,7 @@ impl RenderContext {
             // decoded samples from ClipPool (pre-loaded, zero-copy Arc).
             for ac in &active_clips {
                 if let Some(audio) = clip_pool.get(&ac.clip.file_path) {
+                    _total_pool_hits += 1;
                     ClipReader::read_stereo_into(
                         audio.left(),
                         audio.right(),
@@ -202,6 +208,52 @@ impl RenderContext {
                         ac.frames_to_read,
                         ac.clip.gain as f32,
                     );
+
+                    // ── 3a. Apply Hann micro-fades at clip boundaries ──
+                    // Always-on anti-click: ~2ms Hann window at clip start/end.
+                    // This eliminates digital clicks from trimmed clip edges.
+                    // Zero-alloc: uses pre-computed curves from FadeCache.
+                    let fade_len = self.fade_cache.fade_length;
+
+                    if ac.is_clip_head && ac.frames_to_read >= fade_len {
+                        // Fade-in at clip start
+                        let offset = ac.buffer_offset;
+                        let len = fade_len.min(ac.frames_to_read);
+                        for i in 0..len {
+                            let gain = self.fade_cache.fade_in[i];
+                            slot.buf_left[offset + i] *= gain;
+                            slot.buf_right[offset + i] *= gain;
+                        }
+                    }
+
+                    if ac.is_clip_tail && ac.frames_to_read >= fade_len {
+                        // Fade-out at clip end
+                        let tail_start = ac.buffer_offset + ac.frames_to_read - fade_len;
+                        for i in 0..fade_len {
+                            let gain = self.fade_cache.fade_out[i];
+                            slot.buf_left[tail_start + i] *= gain;
+                            slot.buf_right[tail_start + i] *= gain;
+                        }
+                    }
+                } else {
+                    // Diagnostic: pool miss — clip references a file not in pool
+                    log::warn!("[Render] Pool MISS for clip '{}' file_path='{}'",
+                        ac.clip.name, ac.clip.file_path);
+                }
+            }
+        }
+
+        // Periodic diagnostic logging (once per ~second at 48kHz/1024 buffer)
+        {
+            let diag_counter = (playhead_pos / (self.sample_rate as i64)) as u64;
+            static LAST_DIAG: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+            let prev = LAST_DIAG.load(std::sync::atomic::Ordering::Relaxed);
+            if diag_counter != prev {
+                LAST_DIAG.store(diag_counter, std::sync::atomic::Ordering::Relaxed);
+                let total_clips: usize = clips_per_track.iter().map(|c| c.len()).sum();
+                if total_clips > 0 || _total_active > 0 {
+                    log::info!("[Render] playhead={} total_clips={} active={} pool_hits={}",
+                        playhead_pos, total_clips, _total_active, _total_pool_hits);
                 }
             }
         }

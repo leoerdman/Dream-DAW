@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use log::{error, info};
@@ -130,6 +131,8 @@ impl std::error::Error for AudioDriverError {}
 /// - `meter_bank`: Shared meter bank for lock-free metering.
 /// - `clip_pool`: Shared clip pool (pre-loaded audio data). Accessed via `try_lock()`.
 /// - `clip_snapshot`: Shared snapshot of project clips.
+/// - `preview_buffer`: Arc to the preview audio buffer (set by browser audition).
+/// - `preview_cursor`: Arc to the current playback cursor in the preview buffer.
 ///
 /// # Returns
 /// `AudioStreamHandle` — keep alive for audio to continue. Drop to stop.
@@ -139,6 +142,8 @@ pub fn start_audio_thread(
     meter_bank: Arc<MeterBank>,
     clip_pool: Arc<Mutex<ClipPool>>,
     clip_snapshot: Arc<SharedClipSnapshot>,
+    preview_buffer: Arc<Mutex<Option<Vec<f32>>>>,
+    preview_cursor: Arc<AtomicUsize>,
 ) -> Result<AudioStreamHandle, AudioDriverError> {
     // ── 1. Host & Device ────────────────────────────────────────────
     let host = cpal::default_host();
@@ -208,8 +213,15 @@ pub fn start_audio_thread(
                     match cmd {
                         EngineCommand::SetPlay(play) => {
                             is_playing = play;
+                            render_ctx.playhead.set_advancing(play);
+                            eprintln!("[Driver] SetPlay({play}) playhead={}",
+                                render_ctx.playhead.position());
                             if !play {
                                 test_tone_phase = 0.0;
+                                test_tone_enabled = false;
+                                // Reset all meters to silence when transport stops
+                                // so stale peaks don't stick on the UI.
+                                render_ctx.meter_bank.reset_all();
                             }
                         }
                         EngineCommand::SetFreq(freq) => {
@@ -288,68 +300,113 @@ pub fn start_audio_thread(
                 }
 
                 if !is_playing {
-                    // ── Silence when stopped ─────────────────────
+                    // ── Silence when stopped (no transport audio) ──
                     data.fill(0.0);
-                    return;
-                }
+                    // NOTE: Do NOT return here — preview mixing must
+                    // still run below so browser audition works when
+                    // transport is stopped.
+                } else {
+                    // ── B. Load clip snapshot & render ───────────────
+                    let snapshot = clip_snapshot.load();
+                    let has_clips = !snapshot.is_empty()
+                        && snapshot.iter().any(|track_clips| !track_clips.is_empty());
 
-                // ── B. Load clip snapshot & render ───────────────
-                let snapshot = clip_snapshot.load();
-                let has_clips = !snapshot.is_empty()
-                    && snapshot.iter().any(|track_clips| !track_clips.is_empty());
+                    if has_clips {
+                        // Disable test tone automatically when real clips exist
+                        // so the sine never bleeds through.
+                        test_tone_enabled = false;
 
-                if has_clips {
-                    // Real clip playback via RenderContext
-                    // Use try_lock to get non-blocking access to clip pool.
-                    // If UI thread is inserting, we skip this buffer (silence).
-                    if let Ok(pool_guard) = clip_pool.try_lock() {
-                        let clips_refs: Vec<&[AudioClip]> = snapshot
-                            .iter()
-                            .map(|v| v.as_slice())
-                            .collect();
+                        // Real clip playback via RenderContext
+                        // Use try_lock to get non-blocking access to clip pool.
+                        // If UI thread is inserting, we skip this buffer (silence).
+                        if let Ok(pool_guard) = clip_pool.try_lock() {
+                            let clips_refs: Vec<&[AudioClip]> = snapshot
+                                .iter()
+                                .map(|v| v.as_slice())
+                                .collect();
 
-                        render_ctx.render(data, &clips_refs, &pool_guard);
+                            render_ctx.render(data, &clips_refs, &pool_guard);
+                        } else {
+                            // Pool is locked by UI thread (inserting) — output silence this buffer
+                            data.fill(0.0);
+                            eprintln!("[Driver] ClipPool locked — silence this buffer");
+                        }
+                    } else if test_tone_enabled {
+                        // Test tone fallback (no clips loaded)
+                        for frame in data.chunks_exact_mut(channels) {
+                            test_tone_current_freq +=
+                                (test_tone_target_freq - test_tone_current_freq) * FREQ_SMOOTHING;
+
+                            let phase_inc = test_tone_current_freq as f64 / sample_rate_f64;
+                            let sample = (test_tone_phase * std::f64::consts::TAU).sin()
+                                as f32
+                                * TEST_TONE_AMPLITUDE;
+
+                            for ch in frame.iter_mut() {
+                                *ch = sample;
+                            }
+
+                            test_tone_phase += phase_inc;
+                            if test_tone_phase >= 1.0 {
+                                test_tone_phase -= 1.0;
+                            }
+                        }
                     } else {
-                        // Pool is locked by UI thread (inserting) — output silence this buffer
+                        // No clips, no test tone → silence
                         data.fill(0.0);
                     }
-                } else if test_tone_enabled {
-                    // Test tone fallback (no clips loaded)
-                    for frame in data.chunks_exact_mut(channels) {
-                        test_tone_current_freq +=
-                            (test_tone_target_freq - test_tone_current_freq) * FREQ_SMOOTHING;
 
-                        let phase_inc = test_tone_current_freq as f64 / sample_rate_f64;
-                        let sample = (test_tone_phase * std::f64::consts::TAU).sin()
-                            as f32
-                            * TEST_TONE_AMPLITUDE;
-
-                        for ch in frame.iter_mut() {
-                            *ch = sample;
-                        }
-
-                        test_tone_phase += phase_inc;
-                        if test_tone_phase >= 1.0 {
-                            test_tone_phase -= 1.0;
+                    // Periodic diagnostic: once per ~0.5 seconds log the playback state
+                    {
+                        static DIAG_CTR: std::sync::atomic::AtomicU64 =
+                            std::sync::atomic::AtomicU64::new(0);
+                        let cur = DIAG_CTR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let buffers_per_half_sec =
+                            (sample_rate_f64 / frame_count as f64 / 2.0) as u64;
+                        if buffers_per_half_sec > 0 && cur % buffers_per_half_sec == 0 {
+                            let total: usize = snapshot.iter().map(|v| v.len()).sum();
+                            let playhead = render_ctx.playhead.position();
+                            let clock_pos = clock.position();
+                            eprintln!(
+                                "[Driver] PLAYING playhead={} clock={} tracks={} total_clips={} has_clips={}",
+                                playhead, clock_pos, snapshot.len(), total, has_clips
+                            );
                         }
                     }
-                } else {
-                    // No clips, no test tone → silence
-                    data.fill(0.0);
                 }
 
-                // ── C. Advance master clock ─────────────────────
-                clock.advance(frame_count as i64);
+                // ── C. Mix preview audio (browser audition) ─────
+                // Preview plays regardless of transport state
+                if let Ok(buf_guard) = preview_buffer.try_lock() {
+                    if let Some(ref preview_data) = *buf_guard {
+                        let cursor = preview_cursor.load(Ordering::Relaxed);
+                        let total = preview_data.len();
+                        if cursor < total {
+                            let end = (cursor + frame_count * channels).min(total);
+                            for i in cursor..end {
+                                if i - cursor < data.len() {
+                                    data[i - cursor] += preview_data[i];
+                                }
+                            }
+                            preview_cursor.store(end, Ordering::Relaxed);
+                        }
+                    }
+                }
 
-                // Handle loop wrap on master clock
-                if let Some(ref region) = render_ctx.loop_region {
-                    let pos = clock.position();
-                    if pos >= region.end {
-                        let overshoot = pos - region.end;
-                        let loop_len = region.end - region.start;
-                        let new_pos = region.start + (overshoot % loop_len);
-                        clock.reset();
-                        clock.advance(new_pos);
+                // ── D. Advance master clock ─────────────────────
+                if is_playing {
+                    clock.advance(frame_count as i64);
+
+                    // Handle loop wrap on master clock
+                    if let Some(ref region) = render_ctx.loop_region {
+                        let pos = clock.position();
+                        if pos >= region.end {
+                            let overshoot = pos - region.end;
+                            let loop_len = region.end - region.start;
+                            let new_pos = region.start + (overshoot % loop_len);
+                            clock.reset();
+                            clock.advance(new_pos);
+                        }
                     }
                 }
             },

@@ -81,9 +81,13 @@ impl LockFreeLevel {
 
     /// Store a peak value with exponential decay (peak hold behavior).
     ///
-    /// Reads the current peak, computes `max(new_val, old_peak × decay)`,
-    /// and stores the result. This creates the classic "fast attack, slow
-    /// release" VU meter behavior.
+    /// Reads the current peak and decays it toward silence (`METER_FLOOR_DB`)
+    /// using: `decayed = floor + (current - floor) × decay_factor`.
+    /// Then takes `max(new_val, decayed)` for fast-attack / slow-release.
+    ///
+    /// **Important**: We operate in dB space (negative values), so straight
+    /// multiplication (`peak × 0.99`) would push peaks TOWARD 0 dB (louder).
+    /// This lerp-toward-floor approach correctly decays toward silence.
     ///
     /// # Note
     /// This is NOT a true CAS loop — it simply reads and writes.
@@ -92,7 +96,8 @@ impl LockFreeLevel {
     #[inline(always)]
     pub fn store_peak_decay(&self, val: f32, decay_factor: f32) {
         let current = self.load_peak();
-        let decayed = current * decay_factor;
+        // Lerp toward the floor: decayed moves toward METER_FLOOR_DB
+        let decayed = METER_FLOOR_DB + (current - METER_FLOOR_DB) * decay_factor;
         let new_peak = val.max(decayed);
         self.store_peak(new_peak);
     }
@@ -288,11 +293,17 @@ mod tests {
         // Set an initial peak
         lfl.store_peak(-3.0);
 
-        // Apply decay with a lower new value — peak should decay
+        // Apply decay with a lower new value — peak should decay toward silence
         lfl.store_peak_decay(-20.0, 0.99);
         let result = lfl.load_peak();
-        // Expected: max(-20.0, -3.0 * 0.99) = max(-20.0, -2.97) = -2.97
-        assert!((result - (-3.0 * 0.99)).abs() < 0.01);
+        // Expected: max(-20.0, FLOOR + (-3.0 - FLOOR) × 0.99)
+        //         = max(-20.0, -160 + 157 × 0.99)
+        //         = max(-20.0, -160 + 155.43)
+        //         = max(-20.0, -4.57)
+        //         = -4.57
+        let expected = METER_FLOOR_DB + (-3.0 - METER_FLOOR_DB) * 0.99;
+        assert!((result - expected).abs() < 0.01,
+            "Expected {expected}, got {result}");
 
         // Apply decay with a HIGHER new value — peak should jump up
         lfl.store_peak_decay(0.0, 0.99);

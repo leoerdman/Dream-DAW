@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { TransportBar } from '@/widgets/TransportBar/TransportBar';
+import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
 import { AssetBrowser } from '@/widgets/AssetBrowser/AssetBrowser';
 import { DeviceRack } from '@/widgets/DeviceRack/DeviceRack';
 import { TrackInspector } from '@/widgets/TrackInspector/TrackInspector';
@@ -8,7 +9,10 @@ import { StatusBar } from '@/widgets/StatusBar/StatusBar';
 import { Timeline } from '@/widgets/Timeline/Timeline';
 import type { BrowserDragItem } from '@/widgets/Timeline/Timeline';
 import { SettingsPanel } from '@/widgets/SettingsPanel/SettingsPanel';
+import { DragOverlay } from '@/widgets/DragOverlay/DragOverlay';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useDragStore } from '@/shared/stores/useDragStore';
+import { useGridStore } from '@/shared/stores/useGridStore';
 import * as engineApi from '@/shared/api/engine';
 
 /** Supported audio file extensions for drag-and-drop import. */
@@ -50,32 +54,143 @@ const isAudioFile = (path: string): boolean => {
 export const DawShell = () => {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [selectedTrackId, setSelectedTrackId] = useState('g-drums');
+    const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
     const [isDragOver, setIsDragOver] = useState(false);
     const importFile = useEngineStore(s => s.importFile);
+    const createMidiClip = useEngineStore(s => s.createMidiClip);
     const togglePlay = useEngineStore(s => s.togglePlay);
+    const fetchProject = useEngineStore(s => s.fetchProject);
     const importingRef = useRef(false);
+    const timelineRef = useRef<HTMLDivElement>(null);
 
-    // ── Space bar → Play/Stop ──────────────────────────────────────
+    // ── Global Keyboard Shortcuts (Space, Cmd+E, Delete, Cmd+S/O) ──
+    useKeyboardShortcuts({
+        selectedClipId,
+        playheadFrames: Math.round(
+            (useEngineStore.getState().transport.position_seconds ?? 0) *
+            (useEngineStore.getState().projectSampleRate ?? 44100)
+        ),
+        onProjectMutated: fetchProject,
+        onTogglePlayback: togglePlay,
+    });
+
+    // ── ⌘, opens Settings  |  ⌘N / ⌘O / ⌘S / ⌘⇧S project shortcuts ──
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
-            // ⌘, opens Settings
-            if (e.metaKey && e.key === ',') {
-                e.preventDefault();
-                setSettingsOpen(prev => !prev);
-                return;
-            }
+            if (!e.metaKey) return;
 
-            // Space → Play/Stop (skip when typing in inputs)
-            if (e.code === 'Space') {
-                const tag = (e.target as HTMLElement)?.tagName;
-                if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-                e.preventDefault();
-                togglePlay();
+            switch (e.key) {
+                case ',':
+                    e.preventDefault();
+                    setSettingsOpen(prev => !prev);
+                    break;
+
+                case 'n':
+                    e.preventDefault();
+                    engineApi.newProject()
+                        .then(() => fetchProject())
+                        .then(() => console.log('[DawShell] ⌘N — New project'))
+                        .catch(err => console.error('[DawShell] New project failed:', err));
+                    break;
+
+                case 'o':
+                    e.preventDefault();
+                    engineApi.pickProjectFile()
+                        .then(path => {
+                            if (!path) return;
+                            return engineApi.openProject(path).then(() => fetchProject());
+                        })
+                        .then(() => console.log('[DawShell] ⌘O — Opened'))
+                        .catch(err => console.error('[DawShell] Open failed:', err));
+                    break;
+
+                case 's':
+                    e.preventDefault();
+                    if (e.shiftKey) {
+                        // ⌘⇧S — Save As
+                        engineApi.saveProjectDialog()
+                            .then(path => {
+                                if (!path) return;
+                                return engineApi.saveProjectAs(path);
+                            })
+                            .then(() => console.log('[DawShell] ⌘⇧S — Saved As'))
+                            .catch(err => console.error('[DawShell] Save As failed:', err));
+                    } else {
+                        // ⌘S — Save (fallback to Save As if no path)
+                        engineApi.saveProject()
+                            .then(() => console.log('[DawShell] ⌘S — Saved'))
+                            .catch(() => {
+                                // No path set → trigger Save As
+                                engineApi.saveProjectDialog()
+                                    .then(path => {
+                                        if (!path) return;
+                                        return engineApi.saveProjectAs(path);
+                                    })
+                                    .catch(err => console.error('[DawShell] Save As fallback failed:', err));
+                            });
+                    }
+                    break;
             }
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [togglePlay]);
+    }, []);
+
+    // ── Store-based Drag → mouseup on Timeline imports audio ───────
+    useEffect(() => {
+        const handleGlobalMouseUp = (e: MouseEvent) => {
+            const dragging = useDragStore.getState().draggingItem;
+            if (!dragging) return;
+
+            // Always end the drag
+            useDragStore.getState().endDrag();
+
+            // Check if cursor is over the Timeline area
+            const tl = timelineRef.current;
+            if (!tl) return;
+            const rect = tl.getBoundingClientRect();
+            const isOverTimeline =
+                e.clientX >= rect.left && e.clientX <= rect.right &&
+                e.clientY >= rect.top && e.clientY <= rect.bottom;
+
+            if (!isOverTimeline) {
+                console.log('[DawShell] Drag cancelled — not over Timeline');
+                return;
+            }
+
+            // Read live values from stores (not stale closures)
+            const state = useEngineStore.getState();
+            const currentTrackCount = state.projectTracks.length || 9;
+
+            // Calculate track index and beat from cursor position
+            const y = e.clientY - rect.top;
+            const x = e.clientX - rect.left;
+            const trackIndex = Math.min(Math.floor(y / TRACK_HEIGHT), currentTrackCount - 1);
+
+            // Pixels per beat (synchronized with Timeline's calculation)
+            const ppb = 40; // matches Timeline default pixelsPerBeat
+            const rawBeat = x / ppb;
+            const beat = Math.max(0, useGridStore.getState().snapBeat(rawBeat, 4)); // magnetic snap
+
+            console.log('[DawShell] Store-drag drop on Timeline', {
+                name: dragging.name,
+                path: dragging.path,
+                trackIndex,
+                beat,
+            });
+
+            if (dragging.path && dragging.type === 'audio') {
+                const bpm = state.transport.bpm || 120;
+                const sr = state.projectSampleRate || 44100;
+                const posSeconds = beat / (bpm / 60);
+                const positionFrames = Math.round(posSeconds * sr);
+                state.importFile(dragging.path, trackIndex, positionFrames);
+            }
+        };
+
+        window.addEventListener('mouseup', handleGlobalMouseUp);
+        return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+    }, []);
 
     // ── Tauri Drag & Drop → Import Audio ───────────────────────────
     useEffect(() => {
@@ -148,6 +263,16 @@ export const DawShell = () => {
 
     const trackCount = Math.max(projectTracks.length, 8);
 
+    // ── Shared layout constants (SSOT for height sync) ──────────────
+    const TRACK_HEIGHT = 48;
+    const RULER_HEIGHT = 24;
+
+    // ── Scroll sync between Timeline and TrackInspector ─────────────
+    const [timelineScrollTop, setTimelineScrollTop] = useState(0);
+    const handleTimelineScrollTop = useCallback((st: number) => {
+        setTimelineScrollTop(st);
+    }, []);
+
     // Seek callback: Timeline click → seek in engine
     const handlePlayheadChange = useCallback((beat: number) => {
         const bpm = transport.bpm || 120;
@@ -155,14 +280,38 @@ export const DawShell = () => {
         engineApi.seekSeconds(seconds);
     }, [transport.bpm]);
 
+    // Clip selection callback
+    const handleClipSelect = useCallback((clipId: string) => {
+        setSelectedClipId(clipId);
+    }, []);
+
     // Drop from AssetBrowser → Timeline
-    const handleBrowserDrop = useCallback((item: BrowserDragItem, trackIndex: number, _beat: number) => {
+    const handleBrowserDrop = useCallback((item: BrowserDragItem, trackIndex: number, beat: number) => {
+        console.log('[DawShell] handleBrowserDrop', { item, trackIndex, beat });
         if (item.path) {
-            importFile(item.path, trackIndex);
+            // Convert drop beat → sample frames so the clip lands at the exact drop position
+            const bpm = transport.bpm || 120;
+            const sr = useEngineStore.getState().projectSampleRate || 44100;
+            const posSeconds = beat / (bpm / 60);
+            const positionFrames = Math.round(posSeconds * sr);
+            importFile(item.path, trackIndex, positionFrames);
         } else {
-            console.warn(`[DawShell] Browser item '${item.name}' has no file path — demo items cannot be imported yet`);
+            console.error(`[DawShell] Cannot import '${item.name}': no file path (demo items are not real files)`);
         }
-    }, [importFile]);
+    }, [importFile, transport.bpm]);
+
+    // Double-click on track lane → create 1-bar MIDI clip
+    const handleDoubleClickTrack = useCallback((trackIndex: number, beat: number) => {
+        console.log('[DawShell] handleDoubleClickTrack', { trackIndex, beat });
+        const bpm = transport.bpm || 120;
+        const sr = useEngineStore.getState().projectSampleRate || 44100;
+        const beatsPerBar = 4; // 4/4 time signature
+        const posSeconds = beat / (bpm / 60);
+        const barSeconds = beatsPerBar / (bpm / 60);
+        const positionFrames = Math.round(posSeconds * sr);
+        const durationFrames = Math.round(barSeconds * sr);
+        createMidiClip(trackIndex, positionFrames, durationFrames);
+    }, [createMidiClip, transport.bpm]);
 
     return (
         <div className="relative w-screen h-screen overflow-hidden bg-bg-app text-text-primary">
@@ -194,6 +343,7 @@ export const DawShell = () => {
 
                     {/* ═ TIMELINE (replaces the "hole-punch" transparent zone) ═ */}
                     <div
+                        ref={timelineRef}
                         className="flex-1 overflow-hidden"
                         style={{
                             background: 'var(--color-bg-canvas)',
@@ -204,8 +354,12 @@ export const DawShell = () => {
                             playheadBeat={playheadBeat}
                             isPlaying={transport.is_playing}
                             trackCount={trackCount}
+                            trackHeight={TRACK_HEIGHT}
                             onPlayheadChange={handlePlayheadChange}
+                            onClipSelect={handleClipSelect}
                             onDropBrowserItem={handleBrowserDrop}
+                            onDoubleClickTrack={handleDoubleClickTrack}
+                            onScrollTop={handleTimelineScrollTop}
                         />
                     </div>
 
@@ -221,6 +375,9 @@ export const DawShell = () => {
                         <TrackInspector
                             selectedTrackId={selectedTrackId}
                             onSelectTrack={handleSelectTrack}
+                            trackHeight={TRACK_HEIGHT}
+                            rulerHeight={RULER_HEIGHT}
+                            scrollTop={timelineScrollTop}
                         />
                     </aside>
                 </main>
@@ -271,6 +428,8 @@ export const DawShell = () => {
                     </div>
                 </div>
             )}
+            {/* Store-based drag overlay — floating label following cursor */}
+            <DragOverlay />
         </div>
     );
 };

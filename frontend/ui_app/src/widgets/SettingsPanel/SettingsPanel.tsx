@@ -54,7 +54,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
         { key: 'about', label: 'About', icon: 'ℹ️' },
     ];
 
-    const latencyMs = (settings.buffer_size / settings.sample_rate) * 1000;
+    const latencyMs = (settings.bufferSize / settings.sampleRate) * 1000;
 
     return (
         <div style={overlayStyle} onClick={onClose}>
@@ -97,9 +97,9 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                             </SettingRow>
                             <SettingRow label="On Startup">
                                 <Select
-                                    value={settings.startup_behavior === 'new' ? 'Create New Project' : 'Open Last Project'}
+                                    value={settings.startupBehavior === 'new' ? 'Create New Project' : 'Open Last Project'}
                                     options={['Create New Project', 'Open Last Project']}
-                                    onChange={v => updateSetting('startup_behavior', v.includes('New') ? 'new' : 'last')}
+                                    onChange={v => updateSetting('startupBehavior', v.includes('New') ? 'new' : 'last')}
                                 />
                             </SettingRow>
                         </div>
@@ -113,11 +113,11 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                                     {(['colored', 'classic'] as const).map(s => (
                                         <button
                                             key={s}
-                                            onClick={() => updateSetting('waveform_style', s)}
+                                            onClick={() => updateSetting('waveformStyle', s)}
                                             style={{
                                                 ...chipStyle,
-                                                background: settings.waveform_style === s ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
-                                                color: settings.waveform_style === s ? '#fff' : 'var(--color-text-secondary)',
+                                                background: settings.waveformStyle === s ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
+                                                color: settings.waveformStyle === s ? '#fff' : 'var(--color-text-secondary)',
                                             }}
                                         >
                                             {s === 'colored' ? 'Colored' : 'Classic Black'}
@@ -132,34 +132,34 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                         <div>
                             <h2 style={titleStyle}>Audio</h2>
                             <SettingRow label="Driver Type">
-                                <Select value={settings.driver_type} options={['CoreAudio']} onChange={v => updateSetting('driver_type', v)} />
+                                <Select value={settings.driverType} options={['CoreAudio']} onChange={v => updateSetting('driverType', v)} />
                             </SettingRow>
                             <SettingRow label="Output Device">
                                 <Select
-                                    value={settings.output_device}
+                                    value={settings.outputDevice}
                                     options={['MacBook Pro Speakers', 'External Headphones', 'Universal Audio Arrow', 'Focusrite Scarlett 2i2']}
-                                    onChange={v => updateSetting('output_device', v)}
+                                    onChange={v => updateSetting('outputDevice', v)}
                                 />
                             </SettingRow>
                             <SettingRow label="Input Device">
                                 <Select
-                                    value={settings.input_device}
+                                    value={settings.inputDevice}
                                     options={['MacBook Pro Microphone', 'No Input', 'External Microphone', 'Universal Audio Arrow', 'Focusrite Scarlett 2i2']}
-                                    onChange={v => updateSetting('input_device', v)}
+                                    onChange={v => updateSetting('inputDevice', v)}
                                 />
                             </SettingRow>
                             <SettingRow label="Sample Rate">
                                 <Select
-                                    value={`${settings.sample_rate} Hz`}
+                                    value={`${settings.sampleRate} Hz`}
                                     options={['44100 Hz', '48000 Hz', '88200 Hz', '96000 Hz']}
-                                    onChange={v => updateSetting('sample_rate', parseInt(v))}
+                                    onChange={v => updateSetting('sampleRate', parseInt(v))}
                                 />
                             </SettingRow>
                             <SettingRow label="Buffer Size">
                                 <Select
-                                    value={`${settings.buffer_size} samples`}
+                                    value={`${settings.bufferSize} samples`}
                                     options={['64 samples', '128 samples', '256 samples', '512 samples', '1024 samples', '2048 samples']}
-                                    onChange={v => updateSetting('buffer_size', parseInt(v))}
+                                    onChange={v => updateSetting('bufferSize', parseInt(v))}
                                 />
                             </SettingRow>
 
@@ -177,8 +177,8 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                             <SettingRow label="Driver Error Compensation">
                                 <input
                                     type="number"
-                                    value={settings.driver_error_compensation}
-                                    onChange={e => updateSetting('driver_error_compensation', parseFloat(e.target.value) || 0)}
+                                    value={settings.driverErrorCompensation}
+                                    onChange={e => updateSetting('driverErrorCompensation', parseFloat(e.target.value) || 0)}
                                     style={inputStyle}
                                     step={0.1}
                                 />
@@ -188,26 +188,26 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                             <div style={dividerStyle} />
 
                             <SettingRow label="Test Tone">
-                                <Toggle value={settings.test_tone_enabled} onChange={v => updateSetting('test_tone_enabled', v)} />
+                                <Toggle value={settings.testToneEnabled} onChange={v => updateSetting('testToneEnabled', v)} />
                             </SettingRow>
-                            {settings.test_tone_enabled && (
+                            {settings.testToneEnabled && (
                                 <>
                                     <SettingRow label="Tone Volume">
                                         <input
                                             type="range"
                                             min={-60}
                                             max={0}
-                                            value={settings.test_tone_volume}
-                                            onChange={e => updateSetting('test_tone_volume', parseInt(e.target.value))}
+                                            value={settings.testToneVolume}
+                                            onChange={e => updateSetting('testToneVolume', parseInt(e.target.value))}
                                             style={{ width: 120 }}
                                         />
-                                        <span style={valueStyle}>{settings.test_tone_volume} dB</span>
+                                        <span style={valueStyle}>{settings.testToneVolume} dB</span>
                                     </SettingRow>
                                     <SettingRow label="Frequency">
                                         <input
                                             type="number"
-                                            value={settings.test_tone_frequency}
-                                            onChange={e => updateSetting('test_tone_frequency', parseInt(e.target.value) || 440)}
+                                            value={settings.testToneFrequency}
+                                            onChange={e => updateSetting('testToneFrequency', parseInt(e.target.value) || 440)}
                                             style={inputStyle}
                                         />
                                         <span style={{ ...valueStyle, marginLeft: 4 }}>Hz</span>
@@ -218,10 +218,10 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                             <div style={dividerStyle} />
 
                             <SettingRow label="CPU Usage Simulator">
-                                <Toggle value={settings.cpu_usage_simulator} onChange={v => updateSetting('cpu_usage_simulator', v)} />
+                                <Toggle value={settings.cpuUsageSimulator} onChange={v => updateSetting('cpuUsageSimulator', v)} />
                             </SettingRow>
                             <SettingRow label="High Quality SR/Pitch Conversion">
-                                <Toggle value={settings.sr_pitch_conversion} onChange={v => updateSetting('sr_pitch_conversion', v)} />
+                                <Toggle value={settings.srPitchConversion} onChange={v => updateSetting('srPitchConversion', v)} />
                             </SettingRow>
                         </div>
                     )}
@@ -229,10 +229,10 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                     {tab === 'folders' && (
                         <div>
                             <h2 style={titleStyle}>Folders</h2>
-                            <FolderRow label="User Folder" path={settings.user_folder_path} onBrowse={() => pickAndSetFolder('user_folder_path')} />
-                            <FolderRow label="Samples Library" path={settings.samples_path} onBrowse={() => pickAndSetFolder('samples_path')} />
-                            <FolderRow label="VST2 Plugins" path={settings.vst2_path} onBrowse={() => pickAndSetFolder('vst2_path')} />
-                            <FolderRow label="VST3 Plugins" path={settings.vst3_path} onBrowse={() => pickAndSetFolder('vst3_path')} />
+                            <FolderRow label="User Folder" path={settings.userFolderPath} onBrowse={() => pickAndSetFolder('userFolderPath')} />
+                            <FolderRow label="Samples Library" path={settings.samplesPath} onBrowse={() => pickAndSetFolder('samplesPath')} />
+                            <FolderRow label="VST2 Plugins" path={settings.vst2Path} onBrowse={() => pickAndSetFolder('vst2Path')} />
+                            <FolderRow label="VST3 Plugins" path={settings.vst3Path} onBrowse={() => pickAndSetFolder('vst3Path')} />
 
                             <div style={dividerStyle} />
 

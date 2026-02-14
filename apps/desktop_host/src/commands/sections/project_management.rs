@@ -5,7 +5,7 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
     let merged = format!("{} {}", plugin_id, plugin_name).to_lowercase();
     let compact = merged.replace(|c: char| !c.is_ascii_alphanumeric(), "");
 
-    if compact.contains("originalsimpler") || compact.contains("drift") {
+    if compact.contains("originalsimpler") || compact.contains("drift") || compact.contains("instrumentvector") {
         if compact.contains("originalsimpler") {
             return Some(("internal://instrument/sampler", "Sampler", "instrument"));
         }
@@ -18,6 +18,7 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
         || compact.contains("simplesinesynth")
         || merged.contains("wave synth")
         || compact.contains("wavesynth")
+        || compact.contains("instrumentvector")
     {
         return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument"));
     }
@@ -39,6 +40,7 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
     }
     if merged.contains("reverb") || merged.contains("corpus") || merged.contains("resonators")
         || compact.contains("spectralresonator") || compact.contains("resonator")
+        || compact.contains("hybrid")
     {
         return Some(("internal://effect/reverb", "Reverb", "effect"));
     }
@@ -60,13 +62,16 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
     if compact.contains("mxdevicevelocity") || compact == "velocity" {
         return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
     }
-    if compact.contains("mxdevicerandom") || compact == "random" {
+    if compact.contains("mxdevicerandom") || compact == "random" || compact.contains("midirandom") {
         return Some(("internal://midi-fx/random", "MIDI Random", "effect"));
+    }
+    if compact.contains("midinotelength") {
+        return Some(("internal://midi-fx/velocity", "MIDI Note Length", "effect"));
     }
     if merged.contains("noise machine") || compact.contains("noisemachine") {
         return Some(("internal://effect/noise-machine", "Noise Machine", "effect"));
     }
-    if merged.contains("saturator") || compact.contains("dynamictube") || compact.contains("roar") {
+    if merged.contains("saturator") || compact.contains("dynamictube") || compact.contains("roar") || compact == "tube" {
         return Some(("internal://effect/saturator", "Saturator", "effect"));
     }
     if merged.contains("spectrum") {
@@ -195,6 +200,36 @@ fn maybe_parse_f64_manual(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<f6
 
 fn maybe_parse_bool_manual(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<bool> {
     node_manual_value(node, tag).as_deref().and_then(parse_bool_value)
+}
+
+fn direct_manual_value(node: roxmltree::Node<'_, '_>) -> Option<String> {
+    node.children()
+        .find(|c| c.is_element() && c.has_tag_name("Manual"))
+        .and_then(|manual| manual.attribute("Value"))
+        .map(|s| s.to_string())
+}
+
+fn parse_track_send_manual_values(mixer: roxmltree::Node<'_, '_>) -> Vec<(usize, f64)> {
+    let mut sends = Vec::new();
+    for (idx, holder) in mixer
+        .descendants()
+        .filter(|n| n.is_element() && n.has_tag_name("TrackSendHolder"))
+        .enumerate()
+    {
+        let Some(send_node) = holder
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("Send"))
+        else {
+            continue;
+        };
+        let value = direct_manual_value(send_node)
+            .as_deref()
+            .and_then(parse_f64_value)
+            .unwrap_or(0.0)
+            .clamp(0.0, 2.0);
+        sends.push((idx, value));
+    }
+    sends
 }
 
 fn resolve_als_file_path(
@@ -609,6 +644,54 @@ mod als_import_tests {
         let source = extract_audio_clip_source_path(clip, als_path);
         assert!(source.ends_with("Samples/Imported/kick.wav"));
     }
+
+    #[test]
+    fn parse_track_send_manual_values_reads_track_send_holders() {
+        let xml = r#"
+        <Mixer>
+          <Sends>
+            <TrackSendHolder Id="0">
+              <Send>
+                <Manual Value="0.25"/>
+              </Send>
+            </TrackSendHolder>
+            <TrackSendHolder Id="1">
+              <Send>
+                <Manual Value="1.25"/>
+              </Send>
+            </TrackSendHolder>
+          </Sends>
+        </Mixer>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let mixer = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Mixer"))
+            .expect("mixer");
+
+        let sends = parse_track_send_manual_values(mixer);
+        assert_eq!(sends.len(), 2);
+        assert!((sends[0].1 - 0.25).abs() < 1e-9);
+        assert!((sends[1].1 - 1.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn static_lane_if_missing_does_not_override_existing_lane() {
+        let mut track = Track::new("Test");
+        track.automation_lanes.push(dream_models::project::AutomationLane {
+            param_id: "send.A".to_string(),
+            points: vec![dream_models::project::AutomationPoint {
+                beat: 0.0,
+                value: 0.7,
+                curve_type: "linear".to_string(),
+                tension: None,
+            }],
+        });
+
+        upsert_static_import_lane_if_missing(&mut track, "send.A", 0.1);
+        assert_eq!(track.automation_lanes.len(), 1);
+        assert!((track.automation_lanes[0].points[0].value - 0.7).abs() < 1e-9);
+    }
 }
 
 fn infer_device_display_name(device: roxmltree::Node<'_, '_>, fallback_tag: &str) -> String {
@@ -834,6 +917,17 @@ fn upsert_static_import_lane(track: &mut Track, param_id: &str, value: f64) {
             tension: None,
         }],
     });
+}
+
+fn upsert_static_import_lane_if_missing(track: &mut Track, param_id: &str, value: f64) {
+    if track
+        .automation_lanes
+        .iter()
+        .any(|lane| lane.param_id.eq_ignore_ascii_case(param_id))
+    {
+        return;
+    }
+    upsert_static_import_lane(track, param_id, value);
 }
 
 fn import_track_devices(
@@ -1493,6 +1587,7 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
         };
 
         let mut track = Track::with_type(track_name, track_type, index);
+        let mut static_send_values = Vec::<(usize, f64)>::new();
 
         // ── Component 4: Ableton Color Index Mapping ──────────────────
         if let Some(color_value) = node_child_value(track_node, "Color")
@@ -1516,11 +1611,23 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
             let on = maybe_parse_bool_manual(mixer, "On");
             let speaker = maybe_parse_bool_manual(mixer, "Speaker");
             track.is_mute = on == Some(false) || speaker == Some(false);
+            track.is_solo = maybe_parse_bool_manual(mixer, "Solo")
+                .or_else(|| node_child_value(mixer, "SoloSink").as_deref().and_then(parse_bool_value))
+                .unwrap_or(false);
+            track.is_armed = maybe_parse_bool_manual(mixer, "Arm").unwrap_or(false);
+            static_send_values = parse_track_send_manual_values(mixer);
         }
 
         import_track_devices(track_node, &mut track, &external_plugins, file_path);
         import_track_clips(track_node, &mut track, file_path, tempo, sample_rate);
         import_track_automation(track_node, &mut track);
+        for (send_idx, send_value) in static_send_values {
+            if send_idx >= 26 {
+                continue;
+            }
+            let send_letter = (b'A' + send_idx as u8) as char;
+            upsert_static_import_lane_if_missing(&mut track, &format!("send.{send_letter}"), send_value);
+        }
         consolidate_automation_lanes(&mut track);
 
         if track_type == TrackType::Midi && track.instrument.is_none() {

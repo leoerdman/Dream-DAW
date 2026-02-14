@@ -120,33 +120,38 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
 
 fn normalize_internal_plugins_for_import(project: &mut Project) {
     for track in &mut project.tracks {
-        if let Some(inst) = &mut track.instrument
-            && let Some((canonical_id, canonical_name, slot)) =
-                canonical_internal_plugin_for_import(&inst.plugin_id, &inst.name)
-            && slot == "instrument"
-        {
-            inst.plugin_id = canonical_id.to_string();
-            if inst.name.trim().is_empty() || inst.name.to_lowercase() != canonical_name.to_lowercase() {
-                inst.name = canonical_name.to_string();
-            }
-            if track.sampler.is_none() {
-                track.sampler = Some(SamplerConfig::default());
-            }
-            if canonical_id == "internal://instrument/wave-synth"
-                && let Some(cfg) = &mut track.sampler
-                && cfg.sample_path.trim().is_empty()
+        if let Some(inst) = &mut track.instrument {
+            let pid = inst.plugin_id();
+            let pname = inst.name().to_string();
+            if let Some((canonical_id, canonical_name, slot)) =
+                canonical_internal_plugin_for_import(&pid, &pname)
+                && slot == "instrument"
             {
-                cfg.sample_path = "internal://waveform/sine".to_string();
+                inst.set_plugin_id(canonical_id);
+                if pname.trim().is_empty() || pname.to_lowercase() != canonical_name.to_lowercase() {
+                    inst.set_name(canonical_name);
+                }
+                if track.sampler.is_none() {
+                    track.sampler = Some(SamplerConfig::default());
+                }
+                if canonical_id == "internal://instrument/wave-synth"
+                    && let Some(cfg) = &mut track.sampler
+                    && cfg.sample_path.trim().is_empty()
+                {
+                    cfg.sample_path = "internal://waveform/sine".to_string();
+                }
             }
         }
         for fx in &mut track.effects {
+            let pid = fx.plugin_id();
+            let pname = fx.name().to_string();
             if let Some((canonical_id, canonical_name, slot)) =
-                canonical_internal_plugin_for_import(&fx.plugin_id, &fx.name)
+                canonical_internal_plugin_for_import(&pid, &pname)
                 && slot == "effect"
             {
-                fx.plugin_id = canonical_id.to_string();
-                if fx.name.trim().is_empty() || fx.name.to_lowercase() != canonical_name.to_lowercase() {
-                    fx.name = canonical_name.to_string();
+                fx.set_plugin_id(canonical_id);
+                if pname.trim().is_empty() || pname.to_lowercase() != canonical_name.to_lowercase() {
+                    fx.set_name(canonical_name);
                 }
             }
         }
@@ -230,6 +235,35 @@ fn parse_track_send_manual_values(mixer: roxmltree::Node<'_, '_>) -> Vec<(usize,
         sends.push((idx, value));
     }
     sends
+}
+
+fn parse_audio_output_target(track_node: roxmltree::Node<'_, '_>) -> Option<String> {
+    track_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
+        .and_then(|dc| dc.children().find(|n| n.is_element() && n.has_tag_name("AudioOutputRouting")))
+        .and_then(|routing| routing.children().find(|n| n.is_element() && n.has_tag_name("Target")))
+        .and_then(|target| target.attribute("Value"))
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn parse_target_track_xml_id(target: &str) -> Option<String> {
+    for segment in target.split('/') {
+        let segment = segment.trim();
+        let Some((kind, id)) = segment.split_once('.') else {
+            continue;
+        };
+        if !["Track", "AudioTrack", "MidiTrack", "ReturnTrack", "GroupTrack"].contains(&kind) {
+            continue;
+        }
+        let id = id.trim();
+        if id.is_empty() || id == "-1" || !id.chars().all(|c| c.is_ascii_digit() || c == '-') {
+            continue;
+        }
+        return Some(id.to_string());
+    }
+    None
 }
 
 fn resolve_als_file_path(
@@ -331,7 +365,7 @@ fn resolve_als_file_path(
     None
 }
 
-fn make_missing_plugin_slot(kind: &str, ableton_name: &str) -> PluginSlot {
+fn make_missing_plugin_slot(kind: &str, ableton_name: &str) -> DeviceNode {
     let normalized = ableton_name
         .chars()
         .map(|ch| {
@@ -351,10 +385,10 @@ fn make_missing_plugin_slot(kind: &str, ableton_name: &str) -> PluginSlot {
     } else {
         normalized
     };
-    PluginSlot::new(
+    DeviceNode::Single(PluginSlot::new(
         format!("Plugin Not Found: {}", ableton_name.trim()),
         format!("missing://{kind}/{slug}"),
-    )
+    ))
 }
 
 fn normalize_plugin_key(raw: &str) -> String {
@@ -692,6 +726,57 @@ mod als_import_tests {
         assert_eq!(track.automation_lanes.len(), 1);
         assert!((track.automation_lanes[0].points[0].value - 0.7).abs() < 1e-9);
     }
+
+    #[test]
+    fn parse_target_track_xml_id_extracts_track_segment() {
+        assert_eq!(
+            parse_target_track_xml_id("AudioOut/Track.243"),
+            Some("243".to_string())
+        );
+        assert_eq!(
+            parse_target_track_xml_id("AudioOut/ReturnTrack.81"),
+            Some("81".to_string())
+        );
+        assert_eq!(parse_target_track_xml_id("AudioOut/Main"), None);
+        assert_eq!(parse_target_track_xml_id("AudioOut/GroupTrack"), None);
+    }
+
+    #[test]
+    fn build_pointee_map_captures_extended_mixer_targets() {
+        let xml = r#"
+        <Track>
+          <DeviceChain>
+            <Mixer>
+              <CrossFadeState>
+                <AutomationTarget Id="1001"/>
+              </CrossFadeState>
+              <Solo>
+                <AutomationTarget Id="1002"/>
+              </Solo>
+              <Arm>
+                <AutomationTarget Id="1003"/>
+              </Arm>
+              <Sends>
+                <TrackSendHolder>
+                  <Send><AutomationTarget Id="1004"/></Send>
+                </TrackSendHolder>
+              </Sends>
+            </Mixer>
+          </DeviceChain>
+        </Track>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let track = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Track"))
+            .expect("track");
+
+        let map = build_pointee_map(track);
+        assert_eq!(map.get("1001").map(String::as_str), Some("mixer.crossfade_state"));
+        assert_eq!(map.get("1002").map(String::as_str), Some("mixer.solo"));
+        assert_eq!(map.get("1003").map(String::as_str), Some("mixer.arm"));
+        assert_eq!(map.get("1004").map(String::as_str), Some("send.A"));
+    }
 }
 
 fn infer_device_display_name(device: roxmltree::Node<'_, '_>, fallback_tag: &str) -> String {
@@ -968,7 +1053,7 @@ fn import_track_devices(
                     let inner_tag = inner.tag_name().name();
                     let inner_name = infer_device_display_name(inner, inner_tag);
                     if let Some((pid, pname, _)) = canonical_internal_plugin_for_import(inner_tag, &inner_name) {
-                        track.instrument = Some(PluginSlot::new(pname, pid));
+                        track.instrument = Some(DeviceNode::Single(PluginSlot::new(pname, pid)));
                         if track.sampler.is_none() {
                             track.sampler = Some(SamplerConfig::default());
                         }
@@ -1093,7 +1178,7 @@ fn import_track_devices(
 
             let is_instrument_slot = track.track_type == TrackType::Midi && track.instrument.is_none();
             let slot = if let Some(plugin_id) = resolved_plugin_id {
-                PluginSlot::new(preferred_name, plugin_id)
+                DeviceNode::Single(PluginSlot::new(preferred_name, plugin_id))
             } else if is_placeholder {
                 make_missing_plugin_slot("external", &preferred_name)
             } else {
@@ -1113,7 +1198,7 @@ fn import_track_devices(
         let canonical = canonical_internal_plugin_for_import(tag, &display_name);
         let is_instrument_slot = track.track_type == TrackType::Midi && track.instrument.is_none();
         if let Some((plugin_id, plugin_name, slot_kind)) = canonical {
-            let slot = PluginSlot::new(plugin_name, plugin_id);
+            let slot = DeviceNode::Single(PluginSlot::new(plugin_name, plugin_id));
             if slot_kind == "instrument" && is_instrument_slot {
                 track.instrument = Some(slot);
                 if track.sampler.is_none() {
@@ -1137,20 +1222,32 @@ fn import_track_devices(
                 // Import static MIDI FX settings into automation lanes so runtime
                 // can reconstruct behavior after .als load.
                 if plugin_id == "internal://midi-fx/pitch" {
-                    let semitones = maybe_parse_f64_manual(device, "Pitch").unwrap_or(0.0);
+                    let semitones = maybe_parse_f64_manual(device, "Pitch").unwrap_or(0.0)
+                        + maybe_parse_f64_manual(device, "PitchScaleDegrees").unwrap_or(0.0);
                     upsert_static_import_lane(track, "midi.pitch.semitones", semitones.clamp(-48.0, 48.0));
                 } else if plugin_id == "internal://midi-fx/velocity" {
-                    let gain = maybe_parse_f64_manual(device, "Drive").unwrap_or(1.0);
-                    let offset = maybe_parse_f64_manual(device, "OutLow").unwrap_or(0.0);
+                    let gain = maybe_parse_f64_manual(device, "Drive")
+                        .or_else(|| maybe_parse_f64_manual(device, "OutHi"))
+                        .unwrap_or(1.0);
+                    let offset = maybe_parse_f64_manual(device, "OutLow")
+                        .or_else(|| maybe_parse_f64_manual(device, "Random"))
+                        .unwrap_or(0.0);
                     upsert_static_import_lane(track, "midi.velocity.gain", gain.clamp(0.0, 4.0));
                     upsert_static_import_lane(track, "midi.velocity.offset", offset.clamp(-127.0, 127.0));
                 } else if plugin_id == "internal://midi-fx/random" {
-                    let chance = maybe_parse_f64_manual(device, "Chance").unwrap_or(1.0);
-                    let semitones = maybe_parse_f64_manual(device, "Choices").unwrap_or(0.0);
+                    let chance = maybe_parse_f64_manual(device, "Chance")
+                        .or_else(|| maybe_parse_f64_manual(device, "Probability"))
+                        .unwrap_or(1.0);
+                    let semitones = maybe_parse_f64_manual(device, "Choices")
+                        .or_else(|| maybe_parse_f64_manual(device, "Scale"))
+                        .unwrap_or(0.0);
                     upsert_static_import_lane(track, "midi.random.chance", chance.clamp(0.0, 1.0));
                     upsert_static_import_lane(track, "midi.random.semitones", semitones.clamp(-24.0, 24.0));
                 } else if plugin_id == "internal://midi-fx/scale" {
-                    let root = maybe_parse_f64_manual(device, "Base").unwrap_or(0.0);
+                    let root = maybe_parse_f64_manual(device, "Base")
+                        .or_else(|| maybe_parse_f64_manual(device, "Root"))
+                        .or_else(|| maybe_parse_f64_manual(device, "Lowest"))
+                        .unwrap_or(0.0);
                     upsert_static_import_lane(track, "midi.scale.root", root.rem_euclid(12.0));
                     // Default to chromatic mask if explicit map isn't parsed yet.
                     upsert_static_import_lane(track, "midi.scale.mask", 4095.0);
@@ -1229,6 +1326,7 @@ fn build_pointee_map(track_node: roxmltree::Node<'_, '_>) -> std::collections::H
         ("Pan", "pan"),
         ("SplitStereoPanL", "pan_left"),
         ("SplitStereoPanR", "pan_right"),
+        ("CrossFadeState", "mixer.crossfade_state"),
     ];
 
     // Locate the Mixer node
@@ -1251,12 +1349,17 @@ fn build_pointee_map(track_node: roxmltree::Node<'_, '_>) -> std::collections::H
             }
         }
 
-        // Mixer On/Speaker → mute automation
-        for mute_tag in ["On", "Speaker"] {
-            if let Some(node) = mixer.children().find(|n| n.is_element() && n.has_tag_name(mute_tag)) {
+        // Mixer boolean controls
+        for (tag, lane) in [
+            ("On", "mixer.on"),
+            ("Speaker", "mixer.speaker"),
+            ("Solo", "mixer.solo"),
+            ("Arm", "mixer.arm"),
+        ] {
+            if let Some(node) = mixer.children().find(|n| n.is_element() && n.has_tag_name(tag)) {
                 if let Some(target) = node.descendants().find(|n| n.is_element() && n.has_tag_name("AutomationTarget")) {
                     if let Some(id) = target.attribute("Id") {
-                        map.insert(id.to_string(), format!("mixer.{}", mute_tag.to_lowercase()));
+                        map.insert(id.to_string(), lane.to_string());
                     }
                 }
             }
@@ -1555,6 +1658,8 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
 
     let mut xml_id_to_uuid = std::collections::HashMap::<String, Uuid>::new();
     let mut pending_group_refs = Vec::<(Uuid, String)>::new();
+    let mut pending_output_refs = Vec::<(Uuid, String)>::new();
+    let mut pending_group_output_fallback = Vec::<Uuid>::new();
 
     for (index, track_node) in tracks_node.children().filter(|n| n.is_element()).enumerate() {
         let tag = track_node.tag_name().name();
@@ -1588,6 +1693,7 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
 
         let mut track = Track::with_type(track_name, track_type, index);
         let mut static_send_values = Vec::<(usize, f64)>::new();
+        let mut static_mixer_values = Vec::<(String, f64)>::new();
 
         // ── Component 4: Ableton Color Index Mapping ──────────────────
         if let Some(color_value) = node_child_value(track_node, "Color")
@@ -1611,10 +1717,26 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
             let on = maybe_parse_bool_manual(mixer, "On");
             let speaker = maybe_parse_bool_manual(mixer, "Speaker");
             track.is_mute = on == Some(false) || speaker == Some(false);
-            track.is_solo = maybe_parse_bool_manual(mixer, "Solo")
+            let solo = maybe_parse_bool_manual(mixer, "Solo")
                 .or_else(|| node_child_value(mixer, "SoloSink").as_deref().and_then(parse_bool_value))
                 .unwrap_or(false);
-            track.is_armed = maybe_parse_bool_manual(mixer, "Arm").unwrap_or(false);
+            let armed = maybe_parse_bool_manual(mixer, "Arm").unwrap_or(false);
+            track.is_solo = solo;
+            track.is_armed = armed;
+            if let Some(on) = on {
+                static_mixer_values.push(("mixer.on".to_string(), if on { 1.0 } else { 0.0 }));
+            }
+            if let Some(speaker) = speaker {
+                static_mixer_values.push(("mixer.speaker".to_string(), if speaker { 1.0 } else { 0.0 }));
+            }
+            static_mixer_values.push(("mixer.solo".to_string(), if solo { 1.0 } else { 0.0 }));
+            static_mixer_values.push(("mixer.arm".to_string(), if armed { 1.0 } else { 0.0 }));
+            if let Some(crossfade_state) = maybe_parse_f64_manual(mixer, "CrossFadeState") {
+                static_mixer_values.push((
+                    "mixer.crossfade_state".to_string(),
+                    crossfade_state.clamp(0.0, 2.0),
+                ));
+            }
             static_send_values = parse_track_send_manual_values(mixer);
         }
 
@@ -1627,6 +1749,9 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
             }
             let send_letter = (b'A' + send_idx as u8) as char;
             upsert_static_import_lane_if_missing(&mut track, &format!("send.{send_letter}"), send_value);
+        }
+        for (param_id, value) in static_mixer_values {
+            upsert_static_import_lane_if_missing(&mut track, &param_id, value);
         }
         consolidate_automation_lanes(&mut track);
 
@@ -1651,6 +1776,14 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
             pending_group_refs.push((track.id, group_ref));
         }
 
+        if let Some(target) = parse_audio_output_target(track_node) {
+            if let Some(xml_target_id) = parse_target_track_xml_id(&target) {
+                pending_output_refs.push((track.id, xml_target_id));
+            } else if target.eq_ignore_ascii_case("AudioOut/GroupTrack") {
+                pending_group_output_fallback.push(track.id);
+            }
+        }
+
         project.add_track(track);
     }
 
@@ -1665,6 +1798,24 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
             && !parent_track.child_track_ids.contains(&child_id)
         {
             parent_track.child_track_ids.push(child_id);
+        }
+    }
+
+    for (track_id, output_xml_id) in pending_output_refs {
+        let Some(dest_id) = xml_id_to_uuid.get(output_xml_id.trim()).copied() else {
+            continue;
+        };
+        if let Some(track) = project.find_track_mut(track_id) {
+            track.output_destination_id = Some(dest_id);
+        }
+    }
+    for track_id in pending_group_output_fallback {
+        let parent_id = project.find_track(track_id).and_then(|t| t.parent_track_id);
+        if let Some(parent_id) = parent_id
+            && let Some(track) = project.find_track_mut(track_id)
+            && track.output_destination_id.is_none()
+        {
+            track.output_destination_id = Some(parent_id);
         }
     }
 

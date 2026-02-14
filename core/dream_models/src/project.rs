@@ -25,7 +25,7 @@ use crate::time::AbsoluteTime;
 ///
 /// Bump this only when serialized project schema changes incompatibly
 /// and provide a migration path in `dream_io::project_file`.
-pub const PROJECT_FORMAT_VERSION: u32 = 2;
+pub const PROJECT_FORMAT_VERSION: u32 = 3;
 
 // ── Track Color (16 Ableton-style palette) ─────────────────────────────
 
@@ -197,6 +197,348 @@ impl PluginSlot {
             is_bypassed: false,
             latency_frames: 0,
         }
+    }
+}
+
+// ── Device Rack ────────────────────────────────────────────────────────
+
+/// Type of device rack.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub enum RackType {
+    /// Instrument rack (contains instruments + effects, parallel chains).
+    Instrument,
+    /// Audio effect rack (parallel effect chains).
+    AudioEffect,
+    /// Drum rack (pad-based instrument container).
+    DrumRack,
+    /// MIDI effect rack (MIDI processing chains).
+    MidiEffect,
+}
+
+impl Default for RackType {
+    fn default() -> Self {
+        Self::AudioEffect
+    }
+}
+
+/// Zone settings for a rack chain — key, velocity, and chain selector ranges.
+///
+/// Determines which notes/velocities route to this chain (Ableton-style).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ZoneSettings {
+    /// Minimum MIDI key (0–127).
+    pub key_range_min: u8,
+    /// Maximum MIDI key (0–127).
+    pub key_range_max: u8,
+    /// Minimum velocity (1–127).
+    pub velocity_range_min: u8,
+    /// Maximum velocity (1–127).
+    pub velocity_range_max: u8,
+    /// Minimum chain selector value (0–127).
+    pub chain_selector_min: u8,
+    /// Maximum chain selector value (0–127).
+    pub chain_selector_max: u8,
+}
+
+impl Default for ZoneSettings {
+    fn default() -> Self {
+        Self {
+            key_range_min: 0,
+            key_range_max: 127,
+            velocity_range_min: 1,
+            velocity_range_max: 127,
+            chain_selector_min: 0,
+            chain_selector_max: 127,
+        }
+    }
+}
+
+/// Maps a macro control to a device parameter inside a rack.
+///
+/// When the macro value changes, the mapped parameter is linearly
+/// interpolated: macro at 0 → `min_value`, macro at 127 → `max_value`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct MacroMapping {
+    /// Target device ID within this rack.
+    #[ts(type = "string")]
+    pub device_id: Uuid,
+    /// Target parameter identifier (e.g. "eq.low", "compressor.ratio").
+    pub param_id: String,
+    /// Value sent when macro is at minimum.
+    pub min_value: f64,
+    /// Value sent when macro is at maximum.
+    pub max_value: f64,
+}
+
+/// A single macro control knob on a device rack.
+///
+/// Racks expose up to 16 macro knobs that can be mapped to parameters
+/// of devices inside the rack's chains.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct MacroControl {
+    /// Macro index (0–15).
+    pub index: u8,
+    /// Display name (e.g., "Filter Cutoff", "Macro 1").
+    pub name: String,
+    /// Current value (0.0–127.0).
+    pub value: f64,
+    /// Default value (0.0–127.0).
+    pub default_value: f64,
+    /// Parameter mappings controlled by this macro.
+    #[serde(default)]
+    pub mappings: Vec<MacroMapping>,
+}
+
+impl MacroControl {
+    /// Creates a new macro control with default name and zero value.
+    pub fn new(index: u8) -> Self {
+        Self {
+            index,
+            name: format!("Macro {}", index + 1),
+            value: 0.0,
+            default_value: 0.0,
+            mappings: Vec::new(),
+        }
+    }
+}
+
+/// A single parallel chain inside a device rack.
+///
+/// Each chain contains its own ordered device list, zone settings,
+/// and mix parameters. Multiple chains run in parallel and their
+/// outputs are summed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RackChain {
+    /// Unique chain identifier.
+    #[ts(type = "string")]
+    pub id: Uuid,
+    /// Display name for this chain.
+    pub name: String,
+    /// Ordered list of devices in this chain (supports nesting).
+    pub devices: Vec<DeviceNode>,
+    /// Zone settings controlling which notes/velocities route here.
+    #[serde(default)]
+    pub zone_settings: ZoneSettings,
+    /// Whether this chain is soloed.
+    #[serde(default)]
+    pub is_solo: bool,
+    /// Whether this chain is muted.
+    #[serde(default)]
+    pub is_mute: bool,
+    /// Chain volume (0.0–2.0, 1.0 = unity).
+    #[serde(default = "default_unity")]
+    pub volume: f64,
+    /// Chain pan (-1.0 to 1.0).
+    #[serde(default)]
+    pub pan: f64,
+}
+
+fn default_unity() -> f64 {
+    1.0
+}
+
+impl RackChain {
+    /// Creates a new empty chain with default settings.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: name.into(),
+            devices: Vec::new(),
+            zone_settings: ZoneSettings::default(),
+            is_solo: false,
+            is_mute: false,
+            volume: 1.0,
+            pan: 0.0,
+        }
+    }
+}
+
+/// A device rack container with parallel chains and macro controls.
+///
+/// Modeled after Ableton's Instrument Rack / Audio Effect Rack.
+/// Supports unlimited nesting depth (racks within racks).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DeviceRack {
+    /// Unique rack identifier.
+    #[ts(type = "string")]
+    pub id: Uuid,
+    /// Display name (e.g., "Childhood Home Piano", "Bass Rack").
+    pub name: String,
+    /// Type of rack (instrument, audio effect, etc.).
+    pub rack_type: RackType,
+    /// Parallel chains inside this rack.
+    pub chains: Vec<RackChain>,
+    /// Macro control knobs (up to 16).
+    pub macro_controls: Vec<MacroControl>,
+    /// Whether this rack is bypassed.
+    #[serde(default)]
+    pub is_bypassed: bool,
+    /// Whether the rack is expanded in the UI.
+    #[serde(default = "default_true")]
+    pub is_expanded: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl DeviceRack {
+    /// Creates a new empty rack.
+    pub fn new(name: impl Into<String>, rack_type: RackType) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: name.into(),
+            rack_type,
+            chains: Vec::new(),
+            macro_controls: (0..8).map(MacroControl::new).collect(),
+            is_bypassed: false,
+            is_expanded: true,
+        }
+    }
+
+    /// Total latency of the rack (max of all chain latencies).
+    pub fn total_latency_frames(&self) -> u32 {
+        self.chains
+            .iter()
+            .map(|chain| {
+                chain
+                    .devices
+                    .iter()
+                    .filter(|d| !d.is_bypassed())
+                    .map(|d| d.latency_frames())
+                    .sum::<u32>()
+            })
+            .max()
+            .unwrap_or(0)
+    }
+}
+
+/// A single node in the device tree — either a standalone plugin or a rack.
+///
+/// This enum enables unlimited nesting: a rack chain contains `DeviceNode`s,
+/// which can themselves be racks containing more chains and nodes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(tag = "type")]
+pub enum DeviceNode {
+    /// A single plugin (instrument or effect).
+    Single(PluginSlot),
+    /// A device rack containing parallel chains.
+    Rack(DeviceRack),
+}
+
+impl DeviceNode {
+    /// Creates a `DeviceNode::Single` from a `PluginSlot`.
+    pub fn single(slot: PluginSlot) -> Self {
+        Self::Single(slot)
+    }
+
+    /// Creates a `DeviceNode::Rack` from a `DeviceRack`.
+    pub fn rack(rack: DeviceRack) -> Self {
+        Self::Rack(rack)
+    }
+
+    /// Whether this device node is bypassed.
+    pub fn is_bypassed(&self) -> bool {
+        match self {
+            Self::Single(slot) => slot.is_bypassed,
+            Self::Rack(rack) => rack.is_bypassed,
+        }
+    }
+
+    /// Returns the latency in sample frames.
+    pub fn latency_frames(&self) -> u32 {
+        match self {
+            Self::Single(slot) => slot.latency_frames,
+            Self::Rack(rack) => rack.total_latency_frames(),
+        }
+    }
+
+    /// Returns the display name.
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Single(slot) => &slot.name,
+            Self::Rack(rack) => &rack.name,
+        }
+    }
+
+    /// Returns the unique ID.
+    pub fn id(&self) -> Uuid {
+        match self {
+            Self::Single(slot) => slot.id,
+            Self::Rack(rack) => rack.id,
+        }
+    }
+
+    /// Returns the plugin_id if this is a Single node, or a synthetic rack:// id.
+    pub fn plugin_id(&self) -> String {
+        match self {
+            Self::Single(slot) => slot.plugin_id.clone(),
+            Self::Rack(rack) => format!("rack://{:?}/{}", rack.rack_type, rack.id),
+        }
+    }
+
+    /// Collects all `PluginSlot` references recursively (flattened).
+    pub fn collect_plugin_slots(&self) -> Vec<&PluginSlot> {
+        match self {
+            Self::Single(slot) => vec![slot],
+            Self::Rack(rack) => rack
+                .chains
+                .iter()
+                .flat_map(|chain| chain.devices.iter().flat_map(|d| d.collect_plugin_slots()))
+                .collect(),
+        }
+    }
+
+    // ── Mutable Accessors ─────────────────────────────────────────────
+
+    /// Returns a mutable reference to the inner `PluginSlot`, if this is `Single`.
+    pub fn as_single_mut(&mut self) -> Option<&mut PluginSlot> {
+        match self {
+            Self::Single(slot) => Some(slot),
+            Self::Rack(_) => None,
+        }
+    }
+
+    /// Returns a reference to the inner `PluginSlot`, if this is `Single`.
+    pub fn as_single(&self) -> Option<&PluginSlot> {
+        match self {
+            Self::Single(slot) => Some(slot),
+            Self::Rack(_) => None,
+        }
+    }
+
+    /// Sets the display name (works for both Single and Rack).
+    pub fn set_name(&mut self, name: impl Into<String>) {
+        match self {
+            Self::Single(slot) => slot.name = name.into(),
+            Self::Rack(rack) => rack.name = name.into(),
+        }
+    }
+
+    /// Sets the plugin_id (only for Single — no-op for Rack).
+    pub fn set_plugin_id(&mut self, plugin_id: impl Into<String>) {
+        if let Self::Single(slot) = self {
+            slot.plugin_id = plugin_id.into();
+        }
+    }
+}
+
+impl From<PluginSlot> for DeviceNode {
+    fn from(slot: PluginSlot) -> Self {
+        Self::Single(slot)
+    }
+}
+
+impl From<DeviceRack> for DeviceNode {
+    fn from(rack: DeviceRack) -> Self {
+        Self::Rack(rack)
     }
 }
 
@@ -383,11 +725,13 @@ pub struct Track {
 
     // ── Effect Chain ───────────────────────────────────────────────────
 
-    /// Insert effect slots (processed in order).
-    pub effects: Vec<PluginSlot>,
+    /// Insert device nodes (processed in order). Each can be a single
+    /// plugin or a nested device rack.
+    pub effects: Vec<DeviceNode>,
 
-    /// Instrument plugin (for MIDI tracks). `None` for audio tracks.
-    pub instrument: Option<PluginSlot>,
+    /// Instrument device (for MIDI tracks). `None` for audio tracks.
+    /// Can be a single plugin or an instrument rack.
+    pub instrument: Option<DeviceNode>,
 
     // ── Grouping / Hierarchy ───────────────────────────────────────────
 
@@ -454,16 +798,18 @@ impl Track {
 
     /// Total latency of this track's effect chain in sample frames.
     ///
-    /// Used by PDC to align parallel paths.
+    /// Used by PDC to align parallel paths. Handles both single plugins
+    /// and nested device racks (racks report max-of-chain latencies).
     pub fn total_latency_frames(&self) -> u32 {
         let instrument_latency = self.instrument
             .as_ref()
-            .map_or(0, |p| p.latency_frames);
+            .filter(|d| !d.is_bypassed())
+            .map_or(0, |d| d.latency_frames());
 
         let effects_latency: u32 = self.effects
             .iter()
-            .filter(|p| !p.is_bypassed)
-            .map(|p| p.latency_frames)
+            .filter(|d| !d.is_bypassed())
+            .map(|d| d.latency_frames())
             .sum();
 
         instrument_latency + effects_latency
@@ -816,29 +1162,29 @@ mod tests {
         let mut track = Track::new("Test");
         assert_eq!(track.total_latency_frames(), 0);
 
-        track.instrument = Some(PluginSlot {
+        track.instrument = Some(DeviceNode::Single(PluginSlot {
             id: Uuid::new_v4(),
             name: "Serum".into(),
             plugin_id: "com.xfer.serum".into(),
             is_bypassed: false,
             latency_frames: 64,
-        });
+        }));
 
-        track.effects.push(PluginSlot {
+        track.effects.push(DeviceNode::Single(PluginSlot {
             id: Uuid::new_v4(),
             name: "Limiter".into(),
             plugin_id: "com.fabfilter.pro-l-2".into(),
             is_bypassed: false,
             latency_frames: 128,
-        });
+        }));
 
-        track.effects.push(PluginSlot {
+        track.effects.push(DeviceNode::Single(PluginSlot {
             id: Uuid::new_v4(),
             name: "EQ".into(),
             plugin_id: "com.fabfilter.pro-q-3".into(),
             is_bypassed: true, // Bypassed — should NOT count
             latency_frames: 32,
-        });
+        }));
 
         assert_eq!(track.total_latency_frames(), 64 + 128); // Instrument + active effect
     }

@@ -433,7 +433,7 @@ fn add_plugin_to_track_cmd(
     let is_sampler_instrument = plugin_id_lower.starts_with("internal://instrument/sampler");
     let is_wave_synth_instrument = plugin_id_lower.starts_with("internal://instrument/wave-synth")
         || plugin_id_lower.starts_with("internal://instrument/simple-sine-synth");
-    let plugin_slot = PluginSlot::new(effective_plugin_name.clone(), effective_plugin_id.clone());
+    let plugin_slot = DeviceNode::Single(PluginSlot::new(effective_plugin_name.clone(), effective_plugin_id.clone()));
     let mut runtime_add: Option<(Uuid, u8, u8)> = None;
     let mut runtime_waveform: Option<(Uuid, u8)> = None;
     if use_instrument {
@@ -511,9 +511,9 @@ fn remove_plugin_from_track_cmd(
     let mut removed = false;
     let mut runtime_remove_slot: Option<u8> = None;
     if let Some(inst) = &track.instrument
-        && inst.id == slot_uuid
+        && inst.id() == slot_uuid
     {
-        let removed_plugin_id = inst.plugin_id.clone();
+        let removed_plugin_id = inst.plugin_id();
         track.instrument = None;
         let removed_lower = removed_plugin_id.to_lowercase();
         if removed_lower.starts_with("internal://instrument/sampler")
@@ -526,7 +526,7 @@ fn remove_plugin_from_track_cmd(
     }
 
     if !removed {
-        if let Some(effect_idx) = track.effects.iter().position(|slot| slot.id == slot_uuid) {
+        if let Some(effect_idx) = track.effects.iter().position(|node| node.id() == slot_uuid) {
             runtime_remove_slot = Some(effect_idx.min(u8::MAX as usize) as u8);
             track.effects.remove(effect_idx);
             removed = true;

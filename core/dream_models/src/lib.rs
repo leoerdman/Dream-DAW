@@ -19,6 +19,7 @@ use ts_rs::TS;
 
 pub mod midi;
 pub mod mutators;
+pub mod preset;
 pub mod project;
 pub mod pulse_map;
 pub mod spatial_grid;

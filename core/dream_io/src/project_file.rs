@@ -183,30 +183,96 @@ impl ProjectFile {
     }
 
     fn parse_project_document(data: &str) -> Result<Project, ProjectFileError> {
-        // V2+ envelope format.
-        if let Ok(envelope) = serde_json::from_str::<ProjectEnvelope>(data) {
-            if envelope.format_version > PROJECT_FORMAT_VERSION {
+        // ── Step 1: Parse raw JSON to inspect format_version ─────────
+        let raw: serde_json::Value = serde_json::from_str(data)
+            .map_err(|e| ProjectFileError::SerializationError(e.to_string()))?;
+
+        // Detect whether this is an envelope or a legacy raw-Project.
+        let (mut doc, from_version) = if raw.get("format_version").is_some() {
+            let version = raw["format_version"].as_u64().unwrap_or(1) as u32;
+            if version > PROJECT_FORMAT_VERSION {
                 return Err(ProjectFileError::UnsupportedFormatVersion {
-                    found: envelope.format_version,
+                    found: version,
                     supported: PROJECT_FORMAT_VERSION,
                 });
             }
-            return Ok(Self::migrate_project(envelope.project, envelope.format_version));
+            let project_val = raw.get("project").cloned().ok_or_else(|| {
+                ProjectFileError::SerializationError(
+                    "Envelope missing 'project' field".to_string(),
+                )
+            })?;
+            (project_val, version)
+        } else {
+            // Legacy V1: raw Project JSON without envelope.
+            (raw, 1)
+        };
+
+        // ── Step 2: Apply JSON-level migrations ─────────────────────
+        if from_version < 3 {
+            Self::migrate_v2_to_v3(&mut doc);
         }
 
-        // Legacy V1 raw-Project format compatibility.
-        if let Ok(project) = serde_json::from_str::<Project>(data) {
-            return Ok(Self::migrate_project(project, 1));
-        }
+        // ── Step 3: Deserialize the (possibly migrated) JSON ────────
+        let mut project: Project = serde_json::from_value(doc)
+            .map_err(|e| ProjectFileError::SerializationError(e.to_string()))?;
 
-        Err(ProjectFileError::SerializationError(
-            "Failed to parse project as envelope or legacy project format".to_string(),
-        ))
+        // ── Step 4: Post-deserialization migrations ──────────────────
+        Self::migrate_project_post(&mut project, from_version);
+
+        Ok(project)
     }
 
-    fn migrate_project(mut project: Project, from_version: u32) -> Project {
-        // Placeholder migration pipeline.
-        // Keep deterministic defaults for fields introduced after legacy versions.
+    /// V2→V3 migration (JSON level).
+    ///
+    /// Old projects store `track.effects` as `[{PluginSlot fields...}]` and
+    /// `track.instrument` as `{PluginSlot fields...}`. The new DeviceNode enum
+    /// uses `#[serde(tag = "type")]` which expects a `"type"` discriminator.
+    ///
+    /// This migration injects `"type": "Single"` into every effect/instrument
+    /// entry that doesn't already have it, making them deserializable as
+    /// `DeviceNode::Single(PluginSlot { ... })`.
+    fn migrate_v2_to_v3(project_val: &mut serde_json::Value) {
+        let tracks = match project_val.get_mut("tracks").and_then(|t| t.as_array_mut()) {
+            Some(t) => t,
+            None => return,
+        };
+
+        for track in tracks.iter_mut() {
+            // ── effects: Vec<DeviceNode> ────────────────────────────
+            if let Some(effects) = track.get_mut("effects").and_then(|e| e.as_array_mut()) {
+                for fx in effects.iter_mut() {
+                    Self::inject_device_node_type(fx);
+                }
+            }
+
+            // ── instrument: Option<DeviceNode> ──────────────────────
+            if let Some(inst) = track.get_mut("instrument") {
+                if !inst.is_null() {
+                    Self::inject_device_node_type(inst);
+                }
+            }
+        }
+    }
+
+    /// Injects `"type": "Single"` into a JSON object if:
+    /// 1. It's an object.
+    /// 2. It doesn't already have a `"type"` field.
+    ///
+    /// Objects that already have `"type": "Single"` or `"type": "Rack"` are
+    /// left untouched (V3+ format or nested rack structures).
+    fn inject_device_node_type(val: &mut serde_json::Value) {
+        if let Some(obj) = val.as_object_mut() {
+            if !obj.contains_key("type") {
+                obj.insert(
+                    "type".to_string(),
+                    serde_json::Value::String("Single".to_string()),
+                );
+            }
+        }
+    }
+
+    /// Post-deserialization migrations (operates on typed Rust structs).
+    fn migrate_project_post(project: &mut Project, from_version: u32) {
         if from_version < 2 {
             // Ensure loop invariants are sane for legacy projects.
             if let (Some(start), Some(end)) = (project.loop_start_frames, project.loop_end_frames)
@@ -217,7 +283,6 @@ impl ProjectFile {
                 project.is_looping = false;
             }
         }
-        project
     }
 }
 
@@ -229,7 +294,7 @@ impl ProjectFile {
 mod tests {
     use super::*;
     use dream_models::midi::{MidiClip, MidiNote, SamplerConfig};
-    use dream_models::project::{AudioClip, AutomationLane, AutomationPoint, PluginSlot, TimeSignature, Track, TrackColor, TrackType};
+    use dream_models::project::{AudioClip, AutomationLane, AutomationPoint, DeviceNode, PluginSlot, TimeSignature, Track, TrackColor, TrackType};
     use dream_models::time::AbsoluteTime;
     use std::path::PathBuf;
 
@@ -377,8 +442,8 @@ mod tests {
         let mut midi_track = Track::with_type("MIDI 1", TrackType::Midi, 0);
         midi_track.volume = 0.77;
         midi_track.pan = -0.15;
-        midi_track.instrument = Some(PluginSlot::new("Sampler", "internal://instrument/sampler"));
-        midi_track.effects.push(PluginSlot::new("Utility", "internal://effect/utility"));
+        midi_track.instrument = Some(DeviceNode::Single(PluginSlot::new("Sampler", "internal://instrument/sampler")));
+        midi_track.effects.push(DeviceNode::Single(PluginSlot::new("Utility", "internal://effect/utility")));
         midi_track.sampler = Some(SamplerConfig {
             sample_path: "Samples/snare.wav".to_string(),
             root_note: 60,

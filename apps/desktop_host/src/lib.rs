@@ -43,7 +43,7 @@ use dream_ipc::metering::MeterBank;
 use dream_ipc::{EngineCommand, MasterClock};
 use dream_models::mutators::{self, MutatorError};
 use dream_models::midi::{MidiClip, MidiNote, SamplerConfig};
-use dream_models::project::{AudioClip, PluginSlot, Project, TimeSignature, Track, TrackColor, TrackType};
+use dream_models::project::{AudioClip, DeviceNode, PluginSlot, Project, TimeSignature, Track, TrackColor, TrackType};
 use dream_models::time::AbsoluteTime;
 use dream_models::PlaybackState;
 use tauri::{Manager, Emitter};
@@ -134,8 +134,8 @@ struct SharedTrackSnapshot {
     color: TrackColor,
     height: f64,
     output_destination_id: Option<Uuid>,
-    effects: Vec<PluginSlot>,
-    instrument: Option<PluginSlot>,
+    effects: Vec<DeviceNode>,
+    instrument: Option<DeviceNode>,
     parent_track_id: Option<Uuid>,
     child_track_ids: Vec<Uuid>,
     is_expanded: bool,
@@ -528,19 +528,19 @@ fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngineHan
             let has_pitch = track
                 .effects
                 .iter()
-                .any(|fx| fx.plugin_id.eq_ignore_ascii_case("internal://midi-fx/pitch"));
+                .any(|fx| fx.plugin_id().eq_ignore_ascii_case("internal://midi-fx/pitch"));
             let has_scale = track
                 .effects
                 .iter()
-                .any(|fx| fx.plugin_id.eq_ignore_ascii_case("internal://midi-fx/scale"));
+                .any(|fx| fx.plugin_id().eq_ignore_ascii_case("internal://midi-fx/scale"));
             let has_velocity = track
                 .effects
                 .iter()
-                .any(|fx| fx.plugin_id.eq_ignore_ascii_case("internal://midi-fx/velocity"));
+                .any(|fx| fx.plugin_id().eq_ignore_ascii_case("internal://midi-fx/velocity"));
             let has_random = track
                 .effects
                 .iter()
-                .any(|fx| fx.plugin_id.eq_ignore_ascii_case("internal://midi-fx/random"));
+                .any(|fx| fx.plugin_id().eq_ignore_ascii_case("internal://midi-fx/random"));
 
             let fx = MidiFxRuntimeConfig {
                 pitch_enabled: has_pitch,
@@ -631,7 +631,7 @@ fn rebuild_sampler_snapshot_from_project(
             let plugin_id_lower = track
                 .instrument
                 .as_ref()
-                .map(|inst| inst.plugin_id.to_lowercase())
+                .map(|inst| inst.plugin_id().to_lowercase())
                 .unwrap_or_default();
             let is_wave_synth = plugin_id_lower.starts_with("internal://instrument/wave-synth")
                 || plugin_id_lower.starts_with("internal://instrument/simple-sine-synth");
@@ -876,10 +876,11 @@ fn rebuild_runtime_device_chains_from_project(
     // Rebuild from persisted internal effect slots.
     for (track_index, track) in project.tracks.iter().enumerate() {
         for (slot_index, fx) in track.effects.iter().enumerate() {
-            if !fx.plugin_id.starts_with("internal://") {
+            let plugin_id = fx.plugin_id();
+            if !plugin_id.starts_with("internal://") {
                 continue;
             }
-            if let Some(effect_type) = builtin_effect_type_from_plugin_id(&fx.plugin_id) {
+            if let Some(effect_type) = builtin_effect_type_from_plugin_id(&plugin_id) {
                 push_command(
                     handle,
                     EngineCommand::AddDevice {
@@ -888,7 +889,7 @@ fn rebuild_runtime_device_chains_from_project(
                         effect_type,
                     },
                 )?;
-                if fx.is_bypassed {
+                if fx.is_bypassed() {
                     push_command(
                         handle,
                         EngineCommand::BypassDevice {
@@ -1591,6 +1592,64 @@ struct PluginEditorCapability {
 struct MidiInputPortInfo {
     name: String,
     connected: bool,
+}
+
+// ── Device Rack Payloads ───────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateRackPayload {
+    track_id: String,
+    device_ids: Vec<String>,
+    rack_name: Option<String>,
+    rack_type: Option<String>, // "audio_effect" | "instrument" | "drum" | "midi_effect"
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AddChainToRackPayload {
+    track_id: String,
+    rack_id: String,
+    chain_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AddDeviceToRackChainPayload {
+    track_id: String,
+    rack_id: String,
+    chain_id: String,
+    plugin_id: String,
+    plugin_name: String,
+    insert_index: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoveDeviceFromRackPayload {
+    track_id: String,
+    rack_id: String,
+    device_id: String,
+    auto_dissolve: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveDevicePresetPayload {
+    track_id: String,
+    device_id: String,
+    output_path: String,
+    preset_name: Option<String>,
+    tags: Option<Vec<String>>,
+    description: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LoadDevicePresetPayload {
+    track_id: String,
+    preset_path: String,
+    insert_index: Option<usize>,
 }
 
 // ── Helper: push command with error handling ───────────────────────────

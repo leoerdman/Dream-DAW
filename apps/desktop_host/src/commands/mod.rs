@@ -19,6 +19,7 @@ include!("sections/project_extended.rs");
 include!("sections/audio_devices.rs");
 include!("sections/plugins_routing.rs");
 include!("sections/midi_input.rs");
+include!("sections/device_rack.rs");
 
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -142,6 +143,13 @@ pub(crate) fn invoke_handler()
         remove_device_cmd,
         bypass_device_cmd,
         set_device_param_cmd,
+        // Device Rack
+        create_rack_from_devices_cmd,
+        add_chain_to_rack_cmd,
+        add_device_to_rack_chain_cmd,
+        remove_device_from_rack_cmd,
+        save_device_preset_cmd,
+        load_device_preset_cmd,
         // Project Management (extended)
         create_backup_cmd,
         mark_dirty_cmd,

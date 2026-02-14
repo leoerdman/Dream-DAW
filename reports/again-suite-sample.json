@@ -1,0 +1,1735 @@
+{
+  "als_root": "/Users/leoerdman/ABLETON - Main Folder/ABLETON - Projects/160-200 BPM/9. Again",
+  "user_folder": "/Users/leoerdman/ABLETON - Main Folder/ABLETON - User Folder",
+  "generated_at_epoch": 1771106856,
+  "elapsed_seconds": 24.28,
+  "installed_plugins_indexed": 207,
+  "totals": {
+    "files": 80,
+    "audio_tracks": 1329,
+    "midi_tracks": 669,
+    "group_tracks": 348,
+    "main_tracks": 80,
+    "audio_clips": 43143,
+    "midi_clips": 11934,
+    "float_events": 17572,
+    "sample_refs": 44072,
+    "native_mapped": 6276,
+    "native_unmapped": 442,
+    "external_resolved": 499,
+    "external_missing": 53
+  },
+  "rates": {
+    "native_mapped_rate": 0.9342066091098541,
+    "external_resolved_rate": 0.9039855072463768,
+    "overall_compat_rate": 0.9319119669876204
+  },
+  "parse_errors": [],
+  "top": {
+    "device_tags": [
+      [
+        "Eq8",
+        1531
+      ],
+      [
+        "Reverb",
+        1023
+      ],
+      [
+        "PluginDevice",
+        552
+      ],
+      [
+        "Compressor2",
+        520
+      ],
+      [
+        "OriginalSimpler",
+        450
+      ],
+      [
+        "Delay",
+        399
+      ],
+      [
+        "InstrumentGroupDevice",
+        398
+      ],
+      [
+        "Erosion",
+        393
+      ],
+      [
+        "StereoGain",
+        255
+      ],
+      [
+        "AutoPan",
+        220
+      ],
+      [
+        "AutoFilter",
+        177
+      ],
+      [
+        "Redux2",
+        158
+      ],
+      [
+        "Chorus",
+        155
+      ],
+      [
+        "MxDeviceAudioEffect",
+        149
+      ],
+      [
+        "MidiPitcher",
+        121
+      ],
+      [
+        "Saturator",
+        119
+      ],
+      [
+        "MultibandDynamics",
+        116
+      ],
+      [
+        "DrumGroupDevice",
+        94
+      ],
+      [
+        "Limiter",
+        87
+      ],
+      [
+        "ChannelEq",
+        81
+      ],
+      [
+        "Chorus2",
+        80
+      ],
+      [
+        "InstrumentVector",
+        79
+      ],
+      [
+        "Drift",
+        79
+      ],
+      [
+        "Echo",
+        79
+      ],
+      [
+        "UltraAnalog",
+        78
+      ],
+      [
+        "Redux",
+        78
+      ],
+      [
+        "Phaser",
+        78
+      ],
+      [
+        "Amp",
+        78
+      ],
+      [
+        "StringStudio",
+        77
+      ],
+      [
+        "AudioEffectGroupDevice",
+        53
+      ],
+      [
+        "AutoFilter2",
+        14
+      ],
+      [
+        "Roar",
+        13
+      ],
+      [
+        "MultiSampler",
+        6
+      ],
+      [
+        "MidiNoteLength",
+        5
+      ],
+      [
+        "MidiRandom",
+        4
+      ],
+      [
+        "Tuner",
+        4
+      ],
+      [
+        "Hybrid",
+        3
+      ],
+      [
+        "AutoPan2",
+        2
+      ],
+      [
+        "Shifter",
+        2
+      ],
+      [
+        "Tube",
+        2
+      ],
+      [
+        "Operator",
+        2
+      ],
+      [
+        "Spectral",
+        1
+      ]
+    ],
+    "mapped_targets": [
+      [
+        "EQ Eight",
+        1612
+      ],
+      [
+        "Reverb",
+        1026
+      ],
+      [
+        "Compressor",
+        636
+      ],
+      [
+        "Distortion",
+        484
+      ],
+      [
+        "Delay",
+        478
+      ],
+      [
+        "Sampler",
+        456
+      ],
+      [
+        "Utility",
+        255
+      ],
+      [
+        "Bitcrusher",
+        236
+      ],
+      [
+        "Chorus",
+        235
+      ],
+      [
+        "Auto Pan",
+        222
+      ],
+      [
+        "Auto Filter",
+        191
+      ],
+      [
+        "Wave Synth",
+        159
+      ],
+      [
+        "Saturator",
+        121
+      ],
+      [
+        "Limiter",
+        87
+      ],
+      [
+        "Phaser",
+        78
+      ]
+    ],
+    "unknown_native": [
+      [
+        "MxDeviceAudioEffect",
+        149
+      ],
+      [
+        "MidiPitcher",
+        121
+      ],
+      [
+        "InstrumentVector",
+        79
+      ],
+      [
+        "StringStudio",
+        77
+      ],
+      [
+        "MidiNoteLength",
+        5
+      ],
+      [
+        "MidiRandom",
+        4
+      ],
+      [
+        "Tuner",
+        4
+      ],
+      [
+        "Shifter",
+        2
+      ],
+      [
+        "Spectral",
+        1
+      ]
+    ],
+    "missing_external": [
+      [
+        "reastream-standalone",
+        49
+      ],
+      [
+        "Nectar 3",
+        4
+      ]
+    ],
+    "resolved_external": [
+      [
+        "kHs Transient Shaper",
+        127
+      ],
+      [
+        "Phase Plant",
+        110
+      ],
+      [
+        "ShaperBox 3",
+        97
+      ],
+      [
+        "kHs Trance Gate",
+        39
+      ],
+      [
+        "Pro-Q 3",
+        36
+      ],
+      [
+        "kHs Delay",
+        26
+      ],
+      [
+        "Serum 2",
+        11
+      ],
+      [
+        "ValhallaShimmer",
+        10
+      ],
+      [
+        "Ozone 11 Imager",
+        8
+      ],
+      [
+        "FabFilter Pro-Q 4",
+        6
+      ],
+      [
+        "kHs Haas",
+        6
+      ],
+      [
+        "kHs Clipper",
+        5
+      ],
+      [
+        "FabFilter Pro-Q 3",
+        4
+      ],
+      [
+        "Pro-L 2",
+        3
+      ],
+      [
+        "Voxengo SPAN",
+        2
+      ],
+      [
+        "kHs Pitch Shifter",
+        2
+      ],
+      [
+        "ValhallaRoom",
+        1
+      ],
+      [
+        "soothe2",
+        1
+      ],
+      [
+        "FabFilter Pro-DS",
+        1
+      ],
+      [
+        "MWaveShaper",
+        1
+      ],
+      [
+        "Pro-Q 4",
+        1
+      ],
+      [
+        "ADPTR MetricAB",
+        1
+      ],
+      [
+        "MusePlugin",
+        1
+      ]
+    ],
+    "vst3_names": [
+      [
+        "Pro-Q 3",
+        36
+      ],
+      [
+        "ShaperBox 3",
+        15
+      ],
+      [
+        "Serum 2",
+        11
+      ],
+      [
+        "Ozone 11 Imager",
+        8
+      ],
+      [
+        "ValhallaShimmer",
+        8
+      ],
+      [
+        "kHs Clipper",
+        5
+      ],
+      [
+        "Pro-L 2",
+        3
+      ],
+      [
+        "kHs Transient Shaper",
+        2
+      ],
+      [
+        "ValhallaRoom",
+        1
+      ],
+      [
+        "kHs Haas",
+        1
+      ],
+      [
+        "MWaveShaper",
+        1
+      ],
+      [
+        "Pro-Q 4",
+        1
+      ],
+      [
+        "ADPTR MetricAB",
+        1
+      ],
+      [
+        "MusePlugin",
+        1
+      ]
+    ],
+    "vst2_names": [
+      [
+        "kHs Transient Shaper",
+        125
+      ],
+      [
+        "Phase Plant",
+        110
+      ],
+      [
+        "ShaperBox 3",
+        82
+      ],
+      [
+        "reastream-standalone",
+        49
+      ],
+      [
+        "kHs Trance Gate",
+        39
+      ],
+      [
+        "kHs Delay",
+        26
+      ],
+      [
+        "FabFilter Pro-Q 4",
+        6
+      ],
+      [
+        "kHs Haas",
+        5
+      ],
+      [
+        "FabFilter Pro-Q 3",
+        4
+      ],
+      [
+        "Nectar 3",
+        4
+      ],
+      [
+        "Voxengo SPAN",
+        2
+      ],
+      [
+        "kHs Pitch Shifter",
+        2
+      ],
+      [
+        "ValhallaShimmer",
+        2
+      ],
+      [
+        "soothe2",
+        1
+      ],
+      [
+        "FabFilter Pro-DS",
+        1
+      ]
+    ]
+  },
+  "user_inventory": {
+    "bucket_counts": {},
+    "extension_counts": {},
+    "scanned_files": 0,
+    "max_files_limit": 0,
+    "defaults_root": "/Users/leoerdman/ABLETON - Main Folder/ABLETON - User Folder/User Library/Defaults",
+    "defaults_file_count": 0,
+    "defaults_top_dirs": []
+  },
+  "files": [
+    {
+      "file": "Again - Neuroliquid 1.4 Lesson.als",
+      "audio_tracks": 17,
+      "midi_tracks": 7,
+      "group_tracks": 5,
+      "main_tracks": 1,
+      "audio_clips": 800,
+      "midi_clips": 148,
+      "float_events": 171,
+      "sample_refs": 806,
+      "native_mapped": 72,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Again - Neuroliquid 1.4.als",
+      "audio_tracks": 15,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 803,
+      "midi_clips": 104,
+      "float_events": 265,
+      "sample_refs": 809,
+      "native_mapped": 72,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Again V112.als",
+      "audio_tracks": 52,
+      "midi_tracks": 19,
+      "group_tracks": 7,
+      "main_tracks": 1,
+      "audio_clips": 723,
+      "midi_clips": 346,
+      "float_events": 726,
+      "sample_refs": 1205,
+      "native_mapped": 211,
+      "native_unmapped": 25,
+      "external_resolved": 125,
+      "external_missing": 0
+    },
+    {
+      "file": "Archieve/DNB 1 Neurofunk.als",
+      "audio_tracks": 12,
+      "midi_tracks": 5,
+      "group_tracks": 1,
+      "main_tracks": 1,
+      "audio_clips": 300,
+      "midi_clips": 69,
+      "float_events": 111,
+      "sample_refs": 305,
+      "native_mapped": 60,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Archieve/DNB 1.1 Neurofunk.als",
+      "audio_tracks": 15,
+      "midi_tracks": 5,
+      "group_tracks": 2,
+      "main_tracks": 1,
+      "audio_clips": 505,
+      "midi_clips": 96,
+      "float_events": 155,
+      "sample_refs": 510,
+      "native_mapped": 67,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Archieve/DNB 1.2 Neurofunk.als",
+      "audio_tracks": 14,
+      "midi_tracks": 5,
+      "group_tracks": 3,
+      "main_tracks": 1,
+      "audio_clips": 532,
+      "midi_clips": 103,
+      "float_events": 223,
+      "sample_refs": 537,
+      "native_mapped": 68,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Archieve/DNB 1.3 Snare Neurofunk.als",
+      "audio_tracks": 16,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 819,
+      "midi_clips": 106,
+      "float_events": 269,
+      "sample_refs": 825,
+      "native_mapped": 73,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Again - Neuroliquid 1.4 Lesson [2025-06-12 220754].als",
+      "audio_tracks": 15,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 804,
+      "midi_clips": 104,
+      "float_events": 265,
+      "sample_refs": 810,
+      "native_mapped": 72,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Again - Neuroliquid 1.4 Lesson [2025-06-12 222321].als",
+      "audio_tracks": 17,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 809,
+      "midi_clips": 105,
+      "float_events": 265,
+      "sample_refs": 815,
+      "native_mapped": 72,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Again - Neuroliquid 1.4 Lesson [2025-06-12 222557].als",
+      "audio_tracks": 17,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 811,
+      "midi_clips": 106,
+      "float_events": 265,
+      "sample_refs": 817,
+      "native_mapped": 72,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Again - Neuroliquid 1.4 Lesson [2025-06-12 222622].als",
+      "audio_tracks": 17,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 808,
+      "midi_clips": 106,
+      "float_events": 265,
+      "sample_refs": 814,
+      "native_mapped": 72,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Again - Neuroliquid 1.4 Lesson [2025-06-20 161302].als",
+      "audio_tracks": 17,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 806,
+      "midi_clips": 106,
+      "float_events": 265,
+      "sample_refs": 812,
+      "native_mapped": 72,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Again - Neuroliquid 1.4 [2025-06-12 213845].als",
+      "audio_tracks": 16,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 819,
+      "midi_clips": 106,
+      "float_events": 269,
+      "sample_refs": 825,
+      "native_mapped": 73,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Again - Neuroliquid 1.4 [2025-06-12 213926].als",
+      "audio_tracks": 15,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 803,
+      "midi_clips": 104,
+      "float_events": 265,
+      "sample_refs": 809,
+      "native_mapped": 72,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Again - Neuroliquid 1.4 [2025-06-12 214621].als",
+      "audio_tracks": 15,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 803,
+      "midi_clips": 104,
+      "float_events": 265,
+      "sample_refs": 809,
+      "native_mapped": 72,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Again - Neuroliquid 1.4 [2025-06-12 214716].als",
+      "audio_tracks": 15,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 803,
+      "midi_clips": 104,
+      "float_events": 265,
+      "sample_refs": 809,
+      "native_mapped": 72,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/DNB 1 Neurofunk [2025-05-29 234729].als",
+      "audio_tracks": 3,
+      "midi_tracks": 3,
+      "group_tracks": 0,
+      "main_tracks": 1,
+      "audio_clips": 10,
+      "midi_clips": 11,
+      "float_events": 1,
+      "sample_refs": 14,
+      "native_mapped": 26,
+      "native_unmapped": 1,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1 Neurofunk [2025-05-29 235858].als",
+      "audio_tracks": 6,
+      "midi_tracks": 4,
+      "group_tracks": 0,
+      "main_tracks": 1,
+      "audio_clips": 28,
+      "midi_clips": 20,
+      "float_events": 24,
+      "sample_refs": 32,
+      "native_mapped": 35,
+      "native_unmapped": 2,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1 Neurofunk [2025-05-30 004856].als",
+      "audio_tracks": 7,
+      "midi_tracks": 5,
+      "group_tracks": 0,
+      "main_tracks": 1,
+      "audio_clips": 42,
+      "midi_clips": 19,
+      "float_events": 24,
+      "sample_refs": 46,
+      "native_mapped": 45,
+      "native_unmapped": 4,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1 Neurofunk [2025-05-30 185812].als",
+      "audio_tracks": 10,
+      "midi_tracks": 5,
+      "group_tracks": 0,
+      "main_tracks": 1,
+      "audio_clips": 54,
+      "midi_clips": 19,
+      "float_events": 43,
+      "sample_refs": 58,
+      "native_mapped": 49,
+      "native_unmapped": 4,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1 Neurofunk [2025-05-30 195138].als",
+      "audio_tracks": 11,
+      "midi_tracks": 5,
+      "group_tracks": 1,
+      "main_tracks": 1,
+      "audio_clips": 290,
+      "midi_clips": 53,
+      "float_events": 104,
+      "sample_refs": 295,
+      "native_mapped": 59,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1 Neurofunk [2025-05-30 195951].als",
+      "audio_tracks": 11,
+      "midi_tracks": 5,
+      "group_tracks": 1,
+      "main_tracks": 1,
+      "audio_clips": 292,
+      "midi_clips": 53,
+      "float_events": 104,
+      "sample_refs": 297,
+      "native_mapped": 59,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1 Neurofunk [2025-05-30 200705].als",
+      "audio_tracks": 11,
+      "midi_tracks": 5,
+      "group_tracks": 1,
+      "main_tracks": 1,
+      "audio_clips": 290,
+      "midi_clips": 56,
+      "float_events": 122,
+      "sample_refs": 295,
+      "native_mapped": 59,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1 Neurofunk [2025-05-31 031148].als",
+      "audio_tracks": 12,
+      "midi_tracks": 5,
+      "group_tracks": 1,
+      "main_tracks": 1,
+      "audio_clips": 284,
+      "midi_clips": 56,
+      "float_events": 121,
+      "sample_refs": 289,
+      "native_mapped": 59,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1 Neurofunk [2025-05-31 034618].als",
+      "audio_tracks": 12,
+      "midi_tracks": 5,
+      "group_tracks": 1,
+      "main_tracks": 1,
+      "audio_clips": 284,
+      "midi_clips": 56,
+      "float_events": 119,
+      "sample_refs": 289,
+      "native_mapped": 60,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1.1 Neurofunk [2025-05-31 043109].als",
+      "audio_tracks": 14,
+      "midi_tracks": 5,
+      "group_tracks": 1,
+      "main_tracks": 1,
+      "audio_clips": 502,
+      "midi_clips": 92,
+      "float_events": 160,
+      "sample_refs": 507,
+      "native_mapped": 62,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1.1 Neurofunk [2025-06-02 185045].als",
+      "audio_tracks": 15,
+      "midi_tracks": 5,
+      "group_tracks": 1,
+      "main_tracks": 1,
+      "audio_clips": 514,
+      "midi_clips": 96,
+      "float_events": 151,
+      "sample_refs": 519,
+      "native_mapped": 64,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1.1 Neurofunk [2025-06-02 190744].als",
+      "audio_tracks": 15,
+      "midi_tracks": 5,
+      "group_tracks": 1,
+      "main_tracks": 1,
+      "audio_clips": 514,
+      "midi_clips": 96,
+      "float_events": 155,
+      "sample_refs": 519,
+      "native_mapped": 65,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1.1 Neurofunk [2025-06-02 190909].als",
+      "audio_tracks": 15,
+      "midi_tracks": 5,
+      "group_tracks": 2,
+      "main_tracks": 1,
+      "audio_clips": 505,
+      "midi_clips": 96,
+      "float_events": 155,
+      "sample_refs": 510,
+      "native_mapped": 67,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1.1 Neurofunk [2025-06-02 191007].als",
+      "audio_tracks": 15,
+      "midi_tracks": 5,
+      "group_tracks": 2,
+      "main_tracks": 1,
+      "audio_clips": 505,
+      "midi_clips": 96,
+      "float_events": 155,
+      "sample_refs": 510,
+      "native_mapped": 67,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1.2 Neurofunk [2025-06-02 201407].als",
+      "audio_tracks": 15,
+      "midi_tracks": 5,
+      "group_tracks": 3,
+      "main_tracks": 1,
+      "audio_clips": 503,
+      "midi_clips": 96,
+      "float_events": 152,
+      "sample_refs": 508,
+      "native_mapped": 68,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1.2 Neurofunk [2025-06-02 202320].als",
+      "audio_tracks": 14,
+      "midi_tracks": 5,
+      "group_tracks": 3,
+      "main_tracks": 1,
+      "audio_clips": 532,
+      "midi_clips": 103,
+      "float_events": 215,
+      "sample_refs": 537,
+      "native_mapped": 68,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1.2 Neurofunk [2025-06-03 151030].als",
+      "audio_tracks": 14,
+      "midi_tracks": 5,
+      "group_tracks": 3,
+      "main_tracks": 1,
+      "audio_clips": 532,
+      "midi_clips": 103,
+      "float_events": 215,
+      "sample_refs": 537,
+      "native_mapped": 68,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1.3 Snare Neurofunk [2025-06-03 152544].als",
+      "audio_tracks": 14,
+      "midi_tracks": 5,
+      "group_tracks": 3,
+      "main_tracks": 1,
+      "audio_clips": 532,
+      "midi_clips": 103,
+      "float_events": 223,
+      "sample_refs": 537,
+      "native_mapped": 68,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1.3 Snare Neurofunk [2025-06-03 153137].als",
+      "audio_tracks": 14,
+      "midi_tracks": 5,
+      "group_tracks": 3,
+      "main_tracks": 1,
+      "audio_clips": 419,
+      "midi_clips": 105,
+      "float_events": 239,
+      "sample_refs": 425,
+      "native_mapped": 69,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1.3 Snare Neurofunk [2025-06-03 153355].als",
+      "audio_tracks": 14,
+      "midi_tracks": 5,
+      "group_tracks": 3,
+      "main_tracks": 1,
+      "audio_clips": 418,
+      "midi_clips": 104,
+      "float_events": 239,
+      "sample_refs": 424,
+      "native_mapped": 69,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1.3 Snare Neurofunk [2025-06-03 210711].als",
+      "audio_tracks": 14,
+      "midi_tracks": 5,
+      "group_tracks": 3,
+      "main_tracks": 1,
+      "audio_clips": 418,
+      "midi_clips": 104,
+      "float_events": 239,
+      "sample_refs": 424,
+      "native_mapped": 69,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1.3 Snare Neurofunk [2025-06-03 215801].als",
+      "audio_tracks": 14,
+      "midi_tracks": 5,
+      "group_tracks": 3,
+      "main_tracks": 1,
+      "audio_clips": 414,
+      "midi_clips": 104,
+      "float_events": 248,
+      "sample_refs": 420,
+      "native_mapped": 69,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1.4 Neurofunk [2025-06-03 220024].als",
+      "audio_tracks": 16,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 819,
+      "midi_clips": 106,
+      "float_events": 269,
+      "sample_refs": 825,
+      "native_mapped": 73,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/DNB 1.4 Neurofunk [2025-06-05 013019].als",
+      "audio_tracks": 16,
+      "midi_tracks": 5,
+      "group_tracks": 4,
+      "main_tracks": 1,
+      "audio_clips": 819,
+      "midi_clips": 106,
+      "float_events": 269,
+      "sample_refs": 825,
+      "native_mapped": 73,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Erdman - Again 1.10 [2025-06-30 191514].als",
+      "audio_tracks": 20,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 503,
+      "midi_clips": 211,
+      "float_events": 247,
+      "sample_refs": 509,
+      "native_mapped": 87,
+      "native_unmapped": 5,
+      "external_resolved": 8,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.10 [2025-06-30 191611].als",
+      "audio_tracks": 20,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 503,
+      "midi_clips": 211,
+      "float_events": 247,
+      "sample_refs": 509,
+      "native_mapped": 87,
+      "native_unmapped": 5,
+      "external_resolved": 8,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.10 [2025-06-30 191636].als",
+      "audio_tracks": 20,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 503,
+      "midi_clips": 211,
+      "float_events": 247,
+      "sample_refs": 509,
+      "native_mapped": 87,
+      "native_unmapped": 5,
+      "external_resolved": 8,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.12 [2025-06-30 194738].als",
+      "audio_tracks": 17,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 480,
+      "midi_clips": 211,
+      "float_events": 247,
+      "sample_refs": 486,
+      "native_mapped": 90,
+      "native_unmapped": 5,
+      "external_resolved": 9,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.12 [2025-06-30 195035].als",
+      "audio_tracks": 17,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 480,
+      "midi_clips": 214,
+      "float_events": 247,
+      "sample_refs": 486,
+      "native_mapped": 90,
+      "native_unmapped": 5,
+      "external_resolved": 9,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.12 [2025-06-30 195133].als",
+      "audio_tracks": 17,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 481,
+      "midi_clips": 214,
+      "float_events": 247,
+      "sample_refs": 487,
+      "native_mapped": 90,
+      "native_unmapped": 5,
+      "external_resolved": 9,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.13 [2025-06-30 195904].als",
+      "audio_tracks": 17,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 476,
+      "midi_clips": 214,
+      "float_events": 248,
+      "sample_refs": 482,
+      "native_mapped": 90,
+      "native_unmapped": 5,
+      "external_resolved": 9,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.13 [2025-06-30 200011].als",
+      "audio_tracks": 17,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 476,
+      "midi_clips": 196,
+      "float_events": 248,
+      "sample_refs": 482,
+      "native_mapped": 90,
+      "native_unmapped": 5,
+      "external_resolved": 9,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.13 [2025-07-01 061206].als",
+      "audio_tracks": 17,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 476,
+      "midi_clips": 196,
+      "float_events": 248,
+      "sample_refs": 482,
+      "native_mapped": 90,
+      "native_unmapped": 5,
+      "external_resolved": 9,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.13 [2025-07-01 061408].als",
+      "audio_tracks": 17,
+      "midi_tracks": 12,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 476,
+      "midi_clips": 219,
+      "float_events": 282,
+      "sample_refs": 483,
+      "native_mapped": 93,
+      "native_unmapped": 5,
+      "external_resolved": 10,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.15 [2025-07-01 063452].als",
+      "audio_tracks": 17,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 484,
+      "midi_clips": 218,
+      "float_events": 312,
+      "sample_refs": 488,
+      "native_mapped": 87,
+      "native_unmapped": 5,
+      "external_resolved": 10,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.15 [2025-07-01 070602].als",
+      "audio_tracks": 17,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 484,
+      "midi_clips": 220,
+      "float_events": 310,
+      "sample_refs": 488,
+      "native_mapped": 88,
+      "native_unmapped": 5,
+      "external_resolved": 10,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.16 [2025-07-01 095933].als",
+      "audio_tracks": 19,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 383,
+      "midi_clips": 224,
+      "float_events": 265,
+      "sample_refs": 387,
+      "native_mapped": 92,
+      "native_unmapped": 4,
+      "external_resolved": 12,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.17 UNCLONE Volumes [2025-07-03 035933].als",
+      "audio_tracks": 19,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 383,
+      "midi_clips": 224,
+      "float_events": 265,
+      "sample_refs": 387,
+      "native_mapped": 92,
+      "native_unmapped": 4,
+      "external_resolved": 12,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.5 [2025-06-20 161551].als",
+      "audio_tracks": 17,
+      "midi_tracks": 7,
+      "group_tracks": 5,
+      "main_tracks": 1,
+      "audio_clips": 800,
+      "midi_clips": 148,
+      "float_events": 171,
+      "sample_refs": 806,
+      "native_mapped": 72,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.6 [2025-06-20 164421].als",
+      "audio_tracks": 17,
+      "midi_tracks": 7,
+      "group_tracks": 5,
+      "main_tracks": 1,
+      "audio_clips": 800,
+      "midi_clips": 148,
+      "float_events": 171,
+      "sample_refs": 806,
+      "native_mapped": 72,
+      "native_unmapped": 5,
+      "external_resolved": 0,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.6 [2025-06-20 164437].als",
+      "audio_tracks": 18,
+      "midi_tracks": 9,
+      "group_tracks": 5,
+      "main_tracks": 1,
+      "audio_clips": 623,
+      "midi_clips": 176,
+      "float_events": 171,
+      "sample_refs": 629,
+      "native_mapped": 76,
+      "native_unmapped": 5,
+      "external_resolved": 1,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.6 [2025-06-20 171428].als",
+      "audio_tracks": 18,
+      "midi_tracks": 9,
+      "group_tracks": 5,
+      "main_tracks": 1,
+      "audio_clips": 623,
+      "midi_clips": 176,
+      "float_events": 171,
+      "sample_refs": 629,
+      "native_mapped": 76,
+      "native_unmapped": 5,
+      "external_resolved": 1,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.6 [2025-06-20 175317].als",
+      "audio_tracks": 18,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 625,
+      "midi_clips": 181,
+      "float_events": 182,
+      "sample_refs": 631,
+      "native_mapped": 83,
+      "native_unmapped": 6,
+      "external_resolved": 3,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.6 [2025-06-20 175448].als",
+      "audio_tracks": 18,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 615,
+      "midi_clips": 183,
+      "float_events": 182,
+      "sample_refs": 621,
+      "native_mapped": 84,
+      "native_unmapped": 5,
+      "external_resolved": 3,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.6 [2025-06-20 175654].als",
+      "audio_tracks": 18,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 615,
+      "midi_clips": 183,
+      "float_events": 182,
+      "sample_refs": 621,
+      "native_mapped": 84,
+      "native_unmapped": 5,
+      "external_resolved": 3,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.6 [2025-06-20 175912].als",
+      "audio_tracks": 18,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 616,
+      "midi_clips": 183,
+      "float_events": 182,
+      "sample_refs": 622,
+      "native_mapped": 84,
+      "native_unmapped": 5,
+      "external_resolved": 3,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.7 [2025-06-20 181242].als",
+      "audio_tracks": 18,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 616,
+      "midi_clips": 183,
+      "float_events": 182,
+      "sample_refs": 622,
+      "native_mapped": 84,
+      "native_unmapped": 5,
+      "external_resolved": 3,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.7 [2025-06-20 181414].als",
+      "audio_tracks": 18,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 616,
+      "midi_clips": 183,
+      "float_events": 182,
+      "sample_refs": 622,
+      "native_mapped": 84,
+      "native_unmapped": 5,
+      "external_resolved": 3,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.7 [2025-06-20 211821].als",
+      "audio_tracks": 18,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 616,
+      "midi_clips": 183,
+      "float_events": 182,
+      "sample_refs": 622,
+      "native_mapped": 84,
+      "native_unmapped": 5,
+      "external_resolved": 3,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.7 [2025-06-20 212240].als",
+      "audio_tracks": 18,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 616,
+      "midi_clips": 183,
+      "float_events": 182,
+      "sample_refs": 622,
+      "native_mapped": 84,
+      "native_unmapped": 5,
+      "external_resolved": 3,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.8 Lesson [2025-06-20 212619].als",
+      "audio_tracks": 18,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 616,
+      "midi_clips": 183,
+      "float_events": 182,
+      "sample_refs": 622,
+      "native_mapped": 84,
+      "native_unmapped": 5,
+      "external_resolved": 3,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.8 Lesson [2025-06-20 213813].als",
+      "audio_tracks": 18,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 620,
+      "midi_clips": 183,
+      "float_events": 182,
+      "sample_refs": 626,
+      "native_mapped": 84,
+      "native_unmapped": 5,
+      "external_resolved": 3,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.9 Lesson [2025-06-21 034223].als",
+      "audio_tracks": 18,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 617,
+      "midi_clips": 183,
+      "float_events": 182,
+      "sample_refs": 623,
+      "native_mapped": 84,
+      "native_unmapped": 5,
+      "external_resolved": 5,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 1.9 Lesson [2025-06-21 034541].als",
+      "audio_tracks": 20,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 645,
+      "midi_clips": 183,
+      "float_events": 182,
+      "sample_refs": 651,
+      "native_mapped": 85,
+      "native_unmapped": 5,
+      "external_resolved": 7,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 2.0 [2025-06-21 042848].als",
+      "audio_tracks": 20,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 502,
+      "midi_clips": 211,
+      "float_events": 234,
+      "sample_refs": 508,
+      "native_mapped": 86,
+      "native_unmapped": 5,
+      "external_resolved": 8,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 2.0 [2025-06-21 043753].als",
+      "audio_tracks": 20,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 502,
+      "midi_clips": 211,
+      "float_events": 234,
+      "sample_refs": 508,
+      "native_mapped": 87,
+      "native_unmapped": 5,
+      "external_resolved": 8,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again 2.0 [2025-06-21 121755].als",
+      "audio_tracks": 20,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 503,
+      "midi_clips": 211,
+      "float_events": 247,
+      "sample_refs": 509,
+      "native_mapped": 87,
+      "native_unmapped": 5,
+      "external_resolved": 8,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again V18 [2025-07-17 183046].als",
+      "audio_tracks": 19,
+      "midi_tracks": 11,
+      "group_tracks": 6,
+      "main_tracks": 1,
+      "audio_clips": 383,
+      "midi_clips": 224,
+      "float_events": 265,
+      "sample_refs": 387,
+      "native_mapped": 92,
+      "native_unmapped": 4,
+      "external_resolved": 12,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again V20 [2025-07-17 185748].als",
+      "audio_tracks": 19,
+      "midi_tracks": 13,
+      "group_tracks": 7,
+      "main_tracks": 1,
+      "audio_clips": 383,
+      "midi_clips": 246,
+      "float_events": 289,
+      "sample_refs": 389,
+      "native_mapped": 102,
+      "native_unmapped": 8,
+      "external_resolved": 25,
+      "external_missing": 1
+    },
+    {
+      "file": "Backup/Erdman - Again V21 [2025-07-17 192842].als",
+      "audio_tracks": 20,
+      "midi_tracks": 16,
+      "group_tracks": 7,
+      "main_tracks": 1,
+      "audio_clips": 509,
+      "midi_clips": 248,
+      "float_events": 296,
+      "sample_refs": 516,
+      "native_mapped": 104,
+      "native_unmapped": 11,
+      "external_resolved": 27,
+      "external_missing": 2
+    },
+    {
+      "file": "Backup/Erdman - Again V23 [2025-08-02 182456].als",
+      "audio_tracks": 20,
+      "midi_tracks": 16,
+      "group_tracks": 7,
+      "main_tracks": 1,
+      "audio_clips": 511,
+      "midi_clips": 248,
+      "float_events": 298,
+      "sample_refs": 518,
+      "native_mapped": 104,
+      "native_unmapped": 11,
+      "external_resolved": 27,
+      "external_missing": 2
+    },
+    {
+      "file": "Backup/Erdman - Again V23 [2025-08-03 202752].als",
+      "audio_tracks": 20,
+      "midi_tracks": 16,
+      "group_tracks": 7,
+      "main_tracks": 1,
+      "audio_clips": 515,
+      "midi_clips": 248,
+      "float_events": 298,
+      "sample_refs": 522,
+      "native_mapped": 104,
+      "native_unmapped": 11,
+      "external_resolved": 27,
+      "external_missing": 2
+    },
+    {
+      "file": "Backup/Erdman - Again V24 [2025-08-03 234806].als",
+      "audio_tracks": 22,
+      "midi_tracks": 16,
+      "group_tracks": 7,
+      "main_tracks": 1,
+      "audio_clips": 614,
+      "midi_clips": 248,
+      "float_events": 542,
+      "sample_refs": 621,
+      "native_mapped": 105,
+      "native_unmapped": 11,
+      "external_resolved": 28,
+      "external_missing": 2
+    },
+    {
+      "file": "Backup/Erdman - Again V25 [2025-08-04 001227].als",
+      "audio_tracks": 23,
+      "midi_tracks": 16,
+      "group_tracks": 7,
+      "main_tracks": 1,
+      "audio_clips": 586,
+      "midi_clips": 244,
+      "float_events": 286,
+      "sample_refs": 595,
+      "native_mapped": 106,
+      "native_unmapped": 11,
+      "external_resolved": 28,
+      "external_missing": 1
+    }
+  ]
+}

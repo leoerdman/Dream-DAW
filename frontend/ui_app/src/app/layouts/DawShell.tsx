@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from 'react';
 import throttle from 'lodash.throttle';
 import { listen } from '@tauri-apps/api/event';
 import { TransportBar } from '@/widgets/TransportBar/TransportBar';
@@ -16,9 +16,12 @@ import type { BrowserDragItem } from '@/shared/types/Arrangement';
 import { SettingsPanel } from '@/widgets/SettingsPanel/SettingsPanel';
 import { PianoRoll, type MidiNote } from '@/widgets/PianoRoll/PianoRoll';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useGridStore } from '@/shared/stores/useGridStore';
+import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import { ExportModal } from '@/widgets/ExportModal/ExportModal';
 import * as engineApi from '@/shared/api/engine';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
+import { divisionToInterval } from '@/shared/lib/gridSnap';
 
 /** Supported audio file extensions for drag-and-drop import. */
 const AUDIO_EXTENSIONS = new Set([
@@ -86,6 +89,8 @@ export const DawShell = () => {
     const flushTrackControlFinals = useEngineStore(s => s.flushTrackControlFinals);
     const timelineClipsSnapshot = useEngineStore(s => s.timelineClips);
     const projectTracksSnapshot = useEngineStore(s => s.projectTracks);
+    const automationVisible = useAutomationStore(s => s.globalVisible);
+    const toggleAutomation = useAutomationStore(s => s.toggleGlobalVisible);
     const importingRef = useRef(false);
     const timelineRef = useRef<HTMLDivElement>(null);
     const mainSplitRef = useRef<HTMLElement>(null);
@@ -139,6 +144,16 @@ export const DawShell = () => {
                 if (isTextInput) return;
                 e.preventDefault();
                 setBottomPanelMode((prev) => (prev === 'rack' ? 'clip' : 'rack'));
+            }
+            // A key: toggle automation visibility
+            if (e.key === 'a' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                const target = e.target as HTMLElement | null;
+                const tag = target?.tagName?.toLowerCase();
+                const isTextInput =
+                    tag === 'input' || tag === 'textarea' || target?.isContentEditable;
+                if (isTextInput) return;
+                e.preventDefault();
+                useAutomationStore.getState().toggleGlobalVisible();
             }
         };
         window.addEventListener('keydown', handler);
@@ -599,6 +614,8 @@ export const DawShell = () => {
                             onRecordingStateChange={(state) => setRecordingState(state)}
                             followPlayhead={followPlayhead}
                             onFollowPlayheadChange={setFollowPlayhead}
+                            automationVisible={automationVisible}
+                            onAutomationToggle={toggleAutomation}
                         />
                     </ErrorBoundary>
                 </header>
@@ -762,6 +779,11 @@ export const DawShell = () => {
                     )}
                 </footer>
 
+                <BottomPanelModeBar
+                    mode={bottomPanelMode}
+                    onChange={setBottomPanelMode}
+                />
+
                 {/* ── VERY BOTTOM: Status Bar ── */}
                 <div className="z-50">
                     <StatusBar />
@@ -809,18 +831,103 @@ export const DawShell = () => {
 
 export default DawShell;
 
+const BottomPanelModeBar = ({
+    mode,
+    onChange,
+}: {
+    mode: 'rack' | 'clip';
+    onChange: (mode: 'rack' | 'clip') => void;
+}) => (
+    <div style={{
+        height: 26,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+        padding: '0 10px',
+        borderTop: '1px solid var(--color-divider)',
+        borderBottom: '1px solid var(--color-divider)',
+        background: 'color-mix(in srgb, var(--color-bg-panel) 88%, #000)',
+    }}>
+        <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            border: '1px solid var(--color-control-border)',
+            borderRadius: 6,
+            padding: 2,
+            background: 'var(--color-bg-header)',
+        }}>
+            <button
+                type="button"
+                onClick={() => onChange('rack')}
+                style={bottomModeBtnStyle(mode === 'rack')}
+                title="Instrument & Effects Chain (Shift+Tab)"
+            >
+                Panel: Rack
+            </button>
+            <button
+                type="button"
+                onClick={() => onChange('clip')}
+                style={bottomModeBtnStyle(mode === 'clip')}
+                title="Clip Editor (Shift+Tab)"
+            >
+                Panel: Clip
+            </button>
+        </div>
+        <span style={{
+            fontSize: 10,
+            color: 'var(--color-text-tertiary)',
+            fontFamily: 'var(--font-mono)',
+            letterSpacing: '0.03em',
+        }}>
+            SHIFT+TAB
+        </span>
+    </div>
+);
+
 const EmptyClipEditor = () => (
     <div style={{
         height: '100%',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'var(--color-bg-panel)',
-        color: 'var(--color-text-tertiary)',
-        fontSize: 11,
-        letterSpacing: '0.04em',
+        background: 'radial-gradient(circle at 50% 20%, color-mix(in srgb, var(--color-bg-panel) 88%, #2a3a55) 0%, var(--color-bg-panel) 66%)',
     }}>
-        CLIP EDITOR • Select a clip (Shift+Tab toggles panel)
+        <div style={{
+            textAlign: 'center',
+            padding: '18px 26px',
+            border: '1px solid color-mix(in srgb, var(--color-accent-primary) 24%, var(--color-divider))',
+            borderRadius: 10,
+            background: 'color-mix(in srgb, var(--color-bg-header) 86%, #0a111f)',
+            boxShadow: '0 10px 24px rgba(0,0,0,0.28)',
+            maxWidth: 520,
+        }}>
+            <div style={{
+                color: 'var(--color-text-primary)',
+                fontSize: 18,
+                fontWeight: 700,
+                letterSpacing: '0.03em',
+                marginBottom: 6,
+            }}>
+                No Clip Selected
+            </div>
+            <div style={{
+                color: 'var(--color-text-secondary)',
+                fontSize: 12,
+                lineHeight: 1.5,
+            }}>
+                Select a MIDI or audio clip on the timeline to open the editor.
+            </div>
+            <div style={{
+                marginTop: 8,
+                fontSize: 10,
+                color: 'var(--color-text-tertiary)',
+                fontFamily: 'var(--font-mono)',
+            }}>
+                Shift+Tab switches Rack/Clip panel
+            </div>
+        </div>
     </div>
 );
 
@@ -830,16 +937,31 @@ const SampleClipEditor = ({
     clip: {
         id: string;
         name: string;
+        durationBeats: number;
         filePath?: string;
         durationSamples?: number;
         sourceOffset?: number;
+        fadeIn?: number;
+        fadeOut?: number;
         isOffline?: boolean;
     };
 }) => {
     const sampleRate = useEngineStore((s) => s.projectSampleRate || 44100);
+    const bpm = useEngineStore((s) => s.projectBpm || s.transport.bpm || 120);
+    const gridDivision = useGridStore((s) => s.division);
+    const gridTriplet = useGridStore((s) => s.triplet);
+    const [zoomX, setZoomX] = useState(1);
     const durationSamples = Math.max(0, clip.durationSamples ?? 0);
     const maxOffset = Math.max(0, durationSamples - 1);
+    const maxFade = Math.max(0, Math.round(durationSamples * 0.5));
     const [draftOffset, setDraftOffset] = useState<number>(clip.sourceOffset ?? 0);
+    const [draftFadeIn, setDraftFadeIn] = useState<number>(clip.fadeIn ?? 0);
+    const [draftFadeOut, setDraftFadeOut] = useState<number>(clip.fadeOut ?? 0);
+    const [isPreviewing, setIsPreviewing] = useState(false);
+
+    useEffect(() => setDraftOffset(clip.sourceOffset ?? 0), [clip.id, clip.sourceOffset]);
+    useEffect(() => setDraftFadeIn(clip.fadeIn ?? 0), [clip.id, clip.fadeIn]);
+    useEffect(() => setDraftFadeOut(clip.fadeOut ?? 0), [clip.id, clip.fadeOut]);
 
     const commitOffset = useCallback(async (value: number) => {
         const next = Math.max(0, Math.min(maxOffset, Math.round(value)));
@@ -851,6 +973,50 @@ const SampleClipEditor = ({
         }
     }, [clip.id, maxOffset]);
 
+    const commitFades = useCallback(async (nextFadeIn: number, nextFadeOut: number) => {
+        const fadeInFrames = Math.max(0, Math.min(maxFade, Math.round(nextFadeIn)));
+        const fadeOutFrames = Math.max(0, Math.min(maxFade, Math.round(nextFadeOut)));
+        setDraftFadeIn(fadeInFrames);
+        setDraftFadeOut(fadeOutFrames);
+        try {
+            await engineApi.setClipFades(clip.id, fadeInFrames, fadeOutFrames);
+        } catch (err) {
+            console.error('[SampleClipEditor] setClipFades failed:', err);
+        }
+    }, [clip.id, maxFade]);
+
+    const togglePreview = useCallback(async () => {
+        if (!clip.filePath) return;
+        try {
+            if (isPreviewing) {
+                await engineApi.stopPreview();
+                setIsPreviewing(false);
+                return;
+            }
+            await engineApi.previewAudioFile(clip.filePath);
+            setIsPreviewing(true);
+        } catch (err) {
+            console.error('[SampleClipEditor] preview failed:', err);
+        }
+    }, [clip.filePath, isPreviewing]);
+
+    useEffect(() => () => {
+        if (isPreviewing) {
+            void engineApi.stopPreview();
+        }
+    }, [isPreviewing]);
+
+    const beatsPerBar = 4;
+    const beatsPerSecond = bpm / 60;
+    const clipDurationBeats = Math.max(0.25, clip.durationBeats || ((durationSamples / sampleRate) * beatsPerSecond));
+    const gridStep = Math.max(0.0625, divisionToInterval(gridDivision, beatsPerBar, gridTriplet));
+    const pxPerBeat = 82 * zoomX;
+    const waveformWidth = Math.max(420, Math.round(clipDurationBeats * pxPerBeat));
+    const fadeInPx = durationSamples > 0 ? Math.round((draftFadeIn / durationSamples) * waveformWidth) : 0;
+    const fadeOutPx = durationSamples > 0 ? Math.round((draftFadeOut / durationSamples) * waveformWidth) : 0;
+    const gridLineCount = Math.min(512, Math.ceil(clipDurationBeats / gridStep));
+    const fadeLabel = (frames: number) => `${(frames / sampleRate).toFixed(3)}s`;
+
     return (
         <div style={{
             height: '100%',
@@ -859,7 +1025,7 @@ const SampleClipEditor = ({
             background: 'var(--color-bg-panel)',
         }}>
             <div style={{
-                height: 24,
+                height: 28,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
@@ -868,58 +1034,99 @@ const SampleClipEditor = ({
                 borderBottom: '1px solid var(--color-divider)',
                 color: 'var(--color-text-secondary)',
                 fontSize: 10,
-                fontWeight: 600,
+                fontWeight: 700,
                 letterSpacing: '0.05em',
                 textTransform: 'uppercase',
             }}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    Sample Editor • {clip.name}
+                    Audio Clip Editor • {clip.name}
                 </span>
-                <span>
-                    Offset: {(draftOffset / sampleRate).toFixed(3)}s
+                <span style={{ fontFamily: 'var(--font-mono)' }}>
+                    {clipDurationBeats.toFixed(2)} beats
                 </span>
             </div>
 
             <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'auto 1fr auto auto',
-                gap: 8,
+                display: 'flex',
                 alignItems: 'center',
+                gap: 6,
+                flexWrap: 'wrap',
                 padding: '6px 10px',
                 borderBottom: '1px solid var(--color-divider)',
                 background: 'color-mix(in srgb, var(--color-bg-panel) 85%, #000)',
             }}>
-                <button
-                    type="button"
-                    onClick={() => void commitOffset(draftOffset - 1024)}
-                    style={editorButtonStyle}
-                >
-                    -1024
+                <button type="button" onClick={togglePreview} style={editorButtonStyle}>
+                    {isPreviewing ? 'Stop Preview' : 'Preview'}
                 </button>
-                <input
-                    type="range"
-                    min={0}
-                    max={Math.max(1, maxOffset)}
-                    value={Math.max(0, Math.min(maxOffset, draftOffset))}
-                    onChange={(e) => setDraftOffset(Number(e.target.value))}
-                    onMouseUp={() => void commitOffset(draftOffset)}
-                    onTouchEnd={() => void commitOffset(draftOffset)}
-                    style={{ width: '100%' }}
-                />
-                <button
-                    type="button"
-                    onClick={() => void commitOffset(draftOffset + 1024)}
-                    style={editorButtonStyle}
-                >
-                    +1024
-                </button>
-                <button
-                    type="button"
-                    onClick={() => void commitOffset(0)}
-                    style={editorButtonStyle}
-                >
-                    Reset
-                </button>
+                <button type="button" onClick={() => void commitOffset(draftOffset - 1024)} style={editorButtonStyle}>Offset -1024</button>
+                <button type="button" onClick={() => void commitOffset(draftOffset + 1024)} style={editorButtonStyle}>Offset +1024</button>
+                <button type="button" onClick={() => void commitOffset(0)} style={editorButtonStyle}>Offset Reset</button>
+                <button type="button" onClick={() => void commitFades(0, 0)} style={editorButtonStyle}>Fades Reset</button>
+                <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span style={editorMetaTextStyle}>Zoom</span>
+                    <input
+                        type="range"
+                        min={0.6}
+                        max={4}
+                        step={0.1}
+                        value={zoomX}
+                        onChange={(e) => setZoomX(Number(e.target.value))}
+                    />
+                    <span style={{ ...editorMetaTextStyle, minWidth: 34 }}>{zoomX.toFixed(1)}x</span>
+                </div>
+            </div>
+
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr 1fr',
+                gap: 8,
+                alignItems: 'center',
+                padding: '6px 10px',
+                borderBottom: '1px solid var(--color-divider)',
+                background: 'color-mix(in srgb, var(--color-bg-panel) 90%, #03070e)',
+            }}>
+                <label style={editorLabeledControlStyle}>
+                    <span style={editorMetaTextStyle}>Source Offset</span>
+                    <input
+                        type="range"
+                        min={0}
+                        max={Math.max(1, maxOffset)}
+                        value={Math.max(0, Math.min(maxOffset, draftOffset))}
+                        onChange={(e) => setDraftOffset(Number(e.target.value))}
+                        onMouseUp={() => void commitOffset(draftOffset)}
+                        onTouchEnd={() => void commitOffset(draftOffset)}
+                        style={{ width: '100%' }}
+                    />
+                    <span style={editorValueTextStyle}>{(draftOffset / sampleRate).toFixed(3)}s</span>
+                </label>
+                <label style={editorLabeledControlStyle}>
+                    <span style={editorMetaTextStyle}>Fade In</span>
+                    <input
+                        type="range"
+                        min={0}
+                        max={Math.max(1, maxFade)}
+                        value={Math.max(0, Math.min(maxFade, draftFadeIn))}
+                        onChange={(e) => setDraftFadeIn(Number(e.target.value))}
+                        onMouseUp={() => void commitFades(draftFadeIn, draftFadeOut)}
+                        onTouchEnd={() => void commitFades(draftFadeIn, draftFadeOut)}
+                        style={{ width: '100%' }}
+                    />
+                    <span style={editorValueTextStyle}>{fadeLabel(draftFadeIn)}</span>
+                </label>
+                <label style={editorLabeledControlStyle}>
+                    <span style={editorMetaTextStyle}>Fade Out</span>
+                    <input
+                        type="range"
+                        min={0}
+                        max={Math.max(1, maxFade)}
+                        value={Math.max(0, Math.min(maxFade, draftFadeOut))}
+                        onChange={(e) => setDraftFadeOut(Number(e.target.value))}
+                        onMouseUp={() => void commitFades(draftFadeIn, draftFadeOut)}
+                        onTouchEnd={() => void commitFades(draftFadeIn, draftFadeOut)}
+                        style={{ width: '100%' }}
+                    />
+                    <span style={editorValueTextStyle}>{fadeLabel(draftFadeOut)}</span>
+                </label>
             </div>
 
             <div style={{
@@ -936,16 +1143,71 @@ const SampleClipEditor = ({
                         border: '1px solid var(--color-divider)',
                         borderRadius: 4,
                         overflow: 'hidden',
-                        background: 'rgba(5, 10, 18, 0.45)',
+                        background: 'rgba(5, 10, 18, 0.55)',
+                        position: 'relative',
                     }}>
-                        <ClipRenderer
-                            filePath={clip.filePath}
-                            width={Math.max(320, window.innerWidth * 0.4)}
-                            height={Math.max(90, (window.innerHeight * 0.18) | 0)}
-                            durationSamples={durationSamples}
-                            sourceOffset={draftOffset}
-                            isSelected
-                        />
+                        <div style={{ overflowX: 'auto', overflowY: 'hidden', height: '100%' }}>
+                            <div style={{ width: waveformWidth, height: '100%', position: 'relative' }}>
+                                <div style={{
+                                    position: 'absolute',
+                                    left: 0,
+                                    top: 0,
+                                    right: 0,
+                                    height: 20,
+                                    borderBottom: '1px solid rgba(255,255,255,0.08)',
+                                    background: 'rgba(9,13,22,0.6)',
+                                }}>
+                                    {Array.from({ length: gridLineCount }).map((_, i) => {
+                                        const beat = i * gridStep;
+                                        const x = beat * pxPerBeat;
+                                        const isBar = Math.abs((beat / beatsPerBar) - Math.round(beat / beatsPerBar)) < 1e-6;
+                                        return (
+                                            <div key={`audio-ruler-${i}`} style={{ position: 'absolute', left: x, top: 0, bottom: 0, width: 1, background: isBar ? 'rgba(125,175,255,0.58)' : 'rgba(255,255,255,0.15)' }}>
+                                                {isBar && (
+                                                    <span style={{ position: 'absolute', top: 2, left: 3, fontSize: 9, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                                                        {Math.floor(beat / beatsPerBar) + 1}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <div style={{ position: 'absolute', top: 20, left: 0, right: 0, bottom: 0 }}>
+                                    <ClipRenderer
+                                        filePath={clip.filePath}
+                                        width={waveformWidth}
+                                        height={Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)}
+                                        durationSamples={durationSamples}
+                                        sourceOffset={draftOffset}
+                                        isSelected
+                                    />
+                                    {fadeInPx > 0 && (
+                                        <div style={{
+                                            position: 'absolute',
+                                            left: 0,
+                                            top: 0,
+                                            bottom: 0,
+                                            width: fadeInPx,
+                                            background: 'linear-gradient(90deg, rgba(255,190,85,0.25) 0%, rgba(255,190,85,0.05) 100%)',
+                                            borderRight: '1px solid rgba(255,190,85,0.6)',
+                                            pointerEvents: 'none',
+                                        }} />
+                                    )}
+                                    {fadeOutPx > 0 && (
+                                        <div style={{
+                                            position: 'absolute',
+                                            right: 0,
+                                            top: 0,
+                                            bottom: 0,
+                                            width: fadeOutPx,
+                                            background: 'linear-gradient(270deg, rgba(255,190,85,0.25) 0%, rgba(255,190,85,0.05) 100%)',
+                                            borderLeft: '1px solid rgba(255,190,85,0.6)',
+                                            pointerEvents: 'none',
+                                        }} />
+                                    )}
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 ) : (
                     <div style={{
@@ -954,7 +1216,9 @@ const SampleClipEditor = ({
                         alignItems: 'center',
                         justifyContent: 'center',
                         color: 'var(--color-text-tertiary)',
-                        fontSize: 11,
+                        fontSize: 12,
+                        border: '1px dashed var(--color-divider)',
+                        borderRadius: 6,
                     }}>
                         {clip.isOffline ? 'Media offline — resolve file in timeline (double-click clip).' : 'Audio source unavailable'}
                     </div>
@@ -973,4 +1237,36 @@ const editorButtonStyle = {
     fontWeight: 600,
     padding: '4px 8px',
     cursor: 'pointer',
+};
+
+const bottomModeBtnStyle = (active: boolean): CSSProperties => ({
+    border: active ? '1px solid color-mix(in srgb, var(--color-accent-primary) 52%, transparent)' : '1px solid transparent',
+    borderRadius: 4,
+    background: active ? 'var(--color-accent-primary-dim)' : 'transparent',
+    color: active ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: '0.02em',
+    padding: '3px 8px',
+    cursor: 'pointer',
+});
+
+const editorLabeledControlStyle: CSSProperties = {
+    display: 'grid',
+    gap: 3,
+    alignItems: 'center',
+};
+
+const editorMetaTextStyle: CSSProperties = {
+    fontSize: 10,
+    color: 'var(--color-text-tertiary)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    fontWeight: 700,
+};
+
+const editorValueTextStyle: CSSProperties = {
+    fontSize: 10,
+    color: 'var(--color-text-secondary)',
+    fontFamily: 'var(--font-mono)',
 };

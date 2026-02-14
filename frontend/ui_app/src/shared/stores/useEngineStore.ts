@@ -638,6 +638,12 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         filePath: treatAsMidi ? undefined : clip.file_path,
                         durationSamples: clip.duration.sample_frame,
                         sourceOffset: clip.source_offset?.sample_frame ?? 0,
+                        fadeIn: ((clip as Record<string, unknown>).fade_in_frames as number | undefined)
+                            ?? ((clip as Record<string, unknown>).fadeIn as number | undefined)
+                            ?? 0,
+                        fadeOut: ((clip as Record<string, unknown>).fade_out_frames as number | undefined)
+                            ?? ((clip as Record<string, unknown>).fadeOut as number | undefined)
+                            ?? 0,
                         isOffline: treatAsMidi ? false : (hasAudioPath ? (clip.is_offline ?? false) : false),
                         muted: (clip as Record<string, unknown>).is_muted as boolean ?? false,
                     });

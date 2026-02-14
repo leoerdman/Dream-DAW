@@ -215,6 +215,17 @@ impl RenderContext {
         clips_per_track: &[Vec<dream_models::project::AudioClip>],
         clip_pool: &ClipPool,
     ) {
+        self.render_tracks_with_post_sum_mask(frame_count, clips_per_track, clip_pool, None);
+    }
+
+    #[inline]
+    pub fn render_tracks_with_post_sum_mask(
+        &mut self,
+        frame_count: usize,
+        clips_per_track: &[Vec<dream_models::project::AudioClip>],
+        clip_pool: &ClipPool,
+        post_sum_mask: Option<&[bool]>,
+    ) {
         let playhead_pos = self.playhead.position();
 
         // ── 1. Clear all track buffers ──────────────────────────────
@@ -365,6 +376,13 @@ impl RenderContext {
         let sr = self.sample_rate as f32;
         for (track_idx, slot) in self.track_slots.iter_mut().enumerate() {
             if !slot.active {
+                continue;
+            }
+            let needs_post_sum_processing = post_sum_mask
+                .and_then(|mask| mask.get(track_idx))
+                .copied()
+                .unwrap_or(false);
+            if needs_post_sum_processing {
                 continue;
             }
 

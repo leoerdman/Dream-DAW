@@ -50,6 +50,8 @@ pub struct ChorusProcessor {
     // HP filter state (one-pole per channel)
     hp_state_l: f32,
     hp_state_r: f32,
+    hp_prev_l: f32,
+    hp_prev_r: f32,
     hp_coeff: f32,
     // Feedback state
     fb_l: [f32; MAX_VOICES],
@@ -73,6 +75,8 @@ impl ChorusProcessor {
             hp_freq: 80.0,
             hp_state_l: 0.0,
             hp_state_r: 0.0,
+            hp_prev_l: 0.0,
+            hp_prev_r: 0.0,
             hp_coeff: 0.0,
             fb_l: [0.0; MAX_VOICES],
             fb_r: [0.0; MAX_VOICES],
@@ -83,6 +87,7 @@ impl ChorusProcessor {
     }
 
     fn update_hp(&mut self) {
+        // Proper one-pole HP coefficient: alpha = 1 / (1 + 2*pi*fc/fs)
         let w = std::f32::consts::TAU * self.hp_freq / self.sample_rate;
         self.hp_coeff = 1.0 / (1.0 + w);
     }
@@ -145,16 +150,15 @@ impl DspProcessor for ChorusProcessor {
             }
 
             // HP filter on wet signal (preserve bass clarity)
-            let prev_l = self.hp_state_l;
-            let prev_r = self.hp_state_r;
-            self.hp_state_l = (self.hp_coeff * (prev_l + wet_l - dry_l)).clamp(-4.0, 4.0);
-            self.hp_state_r = (self.hp_coeff * (prev_r + wet_r - dry_r)).clamp(-4.0, 4.0);
-            let hp_wet_l = self.hp_state_l;
-            let hp_wet_r = self.hp_state_r;
+            // Standard one-pole HP: y[n] = alpha * (y[n-1] + x[n] - x[n-1])
+            self.hp_state_l = (self.hp_coeff * (self.hp_state_l + wet_l - self.hp_prev_l)).clamp(-4.0, 4.0);
+            self.hp_state_r = (self.hp_coeff * (self.hp_state_r + wet_r - self.hp_prev_r)).clamp(-4.0, 4.0);
+            self.hp_prev_l = wet_l;
+            self.hp_prev_r = wet_r;
 
             // Mix
-            left[i] = (dry_l * (1.0 - self.mix) + hp_wet_l * self.mix).clamp(-4.0, 4.0);
-            right[i] = (dry_r * (1.0 - self.mix) + hp_wet_r * self.mix).clamp(-4.0, 4.0);
+            left[i] = (dry_l * (1.0 - self.mix) + self.hp_state_l * self.mix).clamp(-4.0, 4.0);
+            right[i] = (dry_r * (1.0 - self.mix) + self.hp_state_r * self.mix).clamp(-4.0, 4.0);
 
             self.lfo_phase += phase_inc;
             if self.lfo_phase >= 1.0 { self.lfo_phase -= 1.0; }
@@ -186,6 +190,8 @@ impl DspProcessor for ChorusProcessor {
         self.lfo_phase = 0.0;
         self.hp_state_l = 0.0;
         self.hp_state_r = 0.0;
+        self.hp_prev_l = 0.0;
+        self.hp_prev_r = 0.0;
     }
 }
 

@@ -162,6 +162,9 @@ export const TrackInspector = ({
     // Local overrides
     const [localOverrides, setLocalOverrides] = useState<Record<string, Partial<TrackData>>>({});
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+    const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(
+        () => new Set(selectedTrackId && selectedTrackId !== 'master' ? [selectedTrackId] : []),
+    );
     const [draggingTrackId, setDraggingTrackId] = useState<string | null>(null);
     const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
     const [dropTargetGroupId, setDropTargetGroupId] = useState<string | null>(null);
@@ -179,6 +182,14 @@ export const TrackInspector = ({
     // Inline rename
     const [renamingTrackId, setRenamingTrackId] = useState<string | null>(null);
     const [renameValue, setRenameValue] = useState('');
+
+    useEffect(() => {
+        setSelectedTrackIds((prev) => {
+            if (!selectedTrackId || selectedTrackId === 'master') return prev;
+            if (prev.size === 0) return new Set([selectedTrackId]);
+            return prev;
+        });
+    }, [selectedTrackId]);
 
     const tracks = useMemo(() => {
         return liveTracks.map(t => ({ ...t, ...(localOverrides[t.id] || {}) }));
@@ -330,13 +341,17 @@ export const TrackInspector = ({
     }, []);
 
     const handleUngroupTrack = useCallback((trackId: string) => {
-        void engineApi.setTrackGroup(trackId, null).then(() => {
+        const target = tracks.find((t) => t.id === trackId);
+        const op = target?.type === 'group'
+            ? engineApi.ungroupTrack(trackId)
+            : engineApi.setTrackGroup(trackId, null);
+        void op.then(() => {
             void useEngineStore.getState().fetchProject();
         }).catch((err) => {
-            console.error('[TrackInspector] setTrackGroup failed:', err);
+            console.error('[TrackInspector] ungroup failed:', err);
         });
         setContextMenu(null);
-    }, []);
+    }, [tracks]);
 
     const handleOpenColorPicker = useCallback((trackId: string, x: number, y: number) => {
         setColorPickerState({ trackId, x, y });
@@ -357,12 +372,33 @@ export const TrackInspector = ({
             }
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'g' && selectedTrackId && selectedTrackId !== 'master') {
                 e.preventDefault();
-                handleGroupTrack(selectedTrackId);
+                const ids = Array.from(selectedTrackIds);
+                if (ids.length > 1) {
+                    void engineApi.createGroup(ids).then(() => {
+                        void useEngineStore.getState().fetchProject();
+                    }).catch((err) => {
+                        console.error('[TrackInspector] createGroup(multi) failed:', err);
+                    });
+                } else {
+                    handleGroupTrack(selectedTrackId);
+                }
+            }
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'g' && selectedTrackId && selectedTrackId !== 'master') {
+                e.preventDefault();
+                const selected = tracks.find((t) => t.id === selectedTrackId);
+                const groupToUngroup = selected?.type === 'group' ? selected.id : (selected?.groupId ?? null);
+                if (groupToUngroup) {
+                    void engineApi.ungroupTrack(groupToUngroup).then(() => {
+                        void useEngineStore.getState().fetchProject();
+                    }).catch((err) => {
+                        console.error('[TrackInspector] ungroupTrack failed:', err);
+                    });
+                }
             }
         };
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
-    }, [selectedTrackId, handleRenameStart, handleGroupTrack]);
+    }, [selectedTrackId, selectedTrackIds, tracks, handleRenameStart, handleGroupTrack]);
 
     const computeRawInsertIndex = useCallback((visibleInsertIndex: number): number => {
         if (visibleTracks.length === 0) return 0;
@@ -497,7 +533,7 @@ export const TrackInspector = ({
                                 allTracks={tracks}
                                 trackHeight={trackHeight}
                                 displayNum={displayNum}
-                                isSelected={selectedTrackId === track.id}
+                                isSelected={selectedTrackIds.has(track.id)}
                                 isCollapsed={isCollapsed}
                                 depth={depth}
                                 isRenaming={renamingTrackId === track.id}
@@ -505,7 +541,19 @@ export const TrackInspector = ({
                                 onRenameChange={setRenameValue}
                                 onRenameCommit={handleRenameCommit}
                                 onRenameCancel={handleRenameCancel}
-                                onClick={() => onSelectTrack(track.id)}
+                                onClick={(e) => {
+                                    if (e.shiftKey) {
+                                        setSelectedTrackIds((prev) => {
+                                            const next = new Set(prev);
+                                            if (next.has(track.id)) next.delete(track.id);
+                                            else next.add(track.id);
+                                            return next;
+                                        });
+                                    } else {
+                                        setSelectedTrackIds(new Set([track.id]));
+                                    }
+                                    onSelectTrack(track.id);
+                                }}
                                 onToggleMute={() => toggleMute(track.id)}
                                 onToggleSolo={() => toggleSolo(track.id)}
                                 onToggleArm={() => toggleArm(track.id)}
@@ -548,12 +596,31 @@ export const TrackInspector = ({
                                     e.preventDefault();
                                     const dragId = draggingTrackId ?? e.dataTransfer.getData('text/plain');
                                     if (!dragId || dragId === track.id) return;
+                                    const draggingTrack = tracks.find((t) => t.id === dragId);
                                     if (track.type === 'group' && dropTargetGroupId === track.id) {
                                         const groupTail = findGroupTailRawIndex(track.id);
-                                        void engineApi.moveTrackWithParent(dragId, groupTail, track.id).then(() => {
+                                        if (draggingTrack?.type === 'group') {
+                                            void engineApi.moveTrackBlockToIndex(dragId, groupTail).then(() => {
+                                                void useEngineStore.getState().fetchProject();
+                                            }).catch((err) => {
+                                                console.error('[TrackInspector] moveTrackBlockToIndex(group drag) failed:', err);
+                                            });
+                                        } else {
+                                            void engineApi.moveTrackWithParent(dragId, groupTail, track.id).then(() => {
+                                                void useEngineStore.getState().fetchProject();
+                                            }).catch((err) => {
+                                                console.error('[TrackInspector] moveTrackWithParent(group drop) failed:', err);
+                                            });
+                                        }
+                                    } else if (draggingTrack?.type === 'group') {
+                                        const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                                        const insertBefore = e.clientY < rect.top + rect.height / 2;
+                                        const idx = insertBefore ? visibleIndex : visibleIndex + 1;
+                                        const rawInsertIndex = computeRawInsertIndex(idx);
+                                        void engineApi.moveTrackBlockToIndex(dragId, rawInsertIndex).then(() => {
                                             void useEngineStore.getState().fetchProject();
                                         }).catch((err) => {
-                                            console.error('[TrackInspector] moveTrackWithParent(group drop) failed:', err);
+                                            console.error('[TrackInspector] moveTrackBlockToIndex failed:', err);
                                         });
                                     } else {
                                         const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
@@ -622,7 +689,10 @@ export const TrackInspector = ({
                 onRenameChange={() => { }}
                 onRenameCommit={() => { }}
                 onRenameCancel={() => { }}
-                onClick={() => onSelectTrack('master')}
+                onClick={() => {
+                    setSelectedTrackIds(new Set());
+                    onSelectTrack('master');
+                }}
                 onToggleMute={() => { }}
                 onToggleSolo={() => { }}
                 onToggleArm={() => { }}
@@ -645,7 +715,10 @@ export const TrackInspector = ({
                     onRename={() => handleRenameStart(contextMenu.trackId)}
                     onGroup={() => handleGroupTrack(contextMenu.trackId)}
                     onUngroup={() => handleUngroupTrack(contextMenu.trackId)}
-                    canUngroup={!!tracks.find((t) => t.id === contextMenu.trackId)?.groupId}
+                    canUngroup={(() => {
+                        const ctxTrack = tracks.find((t) => t.id === contextMenu.trackId);
+                        return !!ctxTrack && (ctxTrack.type === 'group' || !!ctxTrack.groupId);
+                    })()}
                     onDelete={() => handleDeleteTrack(contextMenu.trackId)}
                     onChangeColor={() => handleOpenColorPicker(contextMenu.trackId, contextMenu.x, contextMenu.y)}
                     onDismiss={() => setContextMenu(null)}
@@ -1431,7 +1504,7 @@ const TrackRow = ({
     onRenameChange: (v: string) => void;
     onRenameCommit: () => void;
     onRenameCancel: () => void;
-    onClick: () => void;
+    onClick: (e: React.MouseEvent<HTMLDivElement>) => void;
     onToggleMute: () => void;
     onToggleSolo: () => void;
     onToggleArm: () => void;

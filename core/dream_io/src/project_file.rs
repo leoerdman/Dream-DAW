@@ -391,6 +391,9 @@ mod tests {
             osc_mix: 0.42,
             detune_cents: 7.0,
             sub_level: 0.18,
+            filter_cutoff: 20000.0,
+            filter_resonance: 0.0,
+            filter_type: 0,
         });
         midi_track.automation_lanes.push(AutomationLane {
             param_id: "volume".to_string(),

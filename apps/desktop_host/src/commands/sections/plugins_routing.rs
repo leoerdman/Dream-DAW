@@ -311,16 +311,35 @@ fn add_plugin_to_track_cmd(
         if key.contains("eq") {
             return Some(FX_EQ);
         }
+        if key.contains("eq eight")
+            || key.contains("eq8")
+            || key.contains("eq3")
+            || key.contains("channel eq")
+        {
+            return Some(FX_EQ);
+        }
         if key.contains("compressor") {
+            return Some(FX_COMPRESSOR);
+        }
+        if key.contains("glue") || key.contains("multiband dynamics") {
             return Some(FX_COMPRESSOR);
         }
         if key.contains("delay") {
             return Some(FX_DELAY);
         }
+        if key.contains("echo") || key.contains("ping pong") {
+            return Some(FX_DELAY);
+        }
         if key.contains("reverb") {
             return Some(FX_REVERB);
         }
+        if key.contains("hybrid reverb") {
+            return Some(FX_REVERB);
+        }
         if key.contains("chorus") {
+            return Some(FX_CHORUS);
+        }
+        if key.contains("chorus-ensemble") {
             return Some(FX_CHORUS);
         }
         if key.contains("utility") {
@@ -338,7 +357,13 @@ fn add_plugin_to_track_cmd(
         if key.contains("auto-filter") || key.contains("autofilter") {
             return Some(FX_AUTO_FILTER);
         }
+        if key.contains("auto filter") {
+            return Some(FX_AUTO_FILTER);
+        }
         if key.contains("phaser") {
+            return Some(FX_PHASER);
+        }
+        if key.contains("phaser-flanger") {
             return Some(FX_PHASER);
         }
         if key.contains("flanger") {
@@ -347,7 +372,13 @@ fn add_plugin_to_track_cmd(
         if key.contains("distortion") {
             return Some(FX_DISTORTION);
         }
+        if key.contains("overdrive") || key.contains("pedal") || key.contains("cabinet") || key.contains("amp") {
+            return Some(FX_DISTORTION);
+        }
         if key.contains("bitcrusher") || key.contains("bit-crusher") {
+            return Some(FX_BITCRUSHER);
+        }
+        if key.contains("redux") {
             return Some(FX_BITCRUSHER);
         }
         None
@@ -563,6 +594,9 @@ fn set_internal_plugin_param_cmd(
     let mut sampler_osc_mix: Option<f32> = None;
     let mut sampler_detune_cents: Option<f32> = None;
     let mut sampler_sub_level: Option<f32> = None;
+    let mut sampler_filter_cutoff: Option<f32> = None;
+    let mut sampler_filter_resonance: Option<f32> = None;
+    let mut sampler_filter_type: Option<u8> = None;
     let (track_index, sampler_cfg_for_rt) = {
         let (idx, track) = project
             .tracks
@@ -659,6 +693,24 @@ fn set_internal_plugin_param_cmd(
                 cfg.sub_level = level as f64;
                 sampler_sub_level = Some(level);
             }
+            "synth.filter.cutoff" | "synth.filtercutoff" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                let cutoff = payload.value.clamp(20.0, 20000.0) as f32;
+                cfg.filter_cutoff = cutoff as f64;
+                sampler_filter_cutoff = Some(cutoff);
+            }
+            "synth.filter.resonance" | "synth.filterresonance" | "synth.filter.res" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                let res = payload.value.clamp(0.0, 0.99) as f32;
+                cfg.filter_resonance = res as f64;
+                sampler_filter_resonance = Some(res);
+            }
+            "synth.filter.type" | "synth.filtertype" => {
+                let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+                let ft = payload.value.round().clamp(0.0, 3.0) as u8;
+                cfg.filter_type = ft;
+                sampler_filter_type = Some(ft);
+            }
             _ => {
                 // Keep unknown params round-trippable in automation lanes.
                 upsert_static_automation_lane(track, &payload.param_id, payload.value);
@@ -725,6 +777,24 @@ fn set_internal_plugin_param_cmd(
         push_command(&handle, EngineCommand::SetSamplerSubLevel {
             track_index: track_index as u16,
             level,
+        })?;
+    }
+    if let Some(cutoff) = sampler_filter_cutoff {
+        push_command(&handle, EngineCommand::SetSamplerFilterCutoff {
+            track_index: track_index as u16,
+            cutoff,
+        })?;
+    }
+    if let Some(resonance) = sampler_filter_resonance {
+        push_command(&handle, EngineCommand::SetSamplerFilterResonance {
+            track_index: track_index as u16,
+            resonance,
+        })?;
+    }
+    if let Some(filter_type) = sampler_filter_type {
+        push_command(&handle, EngineCommand::SetSamplerFilterType {
+            track_index: track_index as u16,
+            filter_type,
         })?;
     }
 
@@ -820,6 +890,18 @@ fn set_sampler_sample_cmd(
     push_command(&handle, EngineCommand::SetSamplerSubLevel {
         track_index: idx,
         level: sampler_cfg.sub_level.clamp(0.0, 1.0) as f32,
+    })?;
+    push_command(&handle, EngineCommand::SetSamplerFilterCutoff {
+        track_index: idx,
+        cutoff: sampler_cfg.filter_cutoff.clamp(20.0, 20000.0) as f32,
+    })?;
+    push_command(&handle, EngineCommand::SetSamplerFilterResonance {
+        track_index: idx,
+        resonance: sampler_cfg.filter_resonance.clamp(0.0, 0.99) as f32,
+    })?;
+    push_command(&handle, EngineCommand::SetSamplerFilterType {
+        track_index: idx,
+        filter_type: sampler_cfg.filter_type.min(3),
     })?;
 
     log::info!(

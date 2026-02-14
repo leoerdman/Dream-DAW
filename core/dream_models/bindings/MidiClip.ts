@@ -32,4 +32,8 @@ notes: Array<MidiNote>,
 /**
  * Whether this clip is currently selected in the UI.
  */
-is_selected: boolean, };
+is_selected: boolean, 
+/**
+ * Whether this clip is muted (stays on timeline but doesn't play).
+ */
+is_muted: boolean, };

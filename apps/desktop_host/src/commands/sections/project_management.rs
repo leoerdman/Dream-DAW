@@ -1,5 +1,102 @@
 // ═══════════════════════════════════════════════════════════════════════
 
+fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    let merged = format!("{} {}", plugin_id, plugin_name).to_lowercase();
+    let compact = merged.replace(|c: char| !c.is_ascii_alphanumeric(), "");
+
+    if merged.contains("operator")
+        || merged.contains("analog")
+        || merged.contains("wavetable")
+        || compact.contains("simplesinesynth")
+        || merged.contains("wave synth")
+        || compact.contains("wavesynth")
+    {
+        return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument"));
+    }
+    if merged.contains("sampler") || merged.contains("simpler") {
+        return Some(("internal://instrument/sampler", "Sampler", "instrument"));
+    }
+
+    if merged.contains("eq") || merged.contains("channel eq") {
+        return Some(("internal://effect/eq-eight", "EQ Eight", "effect"));
+    }
+    if merged.contains("compressor") || merged.contains("glue") || merged.contains("multiband dynamics") {
+        return Some(("internal://effect/compressor", "Compressor", "effect"));
+    }
+    if merged.contains("delay") || merged.contains("echo") || merged.contains("ping pong") {
+        return Some(("internal://effect/delay", "Delay", "effect"));
+    }
+    if merged.contains("reverb") {
+        return Some(("internal://effect/reverb", "Reverb", "effect"));
+    }
+    if merged.contains("chorus") {
+        return Some(("internal://effect/chorus", "Chorus", "effect"));
+    }
+    if merged.contains("saturator") {
+        return Some(("internal://effect/saturator", "Saturator", "effect"));
+    }
+    if merged.contains("utility") {
+        return Some(("internal://effect/utility", "Utility", "effect"));
+    }
+    if merged.contains("limiter") {
+        return Some(("internal://effect/limiter", "Limiter", "effect"));
+    }
+    if merged.contains("gate") {
+        return Some(("internal://effect/gate", "Gate", "effect"));
+    }
+    if merged.contains("auto filter") || merged.contains("autofilter") {
+        return Some(("internal://effect/auto-filter", "Auto Filter", "effect"));
+    }
+    if merged.contains("phaser") {
+        return Some(("internal://effect/phaser", "Phaser", "effect"));
+    }
+    if merged.contains("flanger") {
+        return Some(("internal://effect/flanger", "Flanger", "effect"));
+    }
+    if merged.contains("distortion") || merged.contains("overdrive") || merged.contains("pedal") || merged.contains("cabinet") || merged.contains("amp") {
+        return Some(("internal://effect/distortion", "Distortion", "effect"));
+    }
+    if merged.contains("bitcrusher") || merged.contains("redux") {
+        return Some(("internal://effect/bitcrusher", "Bitcrusher", "effect"));
+    }
+    None
+}
+
+fn normalize_internal_plugins_for_import(project: &mut Project) {
+    for track in &mut project.tracks {
+        if let Some(inst) = &mut track.instrument
+            && let Some((canonical_id, canonical_name, slot)) =
+                canonical_internal_plugin_for_import(&inst.plugin_id, &inst.name)
+            && slot == "instrument"
+        {
+            inst.plugin_id = canonical_id.to_string();
+            if inst.name.trim().is_empty() || inst.name.to_lowercase() != canonical_name.to_lowercase() {
+                inst.name = canonical_name.to_string();
+            }
+            if track.sampler.is_none() {
+                track.sampler = Some(SamplerConfig::default());
+            }
+            if canonical_id == "internal://instrument/wave-synth"
+                && let Some(cfg) = &mut track.sampler
+                && cfg.sample_path.trim().is_empty()
+            {
+                cfg.sample_path = "internal://waveform/sine".to_string();
+            }
+        }
+        for fx in &mut track.effects {
+            if let Some((canonical_id, canonical_name, slot)) =
+                canonical_internal_plugin_for_import(&fx.plugin_id, &fx.name)
+                && slot == "effect"
+            {
+                fx.plugin_id = canonical_id.to_string();
+                if fx.name.trim().is_empty() || fx.name.to_lowercase() != canonical_name.to_lowercase() {
+                    fx.name = canonical_name.to_string();
+                }
+            }
+        }
+    }
+}
+
 /// Creates a new empty project and replaces the current one.
 #[tauri::command]
 fn new_project(
@@ -142,6 +239,7 @@ fn open_project(
 
     let mut loaded = ProjectFile::load(&file_path)
         .map_err(|e| e.to_string())?;
+    normalize_internal_plugins_for_import(&mut loaded);
     refresh_offline_flags(&mut loaded);
 
     *project_state.project.lock().map_err(|e| e.to_string())? = loaded.clone();

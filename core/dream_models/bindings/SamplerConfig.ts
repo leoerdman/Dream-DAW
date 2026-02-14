@@ -42,6 +42,7 @@ release: number,
 osc2_waveform: number, 
 /**
  * Blend between oscillator 1 and 2 (0.0..1.0).
+ * 0.0 = only osc1, 1.0 = only osc2.
  */
 osc_mix: number, 
 /**
@@ -49,6 +50,18 @@ osc_mix: number,
  */
 detune_cents: number, 
 /**
- * Sub oscillator level (0.0..1.0), one octave below osc1.
+ * Optional sub oscillator level (0.0..1.0), one octave below osc1.
  */
-sub_level: number, };
+sub_level: number, 
+/**
+ * Filter cutoff frequency in Hz (20..20000).
+ */
+filter_cutoff: number, 
+/**
+ * Filter resonance (0.0..0.99).
+ */
+filter_resonance: number, 
+/**
+ * Filter type (0=LP, 1=HP, 2=BP, 3=Notch).
+ */
+filter_type: number, };

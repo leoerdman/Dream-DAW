@@ -30,7 +30,7 @@ use dream_clip_engine::midi_scheduler::MidiScheduler;
 use dream_clip_engine::pool::ClipAudio;
 use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::scheduler::LoopRegion;
-use dream_ipc::metering::MeterBank;
+use dream_ipc::metering::{compute_peak, compute_rms, linear_to_db, MeterBank};
 use dream_ipc::{EngineCommand, MasterClock};
 use dream_dsp::dsp_processor::BuiltinEffectType;
 use dream_models::midi::MidiClip;
@@ -606,6 +606,7 @@ pub fn start_audio_thread_on_device(
         .expect("master-only graph must be valid");
     let mut graph_out_left = vec![0.0f32; 8192];
     let mut graph_out_right = vec![0.0f32; 8192];
+    let mut post_sum_processing_mask = vec![false; 64];
     let mut graph_last_generation = u64::MAX;
     let mut graph_last_track_count = usize::MAX;
 
@@ -838,6 +839,24 @@ pub fn start_audio_thread_on_device(
                                         sampler_engines[idx].set_sub_level(level);
                                     }
                                 }
+                                EngineCommand::SetSamplerFilterCutoff { track_index, cutoff } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_filter_cutoff(cutoff);
+                                    }
+                                }
+                                EngineCommand::SetSamplerFilterResonance { track_index, resonance } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_filter_resonance(resonance);
+                                    }
+                                }
+                                EngineCommand::SetSamplerFilterType { track_index, filter_type } => {
+                                    let idx = track_index as usize;
+                                    if idx < sampler_engines.len() {
+                                        sampler_engines[idx].set_filter_type(filter_type);
+                                    }
+                                }
                                 EngineCommand::SamplerAllNotesOff { track_index } => {
                                     let idx = track_index as usize;
                                     if idx < sampler_engines.len() {
@@ -939,6 +958,21 @@ pub fn start_audio_thread_on_device(
                                 graph_last_track_count = track_count;
                             }
 
+                            // Tracks that receive routed input should apply strip/device
+                            // processing after graph summing (bus/group semantics).
+                            if post_sum_processing_mask.len() < track_count {
+                                post_sum_processing_mask.resize(track_count, false);
+                            }
+                            post_sum_processing_mask[..track_count].fill(false);
+                            let routing_now = routing_snapshot.load();
+                            for src_idx in 0..track_count {
+                                if let Some(Some(dest_idx)) = routing_now.get(src_idx)
+                                    && *dest_idx < track_count
+                                {
+                                    post_sum_processing_mask[*dest_idx] = true;
+                                }
+                            }
+
                             // ── B. Load clip snapshot & render ───────────────
                             let has_clips = !snapshot.is_empty()
                                 && snapshot.iter().any(|track_clips| !track_clips.is_empty());
@@ -960,10 +994,11 @@ pub fn start_audio_thread_on_device(
                                 // Use render_tracks() (Phase 1 only) — fills track_slots
                                 // with strip-processed audio. The graph handles summing
                                 // and interleaving, so we skip the master bus path.
-                                render_ctx.render_tracks(
+                                render_ctx.render_tracks_with_post_sum_mask(
                                     frame_count,
                                     snapshot.as_ref(),
                                     &pool_snap,
+                                    Some(&post_sum_processing_mask[..track_count]),
                                 );
 
                                 // Graph pass: route pre-rendered tracks through DAG.
@@ -985,12 +1020,44 @@ pub fn start_audio_thread_on_device(
                                             return;
                                         }
                                         let track_idx = (node.id.0 - 1) as usize;
-                                        if let Some(slot) = render_ctx.track_slots.get(track_idx) {
+                                        if let Some(slot) = render_ctx.track_slots.get_mut(track_idx) {
                                             let c = count
                                                 .min(slot.buf_left.len())
                                                 .min(slot.buf_right.len());
-                                            left[..c].copy_from_slice(&slot.buf_left[..c]);
-                                            right[..c].copy_from_slice(&slot.buf_right[..c]);
+                                            for i in 0..c {
+                                                left[i] += slot.buf_left[i];
+                                                right[i] += slot.buf_right[i];
+                                            }
+
+                                            if post_sum_processing_mask
+                                                .get(track_idx)
+                                                .copied()
+                                                .unwrap_or(false)
+                                            {
+                                                slot.strip.process_stereo(
+                                                    &mut left[..c],
+                                                    &mut right[..c],
+                                                );
+                                                if !slot.device_chain.is_empty() {
+                                                    slot.device_chain.process_stereo(
+                                                        &mut left[..c],
+                                                        &mut right[..c],
+                                                        sample_rate_f64 as f32,
+                                                    );
+                                                }
+                                                if let Some((meter_l, meter_r)) =
+                                                    render_ctx.meter_bank.track(track_idx)
+                                                {
+                                                    let rms_l = linear_to_db(compute_rms(&left[..c]));
+                                                    let rms_r = linear_to_db(compute_rms(&right[..c]));
+                                                    let peak_l = linear_to_db(compute_peak(&left[..c]));
+                                                    let peak_r = linear_to_db(compute_peak(&right[..c]));
+                                                    meter_l.store_rms(rms_l);
+                                                    meter_r.store_rms(rms_r);
+                                                    meter_l.store_peak_decay(peak_l, 0.99);
+                                                    meter_r.store_peak_decay(peak_r, 0.99);
+                                                }
+                                            }
 
                                             // Canonicalized in desktop_host:
                                             // __plugin_gain__ => [0..2], __plugin_pan__ => [0..1] or [-1..1]

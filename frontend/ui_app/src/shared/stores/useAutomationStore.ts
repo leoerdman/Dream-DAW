@@ -54,6 +54,9 @@ interface AutomationState {
     /** All automation lanes, keyed by lane ID. */
     lanes: Record<string, AutomationLane>;
 
+    /** Global toggle — shows/hides ALL automation lanes at once. */
+    globalVisible: boolean;
+
     /** Which tracks have automation expanded in UI. */
     expandedTracks: Set<string>;
 
@@ -61,6 +64,7 @@ interface AutomationState {
     selectedBreakpoints: Set<string>;
 
     // ── Actions ──
+    toggleGlobalVisible: () => void;
     addLane: (trackId: string, paramName: string, paramKey: string, color?: string) => string;
     removeLane: (laneId: string) => void;
     toggleTrackAutomation: (trackId: string) => void;
@@ -82,8 +86,11 @@ const genBpId = () => `bp_${nextId++}`;
 
 export const useAutomationStore = create<AutomationState>((set, get) => ({
     lanes: {},
+    globalVisible: false,
     expandedTracks: new Set(),
     selectedBreakpoints: new Set(),
+
+    toggleGlobalVisible: () => set((s) => ({ globalVisible: !s.globalVisible })),
 
     addLane: (trackId, paramName, paramKey, color = '#58a6ff') => {
         const id = genId();

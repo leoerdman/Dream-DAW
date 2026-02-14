@@ -232,6 +232,18 @@ pub struct SamplerConfig {
     /// Optional sub oscillator level (0.0..1.0), one octave below osc1.
     #[serde(default)]
     pub sub_level: f64,
+
+    /// Filter cutoff frequency in Hz (20..20000).
+    #[serde(default = "default_filter_cutoff")]
+    pub filter_cutoff: f64,
+
+    /// Filter resonance (0.0..0.99).
+    #[serde(default)]
+    pub filter_resonance: f64,
+
+    /// Filter type (0=LP, 1=HP, 2=BP, 3=Notch).
+    #[serde(default)]
+    pub filter_type: u8,
 }
 
 impl Default for SamplerConfig {
@@ -248,12 +260,19 @@ impl Default for SamplerConfig {
             osc_mix: default_sampler_osc_mix(),
             detune_cents: 0.0,
             sub_level: 0.0,
+            filter_cutoff: default_filter_cutoff(),
+            filter_resonance: 0.0,
+            filter_type: 0,
         }
     }
 }
 
 fn default_sampler_osc_mix() -> f64 {
     0.35
+}
+
+fn default_filter_cutoff() -> f64 {
+    20000.0
 }
 
 impl SamplerConfig {

@@ -535,7 +535,7 @@ fn rebuild_sampler_snapshot_from_project(
     }
 
     let mut samples: Vec<Option<Arc<ClipAudio>>> = vec![None; project.tracks.len()];
-    let mut synth_settings: Vec<(usize, u8, u8, f32, f32, f32)> = Vec::new();
+    let mut synth_settings: Vec<(usize, u8, u8, f32, f32, f32, f32, f32, u8)> = Vec::new();
     if let Ok(pool) = clip_pool_state.pool.lock() {
         for (idx, track) in project.tracks.iter().enumerate() {
             let plugin_id_lower = track
@@ -546,7 +546,7 @@ fn rebuild_sampler_snapshot_from_project(
             let is_wave_synth = plugin_id_lower.starts_with("internal://instrument/wave-synth")
                 || plugin_id_lower.starts_with("internal://instrument/simple-sine-synth");
             if is_wave_synth {
-                let (waveform, osc2, mix, detune, sub) = track
+                let (waveform, osc2, mix, detune, sub, f_cutoff, f_res, f_type) = track
                     .sampler
                     .as_ref()
                     .map(|cfg| {
@@ -556,10 +556,13 @@ fn rebuild_sampler_snapshot_from_project(
                             cfg.osc_mix.clamp(0.0, 1.0) as f32,
                             cfg.detune_cents.clamp(-50.0, 50.0) as f32,
                             cfg.sub_level.clamp(0.0, 1.0) as f32,
+                            cfg.filter_cutoff.clamp(20.0, 20000.0) as f32,
+                            cfg.filter_resonance.clamp(0.0, 0.99) as f32,
+                            cfg.filter_type.min(3),
                         )
                     })
-                    .unwrap_or((0, 0, 0.35, 0.0, 0.0));
-                synth_settings.push((idx, waveform, osc2, mix, detune, sub));
+                    .unwrap_or((0, 0, 0.35, 0.0, 0.0, 20000.0, 0.0, 0));
+                synth_settings.push((idx, waveform, osc2, mix, detune, sub, f_cutoff, f_res, f_type));
             }
             if let Some(cfg) = &track.sampler
                 && !cfg.sample_path.trim().is_empty()
@@ -571,7 +574,7 @@ fn rebuild_sampler_snapshot_from_project(
         }
     }
     handle.sampler_samples.swap(samples);
-    for (track_idx, waveform, osc2, mix, detune, sub) in synth_settings {
+    for (track_idx, waveform, osc2, mix, detune, sub, f_cutoff, f_res, f_type) in synth_settings {
         if let Err(err) = push_command(
             handle,
             EngineCommand::SetSamplerWaveform {
@@ -613,6 +616,27 @@ fn rebuild_sampler_snapshot_from_project(
                 level: sub,
             },
         );
+        let _ = push_command(
+            handle,
+            EngineCommand::SetSamplerFilterCutoff {
+                track_index: track_idx as u16,
+                cutoff: f_cutoff,
+            },
+        );
+        let _ = push_command(
+            handle,
+            EngineCommand::SetSamplerFilterResonance {
+                track_index: track_idx as u16,
+                resonance: f_res,
+            },
+        );
+        let _ = push_command(
+            handle,
+            EngineCommand::SetSamplerFilterType {
+                track_index: track_idx as u16,
+                filter_type: f_type,
+            },
+        );
     }
 }
 
@@ -637,16 +661,35 @@ fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     if key.contains("eq") {
         return Some(FX_EQ);
     }
+    if key.contains("eq eight")
+        || key.contains("eq8")
+        || key.contains("eq3")
+        || key.contains("channel eq")
+    {
+        return Some(FX_EQ);
+    }
     if key.contains("compressor") {
+        return Some(FX_COMPRESSOR);
+    }
+    if key.contains("glue") || key.contains("multiband dynamics") {
         return Some(FX_COMPRESSOR);
     }
     if key.contains("delay") {
         return Some(FX_DELAY);
     }
+    if key.contains("echo") || key.contains("ping pong") {
+        return Some(FX_DELAY);
+    }
     if key.contains("reverb") {
         return Some(FX_REVERB);
     }
+    if key.contains("hybrid reverb") {
+        return Some(FX_REVERB);
+    }
     if key.contains("chorus") {
+        return Some(FX_CHORUS);
+    }
+    if key.contains("chorus-ensemble") {
         return Some(FX_CHORUS);
     }
     if key.contains("utility") {
@@ -664,7 +707,13 @@ fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     if key.contains("auto-filter") || key.contains("autofilter") {
         return Some(FX_AUTO_FILTER);
     }
+    if key.contains("auto filter") {
+        return Some(FX_AUTO_FILTER);
+    }
     if key.contains("phaser") {
+        return Some(FX_PHASER);
+    }
+    if key.contains("phaser-flanger") {
         return Some(FX_PHASER);
     }
     if key.contains("flanger") {
@@ -673,7 +722,13 @@ fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     if key.contains("distortion") {
         return Some(FX_DISTORTION);
     }
+    if key.contains("overdrive") || key.contains("pedal") || key.contains("cabinet") || key.contains("amp") {
+        return Some(FX_DISTORTION);
+    }
     if key.contains("bitcrusher") || key.contains("bit-crusher") {
+        return Some(FX_BITCRUSHER);
+    }
+    if key.contains("redux") {
         return Some(FX_BITCRUSHER);
     }
     None

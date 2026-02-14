@@ -36,24 +36,24 @@ interface DeviceSlot {
     id: string;
     name: string;
     effectType:
-        | 'eq'
-        | 'compressor'
-        | 'delay'
-        | 'reverb'
-        | 'chorus'
-        | 'utility'
-        | 'limiter'
-        | 'gate'
-        | 'autoFilter'
-        | 'phaser'
-        | 'flanger'
-        | 'distortion'
-        | 'bitcrusher'
-        | 'vst'
-        | 'instrument'
-        | 'sampler'
-        | 'saturator'
-        | 'waveSynth';
+    | 'eq'
+    | 'compressor'
+    | 'delay'
+    | 'reverb'
+    | 'chorus'
+    | 'utility'
+    | 'limiter'
+    | 'gate'
+    | 'autoFilter'
+    | 'phaser'
+    | 'flanger'
+    | 'distortion'
+    | 'bitcrusher'
+    | 'vst'
+    | 'instrument'
+    | 'sampler'
+    | 'saturator'
+    | 'waveSynth';
     isEnabled: boolean;
     params: PluginParam[];
     vuLevel: number;
@@ -157,6 +157,9 @@ const DEVICE_PARAM_PRESETS: Record<
         { name: 'Mix', value: 0.35, min: 0, max: 1, suffix: '', step: 0.01 },
         { name: 'Detune', value: 0, min: -50, max: 50, suffix: 'ct', step: 0.1 },
         { name: 'Sub', value: 0, min: 0, max: 1, suffix: '', step: 0.01 },
+        { name: 'Cutoff', value: 20000, min: 20, max: 20000, suffix: 'Hz', step: 1 },
+        { name: 'Res', value: 0, min: 0, max: 0.99, suffix: '', step: 0.01 },
+        { name: 'FiltType', value: 0, min: 0, max: 3, suffix: '', step: 1 },
         { name: 'Vol', value: 1, min: 0, max: 2, suffix: '', step: 0.01 },
         { name: 'Attack', value: 0.005, min: 0.001, max: 2.0, suffix: 's', step: 0.001 },
         { name: 'Decay', value: 0.1, min: 0.001, max: 4.0, suffix: 's', step: 0.001 },
@@ -448,6 +451,9 @@ export const DeviceRack = ({
                 else if (normalizedName === 'mix') paramId = 'synth.osc.mix';
                 else if (normalizedName === 'detune') paramId = 'synth.detune';
                 else if (normalizedName === 'sub') paramId = 'synth.sub';
+                else if (normalizedName === 'cutoff') paramId = 'synth.filter.cutoff';
+                else if (normalizedName === 'res') paramId = 'synth.filter.resonance';
+                else if (normalizedName === 'filttype') paramId = 'synth.filter.type';
             } else if (device.effectType === 'eq') {
                 if (normalizedName === 'low') paramId = 'eq.low';
                 else if (normalizedName === 'lowfreq') paramId = 'eq.lowFreq';
@@ -654,13 +660,13 @@ export const DeviceRack = ({
                 data-selected-device-id={selectedDeviceId ?? ''}
                 onMouseDown={() => rackRef.current?.focus()}
                 style={{
-                display: 'flex',
-                flexDirection: 'column',
-                height: '100%',
-                background: 'var(--color-bg-panel)',
-                outline: isDropActive ? '2px solid var(--color-accent-primary)' : 'none',
-                boxShadow: isDropActive ? 'inset 0 0 0 1px rgba(74, 144, 217, 0.35)' : 'none',
-            }}>
+                    display: 'flex',
+                    flexDirection: 'column',
+                    height: '100%',
+                    background: 'var(--color-bg-panel)',
+                    outline: isDropActive ? '2px solid var(--color-accent-primary)' : 'none',
+                    boxShadow: isDropActive ? 'inset 0 0 0 1px rgba(74, 144, 217, 0.35)' : 'none',
+                }}>
 
 
                 {/* ── Header Bar ── */}
@@ -1055,11 +1061,11 @@ const DeviceNode = ({
                 : 720
         : device.effectType === 'sampler'
             ? 360
-        : device.effectType === 'waveSynth'
+            : device.effectType === 'waveSynth'
                 ? 460
-            : device.effectType === 'instrument'
-                ? 320
-                : device.effectType === 'eq'
+                : device.effectType === 'instrument'
+                    ? 320
+                    : device.effectType === 'eq'
                         ? 280
                         : device.effectType === 'autoFilter' || device.effectType === 'phaser' || device.effectType === 'flanger'
                             ? 300
@@ -1088,18 +1094,18 @@ const DeviceNode = ({
                 position: 'relative',
                 boxShadow: isSelected ? '0 0 0 1px var(--color-accent-primary), 0 0 12px rgba(74,144,217,0.35)' : 'none',
             }}
-                    onMouseUp={() => {
-                        const dragging = useDragStore.getState().draggingItem;
-                        const acceptance = dragging ? canDropInZone(dragging, 'sampler-surface') : { allowed: false };
-                        const isSamplerDevice =
-                            device.source === 'internal' &&
-                            (device.effectType === 'sampler' || device.effectType === 'instrument');
-                        if (!isSamplerDevice) return;
-                        if (dragging?.path && acceptance.allowed) {
-                            onDropSample?.(dragging.path);
-                            useDragStore.getState().endDrag();
-                        }
-                    }}
+            onMouseUp={() => {
+                const dragging = useDragStore.getState().draggingItem;
+                const acceptance = dragging ? canDropInZone(dragging, 'sampler-surface') : { allowed: false };
+                const isSamplerDevice =
+                    device.source === 'internal' &&
+                    (device.effectType === 'sampler' || device.effectType === 'instrument');
+                if (!isSamplerDevice) return;
+                if (dragging?.path && acceptance.allowed) {
+                    onDropSample?.(dragging.path);
+                    useDragStore.getState().endDrag();
+                }
+            }}
         >
             {/* Type color stripe at top (2px) */}
             <div style={{
@@ -1209,7 +1215,7 @@ const DeviceNode = ({
                 }}>
                     {device.source === 'internal' && device.params.length > 0 ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
-                            {device.params.slice(0, device.effectType === 'waveSynth' ? 5 : device.effectType === 'sampler' ? 4 : 3).map((p) => (
+                            {device.params.slice(0, device.effectType === 'waveSynth' ? 8 : device.effectType === 'sampler' ? 4 : 3).map((p) => (
                                 <PluginKnob key={p.name} param={p} onChange={onParamChange} />
                             ))}
                         </div>
@@ -1410,6 +1416,9 @@ const PluginGuiSurface = ({
             onParamChange('Mix', randomInRange(0.1, 0.9, 0.01));
             onParamChange('Detune', randomInRange(-18, 18, 0.1));
             onParamChange('Sub', randomInRange(0, 0.5, 0.01));
+            onParamChange('Cutoff', randomInRange(200, 8000, 1));
+            onParamChange('Res', randomInRange(0, 0.8, 0.01));
+            onParamChange('FiltType', Math.floor(Math.random() * 4));
             onParamChange('Vol', randomInRange(0.7, 1.4, 0.01));
             onParamChange('Attack', randomInRange(0.001, 0.18, 0.001));
             onParamChange('Decay', randomInRange(0.03, 1.8, 0.001));

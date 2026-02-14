@@ -28,6 +28,8 @@ interface TransportBarProps {
     onRecordingStateChange?: (state: { active: boolean; trackIndex: number }) => void;
     followPlayhead?: boolean;
     onFollowPlayheadChange?: (enabled: boolean) => void;
+    automationVisible?: boolean;
+    onAutomationToggle?: () => void;
 }
 
 export const TransportBar = ({
@@ -36,6 +38,8 @@ export const TransportBar = ({
     onRecordingStateChange,
     followPlayhead = false,
     onFollowPlayheadChange,
+    automationVisible = false,
+    onAutomationToggle,
 }: TransportBarProps) => {
     const isPlaying = useEngineStore((s) => s.transport.is_playing);
     const bpm = useEngineStore((s) => s.transport.bpm);
@@ -223,7 +227,7 @@ export const TransportBar = ({
 
                 <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
                     <PillSection>
-                        <TransportBtn icon={<Rewind size={13} fill="currentColor" />} title="Rewind" onClick={() => {}} />
+                        <TransportBtn icon={<Rewind size={13} fill="currentColor" />} title="Rewind" onClick={() => { }} />
                         <TransportBtn
                             icon={<Play size={13} fill="currentColor" />}
                             title="Play"
@@ -280,6 +284,18 @@ export const TransportBar = ({
                             isActive={followPlayhead}
                             activeColor="var(--color-accent-primary)"
                             onClick={() => onFollowPlayheadChange?.(!followPlayhead)}
+                        />
+                        <TransportBtn
+                            icon={
+                                <svg width={13} height={13} viewBox="0 0 16 16" fill="none">
+                                    <rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                                    <text x="8" y="12" textAnchor="middle" fill="currentColor" fontSize="10" fontWeight="700" fontFamily="system-ui">A</text>
+                                </svg>
+                            }
+                            title="Automation (A)"
+                            isActive={automationVisible}
+                            activeColor="var(--color-accent-primary)"
+                            onClick={() => onAutomationToggle?.()}
                         />
                         <span style={{ ...valueChipStyle, minWidth: 74, textAlign: 'right', display: 'inline-block', cursor: 'default' }}>
                             {posString}

@@ -544,7 +544,9 @@ export const PianoRoll = memo(function PianoRoll({
 
     const quantizeAllNotesToGrid = useCallback(() => {
         const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
+        const targetIds = selectedNotes.size > 0 ? selectedNotes : null;
         const next = notes.map((n) => {
+            if (targetIds && !targetIds.has(n.id)) return n;
             const snappedStart = snapBeat(n.startBeat, beatsPerBar);
             const snappedDur = Math.max(step, Math.round(n.durationBeats / step) * step);
             return {
@@ -554,7 +556,66 @@ export const PianoRoll = memo(function PianoRoll({
             };
         });
         onNotesChange(next);
-    }, [notes, onNotesChange, currentGridInterval, snapBeat, beatsPerBar, totalBeats]);
+    }, [notes, onNotesChange, currentGridInterval, snapBeat, beatsPerBar, totalBeats, selectedNotes]);
+
+    const duplicateSelection = useCallback(() => {
+        const targets = selectedNotes.size > 0 ? notes.filter((n) => selectedNotes.has(n.id)) : notes;
+        if (targets.length === 0) return;
+        const spanStart = Math.min(...targets.map((n) => n.startBeat));
+        const spanEnd = Math.max(...targets.map((n) => n.startBeat + n.durationBeats));
+        const shift = Math.max(currentGridInterval > 0 ? currentGridInterval : 0.25, spanEnd - spanStart);
+        const clones = targets.map((n) => ({
+            ...n,
+            id: genNoteId(),
+            startBeat: Math.max(0, Math.min(totalBeats - 0.125, n.startBeat + shift)),
+            selected: false,
+        }));
+        onNotesChange([...notes, ...clones]);
+        setSelectedNotes(new Set(clones.map((n) => n.id)));
+    }, [selectedNotes, notes, currentGridInterval, totalBeats, onNotesChange]);
+
+    const humanizeSelection = useCallback(() => {
+        const targets = selectedNotes.size > 0 ? selectedNotes : new Set(notes.map((n) => n.id));
+        const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
+        const next = notes.map((n) => {
+            if (!targets.has(n.id)) return n;
+            const timing = (Math.random() - 0.5) * step * 0.35;
+            const velocity = Math.round((Math.random() - 0.5) * 10);
+            return {
+                ...n,
+                startBeat: Math.max(0, Math.min(totalBeats - 0.125, n.startBeat + timing)),
+                velocity: Math.max(1, Math.min(127, n.velocity + velocity)),
+            };
+        });
+        onNotesChange(next);
+    }, [selectedNotes, notes, currentGridInterval, totalBeats, onNotesChange]);
+
+    const applyLegato = useCallback(() => {
+        const targets = selectedNotes.size > 0 ? selectedNotes : new Set(notes.map((n) => n.id));
+        const byPitch = new Map<number, MidiNote[]>();
+        notes.forEach((n) => {
+            if (!targets.has(n.id)) return;
+            const arr = byPitch.get(n.pitch) ?? [];
+            arr.push(n);
+            byPitch.set(n.pitch, arr);
+        });
+        const durationById = new Map<string, number>();
+        byPitch.forEach((arr) => {
+            arr.sort((a, b) => a.startBeat - b.startBeat);
+            for (let i = 0; i < arr.length; i++) {
+                const current = arr[i];
+                const next = arr[i + 1];
+                const targetEnd = next ? next.startBeat : clipBeats;
+                durationById.set(current.id, Math.max(0.125, targetEnd - current.startBeat));
+            }
+        });
+        if (durationById.size === 0) return;
+        onNotesChange(notes.map((n) => (
+            durationById.has(n.id)
+                ? { ...n, durationBeats: Math.max(0.125, Math.min(clipBeats - n.startBeat, durationById.get(n.id) ?? n.durationBeats)) }
+                : n
+        )));
+    }, [selectedNotes, notes, clipBeats, onNotesChange]);
 
     // Canvas note renderer
     useEffect(() => {
@@ -628,6 +689,38 @@ export const PianoRoll = memo(function PianoRoll({
                 return;
             }
 
+            // Ctrl/Cmd + D — duplicate selected (or all) notes
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+                e.preventDefault();
+                e.stopPropagation();
+                duplicateSelection();
+                return;
+            }
+
+            // Q — quantize selected (or all) to current grid
+            if (!e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'q') {
+                e.preventDefault();
+                e.stopPropagation();
+                quantizeAllNotesToGrid();
+                return;
+            }
+
+            // H — humanize selected (or all)
+            if (!e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'h') {
+                e.preventDefault();
+                e.stopPropagation();
+                humanizeSelection();
+                return;
+            }
+
+            // L — legato on selected (or all per pitch)
+            if (!e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'l') {
+                e.preventDefault();
+                e.stopPropagation();
+                applyLegato();
+                return;
+            }
+
             if (!hasSelected) return;
             if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
 
@@ -653,7 +746,18 @@ export const PianoRoll = memo(function PianoRoll({
         };
         window.addEventListener('keydown', onKeyDown, { capture: true });
         return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
-    }, [isEditorFocused, selectedNotes, notes, onNotesChange, currentGridInterval, totalBeats]);
+    }, [
+        isEditorFocused,
+        selectedNotes,
+        notes,
+        onNotesChange,
+        currentGridInterval,
+        totalBeats,
+        duplicateSelection,
+        quantizeAllNotesToGrid,
+        humanizeSelection,
+        applyLegato,
+    ]);
 
     // Clip duration label
     const clipDurationLabel = useMemo(() => {
@@ -851,6 +955,21 @@ export const PianoRoll = memo(function PianoRoll({
                     {clipDurationLabel}
                 </div>
 
+                <div style={{ width: 1, height: 16, background: 'var(--color-divider-light)', margin: '0 var(--space-1)' }} />
+
+                <button onClick={duplicateSelection} style={actionBtnStyle} title="Duplicate selected notes (Cmd/Ctrl + D)">
+                    Duplicate
+                </button>
+                <button onClick={quantizeAllNotesToGrid} style={actionBtnStyle} title="Quantize selected notes (Q)">
+                    Quantize
+                </button>
+                <button onClick={applyLegato} style={actionBtnStyle} title="Legato selected notes (L)">
+                    Legato
+                </button>
+                <button onClick={humanizeSelection} style={actionBtnStyle} title="Humanize selected notes (H)">
+                    Humanize
+                </button>
+
                 <div style={{ flex: 1 }} />
 
                 <button
@@ -918,7 +1037,7 @@ export const PianoRoll = memo(function PianoRoll({
                     color: 'var(--color-text-tertiary)',
                     fontFamily: 'var(--font-mono)',
                 }}>
-                    {notes.length} notes
+                    {selectedNotes.size > 0 ? `${selectedNotes.size} selected` : `${notes.length} notes`}
                 </span>
             </div>
 
@@ -1311,6 +1430,29 @@ export const PianoRoll = memo(function PianoRoll({
                                     }}
                                 />
                             )}
+                            {notes.length === 0 && (
+                                <div style={{
+                                    position: 'absolute',
+                                    left: '50%',
+                                    top: '50%',
+                                    transform: 'translate(-50%, -50%)',
+                                    pointerEvents: 'none',
+                                    zIndex: 8,
+                                    textAlign: 'center',
+                                    padding: '10px 14px',
+                                    borderRadius: 8,
+                                    border: '1px solid color-mix(in srgb, var(--color-accent-primary) 35%, var(--color-divider))',
+                                    background: 'color-mix(in srgb, var(--color-bg-header) 85%, #0b1525)',
+                                    boxShadow: '0 8px 18px rgba(0,0,0,0.25)',
+                                }}>
+                                    <div style={{ fontSize: 11, color: 'var(--color-text-primary)', fontWeight: 700, marginBottom: 2 }}>
+                                        Draw notes to start
+                                    </div>
+                                    <div style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>
+                                        Draw tool click adds notes. `Q` quantize, `H` humanize, `L` legato.
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* ── Playhead ── */}
@@ -1409,6 +1551,18 @@ const miniBtnStyle: React.CSSProperties = {
     fontSize: 10,
     fontFamily: 'var(--font-family)',
     padding: '4px 6px',
+    cursor: 'pointer',
+};
+
+const actionBtnStyle: React.CSSProperties = {
+    border: '1px solid var(--color-control-border)',
+    borderRadius: 'var(--radius-sm)',
+    background: 'var(--color-bg-secondary)',
+    color: 'var(--color-text-secondary)',
+    fontSize: 'var(--font-size-2xs)',
+    fontFamily: 'var(--font-family)',
+    fontWeight: 600,
+    padding: '3px 8px',
     cursor: 'pointer',
 };
 

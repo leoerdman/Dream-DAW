@@ -25,6 +25,7 @@ use dream_engine::driver::SharedClipSnapshot;
 use dream_io::audio_reader::AudioReader;
 use dream_io::peak_cache::{PeakCache, WaveformPeaks};
 use dream_io::project_file::ProjectFile;
+use dream_io::project_manager::ProjectManager;
 use dream_io::wav_writer::WavWriter;
 use dream_ipc::metering::MeterBank;
 use dream_ipc::{EngineCommand, MasterClock};
@@ -140,6 +141,9 @@ struct ProjectState {
     /// Path to the current project file on disk. `None` if unsaved.
     file_path: Mutex<Option<PathBuf>>,
 
+    /// Path to the project directory (Ableton-style folder). `None` if unsaved.
+    project_folder: Mutex<Option<PathBuf>>,
+
     /// Whether the project has unsaved changes.
     is_dirty: Mutex<bool>,
 
@@ -152,6 +156,7 @@ impl ProjectState {
         Self {
             project: Mutex::new(Project::default()),
             file_path: Mutex::new(None),
+            project_folder: Mutex::new(None),
             is_dirty: Mutex::new(false),
             undo: Mutex::new(UndoState::new()),
         }
@@ -1343,6 +1348,7 @@ fn new_project(
     let new = Project::default();
     *project_state.project.lock().map_err(|e| e.to_string())? = new.clone();
     *project_state.file_path.lock().map_err(|e| e.to_string())? = None;
+    *project_state.project_folder.lock().map_err(|e| e.to_string())? = None;
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
 
     // Update window title
@@ -1385,16 +1391,40 @@ fn save_project_as(
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let file_path = PathBuf::from(&path);
 
-    ProjectFile::save(&project, &file_path)
-        .map_err(|e| e.to_string())?;
+    // Determine if we should create an Ableton-style folder structure.
+    // If the user chose a path like "Foo.dream.json", we create:
+    //   parent/Foo/Foo.dream.json + Samples/ + Backup/
+    let parent_dir = file_path.parent().unwrap_or(std::path::Path::new("."));
+    let project_name = file_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(&project.name)
+        .trim_end_matches(".dream")
+        .to_string();
 
-    *project_state.file_path.lock().map_err(|e| e.to_string())? = Some(file_path.clone());
+    let (actual_file_path, folder) = if ProjectManager::is_project_directory(parent_dir) {
+        // Already inside a project directory — save in place
+        ProjectFile::save(&project, &file_path)
+            .map_err(|e| e.to_string())?;
+        (file_path.clone(), parent_dir.to_path_buf())
+    } else {
+        // New location — create Ableton-style folder structure
+        let folder = ProjectManager::create_project_folder(parent_dir, &project_name)
+            .map_err(|e| e.to_string())?;
+        let saved_path = ProjectManager::save_to_folder(&project, &folder, true)
+            .map_err(|e| e.to_string())?;
+        (saved_path, folder)
+    };
+
+    *project_state.file_path.lock().map_err(|e| e.to_string())? = Some(actual_file_path.clone());
+    *project_state.project_folder.lock().map_err(|e| e.to_string())? = Some(folder);
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
 
     // Track in recent projects
+    let result_path = actual_file_path.display().to_string();
     if let Ok(app_data_dir) = app.path().app_data_dir() {
         let mut recent = RecentProjects::load(&app_data_dir);
-        recent.add(project.name.clone(), path.clone());
+        recent.add(project.name.clone(), result_path.clone());
         let _ = recent.save(&app_data_dir);
     }
 
@@ -1403,8 +1433,8 @@ fn save_project_as(
         let _ = window.set_title(&format!("Dream DAW — {}", project.name));
     }
 
-    log::info!("Project saved as: '{}' → {}", project.name, file_path.display());
-    Ok(path)
+    log::info!("Project saved as: '{}' → {}", project.name, actual_file_path.display());
+    Ok(result_path)
 }
 
 /// Opens a project from a file path.
@@ -1420,8 +1450,12 @@ fn open_project(
         .map_err(|e| e.to_string())?;
 
     *project_state.project.lock().map_err(|e| e.to_string())? = loaded.clone();
-    *project_state.file_path.lock().map_err(|e| e.to_string())? = Some(file_path);
+    *project_state.file_path.lock().map_err(|e| e.to_string())? = Some(file_path.clone());
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
+
+    // Derive project folder from file path
+    let folder = ProjectManager::folder_from_file(&file_path);
+    *project_state.project_folder.lock().map_err(|e| e.to_string())? = folder;
 
     // Track in recent projects
     if let Ok(app_data_dir) = app.path().app_data_dir() {
@@ -1466,9 +1500,11 @@ fn get_project_status(
 ) -> Result<serde_json::Value, String> {
     let is_dirty = *project_state.is_dirty.lock().map_err(|e| e.to_string())?;
     let file_path = project_state.file_path.lock().map_err(|e| e.to_string())?;
+    let project_folder = project_state.project_folder.lock().map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
         "isDirty": is_dirty,
         "filePath": file_path.as_ref().map(|p| p.display().to_string()),
+        "projectFolder": project_folder.as_ref().map(|p| p.display().to_string()),
     }))
 }
 
@@ -1855,6 +1891,55 @@ async fn save_project_dialog(
     .await
     .map_err(|e| format!("Join error: {}", e))?
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// Extended Project Management Commands
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Creates a backup of the current project in the project's Backup/ directory.
+///
+/// Returns the path to the backup file, or an error if no project folder is set.
+#[tauri::command]
+fn create_backup_cmd(
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<String, String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let folder = project_state.project_folder.lock().map_err(|e| e.to_string())?;
+
+    let folder = folder
+        .as_ref()
+        .ok_or("No project folder set. Save the project first.")?;
+
+    let backup_path = ProjectManager::create_backup(&project, folder)
+        .map_err(|e| e.to_string())?;
+
+    log::info!("Backup created: {}", backup_path.display());
+    Ok(backup_path.display().to_string())
+}
+
+/// Marks the project as having unsaved changes (dirty state).
+///
+/// Called by the frontend when the user makes a change that isn't
+/// tracked by a backend mutation (e.g., view state changes).
+#[tauri::command]
+fn mark_dirty_cmd(
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let was_dirty = *project_state.is_dirty.lock().map_err(|e| e.to_string())?;
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+
+    // Add dirty indicator to window title if transitioning from clean to dirty
+    if !was_dirty {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.set_title(&format!("Dream DAW — {} ●", project.name));
+        }
+    }
+
+    Ok(())
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Application Setup
 // ═══════════════════════════════════════════════════════════════════════
@@ -1876,6 +1961,12 @@ pub fn run() {
     let clip_pool_for_engine = Arc::clone(&clip_pool_state.pool);
     let snapshot_for_engine = Arc::clone(&clip_pool_state.snapshot);
 
+    // Create shared MIDI snapshot and sampler sample state
+    let midi_snapshot = Arc::new(dream_engine::driver::SharedMidiSnapshot::new());
+    let sampler_samples = Arc::new(dream_engine::driver::SharedSamplerSamples::new());
+    let midi_snapshot_for_engine = Arc::clone(&midi_snapshot);
+    let sampler_samples_for_engine = Arc::clone(&sampler_samples);
+
     // Create preview buffer Arcs (shared between engine handle and audio driver)
     let preview_buffer: Arc<Mutex<Option<Vec<f32>>>> = Arc::new(Mutex::new(None));
     let preview_cursor: Arc<std::sync::atomic::AtomicUsize> = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -1891,6 +1982,8 @@ pub fn run() {
         meter_for_engine,
         clip_pool_for_engine,
         snapshot_for_engine,
+        midi_snapshot_for_engine,
+        sampler_samples_for_engine,
         preview_buffer_for_engine,
         preview_cursor_for_engine,
     )
@@ -1981,6 +2074,9 @@ pub fn run() {
             // Undo/Redo
             undo_cmd,
             redo_cmd,
+            // Project Management (extended)
+            create_backup_cmd,
+            mark_dirty_cmd,
         ])
         .setup(|app| {
             log::info!(

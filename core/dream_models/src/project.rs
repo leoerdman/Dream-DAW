@@ -463,7 +463,58 @@ pub struct Project {
 
     /// Project version string for migration compatibility.
     pub version: String,
+
+    // ── View State Persistence (ported from Swift Project.swift) ───────
+
+    /// Zoom level in pixels per beat (persisted for session restore).
+    #[serde(default)]
+    pub view_zoom_scale: Option<f64>,
+
+    /// Horizontal scroll position in beats (persisted for session restore).
+    #[serde(default)]
+    pub view_scroll_position: Option<f64>,
+
+    /// Browser panel width in points (persisted for session restore).
+    #[serde(default)]
+    pub view_browser_width: Option<f64>,
+
+    // ── Playback State ────────────────────────────────────────────────
+
+    /// Persisted transport playhead position (sample frames).
+    #[serde(default)]
+    pub playhead_position_frames: i64,
+
+    // ── Loop Region ──────────────────────────────────────────────────
+
+    /// Whether looping is enabled.
+    #[serde(default)]
+    pub is_looping: bool,
+
+    /// Loop start position (sample frames). `None` = not set.
+    #[serde(default)]
+    pub loop_start_frames: Option<i64>,
+
+    /// Loop end position (sample frames). `None` = not set.
+    #[serde(default)]
+    pub loop_end_frames: Option<i64>,
+
+    // ── Key Signature ────────────────────────────────────────────────
+
+    /// Whether key signature display is enabled.
+    #[serde(default)]
+    pub key_sig_enabled: bool,
+
+    /// Key signature tonic (e.g., "C", "D#/Eb"). Empty = not set.
+    #[serde(default = "default_key_tonic")]
+    pub key_sig_tonic: String,
+
+    /// Key signature mode (e.g., "Major", "Minor", "Dorian").
+    #[serde(default = "default_key_mode")]
+    pub key_sig_mode: String,
 }
+
+fn default_key_tonic() -> String { "C".to_string() }
+fn default_key_mode() -> String { "Major".to_string() }
 
 impl Project {
     /// Creates a new empty project with default settings.
@@ -481,6 +532,20 @@ impl Project {
             sample_rate,
             time_signature: TimeSignature::default(),
             version: "0.1.0".to_string(),
+            // View state
+            view_zoom_scale: None,
+            view_scroll_position: None,
+            view_browser_width: None,
+            // Playback
+            playhead_position_frames: 0,
+            // Loop
+            is_looping: false,
+            loop_start_frames: None,
+            loop_end_frames: None,
+            // Key signature
+            key_sig_enabled: false,
+            key_sig_tonic: "C".to_string(),
+            key_sig_mode: "Major".to_string(),
         }
     }
 

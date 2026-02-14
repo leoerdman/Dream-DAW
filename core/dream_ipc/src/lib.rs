@@ -59,6 +59,33 @@ pub enum EngineCommand {
     /// Solo or unsolo a track.
     SetTrackSolo { track_index: u16, soloed: bool },
 
+    // ── Sampler / MIDI Control ────────────────────────────────────────
+    /// Trigger a note on the sampler for a specific track.
+    /// `velocity` 0–127.
+    SamplerNoteOn { track_index: u16, pitch: u8, velocity: u8 },
+
+    /// Release a note on the sampler for a specific track.
+    SamplerNoteOff { track_index: u16, pitch: u8 },
+
+    /// Set the root note (pitch) for a track's sampler.
+    SetSamplerRootNote { track_index: u16, root_note: u8 },
+
+    /// Set the volume for a track's sampler (linear gain, 0.0–2.0).
+    SetSamplerVolume { track_index: u16, volume: f32 },
+
+    /// Set the ADSR envelope for a track's sampler.
+    /// All times in seconds (attack, decay, release). Sustain is 0.0–1.0.
+    SetSamplerAdsr {
+        track_index: u16,
+        attack: f32,
+        decay: f32,
+        sustain: f32,
+        release: f32,
+    },
+
+    /// Turn off all active notes on a track's sampler.
+    SamplerAllNotesOff { track_index: u16 },
+
     // ── Test / Legacy ────────────────────────────────────────────────
     /// Smoothly transition the test tone to a new frequency (Hz).
     /// The audio callback applies per-sample exponential smoothing

@@ -16,9 +16,11 @@
 pub mod audio_reader;
 pub mod peak_cache;
 pub mod project_file;
+pub mod project_manager;
 pub mod wav_writer;
 
 pub use audio_reader::{AudioBuffer, AudioReader};
 pub use peak_cache::PeakCache;
 pub use project_file::ProjectFile;
+pub use project_manager::ProjectManager;
 pub use wav_writer::WavWriter;

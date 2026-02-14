@@ -16,3 +16,4 @@ cpal = { workspace = true }
 rtrb = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
+arc-swap = { workspace = true }

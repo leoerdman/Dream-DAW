@@ -54,6 +54,8 @@ fn main() {
         meter_for_audio,
         clip_pool,
         clip_snapshot,
+        Arc::new(dream_engine::driver::SharedMidiSnapshot::new()),
+        Arc::new(dream_engine::driver::SharedSamplerSamples::new()),
         Arc::new(std::sync::Mutex::new(None)), // preview buffer (unused in standalone)
         Arc::new(std::sync::atomic::AtomicUsize::new(0)), // preview cursor
     ) {

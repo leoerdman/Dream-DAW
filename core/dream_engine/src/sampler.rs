@@ -489,6 +489,12 @@ impl SamplerEngine {
         self.voices.iter().any(|v| v.active)
     }
 
+    /// Alias for `is_active()` — used by the render pipeline.
+    #[inline]
+    pub fn has_active_voices(&self) -> bool {
+        self.is_active()
+    }
+
     /// Returns whether a sample is loaded.
     pub fn has_sample(&self) -> bool {
         self.sample.is_some()

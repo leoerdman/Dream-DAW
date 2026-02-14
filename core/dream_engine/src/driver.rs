@@ -25,11 +25,14 @@ use log::{error, info};
 
 use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::scheduler::LoopRegion;
+use dream_clip_engine::midi_scheduler::{MidiScheduler, ScheduledNote};
 use dream_ipc::metering::MeterBank;
 use dream_ipc::{EngineCommand, MasterClock};
 use dream_models::project::AudioClip;
+use dream_models::midi::MidiClip;
 
 use crate::render_callback::RenderContext;
+use crate::sampler::{SamplerEngine, AdsrParams};
 
 // ── Shared Clip Snapshot ────────────────────────────────────────────────
 
@@ -74,6 +77,91 @@ impl SharedClipSnapshot {
 }
 
 impl Default for SharedClipSnapshot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ── Shared MIDI Snapshot ───────────────────────────────────────────────
+
+/// Atomic snapshot of per-track MIDI clip data for the audio thread.
+///
+/// Follows the same pattern as `SharedClipSnapshot`: the UI thread
+/// updates via `swap()`, the audio thread reads via `load()`.
+pub struct SharedMidiSnapshot {
+    inner: std::sync::Mutex<Arc<Vec<Vec<MidiClip>>>>,
+}
+
+impl SharedMidiSnapshot {
+    pub fn new() -> Self {
+        Self {
+            inner: std::sync::Mutex::new(Arc::new(Vec::new())),
+        }
+    }
+
+    /// Atomically replaces the MIDI snapshot (called from UI thread).
+    pub fn swap(&self, new_clips: Vec<Vec<MidiClip>>) {
+        if let Ok(mut guard) = self.inner.lock() {
+            *guard = Arc::new(new_clips);
+        }
+    }
+
+    /// Gets the current MIDI snapshot (called from audio thread).
+    pub fn load(&self) -> Arc<Vec<Vec<MidiClip>>> {
+        self.inner
+            .lock()
+            .map(|guard| Arc::clone(&guard))
+            .unwrap_or_else(|_| Arc::new(Vec::new()))
+    }
+}
+
+impl Default for SharedMidiSnapshot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ── Shared Sampler Samples ─────────────────────────────────────────────
+
+use dream_clip_engine::pool::ClipAudio;
+
+/// Per-track sampler sample and parameters.
+///
+/// The UI thread sets this when a user loads a sample onto a track.
+/// The audio thread reads it to configure per-track SamplerEngines.
+pub struct SharedSamplerSamples {
+    inner: std::sync::Mutex<Arc<Vec<Option<Arc<ClipAudio>>>>>,
+}
+
+impl SharedSamplerSamples {
+    pub fn new() -> Self {
+        Self {
+            inner: std::sync::Mutex::new(Arc::new(Vec::new())),
+        }
+    }
+
+    /// Sets the loaded sample for a specific track.
+    pub fn set_track_sample(&self, track_index: usize, sample: Option<Arc<ClipAudio>>) {
+        if let Ok(mut guard) = self.inner.lock() {
+            let mut samples = (**guard).clone();
+            if track_index >= samples.len() {
+                samples.resize(track_index + 1, None);
+            }
+            samples[track_index] = sample;
+            *guard = Arc::new(samples);
+        }
+    }
+
+    /// Gets all track samples (called from audio thread).
+    pub fn load(&self) -> Arc<Vec<Option<Arc<ClipAudio>>>> {
+        self.inner
+            .lock()
+            .map(|guard| Arc::clone(&guard))
+            .unwrap_or_else(|_| Arc::new(Vec::new()))
+    }
+}
+
+impl Default for SharedSamplerSamples {
     fn default() -> Self {
         Self::new()
     }
@@ -142,6 +230,8 @@ pub fn start_audio_thread(
     meter_bank: Arc<MeterBank>,
     clip_pool: Arc<Mutex<ClipPool>>,
     clip_snapshot: Arc<SharedClipSnapshot>,
+    midi_snapshot: Arc<SharedMidiSnapshot>,
+    sampler_samples: Arc<SharedSamplerSamples>,
     preview_buffer: Arc<Mutex<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
 ) -> Result<AudioStreamHandle, AudioDriverError> {
@@ -196,6 +286,19 @@ pub fn start_audio_thread(
     let mut track_muted: [bool; 64] = [false; 64];
     let mut track_soloed: [bool; 64] = [false; 64];
     let mut any_solo: bool = false;
+
+    // ── 6. Per-track sampler engines ─────────────────────────────────
+    // Pre-allocated array of 64 engines (one per track max).
+    // Each engine starts with no sample loaded — it becomes active
+    // when the user assigns a sample via SharedSamplerSamples.
+    let mut sampler_engines: Vec<SamplerEngine> = (0..64)
+        .map(|_| SamplerEngine::new(sample_rate_f64))
+        .collect();
+    // Scratch buffers for sampler output (reused each buffer, zero-alloc)
+    let mut sampler_left = vec![0.0f32; 8192];
+    let mut sampler_right = vec![0.0f32; 8192];
+    // Track which samples were last loaded per-track to avoid re-assigning
+    let mut last_sample_generation: u64 = 0;
 
     let stream = device
         .build_output_stream(
@@ -290,9 +393,55 @@ pub fn start_audio_thread(
                                 }
                             }
                         }
+                        // ── Sampler Commands ────────────────────────
+                        EngineCommand::SamplerNoteOn { track_index, pitch, velocity } => {
+                            let idx = track_index as usize;
+                            if idx < sampler_engines.len() {
+                                sampler_engines[idx].note_on(pitch, velocity);
+                            }
+                        }
+                        EngineCommand::SamplerNoteOff { track_index, pitch } => {
+                            let idx = track_index as usize;
+                            if idx < sampler_engines.len() {
+                                sampler_engines[idx].note_off(pitch);
+                            }
+                        }
+                        EngineCommand::SetSamplerRootNote { track_index, root_note } => {
+                            let idx = track_index as usize;
+                            if idx < sampler_engines.len() {
+                                sampler_engines[idx].root_note = root_note;
+                            }
+                        }
+                        EngineCommand::SetSamplerVolume { track_index, volume } => {
+                            let idx = track_index as usize;
+                            if idx < sampler_engines.len() {
+                                sampler_engines[idx].volume = volume;
+                            }
+                        }
+                        EngineCommand::SetSamplerAdsr { track_index, attack, decay, sustain, release } => {
+                            let idx = track_index as usize;
+                            if idx < sampler_engines.len() {
+                                sampler_engines[idx].set_adsr(AdsrParams {
+                                    attack: attack as f64,
+                                    decay: decay as f64,
+                                    sustain: sustain as f64,
+                                    release: release as f64,
+                                });
+                            }
+                        }
+                        EngineCommand::SamplerAllNotesOff { track_index } => {
+                            let idx = track_index as usize;
+                            if idx < sampler_engines.len() {
+                                sampler_engines[idx].all_notes_off();
+                            }
+                        }
                         EngineCommand::Shutdown => {
                             is_playing = false;
                             test_tone_phase = 0.0;
+                            // Kill all sampler voices on shutdown
+                            for engine in sampler_engines.iter_mut() {
+                                engine.all_notes_off();
+                            }
                         }
                     }
                 }
@@ -350,6 +499,81 @@ pub fn start_audio_thread(
                     } else {
                         // No clips, no test tone → silence
                         data.fill(0.0);
+                    }
+
+                    // ── B2. MIDI → Sampler render pass ───────────────
+                    // Sync loaded samples from SharedSamplerSamples
+                    let samples_snapshot = sampler_samples.load();
+                    for (idx, sample_opt) in samples_snapshot.iter().enumerate() {
+                        if idx < sampler_engines.len() {
+                            // Only update if the sample reference changed
+                            let engine = &mut sampler_engines[idx];
+                            match (sample_opt, &engine.sample) {
+                                (Some(new_sample), Some(existing)) => {
+                                    if !Arc::ptr_eq(new_sample, existing) {
+                                        engine.sample = Some(Arc::clone(new_sample));
+                                    }
+                                }
+                                (Some(new_sample), None) => {
+                                    engine.sample = Some(Arc::clone(new_sample));
+                                }
+                                (None, Some(_)) => {
+                                    engine.sample = None;
+                                    engine.all_notes_off();
+                                }
+                                (None, None) => {}
+                            }
+                        }
+                    }
+
+                    // Load MIDI snapshot and schedule notes
+                    let midi_snap = midi_snapshot.load();
+                    let playhead_pos = render_ctx.playhead.position();
+
+                    for (track_idx, midi_clips) in midi_snap.iter().enumerate() {
+                        if track_idx >= sampler_engines.len() || midi_clips.is_empty() {
+                            continue;
+                        }
+
+                        let engine = &mut sampler_engines[track_idx];
+                        if engine.sample.is_none() {
+                            continue; // no sample loaded — skip
+                        }
+
+                        // Schedule active notes for this buffer
+                        let events = MidiScheduler::find_active(midi_clips, playhead_pos, frame_count);
+
+                        // Process note-on/off events
+                        for event in &events {
+                            if event.is_note_on {
+                                engine.note_on(event.pitch, event.velocity);
+                            }
+                            if event.is_note_off {
+                                engine.note_off(event.pitch);
+                            }
+                        }
+
+                        // Render sampler output if any voices active
+                        if engine.has_active_voices() {
+                            let fc = frame_count.min(sampler_left.len());
+                            sampler_left[..fc].fill(0.0);
+                            sampler_right[..fc].fill(0.0);
+
+                            engine.render(
+                                &mut sampler_left[..fc],
+                                &mut sampler_right[..fc],
+                                fc,
+                            );
+
+                            // Mix sampler output into interleaved data
+                            for i in 0..fc {
+                                let base = i * channels;
+                                if base + 1 < data.len() {
+                                    data[base] += sampler_left[i];
+                                    data[base + 1] += sampler_right[i];
+                                }
+                            }
+                        }
                     }
                 }
 

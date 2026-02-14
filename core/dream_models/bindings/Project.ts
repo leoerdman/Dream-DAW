@@ -43,4 +43,44 @@ time_signature: TimeSignature,
 /**
  * Project version string for migration compatibility.
  */
-version: string, };
+version: string, 
+/**
+ * Zoom level in pixels per beat (persisted for session restore).
+ */
+view_zoom_scale: number | null, 
+/**
+ * Horizontal scroll position in beats (persisted for session restore).
+ */
+view_scroll_position: number | null, 
+/**
+ * Browser panel width in points (persisted for session restore).
+ */
+view_browser_width: number | null, 
+/**
+ * Persisted transport playhead position (sample frames).
+ */
+playhead_position_frames: bigint, 
+/**
+ * Whether looping is enabled.
+ */
+is_looping: boolean, 
+/**
+ * Loop start position (sample frames). `None` = not set.
+ */
+loop_start_frames: bigint | null, 
+/**
+ * Loop end position (sample frames). `None` = not set.
+ */
+loop_end_frames: bigint | null, 
+/**
+ * Whether key signature display is enabled.
+ */
+key_sig_enabled: boolean, 
+/**
+ * Key signature tonic (e.g., "C", "D#/Eb"). Empty = not set.
+ */
+key_sig_tonic: string, 
+/**
+ * Key signature mode (e.g., "Major", "Minor", "Dorian").
+ */
+key_sig_mode: string, };

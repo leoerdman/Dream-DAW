@@ -398,33 +398,6 @@ fn make_missing_plugin_slot(kind: &str, ableton_name: &str) -> DeviceNode {
     ))
 }
 
-fn make_import_rack_slot(kind: &str, ableton_name: &str) -> DeviceNode {
-    let normalized = ableton_name
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() {
-                ch.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>()
-        .split('-')
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join("-");
-    let slug = if normalized.is_empty() {
-        "rack".to_string()
-    } else {
-        normalized
-    };
-    let name = ableton_name.trim();
-    DeviceNode::Single(PluginSlot::new(
-        if name.is_empty() { "Imported Rack" } else { name },
-        format!("internal://rack/{kind}/{slug}"),
-    ))
-}
-
 fn normalize_plugin_key(raw: &str) -> String {
     raw.chars()
         .filter(|c| c.is_ascii_alphanumeric())

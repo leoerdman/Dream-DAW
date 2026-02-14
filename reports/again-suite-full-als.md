@@ -6,21 +6,21 @@
 - User folder: `/Users/leoerdman/ABLETON - Main Folder/ABLETON - User Folder`
 - ALS files: **326**
 - Parse errors: **0**
-- Scan time: **367.38s**
+- Scan time: **312.2s**
 - Indexed installed plugins: **207**
 - User folder scanned files: **0**
 - Tracks: audio **12836**, midi **5165**, group **2208**, main **326**
 - Clips: audio **208203**, midi **115367**
 - FloatEvent: **150641**; SampleRef: **308074**
-- Native mapped/unmapped: **54099/1303** (97.65%)
+- Native mapped/unmapped: **55402/0** (100.00%)
 - External resolved/missing: **22172/355** (98.42%)
-- Overall compat rate: **97.87%**
+- Overall compat rate: **99.54%**
 
 ## CI Gates
 
-- FAIL `max_native_unmapped`: 1303 <= 0
-- FAIL `max_external_missing`: 355 <= 0
-- FAIL `min_overall_rate`: 0.9787 >= 0.9950
+- PASS `max_native_unmapped`: 0 <= 0
+- PASS `max_external_missing`: 355 <= 355
+- PASS `min_overall_rate`: 0.9954 >= 0.9400
 - PASS `strict_parse_errors`: 0 == 0
 
 ## Top Missing External Plugins
@@ -33,10 +33,7 @@
 
 ## Top Unmapped Native Tags
 
-- MidiNoteLength: 914
-- Shifter: 344
-- Spectral: 28
-- Tuner: 17
+- none
 
 ## User Library Defaults
 
@@ -50,7 +47,7 @@
 |---|---:|---:|---:|---:|---:|---:|
 | `Again - Neuroliquid 1.4 Lesson.als` | 77 | 0 | 0 | 1 | 800 | 148 |
 | `Again - Neuroliquid 1.4.als` | 77 | 0 | 0 | 1 | 803 | 104 |
-| `Again V112.als` | 229 | 7 | 125 | 0 | 723 | 346 |
+| `Again V112.als` | 236 | 0 | 125 | 0 | 723 | 346 |
 | `Archieve/DNB 1 Neurofunk.als` | 65 | 0 | 0 | 0 | 300 | 69 |
 | `Archieve/DNB 1.1 Neurofunk.als` | 72 | 0 | 0 | 0 | 505 | 96 |
 | `Archieve/DNB 1.2 Neurofunk.als` | 73 | 0 | 0 | 0 | 532 | 103 |
@@ -123,144 +120,144 @@
 | `Backup/Erdman - Again 2.0 [2025-06-21 121755].als` | 92 | 0 | 8 | 1 | 503 | 211 |
 | `Backup/Erdman - Again V18 [2025-07-17 183046].als` | 96 | 0 | 12 | 1 | 383 | 224 |
 | `Backup/Erdman - Again V20 [2025-07-17 185748].als` | 110 | 0 | 25 | 1 | 383 | 246 |
-| `Backup/Erdman - Again V21 [2025-07-17 192842].als` | 114 | 1 | 27 | 2 | 509 | 248 |
-| `Backup/Erdman - Again V23 [2025-08-02 182456].als` | 114 | 1 | 27 | 2 | 511 | 248 |
-| `Backup/Erdman - Again V23 [2025-08-03 202752].als` | 114 | 1 | 27 | 2 | 515 | 248 |
-| `Backup/Erdman - Again V24 [2025-08-03 234806].als` | 115 | 1 | 28 | 2 | 614 | 248 |
-| `Backup/Erdman - Again V25 [2025-08-04 001227].als` | 116 | 1 | 28 | 1 | 586 | 244 |
-| `Backup/Erdman - Again V25 [2025-08-04 002243].als` | 119 | 2 | 28 | 1 | 607 | 254 |
-| `Backup/Erdman - Again V26 [2025-08-04 003117].als` | 121 | 2 | 29 | 1 | 611 | 296 |
-| `Backup/Erdman - Again V26 [2025-08-04 004649].als` | 121 | 2 | 29 | 1 | 608 | 296 |
-| `Backup/Erdman - Again V30 [2025-08-30 105300].als` | 132 | 3 | 40 | 5 | 583 | 298 |
-| `Backup/Erdman - Again V30 [2025-08-30 111909].als` | 132 | 3 | 40 | 5 | 583 | 298 |
-| `Backup/Erdman - Again V31 [2025-08-30 122058].als` | 132 | 3 | 40 | 5 | 583 | 298 |
-| `Backup/Erdman - Again V32 [2025-08-30 123658].als` | 130 | 3 | 42 | 5 | 733 | 312 |
-| `Backup/Erdman - Again V34 [2025-08-30 222044].als` | 145 | 5 | 40 | 2 | 600 | 223 |
-| `Backup/Erdman - Again V36 [2025-08-31 054856].als` | 151 | 5 | 44 | 2 | 645 | 257 |
-| `Backup/Erdman - Again V37 [2025-08-31 093430].als` | 161 | 5 | 53 | 5 | 676 | 267 |
-| `Backup/Erdman - Again V38 [2025-08-31 103342].als` | 170 | 5 | 62 | 5 | 837 | 474 |
-| `Backup/Erdman - Again V38 [2025-09-01 053151].als` | 170 | 5 | 62 | 5 | 837 | 474 |
-| `Backup/Erdman - Again V40 [2025-09-01 054910].als` | 166 | 4 | 66 | 5 | 746 | 492 |
-| `Backup/Erdman - Again V43 [2025-09-01 111121].als` | 171 | 4 | 70 | 5 | 910 | 534 |
-| `Backup/Erdman - Again V43 [2025-09-01 111241].als` | 171 | 4 | 70 | 5 | 910 | 534 |
-| `Backup/Erdman - Again V45 [2025-09-01 220917].als` | 175 | 4 | 72 | 5 | 916 | 567 |
-| `Backup/Erdman - Again V46 [2025-09-01 224328].als` | 175 | 4 | 72 | 5 | 918 | 567 |
-| `Backup/Erdman - Again V46 [2025-09-02 112356].als` | 175 | 4 | 72 | 5 | 918 | 567 |
-| `Backup/Erdman - Again V46 [2025-09-02 112706].als` | 174 | 4 | 72 | 5 | 915 | 567 |
-| `Backup/Erdman - Again V47 [2025-09-02 124951].als` | 186 | 4 | 84 | 5 | 928 | 567 |
-| `Backup/Erdman - Again V50 [2025-09-03 053505].als` | 198 | 4 | 97 | 5 | 1007 | 594 |
-| `Backup/Erdman - Again V50 [2025-09-03 053643].als` | 198 | 4 | 97 | 5 | 1160 | 666 |
-| `Backup/Erdman - Again V51 [2025-09-03 130649].als` | 203 | 4 | 102 | 5 | 1182 | 679 |
-| `Backup/Erdman - Again V51 [2025-09-03 153523].als` | 203 | 4 | 102 | 5 | 1174 | 685 |
-| `Backup/Erdman - Again V52 [2025-09-03 171252].als` | 203 | 4 | 102 | 5 | 1174 | 685 |
-| `Backup/Erdman - Again V52 [2025-09-03 171415].als` | 203 | 4 | 103 | 5 | 1174 | 700 |
-| `Backup/Erdman - Again V52 [2025-09-03 172254].als` | 203 | 4 | 103 | 5 | 1175 | 700 |
-| `Backup/Erdman - Again V52 [2025-09-03 172300].als` | 205 | 4 | 104 | 5 | 1175 | 700 |
-| `Backup/Erdman - Again V52 [2025-09-06 114903].als` | 204 | 4 | 104 | 5 | 1175 | 700 |
-| `Backup/Erdman - Again V52 [2025-09-06 115118].als` | 204 | 4 | 104 | 5 | 1175 | 699 |
-| `Backup/Erdman - Again V52 [2025-09-06 120659].als` | 204 | 4 | 104 | 5 | 1175 | 699 |
-| `Backup/Erdman - Again V53 [2025-09-06 123906].als` | 207 | 4 | 104 | 5 | 1170 | 715 |
-| `Backup/Erdman - Again V54 [2025-09-08 012446].als` | 207 | 4 | 105 | 5 | 1152 | 709 |
-| `Backup/Leo Erdman - Again V100 [2025-12-25 121907].als` | 222 | 7 | 105 | 0 | 589 | 358 |
-| `Backup/Leo Erdman - Again V104 [2026-01-11 000641].als` | 226 | 7 | 112 | 0 | 601 | 353 |
-| `Backup/Leo Erdman - Again V104 [2026-01-11 001620].als` | 230 | 7 | 112 | 0 | 601 | 353 |
-| `Backup/Leo Erdman - Again V105 [2026-01-11 004836].als` | 228 | 7 | 119 | 0 | 623 | 350 |
-| `Backup/Leo Erdman - Again V106 [2026-01-11 030019].als` | 227 | 7 | 122 | 0 | 623 | 350 |
-| `Backup/Leo Erdman - Again V106 [2026-01-11 190510].als` | 227 | 7 | 122 | 0 | 623 | 350 |
-| `Backup/Leo Erdman - Again V106 [2026-01-12 041320].als` | 228 | 7 | 119 | 0 | 623 | 350 |
-| `Backup/Leo Erdman - Again V106 [2026-01-12 045235].als` | 228 | 7 | 120 | 0 | 623 | 350 |
-| `Backup/Leo Erdman - Again V107 [2026-01-14 000047].als` | 226 | 7 | 119 | 0 | 620 | 350 |
-| `Backup/Leo Erdman - Again V107 [2026-01-14 000445].als` | 226 | 7 | 119 | 0 | 620 | 350 |
-| `Backup/Leo Erdman - Again V108 [2026-01-14 001749].als` | 226 | 7 | 119 | 0 | 632 | 350 |
-| `Backup/Leo Erdman - Again V108 [2026-01-14 003629].als` | 226 | 7 | 120 | 0 | 632 | 350 |
-| `Backup/Leo Erdman - Again V108 [2026-01-14 004215].als` | 226 | 7 | 120 | 0 | 689 | 362 |
-| `Backup/Leo Erdman - Again V108 [2026-01-14 004540].als` | 226 | 7 | 122 | 0 | 668 | 362 |
-| `Backup/Leo Erdman - Again V108 [2026-01-14 004720].als` | 226 | 7 | 122 | 0 | 713 | 346 |
-| `Backup/Leo Erdman - Again V109 [2026-01-14 011106].als` | 226 | 7 | 122 | 0 | 713 | 346 |
-| `Backup/Leo Erdman - Again V109 [2026-01-14 011407].als` | 230 | 7 | 122 | 0 | 719 | 346 |
-| `Backup/Leo Erdman - Again V110 [2026-01-14 012249].als` | 230 | 7 | 122 | 0 | 723 | 346 |
-| `Backup/Leo Erdman - Again V110 [2026-01-14 012428].als` | 230 | 7 | 122 | 0 | 723 | 346 |
-| `Backup/Leo Erdman - Again V110 [2026-01-14 013837].als` | 229 | 7 | 122 | 0 | 723 | 346 |
-| `Backup/Leo Erdman - Again V111 [2026-01-14 015142].als` | 229 | 7 | 125 | 0 | 723 | 346 |
-| `Backup/Leo Erdman - Again V112 [2026-01-24 051612].als` | 229 | 7 | 125 | 0 | 723 | 346 |
-| `Backup/Leo Erdman - Again V113 [2026-01-24 060753].als` | 238 | 7 | 127 | 0 | 719 | 403 |
-| `Backup/Leo Erdman - Again V113 [2026-01-24 061706].als` | 241 | 7 | 127 | 0 | 680 | 409 |
-| `Backup/Leo Erdman - Again V114 [2026-01-24 080604].als` | 242 | 7 | 128 | 0 | 713 | 409 |
-| `Backup/Leo Erdman - Again V114 [2026-01-24 134254].als` | 242 | 7 | 128 | 0 | 713 | 417 |
-| `Backup/Leo Erdman - Again V114 [2026-01-28 145633].als` | 242 | 7 | 128 | 0 | 713 | 417 |
-| `Backup/Leo Erdman - Again V115 [2026-01-28 171327].als` | 242 | 7 | 127 | 0 | 710 | 417 |
-| `Backup/Leo Erdman - Again V115 [2026-01-28 181921].als` | 242 | 7 | 127 | 0 | 710 | 417 |
-| `Backup/Leo Erdman - Again V55 [2025-09-27 143600].als` | 207 | 4 | 102 | 0 | 1155 | 709 |
-| `Backup/Leo Erdman - Again V55 [2025-09-27 144617].als` | 188 | 4 | 84 | 0 | 799 | 497 |
-| `Backup/Leo Erdman - Again V55 [2025-09-27 145009].als` | 184 | 4 | 83 | 0 | 795 | 490 |
-| `Backup/Leo Erdman - Again V57 [2025-09-27 153642].als` | 178 | 4 | 84 | 0 | 758 | 400 |
-| `Backup/Leo Erdman - Again V6 - Stereo [2025-10-02 200628].als` | 169 | 4 | 83 | 0 | 576 | 406 |
-| `Backup/Leo Erdman - Again V6 - Stereo [2025-10-02 201322].als` | 169 | 4 | 95 | 0 | 576 | 425 |
-| `Backup/Leo Erdman - Again V60 [2025-09-27 174524].als` | 179 | 4 | 84 | 0 | 770 | 398 |
-| `Backup/Leo Erdman - Again V61 [2025-09-27 182448].als` | 178 | 4 | 88 | 0 | 780 | 402 |
-| `Backup/Leo Erdman - Again V63 [2025-10-01 155013].als` | 173 | 4 | 86 | 0 | 580 | 419 |
-| `Backup/Leo Erdman - Again V64 - Pro L [2025-10-02 135838].als` | 168 | 4 | 82 | 0 | 576 | 406 |
-| `Backup/Leo Erdman - Again V65 - Master [2025-10-02 234320].als` | 175 | 4 | 96 | 0 | 572 | 425 |
-| `Backup/Leo Erdman - Again V65 - Stereo [2025-10-02 201937].als` | 169 | 4 | 95 | 0 | 575 | 426 |
-| `Backup/Leo Erdman - Again V66 - Master [2025-10-03 171034].als` | 175 | 4 | 96 | 0 | 572 | 425 |
-| `Backup/Leo Erdman - Again V66 - Master [2025-10-03 171700].als` | 175 | 4 | 96 | 0 | 572 | 425 |
-| `Backup/Leo Erdman - Again V66 - Master [2025-10-03 171942].als` | 175 | 4 | 96 | 0 | 572 | 425 |
-| `Backup/Leo Erdman - Again V67 [2025-10-07 013823].als` | 199 | 7 | 100 | 0 | 571 | 469 |
-| `Backup/Leo Erdman - Again V68 [2025-10-07 023037].als` | 199 | 7 | 99 | 0 | 574 | 463 |
-| `Backup/Leo Erdman - Again V68 [2025-10-07 031021].als` | 203 | 7 | 98 | 0 | 573 | 460 |
-| `Backup/Leo Erdman - Again V71 [2025-10-07 035438].als` | 199 | 7 | 94 | 0 | 514 | 459 |
-| `Backup/Leo Erdman - Again V71 [2025-10-08 014049].als` | 199 | 7 | 94 | 0 | 514 | 459 |
-| `Backup/Leo Erdman - Again V72 [2025-10-08 015250].als` | 201 | 7 | 98 | 0 | 512 | 473 |
-| `Backup/Leo Erdman - Again V72 [2025-10-08 020822].als` | 204 | 7 | 99 | 0 | 517 | 473 |
-| `Backup/Leo Erdman - Again V72 [2025-10-08 021325].als` | 204 | 7 | 101 | 0 | 517 | 476 |
-| `Backup/Leo Erdman - Again V72 [2025-10-08 023918].als` | 204 | 7 | 101 | 0 | 519 | 480 |
-| `Backup/Leo Erdman - Again V78 [2025-10-10 195303].als` | 214 | 7 | 102 | 0 | 561 | 455 |
-| `Backup/Leo Erdman - Again V78 [2025-10-10 222426].als` | 214 | 7 | 102 | 0 | 561 | 455 |
-| `Backup/Leo Erdman - Again V78 [2025-10-11 154153].als` | 214 | 7 | 103 | 0 | 561 | 455 |
-| `Backup/Leo Erdman - Again V78 [2025-10-11 185117].als` | 214 | 7 | 103 | 0 | 560 | 455 |
-| `Backup/Leo Erdman - Again V78 [2025-10-11 185257].als` | 214 | 7 | 103 | 0 | 560 | 455 |
-| `Backup/Leo Erdman - Again V78 [2025-10-14 052140].als` | 214 | 7 | 103 | 0 | 560 | 455 |
-| `Backup/Leo Erdman - Again V78 [2025-10-14 055026].als` | 213 | 7 | 101 | 0 | 560 | 449 |
-| `Backup/Leo Erdman - Again V79 [2025-10-14 064216].als` | 213 | 7 | 101 | 0 | 560 | 448 |
-| `Backup/Leo Erdman - Again V80 [2025-10-14 072344].als` | 217 | 7 | 103 | 0 | 573 | 450 |
-| `Backup/Leo Erdman - Again V80 [2025-10-14 073145].als` | 217 | 7 | 103 | 0 | 583 | 461 |
-| `Backup/Leo Erdman - Again V80 [2025-10-14 074341].als` | 209 | 7 | 99 | 0 | 582 | 433 |
-| `Backup/Leo Erdman - Again V80 [2025-10-14 075448].als` | 210 | 7 | 100 | 0 | 580 | 417 |
-| `Backup/Leo Erdman - Again V81 [2025-10-14 082828].als` | 210 | 7 | 100 | 0 | 589 | 417 |
-| `Backup/Leo Erdman - Again V81 [2025-10-14 083335].als` | 211 | 7 | 100 | 0 | 589 | 417 |
-| `Backup/Leo Erdman - Again V83 [2025-10-14 110157].als` | 212 | 7 | 104 | 0 | 590 | 426 |
-| `Backup/Leo Erdman - Again V84 [2025-10-14 124213].als` | 226 | 7 | 112 | 0 | 594 | 513 |
-| `Backup/Leo Erdman - Again V84 [2025-10-19 195030].als` | 226 | 7 | 112 | 0 | 594 | 513 |
-| `Backup/Leo Erdman - Again V84 [2025-10-22 191924].als` | 226 | 7 | 112 | 0 | 594 | 513 |
-| `Backup/Leo Erdman - Again V85 + TD [2025-10-21 231006].als` | 227 | 7 | 112 | 0 | 594 | 513 |
-| `Backup/Leo Erdman - Again V85 + TD [2025-10-27 172952].als` | 228 | 7 | 112 | 0 | 594 | 513 |
-| `Backup/Leo Erdman - Again V87 [2025-12-11 221205].als` | 224 | 7 | 110 | 0 | 591 | 526 |
-| `Backup/Leo Erdman - Again V88 Sn [2025-12-11 221233].als` | 230 | 7 | 111 | 0 | 591 | 526 |
-| `Backup/Leo Erdman - Again V88 Sn [2025-12-11 221506].als` | 226 | 7 | 107 | 0 | 591 | 480 |
-| `Backup/Leo Erdman - Again V89 [2025-12-11 221918].als` | 226 | 7 | 107 | 0 | 591 | 480 |
-| `Backup/Leo Erdman - Again V90 [2025-12-11 224645].als` | 226 | 7 | 107 | 0 | 591 | 487 |
-| `Backup/Leo Erdman - Again V90 [2025-12-11 225206].als` | 229 | 7 | 107 | 0 | 591 | 501 |
-| `Backup/Leo Erdman - Again V90 [2025-12-11 225338].als` | 229 | 7 | 107 | 0 | 591 | 501 |
-| `Backup/Leo Erdman - Again V90 [2025-12-11 231040].als` | 229 | 7 | 107 | 0 | 591 | 501 |
-| `Backup/Leo Erdman - Again V91 [2025-12-11 232723].als` | 232 | 7 | 107 | 0 | 590 | 498 |
-| `Backup/Leo Erdman - Again V91 [2025-12-11 233208].als` | 230 | 7 | 104 | 0 | 590 | 485 |
-| `Backup/Leo Erdman - Again V91 [2025-12-11 233819].als` | 230 | 7 | 104 | 0 | 587 | 485 |
-| `Backup/Leo Erdman - Again V92 [2025-12-12 034113].als` | 230 | 7 | 104 | 0 | 588 | 486 |
-| `Backup/Leo Erdman - Again V92 [2025-12-12 035530].als` | 230 | 7 | 104 | 0 | 588 | 488 |
-| `Backup/Leo Erdman - Again V93 [2025-12-21 040955].als` | 230 | 7 | 102 | 0 | 588 | 467 |
-| `Backup/Leo Erdman - Again V93 [2025-12-21 041002].als` | 230 | 7 | 102 | 0 | 588 | 442 |
-| `Backup/Leo Erdman - Again V93 [2025-12-21 042855].als` | 228 | 7 | 101 | 0 | 588 | 405 |
-| `Backup/Leo Erdman - Again V94 [2025-12-21 043619].als` | 229 | 7 | 102 | 0 | 588 | 405 |
-| `Backup/Leo Erdman - Again V95 [2025-12-21 045221].als` | 227 | 7 | 102 | 0 | 588 | 356 |
-| `Backup/Leo Erdman - Again V95 [2025-12-21 051323].als` | 227 | 7 | 102 | 0 | 588 | 356 |
-| `Backup/Leo Erdman - Again V96 [2025-12-24 025840].als` | 227 | 7 | 102 | 0 | 588 | 356 |
-| `Backup/Leo Erdman - Again V97 [2025-12-25 091008].als` | 226 | 7 | 103 | 0 | 588 | 356 |
-| `Backup/Leo Erdman - Again V97 [2025-12-25 091312].als` | 226 | 7 | 103 | 0 | 588 | 356 |
-| `Backup/Leo Erdman - Again V97 [2025-12-25 091626].als` | 224 | 7 | 103 | 0 | 588 | 356 |
-| `Backup/Leo Erdman - Again V97 [2025-12-25 091733].als` | 223 | 7 | 100 | 0 | 588 | 356 |
-| `Backup/Leo Erdman - Again V98 [2025-12-25 095524].als` | 222 | 7 | 104 | 0 | 588 | 358 |
-| `Backup/Leo Erdman - Again V98 [2025-12-25 100052].als` | 222 | 7 | 104 | 0 | 588 | 358 |
-| `Backup/Leo Erdman - Again V98 [2025-12-25 101703].als` | 222 | 7 | 104 | 0 | 588 | 358 |
+| `Backup/Erdman - Again V21 [2025-07-17 192842].als` | 115 | 0 | 27 | 2 | 509 | 248 |
+| `Backup/Erdman - Again V23 [2025-08-02 182456].als` | 115 | 0 | 27 | 2 | 511 | 248 |
+| `Backup/Erdman - Again V23 [2025-08-03 202752].als` | 115 | 0 | 27 | 2 | 515 | 248 |
+| `Backup/Erdman - Again V24 [2025-08-03 234806].als` | 116 | 0 | 28 | 2 | 614 | 248 |
+| `Backup/Erdman - Again V25 [2025-08-04 001227].als` | 117 | 0 | 28 | 1 | 586 | 244 |
+| `Backup/Erdman - Again V25 [2025-08-04 002243].als` | 121 | 0 | 28 | 1 | 607 | 254 |
+| `Backup/Erdman - Again V26 [2025-08-04 003117].als` | 123 | 0 | 29 | 1 | 611 | 296 |
+| `Backup/Erdman - Again V26 [2025-08-04 004649].als` | 123 | 0 | 29 | 1 | 608 | 296 |
+| `Backup/Erdman - Again V30 [2025-08-30 105300].als` | 135 | 0 | 40 | 5 | 583 | 298 |
+| `Backup/Erdman - Again V30 [2025-08-30 111909].als` | 135 | 0 | 40 | 5 | 583 | 298 |
+| `Backup/Erdman - Again V31 [2025-08-30 122058].als` | 135 | 0 | 40 | 5 | 583 | 298 |
+| `Backup/Erdman - Again V32 [2025-08-30 123658].als` | 133 | 0 | 42 | 5 | 733 | 312 |
+| `Backup/Erdman - Again V34 [2025-08-30 222044].als` | 150 | 0 | 40 | 2 | 600 | 223 |
+| `Backup/Erdman - Again V36 [2025-08-31 054856].als` | 156 | 0 | 44 | 2 | 645 | 257 |
+| `Backup/Erdman - Again V37 [2025-08-31 093430].als` | 166 | 0 | 53 | 5 | 676 | 267 |
+| `Backup/Erdman - Again V38 [2025-08-31 103342].als` | 175 | 0 | 62 | 5 | 837 | 474 |
+| `Backup/Erdman - Again V38 [2025-09-01 053151].als` | 175 | 0 | 62 | 5 | 837 | 474 |
+| `Backup/Erdman - Again V40 [2025-09-01 054910].als` | 170 | 0 | 66 | 5 | 746 | 492 |
+| `Backup/Erdman - Again V43 [2025-09-01 111121].als` | 175 | 0 | 70 | 5 | 910 | 534 |
+| `Backup/Erdman - Again V43 [2025-09-01 111241].als` | 175 | 0 | 70 | 5 | 910 | 534 |
+| `Backup/Erdman - Again V45 [2025-09-01 220917].als` | 179 | 0 | 72 | 5 | 916 | 567 |
+| `Backup/Erdman - Again V46 [2025-09-01 224328].als` | 179 | 0 | 72 | 5 | 918 | 567 |
+| `Backup/Erdman - Again V46 [2025-09-02 112356].als` | 179 | 0 | 72 | 5 | 918 | 567 |
+| `Backup/Erdman - Again V46 [2025-09-02 112706].als` | 178 | 0 | 72 | 5 | 915 | 567 |
+| `Backup/Erdman - Again V47 [2025-09-02 124951].als` | 190 | 0 | 84 | 5 | 928 | 567 |
+| `Backup/Erdman - Again V50 [2025-09-03 053505].als` | 202 | 0 | 97 | 5 | 1007 | 594 |
+| `Backup/Erdman - Again V50 [2025-09-03 053643].als` | 202 | 0 | 97 | 5 | 1160 | 666 |
+| `Backup/Erdman - Again V51 [2025-09-03 130649].als` | 207 | 0 | 102 | 5 | 1182 | 679 |
+| `Backup/Erdman - Again V51 [2025-09-03 153523].als` | 207 | 0 | 102 | 5 | 1174 | 685 |
+| `Backup/Erdman - Again V52 [2025-09-03 171252].als` | 207 | 0 | 102 | 5 | 1174 | 685 |
+| `Backup/Erdman - Again V52 [2025-09-03 171415].als` | 207 | 0 | 103 | 5 | 1174 | 700 |
+| `Backup/Erdman - Again V52 [2025-09-03 172254].als` | 207 | 0 | 103 | 5 | 1175 | 700 |
+| `Backup/Erdman - Again V52 [2025-09-03 172300].als` | 209 | 0 | 104 | 5 | 1175 | 700 |
+| `Backup/Erdman - Again V52 [2025-09-06 114903].als` | 208 | 0 | 104 | 5 | 1175 | 700 |
+| `Backup/Erdman - Again V52 [2025-09-06 115118].als` | 208 | 0 | 104 | 5 | 1175 | 699 |
+| `Backup/Erdman - Again V52 [2025-09-06 120659].als` | 208 | 0 | 104 | 5 | 1175 | 699 |
+| `Backup/Erdman - Again V53 [2025-09-06 123906].als` | 211 | 0 | 104 | 5 | 1170 | 715 |
+| `Backup/Erdman - Again V54 [2025-09-08 012446].als` | 211 | 0 | 105 | 5 | 1152 | 709 |
+| `Backup/Leo Erdman - Again V100 [2025-12-25 121907].als` | 229 | 0 | 105 | 0 | 589 | 358 |
+| `Backup/Leo Erdman - Again V104 [2026-01-11 000641].als` | 233 | 0 | 112 | 0 | 601 | 353 |
+| `Backup/Leo Erdman - Again V104 [2026-01-11 001620].als` | 237 | 0 | 112 | 0 | 601 | 353 |
+| `Backup/Leo Erdman - Again V105 [2026-01-11 004836].als` | 235 | 0 | 119 | 0 | 623 | 350 |
+| `Backup/Leo Erdman - Again V106 [2026-01-11 030019].als` | 234 | 0 | 122 | 0 | 623 | 350 |
+| `Backup/Leo Erdman - Again V106 [2026-01-11 190510].als` | 234 | 0 | 122 | 0 | 623 | 350 |
+| `Backup/Leo Erdman - Again V106 [2026-01-12 041320].als` | 235 | 0 | 119 | 0 | 623 | 350 |
+| `Backup/Leo Erdman - Again V106 [2026-01-12 045235].als` | 235 | 0 | 120 | 0 | 623 | 350 |
+| `Backup/Leo Erdman - Again V107 [2026-01-14 000047].als` | 233 | 0 | 119 | 0 | 620 | 350 |
+| `Backup/Leo Erdman - Again V107 [2026-01-14 000445].als` | 233 | 0 | 119 | 0 | 620 | 350 |
+| `Backup/Leo Erdman - Again V108 [2026-01-14 001749].als` | 233 | 0 | 119 | 0 | 632 | 350 |
+| `Backup/Leo Erdman - Again V108 [2026-01-14 003629].als` | 233 | 0 | 120 | 0 | 632 | 350 |
+| `Backup/Leo Erdman - Again V108 [2026-01-14 004215].als` | 233 | 0 | 120 | 0 | 689 | 362 |
+| `Backup/Leo Erdman - Again V108 [2026-01-14 004540].als` | 233 | 0 | 122 | 0 | 668 | 362 |
+| `Backup/Leo Erdman - Again V108 [2026-01-14 004720].als` | 233 | 0 | 122 | 0 | 713 | 346 |
+| `Backup/Leo Erdman - Again V109 [2026-01-14 011106].als` | 233 | 0 | 122 | 0 | 713 | 346 |
+| `Backup/Leo Erdman - Again V109 [2026-01-14 011407].als` | 237 | 0 | 122 | 0 | 719 | 346 |
+| `Backup/Leo Erdman - Again V110 [2026-01-14 012249].als` | 237 | 0 | 122 | 0 | 723 | 346 |
+| `Backup/Leo Erdman - Again V110 [2026-01-14 012428].als` | 237 | 0 | 122 | 0 | 723 | 346 |
+| `Backup/Leo Erdman - Again V110 [2026-01-14 013837].als` | 236 | 0 | 122 | 0 | 723 | 346 |
+| `Backup/Leo Erdman - Again V111 [2026-01-14 015142].als` | 236 | 0 | 125 | 0 | 723 | 346 |
+| `Backup/Leo Erdman - Again V112 [2026-01-24 051612].als` | 236 | 0 | 125 | 0 | 723 | 346 |
+| `Backup/Leo Erdman - Again V113 [2026-01-24 060753].als` | 245 | 0 | 127 | 0 | 719 | 403 |
+| `Backup/Leo Erdman - Again V113 [2026-01-24 061706].als` | 248 | 0 | 127 | 0 | 680 | 409 |
+| `Backup/Leo Erdman - Again V114 [2026-01-24 080604].als` | 249 | 0 | 128 | 0 | 713 | 409 |
+| `Backup/Leo Erdman - Again V114 [2026-01-24 134254].als` | 249 | 0 | 128 | 0 | 713 | 417 |
+| `Backup/Leo Erdman - Again V114 [2026-01-28 145633].als` | 249 | 0 | 128 | 0 | 713 | 417 |
+| `Backup/Leo Erdman - Again V115 [2026-01-28 171327].als` | 249 | 0 | 127 | 0 | 710 | 417 |
+| `Backup/Leo Erdman - Again V115 [2026-01-28 181921].als` | 249 | 0 | 127 | 0 | 710 | 417 |
+| `Backup/Leo Erdman - Again V55 [2025-09-27 143600].als` | 211 | 0 | 102 | 0 | 1155 | 709 |
+| `Backup/Leo Erdman - Again V55 [2025-09-27 144617].als` | 192 | 0 | 84 | 0 | 799 | 497 |
+| `Backup/Leo Erdman - Again V55 [2025-09-27 145009].als` | 188 | 0 | 83 | 0 | 795 | 490 |
+| `Backup/Leo Erdman - Again V57 [2025-09-27 153642].als` | 182 | 0 | 84 | 0 | 758 | 400 |
+| `Backup/Leo Erdman - Again V6 - Stereo [2025-10-02 200628].als` | 173 | 0 | 83 | 0 | 576 | 406 |
+| `Backup/Leo Erdman - Again V6 - Stereo [2025-10-02 201322].als` | 173 | 0 | 95 | 0 | 576 | 425 |
+| `Backup/Leo Erdman - Again V60 [2025-09-27 174524].als` | 183 | 0 | 84 | 0 | 770 | 398 |
+| `Backup/Leo Erdman - Again V61 [2025-09-27 182448].als` | 182 | 0 | 88 | 0 | 780 | 402 |
+| `Backup/Leo Erdman - Again V63 [2025-10-01 155013].als` | 177 | 0 | 86 | 0 | 580 | 419 |
+| `Backup/Leo Erdman - Again V64 - Pro L [2025-10-02 135838].als` | 172 | 0 | 82 | 0 | 576 | 406 |
+| `Backup/Leo Erdman - Again V65 - Master [2025-10-02 234320].als` | 179 | 0 | 96 | 0 | 572 | 425 |
+| `Backup/Leo Erdman - Again V65 - Stereo [2025-10-02 201937].als` | 173 | 0 | 95 | 0 | 575 | 426 |
+| `Backup/Leo Erdman - Again V66 - Master [2025-10-03 171034].als` | 179 | 0 | 96 | 0 | 572 | 425 |
+| `Backup/Leo Erdman - Again V66 - Master [2025-10-03 171700].als` | 179 | 0 | 96 | 0 | 572 | 425 |
+| `Backup/Leo Erdman - Again V66 - Master [2025-10-03 171942].als` | 179 | 0 | 96 | 0 | 572 | 425 |
+| `Backup/Leo Erdman - Again V67 [2025-10-07 013823].als` | 206 | 0 | 100 | 0 | 571 | 469 |
+| `Backup/Leo Erdman - Again V68 [2025-10-07 023037].als` | 206 | 0 | 99 | 0 | 574 | 463 |
+| `Backup/Leo Erdman - Again V68 [2025-10-07 031021].als` | 210 | 0 | 98 | 0 | 573 | 460 |
+| `Backup/Leo Erdman - Again V71 [2025-10-07 035438].als` | 206 | 0 | 94 | 0 | 514 | 459 |
+| `Backup/Leo Erdman - Again V71 [2025-10-08 014049].als` | 206 | 0 | 94 | 0 | 514 | 459 |
+| `Backup/Leo Erdman - Again V72 [2025-10-08 015250].als` | 208 | 0 | 98 | 0 | 512 | 473 |
+| `Backup/Leo Erdman - Again V72 [2025-10-08 020822].als` | 211 | 0 | 99 | 0 | 517 | 473 |
+| `Backup/Leo Erdman - Again V72 [2025-10-08 021325].als` | 211 | 0 | 101 | 0 | 517 | 476 |
+| `Backup/Leo Erdman - Again V72 [2025-10-08 023918].als` | 211 | 0 | 101 | 0 | 519 | 480 |
+| `Backup/Leo Erdman - Again V78 [2025-10-10 195303].als` | 221 | 0 | 102 | 0 | 561 | 455 |
+| `Backup/Leo Erdman - Again V78 [2025-10-10 222426].als` | 221 | 0 | 102 | 0 | 561 | 455 |
+| `Backup/Leo Erdman - Again V78 [2025-10-11 154153].als` | 221 | 0 | 103 | 0 | 561 | 455 |
+| `Backup/Leo Erdman - Again V78 [2025-10-11 185117].als` | 221 | 0 | 103 | 0 | 560 | 455 |
+| `Backup/Leo Erdman - Again V78 [2025-10-11 185257].als` | 221 | 0 | 103 | 0 | 560 | 455 |
+| `Backup/Leo Erdman - Again V78 [2025-10-14 052140].als` | 221 | 0 | 103 | 0 | 560 | 455 |
+| `Backup/Leo Erdman - Again V78 [2025-10-14 055026].als` | 220 | 0 | 101 | 0 | 560 | 449 |
+| `Backup/Leo Erdman - Again V79 [2025-10-14 064216].als` | 220 | 0 | 101 | 0 | 560 | 448 |
+| `Backup/Leo Erdman - Again V80 [2025-10-14 072344].als` | 224 | 0 | 103 | 0 | 573 | 450 |
+| `Backup/Leo Erdman - Again V80 [2025-10-14 073145].als` | 224 | 0 | 103 | 0 | 583 | 461 |
+| `Backup/Leo Erdman - Again V80 [2025-10-14 074341].als` | 216 | 0 | 99 | 0 | 582 | 433 |
+| `Backup/Leo Erdman - Again V80 [2025-10-14 075448].als` | 217 | 0 | 100 | 0 | 580 | 417 |
+| `Backup/Leo Erdman - Again V81 [2025-10-14 082828].als` | 217 | 0 | 100 | 0 | 589 | 417 |
+| `Backup/Leo Erdman - Again V81 [2025-10-14 083335].als` | 218 | 0 | 100 | 0 | 589 | 417 |
+| `Backup/Leo Erdman - Again V83 [2025-10-14 110157].als` | 219 | 0 | 104 | 0 | 590 | 426 |
+| `Backup/Leo Erdman - Again V84 [2025-10-14 124213].als` | 233 | 0 | 112 | 0 | 594 | 513 |
+| `Backup/Leo Erdman - Again V84 [2025-10-19 195030].als` | 233 | 0 | 112 | 0 | 594 | 513 |
+| `Backup/Leo Erdman - Again V84 [2025-10-22 191924].als` | 233 | 0 | 112 | 0 | 594 | 513 |
+| `Backup/Leo Erdman - Again V85 + TD [2025-10-21 231006].als` | 234 | 0 | 112 | 0 | 594 | 513 |
+| `Backup/Leo Erdman - Again V85 + TD [2025-10-27 172952].als` | 235 | 0 | 112 | 0 | 594 | 513 |
+| `Backup/Leo Erdman - Again V87 [2025-12-11 221205].als` | 231 | 0 | 110 | 0 | 591 | 526 |
+| `Backup/Leo Erdman - Again V88 Sn [2025-12-11 221233].als` | 237 | 0 | 111 | 0 | 591 | 526 |
+| `Backup/Leo Erdman - Again V88 Sn [2025-12-11 221506].als` | 233 | 0 | 107 | 0 | 591 | 480 |
+| `Backup/Leo Erdman - Again V89 [2025-12-11 221918].als` | 233 | 0 | 107 | 0 | 591 | 480 |
+| `Backup/Leo Erdman - Again V90 [2025-12-11 224645].als` | 233 | 0 | 107 | 0 | 591 | 487 |
+| `Backup/Leo Erdman - Again V90 [2025-12-11 225206].als` | 236 | 0 | 107 | 0 | 591 | 501 |
+| `Backup/Leo Erdman - Again V90 [2025-12-11 225338].als` | 236 | 0 | 107 | 0 | 591 | 501 |
+| `Backup/Leo Erdman - Again V90 [2025-12-11 231040].als` | 236 | 0 | 107 | 0 | 591 | 501 |
+| `Backup/Leo Erdman - Again V91 [2025-12-11 232723].als` | 239 | 0 | 107 | 0 | 590 | 498 |
+| `Backup/Leo Erdman - Again V91 [2025-12-11 233208].als` | 237 | 0 | 104 | 0 | 590 | 485 |
+| `Backup/Leo Erdman - Again V91 [2025-12-11 233819].als` | 237 | 0 | 104 | 0 | 587 | 485 |
+| `Backup/Leo Erdman - Again V92 [2025-12-12 034113].als` | 237 | 0 | 104 | 0 | 588 | 486 |
+| `Backup/Leo Erdman - Again V92 [2025-12-12 035530].als` | 237 | 0 | 104 | 0 | 588 | 488 |
+| `Backup/Leo Erdman - Again V93 [2025-12-21 040955].als` | 237 | 0 | 102 | 0 | 588 | 467 |
+| `Backup/Leo Erdman - Again V93 [2025-12-21 041002].als` | 237 | 0 | 102 | 0 | 588 | 442 |
+| `Backup/Leo Erdman - Again V93 [2025-12-21 042855].als` | 235 | 0 | 101 | 0 | 588 | 405 |
+| `Backup/Leo Erdman - Again V94 [2025-12-21 043619].als` | 236 | 0 | 102 | 0 | 588 | 405 |
+| `Backup/Leo Erdman - Again V95 [2025-12-21 045221].als` | 234 | 0 | 102 | 0 | 588 | 356 |
+| `Backup/Leo Erdman - Again V95 [2025-12-21 051323].als` | 234 | 0 | 102 | 0 | 588 | 356 |
+| `Backup/Leo Erdman - Again V96 [2025-12-24 025840].als` | 234 | 0 | 102 | 0 | 588 | 356 |
+| `Backup/Leo Erdman - Again V97 [2025-12-25 091008].als` | 233 | 0 | 103 | 0 | 588 | 356 |
+| `Backup/Leo Erdman - Again V97 [2025-12-25 091312].als` | 233 | 0 | 103 | 0 | 588 | 356 |
+| `Backup/Leo Erdman - Again V97 [2025-12-25 091626].als` | 231 | 0 | 103 | 0 | 588 | 356 |
+| `Backup/Leo Erdman - Again V97 [2025-12-25 091733].als` | 230 | 0 | 100 | 0 | 588 | 356 |
+| `Backup/Leo Erdman - Again V98 [2025-12-25 095524].als` | 229 | 0 | 104 | 0 | 588 | 358 |
+| `Backup/Leo Erdman - Again V98 [2025-12-25 100052].als` | 229 | 0 | 104 | 0 | 588 | 358 |
+| `Backup/Leo Erdman - Again V98 [2025-12-25 101703].als` | 229 | 0 | 104 | 0 | 588 | 358 |
 | `Erdman - Again 1.10.als` | 92 | 0 | 8 | 1 | 503 | 211 |
 | `Erdman - Again 1.11.als` | 89 | 0 | 9 | 1 | 503 | 211 |
 | `Erdman - Again 1.12.als` | 95 | 0 | 9 | 1 | 481 | 214 |
@@ -278,99 +275,99 @@
 | `Erdman - Again V18.als` | 109 | 0 | 24 | 1 | 383 | 252 |
 | `Erdman - Again V19.als` | 109 | 0 | 24 | 1 | 383 | 252 |
 | `Erdman - Again V20.als` | 111 | 0 | 25 | 1 | 383 | 246 |
-| `Erdman - Again V21.als` | 114 | 1 | 27 | 2 | 509 | 248 |
-| `Erdman - Again V22.als` | 114 | 1 | 27 | 2 | 509 | 248 |
-| `Erdman - Again V23.als` | 114 | 1 | 27 | 2 | 515 | 248 |
-| `Erdman - Again V24.als` | 116 | 1 | 28 | 1 | 586 | 244 |
-| `Erdman - Again V25.als` | 120 | 2 | 29 | 1 | 607 | 270 |
-| `Erdman - Again V26.als` | 121 | 2 | 28 | 2 | 610 | 296 |
-| `Erdman - Again V27.als` | 121 | 2 | 27 | 2 | 588 | 296 |
-| `Erdman - Again V28 COMBINE LINE + VOICE NEED AI.als` | 134 | 3 | 34 | 4 | 575 | 296 |
-| `Erdman - Again V28.als` | 130 | 3 | 31 | 3 | 656 | 296 |
-| `Erdman - Again V29.als` | 134 | 3 | 34 | 4 | 575 | 296 |
-| `Erdman - Again V30.als` | 132 | 3 | 40 | 5 | 583 | 298 |
-| `Erdman - Again V31.als` | 130 | 3 | 42 | 5 | 732 | 312 |
-| `Erdman - Again V32.als` | 130 | 3 | 42 | 5 | 733 | 312 |
-| `Erdman - Again V33.als` | 141 | 5 | 39 | 3 | 520 | 226 |
-| `Erdman - Again V34.als` | 145 | 5 | 40 | 2 | 600 | 223 |
-| `Erdman - Again V35.als` | 146 | 5 | 41 | 2 | 611 | 256 |
-| `Erdman - Again V36.als` | 155 | 5 | 47 | 3 | 664 | 257 |
-| `Erdman - Again V37.als` | 161 | 5 | 53 | 5 | 531 | 251 |
-| `Erdman - Again V38.als` | 160 | 4 | 64 | 5 | 750 | 480 |
-| `Erdman - Again V39.als` | 160 | 4 | 64 | 5 | 750 | 480 |
-| `Erdman - Again V40.als` | 166 | 4 | 66 | 5 | 746 | 492 |
-| `Erdman - Again V41.als` | 161 | 4 | 67 | 5 | 747 | 458 |
-| `Erdman - Again V42.als` | 167 | 4 | 69 | 5 | 751 | 458 |
-| `Erdman - Again V43.als` | 171 | 4 | 70 | 5 | 913 | 534 |
-| `Erdman - Again V44.als` | 171 | 4 | 70 | 5 | 913 | 534 |
-| `Erdman - Again V45.als` | 175 | 4 | 72 | 5 | 916 | 567 |
-| `Erdman - Again V46.als` | 186 | 4 | 84 | 5 | 928 | 567 |
-| `Erdman - Again V47.als` | 190 | 4 | 89 | 5 | 942 | 576 |
-| `Erdman - Again V48.als` | 192 | 4 | 92 | 5 | 965 | 576 |
-| `Erdman - Again V49.als` | 198 | 4 | 97 | 5 | 1007 | 594 |
-| `Erdman - Again V50.als` | 198 | 4 | 97 | 5 | 1160 | 677 |
-| `Erdman - Again V51.als` | 203 | 4 | 102 | 5 | 1174 | 685 |
-| `Erdman - Again V52.als` | 205 | 4 | 104 | 5 | 1170 | 717 |
-| `Erdman - Again V53.als` | 207 | 4 | 104 | 5 | 1170 | 715 |
-| `Erdman - Again V54.als` | 207 | 4 | 105 | 5 | 1155 | 709 |
-| `Leo Erdman - Again V100.als` | 222 | 7 | 105 | 0 | 589 | 358 |
-| `Leo Erdman - Again V101.als` | 227 | 7 | 102 | 0 | 588 | 356 |
-| `Leo Erdman - Again V102.als` | 229 | 7 | 104 | 0 | 588 | 356 |
-| `Leo Erdman - Again V103.als` | 229 | 7 | 104 | 0 | 588 | 356 |
-| `Leo Erdman - Again V104.als` | 230 | 7 | 115 | 0 | 601 | 353 |
-| `Leo Erdman - Again V105.als` | 228 | 7 | 119 | 0 | 623 | 350 |
-| `Leo Erdman - Again V106.als` | 228 | 7 | 120 | 0 | 623 | 350 |
-| `Leo Erdman - Again V107.als` | 226 | 7 | 119 | 0 | 627 | 350 |
-| `Leo Erdman - Again V108.als` | 226 | 7 | 122 | 0 | 713 | 346 |
-| `Leo Erdman - Again V109.als` | 230 | 7 | 122 | 0 | 723 | 346 |
-| `Leo Erdman - Again V110.als` | 229 | 7 | 124 | 0 | 723 | 346 |
-| `Leo Erdman - Again V111.als` | 229 | 7 | 125 | 0 | 723 | 346 |
-| `Leo Erdman - Again V112.als` | 229 | 7 | 125 | 0 | 727 | 347 |
-| `Leo Erdman - Again V113.als` | 242 | 7 | 127 | 0 | 713 | 409 |
-| `Leo Erdman - Again V114.als` | 240 | 7 | 127 | 0 | 710 | 417 |
-| `Leo Erdman - Again V115.als` | 242 | 7 | 127 | 0 | 710 | 417 |
-| `Leo Erdman - Again V55.als` | 184 | 4 | 83 | 0 | 795 | 402 |
-| `Leo Erdman - Again V56.als` | 178 | 4 | 84 | 0 | 758 | 400 |
-| `Leo Erdman - Again V57.als` | 178 | 4 | 84 | 0 | 758 | 400 |
-| `Leo Erdman - Again V58.als` | 178 | 4 | 83 | 0 | 758 | 398 |
-| `Leo Erdman - Again V6 - Stereo.als` | 169 | 4 | 95 | 0 | 575 | 426 |
-| `Leo Erdman - Again V60.als` | 181 | 4 | 87 | 0 | 775 | 401 |
-| `Leo Erdman - Again V61.als` | 178 | 4 | 88 | 0 | 780 | 402 |
-| `Leo Erdman - Again V62.als` | 174 | 4 | 86 | 0 | 577 | 409 |
-| `Leo Erdman - Again V63.als` | 173 | 4 | 86 | 0 | 580 | 419 |
-| `Leo Erdman - Again V64 - Pro L.als` | 168 | 4 | 82 | 0 | 576 | 406 |
-| `Leo Erdman - Again V65 - Master.als` | 175 | 4 | 96 | 0 | 572 | 425 |
-| `Leo Erdman - Again V65 - Stereo.als` | 169 | 4 | 95 | 0 | 575 | 425 |
-| `Leo Erdman - Again V66 - Master.als` | 175 | 4 | 96 | 0 | 571 | 425 |
-| `Leo Erdman - Again V67.als` | 200 | 7 | 100 | 0 | 572 | 476 |
-| `Leo Erdman - Again V68.als` | 203 | 7 | 98 | 0 | 591 | 462 |
-| `Leo Erdman - Again V69.als` | 202 | 7 | 97 | 0 | 515 | 459 |
-| `Leo Erdman - Again V70.als` | 199 | 7 | 94 | 0 | 514 | 459 |
-| `Leo Erdman - Again V71.als` | 201 | 7 | 98 | 0 | 514 | 473 |
-| `Leo Erdman - Again V72.als` | 209 | 7 | 102 | 0 | 558 | 498 |
-| `Leo Erdman - Again V73.als` | 211 | 7 | 102 | 0 | 558 | 498 |
-| `Leo Erdman - Again V74.als` | 216 | 7 | 106 | 0 | 559 | 505 |
-| `Leo Erdman - Again V75.als` | 217 | 7 | 106 | 0 | 560 | 493 |
-| `Leo Erdman - Again V78.als` | 213 | 7 | 101 | 0 | 560 | 448 |
-| `Leo Erdman - Again V79.als` | 218 | 7 | 104 | 0 | 566 | 450 |
-| `Leo Erdman - Again V80.als` | 210 | 7 | 100 | 0 | 586 | 417 |
-| `Leo Erdman - Again V81.als` | 211 | 7 | 100 | 0 | 587 | 416 |
-| `Leo Erdman - Again V82.als` | 211 | 7 | 102 | 0 | 587 | 426 |
-| `Leo Erdman - Again V83.als` | 212 | 7 | 104 | 0 | 590 | 426 |
-| `Leo Erdman - Again V84.als` | 227 | 7 | 112 | 0 | 594 | 513 |
-| `Leo Erdman - Again V85 + TD.als` | 228 | 7 | 112 | 0 | 594 | 513 |
-| `Leo Erdman - Again V85.als` | 227 | 7 | 112 | 0 | 594 | 513 |
-| `Leo Erdman - Again V86.als` | 227 | 7 | 112 | 0 | 594 | 513 |
-| `Leo Erdman - Again V87.als` | 230 | 7 | 111 | 0 | 591 | 526 |
-| `Leo Erdman - Again V88 Sn.als` | 226 | 7 | 107 | 0 | 591 | 480 |
-| `Leo Erdman - Again V89.als` | 226 | 7 | 108 | 0 | 591 | 487 |
-| `Leo Erdman - Again V90.als` | 230 | 7 | 107 | 0 | 591 | 498 |
-| `Leo Erdman - Again V91.als` | 230 | 7 | 104 | 0 | 587 | 485 |
-| `Leo Erdman - Again V92.als` | 230 | 7 | 104 | 0 | 588 | 488 |
-| `Leo Erdman - Again V93.als` | 229 | 7 | 103 | 0 | 588 | 405 |
-| `Leo Erdman - Again V94.als` | 229 | 7 | 103 | 0 | 588 | 405 |
-| `Leo Erdman - Again V95.als` | 227 | 7 | 102 | 0 | 588 | 356 |
-| `Leo Erdman - Again V96.als` | 227 | 7 | 102 | 0 | 588 | 356 |
-| `Leo Erdman - Again V97.als` | 223 | 7 | 100 | 0 | 588 | 358 |
-| `Leo Erdman - Again V98.als` | 222 | 7 | 105 | 0 | 589 | 358 |
-| `Leo Erdman - Again V99.als` | 222 | 7 | 105 | 0 | 589 | 358 |
+| `Erdman - Again V21.als` | 115 | 0 | 27 | 2 | 509 | 248 |
+| `Erdman - Again V22.als` | 115 | 0 | 27 | 2 | 509 | 248 |
+| `Erdman - Again V23.als` | 115 | 0 | 27 | 2 | 515 | 248 |
+| `Erdman - Again V24.als` | 117 | 0 | 28 | 1 | 586 | 244 |
+| `Erdman - Again V25.als` | 122 | 0 | 29 | 1 | 607 | 270 |
+| `Erdman - Again V26.als` | 123 | 0 | 28 | 2 | 610 | 296 |
+| `Erdman - Again V27.als` | 123 | 0 | 27 | 2 | 588 | 296 |
+| `Erdman - Again V28 COMBINE LINE + VOICE NEED AI.als` | 137 | 0 | 34 | 4 | 575 | 296 |
+| `Erdman - Again V28.als` | 133 | 0 | 31 | 3 | 656 | 296 |
+| `Erdman - Again V29.als` | 137 | 0 | 34 | 4 | 575 | 296 |
+| `Erdman - Again V30.als` | 135 | 0 | 40 | 5 | 583 | 298 |
+| `Erdman - Again V31.als` | 133 | 0 | 42 | 5 | 732 | 312 |
+| `Erdman - Again V32.als` | 133 | 0 | 42 | 5 | 733 | 312 |
+| `Erdman - Again V33.als` | 146 | 0 | 39 | 3 | 520 | 226 |
+| `Erdman - Again V34.als` | 150 | 0 | 40 | 2 | 600 | 223 |
+| `Erdman - Again V35.als` | 151 | 0 | 41 | 2 | 611 | 256 |
+| `Erdman - Again V36.als` | 160 | 0 | 47 | 3 | 664 | 257 |
+| `Erdman - Again V37.als` | 166 | 0 | 53 | 5 | 531 | 251 |
+| `Erdman - Again V38.als` | 164 | 0 | 64 | 5 | 750 | 480 |
+| `Erdman - Again V39.als` | 164 | 0 | 64 | 5 | 750 | 480 |
+| `Erdman - Again V40.als` | 170 | 0 | 66 | 5 | 746 | 492 |
+| `Erdman - Again V41.als` | 165 | 0 | 67 | 5 | 747 | 458 |
+| `Erdman - Again V42.als` | 171 | 0 | 69 | 5 | 751 | 458 |
+| `Erdman - Again V43.als` | 175 | 0 | 70 | 5 | 913 | 534 |
+| `Erdman - Again V44.als` | 175 | 0 | 70 | 5 | 913 | 534 |
+| `Erdman - Again V45.als` | 179 | 0 | 72 | 5 | 916 | 567 |
+| `Erdman - Again V46.als` | 190 | 0 | 84 | 5 | 928 | 567 |
+| `Erdman - Again V47.als` | 194 | 0 | 89 | 5 | 942 | 576 |
+| `Erdman - Again V48.als` | 196 | 0 | 92 | 5 | 965 | 576 |
+| `Erdman - Again V49.als` | 202 | 0 | 97 | 5 | 1007 | 594 |
+| `Erdman - Again V50.als` | 202 | 0 | 97 | 5 | 1160 | 677 |
+| `Erdman - Again V51.als` | 207 | 0 | 102 | 5 | 1174 | 685 |
+| `Erdman - Again V52.als` | 209 | 0 | 104 | 5 | 1170 | 717 |
+| `Erdman - Again V53.als` | 211 | 0 | 104 | 5 | 1170 | 715 |
+| `Erdman - Again V54.als` | 211 | 0 | 105 | 5 | 1155 | 709 |
+| `Leo Erdman - Again V100.als` | 229 | 0 | 105 | 0 | 589 | 358 |
+| `Leo Erdman - Again V101.als` | 234 | 0 | 102 | 0 | 588 | 356 |
+| `Leo Erdman - Again V102.als` | 236 | 0 | 104 | 0 | 588 | 356 |
+| `Leo Erdman - Again V103.als` | 236 | 0 | 104 | 0 | 588 | 356 |
+| `Leo Erdman - Again V104.als` | 237 | 0 | 115 | 0 | 601 | 353 |
+| `Leo Erdman - Again V105.als` | 235 | 0 | 119 | 0 | 623 | 350 |
+| `Leo Erdman - Again V106.als` | 235 | 0 | 120 | 0 | 623 | 350 |
+| `Leo Erdman - Again V107.als` | 233 | 0 | 119 | 0 | 627 | 350 |
+| `Leo Erdman - Again V108.als` | 233 | 0 | 122 | 0 | 713 | 346 |
+| `Leo Erdman - Again V109.als` | 237 | 0 | 122 | 0 | 723 | 346 |
+| `Leo Erdman - Again V110.als` | 236 | 0 | 124 | 0 | 723 | 346 |
+| `Leo Erdman - Again V111.als` | 236 | 0 | 125 | 0 | 723 | 346 |
+| `Leo Erdman - Again V112.als` | 236 | 0 | 125 | 0 | 727 | 347 |
+| `Leo Erdman - Again V113.als` | 249 | 0 | 127 | 0 | 713 | 409 |
+| `Leo Erdman - Again V114.als` | 247 | 0 | 127 | 0 | 710 | 417 |
+| `Leo Erdman - Again V115.als` | 249 | 0 | 127 | 0 | 710 | 417 |
+| `Leo Erdman - Again V55.als` | 188 | 0 | 83 | 0 | 795 | 402 |
+| `Leo Erdman - Again V56.als` | 182 | 0 | 84 | 0 | 758 | 400 |
+| `Leo Erdman - Again V57.als` | 182 | 0 | 84 | 0 | 758 | 400 |
+| `Leo Erdman - Again V58.als` | 182 | 0 | 83 | 0 | 758 | 398 |
+| `Leo Erdman - Again V6 - Stereo.als` | 173 | 0 | 95 | 0 | 575 | 426 |
+| `Leo Erdman - Again V60.als` | 185 | 0 | 87 | 0 | 775 | 401 |
+| `Leo Erdman - Again V61.als` | 182 | 0 | 88 | 0 | 780 | 402 |
+| `Leo Erdman - Again V62.als` | 178 | 0 | 86 | 0 | 577 | 409 |
+| `Leo Erdman - Again V63.als` | 177 | 0 | 86 | 0 | 580 | 419 |
+| `Leo Erdman - Again V64 - Pro L.als` | 172 | 0 | 82 | 0 | 576 | 406 |
+| `Leo Erdman - Again V65 - Master.als` | 179 | 0 | 96 | 0 | 572 | 425 |
+| `Leo Erdman - Again V65 - Stereo.als` | 173 | 0 | 95 | 0 | 575 | 425 |
+| `Leo Erdman - Again V66 - Master.als` | 179 | 0 | 96 | 0 | 571 | 425 |
+| `Leo Erdman - Again V67.als` | 207 | 0 | 100 | 0 | 572 | 476 |
+| `Leo Erdman - Again V68.als` | 210 | 0 | 98 | 0 | 591 | 462 |
+| `Leo Erdman - Again V69.als` | 209 | 0 | 97 | 0 | 515 | 459 |
+| `Leo Erdman - Again V70.als` | 206 | 0 | 94 | 0 | 514 | 459 |
+| `Leo Erdman - Again V71.als` | 208 | 0 | 98 | 0 | 514 | 473 |
+| `Leo Erdman - Again V72.als` | 216 | 0 | 102 | 0 | 558 | 498 |
+| `Leo Erdman - Again V73.als` | 218 | 0 | 102 | 0 | 558 | 498 |
+| `Leo Erdman - Again V74.als` | 223 | 0 | 106 | 0 | 559 | 505 |
+| `Leo Erdman - Again V75.als` | 224 | 0 | 106 | 0 | 560 | 493 |
+| `Leo Erdman - Again V78.als` | 220 | 0 | 101 | 0 | 560 | 448 |
+| `Leo Erdman - Again V79.als` | 225 | 0 | 104 | 0 | 566 | 450 |
+| `Leo Erdman - Again V80.als` | 217 | 0 | 100 | 0 | 586 | 417 |
+| `Leo Erdman - Again V81.als` | 218 | 0 | 100 | 0 | 587 | 416 |
+| `Leo Erdman - Again V82.als` | 218 | 0 | 102 | 0 | 587 | 426 |
+| `Leo Erdman - Again V83.als` | 219 | 0 | 104 | 0 | 590 | 426 |
+| `Leo Erdman - Again V84.als` | 234 | 0 | 112 | 0 | 594 | 513 |
+| `Leo Erdman - Again V85 + TD.als` | 235 | 0 | 112 | 0 | 594 | 513 |
+| `Leo Erdman - Again V85.als` | 234 | 0 | 112 | 0 | 594 | 513 |
+| `Leo Erdman - Again V86.als` | 234 | 0 | 112 | 0 | 594 | 513 |
+| `Leo Erdman - Again V87.als` | 237 | 0 | 111 | 0 | 591 | 526 |
+| `Leo Erdman - Again V88 Sn.als` | 233 | 0 | 107 | 0 | 591 | 480 |
+| `Leo Erdman - Again V89.als` | 233 | 0 | 108 | 0 | 591 | 487 |
+| `Leo Erdman - Again V90.als` | 237 | 0 | 107 | 0 | 591 | 498 |
+| `Leo Erdman - Again V91.als` | 237 | 0 | 104 | 0 | 587 | 485 |
+| `Leo Erdman - Again V92.als` | 237 | 0 | 104 | 0 | 588 | 488 |
+| `Leo Erdman - Again V93.als` | 236 | 0 | 103 | 0 | 588 | 405 |
+| `Leo Erdman - Again V94.als` | 236 | 0 | 103 | 0 | 588 | 405 |
+| `Leo Erdman - Again V95.als` | 234 | 0 | 102 | 0 | 588 | 356 |
+| `Leo Erdman - Again V96.als` | 234 | 0 | 102 | 0 | 588 | 356 |
+| `Leo Erdman - Again V97.als` | 230 | 0 | 100 | 0 | 588 | 358 |
+| `Leo Erdman - Again V98.als` | 229 | 0 | 105 | 0 | 589 | 358 |
+| `Leo Erdman - Again V99.als` | 229 | 0 | 105 | 0 | 589 | 358 |

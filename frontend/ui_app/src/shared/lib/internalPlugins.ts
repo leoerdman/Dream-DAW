@@ -75,6 +75,55 @@ export const INTERNAL_EFFECT_PLUGINS: InternalPluginDefinition[] = [
         slotHint: 'effect',
         tags: ['internal', 'effect', 'utility'],
     },
+    {
+        id: 'internal://effect/limiter',
+        name: 'Limiter',
+        kind: 'effect',
+        slotHint: 'effect',
+        tags: ['internal', 'effect', 'dynamics', 'mastering'],
+    },
+    {
+        id: 'internal://effect/gate',
+        name: 'Gate',
+        kind: 'effect',
+        slotHint: 'effect',
+        tags: ['internal', 'effect', 'dynamics'],
+    },
+    {
+        id: 'internal://effect/auto-filter',
+        name: 'Auto Filter',
+        kind: 'effect',
+        slotHint: 'effect',
+        tags: ['internal', 'effect', 'filter', 'modulation'],
+    },
+    {
+        id: 'internal://effect/phaser',
+        name: 'Phaser',
+        kind: 'effect',
+        slotHint: 'effect',
+        tags: ['internal', 'effect', 'modulation'],
+    },
+    {
+        id: 'internal://effect/flanger',
+        name: 'Flanger',
+        kind: 'effect',
+        slotHint: 'effect',
+        tags: ['internal', 'effect', 'modulation'],
+    },
+    {
+        id: 'internal://effect/distortion',
+        name: 'Distortion',
+        kind: 'effect',
+        slotHint: 'effect',
+        tags: ['internal', 'effect', 'drive'],
+    },
+    {
+        id: 'internal://effect/bitcrusher',
+        name: 'Bitcrusher',
+        kind: 'effect',
+        slotHint: 'effect',
+        tags: ['internal', 'effect', 'lofi'],
+    },
 ];
 
 export const INTERNAL_PLUGIN_ALIASES: Record<string, string> = {

@@ -374,6 +374,7 @@ async fn merge_clips_cmd(
             fade_out_frames: 0,
             is_offline: first.is_offline,
             is_selected: false,
+            is_muted: false,
             color_override: first.color_override,
         };
         let insert_at = track
@@ -488,6 +489,56 @@ async fn set_clip_fades_cmd(
         fade_in_frames.max(0),
         fade_out_frames.max(0)
     );
+    Ok(())
+}
+
+/// Toggle mute state on a clip (audio or MIDI).
+///
+/// Muted clips remain on the timeline but are skipped during playback.
+/// The visual renderer draws them with a dark overlay.
+#[tauri::command]
+async fn set_clip_muted_cmd(
+    clip_id: String,
+    muted: bool,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
+    push_undo(&project_state)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut updated = false;
+
+    // Try audio clips first
+    for track in &mut project.tracks {
+        if let Some(clip) = track.clips.iter_mut().find(|c| c.id == uuid) {
+            clip.is_muted = muted;
+            updated = true;
+            break;
+        }
+    }
+
+    // If not found in audio clips, try MIDI clips
+    if !updated {
+        for track in &mut project.tracks {
+            if let Some(clip) = track.midi_clips.iter_mut().find(|c| c.id == uuid) {
+                clip.is_muted = muted;
+                updated = true;
+                break;
+            }
+        }
+    }
+
+    if !updated {
+        return Err(format!("Clip not found: {clip_id}"));
+    }
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
+
+    log::info!("[IPC] set_clip_muted_cmd clip={} muted={}", clip_id, muted);
     Ok(())
 }
 

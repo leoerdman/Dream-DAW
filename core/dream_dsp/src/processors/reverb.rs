@@ -1,15 +1,27 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — Reverb Processor (Freeverb Algorithm)
+// Dream DAW — Reverb Processor (Enterprise)
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// Schroeder/Moorer reverb with:
-//   - 8 parallel comb filters → 4 series allpass filters
-//   - Fully pre-allocated, zero-alloc during processing
+// Freeverb-based algorithmic reverb with enterprise extensions:
+//   - Pre-delay (0–200ms)
+//   - Damping with LP/HP filtering (low & high damp)
+//   - Internal modulation for lush tails
+//   - Stereo width control
+//   - Freeze mode (infinite sustain)
+//   - 8 parallel comb + 4 serial allpass (Schroeder topology)
 //
 // Parameters:
-//   0: Decay   (0 to 100 %, default 50)
-//   1: Tone    (0 to 100 %, default 50)  — lowpass damping
-//   2: Dry/Wet (0 to 100 %, default 20)
+//   0: Size       (0–100%, default 50%) — room size / decay
+//   1: Damping    (0–100%, default 40%) — HF damping in feedback
+//   2: Mix        (0–100%, default 30%)
+//   3: Pre-delay  (0–200ms, default 10ms)
+//   4: Width      (0–100%, default 100%) — stereo width
+//   5: Low Damp   (0–100%, default 20%) — LF damping
+//   6: Mod Rate   (0–3 Hz, default 0.3) — internal modulation
+//   7: Mod Depth  (0–100%, default 15%)
+//   8: Freeze     (0 or 1, default 0) — infinite sustain
+//
+// Real-Time Safety: Pre-allocated. O(N) per buffer.
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -19,22 +31,24 @@ use crate::dsp_processor::DspProcessor;
 
 struct CombFilter {
     buffer: Vec<f32>,
+    buf_size: usize,
     index: usize,
+    filter_store: f32,
     feedback: f32,
     damp1: f32,
     damp2: f32,
-    filter_store: f32,
 }
 
 impl CombFilter {
     fn new(size: usize) -> Self {
         Self {
             buffer: vec![0.0; size],
+            buf_size: size,
             index: 0,
-            feedback: 0.5,
-            damp1: 0.5,
-            damp2: 0.5,
             filter_store: 0.0,
+            feedback: 0.5,
+            damp1: 0.4,
+            damp2: 0.6,
         }
     }
 
@@ -43,7 +57,7 @@ impl CombFilter {
         let output = self.buffer[self.index];
         self.filter_store = output * self.damp2 + self.filter_store * self.damp1;
         self.buffer[self.index] = input + self.filter_store * self.feedback;
-        self.index = (self.index + 1) % self.buffer.len();
+        self.index = (self.index + 1) % self.buf_size;
         output
     }
 
@@ -59,7 +73,6 @@ impl CombFilter {
     fn reset(&mut self) {
         self.buffer.iter_mut().for_each(|s| *s = 0.0);
         self.filter_store = 0.0;
-        self.index = 0;
     }
 }
 
@@ -67,6 +80,7 @@ impl CombFilter {
 
 struct AllpassFilter {
     buffer: Vec<f32>,
+    buf_size: usize,
     index: usize,
 }
 
@@ -74,123 +88,157 @@ impl AllpassFilter {
     fn new(size: usize) -> Self {
         Self {
             buffer: vec![0.0; size],
+            buf_size: size,
             index: 0,
         }
     }
 
     #[inline]
     fn process(&mut self, input: f32) -> f32 {
-        let buffered = self.buffer[self.index];
-        let output = -input + buffered;
-        self.buffer[self.index] = input + buffered * 0.5;
-        self.index = (self.index + 1) % self.buffer.len();
+        let buf_out = self.buffer[self.index];
+        let output = -input + buf_out;
+        self.buffer[self.index] = input + buf_out * 0.5;
+        self.index = (self.index + 1) % self.buf_size;
         output
     }
 
     fn reset(&mut self) {
         self.buffer.iter_mut().for_each(|s| *s = 0.0);
-        self.index = 0;
     }
 }
 
-// ── Freeverb Tuning Constants ───────────────────────────────────────────
+// ── Freeverb Tuning ─────────────────────────────────────────────────────
 
-/// Comb filter delay line sizes (Freeverb standard tuning).
-/// Scaled to sample rate at construction time.
-const COMB_TUNING: [usize; 8] = [
-    1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617,
-];
-
-/// Allpass filter delay line sizes (Freeverb standard tuning).
-const ALLPASS_TUNING: [usize; 4] = [556, 441, 341, 225];
-
-/// Stereo spread in samples.
-const STEREO_SPREAD: usize = 23;
-
-/// Reference sample rate for the tuning constants.
+const COMB_SIZES_L: [usize; 8] = [1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617];
+const COMB_SPREAD: usize = 23;
+const AP_SIZES: [usize; 4] = [556, 441, 341, 225];
 const REF_SAMPLE_RATE: f32 = 44100.0;
 
-// ── Reverb Processor ────────────────────────────────────────────────────
+// ── Pre-delay buffer ────────────────────────────────────────────────────
+const MAX_PREDELAY_SAMPLES: usize = 9600; // ~200ms @ 48kHz
 
 pub struct ReverbProcessor {
-    // Left channel: 8 combs + 4 allpasses
-    combs_l: [CombFilter; 8],
-    allpasses_l: [AllpassFilter; 4],
-    // Right channel: 8 combs + 4 allpasses (spread)
-    combs_r: [CombFilter; 8],
-    allpasses_r: [AllpassFilter; 4],
+    combs_l: Vec<CombFilter>,
+    combs_r: Vec<CombFilter>,
+    allpasses_l: Vec<AllpassFilter>,
+    allpasses_r: Vec<AllpassFilter>,
+    // Pre-delay
+    predelay_buf_l: [f32; MAX_PREDELAY_SAMPLES],
+    predelay_buf_r: [f32; MAX_PREDELAY_SAMPLES],
+    predelay_pos: usize,
+    predelay_samples: usize,
     // Parameters
-    decay: f32,   // 0..1
-    damp: f32,    // 0..1
-    dry_wet: f32, // 0..1
+    room_size: f32,
+    damping: f32,
+    mix: f32,
+    width: f32,
+    low_damp: f32,
+    mod_rate: f32,
+    mod_depth: f32,
+    freeze: bool,
+    predelay_ms: f32,
+    // Modulation LFO
+    lfo_phase: f64,
+    // Low-damp filter state
+    low_cut_l: f32,
+    low_cut_r: f32,
+    sample_rate: f32,
 }
 
 impl ReverbProcessor {
     pub fn new(sample_rate: f32) -> Self {
-        let scale = sample_rate / REF_SAMPLE_RATE;
+        let ratio = sample_rate / REF_SAMPLE_RATE;
+        let scale = |s: usize| ((s as f32 * ratio) as usize).max(1);
 
-        let combs_l = std::array::from_fn(|i| {
-            CombFilter::new(((COMB_TUNING[i] as f32) * scale) as usize)
-        });
-        let combs_r = std::array::from_fn(|i| {
-            CombFilter::new(((COMB_TUNING[i] as f32) * scale) as usize + STEREO_SPREAD)
-        });
-
-        let allpasses_l = std::array::from_fn(|i| {
-            AllpassFilter::new(((ALLPASS_TUNING[i] as f32) * scale) as usize)
-        });
-        let allpasses_r = std::array::from_fn(|i| {
-            AllpassFilter::new(((ALLPASS_TUNING[i] as f32) * scale) as usize + STEREO_SPREAD)
-        });
+        let combs_l: Vec<CombFilter> = COMB_SIZES_L.iter().map(|&s| CombFilter::new(scale(s))).collect();
+        let combs_r: Vec<CombFilter> = COMB_SIZES_L.iter().map(|&s| CombFilter::new(scale(s + COMB_SPREAD))).collect();
+        let allpasses_l: Vec<AllpassFilter> = AP_SIZES.iter().map(|&s| AllpassFilter::new(scale(s))).collect();
+        let allpasses_r: Vec<AllpassFilter> = AP_SIZES.iter().map(|&s| AllpassFilter::new(scale(s + COMB_SPREAD))).collect();
 
         let mut proc = Self {
             combs_l,
-            allpasses_l,
             combs_r,
+            allpasses_l,
             allpasses_r,
-            decay: 0.5,
-            damp: 0.5,
-            dry_wet: 0.2,
+            predelay_buf_l: [0.0; MAX_PREDELAY_SAMPLES],
+            predelay_buf_r: [0.0; MAX_PREDELAY_SAMPLES],
+            predelay_pos: 0,
+            predelay_samples: 0,
+            room_size: 0.5,
+            damping: 0.4,
+            mix: 0.3,
+            width: 1.0,
+            low_damp: 0.2,
+            mod_rate: 0.3,
+            mod_depth: 0.15,
+            freeze: false,
+            predelay_ms: 10.0,
+            lfo_phase: 0.0,
+            low_cut_l: 0.0,
+            low_cut_r: 0.0,
+            sample_rate,
         };
         proc.update_combs();
+        proc.update_predelay();
         proc
     }
 
     fn update_combs(&mut self) {
-        // Freeverb room_size → feedback mapping
-        let feedback = self.decay * 0.28 + 0.7; // Range: 0.7 → 0.98
+        let fb = if self.freeze { 1.0 } else { 0.28 + self.room_size * 0.70 };
+        let damp = if self.freeze { 0.0 } else { self.damping };
+        for c in &mut self.combs_l { c.set_feedback(fb); c.set_damp(damp); }
+        for c in &mut self.combs_r { c.set_feedback(fb); c.set_damp(damp); }
+    }
 
-        for comb in self.combs_l.iter_mut().chain(self.combs_r.iter_mut()) {
-            comb.set_feedback(feedback);
-            comb.set_damp(self.damp);
-        }
+    fn update_predelay(&mut self) {
+        self.predelay_samples = ((self.predelay_ms * 0.001 * self.sample_rate) as usize)
+            .min(MAX_PREDELAY_SAMPLES - 1);
     }
 }
 
 impl DspProcessor for ReverbProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], _sample_rate: f32) {
         let len = left.len().min(right.len());
-        let wet = self.dry_wet;
+        let wet = self.mix;
         let dry = 1.0 - wet;
-        let gain = 0.015; // Fixed input gain to prevent clipping
+        let wet1 = wet * (1.0 + self.width) * 0.5;
+        let wet2 = wet * (1.0 - self.width) * 0.5;
+        let lfo_inc = self.mod_rate as f64 / self.sample_rate as f64;
+        let low_damp_coeff = self.low_damp * 0.5;
 
         for i in 0..len {
-            let input = (left[i] + right[i]) * gain;
             let dry_l = left[i];
             let dry_r = right[i];
 
-            // Sum all comb filters in parallel
+            // Pre-delay
+            let pd_pos = self.predelay_pos;
+            let pd_read = (pd_pos + MAX_PREDELAY_SAMPLES - self.predelay_samples) % MAX_PREDELAY_SAMPLES;
+            let pd_l = self.predelay_buf_l[pd_read];
+            let pd_r = self.predelay_buf_r[pd_read];
+            self.predelay_buf_l[pd_pos] = dry_l;
+            self.predelay_buf_r[pd_pos] = dry_r;
+            self.predelay_pos = (pd_pos + 1) % MAX_PREDELAY_SAMPLES;
+
+            let input = (pd_l + pd_r) * 0.5;
+
+            // LFO for subtle modulation
+            let lfo = (self.lfo_phase as f32 * std::f32::consts::TAU).sin() * self.mod_depth * 0.002;
+            self.lfo_phase += lfo_inc;
+            if self.lfo_phase >= 1.0 { self.lfo_phase -= 1.0; }
+
+            let input_mod = input * (1.0 + lfo);
+
+            // Parallel comb filters
             let mut out_l = 0.0f32;
             let mut out_r = 0.0f32;
-
-            for comb in &mut self.combs_l {
-                out_l += comb.process(input);
+            for c in &mut self.combs_l {
+                out_l += c.process(input_mod);
             }
-            for comb in &mut self.combs_r {
-                out_r += comb.process(input);
+            for c in &mut self.combs_r {
+                out_r += c.process(input_mod);
             }
 
-            // Series allpass filters
+            // Serial allpass filters
             for ap in &mut self.allpasses_l {
                 out_l = ap.process(out_l);
             }
@@ -198,28 +246,29 @@ impl DspProcessor for ReverbProcessor {
                 out_r = ap.process(out_r);
             }
 
-            // Mix
-            left[i] = dry_l * dry + out_l * wet;
-            right[i] = dry_r * dry + out_r * wet;
+            // Low-frequency damping (HP filter in the reverb tail)
+            self.low_cut_l += low_damp_coeff * (out_l - self.low_cut_l);
+            self.low_cut_r += low_damp_coeff * (out_r - self.low_cut_r);
+            out_l -= self.low_cut_l;
+            out_r -= self.low_cut_r;
+
+            // Width + mix
+            left[i] = dry_l * dry + out_l * wet1 + out_r * wet2;
+            right[i] = dry_r * dry + out_r * wet1 + out_l * wet2;
         }
     }
 
     fn set_param(&mut self, index: u8, value: f32) {
         match index {
-            0 => {
-                // Decay (%)
-                self.decay = (value / 100.0).clamp(0.0, 1.0);
-                self.update_combs();
-            }
-            1 => {
-                // Tone (%) — higher = more damped highs
-                self.damp = (value / 100.0).clamp(0.0, 1.0);
-                self.update_combs();
-            }
-            2 => {
-                // Dry/Wet (%)
-                self.dry_wet = (value / 100.0).clamp(0.0, 1.0);
-            }
+            0 => { self.room_size = (value / 100.0).clamp(0.0, 1.0); self.update_combs(); }
+            1 => { self.damping = (value / 100.0).clamp(0.0, 1.0); self.update_combs(); }
+            2 => { self.mix = (value / 100.0).clamp(0.0, 1.0); }
+            3 => { self.predelay_ms = value.clamp(0.0, 200.0); self.update_predelay(); }
+            4 => { self.width = (value / 100.0).clamp(0.0, 1.0); }
+            5 => { self.low_damp = (value / 100.0).clamp(0.0, 1.0); }
+            6 => { self.mod_rate = value.clamp(0.0, 3.0); }
+            7 => { self.mod_depth = (value / 100.0).clamp(0.0, 1.0); }
+            8 => { self.freeze = value > 0.5; self.update_combs(); }
             _ => {}
         }
     }
@@ -229,6 +278,12 @@ impl DspProcessor for ReverbProcessor {
         for c in &mut self.combs_r { c.reset(); }
         for a in &mut self.allpasses_l { a.reset(); }
         for a in &mut self.allpasses_r { a.reset(); }
+        self.predelay_buf_l = [0.0; MAX_PREDELAY_SAMPLES];
+        self.predelay_buf_r = [0.0; MAX_PREDELAY_SAMPLES];
+        self.predelay_pos = 0;
+        self.lfo_phase = 0.0;
+        self.low_cut_l = 0.0;
+        self.low_cut_r = 0.0;
     }
 }
 
@@ -239,30 +294,35 @@ mod tests {
     #[test]
     fn reverb_processes_without_panic() {
         let mut proc = ReverbProcessor::new(44100.0);
-        let mut left = vec![0.0f32; 1024];
-        let mut right = vec![0.0f32; 1024];
-        left[0] = 1.0;
-        right[0] = 1.0;
-        proc.process_stereo(&mut left, &mut right, 44100.0);
-        // Should not panic and should produce some output
+        let mut l = vec![0.5f32; 512];
+        let mut r = vec![0.5f32; 512];
+        proc.process_stereo(&mut l, &mut r, 44100.0);
     }
 
     #[test]
     fn reverb_produces_tail() {
         let mut proc = ReverbProcessor::new(44100.0);
-        proc.set_param(0, 80.0); // High decay
-        proc.set_param(2, 100.0); // Fully wet
+        proc.set_param(0, 80.0);
+        proc.set_param(2, 100.0);
+        let mut l = vec![0.0f32; 44100];
+        let mut r = vec![0.0f32; 44100];
+        l[0] = 1.0; r[0] = 1.0;
+        proc.process_stereo(&mut l, &mut r, 44100.0);
+        let tail_energy: f32 = l[22050..].iter().map(|s| s * s).sum();
+        assert!(tail_energy > 0.001, "Reverb tail too short: {tail_energy}");
+    }
 
-        let buf_size = 44100; // 1 second
-        let mut left = vec![0.0f32; buf_size];
-        let mut right = vec![0.0f32; buf_size];
-        // Impulse
-        left[0] = 1.0;
-        right[0] = 1.0;
-        proc.process_stereo(&mut left, &mut right, 44100.0);
-
-        // Check that there's energy far from the impulse (reverb tail)
-        let tail_energy: f32 = left[20000..30000].iter().map(|s| s * s).sum();
-        assert!(tail_energy > 1e-6, "Reverb should have a tail, energy: {tail_energy}");
+    #[test]
+    fn reverb_freeze_sustains() {
+        let mut proc = ReverbProcessor::new(44100.0);
+        proc.set_param(8, 1.0);  // freeze ON
+        proc.set_param(2, 100.0); // full wet
+        let mut l = vec![0.0f32; 22050];
+        let mut r = vec![0.0f32; 22050];
+        l[0] = 1.0; r[0] = 1.0;
+        proc.process_stereo(&mut l, &mut r, 44100.0);
+        // Late tail should still have energy in freeze mode
+        let late: f32 = l[20000..].iter().map(|s| s * s).sum();
+        assert!(late > 0.0001, "Freeze should sustain, got: {late}");
     }
 }

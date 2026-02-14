@@ -57,7 +57,8 @@ type BrowserIconName =
     | 'arrow-left'
     | 'hourglass'
     | 'triangle-alert'
-    | 'headphones';
+    | 'headphones'
+    | 'settings';
 
 interface BrowserCategory {
     id: string;
@@ -163,6 +164,8 @@ export const AssetBrowser = () => {
     const [sortFilter, setSortFilter] = useState(0);
     const [sizeFilter, setSizeFilter] = useState(0);
     const [showSizeColumn, setShowSizeColumn] = useState(true);
+    const [showTypeColumn, setShowTypeColumn] = useState(false);
+    const [columnMenuPos, setColumnMenuPos] = useState<{ x: number; y: number } | null>(null);
     const [previewEnabled, setPreviewEnabled] = useState(true);
     const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
     const [leftPaneWidth, setLeftPaneWidth] = useState(108);
@@ -182,6 +185,7 @@ export const AssetBrowser = () => {
     const fileListRef = useRef<HTMLDivElement>(null);
     const splitRootRef = useRef<HTMLDivElement>(null);
     const itemRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+    const columnMenuRef = useRef<HTMLDivElement>(null);
 
     // ── Load user folders on mount ──
     useEffect(() => {
@@ -488,6 +492,24 @@ export const AssetBrowser = () => {
         };
     }, [items, selectedItemId]);
 
+    useEffect(() => {
+        const onMouseDown = (e: MouseEvent) => {
+            if (!columnMenuRef.current) return;
+            if (!columnMenuRef.current.contains(e.target as Node)) {
+                setColumnMenuPos(null);
+            }
+        };
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setColumnMenuPos(null);
+        };
+        window.addEventListener('mousedown', onMouseDown);
+        window.addEventListener('keydown', onKeyDown);
+        return () => {
+            window.removeEventListener('mousedown', onMouseDown);
+            window.removeEventListener('keydown', onKeyDown);
+        };
+    }, []);
+
     const handleFileListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
         const el = e.currentTarget;
         if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100 && hasMore) {
@@ -552,8 +574,20 @@ export const AssetBrowser = () => {
 
         try {
             if (item.type === 'plugin') {
-                const slot: 'instrument' | 'effect' | 'auto' = item.slotHint ?? 'auto';
-                await engineApi.addPluginToTrack(track.id, item.path, item.name, slot);
+                const primary: 'instrument' | 'effect' | 'auto' = item.slotHint ?? 'auto';
+                const fallbackSlot = primary === 'instrument' ? 'effect' : 'instrument';
+                let lastErr: unknown = null;
+                const attempts: Array<'instrument' | 'effect' | 'auto'> = [primary, 'auto', fallbackSlot];
+                for (const attempt of attempts) {
+                    try {
+                        await engineApi.addPluginToTrack(track.id, item.path, item.name, attempt);
+                        lastErr = null;
+                        break;
+                    } catch (err) {
+                        lastErr = err;
+                    }
+                }
+                if (lastErr) throw lastErr;
                 await useEngineStore.getState().fetchProject();
                 return;
             }
@@ -923,21 +957,31 @@ export const AssetBrowser = () => {
                                     onChange={setSizeFilter}
                                 />
                                 <button
-                                    onClick={() => setShowSizeColumn((prev) => !prev)}
+                                    onClick={(e) => {
+                                        const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                                        setColumnMenuPos((prev) => prev
+                                            ? null
+                                            : { x: Math.round(rect.right - 8), y: Math.round(rect.bottom + 6) });
+                                    }}
                                     style={{
                                         marginLeft: 'auto',
-                                        background: showSizeColumn ? 'var(--color-control-bg-active)' : 'var(--color-control-bg)',
-                                        color: showSizeColumn ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                                        background: columnMenuPos ? 'var(--color-control-bg-active)' : 'var(--color-control-bg)',
+                                        color: columnMenuPos ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
                                         border: 'none',
                                         borderRadius: 'var(--radius-xs)',
-                                        padding: '3px 6px',
+                                        padding: '3px 5px',
                                         fontSize: 10,
                                         cursor: 'pointer',
                                         fontWeight: 600,
                                         whiteSpace: 'nowrap',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        minWidth: 20,
                                     }}
+                                    title="Columns"
                                 >
-                                    Size
+                                    <BrowserGlyph name="settings" size={11} />
                                 </button>
                             </>
                         )}
@@ -975,19 +1019,31 @@ export const AssetBrowser = () => {
                         overflowX: 'hidden',
                         outline: 'none',
                     }}>
-                        <div style={{
+                        <div
+                            onContextMenu={(e) => {
+                                e.preventDefault();
+                                setColumnMenuPos({ x: e.clientX, y: e.clientY });
+                            }}
+                            style={{
                             display: 'flex',
                             alignItems: 'center',
                             gap: 8,
                             padding: '3px 8px',
                             borderBottom: '1px solid var(--color-divider-light)',
+                            background: 'var(--color-bg-header)',
                             color: 'var(--color-text-tertiary)',
                             fontSize: 10,
                             fontWeight: 700,
                             textTransform: 'uppercase',
                             letterSpacing: '0.04em',
+                            position: 'sticky',
+                            top: 0,
+                            zIndex: 5,
                         }}>
                             <span style={{ flex: 1, minWidth: 0 }}>Name</span>
+                            {showTypeColumn && (
+                                <span style={{ minWidth: 52, textAlign: 'left', flexShrink: 0 }}>Type</span>
+                            )}
                             {showSizeColumn && (
                                 <span style={{ minWidth: 44, textAlign: 'right', flexShrink: 0 }}>Size</span>
                             )}
@@ -1027,6 +1083,11 @@ export const AssetBrowser = () => {
                             const isAudio = item.type === 'audio';
                             const isPlugin = item.type === 'plugin';
                             const isDraggable = isAudio || isPlugin;
+                            const typeLabel = item.isDirectory
+                                ? 'Folder'
+                                : (item.type === 'audio'
+                                    ? (item.format || 'Audio').toUpperCase()
+                                    : (item.type === 'plugin' ? (item.format || 'Plugin') : (item.format || item.type)));
                             const sizeLabel = item.sizeBytes && !item.isDirectory
                                 ? (item.sizeBytes >= 1024 * 1024
                                     ? `${(item.sizeBytes / (1024 * 1024)).toFixed(1)} MB`
@@ -1156,6 +1217,21 @@ export const AssetBrowser = () => {
                                     }}>
                                         {item.name}
                                     </span>
+                                    {showTypeColumn && (
+                                        <span style={{
+                                            minWidth: 52,
+                                            maxWidth: 74,
+                                            color: 'var(--color-text-secondary)',
+                                            fontSize: 10,
+                                            textAlign: 'left',
+                                            whiteSpace: 'nowrap',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            flexShrink: 0,
+                                        }}>
+                                            {typeLabel}
+                                        </span>
+                                    )}
                                     {showSizeColumn && (
                                         <span style={{
                                             minWidth: 44,
@@ -1208,6 +1284,39 @@ export const AssetBrowser = () => {
                     </div>
                 </div>
             </div>
+
+            {columnMenuPos && (
+                <div
+                    ref={columnMenuRef}
+                    style={{
+                        position: 'fixed',
+                        left: Math.max(8, columnMenuPos.x - 140),
+                        top: Math.max(8, columnMenuPos.y),
+                        width: 150,
+                        background: 'var(--surface-2)',
+                        border: '1px solid var(--color-border-subtle)',
+                        borderRadius: 8,
+                        boxShadow: 'var(--shadow-panel)',
+                        padding: 6,
+                        zIndex: 10000,
+                    }}
+                >
+                    <button
+                        onClick={() => setShowSizeColumn((v) => !v)}
+                        style={columnMenuItemStyle}
+                    >
+                        <span style={columnMenuCheckStyle}>{showSizeColumn ? '✓' : ''}</span>
+                        Size
+                    </button>
+                    <button
+                        onClick={() => setShowTypeColumn((v) => !v)}
+                        style={columnMenuItemStyle}
+                    >
+                        <span style={columnMenuCheckStyle}>{showTypeColumn ? '✓' : ''}</span>
+                        Type
+                    </button>
+                </div>
+            )}
 
             {/* ── Footer: Preview Panel ────────── */}
             <div style={{
@@ -1388,9 +1497,33 @@ const BrowserGlyph = ({
             return <svg {...commonProps}><path d="M12 3 2 21h20L12 3Z" /><path d="M12 9v5M12 18h.01" /></svg>;
         case 'headphones':
             return <svg {...commonProps}><path d="M4 12a8 8 0 0 1 16 0v6a2 2 0 0 1-2 2h-2v-6h4M4 14h4v6H6a2 2 0 0 1-2-2z" /></svg>;
+        case 'settings':
+            return <svg {...commonProps}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 1 1-4 0v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 1 1 0-4h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V4a2 2 0 1 1 4 0v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6h.2a2 2 0 1 1 0 4h-.2a1 1 0 0 0-.9.6Z" /></svg>;
         default:
             return <svg {...commonProps}><circle cx="12" cy="12" r="4" /></svg>;
     }
+};
+
+const columnMenuItemStyle: React.CSSProperties = {
+    width: '100%',
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--color-text-primary)',
+    padding: '5px 6px',
+    borderRadius: 4,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    fontSize: 11,
+    textAlign: 'left',
+    cursor: 'pointer',
+};
+
+const columnMenuCheckStyle: React.CSSProperties = {
+    width: 12,
+    textAlign: 'center',
+    fontFamily: 'var(--font-mono)',
+    color: 'var(--color-accent-primary)',
 };
 
 const FilterPill = ({

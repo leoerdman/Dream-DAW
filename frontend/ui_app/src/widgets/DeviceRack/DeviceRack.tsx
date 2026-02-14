@@ -35,7 +35,25 @@ import {
 interface DeviceSlot {
     id: string;
     name: string;
-    effectType: 'eq' | 'compressor' | 'delay' | 'reverb' | 'chorus' | 'utility' | 'vst' | 'instrument' | 'sampler' | 'saturator' | 'waveSynth';
+    effectType:
+        | 'eq'
+        | 'compressor'
+        | 'delay'
+        | 'reverb'
+        | 'chorus'
+        | 'utility'
+        | 'limiter'
+        | 'gate'
+        | 'autoFilter'
+        | 'phaser'
+        | 'flanger'
+        | 'distortion'
+        | 'bitcrusher'
+        | 'vst'
+        | 'instrument'
+        | 'sampler'
+        | 'saturator'
+        | 'waveSynth';
     isEnabled: boolean;
     params: PluginParam[];
     vuLevel: number;
@@ -49,13 +67,31 @@ const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<
     DeviceSlot['effectType'],
     Record<string, number>
 >> = {
-    eq: { low: 0, mid: 1, high: 2 },
+    eq: {
+        lowfreq: 4,
+        low: 5,
+        lowq: 6,
+        midfreq: 12,
+        mid: 13,
+        midq: 14,
+        highfreq: 24,
+        high: 25,
+        highq: 26,
+        out: 32,
+    },
     utility: { gain: 0, pan: 1, width: 2, mono: 3 },
     compressor: { thr: 0, ratio: 1, atk: 2, rel: 3 },
     delay: { time: 0, fb: 1, 'dry/wet': 2, mix: 2 },
     reverb: { decay: 0, tone: 1, 'dry/wet': 2, mix: 2 },
     chorus: { rate: 0, depth: 1, mix: 2 },
     saturator: { drive: 0, tone: 1, mix: 2 },
+    limiter: { thr: 0, rel: 1, ceil: 2 },
+    gate: { thr: 0, atk: 1, hold: 2, rel: 3, range: 4 },
+    autoFilter: { cutoff: 0, res: 1, rate: 2, depth: 3, env: 4, type: 5, mix: 6 },
+    phaser: { rate: 0, depth: 1, fb: 2, stages: 3, center: 4, mix: 5 },
+    flanger: { rate: 0, depth: 1, fb: 2, delay: 3, mix: 4 },
+    distortion: { drive: 0, tone: 1, mix: 2, mode: 3 },
+    bitcrusher: { bits: 0, down: 1, mix: 2 },
 };
 
 const DEVICE_PARAM_PRESETS: Record<
@@ -63,9 +99,16 @@ const DEVICE_PARAM_PRESETS: Record<
     Array<Omit<PluginParam, 'value'> & { value: number }>
 > = {
     eq: [
+        { name: 'LowFreq', value: 120, min: 20, max: 1200, suffix: 'Hz', step: 1 },
         { name: 'Low', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
+        { name: 'LowQ', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
+        { name: 'MidFreq', value: 1800, min: 120, max: 9000, suffix: 'Hz', step: 1 },
         { name: 'Mid', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
+        { name: 'MidQ', value: 1.0, min: 0.1, max: 18, suffix: '', step: 0.01 },
+        { name: 'HighFreq', value: 9500, min: 1200, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'High', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
+        { name: 'HighQ', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
+        { name: 'Out', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
     ],
     compressor: [
         { name: 'Thr', value: -18, min: -60, max: 0, suffix: 'dB', step: 0.1 },
@@ -120,6 +163,53 @@ const DEVICE_PARAM_PRESETS: Record<
         { name: 'Drive', value: 3, min: 0, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'Tone', value: 0, min: -100, max: 100, suffix: '%', step: 1 },
         { name: 'Mix', value: 100, min: 0, max: 100, suffix: '%', step: 1 },
+    ],
+    limiter: [
+        { name: 'Thr', value: -0.3, min: -30, max: 0, suffix: 'dB', step: 0.1 },
+        { name: 'Rel', value: 100, min: 1, max: 1000, suffix: 'ms', step: 1 },
+        { name: 'Ceil', value: -0.1, min: -30, max: 0, suffix: 'dB', step: 0.1 },
+    ],
+    gate: [
+        { name: 'Thr', value: -40, min: -80, max: 0, suffix: 'dB', step: 0.1 },
+        { name: 'Atk', value: 0.1, min: 0.01, max: 100, suffix: 'ms', step: 0.01 },
+        { name: 'Hold', value: 10, min: 0, max: 500, suffix: 'ms', step: 1 },
+        { name: 'Rel', value: 50, min: 1, max: 2000, suffix: 'ms', step: 1 },
+        { name: 'Range', value: -80, min: -80, max: 0, suffix: 'dB', step: 0.1 },
+    ],
+    autoFilter: [
+        { name: 'Cutoff', value: 1000, min: 20, max: 20000, suffix: 'Hz', step: 1 },
+        { name: 'Res', value: 0.3, min: 0, max: 1, suffix: '', step: 0.01 },
+        { name: 'Rate', value: 1, min: 0.01, max: 20, suffix: 'Hz', step: 0.01 },
+        { name: 'Depth', value: 0.5, min: 0, max: 1, suffix: '', step: 0.01 },
+        { name: 'Env', value: 0, min: -1, max: 1, suffix: '', step: 0.01 },
+        { name: 'Type', value: 0, min: 0, max: 3, suffix: '', step: 1 },
+        { name: 'Mix', value: 1, min: 0, max: 1, suffix: '', step: 0.01 },
+    ],
+    phaser: [
+        { name: 'Rate', value: 0.5, min: 0.01, max: 10, suffix: 'Hz', step: 0.01 },
+        { name: 'Depth', value: 0.6, min: 0, max: 1, suffix: '', step: 0.01 },
+        { name: 'Fb', value: 0.5, min: -0.95, max: 0.95, suffix: '', step: 0.01 },
+        { name: 'Stages', value: 4, min: 2, max: 8, suffix: '', step: 2 },
+        { name: 'Center', value: 1000, min: 100, max: 5000, suffix: 'Hz', step: 1 },
+        { name: 'Mix', value: 0.5, min: 0, max: 1, suffix: '', step: 0.01 },
+    ],
+    flanger: [
+        { name: 'Rate', value: 0.3, min: 0.01, max: 10, suffix: 'Hz', step: 0.01 },
+        { name: 'Depth', value: 0.7, min: 0, max: 1, suffix: '', step: 0.01 },
+        { name: 'Fb', value: 0.5, min: -0.95, max: 0.95, suffix: '', step: 0.01 },
+        { name: 'Delay', value: 2, min: 0.1, max: 10, suffix: 'ms', step: 0.1 },
+        { name: 'Mix', value: 0.5, min: 0, max: 1, suffix: '', step: 0.01 },
+    ],
+    distortion: [
+        { name: 'Drive', value: 30, min: 0, max: 100, suffix: '', step: 1 },
+        { name: 'Tone', value: 0.5, min: 0, max: 1, suffix: '', step: 0.01 },
+        { name: 'Mix', value: 1, min: 0, max: 1, suffix: '', step: 0.01 },
+        { name: 'Mode', value: 0, min: 0, max: 3, suffix: '', step: 1 },
+    ],
+    bitcrusher: [
+        { name: 'Bits', value: 16, min: 1, max: 32, suffix: '', step: 1 },
+        { name: 'Down', value: 1, min: 1, max: 64, suffix: 'x', step: 1 },
+        { name: 'Mix', value: 1, min: 0, max: 1, suffix: '', step: 0.01 },
     ],
 };
 
@@ -247,6 +337,13 @@ export const DeviceRack = ({
             else if (normalized.includes('reverb')) effectType = 'reverb';
             else if (normalized.includes('chorus')) effectType = 'chorus';
             else if (normalized.includes('saturator')) effectType = 'saturator';
+            else if (normalized.includes('limiter')) effectType = 'limiter';
+            else if (normalized.includes('gate')) effectType = 'gate';
+            else if (normalized.includes('auto filter') || normalized.includes('auto-filter') || normalized.includes('autofilter')) effectType = 'autoFilter';
+            else if (normalized.includes('phaser')) effectType = 'phaser';
+            else if (normalized.includes('flanger')) effectType = 'flanger';
+            else if (normalized.includes('distortion')) effectType = 'distortion';
+            else if (normalized.includes('bitcrusher') || normalized.includes('bit-crusher')) effectType = 'bitcrusher';
             else if (selectedTrack.instrument?.id === slot.id && !isVst) effectType = 'instrument';
 
             return {
@@ -341,9 +438,15 @@ export const DeviceRack = ({
                 else if (normalizedName === 'wave') paramId = 'synth.waveform';
             } else if (device.effectType === 'eq') {
                 if (normalizedName === 'low') paramId = 'eq.low';
+                else if (normalizedName === 'lowfreq') paramId = 'eq.lowFreq';
+                else if (normalizedName === 'lowq') paramId = 'eq.lowQ';
                 else if (normalizedName === 'mid') paramId = 'eq.mid';
+                else if (normalizedName === 'midfreq') paramId = 'eq.midFreq';
+                else if (normalizedName === 'midq') paramId = 'eq.midQ';
                 else if (normalizedName === 'high') paramId = 'eq.high';
-                else if (normalizedName === 'freq') paramId = 'eq.freq';
+                else if (normalizedName === 'highfreq') paramId = 'eq.highFreq';
+                else if (normalizedName === 'highq') paramId = 'eq.highQ';
+                else if (normalizedName === 'out') paramId = 'eq.out';
             }
 
             const key = `${selectedTrack.id}:${device.id}:${paramId}`;
@@ -922,6 +1025,13 @@ const DeviceNode = ({
         chorus: '#c850a0',
         utility: '#999',
         saturator: '#d97028',
+        limiter: '#59d3be',
+        gate: '#6cc66d',
+        autoFilter: '#3ed1d1',
+        phaser: '#8b7bff',
+        flanger: '#55a6ff',
+        distortion: '#ff844d',
+        bitcrusher: '#f0d65c',
         vst: '#4a9eff',
     };
     const typeColor = typeColorMap[device.effectType] || 'var(--color-accent-primary)';
@@ -931,11 +1041,15 @@ const DeviceNode = ({
             ? 360
             : device.effectType === 'waveSynth'
                 ? 360
-            : device.effectType === 'instrument'
-                ? 320
-                : device.effectType === 'eq'
-                    ? 280
-                    : 240;
+                : device.effectType === 'instrument'
+                    ? 320
+                    : device.effectType === 'eq'
+                        ? 280
+                        : device.effectType === 'autoFilter' || device.effectType === 'phaser' || device.effectType === 'flanger'
+                            ? 300
+                            : device.effectType === 'gate'
+                                ? 280
+                                : 240;
 
     return (
         <div
@@ -1178,12 +1292,25 @@ const PluginGuiSurface = ({
             const surface = eqSurfaceRef.current;
             if (!surface) return;
             const rect = surface.getBoundingClientRect();
+            const xNorm = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
             const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
-            const value = ((rect.height / 2 - y) / (rect.height / 2)) * 24;
-            const rounded = Math.max(-24, Math.min(24, value));
-            if (dragEqBand === 'low') onParamChange('Low', rounded);
-            if (dragEqBand === 'mid') onParamChange('Mid', rounded);
-            if (dragEqBand === 'high') onParamChange('High', rounded);
+            const gainValue = ((rect.height / 2 - y) / (rect.height / 2)) * 24;
+            const roundedGain = Math.max(-24, Math.min(24, gainValue));
+            const lowFreq = 20 + xNorm * (1200 - 20);
+            const midFreq = 120 + xNorm * (9000 - 120);
+            const highFreq = 1200 + xNorm * (20000 - 1200);
+            if (dragEqBand === 'low') {
+                onParamChange('Low', roundedGain);
+                onParamChange('LowFreq', Math.round(lowFreq));
+            }
+            if (dragEqBand === 'mid') {
+                onParamChange('Mid', roundedGain);
+                onParamChange('MidFreq', Math.round(midFreq));
+            }
+            if (dragEqBand === 'high') {
+                onParamChange('High', roundedGain);
+                onParamChange('HighFreq', Math.round(highFreq));
+            }
         };
         const onUp = () => setDragEqBand(null);
         window.addEventListener('mousemove', onMove);
@@ -1465,14 +1592,20 @@ const PluginGuiSurface = ({
     }
 
     if (device.effectType === 'eq') {
+        const lowFreq = device.params.find((p) => p.name.toLowerCase() === 'lowfreq')?.value ?? 120;
         const low = device.params.find((p) => p.name.toLowerCase() === 'low')?.value ?? 0;
+        const midFreq = device.params.find((p) => p.name.toLowerCase() === 'midfreq')?.value ?? 1800;
         const mid = device.params.find((p) => p.name.toLowerCase() === 'mid')?.value ?? 0;
+        const highFreq = device.params.find((p) => p.name.toLowerCase() === 'highfreq')?.value ?? 9500;
         const high = device.params.find((p) => p.name.toLowerCase() === 'high')?.value ?? 0;
+        const out = device.params.find((p) => p.name.toLowerCase() === 'out')?.value ?? 0;
         const norm = (v: number) => Math.max(-1, Math.min(1, v / 24));
+        const normFreq = (freq: number, min: number, max: number) =>
+            (Math.log10(Math.max(min, Math.min(max, freq))) - Math.log10(min)) / (Math.log10(max) - Math.log10(min));
         const yFromDb = (v: number) => 46 - norm(v) * 34;
-        const xLow = 82;
-        const xMid = 242;
-        const xHigh = 402;
+        const xLow = 20 + normFreq(lowFreq, 20, 1200) * 140;
+        const xMid = 170 + normFreq(midFreq, 120, 9000) * 150;
+        const xHigh = 330 + normFreq(highFreq, 1200, 20000) * 130;
         const yL = yFromDb(low);
         const yM = yFromDb(mid);
         const yH = yFromDb(high);
@@ -1511,10 +1644,17 @@ const PluginGuiSurface = ({
                         ))}
                     </svg>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                    {device.params.slice(0, 3).map((p) => (
-                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
-                    ))}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', alignItems: 'center', gap: 8 }}>
+                    {['Low', 'LowQ', 'Mid', 'MidQ', 'High', 'HighQ', 'Out'].map((name) => {
+                        const p = device.params.find((x) => x.name.toLowerCase() === name.toLowerCase());
+                        return p ? <PluginKnob key={p.name} param={p} onChange={onParamChange} compact /> : null;
+                    })}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 9, color: '#a3b8d8', fontFamily: 'var(--font-mono)' }}>
+                    <span>Low {lowFreq.toFixed(0)}Hz</span>
+                    <span>Mid {midFreq.toFixed(0)}Hz</span>
+                    <span>High {highFreq.toFixed(0)}Hz</span>
+                    <span>Out {out.toFixed(1)}dB</span>
                 </div>
             </div>
         );
@@ -1761,6 +1901,115 @@ const PluginGuiSurface = ({
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', alignItems: 'center', gap: 8 }}>
                     {device.params.slice(0, 3).map((p) => (
+                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    if (device.effectType === 'limiter') {
+        const thr = device.params.find((p) => p.name.toLowerCase() === 'thr')?.value ?? -0.3;
+        const ceil = device.params.find((p) => p.name.toLowerCase() === 'ceil')?.value ?? -0.1;
+        const safety = Math.max(0, Math.min(1, 1 - Math.abs(thr - ceil) / 30));
+        return (
+            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+                <div style={{ border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)', borderRadius: 6, background: 'linear-gradient(180deg, #152625 0%, #0f1616 100%)', padding: '8px 10px' }}>
+                    <div style={{ fontSize: 9, color: '#a4d9d3', marginBottom: 6 }}>Lookahead Limiter</div>
+                    <div style={{ height: 10, borderRadius: 999, background: '#222d2e', overflow: 'hidden' }}>
+                        <div style={{ width: `${(safety * 100).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #4bc4b2 0%, #89f0de 100%)' }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 9, color: '#a4c8c3', fontFamily: 'var(--font-mono)' }}>
+                        <span>Thr {thr.toFixed(1)} dB</span>
+                        <span>Ceil {ceil.toFixed(1)} dB</span>
+                    </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', alignItems: 'center', gap: 8 }}>
+                    {device.params.slice(0, 3).map((p) => (
+                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    if (device.effectType === 'gate') {
+        const thr = device.params.find((p) => p.name.toLowerCase() === 'thr')?.value ?? -40;
+        const range = device.params.find((p) => p.name.toLowerCase() === 'range')?.value ?? -80;
+        const openness = Math.max(0, Math.min(1, (80 + thr) / 80));
+        return (
+            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+                <div style={{ border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)', borderRadius: 6, background: 'linear-gradient(180deg, #1a2415 0%, #101611 100%)', padding: '8px 10px' }}>
+                    <div style={{ fontSize: 9, color: '#b8dfad', marginBottom: 6 }}>Noise Gate</div>
+                    <div style={{ height: 34, borderRadius: 4, background: '#1b2018', position: 'relative' }}>
+                        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${(openness * 100).toFixed(1)}%`, background: 'linear-gradient(90deg, #6bc66e 0%, #d2f18b 100%)' }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 9, color: '#a8caa1', fontFamily: 'var(--font-mono)' }}>
+                        <span>Thr {thr.toFixed(1)} dB</span>
+                        <span>Range {range.toFixed(1)} dB</span>
+                    </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', alignItems: 'center', gap: 8 }}>
+                    {device.params.slice(0, 5).map((p) => (
+                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    if (device.effectType === 'autoFilter' || device.effectType === 'phaser' || device.effectType === 'flanger') {
+        const params = device.params;
+        const title = device.effectType === 'autoFilter' ? 'Auto Filter' : device.effectType === 'phaser' ? 'Phaser' : 'Flanger';
+        const hue = device.effectType === 'autoFilter' ? '#4cc9d8' : device.effectType === 'phaser' ? '#998bff' : '#66b3ff';
+        return (
+            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+                <div style={{
+                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
+                    borderRadius: 6,
+                    background: 'linear-gradient(180deg, #151a24 0%, #0f141b 100%)',
+                    padding: '8px 10px',
+                    display: 'grid',
+                    gridTemplateRows: '1fr auto',
+                    gap: 6,
+                }}>
+                    <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
+                        <rect x="0" y="0" width="320" height="52" fill="rgba(8, 10, 14, 0.65)" />
+                        <path d="M 0 30 C 32 10, 64 46, 96 26 C 128 6, 160 44, 192 24 C 224 8, 256 42, 288 22 C 304 12, 320 26, 320 26" fill="none" stroke={hue} strokeWidth="2.4" />
+                    </svg>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: '#a6b2c4' }}>
+                        <span>{title}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)' }}>{params.length} params</span>
+                    </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(6, Math.max(3, params.length))}, minmax(0, 1fr))`, alignItems: 'center', gap: 8 }}>
+                    {params.slice(0, 6).map((p) => (
+                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    if (device.effectType === 'distortion' || device.effectType === 'bitcrusher') {
+        const title = device.effectType === 'distortion' ? 'Distortion' : 'Bitcrusher';
+        const color = device.effectType === 'distortion' ? '#ff965e' : '#f2de72';
+        return (
+            <div style={{ display: 'grid', gridTemplateRows: '90px auto', gap: 8, height: '100%' }}>
+                <div style={{
+                    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
+                    borderRadius: 6,
+                    background: 'linear-gradient(180deg, #261a12 0%, #15100c 100%)',
+                    padding: '8px 10px',
+                }}>
+                    <div style={{ fontSize: 9, color: '#d6c1a5', marginBottom: 6 }}>{title}</div>
+                    <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: 44 }}>
+                        <rect x="0" y="0" width="320" height="52" fill="rgba(20, 13, 9, 0.65)" />
+                        <path d="M 8 44 L 48 12 L 88 44 L 128 12 L 168 44 L 208 12 L 248 44 L 312 16" fill="none" stroke={color} strokeWidth="2.2" />
+                    </svg>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(4, Math.max(3, device.params.length))}, minmax(0, 1fr))`, alignItems: 'center', gap: 8 }}>
+                    {device.params.slice(0, 4).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
                 </div>

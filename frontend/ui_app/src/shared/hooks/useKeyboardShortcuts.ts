@@ -361,6 +361,34 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 return;
             }
 
+            // ── 0: Toggle Clip Mute ──────────────────────────────
+            // Muted clips remain on the timeline but don't play.
+            // Visual: dark overlay, greyed out.
+            if (e.key === '0' && !isModKey(e) && !e.shiftKey) {
+                if (inPianoRoll || inDeviceRack) return;
+                e.preventDefault();
+                e.stopPropagation();
+
+                const targets = selectedClipIds.length > 0
+                    ? selectedClipIds
+                    : (selectedClipId ? [selectedClipId] : []);
+                if (targets.length === 0) return;
+
+                // Determine new mute state: if ANY selected clip is unmuted, mute all; else unmute all.
+                const targetSet = new Set(targets);
+                const selected = timelineClips.filter(c => targetSet.has(c.id));
+                const anyUnmuted = selected.some(c => !c.muted);
+                const newMutedState = anyUnmuted;
+
+                try {
+                    await Promise.all(targets.map((id) => engine.setClipMuted(id, newMutedState)));
+                    onProjectMutated();
+                } catch (err) {
+                    console.error('[Shortcuts] Toggle clip mute failed:', err);
+                }
+                return;
+            }
+
             // ── Cmd/Ctrl + L: Loop Selection ─────────────────────────
             // Selects the bounding box of all selected clips and sets
             // the loop region to it. Pressing again toggles off.

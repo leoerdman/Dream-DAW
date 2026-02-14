@@ -254,6 +254,7 @@ pub fn split_clip(
         fade_out_frames: 0,
         is_offline: original.is_offline,
         is_selected: original.is_selected,
+        is_muted: original.is_muted,
         color_override: original.color_override,
     };
 
@@ -273,6 +274,7 @@ pub fn split_clip(
         fade_out_frames: original.fade_out_frames,
         is_offline: original.is_offline,
         is_selected: false,
+        is_muted: original.is_muted,
         color_override: original.color_override,
     };
 

@@ -620,6 +620,14 @@ export const PianoRoll = memo(function PianoRoll({
                 return;
             }
 
+            // Ctrl+A / Cmd+A — select all notes
+            if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+                e.preventDefault();
+                e.stopPropagation();
+                setSelectedNotes(new Set(notes.map((n) => n.id)));
+                return;
+            }
+
             if (!hasSelected) return;
             if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
 
@@ -1269,7 +1277,9 @@ export const PianoRoll = memo(function PianoRoll({
                                         onMouseLeave={() => setHoveredNoteEdge(null)}
                                         onDoubleClick={(e) => {
                                             e.stopPropagation();
-                                            onNotesChange(notes.filter((n) => n.id !== note.id));
+                                            if (tool === 'draw' || tool === 'erase') {
+                                                onNotesChange(notes.filter((n) => n.id !== note.id));
+                                            }
                                         }}
                                         style={{
                                             position: 'absolute',

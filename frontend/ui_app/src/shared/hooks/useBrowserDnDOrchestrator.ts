@@ -35,7 +35,19 @@ export const useBrowserDnDOrchestrator = ({
         const track = projectTracks.find((t) => t.id === trackId);
         if (!track || !item.path) return;
         const slot = resolvePluginSlot(track, item.slotHint);
-        await engineApi.addPluginToTrack(track.id, item.path, item.name, slot);
+        const fallbackSlot = slot === 'instrument' ? 'effect' : 'instrument';
+        let lastErr: unknown = null;
+        const attempts: Array<'instrument' | 'effect' | 'auto'> = [slot, 'auto', fallbackSlot];
+        for (const attempt of attempts) {
+            try {
+                await engineApi.addPluginToTrack(track.id, item.path, item.name, attempt);
+                lastErr = null;
+                break;
+            } catch (err) {
+                lastErr = err;
+            }
+        }
+        if (lastErr) throw lastErr;
         await fetchProject();
     }, [projectTracks, fetchProject]);
 

@@ -253,6 +253,10 @@ impl RenderContext {
             // ── 3. Read clip audio into track buffer ────────────────
             for ac in &self.scratch_active_clips {
                 let clip = &clips[ac.clip_index];
+                // Skip muted clips — they remain visible but produce no audio.
+                if clip.is_muted {
+                    continue;
+                }
                 if let Some(audio) = clip_pool.get(&clip.file_path) {
                     _total_pool_hits += 1;
                     ClipReader::read_stereo_into(

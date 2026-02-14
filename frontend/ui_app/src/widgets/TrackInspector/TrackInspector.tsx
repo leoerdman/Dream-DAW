@@ -70,6 +70,7 @@ function mapProjectTrack(
         sends: [],
         input: pt.input || 'none',
         output: pt.output || 'master',
+        groupId: pt.parent_track_id ?? undefined,
     };
 }
 
@@ -161,6 +162,8 @@ export const TrackInspector = ({
     // Local overrides
     const [localOverrides, setLocalOverrides] = useState<Record<string, Partial<TrackData>>>({});
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+    const [draggingTrackId, setDraggingTrackId] = useState<string | null>(null);
+    const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
 
     // Context menu
     const [contextMenu, setContextMenu] = useState<{
@@ -234,10 +237,31 @@ export const TrackInspector = ({
         }
     }, []);
 
+    useEffect(() => {
+        const collapsed = new Set<string>();
+        for (const pt of projectTracks) {
+            const normalized = (pt.track_type ?? '').toLowerCase();
+            if ((normalized === 'group') && pt.is_expanded === false) {
+                collapsed.add(pt.id);
+            }
+        }
+        setCollapsedGroups(collapsed);
+    }, [projectTracks]);
+
     const toggleGroupCollapse = useCallback((groupId: string) => {
         setCollapsedGroups(prev => {
             const next = new Set(prev);
-            if (next.has(groupId)) next.delete(groupId); else next.add(groupId);
+            let expanded = true;
+            if (next.has(groupId)) {
+                next.delete(groupId);
+                expanded = true;
+            } else {
+                next.add(groupId);
+                expanded = false;
+            }
+            void engineApi.setGroupExpanded(groupId, expanded).catch((err) => {
+                console.error('[TrackInspector] setGroupExpanded failed:', err);
+            });
             return next;
         });
     }, []);
@@ -295,6 +319,15 @@ export const TrackInspector = ({
         setContextMenu(null);
     }, [getTrackIndex, deleteTrack]);
 
+    const handleGroupTrack = useCallback((trackId: string) => {
+        void engineApi.createGroup([trackId]).then(() => {
+            void useEngineStore.getState().fetchProject();
+        }).catch((err) => {
+            console.error('[TrackInspector] createGroup failed:', err);
+        });
+        setContextMenu(null);
+    }, []);
+
     const handleOpenColorPicker = useCallback((trackId: string, x: number, y: number) => {
         setColorPickerState({ trackId, x, y });
         setContextMenu(null);
@@ -312,10 +345,45 @@ export const TrackInspector = ({
                 e.preventDefault();
                 handleRenameStart(selectedTrackId);
             }
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'g' && selectedTrackId && selectedTrackId !== 'master') {
+                e.preventDefault();
+                handleGroupTrack(selectedTrackId);
+            }
         };
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
-    }, [selectedTrackId, handleRenameStart]);
+    }, [selectedTrackId, handleRenameStart, handleGroupTrack]);
+
+    const computeRawInsertIndex = useCallback((visibleInsertIndex: number): number => {
+        if (visibleTracks.length === 0) return 0;
+        const fullIds = tracks.map((t) => t.id);
+        if (visibleInsertIndex <= 0) {
+            const firstVisible = visibleTracks[0];
+            const idx = fullIds.indexOf(firstVisible.id);
+            return Math.max(0, idx);
+        }
+        if (visibleInsertIndex >= visibleTracks.length) {
+            const lastVisible = visibleTracks[visibleTracks.length - 1];
+            const idx = fullIds.indexOf(lastVisible.id);
+            return Math.min(tracks.length, idx + 1);
+        }
+        const nextVisible = visibleTracks[visibleInsertIndex];
+        const idx = fullIds.indexOf(nextVisible.id);
+        return Math.max(0, idx);
+    }, [visibleTracks, tracks]);
+
+    const commitTrackReorder = useCallback((trackId: string, visibleInsertIndex: number) => {
+        const fullIndex = tracks.findIndex((t) => t.id === trackId);
+        if (fullIndex < 0) return;
+        const rawInsertIndex = computeRawInsertIndex(visibleInsertIndex);
+        const adjustedInsert = rawInsertIndex > fullIndex ? rawInsertIndex - 1 : rawInsertIndex;
+        const clamped = Math.max(0, Math.min(tracks.length - 1, adjustedInsert));
+        void engineApi.moveTrackToIndex(trackId, clamped).then(() => {
+            void useEngineStore.getState().fetchProject();
+        }).catch((err) => {
+            console.error('[TrackInspector] moveTrackToIndex failed:', err);
+        });
+    }, [tracks, computeRawInsertIndex]);
 
     let trackNum = 0;
 
@@ -358,6 +426,13 @@ export const TrackInspector = ({
             {/* Track List */}
             <div ref={scrollRef} className="scrollbar-hide"
                 style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+                {dropInsertIndex === 0 && (
+                    <div style={{
+                        height: 2,
+                        background: 'var(--color-accent-primary)',
+                        boxShadow: '0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 50%, transparent)',
+                    }} />
+                )}
                 {visibleTracks.map((track) => {
                     const isGroup = track.type === 'group';
                     if (!isGroup) trackNum++;
@@ -366,37 +441,74 @@ export const TrackInspector = ({
                     const depth = getDepth(track);
                     const trackIndex = getTrackIndex(track.id);
 
+                    const visibleIndex = visibleTracks.findIndex((t) => t.id === track.id);
                     return (
-                        <TrackRow
-                            key={track.id}
-                            track={track}
-                            allTracks={tracks}
-                            trackHeight={trackHeight}
-                            displayNum={displayNum}
-                            isSelected={selectedTrackId === track.id}
-                            isCollapsed={isCollapsed}
-                            depth={depth}
-                            isRenaming={renamingTrackId === track.id}
-                            renameValue={renameValue}
-                            onRenameChange={setRenameValue}
-                            onRenameCommit={handleRenameCommit}
-                            onRenameCancel={handleRenameCancel}
-                            onClick={() => onSelectTrack(track.id)}
-                            onToggleMute={() => toggleMute(track.id)}
-                            onToggleSolo={() => toggleSolo(track.id)}
-                            onToggleArm={() => toggleArm(track.id)}
-                            onToggleCollapse={isGroup ? () => toggleGroupCollapse(track.id) : undefined}
-                            onVolumeChange={(gain: number) => {
-                                if (trackIndex >= 0) engineSetTrackVolume(trackIndex, gain);
-                            }}
-                            onPanChange={(pan: number) => {
-                                if (trackIndex >= 0) engineSetTrackPan(trackIndex, pan);
-                            }}
-                            onOutputChange={(targetId) => { void setTrackOutput(track.id, targetId); }}
-                            onInputChange={(inputId) => { void setTrackInput(track.id, inputId); }}
-                            onContextMenu={(e) => handleContextMenu(e, track.id, trackIndex)}
-                            mixerFocusMode={mixerFocusMode}
-                        />
+                        <div key={track.id}>
+                            <TrackRow
+                                track={track}
+                                allTracks={tracks}
+                                trackHeight={trackHeight}
+                                displayNum={displayNum}
+                                isSelected={selectedTrackId === track.id}
+                                isCollapsed={isCollapsed}
+                                depth={depth}
+                                isRenaming={renamingTrackId === track.id}
+                                renameValue={renameValue}
+                                onRenameChange={setRenameValue}
+                                onRenameCommit={handleRenameCommit}
+                                onRenameCancel={handleRenameCancel}
+                                onClick={() => onSelectTrack(track.id)}
+                                onToggleMute={() => toggleMute(track.id)}
+                                onToggleSolo={() => toggleSolo(track.id)}
+                                onToggleArm={() => toggleArm(track.id)}
+                                onToggleCollapse={isGroup ? () => toggleGroupCollapse(track.id) : undefined}
+                                onVolumeChange={(gain: number) => {
+                                    if (trackIndex >= 0) engineSetTrackVolume(trackIndex, gain);
+                                }}
+                                onPanChange={(pan: number) => {
+                                    if (trackIndex >= 0) engineSetTrackPan(trackIndex, pan);
+                                }}
+                                onOutputChange={(targetId) => { void setTrackOutput(track.id, targetId); }}
+                                onInputChange={(inputId) => { void setTrackInput(track.id, inputId); }}
+                                onContextMenu={(e) => handleContextMenu(e, track.id, trackIndex)}
+                                onDragStartTrack={(e) => {
+                                    setDraggingTrackId(track.id);
+                                    e.dataTransfer.effectAllowed = 'move';
+                                    e.dataTransfer.setData('text/plain', track.id);
+                                }}
+                                onDragOverTrack={(e) => {
+                                    if (!draggingTrackId || draggingTrackId === track.id) return;
+                                    e.preventDefault();
+                                    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                                    const insertBefore = e.clientY < rect.top + rect.height / 2;
+                                    const idx = insertBefore ? visibleIndex : visibleIndex + 1;
+                                    setDropInsertIndex(idx);
+                                }}
+                                onDropTrack={(e) => {
+                                    e.preventDefault();
+                                    const dragId = draggingTrackId ?? e.dataTransfer.getData('text/plain');
+                                    if (!dragId || dragId === track.id) return;
+                                    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                                    const insertBefore = e.clientY < rect.top + rect.height / 2;
+                                    const idx = insertBefore ? visibleIndex : visibleIndex + 1;
+                                    commitTrackReorder(dragId, idx);
+                                    setDropInsertIndex(null);
+                                    setDraggingTrackId(null);
+                                }}
+                                onDragEndTrack={() => {
+                                    setDropInsertIndex(null);
+                                    setDraggingTrackId(null);
+                                }}
+                                mixerFocusMode={mixerFocusMode}
+                            />
+                            {dropInsertIndex === visibleIndex + 1 && (
+                                <div style={{
+                                    height: 2,
+                                    background: 'var(--color-accent-primary)',
+                                    boxShadow: '0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 50%, transparent)',
+                                }} />
+                            )}
+                        </div>
                     );
                 })}
 
@@ -459,6 +571,7 @@ export const TrackInspector = ({
                     x={contextMenu.x}
                     y={contextMenu.y}
                     onRename={() => handleRenameStart(contextMenu.trackId)}
+                    onGroup={() => handleGroupTrack(contextMenu.trackId)}
                     onDelete={() => handleDeleteTrack(contextMenu.trackId)}
                     onChangeColor={() => handleOpenColorPicker(contextMenu.trackId, contextMenu.x, contextMenu.y)}
                     onDismiss={() => setContextMenu(null)}
@@ -482,10 +595,12 @@ export const TrackInspector = ({
 // ── Context Menu Popup ──────────────────────────────────────────
 
 const ContextMenuPopup = ({
-    x, y, onRename, onDelete, onChangeColor, onDismiss,
+    x, y, onRename, onGroup, onDelete, onChangeColor, onDismiss,
 }: {
     x: number; y: number;
-    onRename: () => void; onDelete: () => void;
+    onRename: () => void;
+    onGroup: () => void;
+    onDelete: () => void;
     onChangeColor: () => void; onDismiss: () => void;
 }) => {
     const ref = useRef<HTMLDivElement>(null);
@@ -530,6 +645,11 @@ const ContextMenuPopup = ({
                 onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
                 <span style={{ width: 14, fontSize: 12 }}>🎨</span> Change Color
+            </button>
+            <button style={itemStyle} onClick={onGroup}
+                onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                <span style={{ width: 14, fontSize: 12 }}>🧩</span> Group Track
             </button>
             <div style={{ height: 1, background: 'var(--color-divider)', margin: '2px 8px' }} />
             <button style={{ ...itemStyle, color: '#ff6b6b' }} onClick={onDelete}
@@ -833,6 +953,24 @@ const TriColorVU = ({ peakDb, isMidi, compact = false }: { peakDb: number; isMid
     const normalizedLevel = vuNorm(peakDb); // 0..1
     const meterHeight = compact ? 28 : 32;
     const fillHeight = normalizedLevel * meterHeight;
+    const [peakHoldNorm, setPeakHoldNorm] = useState(0);
+    const [clipLatched, setClipLatched] = useState(false);
+    const holdTimerRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        setPeakHoldNorm((prev) => Math.max(prev, normalizedLevel));
+        if (peakDb >= 0) setClipLatched(true);
+        if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = window.setTimeout(() => {
+            setPeakHoldNorm(normalizedLevel);
+        }, 650);
+        return () => {
+            if (holdTimerRef.current !== null) {
+                window.clearTimeout(holdTimerRef.current);
+                holdTimerRef.current = null;
+            }
+        };
+    }, [normalizedLevel, peakDb]);
 
     // Segment thresholds in normalized space
     const minus2Norm = vuNorm(-2);  // where -2 dB sits
@@ -846,7 +984,15 @@ const TriColorVU = ({ peakDb, isMidi, compact = false }: { peakDb: number; isMid
             position: 'relative',
             border: '1px solid color-mix(in srgb, var(--text-primary) 10%, transparent)',
             marginLeft: 2,
-        }}>
+            cursor: 'pointer',
+        }}
+            title="Click to reset peak/clip"
+            onClick={(e) => {
+                e.stopPropagation();
+                setClipLatched(false);
+                setPeakHoldNorm(normalizedLevel);
+            }}
+        >
             {/* Green segment: 0 to -2dB zone */}
             <div style={{
                 position: 'absolute', bottom: 0, left: 0, right: 0,
@@ -880,6 +1026,28 @@ const TriColorVU = ({ peakDb, isMidi, compact = false }: { peakDb: number; isMid
                     transition: 'transform 80ms linear',
                 }} />
             )}
+            <div style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: `${peakHoldNorm * 100}%`,
+                height: 1,
+                background: 'rgba(255,255,255,0.95)',
+                boxShadow: '0 0 2px rgba(255,255,255,0.7)',
+            }} />
+            {clipLatched && (
+                <div style={{
+                    position: 'absolute',
+                    top: 1,
+                    left: '50%',
+                    width: 4,
+                    height: 4,
+                    marginLeft: -2,
+                    borderRadius: '50%',
+                    background: '#ff3b30',
+                    boxShadow: '0 0 4px rgba(255,59,48,0.85)',
+                }} />
+            )}
         </div>
     );
 };
@@ -908,6 +1076,24 @@ const VerticalMixerStrip = ({
     const volNorm = Math.max(0, Math.min(1, dbToFader(gainToDb(volumeLinear))));
     const meterNorm = Math.max(0, Math.min(1, vuNorm(peakDb)));
     const panNorm = Math.max(0, Math.min(1, (pan + 1) / 2));
+    const [peakHoldNorm, setPeakHoldNorm] = useState(0);
+    const [clipLatched, setClipLatched] = useState(false);
+    const holdTimerRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        setPeakHoldNorm((prev) => Math.max(prev, meterNorm));
+        if (peakDb >= 0) setClipLatched(true);
+        if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = window.setTimeout(() => {
+            setPeakHoldNorm(meterNorm);
+        }, 650);
+        return () => {
+            if (holdTimerRef.current !== null) {
+                window.clearTimeout(holdTimerRef.current);
+                holdTimerRef.current = null;
+            }
+        };
+    }, [meterNorm, peakDb]);
 
     const applyVolumeFromY = useCallback((clientY: number) => {
         const el = stripRef.current;
@@ -958,6 +1144,11 @@ const VerticalMixerStrip = ({
                     onVolumeChange(1.0);
                     void useEngineStore.getState().flushTrackControlFinals();
                 }}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    setClipLatched(false);
+                    setPeakHoldNorm(meterNorm);
+                }}
                 onWheel={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
@@ -992,6 +1183,16 @@ const VerticalMixerStrip = ({
                     position: 'absolute',
                     left: 0,
                     right: 0,
+                    bottom: `${peakHoldNorm * 100}%`,
+                    height: 1,
+                    background: 'rgba(255,255,255,0.95)',
+                    boxShadow: '0 0 2px rgba(255,255,255,0.7)',
+                    pointerEvents: 'none',
+                }} />
+                <div style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
                     bottom: 0,
                     height: `${volNorm * 100}%`,
                     background: 'linear-gradient(to top, #2fa64a 0%, #46d165 100%)',
@@ -1009,6 +1210,20 @@ const VerticalMixerStrip = ({
                     transition: isDragging ? 'none' : 'bottom 60ms linear',
                     pointerEvents: 'none',
                 }} />
+                {clipLatched && (
+                    <div style={{
+                        position: 'absolute',
+                        top: 1,
+                        left: '50%',
+                        width: 4,
+                        height: 4,
+                        marginLeft: -2,
+                        borderRadius: '50%',
+                        background: '#ff3b30',
+                        boxShadow: '0 0 4px rgba(255,59,48,0.85)',
+                        pointerEvents: 'none',
+                    }} />
+                )}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 54 }}>
@@ -1096,7 +1311,9 @@ const TrackRow = ({
     track, allTracks, trackHeight, displayNum, isSelected, isCollapsed, depth,
     isRenaming, renameValue, onRenameChange, onRenameCommit, onRenameCancel,
     onClick, onToggleMute, onToggleSolo, onToggleArm, onToggleCollapse,
-    onVolumeChange, onPanChange, onOutputChange, onInputChange, onContextMenu, isMasterFixed, mixerFocusMode = false,
+    onVolumeChange, onPanChange, onOutputChange, onInputChange, onContextMenu,
+    onDragStartTrack, onDragOverTrack, onDropTrack, onDragEndTrack,
+    isMasterFixed, mixerFocusMode = false,
 }: {
     track: TrackData;
     allTracks: TrackData[];
@@ -1120,6 +1337,10 @@ const TrackRow = ({
     onOutputChange?: (targetId: string) => void;
     onInputChange?: (inputId: string) => void;
     onContextMenu?: (e: React.MouseEvent) => void;
+    onDragStartTrack?: (e: React.DragEvent<HTMLDivElement>) => void;
+    onDragOverTrack?: (e: React.DragEvent<HTMLDivElement>) => void;
+    onDropTrack?: (e: React.DragEvent<HTMLDivElement>) => void;
+    onDragEndTrack?: () => void;
     isMasterFixed?: boolean;
     mixerFocusMode?: boolean;
 }) => {
@@ -1144,8 +1365,8 @@ const TrackRow = ({
         }
     }, [isRenaming]);
 
-    const showRoutingExpanded = !isMasterFixed && trackHeight >= 48 && (mixerFocusMode || isSelected || isHovered);
-    const showRoutingCompact = !isMasterFixed && !showRoutingExpanded;
+    const showRoutingExpanded = !isMasterFixed;
+    const showRoutingCompact = false;
 
     // Subdue track visually when disabled (muted)
     const isEnabled = !track.isMuted;
@@ -1156,6 +1377,8 @@ const TrackRow = ({
             onContextMenu={onContextMenu}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
+            onDragOver={onDragOverTrack}
+            onDrop={onDropTrack}
             style={{
                 display: 'flex', alignItems: 'stretch', height: trackHeight,
                 borderBottom: isMasterFixed ? 'none' : '1px solid var(--color-divider)',
@@ -1171,8 +1394,25 @@ const TrackRow = ({
                 position: 'relative', paddingLeft: depth * 10, flexShrink: 0,
             }}
         >
+            {depth > 0 && (
+                <div style={{
+                    position: 'absolute',
+                    left: Math.max(2, depth * 10 - 6),
+                    top: 0,
+                    bottom: 0,
+                    width: 2,
+                    background: 'color-mix(in srgb, var(--color-accent-primary) 55%, transparent)',
+                    borderRadius: 1,
+                    opacity: 0.75,
+                    pointerEvents: 'none',
+                }} />
+            )}
             {/* ════ BLOCK 1: Track Header (colored) ════ */}
-            <div style={{
+            <div
+                draggable={!isMaster}
+                onDragStart={onDragStartTrack}
+                onDragEnd={onDragEndTrack}
+                style={{
                 display: 'flex', flexDirection: 'column', justifyContent: 'center',
                 minWidth: isMasterFixed ? 88 : 98,
                 maxWidth: mixerFocusMode ? 132 : 120,
@@ -1181,6 +1421,7 @@ const TrackRow = ({
                 borderRight: '1px solid rgba(255,255,255,0.08)',
                 gap: 1,
                 position: 'relative',
+                cursor: !isMaster ? 'grab' : 'default',
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                     {/* Collapse / Group icon */}

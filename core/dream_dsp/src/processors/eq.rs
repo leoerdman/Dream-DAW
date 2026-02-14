@@ -33,14 +33,14 @@ const DEFAULT_FREQS: [f64; NUM_BANDS] = [
 
 /// Default filter types per band.
 const DEFAULT_TYPES: [BiquadType; NUM_BANDS] = [
-    BiquadType::HighPass,  // Band 0: Low cut
+    BiquadType::Highpass,  // Band 0: Low cut
     BiquadType::LowShelf,  // Band 1: Low shelf
     BiquadType::Peaking,   // Band 2: Bell
     BiquadType::Peaking,   // Band 3: Bell
     BiquadType::Peaking,   // Band 4: Bell
     BiquadType::Peaking,   // Band 5: Bell
     BiquadType::HighShelf, // Band 6: High shelf
-    BiquadType::LowPass,   // Band 7: High cut
+    BiquadType::Lowpass,   // Band 7: High cut
 ];
 
 /// Per-band state.
@@ -63,7 +63,7 @@ impl EqBand {
             freq,
             gain_db,
             q,
-            enabled: true,
+            enabled: !matches!(filter_type, BiquadType::Highpass | BiquadType::Lowpass),
             filter_type,
         }
     }
@@ -92,8 +92,8 @@ pub struct EqProcessor {
 impl EqProcessor {
     pub fn new(sample_rate: f64) -> Self {
         let bands = std::array::from_fn(|i| {
-            let gain = if DEFAULT_TYPES[i] == BiquadType::HighPass
-                || DEFAULT_TYPES[i] == BiquadType::LowPass
+            let gain = if DEFAULT_TYPES[i] == BiquadType::Highpass
+                || DEFAULT_TYPES[i] == BiquadType::Lowpass
             {
                 0.0 // Cuts don't use gain
             } else {

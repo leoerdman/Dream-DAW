@@ -21,6 +21,7 @@ export interface TimelineClip {
     fadeIn?: number;
     fadeOut?: number;
     isOffline?: boolean;
+    muted?: boolean;
     midiNotes?: TimelineClipNote[];
 }
 

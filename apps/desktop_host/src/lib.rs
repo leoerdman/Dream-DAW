@@ -589,6 +589,13 @@ fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     const FX_CHORUS: u8 = 4;
     const FX_UTILITY: u8 = 5;
     const FX_SATURATOR: u8 = 6;
+    const FX_LIMITER: u8 = 7;
+    const FX_GATE: u8 = 8;
+    const FX_AUTO_FILTER: u8 = 9;
+    const FX_PHASER: u8 = 10;
+    const FX_FLANGER: u8 = 11;
+    const FX_DISTORTION: u8 = 12;
+    const FX_BITCRUSHER: u8 = 13;
 
     let key = plugin_id.to_lowercase();
     if key.contains("eq") {
@@ -611,6 +618,27 @@ fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     }
     if key.contains("saturator") {
         return Some(FX_SATURATOR);
+    }
+    if key.contains("limiter") {
+        return Some(FX_LIMITER);
+    }
+    if key.contains("gate") {
+        return Some(FX_GATE);
+    }
+    if key.contains("auto-filter") || key.contains("autofilter") {
+        return Some(FX_AUTO_FILTER);
+    }
+    if key.contains("phaser") {
+        return Some(FX_PHASER);
+    }
+    if key.contains("flanger") {
+        return Some(FX_FLANGER);
+    }
+    if key.contains("distortion") {
+        return Some(FX_DISTORTION);
+    }
+    if key.contains("bitcrusher") || key.contains("bit-crusher") {
+        return Some(FX_BITCRUSHER);
     }
     None
 }

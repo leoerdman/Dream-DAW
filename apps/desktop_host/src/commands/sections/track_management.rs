@@ -132,6 +132,25 @@ fn rebuild_group_children(project: &mut Project) {
     }
 }
 
+fn track_is_descendant_of(project: &Project, candidate_id: Uuid, ancestor_id: Uuid) -> bool {
+    let mut current = project
+        .tracks
+        .iter()
+        .find(|t| t.id == candidate_id)
+        .and_then(|t| t.parent_track_id);
+    while let Some(parent_id) = current {
+        if parent_id == ancestor_id {
+            return true;
+        }
+        current = project
+            .tracks
+            .iter()
+            .find(|t| t.id == parent_id)
+            .and_then(|t| t.parent_track_id);
+    }
+    false
+}
+
 #[tauri::command]
 async fn create_group_cmd(
     track_ids: Vec<String>,
@@ -268,5 +287,112 @@ async fn move_track_to_index_cmd(
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
     log::info!("[IPC] move_track_to_index_cmd({track_id}: {from_index} -> {to_index})");
+    Ok(())
+}
+
+#[tauri::command]
+async fn move_track_with_parent_cmd(
+    track_id: String,
+    target_index: usize,
+    target_parent_group_id: Option<String>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let moving_id = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let target_parent = match target_parent_group_id {
+        Some(raw) if raw == "none" || raw == "master" || raw.trim().is_empty() => None,
+        Some(raw) => Some(Uuid::parse_str(&raw).map_err(|_| format!("Invalid target_parent_group_id: {raw}"))?),
+        None => None,
+    };
+
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let from_index = project
+        .tracks
+        .iter()
+        .position(|t| t.id == moving_id)
+        .ok_or_else(|| format!("Track not found: {track_id}"))?;
+
+    if let Some(parent_id) = target_parent {
+        let parent_track = project
+            .tracks
+            .iter()
+            .find(|t| t.id == parent_id)
+            .ok_or_else(|| format!("Target group not found: {parent_id}"))?;
+        if parent_track.track_type != TrackType::Group {
+            return Err("Target parent must be a group track".to_string());
+        }
+        if moving_id == parent_id {
+            return Err("Track cannot be grouped into itself".to_string());
+        }
+        if track_is_descendant_of(&project, parent_id, moving_id) {
+            return Err("Cannot move track into its own descendant".to_string());
+        }
+    }
+
+    let mut moving_track = project.tracks.remove(from_index);
+    moving_track.parent_track_id = target_parent;
+    moving_track.output_destination_id = target_parent;
+
+    let max_insert = project.tracks.len();
+    let insert_index = target_index.min(max_insert);
+    project.tracks.insert(insert_index, moving_track);
+    rebuild_group_children(&mut project);
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    log::info!(
+        "[IPC] move_track_with_parent_cmd({track_id}: {from_index} -> {insert_index}, parent={:?})",
+        target_parent
+    );
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_track_group_cmd(
+    track_id: String,
+    group_id: Option<String>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let moving_id = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let target_group = match group_id {
+        Some(raw) if raw == "none" || raw == "master" || raw.trim().is_empty() => None,
+        Some(raw) => Some(Uuid::parse_str(&raw).map_err(|_| format!("Invalid group_id: {raw}"))?),
+        None => None,
+    };
+
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    if let Some(group_uuid) = target_group {
+        let group_track = project
+            .tracks
+            .iter()
+            .find(|t| t.id == group_uuid)
+            .ok_or_else(|| format!("Group not found: {group_uuid}"))?;
+        if group_track.track_type != TrackType::Group {
+            return Err("Target track is not a group".to_string());
+        }
+        if group_uuid == moving_id {
+            return Err("Track cannot be grouped into itself".to_string());
+        }
+        if track_is_descendant_of(&project, group_uuid, moving_id) {
+            return Err("Cannot group into descendant track".to_string());
+        }
+    }
+
+    let track = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.id == moving_id)
+        .ok_or_else(|| format!("Track not found: {track_id}"))?;
+    track.parent_track_id = target_group;
+    track.output_destination_id = target_group;
+
+    rebuild_group_children(&mut project);
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    log::info!("[IPC] set_track_group_cmd({track_id} -> {:?})", target_group);
     Ok(())
 }

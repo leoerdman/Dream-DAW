@@ -113,6 +113,10 @@ pub struct MidiClip {
 
     /// Whether this clip is currently selected in the UI.
     pub is_selected: bool,
+
+    /// Whether this clip is muted (stays on timeline but doesn't play).
+    #[serde(default)]
+    pub is_muted: bool,
 }
 
 impl MidiClip {
@@ -129,6 +133,7 @@ impl MidiClip {
             duration,
             notes: Vec::new(),
             is_selected: false,
+            is_muted: false,
         }
     }
 

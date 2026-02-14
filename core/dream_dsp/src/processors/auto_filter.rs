@@ -1,23 +1,25 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — Auto Filter Processor
+// Dream DAW — Auto Filter Processor (Enterprise)
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// Resonant state-variable filter with LFO + envelope follower modulation.
-//
-// Filter types: LP (0), HP (1), BP (2), Notch (3)
-//
-// The cutoff is modulated by:
-//   1. An internal LFO (sine, triangle, saw, square)
-//   2. An envelope follower on the input signal
+// SVF-based auto filter with:
+//   - 4 filter types: LP, HP, BP, Notch
+//   - 6 LFO shapes: Sine, Triangle, Saw Up, Saw Down, Square, Random S&H
+//   - Envelope follower with adjustable sensitivity
+//   - Drive (pre-filter saturation)
+//   - Resonance up to self-oscillation
 //
 // Parameters:
-//   0: Cutoff       (20–20000 Hz, default 1000)
-//   1: Resonance    (0–1, default 0.3)
-//   2: LFO Rate     (0.01–20 Hz, default 1.0)
-//   3: LFO Depth    (0–1, default 0.5)
-//   4: Env Amount   (-1 to 1, default 0.0) — envelope follower mod depth
-//   5: Filter Type  (0=LP, 1=HP, 2=BP, 3=Notch, default 0)
-//   6: Mix          (0–1, default 1.0)
+//   0: Cutoff      (20–20000 Hz, default 1000)
+//   1: Resonance   (0–100%, default 25%)
+//   2: LFO Rate    (0.01–20 Hz, default 1.0)
+//   3: LFO Depth   (0–100%, default 50%)
+//   4: Env Amount  (-100 to 100%, default 30%)
+//   5: Filter Type (0=LP, 1=HP, 2=BP, 3=Notch, default 0)
+//   6: Mix         (0–100%, default 100%)
+//   7: LFO Shape   (0–5, default 0)
+//   8: Drive       (0–24 dB, default 0)
+//   9: Env Speed   (1–200 ms, default 20) — envelope follower speed
 //
 // Real-Time Safety: Zero allocations. O(N) per buffer.
 //
@@ -25,90 +27,111 @@
 
 use crate::dsp_processor::DspProcessor;
 
-/// SVF filter state for one channel.
-#[derive(Clone, Copy)]
-struct SvfState {
-    ic1eq: f32,
-    ic2eq: f32,
-}
-
-impl SvfState {
-    fn new() -> Self {
-        Self { ic1eq: 0.0, ic2eq: 0.0 }
-    }
-
-    fn reset(&mut self) {
-        self.ic1eq = 0.0;
-        self.ic2eq = 0.0;
-    }
-}
-
 pub struct AutoFilterProcessor {
     cutoff_hz: f32,
     resonance: f32,
     lfo_rate: f32,
     lfo_depth: f32,
     env_amount: f32,
-    filter_type: u8, // 0=LP, 1=HP, 2=BP, 3=Notch
+    filter_type: u8,
     mix: f32,
-    // Internal state
-    svf_l: SvfState,
-    svf_r: SvfState,
+    lfo_shape: u8,
+    drive_db: f32,
+    drive_lin: f32,
+    env_speed_ms: f32,
+    // State
     lfo_phase: f64,
     env_follower: f32,
+    env_coeff: f32,
+    // SVF filter state (per channel)
+    ic1eq_l: f32,
+    ic2eq_l: f32,
+    ic1eq_r: f32,
+    ic2eq_r: f32,
+    // Random S&H state
+    sh_value: f32,
+    sh_phase: f32,
     sample_rate: f32,
 }
 
 impl AutoFilterProcessor {
     pub fn new(sample_rate: f32) -> Self {
+        let env_coeff = (-1.0 / (20.0 * 0.001 * sample_rate)).exp();
         Self {
             cutoff_hz: 1000.0,
-            resonance: 0.3,
+            resonance: 0.25,
             lfo_rate: 1.0,
             lfo_depth: 0.5,
-            env_amount: 0.0,
+            env_amount: 0.3,
             filter_type: 0,
             mix: 1.0,
-            svf_l: SvfState::new(),
-            svf_r: SvfState::new(),
+            lfo_shape: 0,
+            drive_db: 0.0,
+            drive_lin: 1.0,
+            env_speed_ms: 20.0,
             lfo_phase: 0.0,
             env_follower: 0.0,
+            env_coeff,
+            ic1eq_l: 0.0, ic2eq_l: 0.0,
+            ic1eq_r: 0.0, ic2eq_r: 0.0,
+            sh_value: 0.0,
+            sh_phase: 0.0,
             sample_rate,
         }
     }
 
-    /// Compute SVF coefficients for given cutoff and Q.
-    #[inline]
-    fn svf_coeffs(cutoff: f32, resonance: f32, sr: f32) -> (f32, f32, f32) {
-        let freq = cutoff.clamp(20.0, sr * 0.49);
-        let g = (std::f32::consts::PI * freq / sr).tan();
-        let k = 2.0 - 2.0 * resonance.clamp(0.0, 0.99);
-        let a1 = 1.0 / (1.0 + g * (g + k));
-        (g, k, a1)
+    fn update_env_coeff(&mut self) {
+        self.env_coeff = (-1.0 / (self.env_speed_ms * 0.001 * self.sample_rate)).exp();
     }
 
-    /// Process one sample through SVF, returns (lp, hp, bp, notch).
     #[inline]
-    fn svf_tick(state: &mut SvfState, input: f32, g: f32, k: f32, a1: f32) -> (f32, f32, f32, f32) {
+    fn lfo_value(&mut self, phase: f32) -> f32 {
+        match self.lfo_shape {
+            0 => (phase * std::f32::consts::TAU).sin(),                       // Sine
+            1 => 1.0 - 4.0 * (phase - 0.5).abs(),                            // Triangle
+            2 => 2.0 * phase - 1.0,                                           // Saw Up
+            3 => 1.0 - 2.0 * phase,                                           // Saw Down
+            4 => if phase < 0.5 { 1.0 } else { -1.0 },                       // Square
+            5 => {
+                // Random Sample & Hold
+                self.sh_phase += 1.0;
+                if self.sh_phase >= self.sample_rate / self.lfo_rate.max(0.01) {
+                    self.sh_phase = 0.0;
+                    // Simple hash for pseudo-random
+                    let seed = (phase * 1000000.0) as u32;
+                    self.sh_value = ((seed.wrapping_mul(1103515245).wrapping_add(12345)) as f32
+                        / u32::MAX as f32) * 2.0 - 1.0;
+                }
+                self.sh_value
+            }
+            _ => (phase * std::f32::consts::TAU).sin(),
+        }
+    }
+
+    /// SVF process (Cytomic/Andy Simper topology).
+    #[inline]
+    fn svf_process(signal: f32, cutoff: f32, q: f32, sr: f32,
+                   ic1eq: &mut f32, ic2eq: &mut f32, filter_type: u8) -> f32 {
+        let g = (std::f32::consts::PI * cutoff / sr).tan();
+        let k = 1.0 / q;
+        let a1 = 1.0 / (1.0 + g * (g + k));
         let a2 = g * a1;
         let a3 = g * a2;
-        let v3 = input - state.ic2eq;
-        let v1 = a1 * state.ic1eq + a2 * v3;
-        let v2 = state.ic2eq + a2 * state.ic1eq + a3 * v3;
-        state.ic1eq = 2.0 * v1 - state.ic1eq;
-        state.ic2eq = 2.0 * v2 - state.ic2eq;
-        let lp = v2;
-        let bp = v1;
-        let hp = input - k * v1 - v2;
-        let notch = lp + hp;
-        (lp, hp, bp, notch)
-    }
 
-    #[inline]
-    fn lfo_sample(&self) -> f32 {
-        let phase = self.lfo_phase as f32;
-        // Sine LFO
-        (phase * std::f32::consts::TAU).sin()
+        let v3 = signal - *ic2eq;
+        let v1 = a1 * *ic1eq + a2 * v3;
+        let v2 = *ic2eq + a2 * *ic1eq + a3 * v3;
+
+        *ic1eq = 2.0 * v1 - *ic1eq;
+        *ic2eq = 2.0 * v2 - *ic2eq;
+
+        match filter_type {
+            0 => v2,              // LP
+            1 => signal - k * v1 - v2, // HP
+            2 => v1,              // BP
+            3 => signal - k * v1, // Notch
+            _ => v2,
+        }
     }
 }
 
@@ -117,71 +140,72 @@ impl DspProcessor for AutoFilterProcessor {
         let len = left.len().min(right.len());
         let sr = self.sample_rate;
         let lfo_inc = self.lfo_rate as f64 / sr as f64;
-        let env_attack = (-1.0 / (0.005 * sr).max(1.0)).exp();
-        let env_release = (-1.0 / (0.050 * sr).max(1.0)).exp();
+        let ft = self.filter_type;
+        let q = 0.5 + self.resonance * 15.0; // 0.5 to ~15
+        let mix = self.mix;
 
         for i in 0..len {
-            // LFO
-            let lfo_val = self.lfo_sample();
-            self.lfo_phase += lfo_inc;
-            if self.lfo_phase >= 1.0 {
-                self.lfo_phase -= 1.0;
-            }
-
-            // Envelope follower
-            let peak = left[i].abs().max(right[i].abs());
-            let coeff = if peak > self.env_follower { env_attack } else { env_release };
-            self.env_follower = coeff * self.env_follower + (1.0 - coeff) * peak;
-
-            // Modulated cutoff (in octaves from base)
-            let lfo_mod = lfo_val * self.lfo_depth * 4.0; // ±4 octaves
-            let env_mod = self.env_follower * self.env_amount * 4.0;
-            let mod_cutoff = self.cutoff_hz * 2.0_f32.powf(lfo_mod + env_mod);
-
-            let (g, k, a1) = Self::svf_coeffs(mod_cutoff, self.resonance, sr);
-
-            // Process both channels
             let dry_l = left[i];
             let dry_r = right[i];
-            let (lp_l, hp_l, bp_l, notch_l) = Self::svf_tick(&mut self.svf_l, dry_l, g, k, a1);
-            let (lp_r, hp_r, bp_r, notch_r) = Self::svf_tick(&mut self.svf_r, dry_r, g, k, a1);
 
-            let wet_l = match self.filter_type {
-                0 => lp_l,
-                1 => hp_l,
-                2 => bp_l,
-                _ => notch_l,
-            };
-            let wet_r = match self.filter_type {
-                0 => lp_r,
-                1 => hp_r,
-                2 => bp_r,
-                _ => notch_r,
-            };
+            // Envelope follower
+            let peak = dry_l.abs().max(dry_r.abs());
+            if peak > self.env_follower {
+                self.env_follower = peak;
+            } else {
+                self.env_follower = self.env_coeff * self.env_follower + (1.0 - self.env_coeff) * peak;
+            }
 
-            left[i] = dry_l * (1.0 - self.mix) + wet_l * self.mix;
-            right[i] = dry_r * (1.0 - self.mix) + wet_r * self.mix;
+            // LFO
+            let phase = (self.lfo_phase as f32).fract();
+            let lfo = self.lfo_value(phase);
+            self.lfo_phase += lfo_inc;
+            if self.lfo_phase >= 1.0 { self.lfo_phase -= 1.0; }
+
+            // Modulated cutoff (log scale)
+            let log_cutoff = (self.cutoff_hz / 20.0).log2();
+            let max_range = (20000.0_f32 / 20.0).log2();
+            let mod_offset = lfo * self.lfo_depth * max_range * 0.5
+                + self.env_follower * self.env_amount * max_range;
+            let mod_cutoff = (20.0 * 2.0_f32.powf((log_cutoff + mod_offset).clamp(0.0, max_range)))
+                .clamp(20.0, 20000.0);
+
+            // Drive
+            let driven_l = (dry_l * self.drive_lin).tanh();
+            let driven_r = (dry_r * self.drive_lin).tanh();
+
+            // SVF
+            let wet_l = Self::svf_process(driven_l, mod_cutoff, q, sr, &mut self.ic1eq_l, &mut self.ic2eq_l, ft);
+            let wet_r = Self::svf_process(driven_r, mod_cutoff, q, sr, &mut self.ic1eq_r, &mut self.ic2eq_r, ft);
+
+            left[i] = dry_l * (1.0 - mix) + wet_l * mix;
+            right[i] = dry_r * (1.0 - mix) + wet_r * mix;
         }
     }
 
     fn set_param(&mut self, index: u8, value: f32) {
         match index {
             0 => self.cutoff_hz = value.clamp(20.0, 20000.0),
-            1 => self.resonance = value.clamp(0.0, 1.0),
+            1 => self.resonance = (value / 100.0).clamp(0.0, 1.0),
             2 => self.lfo_rate = value.clamp(0.01, 20.0),
-            3 => self.lfo_depth = value.clamp(0.0, 1.0),
-            4 => self.env_amount = value.clamp(-1.0, 1.0),
+            3 => self.lfo_depth = (value / 100.0).clamp(0.0, 1.0),
+            4 => self.env_amount = (value / 100.0).clamp(-1.0, 1.0),
             5 => self.filter_type = (value as u8).min(3),
-            6 => self.mix = value.clamp(0.0, 1.0),
+            6 => self.mix = (value / 100.0).clamp(0.0, 1.0),
+            7 => self.lfo_shape = (value as u8).min(5),
+            8 => { self.drive_db = value.clamp(0.0, 24.0); self.drive_lin = 10.0_f32.powf(self.drive_db / 20.0); }
+            9 => { self.env_speed_ms = value.clamp(1.0, 200.0); self.update_env_coeff(); }
             _ => {}
         }
     }
 
     fn reset(&mut self) {
-        self.svf_l.reset();
-        self.svf_r.reset();
         self.lfo_phase = 0.0;
         self.env_follower = 0.0;
+        self.ic1eq_l = 0.0; self.ic2eq_l = 0.0;
+        self.ic1eq_r = 0.0; self.ic2eq_r = 0.0;
+        self.sh_value = 0.0;
+        self.sh_phase = 0.0;
     }
 }
 
@@ -192,28 +216,34 @@ mod tests {
     #[test]
     fn auto_filter_processes_without_panic() {
         let mut proc = AutoFilterProcessor::new(44100.0);
-        let mut left = vec![0.5f32; 512];
-        let mut right = vec![0.5f32; 512];
-        proc.process_stereo(&mut left, &mut right, 44100.0);
+        let mut l = vec![0.5f32; 512];
+        let mut r = vec![0.5f32; 512];
+        proc.process_stereo(&mut l, &mut r, 44100.0);
     }
 
     #[test]
     fn auto_filter_lp_attenuates_high_freq() {
         let mut proc = AutoFilterProcessor::new(44100.0);
-        proc.set_param(0, 200.0);  // low cutoff
-        proc.set_param(1, 0.0);    // no resonance
-        proc.set_param(3, 0.0);    // no LFO
-        proc.set_param(6, 1.0);    // full wet
-        // Generate 5 kHz sine
+        proc.set_param(0, 200.0);  // Low cutoff
+        proc.set_param(3, 0.0);    // No LFO
+        proc.set_param(4, 0.0);    // No envelope
+        proc.set_param(6, 100.0);  // Full wet
         let sr = 44100.0;
-        let freq = 5000.0;
-        let mut left: Vec<f32> = (0..4096)
-            .map(|i| (2.0 * std::f32::consts::PI * freq * i as f32 / sr).sin())
-            .collect();
-        let mut right = left.clone();
-        proc.process_stereo(&mut left, &mut right, sr);
-        // After filtering, high frequency should be significantly attenuated
-        let rms: f32 = (left[1024..].iter().map(|s| s * s).sum::<f32>() / 3072.0).sqrt();
-        assert!(rms < 0.3, "LP filter should attenuate 5kHz, RMS: {rms}");
+        let mut l: Vec<f32> = (0..4096).map(|i| (2.0 * std::f32::consts::PI * 10000.0 * i as f32 / sr).sin()).collect();
+        let mut r = l.clone();
+        proc.process_stereo(&mut l, &mut r, sr);
+        let energy: f32 = l[1024..].iter().map(|s| s * s).sum();
+        assert!(energy < 100.0, "10kHz should be attenuated with 200Hz LP: {energy}");
+    }
+
+    #[test]
+    fn auto_filter_all_lfo_shapes() {
+        for shape in 0..=5u8 {
+            let mut proc = AutoFilterProcessor::new(44100.0);
+            proc.set_param(7, shape as f32);
+            let mut l = vec![0.3f32; 2048];
+            let mut r = vec![0.3f32; 2048];
+            proc.process_stereo(&mut l, &mut r, 44100.0);
+        }
     }
 }

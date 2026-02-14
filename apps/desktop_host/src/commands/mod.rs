@@ -91,6 +91,8 @@ pub(crate) fn invoke_handler()
         create_group_cmd,
         set_group_expanded_cmd,
         move_track_to_index_cmd,
+        move_track_with_parent_cmd,
+        set_track_group_cmd,
         // Clip Editing
         move_clip_cmd,
         split_clip_cmd,
@@ -100,6 +102,7 @@ pub(crate) fn invoke_handler()
         resize_clip_cmd,
         set_clip_fades_cmd,
         set_clip_source_offset_cmd,
+        set_clip_muted_cmd,
         resolve_missing_file_cmd,
         // Automation / recording / export
         set_automation_points_cmd,

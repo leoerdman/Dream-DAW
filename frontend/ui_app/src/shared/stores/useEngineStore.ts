@@ -516,7 +516,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     fetchProject: async () => {
         try {
-                const project = await engine.getProject() as {
+            const project = await engine.getProject() as {
                 tracks: Array<{
                     id: string;
                     name: string;
@@ -635,6 +635,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         durationSamples: clip.duration.sample_frame,
                         sourceOffset: clip.source_offset?.sample_frame ?? 0,
                         isOffline: treatAsMidi ? false : (hasAudioPath ? (clip.is_offline ?? false) : false),
+                        muted: (clip as Record<string, unknown>).is_muted as boolean ?? false,
                     });
                 }
 
@@ -651,6 +652,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         color: trackColor,
                         durationSamples: clip.duration.sample_frame,
                         sourceOffset: 0,
+                        muted: (clip as Record<string, unknown>).is_muted as boolean ?? false,
                         midiNotes: (clip.notes ?? []).map((note, idx) => ({
                             id: `${clip.id}:${idx}:${note.pitch}:${note.start_frame}`,
                             pitch: note.pitch,

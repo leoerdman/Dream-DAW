@@ -628,6 +628,10 @@ export const mergeClips = (clipIds: string[]) =>
 export const deleteClip = (clipId: string) =>
     invoke<void>('delete_clip_cmd', { clipId });
 
+/** Mute or unmute a clip. Muted clips remain on the timeline but don't play. */
+export const setClipMuted = (clipId: string, muted: boolean) =>
+    invoke<void>('set_clip_muted_cmd', { clipId, muted });
+
 // ── Audio Device Management ─────────────────────────────────────────────
 
 /** Available audio devices on the system. */

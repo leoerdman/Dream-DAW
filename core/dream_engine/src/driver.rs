@@ -438,6 +438,16 @@ const FREQ_SMOOTHING: f32 = 0.001;
 /// Holds the live cpal stream. Dropping this stops audio output.
 pub struct AudioStreamHandle {
     _stream: cpal::Stream,
+
+    /// Estimated output latency in sample frames.
+    ///
+    /// Derived from the cpal `StreamConfig::buffer_size`. When the OS uses
+    /// a "Default" (variable) buffer size, we fall back to a conservative
+    /// 512-frame estimate (≈10.7ms at 48kHz, typical macOS CoreAudio default).
+    ///
+    /// The frontend subtracts this from the MasterClock position so the
+    /// visual playhead aligns with the audio actually reaching the speakers.
+    pub output_latency_frames: u32,
 }
 
 // ── Error Type ──────────────────────────────────────────────────────────
@@ -1147,17 +1157,29 @@ pub fn start_audio_thread_on_device(
         )
         .map_err(|e| AudioDriverError::BuildStreamError(e.to_string()))?;
 
-    // ── 6. Start ────────────────────────────────────────────────────
+    // ── 6. Estimate output latency ──────────────────────────────────
+    // cpal 0.17: StreamConfig.buffer_size may be Default (OS-chosen)
+    // or Fixed(n). When Default, we use a conservative 512 frames
+    // which matches typical macOS CoreAudio buffer size (~10.7ms @ 48kHz).
+    let output_latency_frames: u32 = match config.buffer_size {
+        cpal::BufferSize::Fixed(n) => n,
+        cpal::BufferSize::Default => 512,
+    };
+
+    // ── 7. Start ────────────────────────────────────────────────────
     stream
         .play()
         .map_err(|e| AudioDriverError::PlayStreamError(e.to_string()))?;
 
     info!(
-        "🔊 Audio stream started ({}Hz, {}ch, {:?})",
-        sample_rate, channels, sample_format
+        "🔊 Audio stream started ({}Hz, {}ch, {:?}, latency ≈ {} frames)",
+        sample_rate, channels, sample_format, output_latency_frames
     );
 
-    Ok(AudioStreamHandle { _stream: stream })
+    Ok(AudioStreamHandle {
+        _stream: stream,
+        output_latency_frames,
+    })
 }
 
 // ═══════════════════════════════════════════════════════════════════════

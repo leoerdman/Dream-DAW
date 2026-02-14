@@ -20,8 +20,15 @@ fn get_state(handle: tauri::State<'_, AudioEngineHandle>) -> Result<EngineStateR
 }
 
 /// Returns the current transport position and state.
+///
+/// Includes `output_latency_frames` so the frontend can offset the
+/// visual playhead to match actual speaker output, and
+/// `telemetry_timestamp_ms` so the frontend can interpolate the
+/// playhead at 144fps between telemetry ticks.
 #[tauri::command]
 fn get_transport(handle: tauri::State<'_, AudioEngineHandle>) -> Result<TransportState, String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     let state = handle
         .playback_state
         .lock()
@@ -31,6 +38,14 @@ fn get_transport(handle: tauri::State<'_, AudioEngineHandle>) -> Result<Transpor
     let sample_rate = state.sample_rate;
     let seconds = frames as f64 / sample_rate;
     let position_beats = seconds * state.bpm / 60.0;
+
+    // Monotonic timestamp for frontend playhead interpolation.
+    // Uses wall-clock ms since UNIX epoch — the frontend converts
+    // to its own `performance.now()` timebase on first receipt.
+    let telemetry_timestamp_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64() * 1000.0)
+        .unwrap_or(0.0);
 
     Ok(TransportState {
         is_playing: state.is_playing,
@@ -42,6 +57,8 @@ fn get_transport(handle: tauri::State<'_, AudioEngineHandle>) -> Result<Transpor
         loop_enabled: state.loop_enabled,
         loop_start: state.loop_start,
         loop_end: state.loop_end,
+        output_latency_frames: handle.output_latency_frames,
+        telemetry_timestamp_ms,
     })
 }
 

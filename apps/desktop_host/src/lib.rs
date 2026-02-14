@@ -90,6 +90,11 @@ struct AudioEngineHandle {
     routing_snapshot: Arc<SharedRoutingSnapshot>,
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<dream_engine::driver::SharedSamplerSamples>,
+
+    /// Estimated hardware output latency in sample frames.
+    /// Captured from cpal at stream init. Passed to frontend so the
+    /// visual playhead can be offset to match actual speaker output.
+    output_latency_frames: u32,
 }
 
 impl AudioEngineHandle {
@@ -1105,6 +1110,22 @@ struct TransportState {
     loop_enabled: bool,
     loop_start: i64,
     loop_end: i64,
+
+    /// Hardware output latency in sample frames.
+    ///
+    /// The frontend subtracts this from `position_frames` before drawing
+    /// the playhead, so the visual marker aligns with the audio actually
+    /// reaching the speakers (compensates for OS + DAC buffer delay).
+    output_latency_frames: u32,
+
+    /// Monotonic wall-clock timestamp (milliseconds since UNIX epoch)
+    /// captured at the moment this telemetry packet is serialized.
+    ///
+    /// The frontend compares this against `performance.now()` to
+    /// extrapolate the playhead position between telemetry ticks,
+    /// enabling silky-smooth 144fps playhead animation without
+    /// waiting for the next Rust → IPC round-trip.
+    telemetry_timestamp_ms: f64,
 }
 
 /// Track state returned to frontend.
@@ -1284,6 +1305,9 @@ pub fn run() {
     )
     .expect("Fatal: failed to start audio engine");
 
+    // Capture output latency from the stream handle before boxing
+    let output_latency_frames = stream.output_latency_frames;
+
     let engine_handle = AudioEngineHandle {
         producer: Mutex::new(producer),
         master_clock,
@@ -1299,6 +1323,7 @@ pub fn run() {
         routing_snapshot: routing_snapshot_for_handle,
         automation_snapshot: automation_snapshot_for_handle,
         sampler_samples: sampler_samples_for_handle,
+        output_latency_frames,
     };
 
     // Load settings from user folder (primary) or app_data_dir (fallback)

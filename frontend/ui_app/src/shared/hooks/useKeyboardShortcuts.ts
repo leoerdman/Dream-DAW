@@ -76,6 +76,8 @@ let clipboard: TimelineClip[] = [];
  * | Keys | Action |
  * |------|--------|
  * | Space | Toggle playback |
+ * | Cmd/Ctrl + Z | Undo |
+ * | Cmd/Ctrl + Shift + Z | Redo |
  * | Cmd/Ctrl + E | Split selected clip at playhead |
  * | Backspace / Delete | Delete selected clip |
  *
@@ -125,6 +127,32 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 e.preventDefault();
                 e.stopPropagation();
                 onTogglePlayback();
+                return;
+            }
+
+            // ── Cmd/Ctrl + Z: Undo ────────────────────────────────
+            if (isModKey(e) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                    await engine.undo();
+                    onProjectMutated();
+                } catch (err) {
+                    console.warn('[Keyboard] Undo failed:', err);
+                }
+                return;
+            }
+
+            // ── Cmd/Ctrl + Shift + Z: Redo ────────────────────────
+            if (isModKey(e) && e.shiftKey && e.key.toLowerCase() === 'z') {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                    await engine.redo();
+                    onProjectMutated();
+                } catch (err) {
+                    console.warn('[Keyboard] Redo failed:', err);
+                }
                 return;
             }
 

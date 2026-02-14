@@ -9,6 +9,7 @@ import { useDragStore } from '@/shared/stores/useDragStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import { useViewportStore } from '@/shared/stores/useViewportStore';
 import { computeGridLines } from '@/shared/lib/gridSnap';
+import { useViewportMachine } from '@/shared/lib/useViewportMachine';
 import * as engineApi from '@/shared/api/engine';
 
 async function openFileDialog(options: {
@@ -122,8 +123,7 @@ interface TimelineProps {
 // ── Constants ──────────────────────────────────────────────
 
 const RULER_HEIGHT = 28;
-const MIN_PPB = 8;
-const MAX_PPB = 120;
+// MIN_PPB/MAX_PPB constants are now in ViewportMachine.ts
 const DEFAULT_PPB = 20;
 
 // ── Component ──────────────────────────────────────────
@@ -157,12 +157,22 @@ export const Timeline = ({
     onPlayheadChange,
     followPlayhead = false,
 }: TimelineProps) => {
-    const [pixelsPerBeat, setPixelsPerBeat] = useState(DEFAULT_PPB);
-    // BUG-F1/F14: Ref mirrors for scroll/zoom — used in event handlers
-    // and visible-range calculations to avoid stale React state.
+    // ── ViewportMachine: zero-render scroll/zoom engine ──
+    // All scroll/zoom state lives in ViewportMachine (vanilla TS class).
+    // React state (reactState) is only updated via debounced flush (~150ms idle)
+    // for waveform mip-level selection and clip culling.
+    const { vmRef, containerRef: vpContainerRef, reactState, screenToBeats, screenToTrack } = useViewportMachine({
+        totalBeats: (totalBars ?? 256) * (timeSignature?.[0] ?? 4),
+        trackCount: trackCount ?? 9,
+        trackHeight: trackHeight ?? 48,
+        initialPpb: DEFAULT_PPB,
+    });
+    // Debounced React state — ONLY for cold-path operations
+    const pixelsPerBeat = reactState.pixelsPerBeat;
+    const scrollLeft = reactState.scrollX;
+    const viewportWidth = reactState.viewportWidth;
+    // Ref mirror for hot-path access (event handlers that need instant values)
     const pixelsPerBeatRef = useRef(DEFAULT_PPB);
-    const [scrollLeft, setScrollLeft] = useState(0);
-    const [viewportWidth, setViewportWidth] = useState(0);
     const [internalEditCursor, setInternalEditCursor] = useState(0);
     const [internalEditCursorTrackIndex, setInternalEditCursorTrackIndex] = useState(0);
     // BUG-F2: Cursor blink is now purely CSS — no React state needed.
@@ -220,17 +230,17 @@ export const Timeline = ({
     const liveRafRef = useRef<number | null>(null);
     const scrollLeftRef = useRef(0);
     const viewportWidthRef = useRef(0);
-    const scrollRafRef = useRef<number | null>(null);
-    const pendingScrollRef = useRef<{ left: number; width: number } | null>(null);
 
     const beatsPerBar = timeSignature[0];
     const totalBeats = totalBars * beatsPerBar;
     const canvasWidth = totalBeats * pixelsPerBeat;
     const canvasHeight = trackCount * trackHeight;
 
-    // BUG-F1: Keep ref in sync with state for use in event handlers
-    // that need fresh values without depending on React render cycle.
+    // BUG-F1: Keep ref in sync with debounced state for fallback usage.
+    // Hot paths should read from vmRef.current.pixelsPerBeat instead.
     pixelsPerBeatRef.current = pixelsPerBeat;
+    scrollLeftRef.current = vmRef.current?.scrollX ?? 0;
+    viewportWidthRef.current = vmRef.current?.viewportWidth ?? 0;
 
     // BUG-F3: Sync zoom level to ViewportStore so ClipRenderer gets
     // the correct samplesPerPixel for mip level selection.
@@ -275,6 +285,15 @@ export const Timeline = ({
         setTimelineLayout({ pixelsPerBeat, trackHeight, scrollLeft, rulerHeight: RULER_HEIGHT });
     }, [pixelsPerBeat, trackHeight, scrollLeft, setTimelineLayout]);
 
+    // ── Sync ViewportMachine config when props change ──
+    useEffect(() => {
+        vmRef.current?.updateConfig({
+            totalBeats,
+            trackCount,
+            trackHeight,
+        });
+    }, [totalBeats, trackCount, trackHeight, vmRef]);
+
     // Update canvas bounding rect on scroll/resize
     useEffect(() => {
         const el = scrollContainerRef.current;
@@ -299,6 +318,8 @@ export const Timeline = ({
 
     const ghostPreview = useMemo(() => {
         if (!draggingBrowserItem) return null;
+        const vm = vmRef.current;
+        if (!vm) return null;
         const scrollEl = scrollContainerRef.current;
         if (!scrollEl) return null;
         const rect = scrollEl.getBoundingClientRect();
@@ -309,23 +330,22 @@ export const Timeline = ({
         ) {
             return null;
         }
-        const relX = dragCursorX - rect.left + scrollEl.scrollLeft;
-        const relY = dragCursorY - rect.top + scrollEl.scrollTop;
-        const trackIdx = Math.max(0, Math.min(trackCount - 1, Math.floor(relY / trackHeight)));
-        const rawBeat = relX / pixelsPerBeat;
+        const rawBeat = vm.screenToBeats(dragCursorX);
+        const trackIdx = vm.screenToTrack(dragCursorY);
         const snappedBeat = Math.max(0, snapBeat(rawBeat, beatsPerBar));
+        const ppb = vm.pixelsPerBeat;
         // Default ghost clip width = 1 bar (4 beats)
         const ghostWidthBeats = beatsPerBar;
         return {
             trackIndex: trackIdx,
             beat: snappedBeat,
-            widthPx: ghostWidthBeats * pixelsPerBeat,
-            leftPx: snappedBeat * pixelsPerBeat,
+            widthPx: ghostWidthBeats * ppb,
+            leftPx: snappedBeat * ppb,
             topPx: trackIdx * trackHeight,
             name: draggingBrowserItem.name,
             type: draggingBrowserItem.type as 'audio' | 'midi',
         };
-    }, [draggingBrowserItem, dragCursorX, dragCursorY, pixelsPerBeat, trackHeight, trackCount, beatsPerBar, snapBeat]);
+    }, [draggingBrowserItem, dragCursorX, dragCursorY, trackHeight, trackCount, beatsPerBar, snapBeat, vmRef]);
 
     // ── Handle store-based drops INSIDE Timeline ──
     // When the mouse is released while a ghost preview is visible, fire onDropBrowserItem
@@ -339,9 +359,10 @@ export const Timeline = ({
             const item = useDragStore.getState().draggingItem;
             if (!item) return;
 
-            // Re-compute the drop position using the same logic as ghostPreview
+            // Use ViewportMachine for coordinate conversion
+            const vm = vmRef.current;
             const scrollEl = scrollContainerRef.current;
-            if (!scrollEl) return;
+            if (!vm || !scrollEl) return;
             const rect = scrollEl.getBoundingClientRect();
             const cx = useDragStore.getState().cursorX;
             const cy = useDragStore.getState().cursorY;
@@ -356,10 +377,8 @@ export const Timeline = ({
                 return;
             }
 
-            const relX = cx - rect.left + scrollEl.scrollLeft;
-            const relY = cy - rect.top + scrollEl.scrollTop;
-            const trackIdx = Math.max(0, Math.min(trackCount - 1, Math.floor(relY / trackHeight)));
-            const rawBeat = relX / pixelsPerBeat;
+            const rawBeat = vm.screenToBeats(cx);
+            const trackIdx = vm.screenToTrack(cy);
             const snappedBeat = Math.max(0, snapBeat(rawBeat, beatsPerBar));
 
             console.log('[Timeline] Store-drag drop', {
@@ -535,126 +554,55 @@ export const Timeline = ({
         };
     }, [slippingClip]);
 
-    // ── Scroll handler ──
-    const syncHorizontalLayers = useCallback((left: number) => {
-        const tx = `translateX(${-left}px)`;
-        if (rulerContentRef.current) {
-            rulerContentRef.current.style.transform = tx;
-        }
-        if (masterLaneContentRef.current) {
-            masterLaneContentRef.current.style.transform = tx;
-        }
-    }, []);
-
-    const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-        const target = e.currentTarget;
-        const left = target.scrollLeft;
-        const width = target.clientWidth;
-
-        scrollLeftRef.current = left;
-        viewportWidthRef.current = width;
-        syncHorizontalLayers(left);
-        onScrollTop?.(target.scrollTop);
-        setTimelineLayout({ scrollLeft: left, scrollTop: target.scrollTop });
-
-        pendingScrollRef.current = { left, width };
-        if (scrollRafRef.current != null) return;
-        scrollRafRef.current = requestAnimationFrame(() => {
-            scrollRafRef.current = null;
-            const pending = pendingScrollRef.current;
-            if (!pending) return;
-            setScrollLeft(pending.left);
-            setViewportWidth(pending.width);
-        });
-    }, [onScrollTop, setTimelineLayout, syncHorizontalLayers]);
-
+    // ── Scroll & Zoom are now handled by ViewportMachine ──
+    // ViewportMachine.onWheel() handles:
+    //   - Scroll (deltaX/Y) → CSS variable --vp-scroll-x/y
+    //   - Zoom (Ctrl/Cmd + wheel) → CSS variable --vp-ppb with mouse-anchor
+    // No React state updates during hot path. Only debounced flush to React
+    // for waveform mip selection and clip culling.
+    //
+    // The ruler and master lane now use CSS transform driven by CSS variables
+    // instead of the old syncHorizontalLayers() manual DOM mutation.
+    //
+    // Attach ViewportMachine's container ref to the scroll container.
     useEffect(() => {
-        const syncViewport = () => {
-            if (scrollContainerRef.current) {
-                const left = scrollContainerRef.current.scrollLeft;
-                const width = scrollContainerRef.current.clientWidth;
-                scrollLeftRef.current = left;
-                viewportWidthRef.current = width;
-                setViewportWidth(width);
-                setScrollLeft(left);
-                syncHorizontalLayers(left);
-            }
-        };
-        syncViewport();
-        window.addEventListener('resize', syncViewport);
-        return () => {
-            window.removeEventListener('resize', syncViewport);
-            if (scrollRafRef.current != null) {
-                cancelAnimationFrame(scrollRafRef.current);
-                scrollRafRef.current = null;
-            }
-        };
-    }, [syncHorizontalLayers]);
-
-    // ── Zoom (Ctrl+Scroll or pinch) ──
-    useEffect(() => {
-        const el = scrollContainerRef.current;
-        if (!el) return;
-
-        const onWheel = (e: WheelEvent) => {
-            if (e.ctrlKey || e.metaKey) {
-                e.preventDefault();
-                const delta = e.deltaY > 0 ? -2 : 2;
-                const rect = el.getBoundingClientRect();
-                const pointerX = Math.max(0, Math.min(el.clientWidth, e.clientX - rect.left));
-                const prevPpb = pixelsPerBeat;
-                const nextPpb = Math.max(MIN_PPB, Math.min(MAX_PPB, prevPpb + delta));
-                if (nextPpb === prevPpb) return;
-
-                // Keep beat under cursor fixed while zooming.
-                const anchorBeat = (el.scrollLeft + pointerX) / prevPpb;
-                const nextCanvasWidth = totalBeats * nextPpb;
-                const maxScrollLeft = Math.max(0, nextCanvasWidth - el.clientWidth);
-                const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, anchorBeat * nextPpb - pointerX));
-
-                setPixelsPerBeat(nextPpb);
-                // Synchronous scroll + layer sync → single-frame zoom (no jelly)
-                el.scrollLeft = nextScrollLeft;
-                syncHorizontalLayers(nextScrollLeft);
-            }
-        };
-        el.addEventListener('wheel', onWheel, { passive: false });
-        return () => el.removeEventListener('wheel', onWheel);
-    }, [pixelsPerBeat, totalBeats, syncHorizontalLayers]);
+        const scrollEl = scrollContainerRef.current;
+        if (!scrollEl || !vmRef.current) return;
+        vmRef.current.attach(scrollEl);
+        return () => vmRef.current?.detach();
+    }, [vmRef]);
 
     // ── Auto-scroll to follow playhead during playback ──
     useEffect(() => {
         if (!followPlayhead || !isPlaying || externalPlayhead === undefined) return;
-        const scrollEl = scrollContainerRef.current;
-        if (!scrollEl) return;
+        const vm = vmRef.current;
+        if (!vm) return;
 
-        const playheadX = externalPlayhead * pixelsPerBeat;
-        const viewLeft = scrollEl.scrollLeft;
-        const viewRight = viewLeft + scrollEl.clientWidth;
-        const margin = scrollEl.clientWidth * 0.15; // 15% margin
+        const ppb = vm.pixelsPerBeat;
+        const playheadX = externalPlayhead * ppb;
+        const viewLeft = vm.scrollX;
+        const vpWidth = vm.viewportWidth;
+        const viewRight = viewLeft + vpWidth;
+        const margin = vpWidth * 0.15; // 15% margin
 
         // If playhead goes past 85% of visible area, scroll to follow
         if (playheadX > viewRight - margin) {
-            const next = playheadX - scrollEl.clientWidth * 0.3;
-            scrollEl.scrollLeft = next;
-            syncHorizontalLayers(next);
+            vm.setScrollX(playheadX - vpWidth * 0.3);
         }
         // If playhead wraps back (e.g. loop), scroll back
         if (playheadX < viewLeft) {
-            const next = Math.max(0, playheadX - margin);
-            scrollEl.scrollLeft = next;
-            syncHorizontalLayers(next);
+            vm.setScrollX(Math.max(0, playheadX - margin));
         }
-    }, [externalPlayhead, followPlayhead, isPlaying, pixelsPerBeat, syncHorizontalLayers]);
+    }, [externalPlayhead, followPlayhead, isPlaying, vmRef]);
 
     // ── Ruler click → set edit cursor position + seek engine ──
-    // Uses live DOM scrollLeft (not React state) to avoid stale values during zoom transitions
+    // Uses live DOM scrollLeft and pixelsPerBeatRef (not React state)
+    // to avoid stale values during zoom transitions.
     const handleRulerClick = useCallback((e: React.MouseEvent) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        const liveScrollLeft = scrollContainerRef.current?.scrollLeft ?? 0;
-        const livePpb = getLivePixelsPerBeat();
-        const x = e.clientX - rect.left + liveScrollLeft;
-        const rawBeat = x / livePpb;
+        // Use ViewportMachine for coordinate conversion — always fresh, no stale closures
+        const vm = vmRef.current;
+        if (!vm) return;
+        const rawBeat = vm.screenToBeats(e.clientX);
         const beat = Math.max(0, snapBeat(rawBeat, beatsPerBar));
         const trackForCursor = Math.max(0, Math.min(trackCount - 1, editCursorTrackIndex));
         setEditCursorBeat(beat, trackForCursor);
@@ -662,21 +610,15 @@ export const Timeline = ({
         if (!isPlaying) {
             onPlayheadChange?.(beat);
         }
-    }, [editCursorTrackIndex, trackCount, setEditCursorBeat, isPlaying, onPlayheadChange, snapBeat, beatsPerBar, getLivePixelsPerBeat]);
+    }, [editCursorTrackIndex, trackCount, setEditCursorBeat, isPlaying, onPlayheadChange, snapBeat, beatsPerBar, vmRef]);
 
     // ── Canvas click → set edit cursor + deselect clip + seek engine ──
     const handleCanvasClick = useCallback((e: React.MouseEvent) => {
         if ((e.target as HTMLElement).dataset.clip) return;
-        const scrollEl = scrollContainerRef.current;
-        if (!scrollEl) return;
-        const rect = scrollEl.getBoundingClientRect();
-        const scrollLeftPx = scrollEl.scrollLeft;
-        const scrollTop = scrollEl.scrollTop;
-        const livePpb = getLivePixelsPerBeat();
-        const x = e.clientX - rect.left + scrollLeftPx;
-        const y = e.clientY - rect.top + scrollTop;
-        const trackIndex = Math.max(0, Math.min(trackCount - 1, Math.floor(y / trackHeight)));
-        const rawBeat = x / livePpb;
+        const vm = vmRef.current;
+        if (!vm) return;
+        const rawBeat = vm.screenToBeats(e.clientX);
+        const trackIndex = vm.screenToTrack(e.clientY);
         const beat = Math.max(0, snapBeat(rawBeat, beatsPerBar));
         setEditCursorBeat(beat, trackIndex);
         setSelectedClips([]);
@@ -685,7 +627,7 @@ export const Timeline = ({
         if (!isPlaying) {
             onPlayheadChange?.(beat);
         }
-    }, [trackHeight, selectTrackByIndex, trackCount, setEditCursorBeat, isPlaying, onPlayheadChange, snapBeat, beatsPerBar, getLivePixelsPerBeat, setSelectedClips]);
+    }, [selectTrackByIndex, setEditCursorBeat, isPlaying, onPlayheadChange, snapBeat, beatsPerBar, setSelectedClips, vmRef]);
 
     // ── Clip selection ──
     const handleClipClick = useCallback((e: React.MouseEvent, clipId: string) => {
@@ -736,41 +678,43 @@ export const Timeline = ({
     }, [onClipSelect, pixelsPerBeat, selectedClipSet, selectedClipIds, setSelectedClips]);
 
     // ── Global mouse move/up for drag ──
+    // Uses ViewportMachine for coordinate conversion — always reads
+    // the latest scroll/zoom values without stale React state.
     useEffect(() => {
         if (!draggingClip) return;
 
         const onMove = (e: MouseEvent) => {
-            const scrollEl = scrollContainerRef.current;
-            if (!scrollEl) return;
-            const rect = scrollEl.getBoundingClientRect();
-            const scrollLeftPx = scrollEl.scrollLeft;
-            const scrollTopPx = scrollEl.scrollTop;
-            const x = e.clientX - rect.left + scrollLeftPx - draggingClip.offsetX;
-            const y = e.clientY - rect.top + scrollTopPx - draggingClip.offsetY;
+            const vm = vmRef.current;
+            if (!vm) return;
+            const ppb = vm.pixelsPerBeat;
+            const rect = scrollContainerRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            const x = e.clientX - rect.left + vm.scrollX - draggingClip.offsetX;
+            const y = e.clientY - rect.top + vm.scrollY - draggingClip.offsetY;
             const newBeat = Math.max(0, e.altKey
-                ? (x / pixelsPerBeat)
-                : snapBeat(x / pixelsPerBeat, beatsPerBar)
+                ? (x / ppb)
+                : snapBeat(x / ppb, beatsPerBar)
             );
             const newTrack = Math.max(0, Math.min(trackCount - 1, Math.floor(y / trackHeight)));
-            // Update in real-time for visual feedback via CSS transform
+            // Direct DOM mutation for visual feedback — zero React renders
             const el = document.getElementById(`clip-${draggingClip.clipId}`);
             if (el) {
-                el.style.left = `${newBeat * pixelsPerBeat}px`;
+                el.style.left = `${newBeat * ppb}px`;
                 el.style.top = `${newTrack * trackHeight}px`;
             }
         };
 
         const onUp = (e: MouseEvent) => {
-            const scrollEl = scrollContainerRef.current;
-            if (!scrollEl) return;
-            const rect = scrollEl.getBoundingClientRect();
-            const scrollLeftPx = scrollEl.scrollLeft;
-            const scrollTopPx = scrollEl.scrollTop;
-            const x = e.clientX - rect.left + scrollLeftPx - draggingClip.offsetX;
-            const y = e.clientY - rect.top + scrollTopPx - draggingClip.offsetY;
+            const vm = vmRef.current;
+            if (!vm) return;
+            const ppb = vm.pixelsPerBeat;
+            const rect = scrollContainerRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            const x = e.clientX - rect.left + vm.scrollX - draggingClip.offsetX;
+            const y = e.clientY - rect.top + vm.scrollY - draggingClip.offsetY;
             const newBeat = Math.max(0, e.altKey
-                ? (x / pixelsPerBeat)
-                : snapBeat(x / pixelsPerBeat, beatsPerBar)
+                ? (x / ppb)
+                : snapBeat(x / ppb, beatsPerBar)
             );
             const newTrack = Math.max(0, Math.min(trackCount - 1, Math.floor(y / trackHeight)));
             onClipMove?.(draggingClip.clipId, newBeat, newTrack);
@@ -783,7 +727,7 @@ export const Timeline = ({
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
         };
-    }, [draggingClip, pixelsPerBeat, trackHeight, trackCount, onClipMove, snapBeat, beatsPerBar]);
+    }, [draggingClip, trackHeight, trackCount, onClipMove, snapBeat, beatsPerBar, vmRef]);
 
     // ── Timeline culling (mount only visible clips + edge buffer) ──
     const clipRenderBufferPx = 200;
@@ -902,20 +846,21 @@ export const Timeline = ({
                         borderBottom: '6px solid var(--color-accent-primary)',
                     }} />
 
-                    {/* Edit cursor indicator on ruler (blinking, independent) */}
-                    <div style={{
-                        position: 'absolute',
-                        left: editCursorBeat * pixelsPerBeat - 4,
-                        top: 0,
-                        width: 0,
-                        height: 0,
-                        borderLeft: '5px solid transparent',
-                        borderRight: '5px solid transparent',
-                        borderTop: '6px solid rgba(255,255,255,0.68)',
-                        opacity: cursorBlinkOn ? 0.68 : 0.24,
-                        transition: 'opacity 820ms ease-in-out',
-                        pointerEvents: 'none',
-                    }} />
+                    {/* Edit cursor indicator on ruler (blinking via CSS) */}
+                    <div
+                        className="timeline-cursor-blink"
+                        style={{
+                            position: 'absolute',
+                            left: editCursorBeat * pixelsPerBeat - 4,
+                            top: 0,
+                            width: 0,
+                            height: 0,
+                            borderLeft: '5px solid transparent',
+                            borderRight: '5px solid transparent',
+                            borderTop: '6px solid rgba(255,255,255,0.68)',
+                            pointerEvents: 'none',
+                        }}
+                    />
 
                     {/* Loop region on ruler — always visible, blue when enabled, gray when disabled */}
                     <div style={{
@@ -935,10 +880,9 @@ export const Timeline = ({
                 </div>
             </div>
 
-            {/* ── Canvas (scrollable) ── */}
+            {/* ── Canvas (virtual scroll via ViewportMachine) ── */}
             <div
                 ref={scrollContainerRef}
-                onScroll={handleScroll}
                 className="scrollbar-hide"
                 onDragOver={(e) => {
                     if (e.dataTransfer.types.includes('application/x-dream-browser-item')) {
@@ -952,11 +896,10 @@ export const Timeline = ({
                     if (!raw) return;
                     try {
                         const item = JSON.parse(raw) as BrowserDragItem;
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const y = e.clientY - rect.top + e.currentTarget.scrollTop;
-                        const x = e.clientX - rect.left + e.currentTarget.scrollLeft;
-                        const track = Math.min(Math.floor(y / trackHeight), trackCount - 1);
-                        const beat = Math.max(0, snapBeat(x / pixelsPerBeat, beatsPerBar));
+                        const vm = vmRef.current;
+                        if (!vm) return;
+                        const beat = Math.max(0, snapBeat(vm.screenToBeats(e.clientX), beatsPerBar));
+                        const track = Math.min(vm.screenToTrack(e.clientY), trackCount - 1);
                         console.log('[Timeline] Drop on scroll container', { item, track, beat });
                         onDropBrowserItem?.(item, track, beat);
                     } catch (err) {
@@ -968,7 +911,7 @@ export const Timeline = ({
                 }}
                 style={{
                     flex: 1,
-                    overflow: 'auto',
+                    overflow: 'hidden',
                     position: 'relative',
                 }}
             >
@@ -977,18 +920,13 @@ export const Timeline = ({
                     onClick={handleCanvasClick}
                     onDoubleClick={(e) => {
                         // Double-click on a track lane → create MIDI clip
-                        const scrollEl = scrollContainerRef.current;
-                        if (!scrollEl) return;
-                        const rect = scrollEl.getBoundingClientRect();
-                        const scrollLeftPx = scrollEl.scrollLeft;
-                        const scrollTopPx = scrollEl.scrollTop;
-                        const livePpb = getLivePixelsPerBeat();
-                        const y = e.clientY - rect.top + scrollTopPx;
-                        const x = e.clientX - rect.left + scrollLeftPx;
-                        const track = Math.min(Math.floor(y / trackHeight), trackCount - 1);
+                        const vm = vmRef.current;
+                        if (!vm) return;
+                        const rawBeat = vm.screenToBeats(e.clientX);
+                        const track = vm.screenToTrack(e.clientY);
                         const beat = Math.max(0, e.altKey
-                            ? (x / livePpb)
-                            : snapBeat(x / livePpb, beatsPerBar)
+                            ? rawBeat
+                            : snapBeat(rawBeat, beatsPerBar)
                         );
                         onDoubleClickTrack?.(track, beat);
                     }}
@@ -997,17 +935,12 @@ export const Timeline = ({
                         if (e.dataTransfer.types.includes('application/x-dream-browser-item')) {
                             e.preventDefault();
                             e.dataTransfer.dropEffect = 'copy';
-                            // Compute target track from cursor Y
-                            const scrollEl = scrollContainerRef.current;
-                            if (!scrollEl) return;
-                            const rect = scrollEl.getBoundingClientRect();
-                            const scrollLeftPx = scrollEl.scrollLeft;
-                            const scrollTopPx = scrollEl.scrollTop;
-                            const livePpb = getLivePixelsPerBeat();
-                            const y = e.clientY - rect.top + scrollTopPx;
-                            const x = e.clientX - rect.left + scrollLeftPx;
-                            const track = Math.min(Math.floor(y / trackHeight), trackCount - 1);
-                            const beat = Math.max(0, snapBeat(x / livePpb, beatsPerBar)); // magnetic snap
+                            // Use ViewportMachine for coordinate conversion
+                            const vm = vmRef.current;
+                            if (!vm) return;
+                            const rawBeat = vm.screenToBeats(e.clientX);
+                            const track = Math.min(vm.screenToTrack(e.clientY), trackCount - 1);
+                            const beat = Math.max(0, snapBeat(rawBeat, beatsPerBar)); // magnetic snap
                             setDropTargetTrack(track);
                             setDropTargetBeat(beat);
                         }
@@ -1022,16 +955,11 @@ export const Timeline = ({
                         if (!raw) return;
                         try {
                             const item = JSON.parse(raw) as BrowserDragItem;
-                            const scrollEl = scrollContainerRef.current;
-                            if (!scrollEl) return;
-                            const rect = scrollEl.getBoundingClientRect();
-                            const scrollLeftPx = scrollEl.scrollLeft;
-                            const scrollTopPx = scrollEl.scrollTop;
-                            const livePpb = getLivePixelsPerBeat();
-                            const y = e.clientY - rect.top + scrollTopPx;
-                            const x = e.clientX - rect.left + scrollLeftPx;
-                            const track = Math.min(Math.floor(y / trackHeight), trackCount - 1);
-                            const beat = Math.max(0, snapBeat(x / livePpb, beatsPerBar));
+                            const vm = vmRef.current;
+                            if (!vm) return;
+                            const rawBeat = vm.screenToBeats(e.clientX);
+                            const track = Math.min(vm.screenToTrack(e.clientY), trackCount - 1);
+                            const beat = Math.max(0, snapBeat(rawBeat, beatsPerBar));
                             onDropBrowserItem?.(item, track, beat);
                         } catch (err) {
                             console.error('[Timeline] Drop parse error:', err);
@@ -1432,20 +1360,20 @@ export const Timeline = ({
                         willChange: 'transform',
                     }} />
 
-                    {/* ── Edit Cursor (blinking marker) ── */}
-                    <div style={{
-                        position: 'absolute',
-                        left: editCursorBeat * pixelsPerBeat,
-                        top: editCursorTrackIndex * trackHeight,
-                        width: 1,
-                        height: trackHeight,
-                        background: 'rgba(255,255,255,0.62)',
-                        zIndex: 19,
-                        pointerEvents: 'none',
-                        opacity: cursorBlinkOn ? 0.62 : 0.22,
-                        boxShadow: cursorBlinkOn ? '0 0 3px rgba(255,255,255,0.55)' : 'none',
-                        transition: 'opacity 820ms ease-in-out, box-shadow 820ms ease-in-out',
-                    }} />
+                    {/* ── Edit Cursor (blinking via CSS animation — no React state) ── */}
+                    <div
+                        className="timeline-cursor-blink"
+                        style={{
+                            position: 'absolute',
+                            left: editCursorBeat * pixelsPerBeat,
+                            top: editCursorTrackIndex * trackHeight,
+                            width: 1,
+                            height: trackHeight,
+                            background: 'rgba(255,255,255,0.62)',
+                            zIndex: 19,
+                            pointerEvents: 'none',
+                        }}
+                    />
                 </div>
             </div>
 
@@ -1521,10 +1449,11 @@ export const Timeline = ({
                         }}
                     />
 
-                    {/* Master playhead */}
+                    {/* BUG-F9 fix: Master playhead uses transform (GPU-composited)
+                        instead of left (layout reflow) for smooth sync with main playhead. */}
                     <div style={{
                         position: 'absolute',
-                        left: playheadBeat * pixelsPerBeat,
+                        left: 0,
                         top: 0,
                         width: 1.5,
                         height: '100%',
@@ -1532,6 +1461,8 @@ export const Timeline = ({
                         zIndex: 20,
                         pointerEvents: 'none',
                         boxShadow: '0 0 6px var(--color-accent-primary)',
+                        transform: `translateX(${playheadBeat * pixelsPerBeat}px)`,
+                        willChange: 'transform',
                     }} />
                 </div>
             </div>

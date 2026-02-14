@@ -171,3 +171,29 @@ body,
    display: flex;
    flex-direction: column;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   TIMELINE — Cursor Blink Animation (BUG-F2 fix)
+   
+   Replaces React's useState + setInterval timer that caused the
+   entire 1638-line Timeline component to re-render every 1200ms
+   just to toggle opacity. This CSS animation runs on the
+   compositor thread with zero JS overhead.
+   ═══════════════════════════════════════════════════════════════ */
+@keyframes timeline-cursor-blink {
+
+   0%,
+   100% {
+      opacity: 0.68;
+      box-shadow: 0 0 3px rgba(255, 255, 255, 0.55);
+   }
+
+   50% {
+      opacity: 0.22;
+      box-shadow: none;
+   }
+}
+
+.timeline-cursor-blink {
+   animation: timeline-cursor-blink 2.4s ease-in-out infinite;
+}

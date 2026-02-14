@@ -467,7 +467,7 @@ const ContextMenuPopup = ({
     return (
         <div ref={ref} style={{
             position: 'fixed', left: clampedX, top: clampedY, width: 160,
-            background: '#1e1e22', border: '1px solid var(--color-border-subtle)',
+            background: '#1e1e1e', border: '1px solid var(--color-border-subtle)',
             borderRadius: 8, padding: 4, zIndex: 9999,
             boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
         }}>
@@ -1055,7 +1055,7 @@ const ColorPickerPopup = ({
     return (
         <div ref={ref} style={{
             position: 'fixed', left: clampedX, top: clampedY, width: popupWidth,
-            background: '#1e1e22', border: '1px solid var(--color-border-subtle)',
+            background: '#1e1e1e', border: '1px solid var(--color-border-subtle)',
             borderRadius: 8, padding: 8, zIndex: 9999,
             boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
         }}>

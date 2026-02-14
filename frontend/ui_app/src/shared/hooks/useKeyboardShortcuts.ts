@@ -14,7 +14,7 @@
 
 import { useEffect, useCallback } from 'react';
 import * as engine from '@/shared/api/engine';
-import type { TimelineClip } from '@/shared/stores/useEngineStore';
+import type { ProjectTrack, TimelineClip } from '@/shared/stores/useEngineStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -23,6 +23,8 @@ export interface KeyboardShortcutsConfig {
     /** UUID of the currently selected clip (null if none). */
     selectedClipId: string | null;
     selectedClipIds: string[];
+    selectedTrackId: string;
+    projectTracks: ProjectTrack[];
 
     /** Current playhead position in sample frames. */
     playheadFrames: number;
@@ -84,6 +86,8 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
     const {
         selectedClipId,
         selectedClipIds,
+        selectedTrackId,
+        projectTracks,
         playheadFrames,
         timelineClips,
         onProjectMutated,
@@ -107,6 +111,13 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             const deviceRackScope = getScopedEditorElement(e, 'device-rack');
             const inDeviceRack = Boolean(deviceRackScope);
             const selectedDeviceId = deviceRackScope?.dataset?.selectedDeviceId ?? '';
+            const selectedTrackIndex = projectTracks.findIndex((t) => t.id === selectedTrackId);
+            const insertAfterIndex =
+                selectedTrackId &&
+                selectedTrackId !== 'master' &&
+                selectedTrackIndex >= 0
+                    ? selectedTrackIndex
+                    : null;
 
             // ── Space: Toggle Playback ─────────────────────────────
             if (e.code === 'Space' && !e.repeat) {
@@ -114,6 +125,32 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 e.preventDefault();
                 e.stopPropagation();
                 onTogglePlayback();
+                return;
+            }
+
+            // ── Cmd/Ctrl + T: New Audio Track ─────────────────────
+            if (isModKey(e) && !e.shiftKey && e.key.toLowerCase() === 't') {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                    await engine.addTrackAdvanced('audio', insertAfterIndex);
+                    onProjectMutated();
+                } catch (err) {
+                    console.error('[Shortcuts] New audio track failed:', err);
+                }
+                return;
+            }
+
+            // ── Cmd/Ctrl + Shift + T: New MIDI Track ──────────────
+            if (isModKey(e) && e.shiftKey && e.key.toLowerCase() === 't') {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                    await engine.addTrackAdvanced('midi', insertAfterIndex);
+                    onProjectMutated();
+                } catch (err) {
+                    console.error('[Shortcuts] New MIDI track failed:', err);
+                }
                 return;
             }
 
@@ -295,7 +332,16 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 return;
             }
         },
-        [selectedClipId, selectedClipIds, playheadFrames, timelineClips, onProjectMutated, onTogglePlayback],
+        [
+            selectedClipId,
+            selectedClipIds,
+            selectedTrackId,
+            projectTracks,
+            playheadFrames,
+            timelineClips,
+            onProjectMutated,
+            onTogglePlayback,
+        ],
     );
 
     useEffect(() => {

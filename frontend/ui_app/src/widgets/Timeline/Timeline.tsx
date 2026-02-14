@@ -224,7 +224,7 @@ export const Timeline = ({
 
     const selectTrackByIndex = useCallback((trackIndex: number) => {
         const clampedIndex = Math.max(0, Math.min(trackCount - 1, trackIndex));
-        const trackId = trackIds[clampedIndex] ?? `track - ${clampedIndex} `;
+        const trackId = trackIds[clampedIndex] ?? `track-${clampedIndex}`;
         onTrackSelect?.(trackId, clampedIndex);
     }, [onTrackSelect, trackCount, trackIds]);
 
@@ -392,16 +392,16 @@ export const Timeline = ({
         const startX = phantomStartBeatRef.current * pixelsPerBeat;
         const maxWidth = Math.max(1, canvasWidth - startX);
         phantomEl.style.display = 'block';
-        phantomEl.style.left = `${startX} px`;
-        phantomEl.style.top = `${recordingTrackIndex * trackHeight + 2} px`;
-        phantomEl.style.height = `${trackHeight - 4} px`;
+        phantomEl.style.left = `${startX}px`;
+        phantomEl.style.top = `${recordingTrackIndex * trackHeight + 2}px`;
+        phantomEl.style.height = `${trackHeight - 4}px`;
         phantomEl.style.width = '2px';
 
         const dpr = window.devicePixelRatio || 1;
         canvas.width = Math.ceil(maxWidth * dpr);
         canvas.height = Math.ceil((trackHeight - 4) * dpr);
-        canvas.style.width = `${maxWidth} px`;
-        canvas.style.height = `${trackHeight - 4} px`;
+        canvas.style.width = `${maxWidth}px`;
+        canvas.style.height = `${trackHeight - 4}px`;
         const ctx = canvas.getContext('2d');
         if (ctx) {
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -467,7 +467,7 @@ export const Timeline = ({
         if (!phantomEl || !recordingActive) return;
         const startX = phantomStartBeatRef.current * pixelsPerBeat;
         const currentX = playheadBeat * pixelsPerBeat;
-        phantomEl.style.width = `${Math.max(2, currentX - startX)} px`;
+        phantomEl.style.width = `${Math.max(2, currentX - startX)}px`;
     }, [recordingActive, playheadBeat, pixelsPerBeat]);
 
     useEffect(() => {
@@ -484,7 +484,7 @@ export const Timeline = ({
         const onMove = (e: MouseEvent) => {
             const deltaPx = e.clientX - slippingClip.startX;
             const sourceDelta = Math.round(deltaPx * slippingClip.samplesPerPixel);
-            const previewEl = document.getElementById(`clip - wave - ${slippingClip.clipId} `);
+            const previewEl = document.getElementById(`clip-wave-${slippingClip.clipId}`);
             if (previewEl) {
                 previewEl.style.transform = `translateX(${Math.max(-64, Math.min(64, -(sourceDelta / Math.max(1, slippingClip.samplesPerPixel))))}px)`;
             }
@@ -498,7 +498,7 @@ export const Timeline = ({
             } catch (err) {
                 console.error('[Timeline] setClipSourceOffset failed:', err);
             }
-            const previewEl = document.getElementById(`clip - wave - ${slippingClip.clipId} `);
+            const previewEl = document.getElementById(`clip-wave-${slippingClip.clipId}`);
             if (previewEl) previewEl.style.transform = '';
             setSlippingClip(null);
         };
@@ -513,7 +513,7 @@ export const Timeline = ({
 
     // ── Scroll handler ──
     const syncHorizontalLayers = useCallback((left: number) => {
-        const tx = `translateX(${- left}px)`;
+        const tx = `translateX(${-left}px)`;
         if (rulerContentRef.current) {
             rulerContentRef.current.style.transform = tx;
         }
@@ -725,10 +725,10 @@ export const Timeline = ({
             );
             const newTrack = Math.max(0, Math.min(trackCount - 1, Math.floor(y / trackHeight)));
             // Update in real-time for visual feedback via CSS transform
-            const el = document.getElementById(`clip - ${draggingClip.clipId} `);
+            const el = document.getElementById(`clip-${draggingClip.clipId}`);
             if (el) {
-                el.style.left = `${newBeat * pixelsPerBeat} px`;
-                el.style.top = `${newTrack * trackHeight} px`;
+                el.style.left = `${newBeat * pixelsPerBeat}px`;
+                el.style.top = `${newTrack * trackHeight}px`;
             }
         };
 
@@ -757,23 +757,6 @@ export const Timeline = ({
         };
     }, [draggingClip, pixelsPerBeat, trackHeight, trackCount, onClipMove, snapBeat, beatsPerBar]);
 
-    // Ruler marks
-    const rulerMarks = useMemo(() => {
-        const marks: { beat: number; label: string; isBar: boolean }[] = [];
-        const minBeat = Math.max(0, Math.floor((scrollLeft - 300) / pixelsPerBeat));
-        const maxBeat = Math.min(totalBeats, Math.ceil((scrollLeft + viewportWidth + 300) / pixelsPerBeat));
-        for (let beat = minBeat; beat <= maxBeat; beat++) {
-            const barIndex = Math.floor(beat / beatsPerBar) + 1;
-            const beatInBar = beat % beatsPerBar;
-            if (beatInBar === 0) {
-                marks.push({ beat, label: `${barIndex} `, isBar: true });
-            } else {
-                marks.push({ beat, label: '', isBar: false });
-            }
-        }
-        return marks;
-    }, [totalBeats, beatsPerBar, scrollLeft, pixelsPerBeat, viewportWidth]);
-
     // ── Timeline culling (mount only visible clips + edge buffer) ──
     const clipRenderBufferPx = 200;
     const visibleStartPx = scrollLeft - clipRenderBufferPx;
@@ -792,6 +775,22 @@ export const Timeline = ({
         const endBeat = Math.min(totalBeats, (scrollLeft + viewportWidth + 300) / pixelsPerBeat);
         return gridLines.filter((gl) => gl.beat >= startBeat && gl.beat <= endBeat);
     }, [gridLines, pixelsPerBeat, scrollLeft, viewportWidth, totalBeats]);
+
+    // Ruler marks are derived from the exact same grid data/X mapping as the timeline lines.
+    const rulerMarks = useMemo(() => {
+        return visibleGridLines
+            .filter((gl) => gl.isMainBeat)
+            .map((gl) => ({
+                beat: gl.beat,
+                label: gl.isBar ? `${Math.floor(gl.beat / beatsPerBar) + 1}` : '',
+                isBar: gl.isBar,
+            }));
+    }, [visibleGridLines, beatsPerBar]);
+
+    // Shared beat -> pixel mapping to keep ruler ticks and grid lines perfectly aligned.
+    const beatToGridX = useCallback((beat: number) => {
+        return Math.round(beat * pixelsPerBeat) + 0.5;
+    }, [pixelsPerBeat]);
 
     return (
         <div
@@ -834,7 +833,7 @@ export const Timeline = ({
                             key={mark.beat}
                             style={{
                                 position: 'absolute',
-                                left: mark.beat * pixelsPerBeat,
+                                left: beatToGridX(mark.beat),
                                 height: '100%',
                                 display: 'flex',
                                 flexDirection: 'column',
@@ -856,9 +855,9 @@ export const Timeline = ({
                                 </span>
                             )}
                             <div style={{
-                                width: 1,
+                                width: 0,
                                 height: mark.isBar ? 10 : 5,
-                                background: mark.isBar ? 'var(--color-text-tertiary)' : 'var(--color-divider)',
+                                borderLeft: `1px solid ${mark.isBar ? 'var(--color-text-tertiary)' : 'var(--color-divider)'}`,
                             }} />
                         </div>
                     ))}
@@ -900,8 +899,8 @@ export const Timeline = ({
                         background: loopEnabled
                             ? 'color-mix(in srgb, var(--color-accent-primary) 15%, transparent)'
                             : 'rgba(255,255,255,0.04)',
-                        borderLeft: `1px solid ${loopEnabled ? 'var(--color-accent-primary)' : 'rgba(255,255,255,0.1)'} `,
-                        borderRight: `1px solid ${loopEnabled ? 'var(--color-accent-primary)' : 'rgba(255,255,255,0.1)'} `,
+                        borderLeft: `1px solid ${loopEnabled ? 'var(--color-accent-primary)' : 'rgba(255,255,255,0.1)'}`,
+                        borderRight: `1px solid ${loopEnabled ? 'var(--color-accent-primary)' : 'rgba(255,255,255,0.1)'}`,
                         pointerEvents: 'none',
                         transition: 'background 0.2s ease, border-color 0.2s ease',
                     }} />
@@ -1029,7 +1028,7 @@ export const Timeline = ({
                         {/* Horizontal track dividers */}
                         {Array.from({ length: trackCount + 1 }, (_, i) => (
                             <line
-                                key={`h - ${i} `}
+                                key={`h-${i} `}
                                 x1={0}
                                 y1={i * trackHeight}
                                 x2={canvasWidth}
@@ -1046,12 +1045,13 @@ export const Timeline = ({
                                     : gl.depth === 2 ? 0.15
                                         : gl.depth === 3 ? 0.1
                                             : 0.07;
+                            const x = beatToGridX(gl.beat);
                             return (
                                 <line
-                                    key={`v - ${idx} `}
-                                    x1={gl.beat * pixelsPerBeat}
+                                    key={`v-${idx} `}
+                                    x1={x}
                                     y1={0}
-                                    x2={gl.beat * pixelsPerBeat}
+                                    x2={x}
                                     y2={canvasHeight}
                                     stroke={gl.isBar ? 'var(--color-divider)' : 'var(--color-divider-light)'}
                                     strokeWidth={gl.isBar ? 1 : 0.5}
@@ -1071,8 +1071,8 @@ export const Timeline = ({
                         background: loopEnabled
                             ? 'color-mix(in srgb, var(--color-accent-primary) 5%, transparent)'
                             : 'rgba(255,255,255,0.015)',
-                        borderLeft: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 40%, transparent)' : 'rgba(255,255,255,0.05)'} `,
-                        borderRight: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 40%, transparent)' : 'rgba(255,255,255,0.05)'} `,
+                        borderLeft: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 40%, transparent)' : 'rgba(255,255,255,0.05)'}`,
+                        borderRight: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 40%, transparent)' : 'rgba(255,255,255,0.05)'}`,
                         pointerEvents: 'none',
                         zIndex: 1,
                         transition: 'background 0.2s ease, border-color 0.2s ease',
@@ -1087,7 +1087,7 @@ export const Timeline = ({
 
                         return (
                             <div
-                                id={`clip - ${clip.id} `}
+                                id={`clip-${clip.id} `}
                                 key={clip.id}
                                 data-clip="true"
                                 onClick={e => handleClipClick(e, clip.id)}
@@ -1139,6 +1139,8 @@ export const Timeline = ({
                                     color: '#fff',
                                     textShadow: '0 1px 2px rgba(0,0,0,0.5)',
                                     padding: '2px 4px',
+                                    borderBottom: '1px solid rgba(255,255,255,0.14)',
+                                    background: 'linear-gradient(to bottom, rgba(0,0,0,0.12), rgba(0,0,0,0.06))',
                                     whiteSpace: 'nowrap',
                                     overflow: 'hidden',
                                     textOverflow: 'ellipsis',
@@ -1153,7 +1155,7 @@ export const Timeline = ({
                                     overflow: 'hidden',
                                 }}>
                                     {clip.type === 'audio' && clip.filePath && clip.durationSamples ? (
-                                        <div id={`clip - wave - ${clip.id} `} style={{ willChange: 'transform' }}>
+                                        <div id={`clip-wave-${clip.id} `} style={{ willChange: 'transform' }}>
                                             <ClipRenderer
                                                 filePath={clip.filePath}
                                                 width={width}
@@ -1251,7 +1253,7 @@ export const Timeline = ({
 
                     {/* ── Automation Lanes (SVG overlays per track) ── */}
                     {Array.from({ length: trackCount }, (_, trackIdx) => {
-                        const trackId = trackIds[trackIdx] ?? `track - ${trackIdx} `;
+                        const trackId = trackIds[trackIdx] ?? `track-${trackIdx}`;
                         const expanded = expandedTracks.has(trackId);
                         if (!expanded) return null;
                         const lanes = Object.values(automationLanes).filter((lane) => lane.trackId === trackId);
@@ -1324,7 +1326,7 @@ export const Timeline = ({
                             border: `1.5px solid ${ghostPreview.type === 'midi'
                                     ? 'rgba(120, 200, 120, 0.8)'
                                     : 'rgba(74, 144, 217, 0.8)'
-                                } `,
+                                }`,
                             borderRadius: 3,
                             zIndex: 16,
                             pointerEvents: 'none',
@@ -1456,12 +1458,13 @@ export const Timeline = ({
                                     : gl.depth === 2 ? 0.15
                                         : gl.depth === 3 ? 0.1
                                             : 0.07;
+                            const x = beatToGridX(gl.beat);
                             return (
                                 <line
-                                    key={`m - ${idx} `}
-                                    x1={gl.beat * pixelsPerBeat}
+                                    key={`m-${idx} `}
+                                    x1={x}
                                     y1={0}
-                                    x2={gl.beat * pixelsPerBeat}
+                                    x2={x}
                                     y2={trackHeight}
                                     stroke={gl.isBar ? 'var(--color-divider)' : 'var(--color-divider-light)'}
                                     strokeWidth={gl.isBar ? 1 : 0.5}
@@ -1482,8 +1485,8 @@ export const Timeline = ({
                             background: loopEnabled
                                 ? 'color-mix(in srgb, var(--color-accent-primary) 5%, transparent)'
                                 : 'rgba(255,255,255,0.015)',
-                            borderLeft: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 75%, transparent)' : 'rgba(255,255,255,0.05)'} `,
-                            borderRight: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 75%, transparent)' : 'rgba(255,255,255,0.05)'} `,
+                            borderLeft: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 75%, transparent)' : 'rgba(255,255,255,0.05)'}`,
+                            borderRight: `1px solid ${loopEnabled ? 'color-mix(in srgb, var(--color-accent-primary) 75%, transparent)' : 'rgba(255,255,255,0.05)'}`,
                             pointerEvents: 'none',
                             zIndex: 1,
                             transition: 'background 0.2s ease, border-color 0.2s ease',
@@ -1582,7 +1585,7 @@ const MidiNoteFallback = ({
             <svg
                 width="100%"
                 height="100%"
-                viewBox={`0 0 ${emptyWidth} ${viewHeight} `}
+                viewBox={`0 0 ${emptyWidth} ${viewHeight}`}
                 preserveAspectRatio="none"
                 style={{ opacity: 0.2 }}
             >
@@ -1595,7 +1598,7 @@ const MidiNoteFallback = ({
         <svg
             width="100%"
             height="100%"
-            viewBox={`0 0 100 ${viewHeight} `}
+            viewBox={`0 0 100 ${viewHeight}`}
             preserveAspectRatio="none"
             style={{ opacity: 0.76 }}
         >
@@ -1607,7 +1610,7 @@ const MidiNoteFallback = ({
                 const noteHeight = Math.max(1.4, Math.min(4.2, viewHeight * 0.12));
                 return (
                     <rect
-                        key={`${note.pitch} -${note.startBeat} -${i} `}
+                        key={`${note.pitch}-${note.startBeat}-${i}`}
                         x={x}
                         y={y}
                         width={w}

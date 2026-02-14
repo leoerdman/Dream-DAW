@@ -195,7 +195,25 @@ export const updateTrack = (update: TrackStateUpdate) =>
 
 /** Add a new audio track to the project. Auto-names if name is null. */
 export const addTrack = (name?: string) =>
-    invoke<void>('add_track_cmd', { name: name ?? null });
+    invoke<void>('add_track_cmd', {
+        name: name ?? null,
+        trackType: 'audio',
+        insertAfterIndex: null,
+    });
+
+export type TrackCreateType = 'audio' | 'midi' | 'group';
+
+/** Add a track with explicit type and insertion semantics. */
+export const addTrackAdvanced = (
+    trackType: TrackCreateType,
+    insertAfterIndex?: number | null,
+    name?: string,
+) =>
+    invoke<void>('add_track_cmd', {
+        name: name ?? null,
+        trackType,
+        insertAfterIndex: insertAfterIndex ?? null,
+    });
 
 /** Delete a track by its zero-based index. */
 export const deleteTrack = (index: number) =>

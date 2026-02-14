@@ -2911,6 +2911,8 @@ async fn redo_cmd(
 #[tauri::command]
 async fn add_track_cmd(
     name: Option<String>,
+    track_type: Option<String>,
+    insert_after_index: Option<usize>,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
 ) -> Result<(), String> {
@@ -2921,12 +2923,57 @@ async fn add_track_cmd(
     push_undo(&project_state)?;
     project = project_state.project.lock().map_err(|e| e.to_string())?;
 
-    let track_num = project.tracks.len() + 1;
-    let track_name = name.unwrap_or_else(|| format!("Audio {}", track_num));
-    project.add_track(Track::new(&track_name));
+    let normalized_type = track_type.unwrap_or_else(|| "audio".to_string()).to_ascii_lowercase();
+    let resolved_type = match normalized_type.as_str() {
+        "audio" => TrackType::Audio,
+        "midi" => TrackType::Midi,
+        "group" => TrackType::Group,
+        other => return Err(format!("Unsupported track type: {other}")),
+    };
+
+    let track_num = match resolved_type {
+        TrackType::Audio => {
+            project.tracks.iter().filter(|t| t.track_type == TrackType::Audio).count() + 1
+        }
+        TrackType::Midi => {
+            project.tracks.iter().filter(|t| t.track_type == TrackType::Midi).count() + 1
+        }
+        TrackType::Group => {
+            project.tracks.iter().filter(|t| t.track_type == TrackType::Group).count() + 1
+        }
+        TrackType::Master => project.tracks.len() + 1,
+    };
+    let default_prefix = match resolved_type {
+        TrackType::Audio => "Audio",
+        TrackType::Midi => "MIDI",
+        TrackType::Group => "Group",
+        TrackType::Master => "Track",
+    };
+    let track_name = name.unwrap_or_else(|| format!("{default_prefix} {track_num}"));
+    let insert_index = insert_after_index
+        .map(|idx| idx.saturating_add(1))
+        .unwrap_or(project.tracks.len())
+        .min(project.tracks.len());
+
+    let mut track = Track::with_type(
+        &track_name,
+        resolved_type,
+        insert_index,
+    );
+    // Keep deterministic colors by visual order after insert.
+    track.color = TrackColor::for_index(insert_index);
+    project.tracks.insert(insert_index, track);
+
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
-    log::info!("[IPC] add_track_cmd: '{}' (now {} tracks)", track_name, project.tracks.len());
+    log::info!(
+        "[IPC] add_track_cmd: '{}' type={:?} after={:?} inserted_at={} (now {} tracks)",
+        track_name,
+        resolved_type,
+        insert_after_index,
+        insert_index,
+        project.tracks.len()
+    );
     Ok(())
 }
 

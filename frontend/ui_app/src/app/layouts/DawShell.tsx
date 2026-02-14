@@ -81,6 +81,7 @@ export const DawShell = () => {
     const startTelemetryLoop = useEngineStore(s => s.startTelemetryLoop);
     const flushTrackControlFinals = useEngineStore(s => s.flushTrackControlFinals);
     const timelineClipsSnapshot = useEngineStore(s => s.timelineClips);
+    const projectTracksSnapshot = useEngineStore(s => s.projectTracks);
     const importingRef = useRef(false);
     const timelineRef = useRef<HTMLDivElement>(null);
 
@@ -92,6 +93,8 @@ export const DawShell = () => {
     useKeyboardShortcuts({
         selectedClipId,
         selectedClipIds,
+        selectedTrackId,
+        projectTracks: projectTracksSnapshot,
         playheadFrames: Math.round(
             (useEngineStore.getState().transport.position_seconds ?? 0) *
             (useEngineStore.getState().projectSampleRate ?? 44100)

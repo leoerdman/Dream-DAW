@@ -42,7 +42,7 @@ fn main() {
     let (mut producer, consumer) = dream_ipc::create_command_queue();
     let clock = Arc::new(MasterClock::new());
     let meter_bank = Arc::new(MeterBank::new(64));
-    let clip_pool = Arc::new(std::sync::Mutex::new(ClipPool::new()));
+    let clip_pool = Arc::new(arc_swap::ArcSwap::from_pointee(ClipPool::new()));
     let clip_snapshot = Arc::new(SharedClipSnapshot::new());
 
     // ── Start the audio thread ──────────────────────────────────────
@@ -56,7 +56,7 @@ fn main() {
         clip_snapshot,
         Arc::new(dream_engine::driver::SharedMidiSnapshot::new()),
         Arc::new(dream_engine::driver::SharedSamplerSamples::new()),
-        Arc::new(std::sync::Mutex::new(None)), // preview buffer (unused in standalone)
+        Arc::new(arc_swap::ArcSwap::from_pointee(None)), // preview buffer (unused in standalone)
         Arc::new(std::sync::atomic::AtomicUsize::new(0)), // preview cursor
     ) {
         Ok(handle) => {

@@ -86,10 +86,9 @@ export interface RecentProject {
 
 /** Project status response. */
 export interface ProjectStatus {
-    name: string;
-    has_file: boolean;
-    is_dirty: boolean;
-    file_path: string | null;
+    isDirty: boolean;
+    filePath: string | null;
+    projectFolder: string | null;
 }
 
 // ── Transport Commands ───────────────────────────────────────────────────
@@ -248,6 +247,12 @@ export const getProject = () => invoke<unknown>('get_project');
 
 /** Get project status (dirty, path, name). */
 export const getProjectStatus = () => invoke<ProjectStatus>('get_project_status');
+
+/** Create a backup of the current project in the Backup/ directory. */
+export const createBackup = () => invoke<string>('create_backup_cmd');
+
+/** Mark the project as having unsaved changes (dirty state). */
+export const markDirty = () => invoke<void>('mark_dirty_cmd');
 
 // ── Settings ─────────────────────────────────────────────────────────────
 

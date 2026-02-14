@@ -24,6 +24,7 @@ serde_json = "1.0"
 log = { workspace = true }
 env_logger = { workspace = true }
 rtrb = { workspace = true }
+arc-swap = { workspace = true }
 
 # Dream DAW core crates
 dream_models = { path = "../../core/dream_models" }

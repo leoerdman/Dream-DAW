@@ -17,13 +17,15 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use arc_swap::ArcSwap;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use log::{error, info};
 
 use dream_clip_engine::pool::ClipPool;
+use dream_clip_engine::pool::ClipAudio;
 use dream_clip_engine::scheduler::LoopRegion;
 use dream_clip_engine::midi_scheduler::{MidiScheduler, ScheduledNote};
 use dream_ipc::metering::MeterBank;
@@ -34,45 +36,44 @@ use dream_models::midi::MidiClip;
 use crate::render_callback::RenderContext;
 use crate::sampler::{SamplerEngine, AdsrParams};
 
-// ── Shared Clip Snapshot ────────────────────────────────────────────────
+// ── Shared Clip Snapshot (LOCK-FREE) ───────────────────────────────────
 
 /// Atomic snapshot of per-track clip data for the audio thread.
 ///
-/// The UI thread updates this via `swap()` whenever the project changes.
-/// The audio thread reads the current snapshot each buffer via `load()`.
-///
-/// Uses `arc_swap`-style double-buffering: the audio thread holds an
-/// `Arc` clone and never blocks.
+/// Uses `ArcSwap` for **100% wait-free** reads from the audio thread.
+/// The UI thread updates via `store()`, the audio thread reads via `load()`.
+/// No mutex, no blocking, no priority inversion — ever.
 pub struct SharedClipSnapshot {
-    inner: std::sync::Mutex<Arc<Vec<Vec<AudioClip>>>>,
+    inner: ArcSwap<Vec<Vec<AudioClip>>>,
 }
 
 impl SharedClipSnapshot {
     /// Creates a new empty snapshot.
     pub fn new() -> Self {
         Self {
-            inner: std::sync::Mutex::new(Arc::new(Vec::new())),
+            inner: ArcSwap::from_pointee(Vec::new()),
         }
     }
 
     /// Atomically replaces the clip snapshot (called from UI thread).
     ///
     /// The audio thread will pick up the new snapshot on the next buffer.
+    /// This is lock-free — it never blocks the audio thread.
     pub fn swap(&self, new_clips: Vec<Vec<AudioClip>>) {
-        if let Ok(mut guard) = self.inner.lock() {
-            *guard = Arc::new(new_clips);
-        }
+        self.inner.store(Arc::new(new_clips));
     }
 
     /// Gets the current snapshot (called from audio thread).
     ///
-    /// Returns an `Arc` clone — the audio thread can hold this without
-    /// blocking the UI thread from swapping in a new snapshot.
-    pub fn load(&self) -> Arc<Vec<Vec<AudioClip>>> {
-        self.inner
-            .lock()
-            .map(|guard| Arc::clone(&guard))
-            .unwrap_or_else(|_| Arc::new(Vec::new()))
+    /// Returns an `Arc` — **wait-free**, nanosecond atomic load.
+    /// The audio thread can hold this reference as long as needed.
+    pub fn load(&self) -> arc_swap::Guard<Arc<Vec<Vec<AudioClip>>>> {
+        self.inner.load()
+    }
+
+    /// Gets a full `Arc` clone (for cases needing owned Arc).
+    pub fn load_full(&self) -> Arc<Vec<Vec<AudioClip>>> {
+        self.inner.load_full()
     }
 }
 
@@ -82,36 +83,35 @@ impl Default for SharedClipSnapshot {
     }
 }
 
-// ── Shared MIDI Snapshot ───────────────────────────────────────────────
+// ── Shared MIDI Snapshot (LOCK-FREE) ───────────────────────────────────
 
 /// Atomic snapshot of per-track MIDI clip data for the audio thread.
 ///
-/// Follows the same pattern as `SharedClipSnapshot`: the UI thread
-/// updates via `swap()`, the audio thread reads via `load()`.
+/// Same wait-free architecture as `SharedClipSnapshot`.
 pub struct SharedMidiSnapshot {
-    inner: std::sync::Mutex<Arc<Vec<Vec<MidiClip>>>>,
+    inner: ArcSwap<Vec<Vec<MidiClip>>>,
 }
 
 impl SharedMidiSnapshot {
     pub fn new() -> Self {
         Self {
-            inner: std::sync::Mutex::new(Arc::new(Vec::new())),
+            inner: ArcSwap::from_pointee(Vec::new()),
         }
     }
 
     /// Atomically replaces the MIDI snapshot (called from UI thread).
     pub fn swap(&self, new_clips: Vec<Vec<MidiClip>>) {
-        if let Ok(mut guard) = self.inner.lock() {
-            *guard = Arc::new(new_clips);
-        }
+        self.inner.store(Arc::new(new_clips));
     }
 
     /// Gets the current MIDI snapshot (called from audio thread).
-    pub fn load(&self) -> Arc<Vec<Vec<MidiClip>>> {
-        self.inner
-            .lock()
-            .map(|guard| Arc::clone(&guard))
-            .unwrap_or_else(|_| Arc::new(Vec::new()))
+    /// **Wait-free** — nanosecond atomic load.
+    pub fn load(&self) -> arc_swap::Guard<Arc<Vec<Vec<MidiClip>>>> {
+        self.inner.load()
+    }
+
+    pub fn load_full(&self) -> Arc<Vec<Vec<MidiClip>>> {
+        self.inner.load_full()
     }
 }
 
@@ -121,43 +121,45 @@ impl Default for SharedMidiSnapshot {
     }
 }
 
-// ── Shared Sampler Samples ─────────────────────────────────────────────
-
-use dream_clip_engine::pool::ClipAudio;
+// ── Shared Sampler Samples (LOCK-FREE) ─────────────────────────────────
 
 /// Per-track sampler sample and parameters.
 ///
 /// The UI thread sets this when a user loads a sample onto a track.
 /// The audio thread reads it to configure per-track SamplerEngines.
+/// **Wait-free** via `ArcSwap` — no locks in the hot path.
 pub struct SharedSamplerSamples {
-    inner: std::sync::Mutex<Arc<Vec<Option<Arc<ClipAudio>>>>>,
+    inner: ArcSwap<Vec<Option<Arc<ClipAudio>>>>,
 }
 
 impl SharedSamplerSamples {
     pub fn new() -> Self {
         Self {
-            inner: std::sync::Mutex::new(Arc::new(Vec::new())),
+            inner: ArcSwap::from_pointee(Vec::new()),
         }
     }
 
-    /// Sets the loaded sample for a specific track.
+    /// Sets the loaded sample for a specific track (called from UI thread).
+    ///
+    /// Uses load-modify-store pattern. Safe because only the UI thread writes.
     pub fn set_track_sample(&self, track_index: usize, sample: Option<Arc<ClipAudio>>) {
-        if let Ok(mut guard) = self.inner.lock() {
-            let mut samples = (**guard).clone();
-            if track_index >= samples.len() {
-                samples.resize(track_index + 1, None);
-            }
-            samples[track_index] = sample;
-            *guard = Arc::new(samples);
+        let current = self.inner.load_full();
+        let mut samples = (*current).clone();
+        if track_index >= samples.len() {
+            samples.resize(track_index + 1, None);
         }
+        samples[track_index] = sample;
+        self.inner.store(Arc::new(samples));
     }
 
     /// Gets all track samples (called from audio thread).
-    pub fn load(&self) -> Arc<Vec<Option<Arc<ClipAudio>>>> {
-        self.inner
-            .lock()
-            .map(|guard| Arc::clone(&guard))
-            .unwrap_or_else(|_| Arc::new(Vec::new()))
+    /// **Wait-free** — nanosecond atomic load.
+    pub fn load(&self) -> arc_swap::Guard<Arc<Vec<Option<Arc<ClipAudio>>>>> {
+        self.inner.load()
+    }
+
+    pub fn load_full(&self) -> Arc<Vec<Option<Arc<ClipAudio>>>> {
+        self.inner.load_full()
     }
 }
 
@@ -217,10 +219,17 @@ impl std::error::Error for AudioDriverError {}
 /// - `consumer`: Receiving end of the command ring buffer (moved into callback).
 /// - `clock`: Shared master clock (audio callback is the sole writer).
 /// - `meter_bank`: Shared meter bank for lock-free metering.
-/// - `clip_pool`: Shared clip pool (pre-loaded audio data). Accessed via `try_lock()`.
-/// - `clip_snapshot`: Shared snapshot of project clips.
-/// - `preview_buffer`: Arc to the preview audio buffer (set by browser audition).
-/// - `preview_cursor`: Arc to the current playback cursor in the preview buffer.
+/// - `clip_pool`: Shared clip pool snapshot (pre-loaded audio data). **Lock-free via ArcSwap.**
+/// - `clip_snapshot`: Shared snapshot of project clips. **Lock-free via ArcSwap.**
+/// - `midi_snapshot`: Shared MIDI clip snapshot. **Lock-free via ArcSwap.**
+/// - `sampler_samples`: Shared sampler samples. **Lock-free via ArcSwap.**
+/// - `preview_buffer`: Preview audio buffer. **Lock-free via ArcSwap.**
+/// - `preview_cursor`: Atomic cursor in preview buffer.
+///
+/// # RT-Safety
+/// The entire audio callback is 100% lock-free. All shared state
+/// uses `ArcSwap::load()` (wait-free, nanosecond atomic load).
+/// No `Mutex`, no `try_lock()`, no priority inversion — ever.
 ///
 /// # Returns
 /// `AudioStreamHandle` — keep alive for audio to continue. Drop to stop.
@@ -228,11 +237,11 @@ pub fn start_audio_thread(
     mut consumer: rtrb::Consumer<EngineCommand>,
     clock: Arc<MasterClock>,
     meter_bank: Arc<MeterBank>,
-    clip_pool: Arc<Mutex<ClipPool>>,
+    clip_pool: Arc<ArcSwap<ClipPool>>,
     clip_snapshot: Arc<SharedClipSnapshot>,
     midi_snapshot: Arc<SharedMidiSnapshot>,
     sampler_samples: Arc<SharedSamplerSamples>,
-    preview_buffer: Arc<Mutex<Option<Vec<f32>>>>,
+    preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
 ) -> Result<AudioStreamHandle, AudioDriverError> {
     // ── 1. Host & Device ────────────────────────────────────────────
@@ -464,18 +473,14 @@ pub fn start_audio_thread(
                         test_tone_enabled = false;
 
                         // Real clip playback via RenderContext
-                        // Use try_lock to get non-blocking access to clip pool.
-                        // If UI thread is inserting, we skip this buffer (silence).
-                        if let Ok(pool_guard) = clip_pool.try_lock() {
-                            let clips_refs: Vec<&[AudioClip]> = snapshot
-                                .iter()
-                                .map(|v| v.as_slice())
-                                .collect();
+                        // 100% lock-free: ArcSwap::load() is wait-free (nanosecond).
+                        let pool_snap = clip_pool.load();
+                        let clips_refs: Vec<&[AudioClip]> = snapshot
+                            .iter()
+                            .map(|v| v.as_slice())
+                            .collect();
 
-                            render_ctx.render(data, &clips_refs, &pool_guard);
-                        } else {
-                            data.fill(0.0);
-                        }
+                        render_ctx.render(data, &clips_refs, &pool_snap);
                     } else if test_tone_enabled {
                         // Test tone fallback (no clips loaded)
                         for frame in data.chunks_exact_mut(channels) {
@@ -579,19 +584,19 @@ pub fn start_audio_thread(
 
                 // ── C. Mix preview audio (browser audition) ─────
                 // Preview plays regardless of transport state
-                if let Ok(buf_guard) = preview_buffer.try_lock() {
-                    if let Some(ref preview_data) = *buf_guard {
-                        let cursor = preview_cursor.load(Ordering::Relaxed);
-                        let total = preview_data.len();
-                        if cursor < total {
-                            let end = (cursor + frame_count * channels).min(total);
-                            for i in cursor..end {
-                                if i - cursor < data.len() {
-                                    data[i - cursor] += preview_data[i];
-                                }
+                // 100% lock-free: ArcSwap::load() is wait-free.
+                let preview_snap = preview_buffer.load();
+                if let Some(ref preview_data) = **preview_snap {
+                    let cursor = preview_cursor.load(Ordering::Relaxed);
+                    let total = preview_data.len();
+                    if cursor < total {
+                        let end = (cursor + frame_count * channels).min(total);
+                        for i in cursor..end {
+                            if i - cursor < data.len() {
+                                data[i - cursor] += preview_data[i];
                             }
-                            preview_cursor.store(end, Ordering::Relaxed);
                         }
+                        preview_cursor.store(end, Ordering::Relaxed);
                     }
                 }
 
@@ -630,6 +635,44 @@ pub fn start_audio_thread(
     );
 
     Ok(AudioStreamHandle { _stream: stream })
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Audio Device Enumeration
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Enumerates all available audio input and output devices on the system.
+///
+/// Returns `(output_device_names, input_device_names)`.
+/// Uses `cpal::default_host()` which maps to CoreAudio on macOS,
+/// WASAPI on Windows, and ALSA/PulseAudio on Linux.
+pub fn list_audio_devices() -> (Vec<String>, Vec<String>) {
+    let host = cpal::default_host();
+
+    let outputs: Vec<String> = host
+        .output_devices()
+        .map(|devices| {
+            devices
+                .filter_map(|d| {
+                    d.name().ok()
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let inputs: Vec<String> = host
+        .input_devices()
+        .map(|devices| {
+            devices
+                .filter_map(|d| {
+                    d.name().ok()
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    info!("Audio devices: {} outputs, {} inputs", outputs.len(), inputs.len());
+    (outputs, inputs)
 }
 
 #[cfg(test)]

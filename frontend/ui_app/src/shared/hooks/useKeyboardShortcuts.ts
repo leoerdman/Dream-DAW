@@ -13,7 +13,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useCallback } from 'react';
-import { save, open } from '@tauri-apps/plugin-dialog';
 import * as engine from '@/shared/api/engine';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -59,9 +58,9 @@ function isModKey(e: KeyboardEvent): boolean {
  * | Space | Toggle playback |
  * | Cmd/Ctrl + E | Split selected clip at playhead |
  * | Backspace / Delete | Delete selected clip |
- * | Cmd/Ctrl + S | Save project |
- * | Cmd/Ctrl + Shift + S | Save project as... |
- * | Cmd/Ctrl + O | Open project... |
+ *
+ * Note: Project shortcuts (Cmd+S/Shift+S/N/O) are handled by
+ * the `useProjectManager` hook.
  */
 export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
     const {
@@ -119,77 +118,6 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                     onProjectMutated();
                 } catch (err) {
                     console.error('[Shortcuts] Delete clip failed:', err);
-                }
-                return;
-            }
-
-            // ── Cmd/Ctrl + S: Save Project ─────────────────────────
-            if (isModKey(e) && e.key.toLowerCase() === 's' && !e.shiftKey) {
-                e.preventDefault();
-                e.stopPropagation();
-
-                try {
-                    await engine.saveProject();
-                } catch (_err) {
-                    // If no file path set, fall through to Save As
-                    try {
-                        const path = await save({
-                            title: 'Save Project As',
-                            filters: [
-                                { name: 'Dream DAW Project', extensions: ['dream'] },
-                            ],
-                        });
-                        if (path) {
-                            await engine.saveProjectAs(path);
-                        }
-                    } catch (saveErr) {
-                        console.error('[Shortcuts] Save failed:', saveErr);
-                    }
-                }
-                return;
-            }
-
-            // ── Cmd/Ctrl + Shift + S: Save As ──────────────────────
-            if (isModKey(e) && e.key.toLowerCase() === 's' && e.shiftKey) {
-                e.preventDefault();
-                e.stopPropagation();
-
-                try {
-                    const path = await save({
-                        title: 'Save Project As',
-                        filters: [
-                            { name: 'Dream DAW Project', extensions: ['dream'] },
-                        ],
-                    });
-                    if (path) {
-                        await engine.saveProjectAs(path);
-                    }
-                } catch (err) {
-                    console.error('[Shortcuts] Save As failed:', err);
-                }
-                return;
-            }
-
-            // ── Cmd/Ctrl + O: Open Project ─────────────────────────
-            if (isModKey(e) && e.key.toLowerCase() === 'o') {
-                e.preventDefault();
-                e.stopPropagation();
-
-                try {
-                    const result = await open({
-                        title: 'Open Dream DAW Project',
-                        multiple: false,
-                        filters: [
-                            { name: 'Dream DAW Project', extensions: ['dream'] },
-                        ],
-                    });
-                    if (result) {
-                        const filePath = typeof result === 'string' ? result : result;
-                        await engine.openProject(filePath);
-                        onProjectMutated();
-                    }
-                } catch (err) {
-                    console.error('[Shortcuts] Open failed:', err);
                 }
                 return;
             }

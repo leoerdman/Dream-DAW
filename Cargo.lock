@@ -729,6 +729,7 @@ dependencies = [
 name = "desktop_host"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "dirs 5.0.1",
  "dream_clip_engine",
  "dream_engine",
@@ -882,8 +883,12 @@ dependencies = [
 name = "dream_clip_engine"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
+ "crossbeam-utils",
  "dream_models",
  "log",
+ "rtrb",
+ "symphonia",
 ]
 
 [[package]]
@@ -898,6 +903,7 @@ dependencies = [
 name = "dream_engine"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "cpal",
  "dream_clip_engine",
  "dream_dsp",

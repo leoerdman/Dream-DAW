@@ -18,6 +18,7 @@
 
 use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::reader::ClipReader;
+use dream_clip_engine::disk_streamer::StreamingWindow;
 use dream_clip_engine::scheduler::{ClipScheduler, LoopRegion as ClipLoopRegion};
 use dream_dsp::fades::FadeCache;
 use dream_mixer::{ChannelStrip, SummingBus};
@@ -107,6 +108,12 @@ pub struct RenderContext {
 
     /// Current loop region (None = no looping).
     pub loop_region: Option<ClipLoopRegion>,
+
+    /// Streaming windows for disk-streamed clips (large files).
+    /// Keyed by source file path. If a clip's file_path is found here,
+    /// audio is read from the streaming window instead of the in-memory pool.
+    /// This prevents OOM for files exceeding `RAM_THRESHOLD_BYTES`.
+    pub streaming_windows: std::collections::HashMap<String, StreamingWindow>,
 }
 
 impl RenderContext {
@@ -138,6 +145,7 @@ impl RenderContext {
             channels,
             meter_bank,
             loop_region: None,
+            streaming_windows: std::collections::HashMap::new(),
         }
     }
 
@@ -196,6 +204,7 @@ impl RenderContext {
             // ClipScheduler told us which clips overlap. Now read their
             // decoded samples from ClipPool (pre-loaded, zero-copy Arc).
             for ac in &active_clips {
+                // Try in-memory pool first (short clips)
                 if let Some(audio) = clip_pool.get(&ac.clip.file_path) {
                     _total_pool_hits += 1;
                     ClipReader::read_stereo_into(
@@ -208,6 +217,23 @@ impl RenderContext {
                         ac.frames_to_read,
                         ac.clip.gain as f32,
                     );
+                } else if let Some(window) = self.streaming_windows.get(&ac.clip.file_path) {
+                    // Fall back to disk streaming window (large files)
+                    _total_pool_hits += 1;
+                    window.read_into(
+                        ac.source_start_frame,
+                        ac.frames_to_read,
+                        &mut slot.buf_left,
+                        &mut slot.buf_right,
+                        ac.buffer_offset,
+                        ac.clip.gain as f32,
+                    );
+                } else {
+                    // Diagnostic: neither pool nor streaming — clip not loaded
+                    log::warn!("[Render] Pool MISS for clip '{}' file_path='{}'",
+                        ac.clip.name, ac.clip.file_path);
+                    continue;
+                }
 
                     // ── 3a. Apply Hann micro-fades at clip boundaries ──
                     // Always-on anti-click: ~2ms Hann window at clip start/end.
@@ -235,11 +261,6 @@ impl RenderContext {
                             slot.buf_right[tail_start + i] *= gain;
                         }
                     }
-                } else {
-                    // Diagnostic: pool miss — clip references a file not in pool
-                    log::warn!("[Render] Pool MISS for clip '{}' file_path='{}'",
-                        ac.clip.name, ac.clip.file_path);
-                }
             }
         }
 

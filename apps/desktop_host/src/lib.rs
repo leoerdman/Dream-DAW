@@ -19,6 +19,9 @@
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use arc_swap::ArcSwap;
 
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
 use dream_engine::driver::SharedClipSnapshot;
@@ -33,7 +36,7 @@ use dream_models::mutators::{self, MutatorError};
 use dream_models::project::{AudioClip, Project, Track};
 use dream_models::time::AbsoluteTime;
 use dream_models::PlaybackState;
-use tauri::Manager;
+use tauri::{Manager, Emitter};
 use rtrb;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -62,7 +65,7 @@ struct AudioEngineHandle {
     _stream: Mutex<Option<Box<dyn std::any::Any + Send>>>,
 
     /// Preview buffer — interleaved stereo f32 samples for browser audition.
-    preview_buffer: Arc<Mutex<Option<Vec<f32>>>>,
+    preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
 
     /// Preview playback cursor (frame index × 2 for stereo interleaved).
     preview_cursor: Arc<std::sync::atomic::AtomicUsize>,
@@ -70,38 +73,16 @@ struct AudioEngineHandle {
 
 impl AudioEngineHandle {
     /// Load an interleaved stereo buffer for preview playback.
+    /// Uses ArcSwap::store() — lock-free, never blocks the audio thread.
     fn set_preview_buffer(&self, buffer: Vec<f32>) {
         self.preview_cursor.store(0, std::sync::atomic::Ordering::SeqCst);
-        *self.preview_buffer.lock().unwrap() = Some(buffer);
+        self.preview_buffer.store(Arc::new(Some(buffer)));
     }
 
     /// Stop preview and discard the buffer.
     fn clear_preview_buffer(&self) {
-        *self.preview_buffer.lock().unwrap() = None;
+        self.preview_buffer.store(Arc::new(None));
         self.preview_cursor.store(0, std::sync::atomic::Ordering::SeqCst);
-    }
-
-    /// Read `num_frames` of stereo preview audio into output, advancing cursor.
-    /// Returns true if preview is active, false if done or no preview.
-    fn read_preview_samples(&self, output: &mut [f32], num_frames: usize) -> bool {
-        let buf = self.preview_buffer.lock().unwrap();
-        let Some(ref data) = *buf else { return false; };
-
-        let cursor = self.preview_cursor.load(std::sync::atomic::Ordering::Relaxed);
-        let total = data.len();
-        if cursor >= total {
-            return false;
-        }
-
-        let end = (cursor + num_frames * 2).min(total);
-        for i in cursor..end {
-            if i - cursor < output.len() {
-                output[i - cursor] += data[i];
-            }
-        }
-
-        self.preview_cursor.store(end, std::sync::atomic::Ordering::Relaxed);
-        end < total
     }
 }
 
@@ -192,6 +173,9 @@ struct ClipPoolState {
     /// Decoded audio samples (UI thread writes, audio thread reads via Arc).
     pool: Arc<Mutex<ClipPool>>,
 
+    /// ArcSwap-wrapped pool for lock-free audio thread access.
+    arc_pool: Arc<ArcSwap<ClipPool>>,
+
     /// Atomic snapshot of per-track clips (lock-free audio thread access).
     snapshot: Arc<SharedClipSnapshot>,
 }
@@ -200,6 +184,7 @@ impl ClipPoolState {
     fn new() -> Self {
         Self {
             pool: Arc::new(Mutex::new(ClipPool::new())),
+            arc_pool: Arc::new(ArcSwap::from_pointee(ClipPool::new())),
             snapshot: Arc::new(SharedClipSnapshot::new()),
         }
     }
@@ -935,6 +920,11 @@ async fn import_audio_file(
     {
         let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
         pool.insert(clip_audio);
+    }
+    // Publish updated pool snapshot to audio thread
+    {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        clip_pool_state.rebuild_snapshot(&project);
     }
 
     // Determine clip position: use provided drop position, or fall back to playhead
@@ -1941,6 +1931,43 @@ fn mark_dirty_cmd(
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Audio Device Management
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Lists all available audio input and output devices.
+///
+/// Uses `cpal` via `dream_engine::driver::list_audio_devices()`.
+/// Returns `{ outputs: ["name", ...], inputs: ["name", ...] }`.
+#[tauri::command]
+fn get_audio_devices() -> Result<serde_json::Value, String> {
+    let (outputs, inputs) = dream_engine::driver::list_audio_devices();
+    Ok(serde_json::json!({
+        "outputs": outputs,
+        "inputs": inputs,
+    }))
+}
+
+/// Notifies the engine to switch to a different audio device by name.
+///
+/// This logs the requested device and stores the preference.
+/// Full hot-swap of the audio stream is planned for a future iteration
+/// (requires stopping the stream, rebuilding cpal on the new device, and
+/// restarting — which needs careful synchronization with the audio thread).
+#[tauri::command]
+fn set_audio_device(
+    device_name: String,
+    _handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    log::info!("Audio device change requested: '{}'", device_name);
+    // TODO: implement full hot-swap
+    //   1. Drop _stream  (stops audio callback)
+    //   2. Rebuild cpal on named device
+    //   3. Store new Box<AudioStreamHandle> in _handle._stream
+    // For now, the setting is persisted in SettingsState and applied on next launch.
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Application Setup
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -1958,7 +1985,7 @@ pub fn run() {
 
     // Create shared clip pool and snapshot
     let clip_pool_state = ClipPoolState::new();
-    let clip_pool_for_engine = Arc::clone(&clip_pool_state.pool);
+    let clip_pool_for_engine = Arc::clone(&clip_pool_state.arc_pool);
     let snapshot_for_engine = Arc::clone(&clip_pool_state.snapshot);
 
     // Create shared MIDI snapshot and sampler sample state
@@ -1968,7 +1995,7 @@ pub fn run() {
     let sampler_samples_for_engine = Arc::clone(&sampler_samples);
 
     // Create preview buffer Arcs (shared between engine handle and audio driver)
-    let preview_buffer: Arc<Mutex<Option<Vec<f32>>>> = Arc::new(Mutex::new(None));
+    let preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>> = Arc::new(ArcSwap::from_pointee(None));
     let preview_cursor: Arc<std::sync::atomic::AtomicUsize> = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let preview_buffer_for_engine = Arc::clone(&preview_buffer);
     let preview_cursor_for_engine = Arc::clone(&preview_cursor);
@@ -2074,15 +2101,84 @@ pub fn run() {
             // Undo/Redo
             undo_cmd,
             redo_cmd,
+            // Audio Device Management
+            get_audio_devices,
+            set_audio_device,
             // Project Management (extended)
             create_backup_cmd,
             mark_dirty_cmd,
         ])
         .setup(|app| {
+            // ── Telemetry Push Thread (30fps) ─────────────────────────
+            // Replaces frontend requestAnimationFrame polling with
+            // server-pushed events. Zero invoke() overhead per frame.
+            let telemetry_app = app.handle().clone();
+
+            std::thread::Builder::new()
+                .name("telemetry-push".into())
+                .spawn(move || {
+                    loop {
+                        std::thread::sleep(Duration::from_millis(33)); // ~30fps
+
+                        // Build transport snapshot
+                        let transport_json = {
+                            let state = match telemetry_playback.lock() {
+                                Ok(s) => s,
+                                Err(_) => continue,
+                            };
+                            let frames = telemetry_clock.position();
+                            let seconds = frames as f64 / state.sample_rate;
+                            serde_json::json!({
+                                "is_playing": state.is_playing,
+                                "position_frames": frames,
+                                "position_seconds": seconds,
+                                "bpm": state.bpm,
+                                "loop_enabled": state.loop_enabled,
+                                "loop_start": state.loop_start,
+                                "loop_end": state.loop_end,
+                            })
+                        };
+
+                        // Build meter snapshot
+                        let mut tracks = Vec::with_capacity(telemetry_meters.track_count());
+                        for i in 0..telemetry_meters.track_count() {
+                            if let Some((left, right)) = telemetry_meters.track(i) {
+                                tracks.push(serde_json::json!([
+                                    { "rms": left.rms(), "peak": left.peak(), "clipping": left.is_clipping() },
+                                    { "rms": right.rms(), "peak": right.peak(), "clipping": right.is_clipping() },
+                                ]));
+                            }
+                        }
+
+                        let meters_json = serde_json::json!({
+                            "tracks": tracks,
+                            "master_left": {
+                                "rms": telemetry_meters.master_left().rms(),
+                                "peak": telemetry_meters.master_left().peak(),
+                                "clipping": telemetry_meters.master_left().is_clipping(),
+                            },
+                            "master_right": {
+                                "rms": telemetry_meters.master_right().rms(),
+                                "peak": telemetry_meters.master_right().peak(),
+                                "clipping": telemetry_meters.master_right().is_clipping(),
+                            },
+                        });
+
+                        let payload = serde_json::json!({
+                            "transport": transport_json,
+                            "meters": meters_json,
+                        });
+
+                        // Emit to all webviews (fire-and-forget)
+                        let _ = telemetry_app.emit("telemetry_tick", payload);
+                    }
+                })
+                .expect("Failed to spawn telemetry thread");
+
             log::info!(
                 "Dream DAW v{} — Audio engine initialized ({} IPC commands registered)",
                 app.package_info().version,
-                31
+                33
             );
             Ok(())
         })

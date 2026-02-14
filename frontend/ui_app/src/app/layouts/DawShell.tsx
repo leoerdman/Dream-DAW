@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { TransportBar } from '@/widgets/TransportBar/TransportBar';
 import { useKeyboardShortcuts } from '@/shared/hooks/useKeyboardShortcuts';
+import { useProjectManager } from '@/shared/hooks/useProjectManager';
+import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
 import { AssetBrowser } from '@/widgets/AssetBrowser/AssetBrowser';
 import { DeviceRack } from '@/widgets/DeviceRack/DeviceRack';
 import { TrackInspector } from '@/widgets/TrackInspector/TrackInspector';
@@ -63,7 +65,11 @@ export const DawShell = () => {
     const importingRef = useRef(false);
     const timelineRef = useRef<HTMLDivElement>(null);
 
-    // ── Global Keyboard Shortcuts (Space, Cmd+E, Delete, Cmd+S/O) ──
+    // ── Enterprise Project Manager (Cmd+S/⇧S/N/O, auto-backup, dirty state)
+    // Hook has side effects (keyboard shortcuts, auto-backup timer) — value intentionally unused
+    useProjectManager(fetchProject);
+
+    // ── Global Keyboard Shortcuts (Space, Cmd+E, Delete) ──
     useKeyboardShortcuts({
         selectedClipId,
         playheadFrames: Math.round(
@@ -74,62 +80,12 @@ export const DawShell = () => {
         onTogglePlayback: togglePlay,
     });
 
-    // ── ⌘, opens Settings  |  ⌘N / ⌘O / ⌘S / ⌘⇧S project shortcuts ──
+    // ── ⌘, opens Settings ──
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
-            if (!e.metaKey) return;
-
-            switch (e.key) {
-                case ',':
-                    e.preventDefault();
-                    setSettingsOpen(prev => !prev);
-                    break;
-
-                case 'n':
-                    e.preventDefault();
-                    engineApi.newProject()
-                        .then(() => fetchProject())
-                        .then(() => console.log('[DawShell] ⌘N — New project'))
-                        .catch(err => console.error('[DawShell] New project failed:', err));
-                    break;
-
-                case 'o':
-                    e.preventDefault();
-                    engineApi.pickProjectFile()
-                        .then(path => {
-                            if (!path) return;
-                            return engineApi.openProject(path).then(() => fetchProject());
-                        })
-                        .then(() => console.log('[DawShell] ⌘O — Opened'))
-                        .catch(err => console.error('[DawShell] Open failed:', err));
-                    break;
-
-                case 's':
-                    e.preventDefault();
-                    if (e.shiftKey) {
-                        // ⌘⇧S — Save As
-                        engineApi.saveProjectDialog()
-                            .then(path => {
-                                if (!path) return;
-                                return engineApi.saveProjectAs(path);
-                            })
-                            .then(() => console.log('[DawShell] ⌘⇧S — Saved As'))
-                            .catch(err => console.error('[DawShell] Save As failed:', err));
-                    } else {
-                        // ⌘S — Save (fallback to Save As if no path)
-                        engineApi.saveProject()
-                            .then(() => console.log('[DawShell] ⌘S — Saved'))
-                            .catch(() => {
-                                // No path set → trigger Save As
-                                engineApi.saveProjectDialog()
-                                    .then(path => {
-                                        if (!path) return;
-                                        return engineApi.saveProjectAs(path);
-                                    })
-                                    .catch(err => console.error('[DawShell] Save As fallback failed:', err));
-                            });
-                    }
-                    break;
+            if (e.metaKey && e.key === ',') {
+                e.preventDefault();
+                setSettingsOpen(prev => !prev);
             }
         };
         window.addEventListener('keydown', handler);
@@ -338,7 +294,9 @@ export const DawShell = () => {
                 <header className="shrink-0 w-full flex items-center justify-center z-50"
                     style={{ height: 'var(--daw-transport-height)' }}
                 >
-                    <TransportBar onSettingsClick={openSettings} />
+                    <ErrorBoundary module="Transport">
+                        <TransportBar onSettingsClick={openSettings} />
+                    </ErrorBoundary>
                 </header>
 
                 {/* ── CENTER: Split Layout (Browser | Timeline | TrackList) ── */}
@@ -353,7 +311,9 @@ export const DawShell = () => {
                             borderRight: '1px solid var(--color-divider)',
                         }}
                     >
-                        <AssetBrowser />
+                        <ErrorBoundary module="Asset Browser">
+                            <AssetBrowser />
+                        </ErrorBoundary>
                     </aside>
 
                     {/* ═ TIMELINE (replaces the "hole-punch" transparent zone) ═ */}
@@ -364,19 +324,21 @@ export const DawShell = () => {
                             background: 'var(--color-bg-canvas)',
                         }}
                     >
-                        <Timeline
-                            clips={timelineClips}
-                            playheadBeat={playheadBeat}
-                            isPlaying={transport.is_playing}
-                            trackCount={trackCount}
-                            trackHeight={TRACK_HEIGHT}
-                            onPlayheadChange={handlePlayheadChange}
-                            onClipSelect={handleClipSelect}
-                            onClipMove={handleClipMove}
-                            onDropBrowserItem={handleBrowserDrop}
-                            onDoubleClickTrack={handleDoubleClickTrack}
-                            onScrollTop={handleTimelineScrollTop}
-                        />
+                        <ErrorBoundary module="Timeline">
+                            <Timeline
+                                clips={timelineClips}
+                                playheadBeat={playheadBeat}
+                                isPlaying={transport.is_playing}
+                                trackCount={trackCount}
+                                trackHeight={TRACK_HEIGHT}
+                                onPlayheadChange={handlePlayheadChange}
+                                onClipSelect={handleClipSelect}
+                                onClipMove={handleClipMove}
+                                onDropBrowserItem={handleBrowserDrop}
+                                onDoubleClickTrack={handleDoubleClickTrack}
+                                onScrollTop={handleTimelineScrollTop}
+                            />
+                        </ErrorBoundary>
                     </div>
 
                     {/* Right Sidebar (Track Inspector / Track List) */}
@@ -388,13 +350,15 @@ export const DawShell = () => {
                             borderLeft: '1px solid var(--color-divider)',
                         }}
                     >
-                        <TrackInspector
-                            selectedTrackId={selectedTrackId}
-                            onSelectTrack={handleSelectTrack}
-                            trackHeight={TRACK_HEIGHT}
-                            rulerHeight={RULER_HEIGHT}
-                            scrollTop={timelineScrollTop}
-                        />
+                        <ErrorBoundary module="Track Inspector">
+                            <TrackInspector
+                                selectedTrackId={selectedTrackId}
+                                onSelectTrack={handleSelectTrack}
+                                trackHeight={TRACK_HEIGHT}
+                                rulerHeight={RULER_HEIGHT}
+                                scrollTop={timelineScrollTop}
+                            />
+                        </ErrorBoundary>
                     </aside>
                 </main>
 
@@ -407,7 +371,9 @@ export const DawShell = () => {
                         borderTop: '1px solid var(--color-divider)',
                     }}
                 >
-                    <DeviceRack selectedTrackId={selectedTrackId} />
+                    <ErrorBoundary module="Device Rack">
+                        <DeviceRack selectedTrackId={selectedTrackId} />
+                    </ErrorBoundary>
                 </footer>
 
                 {/* ── VERY BOTTOM: Status Bar ── */}

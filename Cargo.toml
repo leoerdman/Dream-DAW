@@ -38,6 +38,7 @@ bytemuck = { version = "1.21", features = ["derive"] }
 symphonia = { version = "0.5", features = ["all"] }
 hound = "3.5"
 parking_lot = "0.12"
+arc-swap = "1.7"
 
 # ── Release Profile (Enterprise) ────────────────────────────────────────
 # These optimizations apply to ALL crates in the workspace when built with --release.

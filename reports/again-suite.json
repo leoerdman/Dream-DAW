@@ -1,8 +1,8 @@
 {
   "als_root": "/Users/leoerdman/ABLETON - Main Folder/ABLETON - Projects/160-200 BPM/9. Again",
   "user_folder": "/Users/leoerdman/ABLETON - Main Folder/ABLETON - User Folder",
-  "generated_at_epoch": 1771106782,
-  "elapsed_seconds": 262.89,
+  "generated_at_epoch": 1771107221,
+  "elapsed_seconds": 351.67,
   "installed_plugins_indexed": 207,
   "totals": {
     "files": 326,
@@ -605,14 +605,14 @@
     "bucket_counts": {
       "samples": 360,
       "defaults": 9,
-      "remote_scripts": 208,
+      "remote_scripts": 179,
       "presets": 57,
       "templates": 19
     },
     "extension_counts": {
-      "<noext>": 22,
+      "<noext>": 10,
       ".wav": 157,
-      ".idx": 2,
+      ".idx": 1,
       ".ini": 17,
       ".ico": 14,
       ".asd": 179,
@@ -626,9 +626,6 @@
       ".md": 3,
       ".pyc": 33,
       ".log": 1,
-      ".rev": 1,
-      ".pack": 1,
-      ".sample": 14,
       ".maxpat": 10,
       ".amxd": 35,
       ".adg": 37,
@@ -636,6 +633,8 @@
       ".toe": 2,
       ".aiff": 6
     },
+    "scanned_files": 634,
+    "max_files_limit": 250000,
     "defaults_root": "/Users/leoerdman/ABLETON - Main Folder/ABLETON - User Folder/User Library/Defaults",
     "defaults_file_count": 9,
     "defaults_top_dirs": [

@@ -868,3 +868,80 @@ export interface AutomationPoint {
  *  MUST be called through lodash.throttle(fn, 16) to cap at 60 IPC/s. */
 export const setAutomationPoints = (trackId: string, paramId: string, points: AutomationPoint[]) =>
     invoke<void>('set_automation_points_cmd', { trackId, paramId, points });
+
+// ── Device Rack Commands ────────────────────────────────────────────────
+
+/** Group selected devices into a new device rack. Returns the new rack UUID. */
+export const createRackFromDevices = (
+    trackId: string,
+    deviceIds: string[],
+    rackName?: string,
+    rackType?: 'audio_effect' | 'instrument' | 'drum' | 'midi_effect',
+) =>
+    invoke<string>('create_rack_from_devices_cmd', {
+        payload: { trackId, deviceIds, rackName: rackName ?? null, rackType: rackType ?? null },
+    });
+
+/** Add a new parallel chain to an existing rack. Returns the new chain UUID. */
+export const addChainToRack = (
+    trackId: string,
+    rackId: string,
+    chainName?: string,
+) =>
+    invoke<string>('add_chain_to_rack_cmd', {
+        payload: { trackId, rackId, chainName: chainName ?? null },
+    });
+
+/** Add a plugin device to a specific chain in a rack. Returns new device UUID. */
+export const addDeviceToRackChain = (
+    trackId: string,
+    rackId: string,
+    chainId: string,
+    pluginId: string,
+    pluginName: string,
+    insertIndex?: number,
+) =>
+    invoke<string>('add_device_to_rack_chain_cmd', {
+        payload: { trackId, rackId, chainId, pluginId, pluginName, insertIndex: insertIndex ?? null },
+    });
+
+/** Remove a device from inside a rack. Optionally auto-dissolve empty racks. */
+export const removeDeviceFromRack = (
+    trackId: string,
+    rackId: string,
+    deviceId: string,
+    autoDissolve = false,
+) =>
+    invoke<void>('remove_device_from_rack_cmd', {
+        payload: { trackId, rackId, deviceId, autoDissolve },
+    });
+
+/** Save a device node (single or rack) as a .dpreset JSON file. Returns output path. */
+export const saveDevicePreset = (
+    trackId: string,
+    deviceId: string,
+    outputPath: string,
+    presetName?: string,
+    tags?: string[],
+    description?: string,
+) =>
+    invoke<string>('save_device_preset_cmd', {
+        payload: {
+            trackId,
+            deviceId,
+            outputPath,
+            presetName: presetName ?? null,
+            tags: tags ?? null,
+            description: description ?? null,
+        },
+    });
+
+/** Load a .dpreset file and insert it into a track's effects chain. Returns new device UUID. */
+export const loadDevicePreset = (
+    trackId: string,
+    presetPath: string,
+    insertIndex?: number,
+) =>
+    invoke<string>('load_device_preset_cmd', {
+        payload: { trackId, presetPath, insertIndex: insertIndex ?? null },
+    });

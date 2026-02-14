@@ -79,6 +79,7 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
     }
     if merged.contains("utility") || merged.contains("looper") || merged.contains("tuner")
         || compact.contains("frequencyshifter")
+        || compact.contains("shifter")
         || compact.contains("pitchhack") || compact.contains("spectral")
         || compact.contains("mxdeviceaudioeffect") || compact.contains("mxdevicemidieffect")
     {
@@ -114,6 +115,9 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
     }
     if merged.contains("bitcrusher") || merged.contains("redux") || compact.contains("redux2") {
         return Some(("internal://effect/bitcrusher", "Bitcrusher", "effect"));
+    }
+    if compact.contains("stringstudio") {
+        return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument"));
     }
     None
 }
@@ -237,11 +241,14 @@ fn parse_track_send_manual_values(mixer: roxmltree::Node<'_, '_>) -> Vec<(usize,
     sends
 }
 
-fn parse_audio_output_target(track_node: roxmltree::Node<'_, '_>) -> Option<String> {
+fn parse_output_target(
+    track_node: roxmltree::Node<'_, '_>,
+    routing_tag: &str,
+) -> Option<String> {
     track_node
         .children()
         .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
-        .and_then(|dc| dc.children().find(|n| n.is_element() && n.has_tag_name("AudioOutputRouting")))
+        .and_then(|dc| dc.children().find(|n| n.is_element() && n.has_tag_name(routing_tag)))
         .and_then(|routing| routing.children().find(|n| n.is_element() && n.has_tag_name("Target")))
         .and_then(|target| target.attribute("Value"))
         .map(|s| s.trim().to_string())
@@ -388,6 +395,33 @@ fn make_missing_plugin_slot(kind: &str, ableton_name: &str) -> DeviceNode {
     DeviceNode::Single(PluginSlot::new(
         format!("Plugin Not Found: {}", ableton_name.trim()),
         format!("missing://{kind}/{slug}"),
+    ))
+}
+
+fn make_import_rack_slot(kind: &str, ableton_name: &str) -> DeviceNode {
+    let normalized = ableton_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let slug = if normalized.is_empty() {
+        "rack".to_string()
+    } else {
+        normalized
+    };
+    let name = ableton_name.trim();
+    DeviceNode::Single(PluginSlot::new(
+        if name.is_empty() { "Imported Rack" } else { name },
+        format!("internal://rack/{kind}/{slug}"),
     ))
 }
 
@@ -734,6 +768,10 @@ mod als_import_tests {
             Some("243".to_string())
         );
         assert_eq!(
+            parse_target_track_xml_id("MidiOut/Track.77"),
+            Some("77".to_string())
+        );
+        assert_eq!(
             parse_target_track_xml_id("AudioOut/ReturnTrack.81"),
             Some("81".to_string())
         );
@@ -1015,12 +1053,380 @@ fn upsert_static_import_lane_if_missing(track: &mut Track, param_id: &str, value
     upsert_static_import_lane(track, param_id, value);
 }
 
+// ── Recursive ALS Rack Parser ──────────────────────────────────────────
+
+/// Parses an Ableton group device XML node into a full `DeviceRack`.
+///
+/// Supports AudioEffectGroupDevice, InstrumentGroupDevice,
+/// DrumGroupDevice, and MidiEffectGroupDevice. Recursively resolves
+/// nested devices within each chain (including nested racks).
+fn parse_als_rack(
+    group_device: roxmltree::Node<'_, '_>,
+    external_plugins: &ExternalPluginIndex,
+    als_path: &Path,
+) -> DeviceRack {
+    let tag = group_device.tag_name().name();
+    let rack_name = infer_device_display_name(group_device, tag);
+
+    let rack_type = match tag {
+        "InstrumentGroupDevice" => RackType::Instrument,
+        "DrumGroupDevice" => RackType::DrumRack,
+        "MidiEffectGroupDevice" => RackType::MidiEffect,
+        _ => RackType::AudioEffect,
+    };
+
+    let mut rack = DeviceRack::new(&rack_name, rack_type);
+
+    // ── Parse Branches → RackChains ─────────────────────────────────
+    rack.chains = parse_als_rack_chains(group_device, external_plugins, als_path);
+
+    // If no branches found, create a single default chain.
+    if rack.chains.is_empty() {
+        rack.chains.push(RackChain::new("Chain A"));
+    }
+
+    // ── Parse MacroControls (up to 16) ──────────────────────────────
+    for macro_node in group_device.descendants().filter(|n| {
+        n.is_element()
+            && n.tag_name()
+                .name()
+                .starts_with("MacroControls.")
+    }) {
+        let tag_name = macro_node.tag_name().name();
+        // Extract index from "MacroControls.0", "MacroControls.1", etc.
+        if let Some(idx_str) = tag_name.strip_prefix("MacroControls.") {
+            if let Ok(idx) = idx_str.parse::<u8>() {
+                if (idx as usize) < rack.macro_controls.len() {
+                    let display_name = macro_node
+                        .children()
+                        .find(|n| n.is_element() && n.has_tag_name("CustomName"))
+                        .and_then(|n| n.attribute("Value"))
+                        .unwrap_or("")
+                        .to_string();
+
+                    let value = macro_node
+                        .children()
+                        .find(|n| n.is_element() && n.has_tag_name("Manual"))
+                        .and_then(|n| n.attribute("Value"))
+                        .and_then(parse_f64_value)
+                        .unwrap_or(0.0);
+
+                    let mc = &mut rack.macro_controls[idx as usize];
+                    if !display_name.is_empty() {
+                        mc.name = display_name;
+                    }
+                    mc.value = value;
+                    mc.default_value = value;
+                }
+            }
+        }
+    }
+
+    // ── Parse bypass state ──────────────────────────────────────────
+    rack.is_bypassed = group_device
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("On"))
+        .and_then(|n| {
+            n.children()
+                .find(|c| c.is_element() && c.has_tag_name("Manual"))
+                .and_then(|m| m.attribute("Value"))
+                .and_then(parse_bool_value)
+        })
+        .map(|on| !on) // Ableton stores "On", we need "is_bypassed"
+        .unwrap_or(false);
+
+    rack
+}
+
+/// Parses the Branches element of a group device into a Vec<RackChain>.
+///
+/// Ableton structure:
+/// ```xml
+/// <Branches>
+///   <AudioEffectBranch Id="0">
+///     <Name Value="Chain A" />
+///     <DeviceChain>
+///       <AudioToAudioDeviceChain>
+///         <Devices>
+///           <Eq8 Id="123" />
+///         </Devices>
+///       </AudioToAudioDeviceChain>
+///     </DeviceChain>
+///     <ZoneSettings>
+///       <KeyRange><Min Value="0"/><Max Value="127"/></KeyRange>
+///       ...
+///     </ZoneSettings>
+///   </AudioEffectBranch>
+/// </Branches>
+/// ```
+fn parse_als_rack_chains(
+    group_device: roxmltree::Node<'_, '_>,
+    external_plugins: &ExternalPluginIndex,
+    als_path: &Path,
+) -> Vec<RackChain> {
+    let mut chains = Vec::new();
+
+    let branches_node = match group_device
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("Branches"))
+    {
+        Some(b) => b,
+        None => return chains,
+    };
+
+    for branch in branches_node.children().filter(|n| n.is_element()) {
+        let chain_name = node_child_value(branch, "Name")
+            .unwrap_or_else(|| {
+                let letter = (b'A' + chains.len().min(25) as u8) as char;
+                format!("Chain {letter}")
+            });
+
+        let mut chain = RackChain::new(chain_name);
+
+        // ── Parse ZoneSettings ──────────────────────────────────────
+        if let Some(zone_node) = branch
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("ZoneSettings"))
+        {
+            chain.zone_settings = parse_als_zone_settings(zone_node);
+        }
+
+        // ── Parse chain mute/solo ───────────────────────────────────
+        chain.is_mute = branch
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("IsSoloed"))
+            .and_then(|n| n.attribute("Value"))
+            .and_then(parse_bool_value)
+            .unwrap_or(false);
+
+        // ── Parse devices from DeviceChain ──────────────────────────
+        let device_chain = branch
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("DeviceChain"));
+
+        if let Some(dc) = device_chain {
+            // Ableton nests devices in:
+            //   DeviceChain > AudioToAudioDeviceChain > Devices
+            //   DeviceChain > MidiToAudioDeviceChain > Devices
+            //   DeviceChain > Devices (direct)
+            let devices_node = dc
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name("Devices"))
+                .or_else(|| {
+                    // Check wrapper: AudioToAudioDeviceChain, MidiToAudioDeviceChain, etc.
+                    dc.children()
+                        .filter(|n| n.is_element())
+                        .find_map(|wrapper| {
+                            wrapper
+                                .children()
+                                .find(|n| n.is_element() && n.has_tag_name("Devices"))
+                        })
+                });
+
+            if let Some(devs) = devices_node {
+                for child_device in devs.children().filter(|n| n.is_element()) {
+                    let child_tag = child_device.tag_name().name();
+
+                    // Nested rack → recursive parse.
+                    if matches!(
+                        child_tag,
+                        "AudioEffectGroupDevice"
+                            | "InstrumentGroupDevice"
+                            | "DrumGroupDevice"
+                            | "MidiEffectGroupDevice"
+                    ) {
+                        let nested_rack = parse_als_rack(child_device, external_plugins, als_path);
+                        chain.devices.push(DeviceNode::Rack(nested_rack));
+                        continue;
+                    }
+
+                    // PluginDevice → external VST/VST3.
+                    if child_tag == "PluginDevice" {
+                        let display = infer_device_display_name(child_device, child_tag);
+                        let vst3_name = child_device
+                            .descendants()
+                            .find(|n| n.is_element() && n.has_tag_name("Vst3PluginInfo"))
+                            .and_then(|v| {
+                                v.children()
+                                    .find(|n| n.is_element() && n.has_tag_name("Name"))
+                                    .and_then(|n| n.attribute("Value"))
+                            })
+                            .unwrap_or_default();
+                        let vst2_name = child_device
+                            .descendants()
+                            .find(|n| n.is_element() && n.has_tag_name("VstPluginInfo"))
+                            .and_then(|v| {
+                                v.children()
+                                    .find(|n| n.is_element() && n.has_tag_name("PlugName"))
+                                    .and_then(|n| n.attribute("Value"))
+                            })
+                            .unwrap_or_default();
+                        let vst3_path = child_device
+                            .descendants()
+                            .find(|n| n.is_element() && n.has_tag_name("Vst3PluginInfo"))
+                            .and_then(|v| {
+                                v.children()
+                                    .find(|n| n.is_element() && n.has_tag_name("Path"))
+                                    .and_then(|n| n.attribute("Value"))
+                            })
+                            .unwrap_or_default();
+                        let vst2_path = child_device
+                            .descendants()
+                            .find(|n| n.is_element() && n.has_tag_name("VstPluginInfo"))
+                            .and_then(|v| {
+                                v.children()
+                                    .find(|n| n.is_element() && n.has_tag_name("Path"))
+                                    .and_then(|n| n.attribute("Value"))
+                            })
+                            .unwrap_or_default();
+
+                        let preferred_name = if !display.trim().is_empty() {
+                            display
+                        } else if !vst3_name.is_empty() {
+                            vst3_name.to_string()
+                        } else if !vst2_name.is_empty() {
+                            vst2_name.to_string()
+                        } else {
+                            "Unknown Plugin".to_string()
+                        };
+
+                        let plugin_id = if !vst2_path.is_empty() {
+                            vst2_path.to_string()
+                        } else if !vst3_path.is_empty() {
+                            vst3_path.to_string()
+                        } else if !vst3_name.is_empty() {
+                            external_plugins
+                                .resolve_by_name(vst3_name)
+                                .unwrap_or_else(|| format!("missing://{vst3_name}"))
+                        } else if !vst2_name.is_empty() {
+                            external_plugins
+                                .resolve_by_name(vst2_name)
+                                .unwrap_or_else(|| format!("missing://{vst2_name}"))
+                        } else {
+                            "missing://unknown".to_string()
+                        };
+
+                        chain
+                            .devices
+                            .push(DeviceNode::Single(PluginSlot::new(preferred_name, plugin_id)));
+                        continue;
+                    }
+
+                    // Internal Ableton device → canonical mapping.
+                    let display = infer_device_display_name(child_device, child_tag);
+                    if let Some((pid, pname, _)) =
+                        canonical_internal_plugin_for_import(child_tag, &display)
+                    {
+                        chain
+                            .devices
+                            .push(DeviceNode::Single(PluginSlot::new(pname, pid)));
+                    } else {
+                        chain.devices.push(make_missing_plugin_slot(child_tag, &display));
+                    }
+                }
+            }
+        }
+
+        // Parse volume/pan from the chain's mixer if present.
+        if let Some(mixer) = branch.descendants().find(|n| {
+            n.is_element() && n.has_tag_name("Mixer")
+        }) {
+            if let Some(vol) = mixer
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name("Volume"))
+                .and_then(|v| {
+                    v.children()
+                        .find(|c| c.is_element() && c.has_tag_name("Manual"))
+                        .and_then(|m| m.attribute("Value"))
+                        .and_then(parse_f64_value)
+                })
+            {
+                chain.volume = vol.clamp(0.0, 2.0);
+            }
+            if let Some(pan) = mixer
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name("Pan"))
+                .and_then(|v| {
+                    v.children()
+                        .find(|c| c.is_element() && c.has_tag_name("Manual"))
+                        .and_then(|m| m.attribute("Value"))
+                        .and_then(parse_f64_value)
+                })
+            {
+                chain.pan = pan.clamp(-1.0, 1.0);
+            }
+        }
+
+        chains.push(chain);
+    }
+
+    chains
+}
+
+/// Parses Ableton zone settings XML into `ZoneSettings`.
+fn parse_als_zone_settings(zone_node: roxmltree::Node<'_, '_>) -> dream_models::project::ZoneSettings {
+    let mut zs = dream_models::project::ZoneSettings::default();
+
+    fn range_min_max(parent: roxmltree::Node<'_, '_>, range_tag: &str) -> (Option<u8>, Option<u8>) {
+        let range = match parent
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name(range_tag))
+        {
+            Some(r) => r,
+            None => return (None, None),
+        };
+        let min_val = range
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("Min"))
+            .and_then(|n| n.attribute("Value"))
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(0, 127) as u8);
+        let max_val = range
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("Max"))
+            .and_then(|n| n.attribute("Value"))
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(0, 127) as u8);
+        (min_val, max_val)
+    }
+
+    let (kmin, kmax) = range_min_max(zone_node, "KeyRange");
+    if let Some(v) = kmin { zs.key_range_min = v; }
+    if let Some(v) = kmax { zs.key_range_max = v; }
+
+    let (vmin, vmax) = range_min_max(zone_node, "VelocityRange");
+    if let Some(v) = vmin { zs.velocity_range_min = v; }
+    if let Some(v) = vmax { zs.velocity_range_max = v; }
+
+    let (cmin, cmax) = range_min_max(zone_node, "ChainSelectorRange");
+    if let Some(v) = cmin { zs.chain_selector_min = v; }
+    if let Some(v) = cmax { zs.chain_selector_max = v; }
+
+    zs
+}
+
 fn import_track_devices(
     track_node: roxmltree::Node<'_, '_>,
     track: &mut Track,
     external_plugins: &ExternalPluginIndex,
     als_path: &Path,
 ) {
+    fn is_group_rack_tag(tag: &str) -> bool {
+        matches!(
+            tag,
+            "AudioEffectGroupDevice"
+                | "DrumGroupDevice"
+                | "MidiEffectGroupDevice"
+                | "InstrumentGroupDevice"
+        )
+    }
+
+    fn is_nested_inside_group_rack(node: roxmltree::Node<'_, '_>) -> bool {
+        node.ancestors()
+            .skip(1)
+            .any(|a| a.is_element() && is_group_rack_tag(a.tag_name().name()))
+    }
+
     let effect_rack_tags = [
         "AudioEffectGroupDevice",
         "DrumGroupDevice",
@@ -1030,65 +1436,28 @@ fn import_track_devices(
     for device in collect_track_devices(track_node) {
         let tag = device.tag_name().name();
 
-        // Effect racks: skip the container — inner devices are already
-        // flattened by collect_track_devices recursion.
-        if effect_rack_tags.contains(&tag) {
+        // Child devices of a rack are imported as part of that rack.
+        // This prevents duplicate flattened import and enables "rack as one node"
+        // behavior during Ableton .als migration.
+        if is_nested_inside_group_rack(device) {
             continue;
         }
 
-        // Instrument racks: extract the primary instrument from inside
-        // the rack (MultiSampler, InstrumentVector, etc.) so it maps
-        // to Dream DAW's single-instrument-per-track model.
+        // Effect racks: parse full rack structure from Ableton XML.
+        if effect_rack_tags.contains(&tag) {
+            let rack = parse_als_rack(device, external_plugins, als_path);
+            track.effects.push(DeviceNode::Rack(rack));
+            continue;
+        }
+
+        // Instrument racks: parse as full DeviceRack and assign to
+        // instrument slot (if MIDI track) or push to effect chain.
         if tag == "InstrumentGroupDevice" {
+            let rack = parse_als_rack(device, external_plugins, als_path);
             if track.track_type == TrackType::Midi && track.instrument.is_none() {
-                // Search descendants for the first real instrument device
-                let instrument_tags = [
-                    "OriginalSimpler", "MultiSampler", "Operator",
-                    "InstrumentVector", "Drift",
-                ];
-                let inner_instrument = device.descendants().find(|n| {
-                    n.is_element() && instrument_tags.contains(&n.tag_name().name())
-                });
-                if let Some(inner) = inner_instrument {
-                    let inner_tag = inner.tag_name().name();
-                    let inner_name = infer_device_display_name(inner, inner_tag);
-                    if let Some((pid, pname, _)) = canonical_internal_plugin_for_import(inner_tag, &inner_name) {
-                        track.instrument = Some(DeviceNode::Single(PluginSlot::new(pname, pid)));
-                        if track.sampler.is_none() {
-                            track.sampler = Some(SamplerConfig::default());
-                        }
-                        if inner_tag == "OriginalSimpler" {
-                            if let Some(sample_path) = extract_simpler_sample_path(inner, als_path) {
-                                if let Some(cfg) = &mut track.sampler {
-                                    if cfg.sample_path.trim().is_empty() {
-                                        cfg.sample_path = sample_path;
-                                    }
-                                }
-                            }
-                        }
-                        if pid == "internal://instrument/wave-synth" {
-                            if let Some(cfg) = &mut track.sampler {
-                                if cfg.sample_path.trim().is_empty() {
-                                    cfg.sample_path = "internal://waveform/sine".to_string();
-                                }
-                            }
-                        }
-                    } else {
-                        let rack_name = infer_device_display_name(device, tag);
-                        track.instrument = Some(make_missing_plugin_slot("ableton-rack", &rack_name));
-                    }
-                } else {
-                    // Check for a PluginDevice (VST instrument) inside the rack
-                    let inner_plugin = device.descendants().find(|n| {
-                        n.is_element() && n.tag_name().name() == "PluginDevice"
-                    });
-                    if inner_plugin.is_some() {
-                        // Will be processed by the flattened device list below
-                    } else {
-                        let rack_name = infer_device_display_name(device, tag);
-                        track.instrument = Some(make_missing_plugin_slot("ableton-rack", &rack_name));
-                    }
-                }
+                track.instrument = Some(DeviceNode::Rack(rack));
+            } else {
+                track.effects.push(DeviceNode::Rack(rack));
             }
             continue;
         }
@@ -1776,7 +2145,13 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
             pending_group_refs.push((track.id, group_ref));
         }
 
-        if let Some(target) = parse_audio_output_target(track_node) {
+        let preferred_output_target = if track_type == TrackType::Midi {
+            parse_output_target(track_node, "MidiOutputRouting")
+                .or_else(|| parse_output_target(track_node, "AudioOutputRouting"))
+        } else {
+            parse_output_target(track_node, "AudioOutputRouting")
+        };
+        if let Some(target) = preferred_output_target {
             if let Some(xml_target_id) = parse_target_track_xml_id(&target) {
                 pending_output_refs.push((track.id, xml_target_id));
             } else if target.eq_ignore_ascii_case("AudioOut/GroupTrack") {

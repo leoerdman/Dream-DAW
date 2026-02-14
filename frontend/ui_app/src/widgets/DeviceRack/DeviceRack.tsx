@@ -61,7 +61,8 @@ interface DeviceSlot {
     | 'instrument'
     | 'sampler'
     | 'saturator'
-    | 'waveSynth';
+    | 'waveSynth'
+    | 'rack';
     isEnabled: boolean;
     params: PluginParam[];
     vuLevel: number;
@@ -265,6 +266,7 @@ const DEVICE_PARAM_PRESETS: Record<
         { name: 'Semitones', value: 0, min: -24, max: 24, suffix: 'st', step: 1 },
         { name: 'Chance', value: 1, min: 0, max: 1, suffix: '', step: 0.01 },
     ],
+    rack: [],
 };
 
 // ── VU Meter Helpers ──────────────────────────────────────
@@ -398,19 +400,47 @@ export const DeviceRack = ({
     const chain = useMemo((): DeviceSlot[] => {
         if (!selectedTrack || isMaster) return [];
 
-        const slots = [
+        const nodes = [
             ...(selectedTrack.instrument ? [selectedTrack.instrument] : []),
             ...(selectedTrack.effects ?? []),
         ];
-        return slots.map((slot) => {
-            const pluginId = slot.plugin_id || slot.id;
+
+        // Helper: convert a single DeviceNode to a DeviceSlot.
+        const nodeToSlot = (node: (typeof nodes)[number]): DeviceSlot | null => {
+            // Extract common fields based on node type (tagged union from Rust serde).
+            const nodeType = (node as any).type as string | undefined;
+            const isRack = nodeType === 'Rack';
+
+            // For rack nodes, show as a rack container device.
+            if (isRack) {
+                const rackNode = node as any;
+                return {
+                    id: rackNode.id ?? '',
+                    name: rackNode.name ?? 'Device Rack',
+                    effectType: 'rack' as DeviceSlot['effectType'],
+                    isEnabled: !(localBypass[rackNode.id] ?? rackNode.is_bypassed),
+                    params: [],
+                    vuLevel: outLevel,
+                    pluginId: `rack://${rackNode.rack_type}/${rackNode.id}`,
+                    isVst: false,
+                    source: 'internal',
+                };
+            }
+
+            // Single plugin node — the PluginSlot fields are at the top level.
+            const slot = node as any;
+            const pluginId: string = slot.plugin_id || slot.id || '';
+            const name: string = slot.name || '';
+            const id: string = slot.id || '';
+            const isBypassed: boolean = slot.is_bypassed ?? false;
+
             const pluginIdLower = normalizeInternalPluginId(pluginId.toLowerCase());
             const isVst = pluginIdLower.includes('vst3') || pluginIdLower.includes('.vst') || pluginIdLower.includes('vst');
             const isInternal = pluginIdLower.startsWith('internal://');
 
-            const normalized = `${slot.name} ${pluginId}`.toLowerCase();
+            const normalized = `${name} ${pluginId}`.toLowerCase();
             let effectType: DeviceSlot['effectType'] =
-                selectedTrack.instrument?.id === slot.id ? 'instrument' : isVst ? 'vst' : 'utility';
+                selectedTrack.instrument?.id === id ? 'instrument' : isVst ? 'vst' : 'utility';
             const internalDef = getInternalPluginById(pluginIdLower);
             if (internalDef?.id === 'internal://instrument/wave-synth') effectType = 'waveSynth';
             else if (normalized.includes('sampler')) effectType = 'sampler';
@@ -434,15 +464,15 @@ export const DeviceRack = ({
             else if (normalized.includes('internal://midi-fx/scale') || normalized.includes('midiscale')) effectType = 'midiScale';
             else if (normalized.includes('internal://midi-fx/velocity') || normalized.includes('midivelocity')) effectType = 'midiVelocity';
             else if (normalized.includes('internal://midi-fx/random') || normalized.includes('midirandom')) effectType = 'midiRandom';
-            else if (selectedTrack.instrument?.id === slot.id && !isVst) effectType = 'instrument';
+            else if (selectedTrack.instrument?.id === id && !isVst) effectType = 'instrument';
 
             return {
-                id: slot.id,
-                name: slot.name,
+                id,
+                name,
                 effectType,
-                isEnabled: !(localBypass[slot.id] ?? slot.is_bypassed),
+                isEnabled: !(localBypass[id] ?? isBypassed),
                 params: (DEVICE_PARAM_PRESETS[effectType] ?? []).map((template) => {
-                    const key = `${slot.id}:${template.name}`;
+                    const key = `${id}:${template.name}`;
                     let backendValue = template.value;
                     if ((effectType === 'sampler' || effectType === 'instrument' || effectType === 'waveSynth') && selectedTrack.sampler) {
                         const n = template.name.toLowerCase();
@@ -471,7 +501,9 @@ export const DeviceRack = ({
                     ? (selectedTrack.sampler?.sample_path ?? undefined)
                     : undefined,
             };
-        });
+        };
+
+        return nodes.map(nodeToSlot).filter((s): s is DeviceSlot => s !== null);
     }, [selectedTrack, localBypass, localParams, isMaster, outLevel]);
 
     const toggleDevice = useCallback((device: DeviceSlot) => {

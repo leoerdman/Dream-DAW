@@ -520,4 +520,90 @@ mod tests {
 
         let _ = fs::remove_file(&path);
     }
+
+    #[test]
+    fn migrate_v2_project_wraps_plugin_slots_in_device_node() {
+        let path = temp_path("v2_migration_test");
+
+        // ── Step 1: Create a real V3 project with DeviceNode wrappers ──
+        let mut project = Project::new("Legacy V2", 120.0, 44100.0);
+        let mut midi_track = Track::with_type("MIDI 1", TrackType::Midi, 0);
+        midi_track.instrument = Some(DeviceNode::Single(PluginSlot::new(
+            "Wave Synth",
+            "internal://instrument/wave-synth",
+        )));
+        midi_track.effects.push(DeviceNode::Single(PluginSlot {
+            id: uuid::Uuid::new_v4(),
+            name: "EQ".into(),
+            plugin_id: "internal://effect/eq".into(),
+            is_bypassed: false,
+            latency_frames: 32,
+        }));
+        midi_track.effects.push(DeviceNode::Single(PluginSlot {
+            id: uuid::Uuid::new_v4(),
+            name: "Reverb".into(),
+            plugin_id: "internal://effect/reverb".into(),
+            is_bypassed: true,
+            latency_frames: 64,
+        }));
+        project.add_track(midi_track);
+
+        // ── Step 2: Serialize as V3 envelope, then downgrade to V2 ─────
+        let envelope = serde_json::json!({
+            "format_version": 2,
+            "project": serde_json::to_value(&project).unwrap()
+        });
+        let mut doc: serde_json::Value = envelope;
+
+        // Strip all "type" fields from within effects and instrument to
+        // simulate what a genuine V2 project file would look like.
+        if let Some(tracks) = doc["project"]["tracks"].as_array_mut() {
+            for track in tracks.iter_mut() {
+                if let Some(effects) = track.get_mut("effects").and_then(|e| e.as_array_mut()) {
+                    for fx in effects.iter_mut() {
+                        if let Some(obj) = fx.as_object_mut() {
+                            obj.remove("type");
+                        }
+                    }
+                }
+                if let Some(inst) = track.get_mut("instrument") {
+                    if let Some(obj) = inst.as_object_mut() {
+                        obj.remove("type");
+                    }
+                }
+            }
+        }
+
+        fs::write(&path, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+
+        // ── Step 3: Load through the migration pipeline ────────────────
+        let loaded = ProjectFile::load(&path).unwrap();
+
+        assert_eq!(loaded.name, "Legacy V2");
+        assert_eq!(loaded.tracks.len(), 1);
+
+        let track = &loaded.tracks[0];
+
+        // Instrument migrated to DeviceNode::Single.
+        let inst = track.instrument.as_ref().expect("instrument should exist");
+        assert_eq!(inst.name(), "Wave Synth");
+        assert_eq!(inst.plugin_id(), "internal://instrument/wave-synth");
+        assert!(!inst.is_bypassed());
+
+        // Effects migrated to DeviceNode::Single.
+        assert_eq!(track.effects.len(), 2);
+        assert_eq!(track.effects[0].name(), "EQ");
+        assert_eq!(track.effects[0].plugin_id(), "internal://effect/eq");
+        assert!(!track.effects[0].is_bypassed());
+        assert_eq!(track.effects[0].latency_frames(), 32);
+
+        assert_eq!(track.effects[1].name(), "Reverb");
+        assert!(track.effects[1].is_bypassed());
+        assert_eq!(track.effects[1].latency_frames(), 64);
+
+        // Latency: only non-bypassed devices count.
+        assert_eq!(track.total_latency_frames(), 32);
+
+        let _ = fs::remove_file(&path);
+    }
 }

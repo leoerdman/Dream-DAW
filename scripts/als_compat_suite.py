@@ -40,6 +40,8 @@ def map_internal(plugin_id: str, plugin_name: str) -> tuple[str, str] | None:
         or "wavetable" in merged
         or "simplesinesynth" in compact
         or "wavesynth" in compact
+        or "instrumentvector" in compact
+        or "stringstudio" in compact
     ):
         return ("internal://instrument/wave-synth", "Wave Synth")
     if "sampler" in merged or "simpler" in merged or "multisampler" in compact:
@@ -75,7 +77,26 @@ def map_internal(plugin_id: str, plugin_name: str) -> tuple[str, str] | None:
         return ("internal://effect/auto-filter", "Auto Filter")
     if "autopan" in compact:
         return ("internal://effect/auto-pan", "Auto Pan")
+    if "midipitcher" in compact:
+        return ("internal://midi-fx/pitch", "MIDI Pitch")
+    if "mxdevicescale" in compact or compact == "scale":
+        return ("internal://midi-fx/scale", "MIDI Scale")
+    if "mxdevicevelocity" in compact or compact == "velocity":
+        return ("internal://midi-fx/velocity", "MIDI Velocity")
+    if "mxdevicerandom" in compact or compact == "random" or "midirandom" in compact:
+        return ("internal://midi-fx/random", "MIDI Random")
+    if "midinotelength" in compact:
+        return ("internal://midi-fx/velocity", "MIDI Note Length")
     if "stereogain" in compact or "utility" in merged:
+        return ("internal://effect/utility", "Utility")
+    if (
+        "mxdeviceaudioeffect" in compact
+        or "mxdevicemidieffect" in compact
+        or "tuner" in merged
+        or "spectral" in compact
+        or "shifter" in compact
+        or "frequencyshifter" in compact
+    ):
         return ("internal://effect/utility", "Utility")
     if "saturator" in merged or "dynamictube" in compact or "tube" == compact:
         return ("internal://effect/saturator", "Saturator")

@@ -55,13 +55,13 @@ function mapProjectTrack(
         color: pt.color || TRACK_PALETTE[index % TRACK_PALETTE.length].hex,
         volume: pt.volume,
         pan: pt.pan,
-        isMuted: pt.is_muted,
-        isSoloed: pt.is_soloed,
-        isArmed: pt.is_armed,
+        isMuted: pt.is_mute,
+        isSoloed: pt.is_solo,
+        isArmed: pt.is_armed ?? false,
         vuLevel: peak,
         routing: pt.output || 'Main',
         sends: [],
-        input: '',
+        input: pt.input || '',
         output: pt.output || 'Main',
     };
 }
@@ -220,10 +220,16 @@ export const TrackInspector = ({
     const toggleArm = useCallback((id: string) => {
         const track = tracks.find(t => t.id === id);
         if (track) {
+            const idx = getTrackIndex(id);
             const newArmed = !track.isArmed;
+            if (idx >= 0) {
+                engineApi.armTrack(idx, newArmed).catch(err =>
+                    console.error('[TrackInspector] armTrack failed:', err)
+                );
+            }
             setLocalOverrides(prev => ({ ...prev, [id]: { ...prev[id], isArmed: newArmed } }));
         }
-    }, [tracks]);
+    }, [tracks, getTrackIndex]);
 
     const toggleGroupCollapse = useCallback((groupId: string) => {
         setCollapsedGroups(prev => {
@@ -324,6 +330,7 @@ export const TrackInspector = ({
                         <TrackRow
                             key={track.id}
                             track={track}
+                            allTracks={tracks}
                             trackHeight={trackHeight}
                             displayNum={displayNum}
                             isSelected={selectedTrackId === track.id}
@@ -375,6 +382,7 @@ export const TrackInspector = ({
             {/* ── Master Track — fixed at bottom (Ableton-style) ── */}
             <TrackRow
                 track={masterTrack}
+                allTracks={tracks}
                 trackHeight={trackHeight}
                 isSelected={selectedTrackId === 'master'}
                 isCollapsed={false}
@@ -405,13 +413,31 @@ export const TrackInspector = ({
 
 // ── TrackRow (Ableton single-row, color-filled) ──────────────────
 
+/** Shared style for routing select dropdowns (Audio To / Audio From). */
+const routingSelectStyle: React.CSSProperties = {
+    fontSize: 7,
+    fontWeight: 500,
+    color: 'var(--color-text-primary)',
+    background: 'var(--color-control-bg)',
+    border: '1px solid var(--color-control-border)',
+    borderRadius: 2,
+    padding: '0px 2px',
+    cursor: 'pointer',
+    maxWidth: 62,
+    minWidth: 40,
+    flexShrink: 0,
+    appearance: 'auto' as React.CSSProperties['appearance'],
+    lineHeight: '12px',
+};
+
 const TrackRow = ({
-    track, trackHeight, displayNum, isSelected, isCollapsed, depth,
+    track, allTracks, trackHeight, displayNum, isSelected, isCollapsed, depth,
     onClick, onToggleMute: _onToggleMute, onToggleSolo, onToggleArm, onToggleCollapse,
     onContextMenu,
     isMasterFixed,
 }: {
     track: TrackData;
+    allTracks: TrackData[];
     trackHeight: number;
     displayNum?: number;
     isSelected: boolean;
@@ -429,6 +455,28 @@ const TrackRow = ({
     const isGroup = track.type === 'group';
     const isChild = depth > 0;
     const [isHovered, setIsHovered] = useState(false);
+    const availableRoutingTargets = allTracks.filter(t => t.id !== track.id && t.type !== 'master');
+    const outputValue = track.output && (track.output === 'master' || availableRoutingTargets.some(t => t.id === track.output))
+        ? track.output
+        : 'master';
+    const inputValue = track.input && (
+        track.input === 'none' ||
+        track.input === 'ext-1' ||
+        track.input === 'ext-2' ||
+        availableRoutingTargets.some(t => t.id === track.input)
+    )
+        ? track.input
+        : 'none';
+    const [outputRoute, setOutputRoute] = useState(outputValue);
+    const [inputRoute, setInputRoute] = useState(inputValue);
+
+    useEffect(() => {
+        setOutputRoute(outputValue);
+    }, [outputValue, track.id]);
+
+    useEffect(() => {
+        setInputRoute(inputValue);
+    }, [inputValue, track.id]);
 
     // Automation store
     const toggleAutomation = useAutomationStore((s) => s.toggleTrackAutomation);
@@ -553,13 +601,15 @@ const TrackRow = ({
                         gap: 1,
                         flexShrink: 0,
                     }}>
+                        <span style={{ fontSize: 7, color: 'var(--color-text-tertiary)', lineHeight: '10px' }}>Audio To</span>
                         {/* Audio To (output routing) */}
                         <select
                             onClick={e => e.stopPropagation()}
-                            value={track.output || 'master'}
+                            value={outputRoute}
                             onChange={(e) => {
                                 e.stopPropagation();
                                 const targetId = e.target.value;
+                                setOutputRoute(targetId);
                                 engineApi.setTrackRouting(track.id, targetId).catch(err =>
                                     console.error('[TrackInspector] setTrackRouting failed:', err)
                                 );
@@ -568,21 +618,21 @@ const TrackRow = ({
                             style={routingSelectStyle}
                         >
                             <option value="master">→ Master</option>
-                            {allTracks
-                                .filter(t => t.id !== track.id && t.type !== 'master')
-                                .map(t => (
+                            {availableRoutingTargets.map(t => (
                                     <option key={t.id} value={t.id}>
                                         → {t.name}
                                     </option>
-                                ))}
+                            ))}
                         </select>
+                        <span style={{ fontSize: 7, color: 'var(--color-text-tertiary)', lineHeight: '10px' }}>Audio From</span>
                         {/* Audio From (input routing) */}
                         <select
                             onClick={e => e.stopPropagation()}
-                            value={track.input || 'none'}
+                            value={inputRoute}
                             onChange={(e) => {
                                 e.stopPropagation();
                                 const inputId = e.target.value;
+                                setInputRoute(inputId);
                                 engineApi.setTrackInput(track.id, inputId).catch(err =>
                                     console.error('[TrackInspector] setTrackInput failed:', err)
                                 );
@@ -593,13 +643,11 @@ const TrackRow = ({
                             <option value="none">← No Input</option>
                             <option value="ext-1">← Ext. In 1</option>
                             <option value="ext-2">← Ext. In 2</option>
-                            {allTracks
-                                .filter(t => t.id !== track.id && t.type !== 'master')
-                                .map(t => (
+                            {availableRoutingTargets.map(t => (
                                     <option key={t.id} value={t.id}>
                                         ← {t.name}
                                     </option>
-                                ))}
+                            ))}
                         </select>
                     </div>
                 )}

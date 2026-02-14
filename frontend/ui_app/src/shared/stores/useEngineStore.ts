@@ -53,6 +53,25 @@ export interface ProjectTrack {
     pan: number;
     is_mute: boolean;
     is_solo: boolean;
+    is_armed: boolean;
+    /** Output routing target track ID (or 'master'). */
+    output: string;
+    /** Input routing source ID (or 'none'/'ext-1'/'ext-2'). */
+    input: string;
+    /** Effect plugin chain (insert slots). */
+    effects: Array<{
+        id: string;
+        name: string;
+        plugin_id: string;
+        is_bypassed: boolean;
+    }>;
+    /** Instrument slot for MIDI tracks (optional). */
+    instrument: {
+        id: string;
+        name: string;
+        plugin_id: string;
+        is_bypassed: boolean;
+    } | null;
 }
 
 // ── Track color mapping (matches Rust TrackColor enum) ───────────────────
@@ -385,6 +404,20 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     pan: number;
                     is_mute: boolean;
                     is_solo: boolean;
+                    output_destination_id?: string | null;
+                    input_source_id?: string | null;
+                    effects?: Array<{
+                        id: string;
+                        name: string;
+                        plugin_id: string;
+                        is_bypassed: boolean;
+                    }>;
+                    instrument?: {
+                        id: string;
+                        name: string;
+                        plugin_id: string;
+                        is_bypassed: boolean;
+                    } | null;
                     clips: Array<{
                         id: string;
                         name: string;
@@ -419,6 +452,17 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     pan: track.pan,
                     is_mute: track.is_mute,
                     is_solo: track.is_solo,
+                    is_armed: (track as Record<string, unknown>).is_armed as boolean ?? false,
+                    output:
+                        (track.output_destination_id && track.output_destination_id.length > 0
+                            ? track.output_destination_id
+                            : ((track as Record<string, unknown>).output as string)) || 'master',
+                    input:
+                        (track.input_source_id && track.input_source_id.length > 0
+                            ? track.input_source_id
+                            : ((track as Record<string, unknown>).input as string)) || 'none',
+                    effects: track.effects ?? [],
+                    instrument: track.instrument ?? null,
                 });
 
                 for (const clip of track.clips) {

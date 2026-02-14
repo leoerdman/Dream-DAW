@@ -15,7 +15,7 @@ import { DragOverlay } from '@/widgets/DragOverlay/DragOverlay';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
-import { ExportDialog } from '@/widgets/ExportDialog/ExportDialog';
+import { ExportModal } from '@/widgets/ExportModal/ExportModal';
 import * as engineApi from '@/shared/api/engine';
 
 /** Supported audio file extensions for drag-and-drop import. */
@@ -60,6 +60,10 @@ export const DawShell = () => {
     const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
     const [isDragOver, setIsDragOver] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
+    const [recordingState, setRecordingState] = useState<{ active: boolean; trackIndex: number }>({
+        active: false,
+        trackIndex: 0,
+    });
     const importFile = useEngineStore(s => s.importFile);
     const createMidiClip = useEngineStore(s => s.createMidiClip);
     const togglePlay = useEngineStore(s => s.togglePlay);
@@ -297,7 +301,11 @@ export const DawShell = () => {
                     style={{ height: 'var(--daw-transport-height)' }}
                 >
                     <ErrorBoundary module="Transport">
-                        <TransportBar onSettingsClick={openSettings} />
+                        <TransportBar
+                            onSettingsClick={openSettings}
+                            onOpenExport={() => setExportOpen(true)}
+                            onRecordingStateChange={(state) => setRecordingState(state)}
+                        />
                     </ErrorBoundary>
                 </header>
 
@@ -331,6 +339,8 @@ export const DawShell = () => {
                                 clips={timelineClips}
                                 playheadBeat={playheadBeat}
                                 isPlaying={transport.is_playing}
+                                recordingActive={recordingState.active}
+                                recordingTrackIndex={recordingState.trackIndex}
                                 trackCount={trackCount}
                                 trackHeight={TRACK_HEIGHT}
                                 onPlayheadChange={handlePlayheadChange}
@@ -415,14 +425,10 @@ export const DawShell = () => {
             {/* Store-based drag overlay — floating label following cursor */}
             <DragOverlay />
 
-            {/* ── Export Dialog ── */}
-            <ExportDialog
+            {/* ── Export Modal ── */}
+            <ExportModal
                 isOpen={exportOpen}
                 onClose={() => setExportOpen(false)}
-                onExport={(settings) => {
-                    console.log('[DawShell] Exporting with settings:', settings);
-                    setExportOpen(false);
-                }}
                 projectName="My Project"
             />
         </div>

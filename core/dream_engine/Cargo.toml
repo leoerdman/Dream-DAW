@@ -19,3 +19,5 @@ rtrb = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 arc-swap = { workspace = true }
+hound = { workspace = true }
+dream_io = { path = "../dream_io" }

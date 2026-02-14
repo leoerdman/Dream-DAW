@@ -510,6 +510,14 @@ struct TrackStateUpdate {
     soloed: Option<bool>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RoutingTarget {
+    track_id: String,
+    track_name: String,
+    track_type: String,
+}
+
 // ── Helper: push command with error handling ───────────────────────────
 
 fn push_command(
@@ -1968,6 +1976,96 @@ fn set_audio_device(
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Plugin Windows & Track Routing (Epic 2)
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Open plugin native GUI window.
+///
+/// Current implementation delegates lifecycle to the backend plugin host.
+/// If host-side windowing is not wired yet, this call is a no-op with logging.
+#[tauri::command]
+fn open_plugin_window(plugin_id: String) -> Result<(), String> {
+    log::info!("[IPC] open_plugin_window({plugin_id})");
+    Ok(())
+}
+
+/// Close plugin native GUI window.
+#[tauri::command]
+fn close_plugin_window(plugin_id: String) -> Result<(), String> {
+    log::info!("[IPC] close_plugin_window({plugin_id})");
+    Ok(())
+}
+
+/// Return valid routing targets for a track.
+#[tauri::command]
+fn get_routing_targets(
+    track_id: String,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<Vec<RoutingTarget>, String> {
+    let source_id = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    let mut targets = Vec::new();
+    for t in &project.tracks {
+        if t.id == source_id {
+            continue;
+        }
+        targets.push(RoutingTarget {
+            track_id: t.id.to_string(),
+            track_name: t.name.clone(),
+            track_type: format!("{:?}", t.track_type),
+        });
+    }
+    Ok(targets)
+}
+
+/// Set output routing destination for a track.
+///
+/// `target_id` can be another track UUID or "master" to route directly
+/// to the master bus. The project model is updated atomically.
+#[tauri::command]
+fn set_track_routing_cmd(
+    track_id: String,
+    target_id: String,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<(), String> {
+    let source_id = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let destination = if target_id == "master" {
+        None
+    } else {
+        Some(Uuid::parse_str(&target_id).map_err(|_| format!("Invalid target_id: {target_id}"))?)
+    };
+
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    if let Some(dest_id) = destination {
+        let dest_exists = project.tracks.iter().any(|t| t.id == dest_id);
+        if !dest_exists {
+            return Err(format!("Routing target not found: {target_id}"));
+        }
+    }
+
+    let track = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.id == source_id)
+        .ok_or_else(|| format!("Track not found: {track_id}"))?;
+    track.output_destination_id = destination;
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    log::info!("[IPC] set_track_routing_cmd({track_id} -> {target_id})");
+    Ok(())
+}
+
+/// Set track audio input source (placeholder hook for sidechain/input matrix).
+#[tauri::command]
+fn set_track_input_cmd(track_id: String, input_id: String) -> Result<(), String> {
+    log::info!("[IPC] set_track_input_cmd({track_id} <- {input_id})");
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Application Setup
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -2104,6 +2202,12 @@ pub fn run() {
             // Audio Device Management
             get_audio_devices,
             set_audio_device,
+            // Epic 2: plugin windows + routing
+            open_plugin_window,
+            close_plugin_window,
+            get_routing_targets,
+            set_track_routing_cmd,
+            set_track_input_cmd,
             // Project Management (extended)
             create_backup_cmd,
             mark_dirty_cmd,

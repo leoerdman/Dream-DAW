@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ClipRenderer } from './ClipRenderer';
 import { ClipFadeHandles } from './ClipFadeHandles';
 import { AutomationLane } from './AutomationLane';
@@ -63,6 +64,8 @@ interface TimelineProps {
     clips?: TimelineClip[];
     playheadBeat?: number;
     isPlaying?: boolean;
+    recordingActive?: boolean;
+    recordingTrackIndex?: number;
     loopStart?: number;
     loopEnd?: number;
     loopEnabled?: boolean;
@@ -97,6 +100,8 @@ export const Timeline = ({
     clips: externalClips,
     playheadBeat: externalPlayhead,
     isPlaying = false,
+    recordingActive = false,
+    recordingTrackIndex = 0,
     loopStart = 4,
     loopEnd = 20,
     loopEnabled = true,
@@ -134,6 +139,13 @@ export const Timeline = ({
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const phantomClipRef = useRef<HTMLDivElement>(null);
+    const phantomCanvasRef = useRef<HTMLCanvasElement>(null);
+    const peakQueueRef = useRef<number[]>([]);
+    const drawCursorRef = useRef(0);
+    const phantomStartBeatRef = useRef(0);
+    const liveUnlistenRef = useRef<UnlistenFn | null>(null);
+    const liveRafRef = useRef<number | null>(null);
 
     const beatsPerBar = timeSignature[0];
     const totalBeats = totalBars * beatsPerBar;
@@ -146,6 +158,123 @@ export const Timeline = ({
         () => computeGridLines(totalBeats, beatsPerBar, pixelsPerBeat),
         [totalBeats, beatsPerBar, pixelsPerBeat],
     );
+
+    const clearLiveLoop = useCallback(() => {
+        if (liveRafRef.current !== null) {
+            cancelAnimationFrame(liveRafRef.current);
+            liveRafRef.current = null;
+        }
+        if (liveUnlistenRef.current) {
+            liveUnlistenRef.current();
+            liveUnlistenRef.current = null;
+        }
+    }, []);
+
+    // Subscribe to live peaks and draw directly to canvas (no React state path).
+    useEffect(() => {
+        clearLiveLoop();
+        if (!recordingActive) {
+            return;
+        }
+
+        phantomStartBeatRef.current = playheadBeat;
+        peakQueueRef.current = [];
+        drawCursorRef.current = 0;
+
+        const phantomEl = phantomClipRef.current;
+        const canvas = phantomCanvasRef.current;
+        if (!phantomEl || !canvas) {
+            return;
+        }
+
+        const startX = phantomStartBeatRef.current * pixelsPerBeat;
+        const maxWidth = Math.max(1, canvasWidth - startX);
+        phantomEl.style.display = 'block';
+        phantomEl.style.left = `${startX}px`;
+        phantomEl.style.top = `${recordingTrackIndex * trackHeight + 2}px`;
+        phantomEl.style.height = `${trackHeight - 4}px`;
+        phantomEl.style.width = '2px';
+
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.ceil(maxWidth * dpr);
+        canvas.height = Math.ceil((trackHeight - 4) * dpr);
+        canvas.style.width = `${maxWidth}px`;
+        canvas.style.height = `${trackHeight - 4}px`;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.clearRect(0, 0, maxWidth, trackHeight - 4);
+        }
+
+        void listen<Record<string, unknown>>('live_audio_peaks', (event) => {
+            const payload = event.payload || {};
+            const trackIdx = Number(
+                payload.track_index ?? payload.trackIndex ?? payload.track ?? recordingTrackIndex,
+            );
+            if (trackIdx !== recordingTrackIndex) return;
+            const peak =
+                typeof payload.peak === 'number'
+                    ? payload.peak
+                    : Array.isArray(payload.peaks)
+                        ? payload.peaks.reduce((acc, v) => acc + Math.abs(Number(v) || 0), 0) / Math.max(1, payload.peaks.length)
+                        : 0;
+            peakQueueRef.current.push(Math.max(0, Math.min(1, Math.abs(peak))));
+        }).then((unlisten) => {
+            liveUnlistenRef.current = unlisten;
+        }).catch((err) => {
+            console.error('[Timeline] live_audio_peaks listener failed:', err);
+        });
+
+        const loop = () => {
+            const localCanvas = phantomCanvasRef.current;
+            const localCtx = localCanvas?.getContext('2d');
+            if (localCanvas && localCtx) {
+                const h = trackHeight - 4;
+                const centerY = h / 2;
+                for (let i = 0; i < 8 && peakQueueRef.current.length > 0; i++) {
+                    const amp = peakQueueRef.current.shift() ?? 0;
+                    const x = drawCursorRef.current;
+                    if (x >= localCanvas.width / dpr) break;
+                    const ph = Math.max(1, amp * centerY);
+                    localCtx.strokeStyle = 'rgba(255, 105, 105, 0.95)';
+                    localCtx.beginPath();
+                    localCtx.moveTo(x + 0.5, centerY - ph);
+                    localCtx.lineTo(x + 0.5, centerY + ph);
+                    localCtx.stroke();
+                    drawCursorRef.current += 1;
+                }
+            }
+            liveRafRef.current = requestAnimationFrame(loop);
+        };
+
+        liveRafRef.current = requestAnimationFrame(loop);
+        return clearLiveLoop;
+    }, [
+        recordingActive,
+        recordingTrackIndex,
+        trackHeight,
+        pixelsPerBeat,
+        canvasWidth,
+        playheadBeat,
+        clearLiveLoop,
+    ]);
+
+    // Stretch phantom clip width to current playhead (DOM mutation only).
+    useEffect(() => {
+        const phantomEl = phantomClipRef.current;
+        if (!phantomEl || !recordingActive) return;
+        const startX = phantomStartBeatRef.current * pixelsPerBeat;
+        const currentX = playheadBeat * pixelsPerBeat;
+        phantomEl.style.width = `${Math.max(2, currentX - startX)}px`;
+    }, [recordingActive, playheadBeat, pixelsPerBeat]);
+
+    useEffect(() => {
+        if (!recordingActive && phantomClipRef.current) {
+            phantomClipRef.current.style.display = 'none';
+        }
+    }, [recordingActive]);
+
+    useEffect(() => clearLiveLoop, [clearLiveLoop]);
 
     // ── Scroll handler ──
     const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
@@ -623,6 +752,30 @@ export const Timeline = ({
                             </div>
                         );
                     })}
+
+                    {/* ── Live Recording Phantom Clip (canvas-driven, no React state drawing) ── */}
+                    <div
+                        ref={phantomClipRef}
+                        style={{
+                            position: 'absolute',
+                            display: 'none',
+                            border: '1px solid rgba(255, 105, 105, 0.95)',
+                            borderRadius: 2,
+                            background: 'rgba(255, 65, 65, 0.22)',
+                            overflow: 'hidden',
+                            zIndex: 12,
+                            pointerEvents: 'none',
+                        }}
+                    >
+                        <canvas
+                            ref={phantomCanvasRef}
+                            style={{
+                                display: 'block',
+                                pointerEvents: 'none',
+                                background: 'rgba(255, 30, 30, 0.1)',
+                            }}
+                        />
+                    </div>
 
                     {/* ── Automation Lanes (SVG overlays per track) ── */}
                     {Array.from({ length: trackCount }, (_, trackIdx) => {

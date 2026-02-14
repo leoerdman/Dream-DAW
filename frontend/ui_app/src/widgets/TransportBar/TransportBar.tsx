@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { FileMenu } from '@/widgets/FileMenu/FileMenu';
+import * as engineApi from '@/shared/api/engine';
 
 /**
  * TransportBar — Full Ableton-style top control bar.
@@ -18,9 +19,11 @@ const KEY_MODES = ['Major', 'Minor', 'Dorian', 'Mixolydian', 'Phrygian', 'Lydian
 
 interface TransportBarProps {
     onSettingsClick?: () => void;
+    onOpenExport?: () => void;
+    onRecordingStateChange?: (state: { active: boolean; trackIndex: number }) => void;
 }
 
-export const TransportBar = ({ onSettingsClick }: TransportBarProps) => {
+export const TransportBar = ({ onSettingsClick, onOpenExport, onRecordingStateChange }: TransportBarProps) => {
     // ── Engine Store (REAL IPC) ──────────────────────────────────────
     const isPlaying = useEngineStore((s) => s.transport.is_playing);
     const bpm = useEngineStore((s) => s.transport.bpm);
@@ -30,6 +33,7 @@ export const TransportBar = ({ onSettingsClick }: TransportBarProps) => {
     const engineStop = useEngineStore((s) => s.stop);
     const engineSetBpm = useEngineStore((s) => s.setBpm);
     const engineSetLoop = useEngineStore((s) => s.setLoop);
+    const projectTracks = useEngineStore((s) => s.projectTracks);
 
     // Local-only UI state (not engine-connected yet)
     const [isRecording, setIsRecording] = useState(false);
@@ -116,6 +120,23 @@ export const TransportBar = ({ onSettingsClick }: TransportBarProps) => {
     const cycleKeyMode = () => setKeyMode(i => (i + 1) % KEY_MODES.length);
 
     const posString = `${position.bar}.${position.beat}.${position.sub.toString().padStart(2, '0')}`;
+
+    const handleRecordToggle = useCallback(async () => {
+        const armedTrackIndex = Math.max(0, projectTracks.findIndex((t) => t.is_armed));
+        try {
+            if (!isRecording) {
+                await engineApi.startRecording();
+                setIsRecording(true);
+                onRecordingStateChange?.({ active: true, trackIndex: armedTrackIndex });
+            } else {
+                await engineApi.stopRecording();
+                setIsRecording(false);
+                onRecordingStateChange?.({ active: false, trackIndex: armedTrackIndex });
+            }
+        } catch (err) {
+            console.error('[TransportBar] Recording toggle failed:', err);
+        }
+    }, [projectTracks, isRecording, onRecordingStateChange]);
 
     return (
         <div
@@ -211,7 +232,19 @@ export const TransportBar = ({ onSettingsClick }: TransportBarProps) => {
                 <TransportBtn
                     icon="■"
                     title="Stop"
-                    onClick={() => { engineStop(); setIsRecording(false); }}
+                    onClick={() => {
+                        engineStop();
+                        if (isRecording) {
+                            engineApi.stopRecording().catch((err) =>
+                                console.error('[TransportBar] stopRecording failed:', err),
+                            );
+                            setIsRecording(false);
+                            onRecordingStateChange?.({
+                                active: false,
+                                trackIndex: Math.max(0, projectTracks.findIndex((t) => t.is_armed)),
+                            });
+                        }
+                    }}
                 />
                 <TransportBtn
                     icon="●"
@@ -219,7 +252,7 @@ export const TransportBar = ({ onSettingsClick }: TransportBarProps) => {
                     isActive={isRecording}
                     activeColor="var(--color-status-record)"
                     className={isRecording ? 'animate-pulse-record' : ''}
-                    onClick={() => setIsRecording(!isRecording)}
+                    onClick={() => { void handleRecordToggle(); }}
                 />
             </Section>
 
@@ -300,6 +333,12 @@ export const TransportBar = ({ onSettingsClick }: TransportBarProps) => {
 
             {/* ── SPACER ── */}
             <div style={{ flex: 1 }} />
+
+            <Divider />
+
+            <Section>
+                <ControlButton label="Bounce" onClick={() => onOpenExport?.()} />
+            </Section>
 
             <Divider />
 

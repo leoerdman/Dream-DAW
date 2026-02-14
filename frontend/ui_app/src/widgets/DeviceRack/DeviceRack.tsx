@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import * as engineApi from '@/shared/api/engine';
 
@@ -29,6 +29,8 @@ interface DeviceSlot {
     isEnabled: boolean;
     params: DeviceParam[];
     vuLevel: number;
+    pluginId: string;
+    isVst: boolean;
 }
 
 // ── VU Meter Helpers ──────────────────────────────────────
@@ -48,7 +50,7 @@ interface DeviceRackProps {
 }
 
 export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
-    const [chain, setChain] = useState<DeviceSlot[]>([]);
+    const [localBypass, setLocalBypass] = useState<Record<string, boolean>>({});
     const projectTracks = useEngineStore((s) => s.projectTracks);
     const meters = useEngineStore((s) => s.meters);
 
@@ -78,10 +80,34 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
             ? projectTracks[trackIndex].name
             : 'No Track';
 
+    const selectedTrack = trackIndex >= 0 ? projectTracks[trackIndex] : null;
+    const chain = useMemo((): DeviceSlot[] => {
+        if (!selectedTrack || isMaster) return [];
+
+        const slots = [
+            ...(selectedTrack.instrument ? [selectedTrack.instrument] : []),
+            ...(selectedTrack.effects ?? []),
+        ];
+        return slots.map((slot) => {
+            const pluginId = slot.plugin_id || slot.id;
+            const pluginIdLower = pluginId.toLowerCase();
+            const isVst = pluginIdLower.includes('vst3') || pluginIdLower.includes('.vst') || pluginIdLower.includes('vst');
+
+            return {
+                id: slot.id,
+                name: slot.name,
+                effectType: selectedTrack.instrument?.id === slot.id ? 'instrument' : isVst ? 'vst' : 'utility',
+                isEnabled: !(localBypass[slot.id] ?? slot.is_bypassed),
+                params: [],
+                vuLevel: outLevel,
+                pluginId,
+                isVst,
+            };
+        });
+    }, [selectedTrack, localBypass, isMaster, outLevel]);
+
     const toggleDevice = useCallback((id: string) => {
-        setChain(prev => prev.map(d =>
-            d.id === id ? { ...d, isEnabled: !d.isEnabled } : d
-        ));
+        setLocalBypass((prev) => ({ ...prev, [id]: !(prev[id] ?? false) }));
     }, []);
 
     return (
@@ -142,7 +168,7 @@ export const DeviceRack = ({ selectedTrackId }: DeviceRackProps) => {
                             device={device}
                             onToggle={() => toggleDevice(device.id)}
                             onOpenGUI={() => {
-                                engineApi.openPluginWindow(device.id).catch(err =>
+                                engineApi.openPluginWindow(device.pluginId).catch(err =>
                                     console.error('[DeviceRack] Failed to open plugin window:', err)
                                 );
                             }}
@@ -314,11 +340,12 @@ const DeviceNode = ({
                         cursor: 'pointer',
                         flexShrink: 0,
                         padding: '0 2px',
+                        visibility: device.isVst ? 'visible' : 'hidden',
                     }}
                     onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-accent-primary)'; }}
                     onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-text-tertiary)'; }}
                 >
-                    GUI
+                    Open UI
                 </button>
                 <span style={{
                     fontSize: 9,
@@ -375,7 +402,6 @@ const Knob = ({ param, accentColor }: { param: DeviceParam; accentColor: string 
     const endAngle = 405;
     const valueAngle = startAngle + normalizedValue * (endAngle - startAngle);
     const bgArc = describeArc(center, center, r, startAngle, endAngle);
-    const valArc = describeArc(center, center, r, startAngle, valueAngle);
     const toRad = (d: number) => (d * Math.PI) / 180;
     const sx = center + r * Math.cos(toRad(startAngle));
     const sy = center + r * Math.sin(toRad(startAngle));

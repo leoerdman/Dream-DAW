@@ -14,5 +14,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 pub mod driver;
+pub mod offline_bounce;
+pub mod recording;
 pub mod render_callback;
 pub mod sampler;

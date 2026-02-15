@@ -11,7 +11,7 @@ export interface InternalPluginDefinition {
 export const INTERNAL_INSTRUMENT_PLUGINS: InternalPluginDefinition[] = [
     {
         id: 'internal://instrument/wave-synth',
-        name: 'Essense',
+        name: 'Essence',
         kind: 'instrument',
         slotHint: 'instrument',
         tags: ['internal', 'instrument', 'synth', 'wave'],
@@ -532,7 +532,7 @@ export const defaultInternalPluginForTrack = (
     if (addInstrument) {
         return {
             pluginId: 'internal://instrument/wave-synth',
-            pluginName: 'Essense',
+            pluginName: 'Essence',
             slot: 'instrument',
         };
     }

@@ -80,7 +80,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
         setRescanResult(null);
         try {
             const entries = await engine.scanPluginFolders();
-            const pluginCount = entries.filter((e) => e.kind === 'plugin').length;
+            const pluginCount = entries.filter((e) => e.file_type === 'plugin').length;
             setRescanResult(`Found ${pluginCount} plugins`);
         } catch (err) {
             console.error('[SettingsPanel] plugin rescan failed:', err);

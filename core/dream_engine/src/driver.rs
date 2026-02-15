@@ -244,6 +244,7 @@ impl Default for SharedSidechainSnapshot {
 
 #[derive(Debug, Clone, Copy)]
 pub struct ExternalFxRuntimeSlot {
+    pub slot_id: Option<Uuid>,
     pub internal_slot_index: Option<usize>,
     pub instance_id: Option<Uuid>,
     pub sidechain_track_index: Option<usize>,
@@ -555,6 +556,106 @@ fn apply_track_mixer_automation_sample_accurate(
 
         left[i] *= vol * left_mul;
         right[i] *= vol * right_mul;
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ExternalParamTarget {
+    slot_id: Option<Uuid>,
+    slot_index: Option<usize>,
+    param_index: u32,
+}
+
+fn parse_external_param_target(param_key: &str) -> Option<ExternalParamTarget> {
+    let key = param_key.trim().to_lowercase();
+    if key.is_empty() {
+        return None;
+    }
+
+    // slot:<uuid>:ext_param_<idx>
+    if let Some(rest) = key.strip_prefix("slot:") {
+        let mut parts = rest.splitn(2, ':');
+        let slot_id_str = parts.next()?;
+        let param_token = parts.next()?;
+        let slot_id = Uuid::parse_str(slot_id_str).ok()?;
+
+        let idx = if let Some(v) = param_token.strip_prefix("ext_param_") {
+            v.parse::<u32>().ok()
+        } else if let Some(v) = param_token.strip_prefix("param_id") {
+            v.parse::<u32>().ok()
+        } else if let Some(v) = param_token.strip_prefix("param") {
+            v.parse::<u32>().ok()
+        } else {
+            None
+        }?;
+
+        return Some(ExternalParamTarget {
+            slot_id: Some(slot_id),
+            slot_index: None,
+            param_index: idx,
+        });
+    }
+
+    // plugin:<slot_index>:<plugin_key>:<param_token_with_optional__idN>
+    if let Some(rest) = key.strip_prefix("plugin:") {
+        let mut parts = rest.split(':');
+        let slot_index = parts.next()?.parse::<usize>().ok()?;
+        let _plugin_key = parts.next()?;
+        let param_token = parts.collect::<Vec<_>>().join(":");
+        if param_token.is_empty() {
+            return None;
+        }
+        if let Some(id_pos) = param_token.rfind("_id") {
+            let idx = param_token[(id_pos + 3)..].parse::<u32>().ok()?;
+            return Some(ExternalParamTarget {
+                slot_id: None,
+                slot_index: Some(slot_index),
+                param_index: idx,
+            });
+        }
+    }
+
+    None
+}
+
+fn apply_external_plugin_param_automation_block(
+    host: &mut PluginHost,
+    lane: Option<&TrackAutomationState>,
+    runtime_slot: &ExternalFxRuntimeSlot,
+    runtime_slot_index: usize,
+    playhead_pos: i64,
+) {
+    let Some(instance_id) = runtime_slot.instance_id else {
+        return;
+    };
+    let Some(lane) = lane else {
+        return;
+    };
+    if lane.plugin_params.is_empty() {
+        return;
+    }
+
+    for (param_key, points) in &lane.plugin_params {
+        let Some(target) = parse_external_param_target(param_key) else {
+            continue;
+        };
+
+        if let Some(target_slot_id) = target.slot_id
+            && runtime_slot.slot_id != Some(target_slot_id)
+        {
+            continue;
+        }
+        if let Some(target_slot_index) = target.slot_index
+            && target_slot_index != runtime_slot_index
+        {
+            continue;
+        }
+
+        let mut cursor = 0usize;
+        if let Some(value) = eval_automation_with_cursor(points, playhead_pos, &mut cursor) {
+            let normalized = f64::from(value.clamp(0.0, 1.0));
+            let _ = host.set_parameter(instance_id, target.param_index, normalized);
+        }
     }
 }
 
@@ -1480,10 +1581,8 @@ pub fn start_audio_thread_on_device(
                                                     &mut left[..c],
                                                     &mut right[..c],
                                                 );
-                                                if let Some(runtime_slots) =
-                                                    external_fx_map.get(track_idx)
-                                                {
-                                                    for runtime_slot in runtime_slots {
+                                                if let Some(runtime_slots) = external_fx_map.get(track_idx) {
+                                                    for (runtime_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
                                                         let source_slot = runtime_slot
                                                             .sidechain_track_index
                                                             .and_then(|src_idx| {
@@ -1526,6 +1625,13 @@ pub fn start_audio_thread_on_device(
                                                             && let Some(host) =
                                                                 plugin_host_guard.as_deref_mut()
                                                         {
+                                                            apply_external_plugin_param_automation_block(
+                                                                host,
+                                                                automation.get(track_idx),
+                                                                runtime_slot,
+                                                                runtime_slot_idx,
+                                                                playhead_pos,
+                                                            );
                                                             external_left[..c]
                                                                 .copy_from_slice(&left[..c]);
                                                             external_right[..c]
@@ -1895,7 +2001,7 @@ pub fn start_audio_thread_on_device(
                                     );
 
                                     if let Some(runtime_slots) = external_fx_map.get(track_idx) {
-                                        for runtime_slot in runtime_slots {
+                                        for (runtime_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
                                             let source_slot = runtime_slot
                                                 .sidechain_track_index
                                                 .and_then(|src_idx| {
@@ -1934,6 +2040,13 @@ pub fn start_audio_thread_on_device(
                                             if let Some(instance_id) = runtime_slot.instance_id
                                                 && let Some(host) = plugin_host_guard.as_deref_mut()
                                             {
+                                                apply_external_plugin_param_automation_block(
+                                                    host,
+                                                    automation.get(track_idx),
+                                                    runtime_slot,
+                                                    runtime_slot_idx,
+                                                    playhead_pos,
+                                                );
                                                 external_left[..fc]
                                                     .copy_from_slice(&sampler_left[..fc]);
                                                 external_right[..fc]

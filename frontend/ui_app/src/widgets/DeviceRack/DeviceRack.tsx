@@ -1428,6 +1428,11 @@ export const DeviceRack = ({
                                     }}
                                     onEnsureActive={async () => {
                                         if (!selectedTrack) return;
+                                        const known = pluginRuntimeBySlot[device.id];
+                                        if (known?.runtime === 'unsupported') {
+                                            statusError(known.message ?? 'This plugin format is not supported by runtime in this build.');
+                                            return;
+                                        }
                                         try {
                                             await engineApi.ensurePluginSlotActive(selectedTrack.id, device.id);
                                             const status = await engineApi.getPluginSlotRuntimeStatus(selectedTrack.id, device.id);
@@ -1486,6 +1491,11 @@ export const DeviceRack = ({
                                             return;
                                         }
                                         if (!selectedTrack) return;
+                                        const known = pluginRuntimeBySlot[device.id];
+                                        if (known?.runtime === 'unsupported') {
+                                            statusError(known.message ?? 'This plugin format is not supported by runtime in this build.');
+                                            return;
+                                        }
                                         try {
                                             await engineApi.ensurePluginSlotActive(selectedTrack.id, device.id);
                                             const status = await engineApi.getPluginSlotRuntimeStatus(selectedTrack.id, device.id);
@@ -1901,7 +1911,7 @@ const DeviceNode = ({
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         {runtimeStatus && (
                             <span
-                                title={runtimeStatus.message ?? `Runtime: ${runtimeStatus.runtime}`}
+                                title={runtimeStatus.message ?? `Runtime: ${runtimeStatus.runtime}${runtimeStatus.latencyFrames != null ? ` | latency ${runtimeStatus.latencyFrames} fr` : ''}`}
                                 style={{
                                     fontSize: 9,
                                     lineHeight: 1,
@@ -1916,7 +1926,11 @@ const DeviceNode = ({
                                     letterSpacing: '0.03em',
                                 }}
                             >
-                                {runtimeStatus.loaded ? runtimeStatus.runtime : 'offline'}
+                                {runtimeStatus.loaded
+                                    ? (runtimeStatus.latencyFrames != null
+                                        ? `${runtimeStatus.runtime} ${runtimeStatus.latencyFrames}f`
+                                        : runtimeStatus.runtime)
+                                    : 'offline'}
                             </span>
                         )}
                         {runtimeStatus && !runtimeStatus.loaded && (
@@ -2050,15 +2064,15 @@ const DeviceNode = ({
                 </div>
             ) : (
                 <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
+                    display: 'grid',
+                    gridTemplateRows: 'auto 1fr auto',
+                    gap: 6,
                     padding: '8px',
                     flex: 1,
                     minHeight: 0,
                     overflow: 'hidden',
                 }}>
-                    <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
                             {device.source === 'vst' ? 'Native GUI' : 'Internal GUI'}
                         </span>
@@ -2066,6 +2080,56 @@ const DeviceNode = ({
                             {device.params.length} params
                         </span>
                     </div>
+                    {device.source === 'vst' && (
+                        <div style={{
+                            border: '1px solid var(--color-divider)',
+                            borderRadius: 6,
+                            background: 'color-mix(in srgb, var(--color-bg-header) 84%, #0c1017)',
+                            padding: 6,
+                            minHeight: 0,
+                            overflow: 'hidden',
+                            display: 'grid',
+                            gridTemplateRows: '1fr auto',
+                            gap: 6,
+                        }}>
+                            <div style={{ display: 'grid', gap: 4, alignContent: 'start' }}>
+                                {device.params.slice(0, 6).map((p) => {
+                                    const range = Math.max(1e-9, p.max - p.min);
+                                    const fill = Math.max(0, Math.min(1, (p.value - p.min) / range));
+                                    return (
+                                        <div key={p.name} style={{ display: 'grid', gridTemplateColumns: '70px 1fr auto', gap: 6, alignItems: 'center' }}>
+                                            <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {p.name}
+                                            </span>
+                                            <div style={{ height: 6, borderRadius: 999, background: 'var(--color-bg-panel)', overflow: 'hidden' }}>
+                                                <div style={{ width: `${(fill * 100).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #5aa9ff 0%, #8ec6ff 100%)' }} />
+                                            </div>
+                                            <span style={{ fontSize: 9, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                                                {Number.isFinite(p.value) ? p.value.toFixed(2) : '-'}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
+                                style={{
+                                    justifySelf: 'start',
+                                    border: '1px solid var(--color-divider)',
+                                    borderRadius: 4,
+                                    background: 'var(--color-bg-elevated)',
+                                    color: 'var(--color-text-secondary)',
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    padding: '4px 8px',
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                Open Inline Editor
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -2588,7 +2652,7 @@ const PluginGuiSurface = ({
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                         <span style={{ ...pluginPanelTitleStyle, fontSize: 10, color: '#d3efe3' }}>
-                            Essense
+                            Essence
                         </span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <span style={{ fontSize: 10, color: '#80d7b0', fontFamily: 'var(--font-mono)' }}>
@@ -3469,6 +3533,8 @@ const PluginGuiSurface = ({
                 ? 'Amp'
                 : guiMode.includes('cabinet')
                     ? 'Cabinet'
+                    : guiMode.includes('erosion')
+                        ? 'Erosion'
                     : guiMode.includes('overdrive')
                         ? 'Overdrive'
                         : guiMode.includes('pedal')
@@ -3477,6 +3543,12 @@ const PluginGuiSurface = ({
                                 ? 'Roar'
                                 : 'Distortion';
         const color = device.effectType === 'distortion' ? '#ff965e' : '#f2de72';
+        const drive = device.params.find((p) => p.name.toLowerCase() === 'drive')?.value ?? 0;
+        const mix = device.params.find((p) => p.name.toLowerCase() === 'mix')?.value ?? 0;
+        const tone = device.params.find((p) => p.name.toLowerCase() === 'tone')?.value ?? 0;
+        const isAmp = title === 'Amp' || title === 'Cabinet';
+        const isErosion = title === 'Erosion';
+        const isBit = title === 'Bitcrusher';
         return (
             <div style={pluginPanelLayoutStyle}>
                 <div style={{
@@ -3486,8 +3558,41 @@ const PluginGuiSurface = ({
                     <div style={{ ...pluginPanelTitleStyle, color: '#d6c1a5' }}>{title}</div>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: 44 }}>
                         <rect x="0" y="0" width="320" height="52" fill="rgba(20, 13, 9, 0.65)" />
-                        <path d="M 8 44 L 48 12 L 88 44 L 128 12 L 168 44 L 208 12 L 248 44 L 312 16" fill="none" stroke={color} strokeWidth="2.2" />
+                        {!isAmp && !isErosion && !isBit && (
+                            <path d="M 8 44 L 48 12 L 88 44 L 128 12 L 168 44 L 208 12 L 248 44 L 312 16" fill="none" stroke={color} strokeWidth="2.2" />
+                        )}
+                        {isAmp && (
+                            <>
+                                {Array.from({ length: 7 }).map((_, i) => (
+                                    <line key={i} x1={18 + i * 45} y1={8} x2={18 + i * 45} y2={44} stroke="rgba(255,170,110,0.35)" />
+                                ))}
+                                <path d="M 6 43 C 52 38, 86 16, 126 18 C 166 20, 210 42, 260 36 C 282 33, 302 29, 316 22" fill="none" stroke="#ffb57a" strokeWidth="2.4" />
+                            </>
+                        )}
+                        {isErosion && (
+                            <>
+                                {Array.from({ length: 24 }).map((_, i) => {
+                                    const x = 8 + i * 13;
+                                    const h = 8 + ((i * 19) % 30);
+                                    return <rect key={i} x={x} y={42 - h} width="6" height={h} rx="1" fill="rgba(255,156,94,0.82)" />;
+                                })}
+                            </>
+                        )}
+                        {isBit && (
+                            <>
+                                {Array.from({ length: 16 }).map((_, i) => {
+                                    const x = 12 + i * 18;
+                                    const high = i % 2 === 0 || i % 5 === 0;
+                                    return <rect key={i} x={x} y={high ? 14 : 26} width="12" height={high ? 24 : 12} fill="rgba(242,222,114,0.9)" rx="1.5" />;
+                                })}
+                            </>
+                        )}
                     </svg>
+                    <div style={pluginPanelMetaStyle}>
+                        <span>Drive {drive.toFixed(1)}</span>
+                        <span>Tone {tone.toFixed(2)}</span>
+                        <span>Mix {mix.toFixed(2)}</span>
+                    </div>
                 </div>
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(4, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
                     {device.params.slice(0, 4).map((p) => (
@@ -3506,6 +3611,10 @@ const PluginGuiSurface = ({
     }
 
     if (device.effectType === 'noiseMachine') {
+        const type = Math.round(device.params.find((p) => p.name.toLowerCase() === 'type')?.value ?? 0);
+        const level = device.params.find((p) => p.name.toLowerCase() === 'level')?.value ?? -30;
+        const stereo = device.params.find((p) => p.name.toLowerCase() === 'stereo')?.value ?? 0.5;
+        const typeLabel = type <= 0 ? 'Vinyl' : type === 1 ? 'Air' : 'Storm';
         return (
             <div style={pluginPanelLayoutStyle}>
                 <div style={{
@@ -3517,6 +3626,11 @@ const PluginGuiSurface = ({
                         <rect x="0" y="0" width="320" height="52" fill="rgba(12, 18, 12, 0.65)" />
                         <path d="M 4 26 L 12 10 L 20 38 L 28 18 L 36 42 L 44 14 L 52 34 L 60 8 L 68 40 L 76 20 L 84 36 L 92 12 L 100 44 L 108 16 L 116 38 L 124 22 L 132 40 L 140 10 L 148 34 L 156 18 L 164 42 L 172 14 L 180 36 L 188 8 L 196 40 L 204 20 L 212 38 L 220 12 L 228 44 L 236 16 L 244 34 L 252 22 L 260 40 L 268 10 L 276 38 L 284 18 L 292 42 L 300 14 L 308 36 L 316 26" fill="none" stroke="#72d68a" strokeWidth="1.6" />
                     </svg>
+                    <div style={pluginPanelMetaStyle}>
+                        <span>{typeLabel}</span>
+                        <span>Level {level.toFixed(1)} dB</span>
+                        <span>Stereo {(stereo * 100).toFixed(0)}%</span>
+                    </div>
                 </div>
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(6, device.params.length)}, minmax(0, 1fr))`)}>
                     {device.params.slice(0, 6).map((p) => (
@@ -3549,6 +3663,17 @@ const PluginGuiSurface = ({
             const h = 18 + Math.sin((idx + 1) * 0.62) * 9 + (1 - Math.abs(0.5 - t) * 2) * 20;
             return { x: 8 + idx * 13, h: Math.max(4, h) };
         });
+        const semitones = device.params.find((p) => p.name.toLowerCase() === 'semitones')?.value ?? 0;
+        const root = device.params.find((p) => p.name.toLowerCase() === 'root')?.value ?? 0;
+        const chance = device.params.find((p) => p.name.toLowerCase() === 'chance')?.value ?? 0;
+        const velGain = device.params.find((p) => p.name.toLowerCase() === 'gain')?.value ?? 1;
+        const velOffset = device.params.find((p) => p.name.toLowerCase() === 'offset')?.value ?? 0;
+        const isNoteLength = guiMode.includes('note-length');
+        const isCcControl = guiMode.includes('cc-control');
+        const isExpressionControl = guiMode.includes('expression-control');
+        const isArp = guiMode.includes('arpeggiator');
+        const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+        const activeRoot = Math.max(0, Math.min(11, Math.round(root) % 12));
         return (
             <div style={pluginPanelLayoutStyle}>
                 <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-midi)' }}>
@@ -3568,6 +3693,75 @@ const PluginGuiSurface = ({
                                 />
                             ))}
                         </svg>
+                    )}
+                    {device.effectType === 'midiPitch' && (
+                        <div style={{ display: 'grid', placeItems: 'center', height: 46 }}>
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 24, color: '#95bdff' }}>
+                                {semitones >= 0 ? '+' : ''}{semitones.toFixed(0)} st
+                            </div>
+                        </div>
+                    )}
+                    {device.effectType === 'midiScale' && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 3, height: 46, alignItems: 'center' }}>
+                            {noteNames.map((n, idx) => (
+                                <div
+                                    key={n}
+                                    style={{
+                                        borderRadius: 3,
+                                        border: idx === activeRoot ? '1px solid #8bc27a' : '1px solid rgba(255,255,255,0.14)',
+                                        background: idx === activeRoot ? 'rgba(139,194,122,0.22)' : 'rgba(160,180,210,0.1)',
+                                        color: idx === activeRoot ? '#d9f3d1' : '#a8b7cd',
+                                        fontSize: 9,
+                                        textAlign: 'center',
+                                        padding: '3px 0',
+                                    }}
+                                >
+                                    {n}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    {device.effectType === 'midiVelocity' && (
+                        <div style={{ display: 'grid', gap: 6, height: 46 }}>
+                            {isNoteLength ? (
+                                <>
+                                    <div style={{ height: 8, borderRadius: 999, background: '#1e2430', overflow: 'hidden' }}>
+                                        <div style={{ width: `${Math.max(0, Math.min(100, velGain * 50)).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #7ec8ff 0%, #a0e0ff 100%)' }} />
+                                    </div>
+                                    <div style={{ fontSize: 10, color: '#c5d7ea', fontFamily: 'var(--font-mono)' }}>Gate {(velGain * 100).toFixed(0)}%</div>
+                                </>
+                            ) : (
+                                <>
+                                    <div style={{ height: 8, borderRadius: 999, background: '#1e2430', overflow: 'hidden' }}>
+                                        <div style={{ width: `${Math.max(0, Math.min(200, velGain * 100)).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #7ec8ff 0%, #a0e0ff 100%)' }} />
+                                    </div>
+                                    <div style={{ height: 8, borderRadius: 999, background: '#1e2430', overflow: 'hidden', position: 'relative' }}>
+                                        <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'rgba(255,255,255,0.2)' }} />
+                                        <div style={{
+                                            position: 'absolute',
+                                            left: `calc(${Math.max(0, Math.min(100, (velOffset + 64) / 128 * 100)).toFixed(1)}% - 5px)`,
+                                            top: -2,
+                                            width: 10,
+                                            height: 12,
+                                            borderRadius: 4,
+                                            background: isCcControl || isExpressionControl ? '#8ecb7c' : '#d9a25c',
+                                        }} />
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
+                    {device.effectType === 'midiRandom' && (
+                        <div style={{ display: 'grid', alignItems: 'center', gap: 4, height: 46 }}>
+                            <div style={{ height: 8, borderRadius: 999, background: '#1d1d2e', overflow: 'hidden' }}>
+                                <div style={{ width: `${Math.max(0, Math.min(100, chance * 100)).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #c58bdd 0%, #ecb4ff 100%)' }} />
+                            </div>
+                            <div style={{ fontSize: 10, color: '#cfa4e6', fontFamily: 'var(--font-mono)' }}>
+                                {isArp
+                                    ? `Arp Gate ${(chance * 100).toFixed(0)}% | Steps ${Math.max(1, Math.round(Math.abs(semitones) || 8))}`
+                                    : `Chance ${(chance * 100).toFixed(0)}% | Range ±${Math.abs(semitones).toFixed(0)} st`}
+                            </div>
+                        </div>
                     )}
                     <div style={pluginPanelMetaStyle}>
                         <span>{device.effectType === 'spectrum' ? 'Analyzer (native)' : 'MIDI FX (import-compatible)'}</span>
@@ -3689,7 +3883,11 @@ const PluginSettingsPanel = ({
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--color-text-tertiary)' }}>
                     <span>{device.params.length} mapped params</span>
-                    <span>{editorSupported === false ? 'Native editor unavailable' : 'Inline editor'}</span>
+                    <span>
+                        {runtimeStatus?.latencyFrames != null
+                            ? `Latency ${runtimeStatus.latencyFrames} fr`
+                            : (editorSupported === false ? 'Native editor unavailable' : 'Inline editor')}
+                    </span>
                 </div>
                 {editorReason && (
                     <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>{editorReason}</div>

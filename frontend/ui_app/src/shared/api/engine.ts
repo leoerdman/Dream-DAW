@@ -861,6 +861,7 @@ export interface PluginSlotRuntimeStatus {
     editorSupported: boolean;
     runtime: string;
     sidechainReady: boolean;
+    latencyFrames?: number | null;
     message?: string | null;
 }
 

@@ -1803,6 +1803,14 @@ impl PluginHost {
         Ok(())
     }
 
+    /// Queues a parameter change for a specific plugin instance.
+    pub fn set_parameter(&mut self, id: Uuid, index: u32, value: f64) -> Result<(), PluginError> {
+        let instance = self
+            .get_mut(id)
+            .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
+        instance.set_parameter(index, value)
+    }
+
     /// Processes one plugin instance with optional sidechain bus.
     pub fn process_with_sidechain(
         &mut self,
@@ -1885,6 +1893,14 @@ impl PluginHost {
             .get_mut(id)
             .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
         Ok(instance.supports_editor())
+    }
+
+    /// Returns plugin reported processing latency in samples.
+    pub fn latency_samples(&mut self, id: Uuid) -> Result<u32, PluginError> {
+        let instance = self
+            .get_mut(id)
+            .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
+        Ok(instance.latency_samples())
     }
 
     /// Applies serialized state data to a loaded plugin instance.

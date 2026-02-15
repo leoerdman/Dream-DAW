@@ -261,61 +261,6 @@ fn lane_param_name_hints(project: &Project, plugin_id: &str) -> std::collections
     out
 }
 
-fn ensure_loaded_external_instance(
-    plugin_id: &str,
-    plugin_host_state: &tauri::State<'_, PluginHostState>,
-    project_state: &tauri::State<'_, ProjectState>,
-) -> Result<Uuid, String> {
-    if let Some(instance_id) = plugin_host_state
-        .loaded_by_key
-        .lock()
-        .map_err(|e| e.to_string())?
-        .get(plugin_id)
-        .copied()
-    {
-        if let Ok(project) = project_state.project.lock() {
-            bind_runtime_instance_for_plugin_slots(&project, plugin_id, instance_id, plugin_host_state);
-        }
-        return Ok(instance_id);
-    }
-
-    let descriptor = plugin_host_state.resolve_descriptor(plugin_id)?;
-    if descriptor.format != PluginFormat::VST3 {
-        return Err(format!(
-            "External parameter control is currently supported only for VST3 (got {})",
-            descriptor.format
-        ));
-    }
-
-    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-    let instance_id = host
-        .load_vst3(descriptor.clone())
-        .map_err(|e| format!("Failed to load plugin '{}': {e}", descriptor.name))?;
-    if let Ok(project) = project_state.project.lock()
-        && let Some(slot) = find_project_plugin_slot(&project, plugin_id)
-        && let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, &slot)
-    {
-        log::warn!(
-            "[PluginState] Could not restore imported state for '{}': {}",
-            slot.name,
-            err
-        );
-    }
-    drop(host);
-
-    plugin_host_state
-        .loaded_by_key
-        .lock()
-        .map_err(|e| e.to_string())?
-        .insert(plugin_id.to_string(), instance_id);
-
-    if let Ok(project) = project_state.project.lock() {
-        bind_runtime_instance_for_plugin_slots(&project, plugin_id, instance_id, plugin_host_state);
-    }
-
-    Ok(instance_id)
-}
-
 /// Open plugin native GUI window.
 ///
 /// Current implementation delegates lifecycle to the backend plugin host.
@@ -603,7 +548,23 @@ fn get_plugin_slot_runtime_status_cmd(
             editor_supported: false,
             runtime: "internal".to_string(),
             sidechain_ready: slot.supports_sidechain_input.unwrap_or(false) || slot.plugin_id.contains("compressor") || slot.plugin_id.contains("gate"),
+            latency_frames: Some(0),
             message: None,
+        });
+    }
+
+    let descriptor = plugin_host_state.resolve_descriptor(&slot.plugin_id)?;
+    if descriptor.format != PluginFormat::VST3 {
+        return Ok(PluginSlotRuntimeStatus {
+            loaded: false,
+            editor_supported: false,
+            runtime: "unsupported".to_string(),
+            sidechain_ready: false,
+            latency_frames: None,
+            message: Some(format!(
+                "{} is detected but runtime currently supports VST3 only.",
+                descriptor.format
+            )),
         });
     }
 
@@ -623,11 +584,17 @@ fn get_plugin_slot_runtime_status_cmd(
         } else {
             false
         };
+        let latency_frames = if loaded {
+            host.latency_samples(instance_id).ok()
+        } else {
+            None
+        };
         return Ok(PluginSlotRuntimeStatus {
             loaded,
             editor_supported,
             runtime: "in-process".to_string(),
             sidechain_ready: slot.supports_sidechain_input.unwrap_or(false),
+            latency_frames,
             message: if loaded {
                 None
             } else {
@@ -645,6 +612,7 @@ fn get_plugin_slot_runtime_status_cmd(
             "unloaded".to_string()
         },
         sidechain_ready: slot.supports_sidechain_input.unwrap_or(false),
+        latency_frames: None,
         message: if sandbox_loaded {
             None
         } else {
@@ -668,6 +636,14 @@ fn ensure_plugin_slot_active_cmd(
         .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
     if slot.plugin_id.starts_with("internal://") {
         return Ok(());
+    }
+
+    let descriptor = plugin_host_state.resolve_descriptor(&slot.plugin_id)?;
+    if descriptor.format != PluginFormat::VST3 {
+        return Err(format!(
+            "Unsupported plugin runtime format: {}. Dream DAW runtime currently supports VST3 only.",
+            descriptor.format
+        ));
     }
 
     let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)?;
@@ -769,6 +745,7 @@ fn set_external_plugin_param_for_slot_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    automation_runtime: tauri::State<'_, AutomationRuntime>,
 ) -> Result<(), String> {
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
@@ -792,6 +769,38 @@ fn set_external_plugin_param_for_slot_cmd(
         .set_parameter(param_index, normalized)
         .map_err(|e| format!("Failed to set external plugin parameter {param_index}: {e}"))?;
     drop(host);
+
+    {
+        let mut project_mut = project_state.project.lock().map_err(|e| e.to_string())?;
+        if let Some(track_mut) = project_mut.tracks.iter_mut().find(|t| t.id == track_uuid) {
+            let lane_param_id = format!("slot:{}:ext_param_{}", slot.id, param_index);
+            let point = dream_models::project::AutomationPoint {
+                beat: 0.0,
+                value: normalized,
+                curve_type: "linear".to_string(),
+                tension: None,
+                bezier_cp1x: None,
+                bezier_cp1y: None,
+                bezier_cp2x: None,
+                bezier_cp2y: None,
+            };
+            if let Some(existing_lane) = track_mut
+                .automation_lanes
+                .iter_mut()
+                .find(|lane| lane.param_id.eq_ignore_ascii_case(&lane_param_id))
+            {
+                existing_lane.param_id = lane_param_id;
+                existing_lane.points = vec![point];
+            } else {
+                track_mut.automation_lanes.push(dream_models::project::AutomationLane {
+                    param_id: lane_param_id,
+                    points: vec![point],
+                });
+            }
+        }
+        *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+        rebuild_automation_snapshot_from_project(&project_mut, &automation_runtime);
+    }
 
     clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
 
@@ -1219,7 +1228,7 @@ fn add_plugin_to_track_cmd(
             || compact.contains("mxdeviceinstrument")
             || compact.contains("loungelizard")
         {
-            return Some(("internal://instrument/wave-synth", "Essense", "instrument"));
+            return Some(("internal://instrument/wave-synth", "Essence", "instrument"));
         }
         if merged.contains("sampler") || merged.contains("simpler") || compact.contains("multisampler") || compact.contains("drumcell") {
             return Some(("internal://instrument/sampler", "Sampler", "instrument"));
@@ -1419,7 +1428,7 @@ fn add_plugin_to_track_cmd(
                 "internal://effect/pedal" => Some(FX_DISTORTION),
                 "internal://effect/roar" => Some(FX_DISTORTION),
                 "internal://effect/bitcrusher" => Some(FX_BITCRUSHER),
-                "internal://effect/erosion" => Some(FX_BITCRUSHER),
+                "internal://effect/erosion" => Some(FX_DISTORTION),
                 "internal://effect/noise-machine" => Some(FX_NOISE_MACHINE),
                 "internal://effect/auto-pan" => Some(FX_AUTO_PAN),
                 _ => None,
@@ -2122,26 +2131,6 @@ fn set_sampler_sample_cmd(
 //
 // This command eagerly activates ALL resolved external plugins in the project,
 // so their stored state is applied immediately and they are ready for playback.
-
-fn collect_external_plugin_ids_from_devices(nodes: &[DeviceNode], out: &mut Vec<String>) {
-    for node in nodes {
-        match node {
-            DeviceNode::Single(slot) => {
-                if !slot.plugin_id.starts_with("internal://")
-                    && !slot.plugin_id.is_empty()
-                    && slot.external_format.is_some()
-                {
-                    out.push(slot.plugin_id.clone());
-                }
-            }
-            DeviceNode::Rack(rack) => {
-                for chain in &rack.chains {
-                    collect_external_plugin_ids_from_devices(&chain.devices, out);
-                }
-            }
-        }
-    }
-}
 
 #[tauri::command]
 fn eager_activate_external_plugins(

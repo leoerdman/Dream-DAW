@@ -133,6 +133,7 @@ export const TrackInspector = ({
     const engineSetTrackPan = useEngineStore((s) => s.setTrackPan);
     const engineSetMasterVolume = useEngineStore((s) => s.setMasterVolume);
     const masterVolume = useEngineStore((s) => s.masterVolume);
+    const [masterColor, setMasterColor] = useState('#ffffff');
     const addTrack = useEngineStore((s) => s.addTrack);
     const deleteTrack = useEngineStore((s) => s.deleteTrack);
     const renameTrackAction = useEngineStore((s) => s.renameTrack);
@@ -154,11 +155,11 @@ export const TrackInspector = ({
     const masterTrack = useMemo((): TrackData => {
         const masterVu = Math.max(meters.master_left.peak, meters.master_right.peak);
         return {
-            id: 'master', name: 'Master', type: 'master', color: 'var(--text-muted)',
+            id: 'master', name: 'Master', type: 'master', color: masterColor,
             volume: masterVolume, pan: 0, isMuted: false, isSoloed: false, isArmed: false,
             vuLevel: masterVu, routing: '', sends: [], input: '', output: 'Main',
         };
-    }, [meters, masterVolume]);
+    }, [meters, masterVolume, masterColor]);
 
     // Local overrides
     const [localOverrides, setLocalOverrides] = useState<Record<string, Partial<TrackData>>>({});
@@ -439,6 +440,11 @@ export const TrackInspector = ({
     }, []);
 
     const handleColorSelect = useCallback((trackId: string, color: string) => {
+        if (trackId === 'master') {
+            setMasterColor(color);
+            setColorPickerState(null);
+            return;
+        }
         setLocalOverrides(prev => ({ ...prev, [trackId]: { ...prev[trackId], color } }));
         void engineApi.setTrackColor(trackId, color)
             .then(() => useEngineStore.getState().fetchProject('track-color-change'))
@@ -1032,7 +1038,10 @@ export const TrackInspector = ({
                 onPanChange={() => { }}
                 onOutputChange={() => { }}
                 onInputChange={() => { }}
-                onContextMenu={() => { }}
+                onContextMenu={(e) => {
+                    e.preventDefault();
+                    setContextMenu({ trackId: 'master', trackIndex: -1, x: e.clientX, y: e.clientY });
+                }}
                 isMasterFixed
                 mixerFocusMode={mixerFocusMode}
             />
@@ -1068,7 +1077,7 @@ export const TrackInspector = ({
                 <ColorPickerPopup
                     x={colorPickerState.x}
                     y={colorPickerState.y}
-                    currentColor={(tracks.find(t => t.id === colorPickerState.trackId)?.color) || '#666'}
+                    currentColor={(colorPickerState.trackId === 'master' ? masterTrack.color : tracks.find(t => t.id === colorPickerState.trackId)?.color) || '#666'}
                     onSelect={(color) => handleColorSelect(colorPickerState.trackId, color)}
                     onDismiss={() => setColorPickerState(null)}
                 />
@@ -1923,10 +1932,10 @@ const TrackRow = ({
     // Subdue track visually when disabled (muted)
     const isEnabled = !track.isMuted;
     const compactControlHeight = 16;
-    const headerBgColor = isMasterFixed ? 'var(--color-bg-app)' : track.color;
-    const headerContrast = getContrastColor(isMasterFixed ? '#f2f2f2' : track.color);
+    const headerBgColor = track.color;
+    const headerContrast = getContrastColor(track.color);
     const headerTextColor = headerContrast === 'black' ? 'var(--glass-bg)' : 'color-mix(in srgb, var(--color-text-primary) 94%, transparent)';
-    const childIndentPx = !isMaster && depth > 0 ? Math.min(48, depth * 12) : 0;
+    const childIndentPx = !isMaster && depth > 0 ? Math.max(0, Math.min(48, depth * 12) - 3) : 0;
 
     return (
         <div

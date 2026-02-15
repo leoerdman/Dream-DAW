@@ -79,6 +79,7 @@
     --z-pdc-panel: 1400;
     /* PDC dropdown in transport */
     --z-modal: 9000;
+    --z-modal-content: 9001;
     /* plugin windows, export modals */
     --z-menu: 9999;
     /* top-level menus (file, edit) */

@@ -2091,6 +2091,7 @@ impl ClipPoolState {
                             let idx = internal_slot_index;
                             internal_slot_index = internal_slot_index.saturating_add(1);
                             Some(dream_engine::driver::ExternalFxRuntimeSlot {
+                                slot_id: Some(slot.id),
                                 internal_slot_index: Some(idx),
                                 instance_id: None,
                                 sidechain_track_index,
@@ -2101,6 +2102,7 @@ impl ClipPoolState {
                             }
                             let instance_id = slot_instance_map.get(&slot.id).copied()?;
                             Some(dream_engine::driver::ExternalFxRuntimeSlot {
+                                slot_id: Some(slot.id),
                                 internal_slot_index: None,
                                 instance_id: Some(instance_id),
                                 sidechain_track_index,
@@ -2360,38 +2362,6 @@ impl PluginHostState {
             .clear();
         self.clear_slot_instance_bindings();
         Ok(())
-    }
-
-    fn ensure_loaded_instance_for_plugin_id(&self, plugin_id: &str) -> Result<Uuid, String> {
-        if let Some(instance_id) = self
-            .loaded_by_key
-            .lock()
-            .map_err(|e| e.to_string())?
-            .get(plugin_id)
-            .copied()
-        {
-            return Ok(instance_id);
-        }
-
-        let descriptor = self.resolve_descriptor(plugin_id)?;
-        if descriptor.format != PluginFormat::VST3 {
-            return Err(format!(
-                "External runtime currently supports only VST3 (got {})",
-                descriptor.format
-            ));
-        }
-
-        let mut host = self.host.lock().map_err(|e| e.to_string())?;
-        let instance_id = host
-            .load_vst3(descriptor.clone())
-            .map_err(|e| format!("Failed to load plugin '{}': {e}", descriptor.name))?;
-        drop(host);
-
-        self.loaded_by_key
-            .lock()
-            .map_err(|e| e.to_string())?
-            .insert(plugin_id.to_string(), instance_id);
-        Ok(instance_id)
     }
 
     fn ensure_loaded_instance_for_slot(
@@ -3108,6 +3078,7 @@ struct PluginSlotRuntimeStatus {
     editor_supported: bool,
     runtime: String,
     sidechain_ready: bool,
+    latency_frames: Option<u32>,
     message: Option<String>,
 }
 

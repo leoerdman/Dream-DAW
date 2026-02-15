@@ -769,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "desktop_host"
-version = "0.1.103"
+version = "0.1.111"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
@@ -922,7 +922,7 @@ dependencies = [
 
 [[package]]
 name = "dream_automation"
-version = "0.1.103"
+version = "0.1.111"
 dependencies = [
  "log",
  "serde",
@@ -931,7 +931,7 @@ dependencies = [
 
 [[package]]
 name = "dream_clip_engine"
-version = "0.1.103"
+version = "0.1.111"
 dependencies = [
  "arc-swap",
  "crossbeam-utils",
@@ -943,7 +943,7 @@ dependencies = [
 
 [[package]]
 name = "dream_dsp"
-version = "0.1.103"
+version = "0.1.111"
 dependencies = [
  "log",
  "rubato",
@@ -951,7 +951,7 @@ dependencies = [
 
 [[package]]
 name = "dream_engine"
-version = "0.1.103"
+version = "0.1.111"
 dependencies = [
  "arc-swap",
  "cpal",
@@ -973,7 +973,7 @@ dependencies = [
 
 [[package]]
 name = "dream_graph"
-version = "0.1.103"
+version = "0.1.111"
 dependencies = [
  "arc-swap",
  "dream_ipc",
@@ -983,7 +983,7 @@ dependencies = [
 
 [[package]]
 name = "dream_io"
-version = "0.1.103"
+version = "0.1.111"
 dependencies = [
  "bytemuck",
  "dream_models",
@@ -998,21 +998,21 @@ dependencies = [
 
 [[package]]
 name = "dream_ipc"
-version = "0.1.103"
+version = "0.1.111"
 dependencies = [
  "rtrb",
 ]
 
 [[package]]
 name = "dream_mixer"
-version = "0.1.103"
+version = "0.1.111"
 dependencies = [
  "log",
 ]
 
 [[package]]
 name = "dream_models"
-version = "0.1.103"
+version = "0.1.111"
 dependencies = [
  "parking_lot",
  "serde",
@@ -1023,7 +1023,7 @@ dependencies = [
 
 [[package]]
 name = "dream_plugins"
-version = "0.1.103"
+version = "0.1.111"
 dependencies = [
  "bytemuck",
  "dream_models",
@@ -1037,7 +1037,7 @@ dependencies = [
 
 [[package]]
 name = "dream_renderer"
-version = "0.1.103"
+version = "0.1.111"
 dependencies = [
  "bytemuck",
  "dream_models",
@@ -1047,7 +1047,7 @@ dependencies = [
 
 [[package]]
 name = "dream_transport"
-version = "0.1.103"
+version = "0.1.111"
 dependencies = [
  "dream_models",
  "log",
@@ -3231,7 +3231,7 @@ dependencies = [
 
 [[package]]
 name = "plugin_host_daemon"
-version = "0.1.103"
+version = "0.1.111"
 dependencies = [
  "bytemuck",
  "dream_plugins",

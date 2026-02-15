@@ -5947,6 +5947,7 @@ fn consolidate_automation_lanes(track: &mut Track) {
     track.automation_lanes = out;
 }
 
+#[cfg(test)]
 fn import_als_project(file_path: &Path) -> Result<Project, String> {
     import_als_project_with_target_sample_rate(file_path, None)
 }

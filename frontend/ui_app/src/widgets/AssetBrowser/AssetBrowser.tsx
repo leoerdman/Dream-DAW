@@ -243,6 +243,20 @@ export const AssetBrowser = () => {
     }, []);
 
     useEffect(() => {
+        const focusBrowserSearch = (evt: Event) => {
+            const detail = (evt as CustomEvent<{ categoryId?: string }>).detail;
+            if (detail?.categoryId) {
+                setSelectedCategoryId(detail.categoryId);
+                setFolderStack([]);
+            }
+            searchRef.current?.focus();
+            searchRef.current?.select();
+        };
+        window.addEventListener('dream:browser-focus-search', focusBrowserSearch as EventListener);
+        return () => window.removeEventListener('dream:browser-focus-search', focusBrowserSearch as EventListener);
+    }, []);
+
+    useEffect(() => {
         if (!settingsLoaded) return;
         setShowSizeColumn(settings.browserShowSizeColumn);
         setShowTypeColumn(settings.browserShowTypeColumn);
@@ -760,6 +774,17 @@ export const AssetBrowser = () => {
     }, []);
 
     const handleBrowserKeyDown = useCallback((e: React.KeyboardEvent) => {
+        if (e.key === 'Escape') {
+            const activeEl = document.activeElement;
+            if (activeEl === searchRef.current && searchQuery.length > 0) {
+                e.preventDefault();
+                e.stopPropagation();
+                setSearchQuery('');
+                setScrollTop(0);
+                if (fileListRef.current) fileListRef.current.scrollTop = 0;
+            }
+            return;
+        }
         if (e.key === 'ArrowDown') {
             e.preventDefault();
             moveSelection(1);
@@ -785,18 +810,36 @@ export const AssetBrowser = () => {
             return;
         }
         void handleItemEnter(selected);
-    }, [focusResults, handleItemEnter, items, moveSelection, selectedItemId, visibleItems]);
+    }, [focusResults, handleItemEnter, items, moveSelection, searchQuery.length, selectedItemId, visibleItems]);
 
     const beginSplitResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         e.preventDefault();
         const root = splitRootRef.current;
         if (!root) return;
         const rootRect = root.getBoundingClientRect();
+        let rafId: number | null = null;
+        let pendingWidth: number | null = null;
+
+        const flushWidth = () => {
+            rafId = null;
+            if (pendingWidth === null) return;
+            const nextWidth = pendingWidth;
+            setLeftPaneWidth((prev) => (prev === nextWidth ? prev : nextWidth));
+        };
+
         const onMove = (me: MouseEvent) => {
             const nextWidth = Math.max(84, Math.min(180, Math.round(me.clientX - rootRect.left)));
-            setLeftPaneWidth(nextWidth);
+            pendingWidth = nextWidth;
+            if (rafId === null) {
+                rafId = window.requestAnimationFrame(flushWidth);
+            }
         };
         const onUp = () => {
+            if (rafId !== null) {
+                window.cancelAnimationFrame(rafId);
+                rafId = null;
+            }
+            flushWidth();
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
             const finalWidth = Math.max(84, Math.min(180, leftPaneWidthRef.current));
@@ -884,9 +927,9 @@ export const AssetBrowser = () => {
                                     style={{
                                         display: 'flex',
                                         alignItems: 'center',
-                                        gap: 3,
+                                        gap: 4,
                                         width: '100%',
-                                        padding: '5px 6px 3px',
+                                        padding: '3px 4px 3px 12px',
                                         background: 'none',
                                         border: 'none',
                                         color: 'var(--color-text-primary)',
@@ -898,13 +941,35 @@ export const AssetBrowser = () => {
                                         opacity: 0.9,
                                     }}
                                 >
+                                    <span style={{ width: 14, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
+                                        <BrowserGlyph name={cat.icon} size={11} />
+                                    </span>
                                     <span style={{
-                                        fontSize: 7,
-                                        transform: collapsed ? 'rotate(-90deg)' : 'rotate(0)',
-                                        transition: 'transform 0.15s',
-                                    }}>▼</span>
-                                    <BrowserGlyph name={cat.icon} size={11} />
-                                    {cat.title}
+                                        flex: 1,
+                                        minWidth: 0,
+                                        textAlign: 'left',
+                                    }}>
+                                        {cat.title}
+                                    </span>
+                                    <svg
+                                        width="9"
+                                        height="9"
+                                        viewBox="0 0 9 9"
+                                        style={{
+                                            flexShrink: 0,
+                                            opacity: 0.78,
+                                        }}
+                                        aria-hidden
+                                    >
+                                        <polyline
+                                            points={collapsed ? '2,1 6,4.5 2,8' : '1,2 4.5,6 8,2'}
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="1.4"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                        />
+                                    </svg>
                                 </button>
                             );
                         }
@@ -939,7 +1004,7 @@ export const AssetBrowser = () => {
                                         opacity: 0.95,
                                     }}
                                 >
-                                    <span style={{ width: 13, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
+                                    <span style={{ width: 14, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
                                         <BrowserGlyph name={cat.icon} size={12} />
                                     </span>
                                     <span>Add Fol…</span>

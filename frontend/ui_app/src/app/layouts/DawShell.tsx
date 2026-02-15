@@ -12,12 +12,13 @@ import { Timeline } from '@/widgets/Timeline/Timeline';
 import { ClipRenderer } from '@/widgets/Timeline/ClipRenderer';
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import type { MidiNote } from '@/widgets/PianoRoll/PianoRoll';
-import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useEngineStore, type ProjectTrack } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import * as engineApi from '@/shared/api/engine';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
+import { getContrastColor } from '@/shared/lib/colorUtils';
 
 /** Supported audio file extensions for drag-and-drop import. */
 const AUDIO_EXTENSIONS = new Set([
@@ -73,6 +74,7 @@ const ExportModal = lazy(async () => ({
  */
 export const DawShell = () => {
     type BottomPanelMode = 'rack' | 'clip';
+    type MainViewMode = 'arrangement' | 'session';
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [selectedTrackId, setSelectedTrackId] = useState('');
     const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
@@ -82,6 +84,7 @@ export const DawShell = () => {
     const [isDragOver, setIsDragOver] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
     const [bottomPanelMode, setBottomPanelMode] = useState<BottomPanelMode>('rack');
+    const [mainViewMode, setMainViewMode] = useState<MainViewMode>('arrangement');
     const [recordingState, setRecordingState] = useState<{ active: boolean; trackIndex: number }>({
         active: false,
         trackIndex: 0,
@@ -91,7 +94,6 @@ export const DawShell = () => {
     const [clipFadeCurves, setClipFadeCurves] = useState<Record<string, { fadeInCurve: number; fadeOutCurve: number }>>({});
     const [aiVariationBusy, setAiVariationBusy] = useState(false);
     const [browserWidth, setBrowserWidth] = useState(320);
-    const [mixerFocusMode, setMixerFocusMode] = useState(false);
     const [trackHeightPx, setTrackHeightPx] = useState(48);
     const midiSaveThrottlesRef = useRef<Map<string, (notes: MidiNote[]) => void>>(new Map());
     const latestMidiNotesRef = useRef<Record<string, MidiNote[]>>({});
@@ -109,6 +111,12 @@ export const DawShell = () => {
     const timelineRef = useRef<HTMLDivElement>(null);
     const mainSplitRef = useRef<HTMLElement>(null);
     const queuedStartBeatRef = useRef<number | null>(null);
+    const [marqueeSelection, setMarqueeSelection] = useState<{
+        startBeat: number;
+        endBeat: number;
+        startTrack: number;
+        endTrack: number;
+    } | null>(null);
 
     // ── Enterprise Project Manager (Cmd+S/⇧S/N/O, auto-backup, dirty state)
     // Hook has side effects (keyboard shortcuts, auto-backup timer) — value intentionally unused
@@ -132,6 +140,7 @@ export const DawShell = () => {
             (useEngineStore.getState().projectSampleRate ?? 44100)
         ),
         timelineClips: timelineClipsSnapshot,
+        marqueeSelection,
         onProjectMutated: fetchProject,
         onTogglePlayback: togglePlay,
     });
@@ -156,7 +165,7 @@ export const DawShell = () => {
                     tag === 'input' || tag === 'textarea' || target?.isContentEditable;
                 if (isTextInput) return;
                 e.preventDefault();
-                setMixerFocusMode((prev) => !prev);
+                setMainViewMode((prev) => (prev === 'arrangement' ? 'session' : 'arrangement'));
                 return;
             }
             // Shift+Tab: toggle bottom panel between Instrument Rack and Clip Editor.
@@ -480,6 +489,24 @@ export const DawShell = () => {
 
     // Option(Alt)+Wheel: vertical track height zoom in 8px steps.
     useEffect(() => {
+        const WHEEL_STEP_THRESHOLD = 40;
+        let wheelAccumulator = 0;
+        let wheelRafId = 0;
+
+        const flushWheelZoom = () => {
+            wheelRafId = 0;
+            const steps = Math.floor(Math.abs(wheelAccumulator) / WHEEL_STEP_THRESHOLD);
+            if (steps <= 0) return;
+
+            const direction = wheelAccumulator < 0 ? 1 : -1;
+            wheelAccumulator -= Math.sign(wheelAccumulator) * steps * WHEEL_STEP_THRESHOLD;
+
+            setTrackHeightPx((prev) => {
+                const next = prev + direction * TRACK_HEIGHT_STEP * steps;
+                return Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, next));
+            });
+        };
+
         const onWheel = (e: WheelEvent) => {
             if (!e.altKey) return;
             const target = e.target as HTMLElement | null;
@@ -488,14 +515,19 @@ export const DawShell = () => {
             if (!inTimeline && !inInspector) return;
             e.preventDefault();
             e.stopPropagation();
-            setTrackHeightPx((prev) => {
-                const direction = e.deltaY < 0 ? 1 : -1;
-                const next = prev + direction * TRACK_HEIGHT_STEP;
-                return Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, next));
-            });
+
+            wheelAccumulator += e.deltaY;
+            if (!wheelRafId) {
+                wheelRafId = window.requestAnimationFrame(flushWheelZoom);
+            }
         };
         window.addEventListener('wheel', onWheel, { passive: false, capture: true });
-        return () => window.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions);
+        return () => {
+            window.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions);
+            if (wheelRafId) {
+                window.cancelAnimationFrame(wheelRafId);
+            }
+        };
     }, []);
 
     // ── Scroll sync between Timeline and TrackInspector ─────────────
@@ -525,6 +557,7 @@ export const DawShell = () => {
         setEditCursorBeat(-1);
         setSelectedClipId(null);
         setSelectedClipIds([]);
+        setMarqueeSelection(null);
     }, []);
 
     // Resolve playback start anchor on actual transport start.
@@ -580,7 +613,6 @@ export const DawShell = () => {
     const {
         dropBrowserItemOnTimeline,
         dropPluginOnTrack,
-        addDefaultDeviceToTrack,
     } = useBrowserDnDOrchestrator({
         projectTracks,
         projectBpm,
@@ -763,87 +795,98 @@ export const DawShell = () => {
                         }}
                     />
 
-                    {/* ═ TIMELINE (replaces the "hole-punch" transparent zone) ═ */}
-                    <div
-                        ref={timelineRef}
-                        className="flex-1 overflow-hidden"
-                        style={{
-                            background: 'var(--color-bg-canvas)',
-                        }}
-                    >
-                        <ErrorBoundary module="Timeline">
-                            <Timeline
-                                bpm={projectBpm || transport.bpm || 120}
-                                clips={timelineClipsForView}
-                                playheadBeat={playheadBeat}
-                                editCursorBeat={editCursorBeat}
-                                editCursorTrackIndex={editCursorTrackIndex}
-                                isPlaying={transport.is_playing}
-                                recordingActive={recordingState.active}
-                                recordingTrackIndex={recordingState.trackIndex}
-                                trackIds={trackIds}
-                                loopStart={(transport.loop_start / projectSampleRate) * ((projectBpm || transport.bpm || 120) / 60)}
-                                loopEnd={(transport.loop_end / projectSampleRate) * ((projectBpm || transport.bpm || 120) / 60)}
-                                loopEnabled={transport.loop_enabled}
-                                trackCount={trackCount}
-                                trackHeight={TRACK_HEIGHT}
-                                onPlayheadChange={handlePlayheadChange}
-                                onEditCursorChange={handleEditCursorChange}
-                                onMarqueeSelectionStart={handleMarqueeSelectionStart}
-                                onClipSelect={handleClipSelect}
-                                selectedClipIds={selectedClipIds}
-                                onClipSelectionChange={(ids) => {
-                                    setSelectedClipIds(ids);
-                                    setSelectedClipId(ids[ids.length - 1] ?? null);
-                                    // Mutual exclusivity: clip selection ⇒ hide edit cursor.
-                                    if (ids.length > 0) setEditCursorBeat(-1);
-                                    // Queue playhead to leftmost selected clip.
-                                    if (ids.length > 0) {
-                                        let minBeat = Infinity;
-                                        for (const c of timelineClipsForView) {
-                                            if (ids.includes(c.id) && c.startBeat < minBeat) minBeat = c.startBeat;
-                                        }
-                                        if (Number.isFinite(minBeat)) queuedStartBeatRef.current = minBeat;
-                                    }
+                    {mainViewMode === 'arrangement' ? (
+                        <>
+                            {/* ═ TIMELINE (replaces the "hole-punch" transparent zone) ═ */}
+                            <div
+                                ref={timelineRef}
+                                className="flex-1 overflow-hidden"
+                                style={{
+                                    background: 'var(--color-bg-canvas)',
                                 }}
-                                onClipMove={handleClipMove}
-                                onClipResize={handleClipResize}
-                                onDropBrowserItem={handleBrowserDrop}
-                                onDoubleClickTrack={handleDoubleClickTrack}
-                                onOpenMidiClip={handleOpenMidiClip}
-                                onTrackSelect={(trackId, trackIndex) => {
-                                    const resolvedTrackId = trackIds[trackIndex] ?? trackId;
-                                    handleSelectTrack(resolvedTrackId);
-                                }}
-                                onScrollTop={handleTimelineScrollTop}
-                                followPlayhead={followPlayhead}
-                                automationVisible={automationVisible}
-                            />
-                        </ErrorBoundary>
-                    </div>
+                            >
+                                <ErrorBoundary module="Timeline">
+                                    <Timeline
+                                        bpm={projectBpm || transport.bpm || 120}
+                                        clips={timelineClipsForView}
+                                        playheadBeat={playheadBeat}
+                                        editCursorBeat={editCursorBeat}
+                                        editCursorTrackIndex={editCursorTrackIndex}
+                                        isPlaying={transport.is_playing}
+                                        recordingActive={recordingState.active}
+                                        recordingTrackIndex={recordingState.trackIndex}
+                                        trackIds={trackIds}
+                                        loopStart={(transport.loop_start / projectSampleRate) * ((projectBpm || transport.bpm || 120) / 60)}
+                                        loopEnd={(transport.loop_end / projectSampleRate) * ((projectBpm || transport.bpm || 120) / 60)}
+                                        loopEnabled={transport.loop_enabled}
+                                        trackCount={trackCount}
+                                        trackHeight={TRACK_HEIGHT}
+                                        onPlayheadChange={handlePlayheadChange}
+                                        onEditCursorChange={handleEditCursorChange}
+                                        onMarqueeSelectionStart={handleMarqueeSelectionStart}
+                                        onMarqueeSelectionChange={setMarqueeSelection}
+                                        onClipSelect={handleClipSelect}
+                                        selectedClipIds={selectedClipIds}
+                                        onClipSelectionChange={(ids) => {
+                                            setSelectedClipIds(ids);
+                                            setSelectedClipId(ids[ids.length - 1] ?? null);
+                                            // Mutual exclusivity: clip selection ⇒ hide edit cursor.
+                                            if (ids.length > 0) setEditCursorBeat(-1);
+                                            // Queue playhead to leftmost selected clip.
+                                            if (ids.length > 0) {
+                                                let minBeat = Infinity;
+                                                for (const c of timelineClipsForView) {
+                                                    if (ids.includes(c.id) && c.startBeat < minBeat) minBeat = c.startBeat;
+                                                }
+                                                if (Number.isFinite(minBeat)) queuedStartBeatRef.current = minBeat;
+                                            }
+                                        }}
+                                        onClipMove={handleClipMove}
+                                        onClipResize={handleClipResize}
+                                        onDropBrowserItem={handleBrowserDrop}
+                                        onDoubleClickTrack={handleDoubleClickTrack}
+                                        onOpenMidiClip={handleOpenMidiClip}
+                                        onTrackSelect={(trackId, trackIndex) => {
+                                            const resolvedTrackId = trackIds[trackIndex] ?? trackId;
+                                            handleSelectTrack(resolvedTrackId);
+                                        }}
+                                        onScrollTop={handleTimelineScrollTop}
+                                        followPlayhead={followPlayhead}
+                                        automationVisible={automationVisible}
+                                    />
+                                </ErrorBoundary>
+                            </div>
 
-                    {/* Right Sidebar (Track Inspector / Track List) */}
-                    <aside
-                        className="shrink-0 h-full z-40 flex flex-col overflow-hidden"
-                        style={{
-                            width: 'var(--daw-inspector-width)',
-                            background: 'var(--color-bg-panel)',
-                            borderLeft: '1px solid var(--color-divider)',
-                        }}
-                    >
-                        <ErrorBoundary module="Track Inspector">
-                            <Suspense fallback={null}>
-                                <TrackInspector
-                                    selectedTrackId={selectedTrackId}
-                                    onSelectTrack={handleSelectTrack}
-                                    trackHeight={TRACK_HEIGHT}
-                                    rulerHeight={RULER_HEIGHT}
-                                    scrollTop={timelineScrollTop}
-                                    mixerFocusMode={mixerFocusMode}
-                                />
-                            </Suspense>
-                        </ErrorBoundary>
-                    </aside>
+                            {/* Right Sidebar (Track Inspector / Track List) */}
+                            <aside
+                                className="shrink-0 h-full z-40 flex flex-col overflow-hidden"
+                                style={{
+                                    width: 'var(--daw-inspector-width)',
+                                    background: 'var(--color-bg-panel)',
+                                    borderLeft: '1px solid var(--color-divider)',
+                                }}
+                            >
+                                <ErrorBoundary module="Track Inspector">
+                                    <Suspense fallback={null}>
+                                        <TrackInspector
+                                            selectedTrackId={selectedTrackId}
+                                            onSelectTrack={handleSelectTrack}
+                                            trackHeight={TRACK_HEIGHT}
+                                            rulerHeight={RULER_HEIGHT}
+                                            scrollTop={timelineScrollTop}
+                                            mixerFocusMode={false}
+                                        />
+                                    </Suspense>
+                                </ErrorBoundary>
+                            </aside>
+                        </>
+                    ) : (
+                        <SessionWorkspace
+                            tracks={projectTracks}
+                            selectedTrackId={selectedTrackId}
+                            onSelectTrack={handleSelectTrack}
+                        />
+                    )}
                 </main>
 
                 {/* ── BOTTOM: Rack / Clip Editor (Shift+Tab) ── */}
@@ -861,7 +904,6 @@ export const DawShell = () => {
                                 <DeviceRack
                                     selectedTrackId={selectedTrackId}
                                     onDropPluginToTrack={(item, trackId) => dropPluginOnTrack(item, trackId)}
-                                    onAddDefaultDeviceToTrack={(trackId) => addDefaultDeviceToTrack(trackId)}
                                 />
                             </Suspense>
                         </ErrorBoundary>
@@ -1012,6 +1054,241 @@ export const DawShell = () => {
         </div>
     );
 };
+
+const SessionWorkspace = ({
+    tracks,
+    selectedTrackId,
+    onSelectTrack,
+}: {
+    tracks: ProjectTrack[];
+    selectedTrackId: string;
+    onSelectTrack: (trackId: string) => void;
+}) => {
+    const meters = useEngineStore((s) => s.meters);
+    const togglePlay = useEngineStore((s) => s.togglePlay);
+    const isPlaying = useEngineStore((s) => s.transport.is_playing);
+    const SESSION_SCENE_ROWS = 3;
+    const scenes = useMemo(() => Array.from({ length: SESSION_SCENE_ROWS }, (_, i) => i), []);
+    const [sessionClips, setSessionClips] = useState<Record<string, { id: string; name: string; color: string; looped: boolean }>>({});
+    const [selectedSessionClipId, setSelectedSessionClipId] = useState<string | null>(null);
+    const [playingSessionClipId, setPlayingSessionClipId] = useState<string | null>(null);
+
+    const masterMeter = meters.master_left;
+    const masterLevel = Math.max(0, Math.min(1, ((masterMeter?.peak ?? -60) + 60) / 60));
+
+    return (
+        <div style={{
+            flex: 1,
+            display: 'grid',
+            gridTemplateRows: '1fr 170px',
+            minWidth: 0,
+            minHeight: 0,
+            background: 'var(--color-bg-canvas)',
+            borderLeft: '1px solid var(--color-divider)',
+        }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 118px', minHeight: 0, overflow: 'hidden' }}>
+                <div style={{ overflow: 'auto', minHeight: 0 }}>
+                    <div style={{ display: 'flex', minWidth: 'max-content', minHeight: '100%' }}>
+                        {tracks.map((track) => {
+                            const slotKey = (sceneIndex: number) => `${track.id}:${sceneIndex}`;
+                            const contrast = getContrastColor(track.color) === 'black' ? '#151515' : '#f4f6f8';
+                            const isSelectedTrack = selectedTrackId === track.id;
+                            return (
+                                <div key={track.id} style={{ width: 132, borderRight: '1px solid #2b2b2b', display: 'flex', flexDirection: 'column' }}>
+                                <button
+                                    onClick={() => onSelectTrack(track.id)}
+                                    style={{
+                                        height: 28,
+                                        border: 'none',
+                                        borderBottom: '1px solid rgba(0,0,0,0.45)',
+                                        background: track.color,
+                                        color: contrast,
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        textAlign: 'left',
+                                        padding: '0 8px',
+                                        boxShadow: isSelectedTrack ? 'inset 0 0 0 2px color-mix(in srgb, var(--color-accent-primary) 64%, transparent)' : 'none',
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    {track.name}
+                                </button>
+                                {scenes.map((sceneIndex) => {
+                                    const clip = sessionClips[slotKey(sceneIndex)] ?? null;
+                                    const isSelected = clip ? selectedSessionClipId === clip.id : false;
+                                    const clipText = clip ? (getContrastColor(clip.color) === 'black' ? '#1a1a1a' : '#f3f5f8') : 'var(--color-text-tertiary)';
+                                    const isPlayingClip = clip ? playingSessionClipId === clip.id && isPlaying : false;
+                                    return (
+                                        <div
+                                            key={`${track.id}:${sceneIndex}`}
+                                            onClick={() => onSelectTrack(track.id)}
+                                            onDoubleClick={() => {
+                                                if (clip) return;
+                                                const id = `sess_${track.id}_${sceneIndex}_${Date.now()}`;
+                                                setSessionClips((prev) => ({
+                                                    ...prev,
+                                                    [slotKey(sceneIndex)]: {
+                                                        id,
+                                                        name: 'MIDI Loop',
+                                                        color: track.color,
+                                                        looped: true,
+                                                    },
+                                                }));
+                                                setSelectedSessionClipId(id);
+                                            }}
+                                            style={{
+                                                height: 26,
+                                                border: 'none',
+                                                borderBottom: '1px solid #2a2a2a',
+                                                borderRight: '1px solid #262626',
+                                                background: clip
+                                                    ? clip.color
+                                                    : 'color-mix(in srgb, var(--color-bg-panel) 90%, #131313)',
+                                                color: clipText,
+                                                fontSize: 10,
+                                                fontWeight: clip ? 600 : 500,
+                                                textAlign: 'left',
+                                                padding: clip ? '0 6px' : '0 8px',
+                                                cursor: 'pointer',
+                                                boxShadow: isSelected ? 'inset 0 0 0 2px color-mix(in srgb, var(--color-accent-primary) 70%, transparent)' : 'none',
+                                                opacity: clip ? 1 : 0.72,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                            }}
+                                        >
+                                            {clip ? (
+                                                <>
+                                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 70 }}>
+                                                        {clip.name}
+                                                    </span>
+                                                    <div style={{ display: 'flex', gap: 4 }}>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setSelectedSessionClipId(clip.id);
+                                                                setPlayingSessionClipId(clip.id);
+                                                                if (!isPlaying) togglePlay();
+                                                            }}
+                                                            style={sessionClipTransportBtnStyle(isPlayingClip)}
+                                                            title="Play Clip"
+                                                        >
+                                                            ▶
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setSelectedSessionClipId(clip.id);
+                                                                setPlayingSessionClipId(null);
+                                                                if (isPlaying) togglePlay();
+                                                            }}
+                                                            style={sessionClipTransportBtnStyle(false)}
+                                                            title="Stop Clip"
+                                                        >
+                                                            ■
+                                                        </button>
+                                                    </div>
+                                                </>
+                                            ) : null}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        );
+                    })}
+                    </div>
+                </div>
+                <div style={{ width: 118, borderLeft: '1px solid #3a3a3a', background: 'color-mix(in srgb, var(--color-bg-panel) 80%, #111)' }}>
+                    <div style={{
+                        height: 28,
+                        borderBottom: '1px solid rgba(0,0,0,0.45)',
+                        background: '#36cfd1',
+                        color: '#0d1b1c',
+                        fontSize: 11,
+                        fontWeight: 800,
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '0 8px',
+                    }}>
+                        Master
+                    </div>
+                    {scenes.map((_, i) => (
+                        <div key={`master-scene-${i}`} style={{ height: 26, borderBottom: '1px solid #2a2a2a' }} />
+                    ))}
+                </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 118px', minHeight: 0, overflow: 'hidden', borderTop: '1px solid var(--color-divider)', background: 'color-mix(in srgb, var(--color-bg-panel) 92%, #0e0e0e)' }}>
+                <div style={{ display: 'flex', minHeight: 0, overflowX: 'auto' }}>
+                    {tracks.map((track) => (
+                        <div key={`mix-${track.id}`} style={{ width: 132, borderRight: '1px solid #2d2d2d', padding: '8px 8px 6px', display: 'grid', gridTemplateRows: 'auto auto 1fr auto', gap: 6 }}>
+                            <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>
+                                {track.track_type}
+                            </div>
+                            <div style={{ display: 'flex', gap: 4 }}>
+                                <button style={sessionMixerBtnStyle(track.is_mute)}>M</button>
+                                <button style={sessionMixerBtnStyle(track.is_solo)}>S</button>
+                                <button style={sessionMixerBtnStyle(track.is_armed)}>R</button>
+                            </div>
+                            <div style={{
+                                position: 'relative',
+                                border: '1px solid #3d3d3d',
+                                borderRadius: 4,
+                                background: '#1a1a1a',
+                            }}>
+                                <div style={{
+                                    position: 'absolute',
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    height: `${Math.max(4, Math.min(100, track.volume * 100))}%`,
+                                    background: 'linear-gradient(180deg, #7ce66a 0%, #2fbf50 100%)',
+                                }} />
+                            </div>
+                            <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                                Vol {track.volume.toFixed(2)}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                <div style={{ width: 118, padding: '8px 8px 6px', borderLeft: '1px solid #3b3b3b', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6 }}>
+                    <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', fontWeight: 700 }}>MASTER</div>
+                    <div style={{ position: 'relative', border: '1px solid #3d3d3d', borderRadius: 4, background: '#1a1a1a' }}>
+                        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${Math.max(4, Math.min(100, masterLevel * 100))}%`, background: 'linear-gradient(180deg, #92ff73 0%, #3ac95b 80%, #ffe35e 100%)' }} />
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>Out</div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const sessionMixerBtnStyle = (active: boolean): CSSProperties => ({
+    minWidth: 24,
+    height: 18,
+    borderRadius: 3,
+    border: active ? '1px solid color-mix(in srgb, var(--color-accent-primary) 55%, transparent)' : '1px solid #4b4b4b',
+    background: active ? 'var(--color-accent-primary-dim)' : 'var(--color-bg-header)',
+    color: active ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+    fontSize: 10,
+    fontWeight: 700,
+    cursor: 'default',
+});
+
+const sessionClipTransportBtnStyle = (active: boolean): CSSProperties => ({
+    minWidth: 16,
+    height: 14,
+    borderRadius: 3,
+    border: active ? '1px solid color-mix(in srgb, var(--color-accent-primary) 50%, transparent)' : '1px solid rgba(0,0,0,0.35)',
+    background: active ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.26)',
+    color: active ? '#ffffff' : 'rgba(255,255,255,0.9)',
+    fontSize: 9,
+    fontWeight: 700,
+    lineHeight: 1,
+    padding: 0,
+    cursor: 'pointer',
+});
 
 export default DawShell;
 

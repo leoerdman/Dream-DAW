@@ -1003,7 +1003,7 @@ const VolumeFader = ({
     }, [compact, endDrag, onVolumeChange]);
 
     const trackHeight = compact ? 18 : 22;
-    const trackWidth = compact ? 92 : 108;
+    const trackWidth = compact ? 60 : 108;
 
     // Zero-dB tick position
     const zeroTickPos = dbToFader(0);
@@ -1100,7 +1100,6 @@ const PanFader = ({
     compact?: boolean;
 }) => {
     const trackRef = useRef<HTMLDivElement>(null);
-    const [isDragging, setIsDragging] = useState(false);
     const isDraggingRef = useRef(false);
     const activePointerId = useRef<number | null>(null);
     const dragStartRef = useRef<{ x: number; y: number; startNorm: number } | null>(null);
@@ -1108,7 +1107,6 @@ const PanFader = ({
 
     const endDrag = useCallback(() => {
         isDraggingRef.current = false;
-        setIsDragging(false);
         activePointerId.current = null;
         dragStartRef.current = null;
         void useEngineStore.getState().flushTrackControlFinals();
@@ -1149,7 +1147,7 @@ const PanFader = ({
         : `${pan < 0 ? '-' : '+'}${Math.round(Math.abs(pan) * 100)}`;
 
     const trackHeight = compact ? 18 : 22;
-    const trackWidth = compact ? 92 : 88;
+    const trackWidth = compact ? 60 : 88;
 
     return (
         <div data-testid="track-pan-fader" style={{ display: 'flex', alignItems: 'center', minWidth: trackWidth, flexShrink: 0 }}>
@@ -1161,7 +1159,6 @@ const PanFader = ({
                     (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
                     activePointerId.current = e.pointerId;
                     isDraggingRef.current = true;
-                    setIsDragging(true);
                     dragStartRef.current = { x: e.clientX, y: e.clientY, startNorm: panNorm };
                 }}
                 onPointerUp={(e) => {
@@ -1226,118 +1223,61 @@ const PanFader = ({
 
 // ── Tri-Color VU Meter (vertical) ──────────────────────────
 
-const TriColorVU = ({ peakDb, isMidi, compact = false, isEnabled = true }: { peakDb: number; isMidi: boolean; compact?: boolean; isEnabled?: boolean }) => {
-    const normalizedLevel = vuNorm(peakDb); // 0..1
-    const meterHeight = compact ? 28 : 32;
-    const fillHeight = normalizedLevel * meterHeight;
-    const [peakHoldNorm, setPeakHoldNorm] = useState(0);
-    const [clipLatched, setClipLatched] = useState(false);
-    const holdTimerRef = useRef<number | null>(null);
+const TriColorVU = ({
+    peakDb,
+    isMidi,
+    compact = false,
+    isEnabled = true,
+    trackHeight,
+}: {
+    peakDb: number;
+    isMidi: boolean;
+    compact?: boolean;
+    isEnabled?: boolean;
+    trackHeight?: number;
+}) => {
+    const normalizedLevel = vuNorm(peakDb);
+    const meterHeight = trackHeight ? Math.max(14, trackHeight - 6) : (compact ? 28 : 32);
+    const minus2Norm = vuNorm(-2);
+    const zeroNorm = vuNorm(0);
 
-    useEffect(() => {
-        let rafId: number | null = null;
-        let clipLatchTimer: number | null = null;
-        if (normalizedLevel > peakHoldNorm) {
-            rafId = window.requestAnimationFrame(() => {
-                setPeakHoldNorm(normalizedLevel);
-            });
-        }
-        if (peakDb >= 0) {
-            clipLatchTimer = window.setTimeout(() => setClipLatched(true), 0);
-        }
-        if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current);
-        holdTimerRef.current = window.setTimeout(() => {
-            setPeakHoldNorm(normalizedLevel);
-        }, 650);
-        return () => {
-            if (rafId !== null) window.cancelAnimationFrame(rafId);
-            if (clipLatchTimer !== null) window.clearTimeout(clipLatchTimer);
-            if (holdTimerRef.current !== null) {
-                window.clearTimeout(holdTimerRef.current);
-                holdTimerRef.current = null;
-            }
-        };
-    }, [normalizedLevel, peakDb, peakHoldNorm]);
-
-    // Segment thresholds in normalized space
-    const minus2Norm = vuNorm(-2);  // where -2 dB sits
-    const zeroNorm = vuNorm(0);     // where 0 dB sits
+    const lowColor = isMidi ? '#3fcb6d' : '#36c95a';
+    const midColor = isMidi ? '#ffd34d' : '#f2d33e';
 
     return (
         <div style={{
-            width: 10, height: meterHeight,
-            background: 'var(--surface-elevated)', borderRadius: 2,
-            overflow: 'hidden', flexShrink: 0,
+            width: compact ? 10 : 10,
+            height: meterHeight,
+            background: 'color-mix(in srgb, var(--surface-elevated) 84%, #000)',
+            borderRadius: 2,
+            overflow: 'hidden',
+            flexShrink: 0,
             position: 'relative',
-            border: '1px solid color-mix(in srgb, var(--text-primary) 10%, transparent)',
-            marginLeft: 2,
-            cursor: 'pointer',
+            border: '1px solid color-mix(in srgb, var(--text-primary) 14%, transparent)',
+            marginLeft: 0,
             filter: isEnabled ? 'none' : 'grayscale(1)',
             opacity: isEnabled ? 1 : 0.5,
             transition: 'filter 0.15s ease, opacity 0.15s ease',
-        }}
-            title="Click to reset peak/clip"
-            onClick={(e) => {
-                e.stopPropagation();
-                setClipLatched(false);
-                setPeakHoldNorm(normalizedLevel);
-            }}
-        >
-            {/* Green segment: 0 to -2dB zone */}
-            <div style={{
-                position: 'absolute', bottom: 0, left: 0, right: 0,
-                height: `${minus2Norm * 100}%`,
-                background: '#40cc5a',
-                transform: `scaleY(${Math.min(1, fillHeight / (minus2Norm * meterHeight || 1))})`,
-                transformOrigin: 'bottom',
-                transition: 'transform 80ms linear',
-            }} />
-            {/* Yellow segment: -2dB to 0dB zone */}
-            {normalizedLevel > minus2Norm && (
-                <div style={{
-                    position: 'absolute', left: 0, right: 0,
-                    bottom: `${minus2Norm * 100}%`,
-                    height: `${(zeroNorm - minus2Norm) * 100}%`,
-                    background: isMidi ? '#ff9500' : '#ffcc00',
-                    transform: `scaleY(${Math.min(1, Math.max(0, (fillHeight - minus2Norm * meterHeight) / ((zeroNorm - minus2Norm) * meterHeight || 1)))})`,
-                    transformOrigin: 'bottom',
-                    transition: 'transform 80ms linear',
-                }} />
-            )}
-            {/* Red segment: above 0dB zone */}
-            {normalizedLevel > zeroNorm && (
-                <div style={{
-                    position: 'absolute', left: 0, right: 0,
-                    bottom: `${zeroNorm * 100}%`,
-                    height: `${(1 - zeroNorm) * 100}%`,
-                    background: '#ff3b30',
-                    transform: `scaleY(${Math.min(1, Math.max(0, (fillHeight - zeroNorm * meterHeight) / ((1 - zeroNorm) * meterHeight || 1)))})`,
-                    transformOrigin: 'bottom',
-                    transition: 'transform 80ms linear',
-                }} />
-            )}
+        }}>
             <div style={{
                 position: 'absolute',
                 left: 0,
                 right: 0,
-                bottom: `${peakHoldNorm * 100}%`,
+                bottom: `${zeroNorm * 100}%`,
                 height: 1,
-                background: 'rgba(255,255,255,0.95)',
-                boxShadow: '0 0 2px rgba(255,255,255,0.7)',
+                background: 'rgba(0,0,0,0.75)',
+                pointerEvents: 'none',
+                zIndex: 2,
             }} />
-            {clipLatched && (
-                <div style={{
-                    position: 'absolute',
-                    top: 1,
-                    left: '50%',
-                    width: 4,
-                    height: 4,
-                    marginLeft: -2,
-                    borderRadius: '50%',
-                    background: '#ff3b30',
-                    boxShadow: '0 0 4px rgba(255,59,48,0.85)',
-                }} />
-            )}
+            <div style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: `${normalizedLevel * 100}%`,
+                background: `linear-gradient(to top, ${lowColor} 0%, ${lowColor} ${minus2Norm * 100}%, ${midColor} ${zeroNorm * 100}%, #ff3b30 100%)`,
+                transition: 'height 70ms linear',
+            }} />
         </div>
     );
 };
@@ -1672,6 +1612,7 @@ const TrackRow = ({
 
     // Subdue track visually when disabled (muted)
     const isEnabled = !track.isMuted;
+    const compactControlHeight = 16;
     const headerContrast = getContrastColor(track.color);
     const headerTextColor = headerContrast === 'black' ? 'rgba(18, 18, 18, 0.92)' : 'rgba(255, 255, 255, 0.94)';
 
@@ -1685,7 +1626,7 @@ const TrackRow = ({
                 display: 'flex', alignItems: 'stretch', height: trackHeight,
                 borderBottom: isMasterFixed ? 'none' : '1px solid var(--color-divider)',
                 borderTop: isMasterFixed ? '1px solid var(--color-divider)' : 'none',
-                background: 'var(--surface-1)',
+                background: isMasterFixed ? 'transparent' : 'var(--surface-1)',
                 cursor: 'default',
                 opacity: isEnabled ? 1 : 0.45,
                 transition: 'background 0.12s ease, opacity 0.12s ease',
@@ -1714,15 +1655,27 @@ const TrackRow = ({
                 onDragEnd={onDragEndTrack}
                 style={{
                     display: 'flex', flexDirection: 'column', justifyContent: 'center',
-                    minWidth: isMasterFixed ? 88 : 98,
-                    maxWidth: mixerFocusMode ? 132 : 120,
+                    minWidth: isMasterFixed ? 84 : 90,
+                    maxWidth: mixerFocusMode ? 118 : 108,
                     padding: mixerFocusMode ? '2px 8px 2px 5px' : '2px 6px 2px 4px',
-                    background: track.color,
-                    borderRight: '1px solid rgba(255,255,255,0.08)',
+                    background: isMasterFixed ? 'transparent' : track.color,
+                    borderRight: isMasterFixed ? 'none' : '1px solid rgba(255,255,255,0.08)',
                     gap: 1,
                     position: 'relative',
                     cursor: !isMaster ? 'grab' : 'default',
                 }}> 
+                {isMasterFixed && (
+                    <div style={{
+                        position: 'absolute',
+                        left: 0,
+                        right: 0,
+                        top: 0,
+                        height: 2,
+                        background: track.color,
+                        opacity: 0.9,
+                        pointerEvents: 'none',
+                    }} />
+                )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                     {/* Collapse / Group icon */}
                     {isGroup && onToggleCollapse ? (
@@ -1815,39 +1768,22 @@ const TrackRow = ({
             {showRoutingExpanded && (
                 <div style={{
                     display: 'flex', flexDirection: 'column', justifyContent: 'center',
-                    gap: 2, padding: mixerFocusMode ? '2px 6px' : '2px 4px',
+                    gap: 4, padding: 4,
                     borderRight: '1px solid rgba(255,255,255,0.06)',
-                    minWidth: mixerFocusMode ? 94 : 80,
+                    minWidth: mixerFocusMode ? 102 : 92,
                 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <span style={{ fontSize: 6, color: 'var(--color-text-tertiary)', flexShrink: 0 }}>→</span>
-                        <select
-                            onClick={e => e.stopPropagation()}
-                            value={outputValue}
-                            onChange={(e) => {
-                                e.stopPropagation();
-                                onOutputChange?.(e.target.value);
-                            }}
-                            title="Audio To"
-                            style={{
-                                fontSize: 10, fontWeight: 500,
-                                color: 'var(--color-text-primary)',
-                                background: 'var(--color-control-bg)',
-                                border: '1px solid var(--color-control-border)',
-                                borderRadius: 2, padding: '0px 2px', cursor: 'pointer',
-                                maxWidth: 70, minWidth: 40, flexShrink: 0, flex: 1,
-                                appearance: 'auto' as React.CSSProperties['appearance'],
-                                lineHeight: '13px', height: 13,
-                            }}
-                        >
-                            <option value="master">Master</option>
-                            {availableRoutingTargets.map(t => (
-                                <option key={t.id} value={t.id}>{t.name}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <span style={{ fontSize: 6, color: 'var(--color-text-tertiary)', flexShrink: 0 }}>←</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <div style={{ position: 'relative', display: 'flex', flex: 1, minWidth: 0 }}>
+                            <span style={{
+                                position: 'absolute',
+                                left: 6,
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                fontSize: 8,
+                                color: 'var(--color-text-tertiary)',
+                                pointerEvents: 'none',
+                                zIndex: 1,
+                            }}>←</span>
                         <select
                             onClick={e => e.stopPropagation()}
                             value={inputValue}
@@ -1857,14 +1793,14 @@ const TrackRow = ({
                             }}
                             title="Audio From"
                             style={{
-                                fontSize: 10, fontWeight: 500,
+                                fontSize: 9, fontWeight: 500,
                                 color: 'var(--color-text-primary)',
                                 background: 'var(--color-control-bg)',
                                 border: '1px solid var(--color-control-border)',
-                                borderRadius: 2, padding: '0px 2px', cursor: 'pointer',
-                                maxWidth: 70, minWidth: 40, flexShrink: 0, flex: 1,
+                                borderRadius: 4, padding: '0 16px 0 14px', cursor: 'pointer',
+                                minWidth: 0, flexShrink: 1, flex: 1,
                                 appearance: 'auto' as React.CSSProperties['appearance'],
-                                lineHeight: '13px', height: 13,
+                                lineHeight: '15px', height: 15,
                             }}
                         >
                             <option value="none">No Input</option>
@@ -1874,6 +1810,45 @@ const TrackRow = ({
                                 <option key={t.id} value={t.id}>{t.name}</option>
                             ))}
                         </select>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <div style={{ position: 'relative', display: 'flex', flex: 1, minWidth: 0 }}>
+                            <span style={{
+                                position: 'absolute',
+                                left: 6,
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                fontSize: 8,
+                                color: 'var(--color-text-tertiary)',
+                                pointerEvents: 'none',
+                                zIndex: 1,
+                            }}>→</span>
+                        <select
+                            onClick={e => e.stopPropagation()}
+                            value={outputValue}
+                            onChange={(e) => {
+                                e.stopPropagation();
+                                onOutputChange?.(e.target.value);
+                            }}
+                            title="Audio To"
+                            style={{
+                                fontSize: 9, fontWeight: 500,
+                                color: 'var(--color-text-primary)',
+                                background: 'var(--color-control-bg)',
+                                border: '1px solid var(--color-control-border)',
+                                borderRadius: 4, padding: '0 16px 0 14px', cursor: 'pointer',
+                                minWidth: 0, flexShrink: 1, flex: 1,
+                                appearance: 'auto' as React.CSSProperties['appearance'],
+                                lineHeight: '15px', height: 15,
+                            }}
+                        >
+                            <option value="master">Master</option>
+                            {availableRoutingTargets.map(t => (
+                                <option key={t.id} value={t.id}>{t.name}</option>
+                            ))}
+                        </select>
+                        </div>
                     </div>
                 </div>
             )}
@@ -1897,27 +1872,27 @@ const TrackRow = ({
             {/* ════ BLOCK 3: Mixer (gray background) ════ */}
             <div style={{
                 display: 'flex', alignItems: 'center',
-                gap: mixerFocusMode ? 6 : 4,
-                padding: mixerFocusMode ? '2px 8px 2px 6px' : '2px 8px 2px 4px',
+                gap: 4,
+                padding: 4,
                 flex: 1, minWidth: 0,
                 overflow: 'hidden',
-                background: 'var(--surface-2)',
+                background: 'color-mix(in srgb, var(--surface-2) 55%, transparent)',
             }}>
                 {/* Buttons column (vertical stack) */}
                 {!isMaster && (
                     <div style={{
                         display: 'flex', flexDirection: 'column',
-                        gap: mixerFocusMode ? 2 : 1, flexShrink: 0,
+                        gap: 4, flexShrink: 0,
                     }}>
                         {/* Enable button — green when active, shows track number */}
                         <button
                             onClick={e => { e.stopPropagation(); onToggleMute(); }}
                             title={isEnabled ? 'Disable track' : 'Enable track'}
                             style={{
-                                width: mixerFocusMode ? 22 : 20, height: mixerFocusMode ? 15 : 14,
+                                width: mixerFocusMode ? 34 : 36, height: compactControlHeight,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 background: isEnabled ? 'var(--color-status-success)' : 'var(--surface-elevated)',
-                                color: isEnabled ? 'var(--text-primary)' : 'var(--text-muted)',
+                                color: isEnabled ? '#1b2b11' : 'var(--text-muted)',
                                 border: 'none', borderRadius: 2,
                                 fontSize: 8, fontWeight: 700, fontFamily: 'var(--font-mono)',
                                 cursor: 'pointer',
@@ -1929,7 +1904,7 @@ const TrackRow = ({
                             onClick={e => { e.stopPropagation(); onToggleSolo(); }}
                             title="Solo"
                             style={{
-                                width: mixerFocusMode ? 22 : 20, height: mixerFocusMode ? 15 : 14,
+                                width: mixerFocusMode ? 34 : 36, height: compactControlHeight,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 background: track.isSoloed ? 'var(--color-btn-solo)' : 'var(--surface-elevated)',
                                 color: track.isSoloed ? 'var(--text-primary)' : 'var(--text-muted)',
@@ -1938,21 +1913,6 @@ const TrackRow = ({
                                 padding: 0, transition: 'background 0.1s ease',
                             }}
                         >S</button>
-                        {!isGroup && (
-                            <button
-                                onClick={e => { e.stopPropagation(); onToggleArm(); }}
-                                title="Arm for recording"
-                                style={{
-                                    width: mixerFocusMode ? 22 : 20, height: mixerFocusMode ? 15 : 14,
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    background: track.isArmed ? 'var(--color-status-error)' : 'var(--surface-elevated)',
-                                    color: track.isArmed ? 'var(--text-primary)' : 'var(--text-muted)',
-                                    border: 'none', borderRadius: 2,
-                                    fontSize: 8, fontWeight: 700, cursor: 'pointer',
-                                    padding: 0, transition: 'background 0.1s ease',
-                                }}
-                            >R</button>
-                        )}
                     </div>
                 )}
 
@@ -1972,8 +1932,8 @@ const TrackRow = ({
                             <div style={{
                                 display: 'flex',
                                 flexDirection: 'column',
-                                gap: 3,
-                                minWidth: 92,
+                                gap: 4,
+                                minWidth: 50,
                                 flex: 1,
                             }}>
                                 <VolumeFader
@@ -1986,6 +1946,50 @@ const TrackRow = ({
                                     pan={track.pan}
                                     onPanChange={onPanChange}
                                     compact
+                                />
+                            </div>
+                        )}
+                        {!isGroup && !isMaster && onVolumeChange && onPanChange && (
+                            <div style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 4,
+                                flexShrink: 0,
+                            }}>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); onToggleArm(); }}
+                                    title="Arm for recording"
+                                    style={{
+                                        width: compactControlHeight,
+                                        height: compactControlHeight,
+                                        borderRadius: 2,
+                                        border: '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
+                                        background: track.isArmed
+                                            ? 'rgba(110, 24, 24, 0.55)'
+                                            : 'var(--surface-elevated)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        padding: 0,
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    <span style={{
+                                        width: 8,
+                                        height: 8,
+                                        borderRadius: '50%',
+                                        background: track.isArmed ? '#ff3b30' : 'rgba(160,160,160,0.38)',
+                                        boxShadow: track.isArmed ? '0 0 6px rgba(255,59,48,0.8)' : 'none',
+                                    }} />
+                                </button>
+                                <div
+                                    style={{
+                                        width: compactControlHeight,
+                                        height: compactControlHeight,
+                                        borderRadius: 2,
+                                        border: '1px solid color-mix(in srgb, var(--text-primary) 10%, transparent)',
+                                        background: 'var(--surface-elevated)',
+                                    }}
                                 />
                             </div>
                         )}
@@ -2007,7 +2011,13 @@ const TrackRow = ({
 
                         {/* Tri-Color VU Meter — grayed out when track disabled */}
                         {!isGroup && (
-                            <TriColorVU peakDb={track.vuLevel} isMidi={track.type === 'midi'} compact isEnabled={isEnabled} />
+                            <TriColorVU
+                                peakDb={track.vuLevel}
+                                isMidi={track.type === 'midi'}
+                                compact
+                                isEnabled={isEnabled}
+                                trackHeight={trackHeight}
+                            />
                         )}
                     </>
                 )}

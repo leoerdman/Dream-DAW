@@ -10,6 +10,7 @@ export type TimelineCommand =
     | { type: 'track-dblclick'; trackIndex: number; beat: number }
     | { type: 'clip-dblclick'; clipId: string; trackIndex: number }
     | { type: 'marquee-start' }
+    | { type: 'marquee-change'; marquee: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null }
     | { type: 'track-select'; trackIndex: number }
     | { type: 'drop'; item: BrowserDragItem; trackIndex: number; beat: number }
     | { type: 'scroll-top'; value: number };

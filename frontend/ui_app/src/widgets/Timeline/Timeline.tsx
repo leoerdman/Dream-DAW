@@ -44,6 +44,7 @@ interface TimelineProps {
     onOpenMidiClip?: (clipId: string, trackIndex: number) => void;
     onTrackSelect?: (trackId: string, trackIndex: number) => void;
     onMarqueeSelectionStart?: () => void;
+    onMarqueeSelectionChange?: (marquee: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null) => void;
     onScrollTop?: (scrollTop: number) => void;
     followPlayhead?: boolean;
     automationVisible?: boolean;
@@ -84,6 +85,7 @@ export const Timeline = (props: TimelineProps) => {
         onOpenMidiClip,
         onTrackSelect,
         onMarqueeSelectionStart,
+        onMarqueeSelectionChange,
         onScrollTop,
         onClipResize,
         followPlayhead = false,
@@ -134,6 +136,7 @@ export const Timeline = (props: TimelineProps) => {
         onOpenMidiClip,
         onTrackSelect,
         onMarqueeSelectionStart,
+        onMarqueeSelectionChange,
         onScrollTop,
     });
     callbacksRef.current = {
@@ -148,6 +151,7 @@ export const Timeline = (props: TimelineProps) => {
         onOpenMidiClip,
         onTrackSelect,
         onMarqueeSelectionStart,
+        onMarqueeSelectionChange,
         onScrollTop,
     };
 
@@ -193,6 +197,9 @@ export const Timeline = (props: TimelineProps) => {
                 }
                 case 'marquee-start':
                     callbacksRef.current.onMarqueeSelectionStart?.();
+                    break;
+                case 'marquee-change':
+                    callbacksRef.current.onMarqueeSelectionChange?.(command.marquee);
                     break;
                 case 'drop':
                     callbacksRef.current.onDropBrowserItem?.(command.item, command.trackIndex, command.beat);
@@ -255,6 +262,10 @@ export const Timeline = (props: TimelineProps) => {
 
         engine.onMarqueeSelectionStart = () => {
             commandBusRef.current.emit({ type: 'marquee-start' });
+        };
+
+        engine.onMarqueeSelectionChange = (marquee) => {
+            commandBusRef.current.emit({ type: 'marquee-change', marquee });
         };
 
         engine.onScrollTop = (scrollTop) => {
@@ -566,7 +577,7 @@ export const Timeline = (props: TimelineProps) => {
                     height: trackHeight,
                     flexShrink: 0,
                     borderTop: '1px solid var(--color-divider)',
-                    background: 'color-mix(in srgb, var(--surface-2) 82%, #000)',
+                    background: 'transparent',
                 }}
             />
         </div>

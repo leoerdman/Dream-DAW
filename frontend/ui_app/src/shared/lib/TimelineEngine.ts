@@ -177,6 +177,13 @@ export class TimelineEngine {
     onLoopChange?: (loop: LoopRegion) => void;
     onClipBoxSelection?: (clipIds: string[]) => void;
     onMarqueeSelectionStart?: () => void;
+    onMarqueeSelectionChange?: (marquee: MarqueeSelection | null) => void;
+
+    private _setMarquee(next: MarqueeSelection | null, emit = true): void {
+        this._marquee = next;
+        if (emit) this.onMarqueeSelectionChange?.(next ? { ...next } : null);
+        this._requestRedraw();
+    }
 
     // ═══════════════════════════════════════════════════════════════════
     // CONSTRUCTOR
@@ -374,11 +381,9 @@ export class TimelineEngine {
         this._needsRedraw = true;
     }
 
-    private _tick = (): void => {
-        this._rafId = requestAnimationFrame(this._tick);
-
-        // Only draw when something changed
-        if (!this._needsRedraw && !this._viewport.isDirty) return;
+    private _drawFrameNow(force = false): void {
+        const animateEditCursor = this._editCursorBeat >= 0;
+        if (!force && !this._needsRedraw && !this._viewport.isDirty && !animateEditCursor) return;
         this._needsRedraw = false;
         this._viewport.clearDirty();
 
@@ -402,6 +407,12 @@ export class TimelineEngine {
             this._sampleRate,
             this._bpm,
         );
+    }
+
+    private _tick = (): void => {
+        this._rafId = requestAnimationFrame(this._tick);
+
+        this._drawFrameNow();
     };
 
     private _composeDrawClips(): TimelineClipData[] {
@@ -445,18 +456,23 @@ export class TimelineEngine {
         const backingW = Math.round(rect.width * dpr);
         const backingH = Math.round(rect.height * dpr);
 
+        let backingChanged = false;
         if (canvas.width !== backingW || canvas.height !== backingH) {
             canvas.width = backingW;
             canvas.height = backingH;
+            backingChanged = true;
         }
 
         const viewportChanged =
             Math.abs(this._viewport.viewportWidth - rect.width) > 0.5
             || Math.abs(this._viewport.viewportHeight - rect.height) > 0.5;
 
-        if (viewportChanged) {
+        if (viewportChanged || backingChanged) {
             this._viewport.setViewportSize(rect.width, rect.height);
             this._requestRedraw();
+            // Draw immediately after backing-store resize to avoid visible blank-frame flicker
+            // while panes are being resized/zoomed.
+            this._drawFrameNow(true);
         }
     }
 
@@ -585,6 +601,7 @@ export class TimelineEngine {
 
         switch (hit.type) {
             case 'ruler': {
+                if (this._marquee) this._setMarquee(null);
                 if (hit.loopHandle === 'start') {
                     this._drag = {
                         mode: DragMode.LoopStartMove,
@@ -629,6 +646,7 @@ export class TimelineEngine {
             }
 
             case 'clip': {
+                if (this._marquee) this._setMarquee(null);
                 if (!hit.clipId) break;
 
                 const clip = this._clips.find(c => c.id === hit.clipId);
@@ -716,13 +734,12 @@ export class TimelineEngine {
                     clipOriginalTrack: 0,
                     clipOriginalDuration: 0,
                 };
-                this._marquee = {
+                this._setMarquee({
                     startBeat: snappedBeat,
                     endBeat: snappedBeat,
                     startTrack: hit.trackIndex,
                     endTrack: hit.trackIndex,
-                };
-                this._requestRedraw();
+                }, false);
                 break;
             }
         }
@@ -863,13 +880,12 @@ export class TimelineEngine {
                 const clampedTrack = Math.max(0, Math.min(this._viewport.trackCount - 1, track));
                 this._drag.currentBeat = snappedBeat;
                 this._drag.currentTrack = clampedTrack;
-                this._marquee = {
+                this._setMarquee({
                     startBeat: this._drag.startBeat,
                     endBeat: snappedBeat,
                     startTrack: this._drag.startTrack,
                     endTrack: clampedTrack,
-                };
-                this._requestRedraw();
+                }, false);
                 break;
             }
         }
@@ -945,6 +961,7 @@ export class TimelineEngine {
                     this.onTrackSelect?.(this._drag.startTrack);
                     // Empty-space click clears current clip selection.
                     this.onClipBoxSelection?.([]);
+                    this._setMarquee(null);
                 } else {
                     const visible = this._viewport.getVisibleRange();
                     const selectedIds = this._clips
@@ -960,18 +977,22 @@ export class TimelineEngine {
                                 return false;
                             }
                             if (clip.trackIndex < minTrack || clip.trackIndex > maxTrack) return false;
-                            return clipEnd >= minBeat && clipStart <= maxBeat;
+                            // Select only clips fully enclosed by marquee bounds.
+                            return clipStart >= minBeat && clipEnd <= maxBeat;
                         })
                         .map((clip) => clip.id);
                     this.onClipBoxSelection?.(selectedIds);
+                    this._setMarquee({
+                        startBeat: minBeat,
+                        endBeat: maxBeat,
+                        startTrack: minTrack,
+                        endTrack: maxTrack,
+                    });
                 }
-                this._marquee = null;
-                this._requestRedraw();
                 break;
             }
         }
 
-        this._marquee = null;
         this._trimPreview = null;
         this._drag = {
             mode: DragMode.None,

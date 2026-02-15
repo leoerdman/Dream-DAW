@@ -14,6 +14,14 @@ const formatPluginParamValue = (param: PluginParam): string => {
     return `${param.value.toFixed(precision)}${param.suffix}`;
 };
 
+const formatPluginParamName = (raw: string): string => {
+    const withSpaces = raw
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .replace(/[._-]+/g, ' ')
+        .trim();
+    return withSpaces.length > 0 ? withSpaces.toUpperCase() : raw.toUpperCase();
+};
+
 export const PluginSlider = ({
     param,
     onChange,
@@ -100,7 +108,6 @@ export const PluginKnob = ({
             style={knobLabelStyle(compact)}
             onContextMenu={onContextMenu ? (e) => { e.preventDefault(); onContextMenu(e, param.name); } : undefined}
         >
-            <span style={knobParamNameStyle}>{param.name}</span>
             <div style={{ position: 'relative', width: size, height: size }}>
                 <div
                     ref={dialRef}
@@ -119,6 +126,7 @@ export const PluginKnob = ({
                     />
                 </div>
             </div>
+            <span style={knobParamNameStyle}>{formatPluginParamName(param.name)}</span>
             <span style={knobValueStyle(compact)}>{formatPluginParamValue(param)}</span>
         </label>
     );
@@ -158,17 +166,22 @@ const knobLabelStyle = (compact: boolean): CSSProperties => ({
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    gap: compact ? 3 : 5,
+    justifyContent: 'flex-start',
+    gap: compact ? 2 : 4,
     minWidth: compact ? 56 : 86,
 });
 
 const knobParamNameStyle: CSSProperties = {
-    fontSize: 10,
+    fontSize: 9,
     color: 'var(--color-text-secondary)',
     textAlign: 'center',
     lineHeight: 1.1,
     textTransform: 'uppercase',
     letterSpacing: '0.03em',
+    maxWidth: 74,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
 };
 
 const knobDialStyle = (dragging: boolean): CSSProperties => ({

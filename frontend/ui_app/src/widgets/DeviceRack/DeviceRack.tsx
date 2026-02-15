@@ -13,7 +13,6 @@ import {
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
 import {
-    defaultInternalPluginForTrack,
     getInternalPluginById,
     normalizeInternalPluginId,
     waveformIndexFromSamplePath,
@@ -321,13 +320,11 @@ function errorMessage(err: unknown): string {
 interface DeviceRackProps {
     selectedTrackId: string;
     onDropPluginToTrack?: (item: BrowserDragItem, trackId: string) => Promise<void>;
-    onAddDefaultDeviceToTrack?: (trackId: string) => Promise<void>;
 }
 
 export const DeviceRack = ({
     selectedTrackId,
     onDropPluginToTrack,
-    onAddDefaultDeviceToTrack,
 }: DeviceRackProps) => {
     const [localBypass, setLocalBypass] = useState<Record<string, boolean>>({});
     const [localParams, setLocalParams] = useState<Record<string, number>>({});
@@ -337,7 +334,7 @@ export const DeviceRack = ({
     const [externalParamsByPluginId, setExternalParamsByPluginId] = useState<Record<string, PluginParam[]>>({});
     const [openGuiDevice, setOpenGuiDevice] = useState<DeviceSlot | null>(null);
     const [inlineSettingsOpen, setInlineSettingsOpen] = useState<Record<string, boolean>>({});
-    const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+    const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
     const statusError = useStatusStore((s) => s.setError);
     const statusClear = useStatusStore((s) => s.clear);
     const throttledParamSendsRef = useRef<Map<string, (value: number) => void>>(new Map());
@@ -752,18 +749,7 @@ export const DeviceRack = ({
     );
 
     useEffect(() => {
-        if (selectedDeviceId && !chain.some((d) => d.id === selectedDeviceId)) {
-            setSelectedDeviceId(null);
-        }
-        if (!selectedDeviceId && chain.length > 0) {
-            const preferredInline =
-                chain.find((d) => d.source === 'internal' && (d.effectType === 'sampler' || d.effectType === 'instrument')) ??
-                chain.find((d) => d.source === 'internal') ??
-                null;
-            if (preferredInline) {
-                setSelectedDeviceId(preferredInline.id);
-            }
-        }
+        setSelectedDeviceIds((prev) => prev.filter((id) => chain.some((d) => d.id === id)));
         if (openGuiDevice) {
             const next = chain.find((d) => d.id === openGuiDevice.id);
             if (!next) setOpenGuiDevice(null);
@@ -777,25 +763,32 @@ export const DeviceRack = ({
             }
             return next;
         });
-    }, [chain, selectedDeviceId, openGuiDevice]);
+    }, [chain, openGuiDevice]);
+
+    useEffect(() => {
+        setSelectedDeviceIds([]);
+    }, [selectedTrackId]);
 
     useEffect(() => {
         const onKeyDown = async (e: KeyboardEvent) => {
-            if ((e.key !== 'Delete' && e.key !== 'Backspace') || !selectedDeviceId) return;
+            if ((e.key !== 'Delete' && e.key !== 'Backspace') || selectedDeviceIds.length === 0) return;
             const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
             if (tag === 'input' || tag === 'textarea' || (e.target as HTMLElement | null)?.isContentEditable) return;
             if (!selectedTrack || selectedTrackId === 'master') return;
             e.preventDefault();
             try {
-                await engineApi.removePluginFromTrack(selectedTrack.id, selectedDeviceId);
-                if (openGuiDevice?.id === selectedDeviceId) setOpenGuiDevice(null);
+                for (const deviceId of selectedDeviceIds) {
+                    await engineApi.removePluginFromTrack(selectedTrack.id, deviceId);
+                }
+                if (openGuiDevice && selectedDeviceIds.includes(openGuiDevice.id)) setOpenGuiDevice(null);
                 setInlineSettingsOpen((prev) => {
-                    if (!prev[selectedDeviceId]) return prev;
                     const next = { ...prev };
-                    delete next[selectedDeviceId];
+                    for (const deviceId of selectedDeviceIds) {
+                        delete next[deviceId];
+                    }
                     return next;
                 });
-                setSelectedDeviceId(null);
+                setSelectedDeviceIds([]);
                 await fetchProject();
                 statusClear();
             } catch (err) {
@@ -805,7 +798,7 @@ export const DeviceRack = ({
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [selectedDeviceId, selectedTrack, selectedTrackId, openGuiDevice, fetchProject, statusClear, statusError]);
+    }, [selectedDeviceIds, selectedTrack, selectedTrackId, openGuiDevice, fetchProject, statusClear, statusError]);
 
     useEffect(() => {
         let cancelled = false;
@@ -928,13 +921,22 @@ export const DeviceRack = ({
         };
     }, [isDropActive, isMaster, selectedTrack, projectTracks, fetchProject, statusClear, statusError, onDropPluginToTrack]);
 
+    const selectDevice = useCallback((deviceId: string, additive: boolean) => {
+        setSelectedDeviceIds((prev) => {
+            if (!additive) return [deviceId];
+            return prev.includes(deviceId)
+                ? prev.filter((id) => id !== deviceId)
+                : [...prev, deviceId];
+        });
+    }, []);
+
     const rackContent = (
         <>
             <div
                 ref={rackRef}
                 tabIndex={0}
                 data-keyboard-scope="device-rack"
-                data-selected-device-id={selectedDeviceId ?? ''}
+                data-selected-device-id={selectedDeviceIds[0] ?? ''}
                 onMouseDown={() => rackRef.current?.focus()}
                 style={{
                     display: 'flex',
@@ -996,22 +998,22 @@ export const DeviceRack = ({
                                 <DeviceNode
                                     order={idx + 1}
                                     device={device}
-                                    isSelected={selectedDeviceId === device.id}
+                                    isSelected={selectedDeviceIds.includes(device.id)}
                                     editorSupported={pluginCapability[device.pluginId]?.supported ?? true}
                                     editorReason={pluginCapability[device.pluginId]?.reason}
                                     onToggle={() => toggleDevice(device)}
-                                    onSelect={() => {
-                                        setSelectedDeviceId(device.id);
+                                    onSelect={(e) => {
+                                        selectDevice(device.id, e.shiftKey);
                                         rackRef.current?.focus();
                                         statusClear();
                                     }}
                                     onOpenSettings={() => {
                                         if (device.source === 'internal' && device.effectType === 'utility') {
-                                            setSelectedDeviceId(device.id);
+                                            selectDevice(device.id, false);
                                             statusClear();
                                             return;
                                         }
-                                        setSelectedDeviceId(device.id);
+                                        selectDevice(device.id, false);
                                         setInlineSettingsOpen((prev) => ({
                                             ...prev,
                                             [device.id]: !prev[device.id],
@@ -1036,7 +1038,7 @@ export const DeviceRack = ({
                                                 return;
                                             }
                                             await engineApi.setSamplerSample(selectedTrack.id, normalizedPath);
-                                            setSelectedDeviceId(device.id);
+                                            selectDevice(device.id, false);
                                             statusClear();
                                             await fetchProject();
                                         } catch (err) {
@@ -1065,7 +1067,7 @@ export const DeviceRack = ({
                                         }
                                     }}
                                     onOpenGUI={async () => {
-                                        setSelectedDeviceId(device.id);
+                                        selectDevice(device.id, false);
                                         if (device.source === 'internal') {
                                             statusClear();
                                             return;
@@ -1127,33 +1129,11 @@ export const DeviceRack = ({
 
                     {/* Add device button */}
                     <button
-                        onClick={async () => {
-                            const targetTrack = selectedTrack ?? projectTracks[0] ?? null;
-                            if (!targetTrack) {
-                                statusError('No target track selected.');
-                                return;
-                            }
-                            try {
-                                if (onAddDefaultDeviceToTrack) {
-                                    await onAddDefaultDeviceToTrack(targetTrack.id);
-                                } else {
-                                    const def = defaultInternalPluginForTrack(
-                                        targetTrack.track_type,
-                                        Boolean(targetTrack.instrument),
-                                    );
-                                    await engineApi.addPluginToTrack(
-                                        targetTrack.id,
-                                        def.pluginId,
-                                        def.pluginName,
-                                        def.slot,
-                                    );
-                                    await fetchProject();
-                                }
-                                statusClear();
-                            } catch (err) {
-                                console.error('[DeviceRack] add default device failed:', err);
-                                statusError('Failed to add device.');
-                            }
+                        onClick={() => {
+                            window.dispatchEvent(new CustomEvent('dream:browser-focus-search', {
+                                detail: { categoryId: 'plugins' },
+                            }));
+                            statusClear();
                         }}
                         style={{
                             width: 64,
@@ -1374,7 +1354,7 @@ const DeviceNode = ({
     onToggle: () => void;
     isSelected: boolean;
     showSettings: boolean;
-    onSelect: () => void;
+    onSelect: (e: React.MouseEvent<HTMLDivElement>) => void;
     onOpenSettings: () => void;
     onParamChange: (paramName: string, value: number) => void;
     onDropSample?: (samplePath: string) => void;
@@ -1450,7 +1430,7 @@ const DeviceNode = ({
                 flexDirection: 'column',
                 background: 'var(--color-bg-node)',
                 borderRadius: 'var(--radius-sm)',
-                border: isSelected ? '1px solid var(--color-accent-primary)' : '1px solid #4a4a4a',
+                border: isSelected ? '1px solid rgba(255, 255, 255, 0.9)' : '1px solid #4a4a4a',
                 overflow: 'hidden',
                 opacity: device.isEnabled ? 1 : 0.5,
                 transition: 'opacity var(--transition-fast)',
@@ -1458,7 +1438,7 @@ const DeviceNode = ({
                 height: '100%',
                 minHeight: '100%',
                 position: 'relative',
-                boxShadow: isSelected ? '0 0 0 1px var(--color-accent-primary), 0 0 12px rgba(74,144,217,0.35)' : 'none',
+                boxShadow: 'none',
             }}
             onMouseUp={() => {
                 const dragging = useDragStore.getState().draggingItem;
@@ -1473,13 +1453,6 @@ const DeviceNode = ({
                 }
             }}
         >
-            {/* Type color stripe at top (2px) */}
-            <div style={{
-                height: 2,
-                background: typeColor,
-                flexShrink: 0,
-            }} />
-
             {/* Header */}
             <div style={{
                 display: 'flex',
@@ -1490,7 +1463,7 @@ const DeviceNode = ({
                 background: 'var(--color-bg-header)',
                 cursor: 'pointer',
             }}
-                onClick={(e) => { e.stopPropagation(); onSelect(); }}
+                onClick={(e) => { e.stopPropagation(); onSelect(e); }}
             >
                 <button
                     onClick={onToggle}
@@ -1685,7 +1658,7 @@ const PluginGuiSurface = ({
     onLoadSample?: () => void;
     onParamContextMenu?: (e: React.MouseEvent, paramName: string) => void;
 }) => {
-    const [waveformPeaks, setWaveformPeaks] = useState<number[] | null>(null);
+    const [waveformPeaks, setWaveformPeaks] = useState<engineApi.PeakPair[] | null>(null);
     const eqSurfaceRef = useRef<SVGSVGElement | null>(null);
     const [dragEqBand, setDragEqBand] = useState<'low' | 'mid' | 'high' | null>(null);
 
@@ -1695,12 +1668,35 @@ const PluginGuiSurface = ({
             return;
         }
         let cancelled = false;
-        engineApi.getWaveformPeaks(samplePath)
+        engineApi.getWaveformPeaksBinary(samplePath)
             .then((wf) => {
                 if (cancelled) return;
-                const level = wf.mip_levels[Math.min(2, Math.max(0, wf.mip_levels.length - 1))] ?? wf.mip_levels[0];
-                const peaks = (level?.peaks ?? []).map((p) => Math.max(Math.abs(p.min), Math.abs(p.max)));
-                setWaveformPeaks(peaks.length > 0 ? peaks : null);
+                const level = wf.mip_levels[0] ?? wf.mip_levels[wf.mip_levels.length - 1];
+                const peaks = level?.peaks ?? [];
+                if (peaks.length === 0) {
+                    setWaveformPeaks(null);
+                    return;
+                }
+                const targetPointCount = 960;
+                if (peaks.length <= targetPointCount) {
+                    setWaveformPeaks(peaks);
+                    return;
+                }
+                const reduced: engineApi.PeakPair[] = [];
+                const bucket = peaks.length / targetPointCount;
+                for (let i = 0; i < targetPointCount; i++) {
+                    const start = Math.floor(i * bucket);
+                    const end = Math.min(peaks.length, Math.max(start + 1, Math.floor((i + 1) * bucket)));
+                    let min = 1;
+                    let max = -1;
+                    for (let j = start; j < end; j++) {
+                        const p = peaks[j];
+                        if (p.min < min) min = p.min;
+                        if (p.max > max) max = p.max;
+                    }
+                    reduced.push({ min, max });
+                }
+                setWaveformPeaks(reduced);
             })
             .catch((err) => {
                 if (!cancelled) {
@@ -1712,6 +1708,29 @@ const PluginGuiSurface = ({
             cancelled = true;
         };
     }, [device.samplePath]);
+
+    const samplerWaveformPath = useMemo(() => {
+        if (!waveformPeaks || waveformPeaks.length === 0) return null;
+        const width = 1000;
+        const centerY = 45;
+        const amp = 40;
+        const n = waveformPeaks.length;
+        const top: string[] = [];
+        const bottom: string[] = [];
+        for (let i = 0; i < n; i++) {
+            const x = (i / Math.max(1, n - 1)) * width;
+            const p = waveformPeaks[i];
+            const maxY = centerY - Math.max(-1, Math.min(1, p.max)) * amp;
+            top.push(`${x.toFixed(2)} ${maxY.toFixed(2)}`);
+        }
+        for (let i = n - 1; i >= 0; i--) {
+            const x = (i / Math.max(1, n - 1)) * width;
+            const p = waveformPeaks[i];
+            const minY = centerY - Math.max(-1, Math.min(1, p.min)) * amp;
+            bottom.push(`${x.toFixed(2)} ${minY.toFixed(2)}`);
+        }
+        return `M ${top.join(' L ')} L ${bottom.join(' L ')} Z`;
+    }, [waveformPeaks]);
 
     useEffect(() => {
         if (!dragEqBand) return;
@@ -1899,11 +1918,8 @@ const PluginGuiSurface = ({
     }
 
     if (device.effectType === 'sampler' || device.effectType === 'instrument') {
-        const getParam = (name: string, fallback: string) => {
-            const p = device.params.find((x) => x.name.toLowerCase() === name.toLowerCase());
-            if (!p) return fallback;
-            return `${p.value.toFixed(p.step && p.step < 1 ? 2 : 0)}${p.suffix}`;
-        };
+        const otherSamplerParams = device.params
+            .slice(0, 12);
         const sampleName = device.samplePath ? device.samplePath.split('/').pop() : null;
         return (
             <div style={{
@@ -1941,7 +1957,13 @@ const PluginGuiSurface = ({
                         preserveAspectRatio="none"
                         style={{ position: 'absolute', left: 8, right: 8, top: 18, height: 58, width: 'calc(100% - 16px)' }}
                     >
-                        <rect x="0" y="0" width="1000" height="90" fill="color-mix(in srgb, var(--surface-1) 88%, #14213a)" />
+                        <defs>
+                            <linearGradient id="samplerWaveFill" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#ffcc58" stopOpacity="0.92" />
+                                <stop offset="100%" stopColor="#f0a62a" stopOpacity="0.66" />
+                            </linearGradient>
+                        </defs>
+                        <rect x="0" y="0" width="1000" height="90" fill="color-mix(in srgb, var(--surface-1) 90%, #0f1728)" />
                         {Array.from({ length: 18 }).map((_, i) => (
                             <line
                                 key={`g-${i}`}
@@ -1949,28 +1971,16 @@ const PluginGuiSurface = ({
                                 y1={0}
                                 x2={(i / 17) * 1000}
                                 y2={90}
-                                stroke="rgba(90,178,255,0.12)"
+                                stroke="rgba(90,178,255,0.09)"
                                 strokeWidth="1"
                             />
                         ))}
-                        {waveformPeaks ? (
-                            Array.from({ length: 220 }).map((_, i) => {
-                                const idx = Math.floor((i / 219) * (waveformPeaks.length - 1));
-                                const amp = Math.max(0.01, Math.min(1, waveformPeaks[idx] || 0));
-                                const h = amp * 40;
-                                return (
-                                    <line
-                                        key={`w-${i}`}
-                                        x1={(i / 219) * 1000}
-                                        y1={45 - h}
-                                        x2={(i / 219) * 1000}
-                                        y2={45 + h}
-                                        stroke="#ffbf3c"
-                                        strokeWidth="1.2"
-                                        strokeOpacity="0.94"
-                                    />
-                                );
-                            })
+                        <line x1="0" y1="45" x2="1000" y2="45" stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
+                        {samplerWaveformPath ? (
+                            <>
+                                <path d={samplerWaveformPath} fill="url(#samplerWaveFill)" />
+                                <path d={samplerWaveformPath} fill="none" stroke="rgba(255,214,110,0.85)" strokeWidth="1" />
+                            </>
                         ) : (
                             <path
                                 d="M 0 46 C 30 14, 60 78, 90 46 C 120 14, 150 78, 180 46 C 210 14, 240 78, 270 46 C 300 14, 330 78, 360 46 C 390 14, 420 78, 450 46 C 480 14, 510 78, 540 46 C 570 18, 600 74, 630 46 C 660 24, 690 68, 720 46 C 750 30, 780 62, 810 46 C 840 36, 870 56, 900 46 C 930 42, 960 50, 1000 46"
@@ -2013,10 +2023,10 @@ const PluginGuiSurface = ({
                             position: 'absolute',
                             right: 8,
                             top: 4,
-                            border: '1px solid #4f5968',
+                            border: '1px solid #4f668a',
                             borderRadius: 3,
-                            background: '#293445',
-                            color: '#d7e2f2',
+                            background: 'linear-gradient(180deg, #33435b 0%, #27364b 100%)',
+                            color: '#dce9ff',
                             fontSize: 9,
                             padding: '3px 7px',
                             cursor: 'pointer',
@@ -2027,31 +2037,15 @@ const PluginGuiSurface = ({
                 </div>
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: '1fr',
+                    gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
                     gap: 8,
                     alignItems: 'center',
                     padding: '4px 8px 8px 8px',
                     background: 'rgba(16, 20, 28, 0.55)',
                 }}>
-                    <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
-                        gap: 6,
-                        fontSize: 9,
-                        color: '#9fb2cf',
-                    }}>
-                        <div><div>Attack</div><div style={{ color: '#5ab2ff', fontFamily: 'var(--font-mono)' }}>{getParam('Attack', '0.01s')}</div></div>
-                        <div><div>Decay</div><div style={{ color: '#5ab2ff', fontFamily: 'var(--font-mono)' }}>{getParam('Decay', '0.10s')}</div></div>
-                        <div><div>Sustain</div><div style={{ color: '#5ab2ff', fontFamily: 'var(--font-mono)' }}>{getParam('Sustain', '1.00')}</div></div>
-                        <div><div>Release</div><div style={{ color: '#5ab2ff', fontFamily: 'var(--font-mono)' }}>{getParam('Release', '0.05s')}</div></div>
-                        <div><div>Cutoff</div><div style={{ color: '#5ab2ff', fontFamily: 'var(--font-mono)' }}>{getParam('Cutoff', '20kHz')}</div></div>
-                        <div><div>Res</div><div style={{ color: '#5ab2ff', fontFamily: 'var(--font-mono)' }}>{getParam('Res', '0.00')}</div></div>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', alignItems: 'center', gap: 8 }}>
-                        {device.params.slice(0, 12).map((p) => (
-                            <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
-                        ))}
-                    </div>
+                    {otherSamplerParams.map((p) => (
+                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                    ))}
                 </div>
             </div>
         );

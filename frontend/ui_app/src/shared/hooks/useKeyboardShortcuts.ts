@@ -30,6 +30,7 @@ export interface KeyboardShortcutsConfig {
     /** Current playhead position in sample frames. */
     playheadFrames: number;
     timelineClips: TimelineClip[];
+    marqueeSelection: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null;
 
     /** Callback after a successful clip operation (to refresh project state). */
     onProjectMutated: () => void;
@@ -94,6 +95,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
         projectTracks,
         playheadFrames,
         timelineClips,
+        marqueeSelection,
         onProjectMutated,
         onTogglePlayback,
     } = config;
@@ -183,6 +185,50 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                     onProjectMutated();
                 } catch (err) {
                     console.error('[Shortcuts] New MIDI track failed:', err);
+                }
+                return;
+            }
+
+            // ── Cmd/Ctrl + Shift + M: Create MIDI Clip(s) from Selection Box ──
+            if (isModKey(e) && e.shiftKey && e.key.toLowerCase() === 'm') {
+                if (inPianoRoll || inDeviceRack) return;
+                e.preventDefault();
+                e.stopPropagation();
+
+                if (!marqueeSelection) return;
+
+                const minTrack = Math.min(marqueeSelection.startTrack, marqueeSelection.endTrack);
+                const maxTrack = Math.max(marqueeSelection.startTrack, marqueeSelection.endTrack);
+
+                const store = useEngineStore.getState();
+                const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
+                const sampleRate = store.projectSampleRate || store.transport.sample_rate || 44100;
+                const framesPerBeat = (60 / bpm) * sampleRate;
+
+                const startBeat = Math.min(marqueeSelection.startBeat, marqueeSelection.endBeat);
+                const endBeat = Math.max(marqueeSelection.startBeat, marqueeSelection.endBeat);
+                const durationBeats = Math.max(0.25, endBeat - startBeat);
+                const positionFrames = Math.max(0, Math.round(startBeat * framesPerBeat));
+                const durationFrames = Math.max(1, Math.round(durationBeats * framesPerBeat));
+
+                const midiTrackIndices: number[] = [];
+                for (let i = minTrack; i <= maxTrack; i++) {
+                    const track = projectTracks[i];
+                    if (!track) continue;
+                    const trackType = (track.track_type ?? '').toLowerCase();
+                    if (trackType.includes('midi')) midiTrackIndices.push(i);
+                }
+                if (midiTrackIndices.length === 0) return;
+
+                try {
+                    await Promise.all(
+                        midiTrackIndices.map((trackIndex) =>
+                            engine.createMidiClip(trackIndex, positionFrames, durationFrames),
+                        ),
+                    );
+                    onProjectMutated();
+                } catch (err) {
+                    console.error('[Shortcuts] Create MIDI clips from box failed:', err);
                 }
                 return;
             }
@@ -516,6 +562,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             projectTracks,
             playheadFrames,
             timelineClips,
+            marqueeSelection,
             onProjectMutated,
             onTogglePlayback,
         ],

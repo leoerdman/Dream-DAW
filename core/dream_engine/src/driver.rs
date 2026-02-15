@@ -1599,6 +1599,43 @@ pub fn start_audio_thread_on_device(
                                     );
                                 }
 
+                                if let Some(slot) = render_ctx.track_slots.get_mut(track_idx) {
+                                    slot.strip.process_stereo(
+                                        &mut sampler_left[..fc],
+                                        &mut sampler_right[..fc],
+                                    );
+
+                                    if !slot.device_chain.is_empty() {
+                                        slot.device_chain.process_stereo(
+                                            &mut sampler_left[..fc],
+                                            &mut sampler_right[..fc],
+                                            sample_rate_f64 as f32,
+                                        );
+                                    }
+
+                                    if let Some(lane) = automation.get(track_idx) {
+                                        apply_track_mixer_automation_sample_accurate(
+                                            &mut sampler_left[..fc],
+                                            &mut sampler_right[..fc],
+                                            playhead_pos,
+                                            (!lane.volume.is_empty()).then_some(lane.volume.as_slice()),
+                                            (!lane.pan.is_empty()).then_some(lane.pan.as_slice()),
+                                        );
+
+                                        apply_plugin_automation_sample_accurate(
+                                            &mut sampler_left[..fc],
+                                            &mut sampler_right[..fc],
+                                            playhead_pos,
+                                            lane.plugin_params
+                                                .get("__plugin_gain__")
+                                                .map(|v| v.as_slice()),
+                                            lane.plugin_params
+                                                .get("__plugin_pan__")
+                                                .map(|v| v.as_slice()),
+                                        );
+                                    }
+                                }
+
                                 if let Some((meter_l, meter_r)) = render_ctx.meter_bank.track(track_idx) {
                                     let sampler_rms_l = linear_to_db(compute_rms(&sampler_left[..fc]));
                                     let sampler_rms_r = linear_to_db(compute_rms(&sampler_right[..fc]));

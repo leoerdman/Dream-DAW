@@ -62,8 +62,7 @@ impl MidiNote {
     /// Returns the MIDI note name (e.g., "C4", "F#5").
     pub fn note_name(&self) -> String {
         const NAMES: [&str; 12] = [
-            "C", "C#", "D", "D#", "E", "F",
-            "F#", "G", "G#", "A", "A#", "B",
+            "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
         ];
         let name = NAMES[(self.pitch % 12) as usize];
         let octave = (self.pitch as i32 / 12) - 1;
@@ -243,11 +242,7 @@ pub struct MidiClip {
 
 impl MidiClip {
     /// Creates a new empty MIDI clip.
-    pub fn new(
-        name: impl Into<String>,
-        position: AbsoluteTime,
-        duration: AbsoluteTime,
-    ) -> Self {
+    pub fn new(name: impl Into<String>, position: AbsoluteTime, duration: AbsoluteTime) -> Self {
         Self {
             id: Uuid::new_v4(),
             name: name.into(),
@@ -309,7 +304,8 @@ impl MidiClip {
 
     /// Adds a note, keeping the list sorted by start_frame.
     pub fn add_note(&mut self, note: MidiNote) {
-        let pos = self.notes
+        let pos = self
+            .notes
             .binary_search_by_key(&note.start_frame, |n| n.start_frame)
             .unwrap_or_else(|e| e);
         self.notes.insert(pos, note);
@@ -317,9 +313,11 @@ impl MidiClip {
 
     /// Removes a note by pitch and start_frame.
     pub fn remove_note(&mut self, pitch: u8, start_frame: i64) -> bool {
-        if let Some(idx) = self.notes.iter().position(|n| {
-            n.pitch == pitch && n.start_frame == start_frame
-        }) {
+        if let Some(idx) = self
+            .notes
+            .iter()
+            .position(|n| n.pitch == pitch && n.start_frame == start_frame)
+        {
             self.notes.remove(idx);
             true
         } else {
@@ -419,11 +417,11 @@ impl Default for SamplerConfig {
         Self {
             sample_path: String::new(),
             root_note: 60,
-            volume: 1.0,
-            attack: 0.005,   // 5ms — click-free
+            volume: 0.5,
+            attack: 0.005, // 5ms — click-free
             decay: 0.1,
             sustain: 1.0,
-            release: 0.05,   // 50ms — smooth release
+            release: 0.05, // 50ms — smooth release
             osc2_waveform: 0,
             osc_mix: default_sampler_osc_mix(),
             detune_cents: 0.0,
@@ -500,7 +498,7 @@ mod tests {
     #[test]
     fn midi_note_pitch_ratio() {
         let note = MidiNote::new(72, 100, 0, 1); // C5
-        // Relative to root C4 (60), should be 2.0 (one octave up)
+                                                 // Relative to root C4 (60), should be 2.0 (one octave up)
         assert!((note.pitch_ratio(60) - 2.0).abs() < 0.001);
 
         let same = MidiNote::new(60, 100, 0, 1);
@@ -521,11 +519,7 @@ mod tests {
 
     #[test]
     fn midi_clip_creation() {
-        let clip = MidiClip::new(
-            "Test Clip",
-            AbsoluteTime::new(0),
-            AbsoluteTime::new(88200),
-        );
+        let clip = MidiClip::new("Test Clip", AbsoluteTime::new(0), AbsoluteTime::new(88200));
         assert_eq!(clip.name, "Test Clip");
         assert!(clip.notes.is_empty());
         assert_eq!(clip.end_position().sample_frame, 88200);
@@ -533,11 +527,7 @@ mod tests {
 
     #[test]
     fn midi_clip_add_note_sorted() {
-        let mut clip = MidiClip::new(
-            "Test",
-            AbsoluteTime::new(0),
-            AbsoluteTime::new(88200),
-        );
+        let mut clip = MidiClip::new("Test", AbsoluteTime::new(0), AbsoluteTime::new(88200));
 
         clip.add_note(MidiNote::new(60, 100, 22050, 11025));
         clip.add_note(MidiNote::new(64, 100, 0, 11025));
@@ -551,11 +541,7 @@ mod tests {
 
     #[test]
     fn midi_clip_remove_note() {
-        let mut clip = MidiClip::new(
-            "Test",
-            AbsoluteTime::new(0),
-            AbsoluteTime::new(88200),
-        );
+        let mut clip = MidiClip::new("Test", AbsoluteTime::new(0), AbsoluteTime::new(88200));
 
         clip.add_note(MidiNote::new(60, 100, 0, 11025));
         clip.add_note(MidiNote::new(64, 100, 0, 11025));
@@ -567,15 +553,11 @@ mod tests {
 
     #[test]
     fn midi_clip_notes_in_range() {
-        let mut clip = MidiClip::new(
-            "Test",
-            AbsoluteTime::new(0),
-            AbsoluteTime::new(88200),
-        );
+        let mut clip = MidiClip::new("Test", AbsoluteTime::new(0), AbsoluteTime::new(88200));
 
-        clip.add_note(MidiNote::new(60, 100, 0, 11025));      // 0–11025
-        clip.add_note(MidiNote::new(64, 100, 22050, 11025));   // 22050–33075
-        clip.add_note(MidiNote::new(67, 100, 44100, 11025));   // 44100–55125
+        clip.add_note(MidiNote::new(60, 100, 0, 11025)); // 0–11025
+        clip.add_note(MidiNote::new(64, 100, 22050, 11025)); // 22050–33075
+        clip.add_note(MidiNote::new(67, 100, 44100, 11025)); // 44100–55125
 
         let in_range = clip.notes_in_range(10000, 30000);
         assert_eq!(in_range.len(), 2); // First two notes overlap
@@ -583,24 +565,20 @@ mod tests {
 
     #[test]
     fn midi_clip_overlap_check() {
-        let clip = MidiClip::new(
-            "Test",
-            AbsoluteTime::new(44100),
-            AbsoluteTime::new(44100),
-        );
+        let clip = MidiClip::new("Test", AbsoluteTime::new(44100), AbsoluteTime::new(44100));
 
-        assert!(clip.overlaps(0, 88200));      // Fully contains
-        assert!(clip.overlaps(44100, 44200));   // Start overlap
-        assert!(clip.overlaps(88100, 88300));   // End overlap
-        assert!(!clip.overlaps(0, 44100));      // Before (exclusive end)
-        assert!(!clip.overlaps(88200, 99999));  // After
+        assert!(clip.overlaps(0, 88200)); // Fully contains
+        assert!(clip.overlaps(44100, 44200)); // Start overlap
+        assert!(clip.overlaps(88100, 88300)); // End overlap
+        assert!(!clip.overlaps(0, 44100)); // Before (exclusive end)
+        assert!(!clip.overlaps(88200, 99999)); // After
     }
 
     #[test]
     fn sampler_config_defaults() {
         let cfg = SamplerConfig::default();
         assert_eq!(cfg.root_note, 60);
-        assert!((cfg.volume - 1.0).abs() < f64::EPSILON);
+        assert!((cfg.volume - 0.5).abs() < f64::EPSILON);
         assert!(!cfg.has_sample());
     }
 

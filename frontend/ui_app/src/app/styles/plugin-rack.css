@@ -52,6 +52,7 @@
     height: var(--daw-color-stripe-width);
     background: var(--device-tint, var(--color-control-tint));
     border-radius: var(--node-border-radius) var(--node-border-radius) 0 0;
+    display: none;
 }
 
 /* Effect-type color stripes */

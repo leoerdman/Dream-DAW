@@ -190,7 +190,7 @@ export class CanvasClipRenderer {
         this._drawDropTarget(ctx, vp, dropTarget);
         this._drawGhostClip(ctx, vp, ghost);
         this._drawPlayhead(ctx, vp, playheadBeat, h, theme);
-        this._drawEditCursor(ctx, vp, editCursorBeat, editCursorTrack, theme);
+        this._drawEditCursor(ctx, vp, editCursorBeat, editCursorTrack);
 
         ctx.restore();
 
@@ -747,7 +747,7 @@ export class CanvasClipRenderer {
 
         // Core playhead line
         ctx.strokeStyle = theme.playhead;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(Math.round(x), rulerH);
         ctx.lineTo(Math.round(x), canvasH);
@@ -763,25 +763,29 @@ export class CanvasClipRenderer {
         vp: ViewportMatrix,
         beat: number,
         track: number,
-        theme: TimelineTheme,
     ): void {
         if (beat < 0) return; // Hidden when clip is selected (mutual exclusivity)
         const x = vp.beatsToScreenX(beat);
         if (x < -2 || x > vp.viewportWidth + 2) return;
 
         const y = vp.rulerHeight + track * vp.trackHeight - vp.scrollY;
+        const cursorX = Math.round(x) + 0.5;
 
-        // Thin white line across selected track with slow, smooth breathing alpha.
+        // Solid bright white line with slow, smooth breathing alpha.
         const t = performance.now() / 1000;
-        const blink = 0.52 + 0.28 * (0.5 + 0.5 * Math.sin(t * Math.PI * 0.6));
-        ctx.strokeStyle = theme.editCursor.replace(/[\d.]+\)$/, `${blink.toFixed(3)})`); // Dynamic alpha
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 3]);
-        ctx.beginPath();
-        ctx.moveTo(Math.round(x), Math.max(vp.rulerHeight, y));
-        ctx.lineTo(Math.round(x), y + vp.trackHeight);
-        ctx.stroke();
+        const blink = 0.22 + 0.68 * (0.5 + 0.5 * Math.sin(t * Math.PI * 0.34));
+        ctx.save();
         ctx.setLineDash([]);
+        ctx.globalCompositeOperation = 'screen';
+        ctx.shadowColor = 'rgba(255, 255, 255, 0.7)';
+        ctx.shadowBlur = 3;
+        ctx.strokeStyle = `rgba(255, 255, 255, ${blink.toFixed(3)})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cursorX, Math.max(vp.rulerHeight, y));
+        ctx.lineTo(cursorX, y + vp.trackHeight);
+        ctx.stroke();
+        ctx.restore();
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -863,12 +867,23 @@ export class CanvasClipRenderer {
         ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
         ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
 
-        // Dashed border
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 3]);
-        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+        // Solid white border (force non-dashed + pixel aligned).
+        const sx1 = Math.round(x1) + 0.5;
+        const sx2 = Math.round(x2) + 0.5;
+        const sy1 = Math.round(y1) + 0.5;
+        const sy2 = Math.round(y2) + 0.5;
+        ctx.save();
         ctx.setLineDash([]);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.78)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(sx1, sy1);
+        ctx.lineTo(sx2, sy1);
+        ctx.lineTo(sx2, sy2);
+        ctx.lineTo(sx1, sy2);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
     }
 
     // ═══════════════════════════════════════════════════════════════════

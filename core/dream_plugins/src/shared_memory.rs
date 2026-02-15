@@ -4,6 +4,12 @@ use std::path::{Path, PathBuf};
 
 use memmap2::MmapMut;
 
+pub const HEADER_MAGIC_OFFSET: usize = 0;
+pub const HEADER_REQUESTED_FRAMES_OFFSET: usize = 4;
+pub const HEADER_REQUEST_SEQ_OFFSET: usize = 8;
+pub const HEADER_PROCESSED_SEQ_OFFSET: usize = 12;
+pub const SHARED_AUDIO_MAGIC: u32 = 0x4452_4D44; // "DRMD"
+
 #[derive(Debug, Clone)]
 pub struct SharedAudioBufferLayout {
     pub num_inputs: u16,
@@ -58,7 +64,12 @@ impl SharedAudioBufferRegion {
         let mmap = unsafe { MmapMut::map_mut(&file) }
             .map_err(|e| format!("mmap shared region '{}': {e}", path.display()))?;
 
-        Ok(Self { path, layout, mmap })
+        let mut region = Self { path, layout, mmap };
+        region.set_magic(SHARED_AUDIO_MAGIC);
+        region.set_requested_frames(0);
+        region.set_request_seq(0);
+        region.set_processed_seq(0);
+        Ok(region)
     }
 
     pub fn open_existing(path: PathBuf, layout: SharedAudioBufferLayout) -> Result<Self, String> {
@@ -147,6 +158,54 @@ impl SharedAudioBufferRegion {
 
     pub fn region_pulse_byte(&self) -> u8 {
         self.mmap.first().copied().unwrap_or(0)
+    }
+
+    fn write_u32(&mut self, offset: usize, value: u32) {
+        let bytes = value.to_le_bytes();
+        if offset + 4 <= self.mmap.len() {
+            self.mmap[offset..offset + 4].copy_from_slice(&bytes);
+        }
+    }
+
+    fn read_u32(&self, offset: usize) -> u32 {
+        if offset + 4 > self.mmap.len() {
+            return 0;
+        }
+        let mut arr = [0u8; 4];
+        arr.copy_from_slice(&self.mmap[offset..offset + 4]);
+        u32::from_le_bytes(arr)
+    }
+
+    pub fn set_magic(&mut self, magic: u32) {
+        self.write_u32(HEADER_MAGIC_OFFSET, magic);
+    }
+
+    pub fn magic(&self) -> u32 {
+        self.read_u32(HEADER_MAGIC_OFFSET)
+    }
+
+    pub fn set_requested_frames(&mut self, frames: u32) {
+        self.write_u32(HEADER_REQUESTED_FRAMES_OFFSET, frames);
+    }
+
+    pub fn requested_frames(&self) -> u32 {
+        self.read_u32(HEADER_REQUESTED_FRAMES_OFFSET)
+    }
+
+    pub fn set_request_seq(&mut self, seq: u32) {
+        self.write_u32(HEADER_REQUEST_SEQ_OFFSET, seq);
+    }
+
+    pub fn request_seq(&self) -> u32 {
+        self.read_u32(HEADER_REQUEST_SEQ_OFFSET)
+    }
+
+    pub fn set_processed_seq(&mut self, seq: u32) {
+        self.write_u32(HEADER_PROCESSED_SEQ_OFFSET, seq);
+    }
+
+    pub fn processed_seq(&self) -> u32 {
+        self.read_u32(HEADER_PROCESSED_SEQ_OFFSET)
     }
 
     pub fn flush(&mut self) -> Result<(), String> {

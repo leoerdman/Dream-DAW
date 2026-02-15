@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 symphonia = { workspace = true }
 hound = { workspace = true }
+mp3lame-encoder = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
 uuid = { workspace = true }

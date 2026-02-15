@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { Fragment, useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import throttle from 'lodash.throttle';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useDragStore } from '@/shared/stores/useDragStore';
@@ -341,6 +341,7 @@ export const DeviceRack = ({
     const statusError = useStatusStore((s) => s.setError);
     const statusClear = useStatusStore((s) => s.clear);
     const throttledParamSendsRef = useRef<Map<string, (value: number) => void>>(new Map());
+    const externalParamPollInFlightRef = useRef(false);
     const projectTracks = useEngineStore((s) => s.projectTracks);
     const meters = useEngineStore((s) => s.meters);
     const fetchProject = useEngineStore((s) => s.fetchProject);
@@ -403,6 +404,42 @@ export const DeviceRack = ({
             : 'No Track';
 
     const selectedTrack = trackIndex >= 0 ? projectTracks[trackIndex] : null;
+    const mapExternalParams = useCallback((params: engineApi.ExternalPluginParamInfo[]): PluginParam[] =>
+        params.map((p) => ({
+            name: p.name,
+            min: p.min,
+            max: p.max,
+            step: p.step,
+            suffix: '',
+            value: p.value,
+        })), []);
+
+    const refreshExternalPluginParams = useCallback(async (pluginId: string) => {
+        try {
+            const params = await engineApi.getExternalPluginParams(pluginId);
+            if (!params || params.length === 0) return;
+            const mapped = mapExternalParams(params);
+            setExternalParamsByPluginId((prev) => {
+                const current = prev[pluginId];
+                if (
+                    current
+                    && current.length === mapped.length
+                    && current.every((c, i) =>
+                        c.name === mapped[i].name
+                        && c.min === mapped[i].min
+                        && c.max === mapped[i].max
+                        && c.step === mapped[i].step
+                        && Math.abs(c.value - mapped[i].value) < 1e-6)
+                ) {
+                    return prev;
+                }
+                return { ...prev, [pluginId]: mapped };
+            });
+        } catch (err) {
+            console.warn('[DeviceRack] getExternalPluginParams failed:', err);
+        }
+    }, [mapExternalParams]);
+
     const chain = useMemo((): DeviceSlot[] => {
         if (!selectedTrack || isMaster) return [];
 
@@ -554,6 +591,38 @@ export const DeviceRack = ({
 
         return nodes.map(nodeToSlot).filter((s): s is DeviceSlot => s !== null);
     }, [selectedTrack, localBypass, localParams, isMaster, outLevel, externalParamsByPluginId]);
+
+    useEffect(() => {
+        const openVstPluginIds = Array.from(
+            new Set(
+                chain
+                    .filter((d) => d.source === 'vst' && inlineSettingsOpen[d.id])
+                    .map((d) => d.pluginId),
+            ),
+        );
+        if (openVstPluginIds.length === 0) return;
+
+        let cancelled = false;
+        const poll = async () => {
+            if (cancelled || externalParamPollInFlightRef.current) return;
+            externalParamPollInFlightRef.current = true;
+            try {
+                await Promise.all(openVstPluginIds.map((id) => refreshExternalPluginParams(id)));
+            } finally {
+                externalParamPollInFlightRef.current = false;
+            }
+        };
+
+        void poll();
+        const timer = window.setInterval(() => {
+            void poll();
+        }, 450);
+
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
+    }, [chain, inlineSettingsOpen, refreshExternalPluginParams]);
 
     const toggleDevice = useCallback((device: DeviceSlot) => {
         const currentBypassed = localBypass[device.id] ?? !device.isEnabled;
@@ -923,122 +992,112 @@ export const DeviceRack = ({
                     {/* Device slots */}
                     {chain.length > 0 ? (
                         chain.map((device, idx) => (
-                            <DeviceNode
-                                key={device.id}
-                                order={idx + 1}
-                                device={device}
-                                isSelected={selectedDeviceId === device.id}
-                                editorSupported={pluginCapability[device.pluginId]?.supported ?? true}
-                                editorReason={pluginCapability[device.pluginId]?.reason}
-                                onToggle={() => toggleDevice(device)}
-                                onSelect={() => {
-                                    setSelectedDeviceId(device.id);
-                                    rackRef.current?.focus();
-                                    statusClear();
-                                }}
-                                onOpenSettings={() => {
-                                    setSelectedDeviceId(device.id);
-                                    setInlineSettingsOpen((prev) => ({
-                                        ...prev,
-                                        [device.id]: !prev[device.id],
-                                    }));
-                                    if (device.source === 'vst' && !externalParamsByPluginId[device.pluginId]) {
-                                        void engineApi.getExternalPluginParams(device.pluginId)
-                                            .then((params) => {
-                                                if (!params || params.length === 0) return;
-                                                setExternalParamsByPluginId((prev) => ({
-                                                    ...prev,
-                                                    [device.pluginId]: params.map((p) => ({
-                                                        name: p.name,
-                                                        min: p.min,
-                                                        max: p.max,
-                                                        step: p.step,
-                                                        suffix: '',
-                                                        value: p.value,
-                                                    })),
-                                                }));
-                                            })
-                                            .catch((err) => {
-                                                console.warn('[DeviceRack] getExternalPluginParams failed:', err);
-                                            });
-                                    }
-                                    statusClear();
-                                }}
-                                onParamChange={(name, value) => {
-                                    setPluginParam(device.id, name, value);
-                                    sendInternalParam(device, name, value);
-                                }}
-                                onParamContextMenu={(e, paramName) => handleParamContextMenu(e, paramName, device.id)}
-                                showSettings={!!inlineSettingsOpen[device.id]}
-                                onDropSample={async (samplePath) => {
-                                    if (!selectedTrack || selectedTrackId === 'master') return;
-                                    try {
-                                        const normalizedPath = normalizePickedPath(samplePath);
-                                        if (!normalizedPath) {
-                                            statusError('Failed to load sampler sample: invalid file path.');
+                            <Fragment key={device.id}>
+                                <DeviceNode
+                                    order={idx + 1}
+                                    device={device}
+                                    isSelected={selectedDeviceId === device.id}
+                                    editorSupported={pluginCapability[device.pluginId]?.supported ?? true}
+                                    editorReason={pluginCapability[device.pluginId]?.reason}
+                                    onToggle={() => toggleDevice(device)}
+                                    onSelect={() => {
+                                        setSelectedDeviceId(device.id);
+                                        rackRef.current?.focus();
+                                        statusClear();
+                                    }}
+                                    onOpenSettings={() => {
+                                        if (device.source === 'internal' && device.effectType === 'utility') {
+                                            setSelectedDeviceId(device.id);
+                                            statusClear();
                                             return;
                                         }
-                                        await engineApi.setSamplerSample(selectedTrack.id, normalizedPath);
                                         setSelectedDeviceId(device.id);
+                                        setInlineSettingsOpen((prev) => ({
+                                            ...prev,
+                                            [device.id]: !prev[device.id],
+                                        }));
+                                        if (device.source === 'vst' && !externalParamsByPluginId[device.pluginId]) {
+                                            void refreshExternalPluginParams(device.pluginId);
+                                        }
                                         statusClear();
-                                        await fetchProject();
-                                    } catch (err) {
-                                        console.error('[DeviceRack] sampler device drop failed:', err);
-                                        statusError(`Failed to load sampler sample: ${errorMessage(err)}`);
-                                    }
-                                }}
-                                onLoadSample={async () => {
-                                    if (!selectedTrack || selectedTrackId === 'master') return;
-                                    try {
-                                        const { open } = await import('@tauri-apps/plugin-dialog');
-                                        const picked = await open({
-                                            multiple: false,
-                                            title: 'Load Sampler Sample',
-                                            filters: [{ name: 'Audio', extensions: ['wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg', 'm4a', 'aac'] }],
-                                        });
-                                        const normalizedPath = normalizePickedPath(picked);
-                                        if (normalizedPath) {
+                                    }}
+                                    onParamChange={(name, value) => {
+                                        setPluginParam(device.id, name, value);
+                                        sendInternalParam(device, name, value);
+                                    }}
+                                    onParamContextMenu={(e, paramName) => handleParamContextMenu(e, paramName, device.id)}
+                                    showSettings={device.effectType === 'utility' ? false : !!inlineSettingsOpen[device.id]}
+                                    onDropSample={async (samplePath) => {
+                                        if (!selectedTrack || selectedTrackId === 'master') return;
+                                        try {
+                                            const normalizedPath = normalizePickedPath(samplePath);
+                                            if (!normalizedPath) {
+                                                statusError('Failed to load sampler sample: invalid file path.');
+                                                return;
+                                            }
                                             await engineApi.setSamplerSample(selectedTrack.id, normalizedPath);
+                                            setSelectedDeviceId(device.id);
                                             statusClear();
                                             await fetchProject();
+                                        } catch (err) {
+                                            console.error('[DeviceRack] sampler device drop failed:', err);
+                                            statusError(`Failed to load sampler sample: ${errorMessage(err)}`);
                                         }
-                                    } catch (err) {
-                                        console.error('[DeviceRack] setSamplerSample failed:', err);
-                                        statusError(`Failed to load sampler sample: ${errorMessage(err)}`);
-                                    }
-                                }}
-                                onOpenGUI={async () => {
-                                    setSelectedDeviceId(device.id);
-                                    if (device.source === 'internal') {
-                                        statusClear();
-                                        return;
-                                    }
-                                    try {
-                                        const capability = await engineApi.canOpenPluginEditor(device.pluginId);
-                                        setPluginCapability((prev) => ({
-                                            ...prev,
-                                            [device.pluginId]: {
-                                                supported: capability.supported,
-                                                reason: capability.reason ?? undefined,
-                                            },
-                                        }));
-                                        if (!capability.supported) {
-                                            const reason = capability.reason ?? 'Plugin editor is not supported.';
-                                            console.warn('[DeviceRack] Plugin editor unavailable:', reason);
-                                            statusError(reason);
+                                    }}
+                                    onLoadSample={async () => {
+                                        if (!selectedTrack || selectedTrackId === 'master') return;
+                                        try {
+                                            const { open } = await import('@tauri-apps/plugin-dialog');
+                                            const picked = await open({
+                                                multiple: false,
+                                                title: 'Load Sampler Sample',
+                                                filters: [{ name: 'Audio', extensions: ['wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg', 'm4a', 'aac'] }],
+                                            });
+                                            const normalizedPath = normalizePickedPath(picked);
+                                            if (normalizedPath) {
+                                                await engineApi.setSamplerSample(selectedTrack.id, normalizedPath);
+                                                statusClear();
+                                                await fetchProject();
+                                            }
+                                        } catch (err) {
+                                            console.error('[DeviceRack] setSamplerSample failed:', err);
+                                            statusError(`Failed to load sampler sample: ${errorMessage(err)}`);
+                                        }
+                                    }}
+                                    onOpenGUI={async () => {
+                                        setSelectedDeviceId(device.id);
+                                        if (device.source === 'internal') {
+                                            statusClear();
                                             return;
                                         }
-                                        // Try native plugin editor bridge first (host-managed).
-                                        // Keep DAW-owned UI fallback available for consistency.
-                                        await engineApi.openPluginWindow(device.pluginId);
-                                        setOpenGuiDevice(device);
-                                        statusClear();
-                                    } catch (err) {
-                                        console.error('[DeviceRack] Failed to open plugin window:', err);
-                                        statusError('Failed to open plugin window.');
-                                    }
-                                }}
-                            />
+                                        try {
+                                            const capability = await engineApi.canOpenPluginEditor(device.pluginId);
+                                            setPluginCapability((prev) => ({
+                                                ...prev,
+                                                [device.pluginId]: {
+                                                    supported: capability.supported,
+                                                    reason: capability.reason ?? undefined,
+                                                },
+                                            }));
+                                            if (!capability.supported) {
+                                                const reason = capability.reason ?? 'Plugin editor is not supported.';
+                                                console.warn('[DeviceRack] Plugin editor unavailable:', reason);
+                                                statusError(reason);
+                                                return;
+                                            }
+                                            // Try native plugin editor bridge first (host-managed).
+                                            // Keep DAW-owned UI fallback available for consistency.
+                                            await engineApi.openPluginWindow(device.pluginId);
+                                            setOpenGuiDevice(device);
+                                            statusClear();
+                                        } catch (err) {
+                                            console.error('[DeviceRack] Failed to open plugin window:', err);
+                                            statusError('Failed to open plugin window.');
+                                        }
+                                    }}
+                                />
+                                <MeterBar level={device.vuLevel} />
+                            </Fragment>
                         ))
                     ) : (
                         /* ── Empty State ── */
@@ -1065,9 +1124,6 @@ export const DeviceRack = ({
                             </span>
                         </div>
                     )}
-
-                    {/* Output meter — show only when chain exists */}
-                    {chain.length > 0 && <MeterBar level={outLevel} />}
 
                     {/* Add device button */}
                     <button
@@ -1328,9 +1384,6 @@ const DeviceNode = ({
     editorReason?: string;
     onParamContextMenu?: (e: React.MouseEvent, paramName: string) => void;
 }) => {
-    const vuWidthPercent = Math.min(100, Math.max(0, device.vuLevel * 100));
-    const vuColor = device.vuLevel > 0.85 ? 'var(--color-meter-clip)' : device.vuLevel > 0.6 ? 'var(--color-meter-hot)' : 'var(--color-meter-normal)';
-
     // Color per device type (matching Ableton's device categories)
     const typeColorMap: Record<string, string> = {
         instrument: '#4a9eff',
@@ -1359,12 +1412,14 @@ const DeviceNode = ({
         vst: '#4a9eff',
     };
     const typeColor = typeColorMap[device.effectType] || 'var(--color-accent-primary)';
-    const baseWidth = isSelected && device.source === 'internal'
+    const baseWidth = device.source === 'internal'
         ? device.effectType === 'waveSynth'
             ? 980
             : device.effectType === 'eq'
                 ? 860
-                : 720
+                : device.effectType === 'utility'
+                    ? 360
+                    : 720
         : device.effectType === 'sampler'
             ? 520
             : device.effectType === 'waveSynth'
@@ -1379,9 +1434,10 @@ const DeviceNode = ({
                                 ? 320
                                 : device.effectType === 'gate'
                                     ? 340
-                                    : 320;
+                                    : 420; // Increased default VST width to 420 for better visibility
     const settingsWidth = Math.min(1460, Math.max(baseWidth, 280 + device.params.length * 110));
     const rackWidth = showSettings ? settingsWidth : baseWidth;
+    const supportsSettingsToggle = device.source === 'vst' || (device.source === 'internal' && device.effectType !== 'utility');
 
     return (
         <div
@@ -1488,7 +1544,7 @@ const DeviceNode = ({
                             🔧
                         </button>
                     </div>
-                ) : (
+                ) : supportsSettingsToggle ? (
                     <button
                         onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
                         title="Inline Controls"
@@ -1496,6 +1552,8 @@ const DeviceNode = ({
                     >
                         🔧
                     </button>
+                ) : (
+                    <span style={{ width: 24, display: 'inline-block' }} />
                 )}
                 <span style={{
                     fontSize: 8,
@@ -1508,7 +1566,7 @@ const DeviceNode = ({
                 </span>
             </div>
 
-            {showSettings ? (
+            {showSettings && supportsSettingsToggle ? (
                 <div style={{ padding: 6, flex: 1, minHeight: 0, overflow: 'auto' }}>
                     <PluginSettingsPanel
                         device={device}
@@ -1516,13 +1574,14 @@ const DeviceNode = ({
                         onLoadSample={onLoadSample}
                     />
                 </div>
-            ) : isSelected && device.source === 'internal' ? (
+            ) : device.source === 'internal' ? (
                 <div style={{ padding: 6, flex: 1, minHeight: 0 }}>
                     <PluginGuiSurface
                         device={device}
                         onParamChange={onParamChange}
                         onDropSample={onDropSample}
                         onLoadSample={onLoadSample}
+                        onParamContextMenu={onParamContextMenu}
                     />
                 </div>
             ) : (
@@ -1535,42 +1594,17 @@ const DeviceNode = ({
                     minHeight: 0,
                     overflow: 'hidden',
                 }}>
-                    {device.source === 'internal' && device.params.length > 0 ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
-                            {device.params.slice(0, device.effectType === 'waveSynth' ? 8 : device.effectType === 'sampler' ? 4 : 3).map((p) => (
-                                <PluginKnob key={p.name} param={p} onChange={onParamChange} onContextMenu={onParamContextMenu} />
-                            ))}
-                        </div>
-                    ) : (
-                        <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between' }}>
-                            <span style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>
-                                {device.source === 'vst' ? 'Native GUI' : 'Internal GUI'}
-                            </span>
-                            <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)' }}>
-                                {device.params.length} params
-                            </span>
-                        </div>
-                    )}
+                    <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>
+                            {device.source === 'vst' ? 'Native GUI' : 'Internal GUI'}
+                        </span>
+                        <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)' }}>
+                            {device.params.length} params
+                        </span>
+                    </div>
                 </div>
             )}
 
-            {/* Bottom VU bar */}
-            <div style={{
-                height: 3,
-                background: 'var(--color-meter-bg)',
-                position: 'relative',
-                flexShrink: 0,
-            }}>
-                <div style={{
-                    position: 'absolute',
-                    left: 0,
-                    top: 0,
-                    height: '100%',
-                    width: `${vuWidthPercent}%`,
-                    background: vuColor,
-                    transition: 'width 0.08s linear',
-                }} />
-            </div>
         </div>
     );
 };
@@ -1643,11 +1677,13 @@ const PluginGuiSurface = ({
     onParamChange,
     onDropSample,
     onLoadSample,
+    onParamContextMenu,
 }: {
     device: DeviceSlot;
     onParamChange: (paramName: string, value: number) => void;
     onDropSample?: (samplePath: string) => void;
     onLoadSample?: () => void;
+    onParamContextMenu?: (e: React.MouseEvent, paramName: string) => void;
 }) => {
     const [waveformPeaks, setWaveformPeaks] = useState<number[] | null>(null);
     const eqSurfaceRef = useRef<SVGSVGElement | null>(null);
@@ -2477,7 +2513,7 @@ const PluginGuiSurface = ({
     return (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
             {device.params.map((p) => (
-                <PluginKnob key={p.name} param={p} onChange={onParamChange} />
+                <PluginKnob key={p.name} param={p} onChange={onParamChange} onContextMenu={onParamContextMenu} />
             ))}
         </div>
     );

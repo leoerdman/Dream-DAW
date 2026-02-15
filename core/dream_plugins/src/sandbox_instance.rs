@@ -18,6 +18,8 @@ pub struct SandboxedPluginInstance {
     latency_samples: u32,
     supports_editor: bool,
     shared_region: SharedAudioBufferRegion,
+    request_seq: u32,
+    last_seen_processed_seq: u32,
 }
 
 impl SandboxedPluginInstance {
@@ -44,6 +46,8 @@ impl SandboxedPluginInstance {
             latency_samples: 0,
             supports_editor: false,
             shared_region,
+            request_seq: 0,
+            last_seen_processed_seq: 0,
         })
     }
 
@@ -108,17 +112,27 @@ impl PluginInstance for SandboxedPluginInstance {
                 .write_input_channel(ch, &input[..n])
                 .map_err(PluginError::ProcessError)?;
         }
+        self.shared_region.set_requested_frames(num_frames as u32);
+        self.request_seq = self.request_seq.wrapping_add(1);
+        self.shared_region.set_request_seq(self.request_seq);
         let _ = self.shared_region.flush();
 
-        // Try to read daemon-computed output. If unavailable, pass-through.
-        let mut read_ok = true;
-        for (ch, out) in outputs.iter_mut().enumerate() {
-            if let Err(_err) = self.shared_region.read_output_channel(ch, num_frames, out) {
-                read_ok = false;
-                break;
+        let processed_seq = self.shared_region.processed_seq();
+        let has_new_block = processed_seq != 0 && processed_seq >= self.request_seq;
+        self.last_seen_processed_seq = processed_seq;
+
+        if has_new_block {
+            let mut read_ok = true;
+            for (ch, out) in outputs.iter_mut().enumerate() {
+                if let Err(_err) = self.shared_region.read_output_channel(ch, num_frames, out) {
+                    read_ok = false;
+                    break;
+                }
             }
-        }
-        if !read_ok {
+            if !read_ok {
+                self.pass_through(inputs, outputs, num_frames)?;
+            }
+        } else {
             self.pass_through(inputs, outputs, num_frames)?;
         }
 

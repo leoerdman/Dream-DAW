@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useCallback, useRef, useState, type CSSProperties } from 'react';
 
 export interface PluginParam {
     name: string;
@@ -53,6 +53,47 @@ export const PluginKnob = ({
     const size = compact ? 34 : 42;
     const markerHeight = compact ? 11 : 14;
     const markerTopOffset = compact ? '-84%' : '-88%';
+    const [isDragging, setIsDragging] = useState(false);
+    const dragPointerIdRef = useRef<number | null>(null);
+    const dragStartYRef = useRef(0);
+    const dragStartValueRef = useRef(0);
+    const dialRef = useRef<HTMLDivElement | null>(null);
+
+    const quantizeValue = useCallback((raw: number): number => {
+        const clamped = Math.max(param.min, Math.min(param.max, raw));
+        const step = param.step;
+        if (!step || step <= 0) return clamped;
+        const snapped = Math.round((clamped - param.min) / step) * step + param.min;
+        const precision = Math.max(0, Math.ceil(Math.log10(1 / step)));
+        return Number(snapped.toFixed(Math.min(6, precision + 1)));
+    }, [param.max, param.min, param.step]);
+
+    const onKnobPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragPointerIdRef.current = e.pointerId;
+        dragStartYRef.current = e.clientY;
+        dragStartValueRef.current = param.value;
+        dialRef.current?.setPointerCapture(e.pointerId);
+        setIsDragging(true);
+    }, [param.value]);
+
+    const onKnobPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+        if (dragPointerIdRef.current !== e.pointerId) return;
+        e.preventDefault();
+        const valueRange = Math.max(1e-9, param.max - param.min);
+        const dy = e.clientY - dragStartYRef.current;
+        const dragScalePx = e.shiftKey ? 420 : 240;
+        const nextRaw = dragStartValueRef.current + ((-dy / dragScalePx) * valueRange);
+        onChange(param.name, quantizeValue(nextRaw));
+    }, [onChange, param.max, param.min, param.name, quantizeValue]);
+
+    const endKnobDrag = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+        if (dragPointerIdRef.current !== e.pointerId) return;
+        dragPointerIdRef.current = null;
+        dialRef.current?.releasePointerCapture(e.pointerId);
+        setIsDragging(false);
+    }, []);
 
     return (
         <label
@@ -61,7 +102,14 @@ export const PluginKnob = ({
         >
             <span style={knobParamNameStyle}>{param.name}</span>
             <div style={{ position: 'relative', width: size, height: size }}>
-                <div style={knobDialStyle}>
+                <div
+                    ref={dialRef}
+                    style={knobDialStyle(isDragging)}
+                    onPointerDown={onKnobPointerDown}
+                    onPointerMove={onKnobPointerMove}
+                    onPointerUp={endKnobDrag}
+                    onPointerCancel={endKnobDrag}
+                >
                     <div
                         style={{
                             ...knobMarkerStyle,
@@ -70,15 +118,6 @@ export const PluginKnob = ({
                         }}
                     />
                 </div>
-                <input
-                    type="range"
-                    min={param.min}
-                    max={param.max}
-                    step={param.step ?? (param.max - param.min) / 100}
-                    value={param.value}
-                    onChange={(e) => onChange(param.name, Number(e.target.value))}
-                    style={knobInputOverlayStyle}
-                />
             </div>
             <span style={knobValueStyle(compact)}>{formatPluginParamValue(param)}</span>
         </label>
@@ -132,15 +171,19 @@ const knobParamNameStyle: CSSProperties = {
     letterSpacing: '0.03em',
 };
 
-const knobDialStyle: CSSProperties = {
+const knobDialStyle = (dragging: boolean): CSSProperties => ({
     width: '100%',
     height: '100%',
     borderRadius: '50%',
     background: 'radial-gradient(circle at 35% 28%, #3a3f47 0%, #232831 54%, #13171d 100%)',
     border: '1px solid color-mix(in srgb, var(--color-accent-primary) 24%, rgba(255,255,255,0.2))',
-    boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.09), inset 0 -2px 5px rgba(0,0,0,0.58), 0 0 0 1px rgba(10,14,18,0.6)',
+    boxShadow: dragging
+        ? 'inset 0 1px 2px rgba(255,255,255,0.11), inset 0 -2px 6px rgba(0,0,0,0.64), 0 0 0 1px rgba(10,14,18,0.72), 0 0 0 2px color-mix(in srgb, var(--color-accent-primary) 40%, transparent)'
+        : 'inset 0 1px 2px rgba(255,255,255,0.09), inset 0 -2px 5px rgba(0,0,0,0.58), 0 0 0 1px rgba(10,14,18,0.6)',
     position: 'relative',
-};
+    cursor: 'ns-resize',
+    touchAction: 'none',
+});
 
 const knobMarkerStyle: CSSProperties = {
     position: 'absolute',
@@ -151,13 +194,6 @@ const knobMarkerStyle: CSSProperties = {
     transformOrigin: '50% 90%',
     borderRadius: 999,
     boxShadow: '0 0 5px color-mix(in srgb, var(--color-accent-primary) 68%, transparent)',
-};
-
-const knobInputOverlayStyle: CSSProperties = {
-    position: 'absolute',
-    inset: 0,
-    opacity: 0,
-    cursor: 'ns-resize',
 };
 
 const knobValueStyle = (compact: boolean): CSSProperties => ({

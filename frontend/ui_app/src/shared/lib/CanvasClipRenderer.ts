@@ -25,6 +25,7 @@
 
 import type { ViewportMatrix, VisibleRange } from './ViewportMatrix';
 import type { WaveformCache } from './WaveformCache';
+import { getContrastColor } from './colorUtils';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -79,9 +80,6 @@ const SELECTION_GLOW_COLOR = 'rgba(255, 255, 255, 0.9)';
 const DROP_TARGET_COLOR = 'rgba(255, 255, 255, 0.2)';
 const DROP_TARGET_BORDER = 'rgba(255, 255, 255, 0.6)';
 const GHOST_CLIP_ALPHA = 0.45;
-const WAVEFORM_COLOR = 'rgba(255, 255, 255, 0.7)';
-const WAVEFORM_COLOR_SELECTED = 'rgba(255, 255, 255, 0.9)';
-const MIDI_NOTE_COLOR = 'rgba(255, 255, 255, 0.5)';
 const OFFLINE_STRIPE_COLOR = 'rgba(255, 80, 80, 0.3)';
 
 interface TimelineTheme {
@@ -263,10 +261,10 @@ export class CanvasClipRenderer {
             ctx.stroke();
         }
 
-        // ── Horizontal track dividers (+1 for master track) ────────────
+        // ── Horizontal track dividers ───────────────────────────────────
         ctx.strokeStyle = theme.trackDivider;
         ctx.lineWidth = 1;
-        for (let i = 0; i <= vp.trackCount + 1; i++) {
+        for (let i = 0; i <= vp.trackCount; i++) {
             const y = rulerH + i * trackH - vp.scrollY;
             if (y < rulerH - 1 || y > vp.viewportHeight + 1) continue;
             ctx.beginPath();
@@ -310,7 +308,7 @@ export class CanvasClipRenderer {
 
         ctx.font = '10px Inter, -apple-system, sans-serif';
         ctx.fillStyle = theme.rulerText;
-        ctx.textBaseline = 'bottom';
+        ctx.textBaseline = 'top';
         ctx.textAlign = 'center';
 
         const startMark = Math.floor(range.startBeat / markStep) * markStep;
@@ -322,7 +320,7 @@ export class CanvasClipRenderer {
 
             // Bar number
             const barNumber = Math.floor(beat / beatsPerBar) + 1;
-            ctx.fillText(String(barNumber), x, rulerH - 4);
+            ctx.fillText(String(barNumber), x, 2);
 
             // Tick mark
             ctx.strokeStyle = theme.rulerText;
@@ -539,7 +537,8 @@ export class CanvasClipRenderer {
         // ── 9. Clip name ──────────────────────────────────────────────
         if (w > 30) {
             ctx.font = '11px Inter, -apple-system, sans-serif';
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            const contrastColor = getContrastColor(clip.color);
+            ctx.fillStyle = contrastColor === 'black' ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.9)';
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'left';
             const maxTextW = w - 6;
@@ -623,7 +622,10 @@ export class CanvasClipRenderer {
         const centerY = bodyY + bodyH / 2;
         const halfH = bodyH / 2;
 
-        ctx.fillStyle = clip.selected ? WAVEFORM_COLOR_SELECTED : WAVEFORM_COLOR;
+        const contrastColor = getContrastColor(clip.color);
+        ctx.fillStyle = contrastColor === 'black'
+            ? (clip.selected ? 'rgba(0, 0, 0, 0.76)' : 'rgba(0, 0, 0, 0.62)')
+            : (clip.selected ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.72)');
 
         // Map peaks to clip pixel range
         const pixelsPerPeak = clipW / peakCount;
@@ -664,7 +666,7 @@ export class CanvasClipRenderer {
         }
 
         // Center line
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.strokeStyle = contrastColor === 'black' ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.15)';
         ctx.lineWidth = 0.5;
         ctx.beginPath();
         ctx.moveTo(clipX, centerY);
@@ -694,16 +696,22 @@ export class CanvasClipRenderer {
             if (note.pitch < minPitch) minPitch = note.pitch;
             if (note.pitch > maxPitch) maxPitch = note.pitch;
         }
-        const pitchRange = Math.max(1, maxPitch - minPitch + 1);
-        const noteH = Math.max(1, Math.min(4, bodyH / pitchRange));
+        const pitchSlots = Math.max(1, maxPitch - minPitch + 1);
+        const noteH = Math.max(1, Math.min(4, Math.floor(bodyH / Math.max(1, pitchSlots))));
+        const rowGap = pitchSlots > 1
+            ? Math.max(0, Math.min(1, (bodyH - pitchSlots * noteH) / (pitchSlots - 1)))
+            : 0;
+        const contentH = pitchSlots * noteH + Math.max(0, pitchSlots - 1) * rowGap;
+        const topOffset = Math.max(0, (bodyH - contentH) / 2);
 
-        ctx.fillStyle = MIDI_NOTE_COLOR;
+        const contrastColor = getContrastColor(clip.color);
+        ctx.fillStyle = contrastColor === 'black' ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.5)';
 
         for (const note of clip.midiNotes) {
             const noteX = clipX + note.startBeat * ppb;
             const noteW = Math.max(1, note.durationBeats * ppb);
-            const pitchFrac = 1 - (note.pitch - minPitch) / pitchRange;
-            const noteY = bodyY + pitchFrac * (bodyH - noteH);
+            const pitchIndexFromTop = maxPitch - note.pitch;
+            const noteY = bodyY + topOffset + pitchIndexFromTop * (noteH + rowGap);
 
             ctx.globalAlpha = 0.3 + (note.velocity / 127) * 0.7;
             ctx.fillRect(noteX, noteY, noteW, noteH);
@@ -890,7 +898,9 @@ export class CanvasClipRenderer {
 
         // Ghost name
         if (w > 30) {
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+            const ghostColor = ghost.type === 'audio' ? '#64c8ff' : '#64ff96';
+            const contrastColor = getContrastColor(ghostColor);
+            ctx.fillStyle = contrastColor === 'black' ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.7)';
             ctx.font = '11px Inter, -apple-system, sans-serif';
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'left';

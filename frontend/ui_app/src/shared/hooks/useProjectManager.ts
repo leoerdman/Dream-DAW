@@ -44,6 +44,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     });
 
     const autoBackupRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const syncProjectHistory = useEngineStore((s) => s.syncProjectHistory);
 
     // ── Ref for latest filePath (avoids stale closures in keyboard handlers) ──
     const filePathRef = useRef<string | null>(null);
@@ -80,16 +81,31 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 await flush();
             }
 
+            // Re-read backend status at save time because project may have been
+            // opened via native menu / recent projects outside this hook.
+            const liveStatus: ProjectStatus = await engineApi.getProjectStatus();
+            const livePath = liveStatus.filePath && liveStatus.filePath.trim().length > 0
+                ? liveStatus.filePath
+                : null;
+            setState((prev) => ({
+                ...prev,
+                isDirty: liveStatus.isDirty,
+                filePath: liveStatus.filePath,
+                projectFolder: liveStatus.projectFolder,
+            }));
+
             // Use ref to always get the latest filePath, avoiding stale closure
-            const currentPath = filePathRef.current;
+            const currentPath = livePath ?? filePathRef.current;
             if (currentPath) {
                 // Project has been saved before — overwrite in place
                 await engineApi.saveProject();
+                await syncProjectHistory();
             } else {
                 // Brand new project — show Save As dialog
                 const path = await engineApi.saveProjectDialog();
                 if (path) {
                     await engineApi.saveProjectAs(path);
+                    await syncProjectHistory();
                 }
             }
 
@@ -99,7 +115,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
         } finally {
             setState((prev) => ({ ...prev, isSaving: false }));
         }
-    }, [refreshStatus]);
+    }, [refreshStatus, syncProjectHistory]);
 
     /** Save As — always shows the dialog. */
     const handleSaveAs = useCallback(async () => {
@@ -114,6 +130,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
             const path = await engineApi.saveProjectDialog();
             if (path) {
                 await engineApi.saveProjectAs(path);
+                await syncProjectHistory();
                 await refreshStatus();
             }
         } catch (err) {
@@ -121,7 +138,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
         } finally {
             setState((prev) => ({ ...prev, isSaving: false }));
         }
-    }, [refreshStatus]);
+    }, [refreshStatus, syncProjectHistory]);
 
     // ── New Project ───────────────────────────────────────────────────
 
@@ -136,12 +153,13 @@ export function useProjectManager(onProjectLoaded?: () => void) {
 
         try {
             await engineApi.newProject();
+            await syncProjectHistory();
             await refreshStatus();
             onProjectLoaded?.();
         } catch (err) {
             console.error('[ProjectManager] New project failed:', err);
         }
-    }, [state.isDirty, refreshStatus, onProjectLoaded]);
+    }, [state.isDirty, refreshStatus, onProjectLoaded, syncProjectHistory]);
 
     // ── Open Project ──────────────────────────────────────────────────
 
@@ -169,13 +187,14 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 // Force full store refresh so tracks/clips/tempo update immediately
                 const fetchProject = useEngineStore.getState().fetchProject;
                 await fetchProject('project-manager:open');
+                await syncProjectHistory();
                 await refreshStatus();
                 onProjectLoaded?.();
             }
         } catch (err) {
             console.error('[ProjectManager] Open failed:', err);
         }
-    }, [state.isDirty, refreshStatus, onProjectLoaded]);
+    }, [state.isDirty, refreshStatus, onProjectLoaded, syncProjectHistory]);
 
     // ── Backup ────────────────────────────────────────────────────────
 

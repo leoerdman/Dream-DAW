@@ -186,22 +186,22 @@ impl TrackColor {
     /// Values ported from Swift `Track.swift` NSColor definitions.
     pub fn hex(&self) -> &'static str {
         match self {
-            Self::Coral   => "#F05C4D",
-            Self::Orange  => "#FF8A1A",
-            Self::Gold    => "#FFBF33",
-            Self::Yellow  => "#FFE14D",
-            Self::Lime    => "#A3D94D",
-            Self::Green   => "#4DC775",
-            Self::Teal    => "#4DC7B0",
-            Self::Cyan    => "#4DC7CC",
-            Self::Sky     => "#4DA6E3",
-            Self::Blue    => "#4D7AE3",
-            Self::Indigo  => "#6B5CE3",
-            Self::Purple  => "#9B59D9",
+            Self::Coral => "#F05C4D",
+            Self::Orange => "#FF8A1A",
+            Self::Gold => "#FFBF33",
+            Self::Yellow => "#FFE14D",
+            Self::Lime => "#A3D94D",
+            Self::Green => "#4DC775",
+            Self::Teal => "#4DC7B0",
+            Self::Cyan => "#4DC7CC",
+            Self::Sky => "#4DA6E3",
+            Self::Blue => "#4D7AE3",
+            Self::Indigo => "#6B5CE3",
+            Self::Purple => "#9B59D9",
             Self::Magenta => "#D94DA6",
-            Self::Pink    => "#E36B96",
-            Self::Rose    => "#E66673",
-            Self::Slate   => "#8C949E",
+            Self::Pink => "#E36B96",
+            Self::Rose => "#E66673",
+            Self::Slate => "#8C949E",
         }
     }
 
@@ -210,10 +210,22 @@ impl TrackColor {
     /// Ported from Swift `TrackColor.forIndex(_:)`.
     pub fn for_index(index: usize) -> Self {
         const ALL: [TrackColor; 16] = [
-            TrackColor::Coral,   TrackColor::Orange, TrackColor::Gold,    TrackColor::Yellow,
-            TrackColor::Lime,    TrackColor::Green,  TrackColor::Teal,    TrackColor::Cyan,
-            TrackColor::Sky,     TrackColor::Blue,   TrackColor::Indigo,  TrackColor::Purple,
-            TrackColor::Magenta, TrackColor::Pink,   TrackColor::Rose,    TrackColor::Slate,
+            TrackColor::Coral,
+            TrackColor::Orange,
+            TrackColor::Gold,
+            TrackColor::Yellow,
+            TrackColor::Lime,
+            TrackColor::Green,
+            TrackColor::Teal,
+            TrackColor::Cyan,
+            TrackColor::Sky,
+            TrackColor::Blue,
+            TrackColor::Indigo,
+            TrackColor::Purple,
+            TrackColor::Magenta,
+            TrackColor::Pink,
+            TrackColor::Rose,
+            TrackColor::Slate,
         ];
         ALL[index % ALL.len()]
     }
@@ -265,7 +277,10 @@ impl Default for TimeSignature {
 impl TimeSignature {
     /// Creates a new time signature.
     pub fn new(numerator: u8, denominator: u8) -> Self {
-        Self { numerator, denominator }
+        Self {
+            numerator,
+            denominator,
+        }
     }
 
     /// Returns the number of quarter-note beats per bar.
@@ -1058,7 +1073,6 @@ pub struct Track {
     pub monitoring_mode: Option<u8>,
 
     // ── Effect Chain ───────────────────────────────────────────────────
-
     /// Insert device nodes (processed in order). Each can be a single
     /// plugin or a nested device rack.
     pub effects: Vec<DeviceNode>,
@@ -1068,7 +1082,6 @@ pub struct Track {
     pub instrument: Option<DeviceNode>,
 
     // ── Grouping / Hierarchy ───────────────────────────────────────────
-
     /// Parent group track ID. `None` = top-level track.
     #[ts(type = "string | null")]
     pub parent_track_id: Option<Uuid>,
@@ -1081,7 +1094,6 @@ pub struct Track {
     pub is_expanded: bool,
 
     // ── MIDI ───────────────────────────────────────────────────────────
-
     /// MIDI clips on this track (for MIDI tracks).
     pub midi_clips: Vec<MidiClip>,
 
@@ -1089,7 +1101,6 @@ pub struct Track {
     pub sampler: Option<SamplerConfig>,
 
     // ── Automation ────────────────────────────────────────────────────
-
     /// Automation lanes for this track (volume/pan/plugin params).
     #[serde(default)]
     pub automation_lanes: Vec<AutomationLane>,
@@ -1138,12 +1149,14 @@ impl Track {
     /// Used by PDC to align parallel paths. Handles both single plugins
     /// and nested device racks (racks report max-of-chain latencies).
     pub fn total_latency_frames(&self) -> u32 {
-        let instrument_latency = self.instrument
+        let instrument_latency = self
+            .instrument
             .as_ref()
             .filter(|d| !d.is_bypassed())
             .map_or(0, |d| d.latency_frames());
 
-        let effects_latency: u32 = self.effects
+        let effects_latency: u32 = self
+            .effects
             .iter()
             .filter(|d| !d.is_bypassed())
             .map(|d| d.latency_frames())
@@ -1186,7 +1199,9 @@ pub struct TempoAutomationEvent {
     pub curve_type: String,
 }
 
-fn default_tempo_curve() -> String { "linear".to_string() }
+fn default_tempo_curve() -> String {
+    "linear".to_string()
+}
 
 /// A mid-song time signature change.
 ///
@@ -1240,7 +1255,6 @@ pub struct Project {
     pub version: String,
 
     // ── View State Persistence (ported from Swift Project.swift) ───────
-
     /// Zoom level in pixels per beat (persisted for session restore).
     #[serde(default)]
     pub view_zoom_scale: Option<f64>,
@@ -1634,13 +1648,11 @@ pub struct Project {
     pub view_arranger_show_overview: bool,
 
     // ── Playback State ────────────────────────────────────────────────
-
     /// Persisted transport playhead position (sample frames).
     #[serde(default)]
     pub playhead_position_frames: i64,
 
     // ── Loop Region ──────────────────────────────────────────────────
-
     /// Whether looping is enabled.
     #[serde(default)]
     pub is_looping: bool,
@@ -1654,7 +1666,6 @@ pub struct Project {
     pub loop_end_frames: Option<i64>,
 
     // ── Key Signature ────────────────────────────────────────────────
-
     /// Whether key signature display is enabled.
     #[serde(default)]
     pub key_sig_enabled: bool,
@@ -1668,7 +1679,6 @@ pub struct Project {
     pub key_sig_mode: String,
 
     // ── Tempo Automation ──────────────────────────────────────────────
-
     /// Tempo automation events for variable-BPM playback.
     ///
     /// Empty = fixed tempo (use `pulse_map` BPM). Non-empty = the transport
@@ -1683,15 +1693,33 @@ pub struct Project {
     pub time_signature_changes: Vec<TimeSignatureChange>,
 }
 
-fn default_key_tonic() -> String { "C".to_string() }
-fn default_key_mode() -> String { "Major".to_string() }
-fn default_arrangement_grid_numerator() -> u16 { 1 }
-fn default_arrangement_grid_denominator() -> u16 { 16 }
-fn default_arrangement_grid_ntoles() -> u8 { 2 }
-fn default_arrangement_snap_to_grid() -> bool { true }
-fn default_crossfade_curve() -> i32 { 2 }
-fn default_latency_compensation() -> i32 { 2 }
-fn default_global_groove_amount() -> f64 { 100.0 }
+fn default_key_tonic() -> String {
+    "C".to_string()
+}
+fn default_key_mode() -> String {
+    "Major".to_string()
+}
+fn default_arrangement_grid_numerator() -> u16 {
+    1
+}
+fn default_arrangement_grid_denominator() -> u16 {
+    16
+}
+fn default_arrangement_grid_ntoles() -> u8 {
+    2
+}
+fn default_arrangement_snap_to_grid() -> bool {
+    true
+}
+fn default_crossfade_curve() -> i32 {
+    2
+}
+fn default_latency_compensation() -> i32 {
+    2
+}
+fn default_global_groove_amount() -> f64 {
+    100.0
+}
 
 impl Project {
     /// Creates a new empty project with default settings.
@@ -1864,7 +1892,9 @@ impl Project {
 
     /// Whether any track in the project is soloed.
     pub fn any_solo(&self) -> bool {
-        self.tracks.iter().any(|t| t.is_solo && t.track_type != TrackType::Master)
+        self.tracks
+            .iter()
+            .any(|t| t.is_solo && t.track_type != TrackType::Master)
     }
 
     /// Moves a track from one index to another (for drag-to-reorder).
@@ -1880,15 +1910,19 @@ impl Default for Project {
     fn default() -> Self {
         let mut project = Self::new("Untitled Project", 120.0, 44100.0);
 
-        // Start with 4 Audio + 4 MIDI tracks (typical DAW layout)
-        let audio_names = ["Audio 1", "Audio 2", "Audio 3", "Audio 4"];
-        let midi_names = ["MIDI 1", "MIDI 2", "MIDI 3", "MIDI 4"];
+        // Start with 3 Audio + 3 MIDI tracks by default.
+        let audio_names = ["Audio 1", "Audio 2", "Audio 3"];
+        let midi_names = ["MIDI 1", "MIDI 2", "MIDI 3"];
 
         for (i, name) in audio_names.iter().enumerate() {
             project.add_track(Track::with_type(*name, TrackType::Audio, i));
         }
         for (i, name) in midi_names.iter().enumerate() {
-            project.add_track(Track::with_type(*name, TrackType::Midi, audio_names.len() + i));
+            project.add_track(Track::with_type(
+                *name,
+                TrackType::Midi,
+                audio_names.len() + i,
+            ));
         }
 
         project
@@ -1982,10 +2016,22 @@ mod tests {
     fn track_color_16_variants() {
         // Verify all 16 colors serialize and deserialize
         let colors = [
-            TrackColor::Coral,   TrackColor::Orange, TrackColor::Gold,    TrackColor::Yellow,
-            TrackColor::Lime,    TrackColor::Green,  TrackColor::Teal,    TrackColor::Cyan,
-            TrackColor::Sky,     TrackColor::Blue,   TrackColor::Indigo,  TrackColor::Purple,
-            TrackColor::Magenta, TrackColor::Pink,   TrackColor::Rose,    TrackColor::Slate,
+            TrackColor::Coral,
+            TrackColor::Orange,
+            TrackColor::Gold,
+            TrackColor::Yellow,
+            TrackColor::Lime,
+            TrackColor::Green,
+            TrackColor::Teal,
+            TrackColor::Cyan,
+            TrackColor::Sky,
+            TrackColor::Blue,
+            TrackColor::Indigo,
+            TrackColor::Purple,
+            TrackColor::Magenta,
+            TrackColor::Pink,
+            TrackColor::Rose,
+            TrackColor::Slate,
         ];
 
         for (i, color) in colors.iter().enumerate() {
@@ -2005,7 +2051,12 @@ mod tests {
 
     #[test]
     fn track_type_serialization() {
-        for tt in [TrackType::Audio, TrackType::Midi, TrackType::Group, TrackType::Master] {
+        for tt in [
+            TrackType::Audio,
+            TrackType::Midi,
+            TrackType::Group,
+            TrackType::Master,
+        ] {
             let json = serde_json::to_string(&tt).unwrap();
             let restored: TrackType = serde_json::from_str(&json).unwrap();
             assert_eq!(tt, restored);
@@ -2124,11 +2175,21 @@ mod tests {
     fn project_end_position() {
         let mut project = Project::default();
         let mut track = Track::new("Track 1");
-        track.clips.push(AudioClip::new("A", "a.wav", AbsoluteTime::new(0), AbsoluteTime::new(44100)));
+        track.clips.push(AudioClip::new(
+            "A",
+            "a.wav",
+            AbsoluteTime::new(0),
+            AbsoluteTime::new(44100),
+        ));
         project.add_track(track);
 
         let mut track2 = Track::new("Track 2");
-        track2.clips.push(AudioClip::new("B", "b.wav", AbsoluteTime::new(44100), AbsoluteTime::new(88200)));
+        track2.clips.push(AudioClip::new(
+            "B",
+            "b.wav",
+            AbsoluteTime::new(44100),
+            AbsoluteTime::new(88200),
+        ));
         project.add_track(track2);
 
         assert_eq!(project.end_position().sample_frame, 132300); // 44100 + 88200
@@ -2172,12 +2233,12 @@ mod tests {
             AbsoluteTime::new(200),
         );
 
-        assert!(clip.overlaps(50, 150));     // Overlaps start
-        assert!(clip.overlaps(200, 400));    // Overlaps end
-        assert!(clip.overlaps(0, 500));      // Fully contains
-        assert!(clip.overlaps(150, 250));    // Straddles
-        assert!(!clip.overlaps(0, 100));     // Before (end is exclusive)
-        assert!(!clip.overlaps(300, 400));   // After
+        assert!(clip.overlaps(50, 150)); // Overlaps start
+        assert!(clip.overlaps(200, 400)); // Overlaps end
+        assert!(clip.overlaps(0, 500)); // Fully contains
+        assert!(clip.overlaps(150, 250)); // Straddles
+        assert!(!clip.overlaps(0, 100)); // Before (end is exclusive)
+        assert!(!clip.overlaps(300, 400)); // After
     }
 
     #[test]
@@ -2185,5 +2246,27 @@ mod tests {
         let project = Project::default();
         assert_eq!(project.master_track.color, TrackColor::Slate);
         assert_eq!(project.master_track.track_type, TrackType::Master);
+    }
+
+    #[test]
+    fn default_project_starts_with_three_audio_and_three_midi_tracks() {
+        let project = Project::default();
+
+        assert_eq!(project.tracks.len(), 6);
+        assert!(project
+            .tracks
+            .iter()
+            .take(3)
+            .all(|t| t.track_type == TrackType::Audio));
+        assert!(project
+            .tracks
+            .iter()
+            .skip(3)
+            .take(3)
+            .all(|t| t.track_type == TrackType::Midi));
+        assert_eq!(project.tracks[0].name, "Audio 1");
+        assert_eq!(project.tracks[2].name, "Audio 3");
+        assert_eq!(project.tracks[3].name, "MIDI 1");
+        assert_eq!(project.tracks[5].name, "MIDI 3");
     }
 }

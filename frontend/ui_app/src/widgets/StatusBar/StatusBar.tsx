@@ -22,11 +22,15 @@ interface StatusBarProps {
     projectEnd?: string;
     duration?: string;
     trackCount?: number;
+    panelMode?: 'rack' | 'clip';
+    onPanelModeChange?: (mode: 'rack' | 'clip') => void;
 }
 
 export const StatusBar = ({
     projectEnd = '48.1.00',
     duration = '2:28.430',
+    panelMode,
+    onPanelModeChange,
 }: StatusBarProps) => {
     // Live engine data
     const isPlaying = useEngineStore((s) => s.transport.is_playing);
@@ -93,7 +97,7 @@ export const StatusBar = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                height: 24,
+                height: 26,
                 background: 'var(--color-bg-header)',
                 borderTop: '1px solid var(--color-divider)',
                 padding: '0 10px',
@@ -107,6 +111,35 @@ export const StatusBar = ({
                     alignItems: 'center',
                     gap: 12,
                 }}>
+                    {panelMode && onPanelModeChange && (
+                        <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            border: '1px solid var(--color-control-border)',
+                            borderRadius: 6,
+                            padding: 2,
+                            background: 'var(--color-bg-header)',
+                            marginRight: 2,
+                        }}>
+                            <button
+                                type="button"
+                                onClick={() => onPanelModeChange('rack')}
+                                style={panelModeBtnStyle(panelMode === 'rack')}
+                                title="Instrument & Effects Chain (Shift+Tab)"
+                            >
+                                Panel: Rack
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => onPanelModeChange('clip')}
+                                style={panelModeBtnStyle(panelMode === 'clip')}
+                                title="Clip Editor (Shift+Tab)"
+                            >
+                                Panel: Clip
+                            </button>
+                        </div>
+                    )}
                     <StatusText>Arrangement</StatusText>
 
                     <StatusGroup>
@@ -377,3 +410,15 @@ const StatusGroup = ({ children }: { children: React.ReactNode }) => (
         {children}
     </span>
 );
+
+const panelModeBtnStyle = (active: boolean): React.CSSProperties => ({
+    border: active ? '1px solid color-mix(in srgb, var(--color-accent-primary) 52%, transparent)' : '1px solid transparent',
+    borderRadius: 4,
+    background: active ? 'var(--color-accent-primary-dim)' : 'transparent',
+    color: active ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: '0.02em',
+    padding: '3px 8px',
+    cursor: 'pointer',
+});

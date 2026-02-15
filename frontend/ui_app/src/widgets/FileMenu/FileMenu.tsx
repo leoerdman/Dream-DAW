@@ -53,18 +53,20 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
     }, [open]);
 
     const fetchProject = useEngineStore.getState().fetchProject;
+    const syncProjectHistory = useEngineStore.getState().syncProjectHistory;
 
     const handleNew = useCallback(async () => {
         setOpen(false);
         try {
             await engineApi.newProject();
             await fetchProject('file-menu:new');
+            await syncProjectHistory();
             onProjectChange?.();
             console.log('[FileMenu] New project created');
         } catch (err) {
             console.error('[FileMenu] New project failed:', err);
         }
-    }, [onProjectChange, fetchProject]);
+    }, [onProjectChange, fetchProject, syncProjectHistory]);
 
     const handleOpen = useCallback(async () => {
         setOpen(false);
@@ -82,12 +84,13 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
                 await engineApi.openProject(path);
             }
             await fetchProject('file-menu:open');
+            await syncProjectHistory();
             onProjectChange?.();
             console.log('[FileMenu] Opened project:', path);
         } catch (err) {
             console.error('[FileMenu] Open failed:', err);
         }
-    }, [onProjectChange, fetchProject]);
+    }, [onProjectChange, fetchProject, syncProjectHistory]);
 
     const handleOpenRecent = useCallback(async (path: string) => {
         setOpen(false);
@@ -102,12 +105,13 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
                 await engineApi.openProject(path);
             }
             await fetchProject('file-menu:open-recent');
+            await syncProjectHistory();
             onProjectChange?.();
             console.log('[FileMenu] Opened recent:', path);
         } catch (err) {
             console.error('[FileMenu] Open recent failed:', err);
         }
-    }, [onProjectChange, fetchProject]);
+    }, [onProjectChange, fetchProject, syncProjectHistory]);
 
     const handleSaveAs = useCallback(async () => {
         setOpen(false);
@@ -119,11 +123,12 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             const path = await engineApi.saveProjectDialog();
             if (!path) return; // Cancelled
             await engineApi.saveProjectAs(path);
+            await syncProjectHistory();
             console.log('[FileMenu] Project saved as:', path);
         } catch (err) {
             console.error('[FileMenu] Save As failed:', err);
         }
-    }, []);
+    }, [syncProjectHistory]);
 
     const handleSave = useCallback(async () => {
         setOpen(false);
@@ -133,13 +138,14 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
                 await flush();
             }
             await engineApi.saveProject();
+            await syncProjectHistory();
             console.log('[FileMenu] Project saved');
         } catch (err) {
             // If no path set, fallback to Save As
             console.log('[FileMenu] Save failed, trying Save As...', err);
             handleSaveAs();
         }
-    }, [handleSaveAs]);
+    }, [handleSaveAs, syncProjectHistory]);
 
     return (
         <div ref={menuRef} style={{ position: 'relative' }}>

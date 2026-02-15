@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import * as engineApi from '@/shared/api/engine';
+import { getContrastColor } from '@/shared/lib/colorUtils';
 
 
 /**
@@ -14,7 +15,7 @@ import * as engineApi from '@/shared/api/engine';
  *   • Color stripe (4px) on the left edge
  *   • Vibrant color-mixed backgrounds (30-50% saturation)
  *   • M (Mute) and S (Solo) stacked vertically
- *   • Right-click → context menu: Rename / Change Color / Delete
+ *   • Right-click → context menu: Rename / Change Color / Paint Clips / Delete
  *   • Cmd+R → inline rename
  *   • Add Track button at bottom of scrollable list
  */
@@ -390,6 +391,15 @@ export const TrackInspector = ({
         setColorPickerState(null);
     }, []);
 
+    const handlePaintClipsWithTrackColor = useCallback((trackId: string) => {
+        void engineApi.paintTrackClipsWithTrackColor(trackId)
+            .then(() => useEngineStore.getState().fetchProject('track-context:paint-clips-with-track-color'))
+            .catch((err) => {
+                console.error('[TrackInspector] paintTrackClipsWithTrackColor failed:', err);
+            });
+        setContextMenu(null);
+    }, []);
+
     // ── Cmd+R keyboard shortcut for rename ──
     useEffect(() => {
         const handleKey = (e: KeyboardEvent) => {
@@ -507,7 +517,7 @@ export const TrackInspector = ({
     let trackNum = 0;
 
     return (
-        <div data-testid="track-inspector" style={{
+        <div data-testid="track-inspector" data-keyboard-scope="track-inspector" style={{
             display: 'flex', flexDirection: 'column', height: '100%',
             background: 'var(--color-bg-panel)', fontSize: 10,
         }}>
@@ -594,10 +604,18 @@ export const TrackInspector = ({
                                 onToggleArm={() => toggleArm(track.id)}
                                 onToggleCollapse={isGroup ? () => toggleGroupCollapse(track.id) : undefined}
                                 onVolumeChange={(gain: number) => {
-                                    if (trackIndex >= 0) engineSetTrackVolume(trackIndex, gain);
+                                    setLocalOverrides((prev) => ({
+                                        ...prev,
+                                        [track.id]: { ...prev[track.id], volume: gain },
+                                    }));
+                                    if (trackIndex >= 0) void engineSetTrackVolume(trackIndex, gain);
                                 }}
                                 onPanChange={(pan: number) => {
-                                    if (trackIndex >= 0) engineSetTrackPan(trackIndex, pan);
+                                    setLocalOverrides((prev) => ({
+                                        ...prev,
+                                        [track.id]: { ...prev[track.id], pan },
+                                    }));
+                                    if (trackIndex >= 0) void engineSetTrackPan(trackIndex, pan);
                                 }}
                                 onOutputChange={(targetId) => { void setTrackOutput(track.id, targetId); }}
                                 onInputChange={(inputId) => { void setTrackInput(track.id, inputId); }}
@@ -756,6 +774,7 @@ export const TrackInspector = ({
                     })()}
                     onDelete={() => handleDeleteTrack(contextMenu.trackId)}
                     onChangeColor={() => handleOpenColorPicker(contextMenu.trackId, contextMenu.x, contextMenu.y)}
+                    onPaintClips={() => handlePaintClipsWithTrackColor(contextMenu.trackId)}
                     onDismiss={() => setContextMenu(null)}
                 />
             )}
@@ -777,7 +796,7 @@ export const TrackInspector = ({
 // ── Context Menu Popup ──────────────────────────────────────────
 
 const ContextMenuPopup = ({
-    x, y, onRename, onGroup, onUngroup, canUngroup, onDelete, onChangeColor, onDismiss,
+    x, y, onRename, onGroup, onUngroup, canUngroup, onDelete, onChangeColor, onPaintClips, onDismiss,
 }: {
     x: number; y: number;
     onRename: () => void;
@@ -785,7 +804,9 @@ const ContextMenuPopup = ({
     onUngroup: () => void;
     canUngroup: boolean;
     onDelete: () => void;
-    onChangeColor: () => void; onDismiss: () => void;
+    onChangeColor: () => void;
+    onPaintClips: () => void;
+    onDismiss: () => void;
 }) => {
     const ref = useRef<HTMLDivElement>(null);
 
@@ -803,7 +824,7 @@ const ContextMenuPopup = ({
     }, [onDismiss]);
 
     const clampedX = Math.min(x, window.innerWidth - 168);
-    const clampedY = Math.min(y, window.innerHeight - 120);
+    const clampedY = Math.min(y, window.innerHeight - 180);
 
     const itemStyle: React.CSSProperties = {
         width: '100%', padding: '6px 12px',
@@ -829,6 +850,11 @@ const ContextMenuPopup = ({
                 onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
                 <span style={{ width: 14, fontSize: 12 }}>🎨</span> Change Color
+            </button>
+            <button style={itemStyle} onClick={onPaintClips}
+                onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                <span style={{ width: 14, fontSize: 12 }}>🖌</span> Paint Clips As Track
             </button>
             <button style={itemStyle} onClick={onGroup}
                 onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
@@ -908,62 +934,89 @@ function dbToFader(db: number): number {
     }
 }
 
-// ── Volume Fader (horizontal blue slider) ─────────────────
+// ── Volume Fader (Ableton-style rectangular bar) ─────────────────
 
 const VolumeFader = ({
     volumeLinear,
     onVolumeChange,
     compact = false,
+    showZeroTick = true,
 }: {
     volumeLinear: number;
     onVolumeChange: (gain: number) => void;
     compact?: boolean;
+    showZeroTick?: boolean;
 }) => {
     const trackRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
+    const isDraggingRef = useRef(false);
     const activePointerId = useRef<number | null>(null);
+    const dragStartRef = useRef<{ x: number; y: number; startPos: number } | null>(null);
     const db = gainToDb(volumeLinear);
     const faderPos = dbToFader(db);
 
-    const applyFromEvent = useCallback((clientX: number) => {
-        const el = trackRef.current;
-        if (!el) return;
-        const rect = el.getBoundingClientRect();
-        const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-        const newDb = faderToDb(pos);
-        onVolumeChange(dbToGain(newDb));
-    }, [onVolumeChange]);
-
-    const beginDrag = useCallback((clientX: number, pointerId?: number) => {
+    const beginDrag = useCallback((clientX: number, clientY: number, startPos: number, pointerId?: number) => {
+        isDraggingRef.current = true;
         setIsDragging(true);
         if (typeof pointerId === 'number') activePointerId.current = pointerId;
-        applyFromEvent(clientX);
-    }, [applyFromEvent]);
+        dragStartRef.current = { x: clientX, y: clientY, startPos };
+    }, []);
 
     const endDrag = useCallback(() => {
+        isDraggingRef.current = false;
         setIsDragging(false);
         activePointerId.current = null;
+        dragStartRef.current = null;
         // Force-send final value without throttle.
         void useEngineStore.getState().flushTrackControlFinals();
     }, []);
+
+    useEffect(() => {
+        const onPointerMove = (e: PointerEvent) => {
+            if (!isDraggingRef.current) return;
+            if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return;
+            const dragStart = dragStartRef.current;
+            if (!dragStart) return;
+            const deltaX = e.clientX - dragStart.x;
+            const deltaY = e.clientY - dragStart.y;
+            const dragRangePx = compact ? 120 : 144;
+            const delta = (deltaX - deltaY) / dragRangePx;
+            const nextPos = Math.max(0, Math.min(1, dragStart.startPos + delta));
+            const nextDb = faderToDb(nextPos);
+            onVolumeChange(dbToGain(nextDb));
+        };
+
+        const onPointerUp = (e: PointerEvent) => {
+            if (!isDraggingRef.current) return;
+            if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return;
+            endDrag();
+        };
+
+        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerup', onPointerUp);
+        window.addEventListener('pointercancel', onPointerUp);
+        return () => {
+            window.removeEventListener('pointermove', onPointerMove);
+            window.removeEventListener('pointerup', onPointerUp);
+            window.removeEventListener('pointercancel', onPointerUp);
+        };
+    }, [compact, endDrag, onVolumeChange]);
+
+    const trackHeight = compact ? 18 : 22;
+    const trackWidth = compact ? 92 : 108;
 
     // Zero-dB tick position
     const zeroTickPos = dbToFader(0);
 
     return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 3 : 4, flex: 1, minWidth: 0 }}>
+        <div data-testid="track-volume-fader" style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
             <div
                 ref={trackRef}
                 onPointerDown={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
                     (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
-                    beginDrag(e.clientX, e.pointerId);
-                }}
-                onPointerMove={(e) => {
-                    if (!isDragging) return;
-                    if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return;
-                    applyFromEvent(e.clientX);
+                    beginDrag(e.clientX, e.clientY, faderPos, e.pointerId);
                 }}
                 onPointerUp={(e) => {
                     if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return;
@@ -985,50 +1038,57 @@ const VolumeFader = ({
                     void useEngineStore.getState().flushTrackControlFinals();
                 }}
                 style={{
-                    position: 'relative', flex: 1, height: compact ? 5 : 6, minWidth: compact ? 34 : 40,
-                    background: 'var(--surface-elevated)', borderRadius: 2, cursor: 'ew-resize',
+                    position: 'relative',
+                    width: trackWidth,
+                    height: trackHeight,
+                    minWidth: trackWidth,
+                    background: 'color-mix(in srgb, var(--surface-elevated) 84%, #000)',
+                    border: '1px solid color-mix(in srgb, var(--text-primary) 14%, transparent)',
+                    borderRadius: 2,
+                    cursor: 'ew-resize',
                     overflow: 'hidden',
                     touchAction: 'none',
                 }}
             >
                 {/* Zero-dB tick mark */}
-                <div style={{
-                    position: 'absolute', left: `${zeroTickPos * 100}%`, top: 0, bottom: 0,
-                    width: 1, background: 'var(--color-divider-light)', zIndex: 1,
-                }} />
+                {showZeroTick && (
+                    <div style={{
+                        position: 'absolute', left: `${zeroTickPos * 100}%`, top: 0, bottom: 0,
+                        width: 1, background: 'var(--color-divider-light)', zIndex: 1,
+                    }} />
+                )}
                 {/* Fill */}
                 <div style={{
                     position: 'absolute', left: 0, top: 0, bottom: 0,
                     width: `${faderPos * 100}%`,
                     background: faderPos > zeroTickPos
-                        ? 'linear-gradient(to right, var(--accent), var(--accent-strong))'
-                        : 'var(--accent)',
-                    borderRadius: 2,
+                        ? 'linear-gradient(to right, #44c0ff, #38d6d0)'
+                        : '#44c0ff',
+                    borderRadius: 1,
                     transition: isDragging ? 'none' : 'width 60ms linear',
                 }} />
-                {/* Thumb */}
-                <div style={{
+                <span style={{
                     position: 'absolute',
-                    left: `calc(${faderPos * 100}% - 3px)`,
-                    top: 0, width: 6, height: '100%',
-                    background: 'var(--text-primary)', borderRadius: 1,
-                    boxShadow: '0 0 3px color-mix(in srgb, var(--surface-1) 55%, #000)',
-                    transition: isDragging ? 'none' : 'left 60ms linear',
-                }} />
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: compact ? 9 : 10,
+                    fontFamily: 'var(--font-mono)',
+                    fontWeight: 700,
+                    color: 'var(--color-text-primary)',
+                    textShadow: '0 1px 1px rgba(0,0,0,0.55)',
+                    pointerEvents: 'none',
+                    letterSpacing: '0.01em',
+                }}>
+                    {compact ? formatDb(db) : `${formatDb(db)} dB`}
+                </span>
             </div>
-            {/* dB label */}
-            <span style={{
-                fontSize: compact ? 7 : 8, fontWeight: 600, fontFamily: 'var(--font-mono)',
-                color: 'var(--color-text-secondary)', minWidth: compact ? 20 : 22, textAlign: 'right',
-                flexShrink: 0, whiteSpace: 'nowrap',
-            }}>
-                {formatDb(db)}
-            </span>
         </div>
     );
 };
 
-// ── Pan Fader ───────────────────────────────────────────────
+// ── Pan Fader (Ableton-style rectangular bar) ───────────────────────────────
 
 const PanFader = ({
     pan,
@@ -1041,30 +1101,58 @@ const PanFader = ({
 }) => {
     const trackRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
+    const isDraggingRef = useRef(false);
     const activePointerId = useRef<number | null>(null);
+    const dragStartRef = useRef<{ x: number; y: number; startNorm: number } | null>(null);
     const panNorm = Math.max(0, Math.min(1, (pan + 1) / 2));
 
-    const applyFromEvent = useCallback((clientX: number) => {
-        const el = trackRef.current;
-        if (!el) return;
-        const rect = el.getBoundingClientRect();
-        const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-        const nextPan = pos * 2 - 1;
-        onPanChange(nextPan);
-    }, [onPanChange]);
-
     const endDrag = useCallback(() => {
+        isDraggingRef.current = false;
         setIsDragging(false);
         activePointerId.current = null;
+        dragStartRef.current = null;
         void useEngineStore.getState().flushTrackControlFinals();
     }, []);
 
+    useEffect(() => {
+        const onPointerMove = (e: PointerEvent) => {
+            if (!isDraggingRef.current) return;
+            if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return;
+            const dragStart = dragStartRef.current;
+            if (!dragStart) return;
+            const deltaX = e.clientX - dragStart.x;
+            const deltaY = e.clientY - dragStart.y;
+            const dragRangePx = compact ? 120 : 144;
+            const delta = (deltaX - deltaY) / dragRangePx;
+            const nextNorm = Math.max(0, Math.min(1, dragStart.startNorm + delta));
+            onPanChange(nextNorm * 2 - 1);
+        };
+
+        const onPointerUp = (e: PointerEvent) => {
+            if (!isDraggingRef.current) return;
+            if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return;
+            endDrag();
+        };
+
+        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerup', onPointerUp);
+        window.addEventListener('pointercancel', onPointerUp);
+        return () => {
+            window.removeEventListener('pointermove', onPointerMove);
+            window.removeEventListener('pointerup', onPointerUp);
+            window.removeEventListener('pointercancel', onPointerUp);
+        };
+    }, [compact, endDrag, onPanChange]);
+
     const panLabel = Math.abs(pan) < 0.02
         ? 'C'
-        : (pan < 0 ? `L${Math.round(Math.abs(pan) * 100)}` : `R${Math.round(Math.abs(pan) * 100)}`);
+        : `${pan < 0 ? '-' : '+'}${Math.round(Math.abs(pan) * 100)}`;
+
+    const trackHeight = compact ? 18 : 22;
+    const trackWidth = compact ? 92 : 88;
 
     return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 3 : 4, minWidth: compact ? 70 : 86, flexShrink: 0 }}>
+        <div data-testid="track-pan-fader" style={{ display: 'flex', alignItems: 'center', minWidth: trackWidth, flexShrink: 0 }}>
             <div
                 ref={trackRef}
                 onPointerDown={(e) => {
@@ -1072,13 +1160,9 @@ const PanFader = ({
                     e.preventDefault();
                     (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
                     activePointerId.current = e.pointerId;
+                    isDraggingRef.current = true;
                     setIsDragging(true);
-                    applyFromEvent(e.clientX);
-                }}
-                onPointerMove={(e) => {
-                    if (!isDragging) return;
-                    if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return;
-                    applyFromEvent(e.clientX);
+                    dragStartRef.current = { x: e.clientX, y: e.clientY, startNorm: panNorm };
                 }}
                 onPointerUp={(e) => {
                     if (activePointerId.current !== null && e.pointerId !== activePointerId.current) return;
@@ -1101,9 +1185,10 @@ const PanFader = ({
                 }}
                 style={{
                     position: 'relative',
-                    width: compact ? 52 : 62,
-                    height: compact ? 5 : 6,
-                    background: 'var(--surface-elevated)',
+                    width: trackWidth,
+                    height: trackHeight,
+                    background: 'color-mix(in srgb, var(--surface-elevated) 84%, #000)',
+                    border: '1px solid color-mix(in srgb, var(--text-primary) 14%, transparent)',
                     borderRadius: 2,
                     cursor: 'ew-resize',
                     overflow: 'hidden',
@@ -1111,29 +1196,30 @@ const PanFader = ({
                 }}
             >
                 <div style={{
-                    position: 'absolute', left: '50%', top: 0, bottom: 0,
-                    width: 1, background: 'var(--color-divider-light)', zIndex: 1,
-                }} />
-                <div style={{
                     position: 'absolute',
-                    left: `calc(${panNorm * 100}% - 3px)`,
-                    top: 0, width: 6, height: '100%',
-                    background: 'var(--text-primary)',
-                    borderRadius: 1,
-                    transition: isDragging ? 'none' : 'left 60ms linear',
+                    top: 0,
+                    left: panNorm <= 0.5 ? `${panNorm * 100}%` : '50%',
+                    width: `${Math.abs(panNorm - 0.5) * 100}%`,
+                    height: '100%',
+                    background: 'rgba(76, 201, 240, 0.35)',
                 }} />
+                <span style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: compact ? 9 : 10,
+                    fontFamily: 'var(--font-mono)',
+                    fontWeight: 700,
+                    color: 'var(--color-text-primary)',
+                    textShadow: '0 1px 1px rgba(0,0,0,0.55)',
+                    pointerEvents: 'none',
+                    letterSpacing: '0.01em',
+                }}>
+                    {panLabel}
+                </span>
             </div>
-            <span style={{
-                fontSize: compact ? 7 : 8,
-                fontWeight: 600,
-                fontFamily: 'var(--font-mono)',
-                color: 'var(--color-text-secondary)',
-                minWidth: compact ? 16 : 20,
-                textAlign: 'right',
-                whiteSpace: 'nowrap',
-            }}>
-                {panLabel}
-            </span>
         </div>
     );
 };
@@ -1523,7 +1609,7 @@ const VerticalMixerStrip = ({
 // ── TrackRow (3-block Ableton-style layout) ──────────────────────────────
 
 const TrackRow = ({
-    track, allTracks, trackHeight, displayNum, isSelected, isCollapsed, depth,
+    track, allTracks, trackHeight, displayNum, isSelected: _isSelected, isCollapsed, depth,
     isRenaming, renameValue, onRenameChange, onRenameCommit, onRenameCancel,
     onClick, onToggleMute, onToggleSolo, onToggleArm, onToggleCollapse,
     onVolumeChange, onPanChange, onOutputChange, onInputChange, onContextMenu,
@@ -1563,7 +1649,6 @@ const TrackRow = ({
 }) => {
     const isMaster = track.type === 'master';
     const isGroup = track.type === 'group';
-    const [isHovered, setIsHovered] = useState(false);
     const renameInputRef = useRef<HTMLInputElement>(null);
 
     const availableRoutingTargets = allTracks.filter(t => t.id !== track.id && t.type !== 'master');
@@ -1587,24 +1672,20 @@ const TrackRow = ({
 
     // Subdue track visually when disabled (muted)
     const isEnabled = !track.isMuted;
+    const headerContrast = getContrastColor(track.color);
+    const headerTextColor = headerContrast === 'black' ? 'rgba(18, 18, 18, 0.92)' : 'rgba(255, 255, 255, 0.94)';
 
     return (
         <div
             onClick={onClick}
             onContextMenu={onContextMenu}
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
             onDragOver={onDragOverTrack}
             onDrop={onDropTrack}
             style={{
                 display: 'flex', alignItems: 'stretch', height: trackHeight,
                 borderBottom: isMasterFixed ? 'none' : '1px solid var(--color-divider)',
                 borderTop: isMasterFixed ? '1px solid var(--color-divider)' : 'none',
-                background: isSelected
-                    ? 'color-mix(in srgb, var(--surface-2) 88%, #000)'
-                    : isHovered
-                        ? 'color-mix(in srgb, var(--surface-2) 76%, #000)'
-                        : 'var(--surface-1)',
+                background: 'var(--surface-1)',
                 cursor: 'default',
                 opacity: isEnabled ? 1 : 0.45,
                 transition: 'background 0.12s ease, opacity 0.12s ease',
@@ -1636,12 +1717,12 @@ const TrackRow = ({
                     minWidth: isMasterFixed ? 88 : 98,
                     maxWidth: mixerFocusMode ? 132 : 120,
                     padding: mixerFocusMode ? '2px 8px 2px 5px' : '2px 6px 2px 4px',
-                    background: `color-mix(in srgb, ${track.color} ${isSelected ? '90%' : isHovered ? '80%' : '70%'}, #1a1a1a)`,
+                    background: track.color,
                     borderRight: '1px solid rgba(255,255,255,0.08)',
                     gap: 1,
                     position: 'relative',
                     cursor: !isMaster ? 'grab' : 'default',
-                }}>
+                }}> 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                     {/* Collapse / Group icon */}
                     {isGroup && onToggleCollapse ? (
@@ -1649,14 +1730,12 @@ const TrackRow = ({
                             onClick={e => { e.stopPropagation(); onToggleCollapse(); }}
                             style={{
                                 width: 12, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                background: 'none', border: 'none', color: 'var(--text-primary)',
+                                background: 'none', border: 'none', color: headerTextColor,
                                 fontSize: 8, cursor: 'pointer', flexShrink: 0, padding: 0,
                             }}
                         >
                             {isCollapsed ? '▶' : '▼'}
                         </button>
-                    ) : isMasterFixed ? (
-                        <span style={{ fontSize: 8, color: 'var(--color-text-secondary)', flexShrink: 0, width: 10 }}>▶</span>
                     ) : null}
 
                     {/* Track Name */}
@@ -1673,9 +1752,11 @@ const TrackRow = ({
                             onClick={e => e.stopPropagation()}
                             style={{
                                 fontSize: 10, fontWeight: 600,
-                                background: 'color-mix(in srgb, var(--surface-1) 72%, #000)',
+                                background: headerContrast === 'black'
+                                    ? 'rgba(255, 255, 255, 0.42)'
+                                    : 'rgba(0, 0, 0, 0.34)',
                                 border: `1px solid ${track.color}`,
-                                borderRadius: 2, color: 'var(--text-primary)',
+                                borderRadius: 2, color: headerTextColor,
                                 padding: '1px 3px', outline: 'none', minWidth: 0,
                             }}
                         />
@@ -1683,7 +1764,7 @@ const TrackRow = ({
                         <span style={{
                             flex: 1, fontSize: 12,
                             fontWeight: isGroup || isMasterFixed ? 700 : 600,
-                            color: 'var(--text-primary)',
+                            color: headerTextColor,
                             whiteSpace: 'nowrap', overflow: 'hidden',
                             textOverflow: 'ellipsis', minWidth: 0,
                         }}>
@@ -1703,11 +1784,6 @@ const TrackRow = ({
                     )}
                 </div>
 
-                {/* Master label */}
-                {isMasterFixed && (
-                    <span style={{ fontSize: 9, color: 'var(--text-muted)', paddingLeft: 10 }}>Main</span>
-                )}
-
                 {/* ── Type Icon (absolute top-right) ── */}
                 {!isMasterFixed && !isGroup && (
                     <span style={{
@@ -1720,15 +1796,15 @@ const TrackRow = ({
                     }}>
                         {track.type === 'midi' ? (
                             <svg width="9" height="9" viewBox="0 0 12 12" fill="none">
-                                <rect x="0" y="1" width="3" height="10" rx="0.5" fill="#fff" />
-                                <rect x="4.5" y="1" width="3" height="10" rx="0.5" fill="#fff" />
-                                <rect x="9" y="1" width="3" height="10" rx="0.5" fill="#fff" />
-                                <rect x="2" y="1" width="2" height="6" rx="0.3" fill="#1a1a1a" />
-                                <rect x="6.5" y="1" width="2" height="6" rx="0.3" fill="#1a1a1a" />
+                                <rect x="0" y="1" width="3" height="10" rx="0.5" fill={headerTextColor} />
+                                <rect x="4.5" y="1" width="3" height="10" rx="0.5" fill={headerTextColor} />
+                                <rect x="9" y="1" width="3" height="10" rx="0.5" fill={headerTextColor} />
+                                <rect x="2" y="1" width="2" height="6" rx="0.3" fill={headerContrast === 'black' ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)'} />
+                                <rect x="6.5" y="1" width="2" height="6" rx="0.3" fill={headerContrast === 'black' ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)'} />
                             </svg>
                         ) : (
                             <svg width="9" height="9" viewBox="0 0 14 10" fill="none">
-                                <path d="M1 5 L2.5 2 L4 7 L5.5 1 L7 9 L8.5 3 L10 6 L11.5 4 L13 5" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M1 5 L2.5 2 L4 7 L5.5 1 L7 9 L8.5 3 L10 6 L11.5 4 L13 5" stroke={headerTextColor} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
                         )}
                     </span>
@@ -1880,7 +1956,7 @@ const TrackRow = ({
                     </div>
                 )}
 
-                {!isGroup && mixerFocusMode && onVolumeChange && onPanChange ? (
+                {!isGroup && !isMaster && mixerFocusMode && onVolumeChange && onPanChange ? (
                     <VerticalMixerStrip
                         volumeLinear={track.volume}
                         pan={track.pan}
@@ -1892,14 +1968,36 @@ const TrackRow = ({
                 ) : (
                     <>
                         {/* Volume Fader — horizontal blue slider */}
-                        {!isGroup && onVolumeChange && (
+                        {!isGroup && !isMaster && onVolumeChange && onPanChange && (
+                            <div style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 3,
+                                minWidth: 92,
+                                flex: 1,
+                            }}>
+                                <VolumeFader
+                                    volumeLinear={track.volume}
+                                    onVolumeChange={onVolumeChange}
+                                    compact
+                                    showZeroTick
+                                />
+                                <PanFader
+                                    pan={track.pan}
+                                    onPanChange={onPanChange}
+                                    compact
+                                />
+                            </div>
+                        )}
+                        {!isGroup && onVolumeChange && (isMaster || !onPanChange) && (
                             <VolumeFader
                                 volumeLinear={track.volume}
                                 onVolumeChange={onVolumeChange}
                                 compact
+                                showZeroTick
                             />
                         )}
-                        {!isGroup && onPanChange && (
+                        {!isGroup && !isMaster && !onVolumeChange && onPanChange && (
                             <PanFader
                                 pan={track.pan}
                                 onPanChange={onPanChange}

@@ -1,11 +1,11 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// Dream DAW — Export Modal (ADAMANTIUM Protocol Epic 3)
+// Dream DAW — Export Modal (Render/Bounce to Disk)
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // Enterprise-grade offline bounce dialog.
 //
 // Architecture:
-//   1. User configures sample rate / bit depth / range
+//   1. User configures format (WAV/MP3), sample rate, bit depth, range
 //   2. "Bounce" opens native OS save dialog (Tauri dialog plugin)
 //   3. Glass overlay locks UI at z-index: 9999
 //   4. Rust runs export_mix at max CPU speed (no cpal timer)
@@ -19,6 +19,7 @@ import * as engineApi from '@/shared/api/engine';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
+type ExportFormat = 'wav' | 'mp3';
 type SampleRate = 44100 | 48000 | 96000;
 type BitDepth = 16 | 24 | 32;
 type ExportRange = 'full' | 'loop';
@@ -38,7 +39,12 @@ interface BounceProgressPayload {
     phase?: string;
 }
 
-// ── Sample Rate / Bit Depth Options ──────────────────────────────────────
+// ── Options ──────────────────────────────────────────────────────────────
+
+const FORMATS: { value: ExportFormat; label: string; desc: string }[] = [
+    { value: 'wav', label: 'WAV', desc: 'Uncompressed, highest quality' },
+    { value: 'mp3', label: 'MP3', desc: 'Compressed, smaller files (320 kbps)' },
+];
 
 const SAMPLE_RATES: { value: SampleRate; label: string }[] = [
     { value: 44100, label: '44.1 kHz' },
@@ -52,10 +58,18 @@ const BIT_DEPTHS: { value: BitDepth; label: string }[] = [
     { value: 32, label: '32-bit Float' },
 ];
 
+// ── File Dialog Filters ──────────────────────────────────────────────────
+
+const DIALOG_FILTERS: Record<ExportFormat, { name: string; extensions: string[] }[]> = {
+    wav: [{ name: 'WAV Audio', extensions: ['wav'] }],
+    mp3: [{ name: 'MP3 Audio', extensions: ['mp3'] }],
+};
+
 // ── Component ────────────────────────────────────────────────────────────
 
 export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: ExportModalProps) => {
     // ── Settings State ───────────────────────────────────────────────
+    const [format, setFormat] = useState<ExportFormat>('wav');
     const [sampleRate, setSampleRate] = useState<SampleRate>(48000);
     const [bitDepth, setBitDepth] = useState<BitDepth>(24);
     const [exportRange, setExportRange] = useState<ExportRange>('full');
@@ -103,13 +117,11 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
 
             // 1. Open native OS save dialog via Tauri dialog plugin
             const { save } = await import('@tauri-apps/plugin-dialog');
+            const ext = format === 'mp3' ? 'mp3' : 'wav';
             const outputPath = await save({
                 title: 'Export Audio',
-                defaultPath: `${projectName}.wav`,
-                filters: [
-                    { name: 'WAV Audio', extensions: ['wav'] },
-                    { name: 'AIFF Audio', extensions: ['aiff', 'aif'] },
-                ],
+                defaultPath: `${projectName}.${ext}`,
+                filters: DIALOG_FILTERS[format],
             });
 
             if (!outputPath) {
@@ -144,8 +156,6 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
             });
 
             // 4. Fire the export IPC command
-            //    Rust disables cpal timer and spins render loop at max CPU speed.
-            //    A 3-minute track renders in ~5 seconds.
             await engineApi.exportMix({
                 outputPath,
                 sampleRate,
@@ -153,6 +163,7 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                 range: exportRange,
                 normalize,
                 tailMs,
+                format,
             });
 
             // Fallback for backends that don't emit a final 100% event yet.
@@ -179,7 +190,7 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                 unlistenRef.current = null;
             }
         }
-    }, [sampleRate, bitDepth, exportRange, normalize, tailMs, projectName, onClose]);
+    }, [sampleRate, bitDepth, exportRange, normalize, tailMs, format, projectName, onClose]);
 
     if (!isOpen) return null;
 
@@ -291,7 +302,7 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                 left: '50%',
                 transform: 'translate(-50%, -50%)',
                 zIndex: 9001,
-                width: 400,
+                width: 420,
                 background: 'var(--color-bg-panel, #1a1a1a)',
                 border: '1px solid var(--color-border-subtle, #333)',
                 borderRadius: 12,
@@ -338,6 +349,15 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                     Project: <strong style={{ color: 'var(--color-text-primary, #fff)' }}>{projectName}</strong>
                 </div>
 
+                {/* ── Format ── */}
+                <SettingRow label="Format">
+                    <ChipGroup
+                        options={FORMATS.map(f => ({ value: f.value, label: f.label }))}
+                        value={format}
+                        onChange={setFormat}
+                    />
+                </SettingRow>
+
                 {/* ── Sample Rate ── */}
                 <SettingRow label="Sample Rate">
                     <ChipGroup
@@ -347,14 +367,16 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                     />
                 </SettingRow>
 
-                {/* ── Bit Depth ── */}
-                <SettingRow label="Bit Depth">
-                    <ChipGroup
-                        options={BIT_DEPTHS}
-                        value={bitDepth}
-                        onChange={setBitDepth}
-                    />
-                </SettingRow>
+                {/* ── Bit Depth (WAV only) ── */}
+                {format === 'wav' && (
+                    <SettingRow label="Bit Depth">
+                        <ChipGroup
+                            options={BIT_DEPTHS}
+                            value={bitDepth}
+                            onChange={setBitDepth}
+                        />
+                    </SettingRow>
+                )}
 
                 {/* ── Export Range ── */}
                 <SettingRow label="Range">

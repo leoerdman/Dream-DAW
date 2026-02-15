@@ -21,6 +21,7 @@
 use uuid::Uuid;
 
 use crate::project::{AudioClip, Project};
+use crate::midi::MidiClip;
 use crate::time::AbsoluteTime;
 
 // ── Error Types ───────────────────────────────────────────────────────────
@@ -125,6 +126,10 @@ pub fn move_clip(
 
     // Insert into target track (sorted by position for efficient scheduling)
     let target_track = &mut project.tracks[new_track_index];
+    
+    // Handle overlaps before final insertion
+    handle_overlaps(target_track, &clip);
+
     let insert_pos = target_track
         .clips
         .binary_search_by(|c| c.position.cmp(&clip.position))
@@ -166,6 +171,10 @@ pub fn resize_clip(
 
     // Re-insert into the same track (sorted)
     let track = &mut project.tracks[track_idx];
+    
+    // Handle overlaps before final insertion
+    handle_overlaps(track, &clip);
+
     let insert_pos = track
         .clips
         .binary_search_by(|c| c.position.cmp(&clip.position))
@@ -291,18 +300,99 @@ pub fn delete_clip(project: &mut Project, clip_id: Uuid) -> Result<AudioClip, Mu
     Ok(clip)
 }
 
+// ── Duplicate Clip ───────────────────────────────────────────────────────
+
+/// Duplicates a clip, optionally at a specific destination position.
+///
+/// If `new_position` is `None`, the duplicate is placed immediately after
+/// the original clip. Overlaps are handled automatically.
+pub fn duplicate_clip(
+    project: &mut Project,
+    clip_id: Uuid,
+    new_position: Option<AbsoluteTime>,
+) -> Result<AudioClip, MutatorError> {
+    let (track_idx, clip_idx) = find_clip_location(project, clip_id)?;
+    
+    // Prepare duplicate
+    let mut dup = project.tracks[track_idx].clips[clip_idx].clone();
+    dup.id = Uuid::new_v4();
+    if let Some(pos) = new_position {
+        dup.position = pos;
+    } else {
+        dup.position = project.tracks[track_idx].clips[clip_idx].end_position();
+    }
+    dup.is_selected = true;
+
+    // Deselect original
+    project.tracks[track_idx].clips[clip_idx].is_selected = false;
+
+    let track = &mut project.tracks[track_idx];
+    
+    // Handle overlaps before final insertion
+    handle_overlaps(track, &dup);
+
+    let insert_pos = track
+        .clips
+        .binary_search_by(|c| c.position.cmp(&dup.position))
+        .unwrap_or_else(|i| i);
+    track.clips.insert(insert_pos, dup.clone());
+
+    Ok(dup)
+}
+
+/// Duplicates a MIDI clip, optionally at a specific destination position.
+pub fn duplicate_midi_clip(
+    project: &mut Project,
+    clip_id: Uuid,
+    new_position: Option<AbsoluteTime>,
+) -> Result<MidiClip, MutatorError> {
+    let (track_idx, clip_idx) = find_midi_clip_location(project, clip_id)?;
+    
+    // Prepare duplicate
+    let mut dup = project.tracks[track_idx].midi_clips[clip_idx].clone();
+    dup.id = Uuid::new_v4();
+    if let Some(pos) = new_position {
+        dup.position = pos;
+    } else {
+        dup.position = project.tracks[track_idx].midi_clips[clip_idx].end_position();
+    }
+    dup.is_selected = true;
+
+    // Deselect original
+    project.tracks[track_idx].midi_clips[clip_idx].is_selected = false;
+
+    let track = &mut project.tracks[track_idx];
+    
+    // Handle overlaps before final insertion
+    handle_midi_overlaps(track, &dup);
+
+    let insert_pos = track
+        .midi_clips
+        .binary_search_by(|c| c.position.cmp(&dup.position))
+        .unwrap_or_else(|i| i);
+    track.midi_clips.insert(insert_pos, dup.clone());
+
+    Ok(dup)
+}
+
 // ── Internal Helpers ──────────────────────────────────────────────────────
 
-/// Finds a clip's location (track_idx, clip_idx) by UUID.
-///
-/// Scans all tracks linearly. For typical project sizes (< 100 tracks,
-/// < 1000 clips), this is negligible vs. the cost of snapshot rebuild.
 fn find_clip_location(project: &Project, clip_id: Uuid) -> Result<(usize, usize), MutatorError> {
     for (track_idx, track) in project.tracks.iter().enumerate() {
         for (clip_idx, clip) in track.clips.iter().enumerate() {
             if clip.id == clip_id {
                 return Ok((track_idx, clip_idx));
             }
+        }
+    }
+    Err(MutatorError::ClipNotFound(clip_id))
+}
+
+/// Finds a MIDI clip's location (track_idx, clip_idx) by UUID.
+fn find_midi_clip_location(project: &Project, clip_id: Uuid) -> Result<(usize, usize), MutatorError> {
+    for (track_idx, track) in project.tracks.iter().enumerate() {
+        if let Some(clip_idx) = track.midi_clips.iter().position(|c| c.id == clip_id) {
+            return Ok((track_idx, clip_idx));
         }
     }
     Err(MutatorError::ClipNotFound(clip_id))
@@ -320,6 +410,119 @@ fn find_and_remove_clip(
         }
     }
     Err(MutatorError::ClipNotFound(clip_id))
+}
+
+/// Trims or removes audio clips in the track that overlap with the given target clip.
+pub fn handle_overlaps(track: &mut crate::project::Track, target: &AudioClip) {
+    let target_start = target.position.sample_frame;
+    let target_end = target.end_position().sample_frame;
+
+    let mut i = 0;
+    while i < track.clips.len() {
+        // Skip the target clip itself if it's already in the track
+        if track.clips[i].id == target.id {
+            i += 1;
+            continue;
+        }
+
+        let clip_start = track.clips[i].position.sample_frame;
+        let clip_end = track.clips[i].end_position().sample_frame;
+
+        // Check for overlap
+        if clip_start < target_end && clip_end > target_start {
+            // Case 1: Clip is completely covered by target
+            if clip_start >= target_start && clip_end <= target_end {
+                track.clips.remove(i);
+                continue; // Don't increment i
+            }
+            // Case 2: Target is in the middle of the clip (split underlying)
+            else if clip_start < target_start && clip_end > target_end {
+                let mut right_half = track.clips[i].clone();
+                
+                // Trim left half (ends at target_start)
+                track.clips[i].duration = AbsoluteTime::new(target_start - clip_start);
+                
+                // Configure right half (starts at target_end)
+                let right_start_frame = target_end;
+                let right_duration = clip_end - target_end;
+                let source_delta = target_end - clip_start;
+                
+                right_half.id = Uuid::new_v4();
+                right_half.position = AbsoluteTime::new(right_start_frame);
+                right_half.duration = AbsoluteTime::new(right_duration);
+                right_half.source_offset = AbsoluteTime::new(right_half.source_offset.sample_frame + source_delta);
+                
+                track.clips.insert(i + 1, right_half);
+                i += 2;
+                continue;
+            }
+            // Case 3: Overlap at the start of the clip
+            else if clip_start >= target_start && clip_start < target_end {
+                let delta = target_end - clip_start;
+                track.clips[i].position = AbsoluteTime::new(target_end);
+                track.clips[i].duration = AbsoluteTime::new(clip_end - target_end);
+                track.clips[i].source_offset = AbsoluteTime::new(track.clips[i].source_offset.sample_frame + delta);
+            }
+            // Case 4: Overlap at the end of the clip
+            else if clip_end > target_start && clip_end <= target_end {
+                track.clips[i].duration = AbsoluteTime::new(target_start - clip_start);
+            }
+
+            // Remove clip if it became too short
+            if track.clips[i].duration.sample_frame < MIN_CLIP_FRAMES {
+                track.clips.remove(i);
+                continue;
+            }
+        }
+        i += 1;
+    }
+}
+
+/// Trims or removes MIDI clips in the track that overlap with the given target clip.
+pub fn handle_midi_overlaps(track: &mut crate::project::Track, target: &crate::midi::MidiClip) {
+    let target_start = target.position.sample_frame;
+    let target_end = target.end_position().sample_frame;
+
+    let mut i = 0;
+    while i < track.midi_clips.len() {
+        if track.midi_clips[i].id == target.id {
+            i += 1;
+            continue;
+        }
+
+        let clip_start = track.midi_clips[i].position.sample_frame;
+        let clip_end = track.midi_clips[i].end_position().sample_frame;
+
+        if clip_start < target_end && clip_end > target_start {
+            if clip_start >= target_start && clip_end <= target_end {
+                track.midi_clips.remove(i);
+                continue;
+            } else if clip_start < target_start && clip_end > target_end {
+                let mut right_half = track.midi_clips[i].clone();
+                track.midi_clips[i].duration = AbsoluteTime::new(target_start - clip_start);
+                
+                let right_duration = clip_end - target_end;
+                right_half.id = Uuid::new_v4();
+                right_half.position = AbsoluteTime::new(target_end);
+                right_half.duration = AbsoluteTime::new(right_duration);
+                
+                track.midi_clips.insert(i + 1, right_half);
+                i += 2;
+                continue;
+            } else if clip_start >= target_start && clip_start < target_end {
+                track.midi_clips[i].position = AbsoluteTime::new(target_end);
+                track.midi_clips[i].duration = AbsoluteTime::new(clip_end - target_end);
+            } else if clip_end > target_start && clip_end <= target_end {
+                track.midi_clips[i].duration = AbsoluteTime::new(target_start - clip_start);
+            }
+
+            if track.midi_clips[i].duration.sample_frame < MIN_CLIP_FRAMES {
+                track.midi_clips.remove(i);
+                continue;
+            }
+        }
+        i += 1;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -530,6 +733,77 @@ mod tests {
         assert_eq!(removed.id, clip_id);
     }
 
+    // ── Overlap Trimming Tests ────────────────────────────────────────
+
+    #[test]
+    fn move_clip_overlaps_and_trims_existing() {
+        let mut project = make_test_project();
+        
+        // Clip A: [0, 1s]
+        // Clip B: [2s, 3s]
+        
+        let clip_b_id = project.tracks[0].clips[1].id;
+        
+        // Move Clip B to [0.5s, 1.5s] -> Should trim Clip A to [0, 0.5s]
+        move_clip(&mut project, clip_b_id, 0, AbsoluteTime::new(22050)).unwrap();
+        
+        assert_eq!(project.tracks[0].clips.len(), 2);
+        
+        let clip_a = project.tracks[0].clips.iter().find(|c| c.name == "Clip A").unwrap();
+        assert_eq!(clip_a.position.sample_frame, 0);
+        assert_eq!(clip_a.duration.sample_frame, 22050); // Trimmed from 44100 to 22050
+        
+        let clip_b = project.tracks[0].clips.iter().find(|c| c.id == clip_b_id).unwrap();
+        assert_eq!(clip_b.position.sample_frame, 22050);
+        assert_eq!(clip_b.duration.sample_frame, 44100);
+    }
+
+    #[test]
+    fn resize_clip_covers_and_deletes_existing() {
+        let mut project = make_test_project();
+        
+        // Clip A: [0, 1s]
+        // Clip B: [2s, 3s]
+        let clip_a_id = project.tracks[0].clips[0].id;
+        
+        // Resize Clip A to 3s -> Should cover and delete Clip B
+        resize_clip(&mut project, clip_a_id, AbsoluteTime::new(0), AbsoluteTime::new(44100 * 3)).unwrap();
+        
+        assert_eq!(project.tracks[0].clips.len(), 1);
+        assert_eq!(project.tracks[0].clips[0].id, clip_a_id);
+    }
+
+    #[test]
+    fn move_clip_splits_existing_clip() {
+        let mut project = make_test_project();
+        
+        // Clip A: [0, 10s]
+        project.tracks[0].clips[0].duration = AbsoluteTime::new(44100 * 10);
+        
+        // Clip B: [20s, 21s]
+        let clip_b_id = project.tracks[0].clips[1].id;
+        
+        // Move Clip B to [2s, 3s] -> Should split Clip A into [0, 2s] and [3s, 10s]
+        move_clip(&mut project, clip_b_id, 0, AbsoluteTime::new(44100 * 2)).unwrap();
+        
+        // We expect 3 clips now: Clip A (left), Clip B, Clip A (right)
+        assert_eq!(project.tracks[0].clips.len(), 3);
+        
+        // Sorted order:
+        // 1. Clip A (left): [0, 2s]
+        assert_eq!(project.tracks[0].clips[0].name, "Clip A");
+        assert_eq!(project.tracks[0].clips[0].position.sample_frame, 0);
+        assert_eq!(project.tracks[0].clips[0].duration.sample_frame, 44100 * 2);
+        
+        // 2. Clip B: [2s, 3s]
+        assert_eq!(project.tracks[0].clips[1].id, clip_b_id);
+        
+        // 3. Clip A (right): [3s, 10s]
+        assert_eq!(project.tracks[0].clips[2].name, "Clip A");
+        assert_eq!(project.tracks[0].clips[2].position.sample_frame, 44100 * 3);
+        assert_eq!(project.tracks[0].clips[2].duration.sample_frame, 44100 * 7);
+    }
+
     // ── Edge Cases ───────────────────────────────────────────────────
 
     #[test]
@@ -551,5 +825,52 @@ mod tests {
             delete_clip(&mut project, fake_id),
             Err(MutatorError::ClipNotFound(_))
         ));
+    }
+
+    // ── Duplicate Clip Tests ─────────────────────────────────────────────
+
+    #[test]
+    fn duplicate_clip_handles_overlaps() {
+        let mut project = make_test_project();
+        
+        // Clip A: [0, 44100] (1s)
+        // Clip B: [88200, 132300] (2s, 3s)
+        let clip_a_id = project.tracks[0].clips[0].id;
+        
+        // Duplicate Clip A to position [2.5s, 3.5s] -> Should trim Clip B
+        let target_pos = AbsoluteTime::new(110250); // 2.5s
+        let dup = duplicate_clip(&mut project, clip_a_id, Some(target_pos)).unwrap();
+        
+        assert_eq!(project.tracks[0].clips.len(), 3);
+        
+        // Clip B should now be [2s, 2.5s]
+        let clip_b = project.tracks[0].clips.iter().find(|c| c.name == "Clip B").unwrap();
+        assert_eq!(clip_b.position.sample_frame, 88200);
+        assert_eq!(clip_b.duration.sample_frame, 22050);
+        
+        // New clip should be at 2.5s
+        let new_clip = project.tracks[0].clips.iter().find(|c| c.id == dup.id).unwrap();
+        assert_eq!(new_clip.position.sample_frame, 110250);
+    }
+
+    #[test]
+    fn duplicate_midi_clip_handles_overlaps() {
+        let mut project = make_test_project();
+        
+        // Add a MIDI clip
+        let midi_clip = MidiClip::new("MIDI A", AbsoluteTime::ZERO, AbsoluteTime::new(44100));
+        let clip_id = midi_clip.id;
+        project.tracks[0].midi_clips.push(midi_clip);
+        
+        // Add an overlapping MIDI clip
+        let midi_b = MidiClip::new("MIDI B", AbsoluteTime::new(22050), AbsoluteTime::new(44100));
+        project.tracks[0].midi_clips.push(midi_b);
+        
+        // Duplicate MIDI A to the same position -> Should delete MIDI B (fully covered)
+        duplicate_midi_clip(&mut project, clip_id, Some(AbsoluteTime::new(22050))).unwrap();
+        
+        // We expect MIDI B to be deleted
+        assert_eq!(project.tracks[0].midi_clips.len(), 2);
+        assert!(project.tracks[0].midi_clips.iter().all(|c| c.name != "MIDI B"));
     }
 }

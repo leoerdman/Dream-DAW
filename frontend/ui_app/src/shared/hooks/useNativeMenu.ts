@@ -14,6 +14,7 @@ import { useEffect, useRef } from 'react';
 import { Menu, Submenu, MenuItem, PredefinedMenuItem } from '@tauri-apps/api/menu';
 import * as engineApi from '@/shared/api/engine';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 
 /**
  * Creates the native macOS application menu bar.
@@ -37,6 +38,7 @@ export function useNativeMenu(onProjectChange?: () => void) {
 
 async function buildNativeMenu(onProjectChange?: () => void) {
     const fetchProject = useEngineStore.getState().fetchProject;
+    const syncProjectHistory = useEngineStore.getState().syncProjectHistory;
 
     // ── 1. App Submenu (becomes "Dream DAW" on macOS) ────────────────
     const appSubmenu = await Submenu.new({
@@ -115,12 +117,19 @@ async function buildNativeMenu(onProjectChange?: () => void) {
             try {
                 const flush = window.__dreamFlushPendingEdits;
                 if (typeof flush === 'function') await flush();
+                const status = await engineApi.getProjectStatus();
+                const hasPath = !!status.filePath && status.filePath.trim().length > 0;
+                if (!hasPath) {
+                    await handleSaveAs();
+                    return;
+                }
                 await engineApi.saveProject();
+                await syncProjectHistory();
+                useStatusStore.getState().setInfo('Project saved');
                 console.log('[NativeMenu] Project saved');
             } catch (err) {
-                // Fallback to Save As
-                console.log('[NativeMenu] Save failed, trying Save As...', err);
-                await handleSaveAs();
+                console.error('[NativeMenu] Save failed:', err);
+                useStatusStore.getState().setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
             }
         },
     });
@@ -153,6 +162,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         action: async () => {
             try {
                 await engineApi.undo();
+                await syncProjectHistory();
                 await fetchProject('native-menu:undo');
                 onProjectChange?.();
                 console.log('[NativeMenu] Undo');
@@ -169,6 +179,7 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         action: async () => {
             try {
                 await engineApi.redo();
+                await syncProjectHistory();
                 await fetchProject('native-menu:redo');
                 onProjectChange?.();
                 console.log('[NativeMenu] Redo');
@@ -215,14 +226,18 @@ async function buildNativeMenu(onProjectChange?: () => void) {
 
 async function handleSaveAs() {
     try {
+        const syncProjectHistory = useEngineStore.getState().syncProjectHistory;
         const flush = window.__dreamFlushPendingEdits;
         if (typeof flush === 'function') await flush();
         const path = await engineApi.saveProjectDialog();
         if (!path) return;
         await engineApi.saveProjectAs(path);
+        await syncProjectHistory();
+        useStatusStore.getState().setInfo(`Project saved as: ${path.split('/').pop()}`);
         console.log('[NativeMenu] Project saved as:', path);
     } catch (err) {
         console.error('[NativeMenu] Save As failed:', err);
+        useStatusStore.getState().setError(`Save As failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 }
 

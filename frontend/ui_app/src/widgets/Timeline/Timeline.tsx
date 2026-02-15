@@ -43,6 +43,7 @@ interface TimelineProps {
     onDoubleClickTrack?: (trackIndex: number, beat: number) => void;
     onOpenMidiClip?: (clipId: string, trackIndex: number) => void;
     onTrackSelect?: (trackId: string, trackIndex: number) => void;
+    onMarqueeSelectionStart?: () => void;
     onScrollTop?: (scrollTop: number) => void;
     followPlayhead?: boolean;
     automationVisible?: boolean;
@@ -82,6 +83,7 @@ export const Timeline = (props: TimelineProps) => {
         onDoubleClickTrack,
         onOpenMidiClip,
         onTrackSelect,
+        onMarqueeSelectionStart,
         onScrollTop,
         onClipResize,
         followPlayhead = false,
@@ -114,6 +116,7 @@ export const Timeline = (props: TimelineProps) => {
 
     const { canvasRef, engineRef } = useTimelineEngine(engineConfig);
     const rootRef = useRef<HTMLDivElement | null>(null);
+    const arrangementRef = useRef<HTMLDivElement | null>(null);
     const propsRef = useRef(props);
     propsRef.current = props;
     const commandBusRef = useRef<TimelineCommandBus>(new TimelineCommandBus());
@@ -130,6 +133,7 @@ export const Timeline = (props: TimelineProps) => {
         onDoubleClickTrack,
         onOpenMidiClip,
         onTrackSelect,
+        onMarqueeSelectionStart,
         onScrollTop,
     });
     callbacksRef.current = {
@@ -143,6 +147,7 @@ export const Timeline = (props: TimelineProps) => {
         onDoubleClickTrack,
         onOpenMidiClip,
         onTrackSelect,
+        onMarqueeSelectionStart,
         onScrollTop,
     };
 
@@ -186,6 +191,9 @@ export const Timeline = (props: TimelineProps) => {
                     callbacksRef.current.onTrackSelect?.(id, command.trackIndex);
                     break;
                 }
+                case 'marquee-start':
+                    callbacksRef.current.onMarqueeSelectionStart?.();
+                    break;
                 case 'drop':
                     callbacksRef.current.onDropBrowserItem?.(command.item, command.trackIndex, command.beat);
                     break;
@@ -243,6 +251,10 @@ export const Timeline = (props: TimelineProps) => {
 
         engine.onTrackSelect = (trackIndex) => {
             commandBusRef.current.emit({ type: 'track-select', trackIndex });
+        };
+
+        engine.onMarqueeSelectionStart = () => {
+            commandBusRef.current.emit({ type: 'marquee-start' });
         };
 
         engine.onScrollTop = (scrollTop) => {
@@ -352,6 +364,10 @@ export const Timeline = (props: TimelineProps) => {
         if (!engine || !canvas) return;
 
         const rect = canvas.getBoundingClientRect();
+        if (e.clientY < rect.top || e.clientY > rect.bottom) {
+            engine.setDropTarget(null);
+            return;
+        }
         const beat = engine.viewport.screenToBeats(e.clientX, rect);
         const track = engine.viewport.screenToTrack(e.clientY, rect);
 
@@ -373,6 +389,9 @@ export const Timeline = (props: TimelineProps) => {
         if (!engine || !canvas) return;
 
         const rect = canvas.getBoundingClientRect();
+        if (e.clientY < rect.top || e.clientY > rect.bottom) {
+            return;
+        }
         const beat = Math.max(0, Math.round(engine.viewport.screenToBeats(e.clientX, rect)));
         const track = engine.viewport.screenToTrack(e.clientY, rect);
 
@@ -410,10 +429,10 @@ export const Timeline = (props: TimelineProps) => {
     // update drop target while dragging and commit on global mouseup.
     useEffect(() => {
         const engine = engineRef.current;
-        const root = rootRef.current;
-        if (!engine || !root || !draggingItem) return;
+        const canvas = canvasRef.current;
+        if (!engine || !canvas || !draggingItem) return;
 
-        const rect = root.getBoundingClientRect();
+        const rect = canvas.getBoundingClientRect();
         const inside =
             dragCursorX >= rect.left &&
             dragCursorX <= rect.right &&
@@ -439,20 +458,20 @@ export const Timeline = (props: TimelineProps) => {
             engine.setDropTarget(null);
             engine.setGhostClip(null);
         }
-    }, [draggingItem, dragCursorX, dragCursorY, engineRef, bpm]);
+    }, [draggingItem, dragCursorX, dragCursorY, engineRef, canvasRef, bpm]);
 
     useEffect(() => {
         if (!draggingItem) return;
 
         const onMouseUp = (e: MouseEvent) => {
             const engine = engineRef.current;
-            const root = rootRef.current;
-            if (!engine || !root) {
+            const canvas = canvasRef.current;
+            if (!engine || !canvas) {
                 useDragStore.getState().endDrag();
                 return;
             }
 
-            const rect = root.getBoundingClientRect();
+            const rect = canvas.getBoundingClientRect();
             const inside =
                 e.clientX >= rect.left &&
                 e.clientX <= rect.right &&
@@ -487,7 +506,7 @@ export const Timeline = (props: TimelineProps) => {
         return () => {
             window.removeEventListener('mouseup', onMouseUp, { capture: true });
         };
-    }, [draggingItem, engineRef]);
+    }, [draggingItem, engineRef, canvasRef]);
 
     // Ghost clip is handled together with cursor-tracked drop target effect above.
 
@@ -499,10 +518,14 @@ export const Timeline = (props: TimelineProps) => {
         <div
             ref={rootRef}
             data-testid="timeline-view"
+            data-track-count={trackCount}
+            data-track-ids-count={trackIds.length}
             style={{
                 width: '100%',
                 height: '100%',
                 position: 'relative',
+                display: 'flex',
+                flexDirection: 'column',
                 overflow: 'hidden',
                 background: 'var(--surface-1)',
             }}
@@ -510,24 +533,42 @@ export const Timeline = (props: TimelineProps) => {
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
         >
-            <canvas
-                ref={canvasRef}
+            <div
+                ref={arrangementRef}
                 style={{
-                    display: 'block',
-                    width: '100%',
-                    height: '100%',
+                    position: 'relative',
+                    flex: 1,
+                    minHeight: 0,
+                }}
+            >
+                <canvas
+                    ref={canvasRef}
+                    style={{
+                        display: 'block',
+                        width: '100%',
+                        height: '100%',
+                    }}
+                />
+                {props.automationVisible && (
+                    <AutomationOverlay
+                        visible
+                        trackCount={trackCount}
+                        trackHeight={trackHeight}
+                        scrollTop={engineRef.current?.viewport.scrollY ?? 0}
+                        width={arrangementRef.current?.clientWidth ?? 800}
+                        bpm={bpm}
+                    />
+                )}
+            </div>
+            <div
+                data-testid="timeline-master-lane"
+                style={{
+                    height: trackHeight,
+                    flexShrink: 0,
+                    borderTop: '1px solid var(--color-divider)',
+                    background: 'color-mix(in srgb, var(--surface-2) 82%, #000)',
                 }}
             />
-            {props.automationVisible && (
-                <AutomationOverlay
-                    visible
-                    trackCount={trackCount}
-                    trackHeight={trackHeight}
-                    scrollTop={engineRef.current?.viewport.scrollY ?? 0}
-                    width={rootRef.current?.clientWidth ?? 800}
-                    bpm={bpm}
-                />
-            )}
         </div>
     );
 };

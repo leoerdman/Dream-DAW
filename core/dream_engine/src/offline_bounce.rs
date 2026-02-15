@@ -32,6 +32,7 @@ use log::info;
 
 use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::scheduler::LoopRegion as ClipLoopRegion;
+use dream_io::mp3_writer::Mp3Writer;
 use dream_io::wav_writer::WavWriter;
 use dream_ipc::metering::MeterBank;
 use dream_models::project::{AudioClip, Project};
@@ -58,7 +59,7 @@ pub struct BounceConfig {
     /// Sample rate for the output file (Hz).
     pub sample_rate: u32,
 
-    /// Bit depth: 16, 24, or 32 (float).
+    /// Bit depth: 16, 24, or 32 (float). Ignored for MP3.
     pub bit_depth: u16,
 
     /// Start frame of the bounce region (0 = project start).
@@ -73,6 +74,9 @@ pub struct BounceConfig {
     /// Whether to apply a tail (extra silence at end for reverb tails).
     /// Value in frames.
     pub tail_frames: i64,
+
+    /// Output format: "wav" or "mp3". Defaults to "wav" if unset.
+    pub format: String,
 }
 
 impl BounceConfig {
@@ -306,28 +310,46 @@ impl OfflineBouncer {
             }
         }
 
-        // ── Write WAV file ──────────────────────────────────────
-        info!(
-            "[Bounce] Writing WAV: {} frames, {}-bit, {}",
-            output_left.len(),
-            self.config.bit_depth,
-            self.config.output_path
-        );
+        // ── Write output file ────────────────────────────────────
+        let is_mp3 = self.config.format.eq_ignore_ascii_case("mp3");
 
-        WavWriter::write_channels(
-            &self.config.output_path,
-            &[&output_left, &output_right],
-            self.config.sample_rate,
-            self.config.bit_depth,
-        )
-        .map_err(|e| BounceError::WriteError(e.to_string()))?;
+        if is_mp3 {
+            info!(
+                "[Bounce] Writing MP3: {} frames, {}",
+                output_left.len(),
+                self.config.output_path
+            );
+
+            Mp3Writer::write_channels(
+                &self.config.output_path,
+                &[&output_left, &output_right],
+                self.config.sample_rate,
+            )
+            .map_err(|e| BounceError::WriteError(e.to_string()))?;
+        } else {
+            info!(
+                "[Bounce] Writing WAV: {} frames, {}-bit, {}",
+                output_left.len(),
+                self.config.bit_depth,
+                self.config.output_path
+            );
+
+            WavWriter::write_channels(
+                &self.config.output_path,
+                &[&output_left, &output_right],
+                self.config.sample_rate,
+                self.config.bit_depth,
+            )
+            .map_err(|e| BounceError::WriteError(e.to_string()))?;
+        }
 
         // Final progress
         progress_callback(1.0);
 
         info!(
-            "[Bounce] Complete: {} ({:.1}s @ {}Hz)",
+            "[Bounce] Complete: {} [{}] ({:.1}s @ {}Hz)",
             self.config.output_path,
+            self.config.format,
             output_left.len() as f64 / sample_rate,
             self.config.sample_rate
         );
@@ -363,6 +385,7 @@ mod tests {
             end_frame: 44100,
             normalize: false,
             tail_frames: 4410,
+            format: "wav".to_string(),
         };
         assert_eq!(config.total_frames(), 48510);
     }
@@ -377,6 +400,7 @@ mod tests {
             end_frame: 50, // end < start
             normalize: false,
             tail_frames: 0,
+            format: "wav".to_string(),
         };
 
         let bouncer = OfflineBouncer::new(config);
@@ -397,6 +421,7 @@ mod tests {
             end_frame: 1000,
             normalize: false,
             tail_frames: 0,
+            format: "wav".to_string(),
         };
 
         let bouncer = OfflineBouncer::new(config);
@@ -418,6 +443,7 @@ mod tests {
             end_frame: 4096, // ~93ms
             normalize: false,
             tail_frames: 0,
+            format: "wav".to_string(),
         };
 
         let bouncer = OfflineBouncer::new(config);
@@ -451,6 +477,7 @@ mod tests {
             end_frame: 2048,
             normalize: true,
             tail_frames: 0,
+            format: "wav".to_string(),
         };
 
         let bouncer = OfflineBouncer::new(config);

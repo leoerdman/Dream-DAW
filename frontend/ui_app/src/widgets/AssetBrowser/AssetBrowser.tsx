@@ -3,6 +3,7 @@ import * as engineApi from '@/shared/api/engine';
 import type { AudioFileEntry, BrowserFileEntry, PeakPair } from '@/shared/api/engine';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import {
     INTERNAL_EFFECT_PLUGINS,
     INTERNAL_INSTRUMENT_PLUGINS,
@@ -155,6 +156,10 @@ function selectBestPeakLevel(levels: { peaks: PeakPair[] }[]): PeakPair[] | null
 // ── Component ──────────────────────────────────────────
 
 export const AssetBrowser = () => {
+    const settings = useSettingsStore((s) => s.settings);
+    const settingsLoaded = useSettingsStore((s) => s.loaded);
+    const updateAllSettings = useSettingsStore((s) => s.updateAllSettings);
+
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategoryId, setSelectedCategoryId] = useState('samples');
     const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
@@ -163,12 +168,12 @@ export const AssetBrowser = () => {
     const [audioFilter, setAudioFilter] = useState(0);
     const [sortFilter, setSortFilter] = useState(0);
     const [sizeFilter, setSizeFilter] = useState(0);
-    const [showSizeColumn, setShowSizeColumn] = useState(true);
-    const [showTypeColumn, setShowTypeColumn] = useState(false);
+    const [showSizeColumn, setShowSizeColumn] = useState(settings.browserShowSizeColumn);
+    const [showTypeColumn, setShowTypeColumn] = useState(settings.browserShowTypeColumn);
     const [columnMenuPos, setColumnMenuPos] = useState<{ x: number; y: number } | null>(null);
     const [previewEnabled, setPreviewEnabled] = useState(true);
     const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-    const [leftPaneWidth, setLeftPaneWidth] = useState(108);
+    const [leftPaneWidth, setLeftPaneWidth] = useState(settings.browserLeftPaneWidth);
     const projectTracks = useEngineStore((s) => s.projectTracks);
 
     // Preview waveform state
@@ -184,8 +189,13 @@ export const AssetBrowser = () => {
     const searchRef = useRef<HTMLInputElement>(null);
     const fileListRef = useRef<HTMLDivElement>(null);
     const splitRootRef = useRef<HTMLDivElement>(null);
+    const leftPaneWidthRef = useRef(leftPaneWidth);
     const itemRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const columnMenuRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        leftPaneWidthRef.current = leftPaneWidth;
+    }, [leftPaneWidth]);
 
     // ── Load user folders on mount ──
     useEffect(() => {
@@ -231,6 +241,43 @@ export const AssetBrowser = () => {
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
     }, []);
+
+    useEffect(() => {
+        if (!settingsLoaded) return;
+        setShowSizeColumn(settings.browserShowSizeColumn);
+        setShowTypeColumn(settings.browserShowTypeColumn);
+        setLeftPaneWidth(Math.max(84, Math.min(180, settings.browserLeftPaneWidth || 92)));
+    }, [
+        settingsLoaded,
+        settings.browserShowSizeColumn,
+        settings.browserShowTypeColumn,
+        settings.browserLeftPaneWidth,
+    ]);
+
+    const persistBrowserPrefs = useCallback((patch: {
+        browserShowSizeColumn?: boolean;
+        browserShowTypeColumn?: boolean;
+        browserLeftPaneWidth?: number;
+    }) => {
+        const current = useSettingsStore.getState().settings;
+        void updateAllSettings({ ...current, ...patch });
+    }, [updateAllSettings]);
+
+    const toggleSizeColumn = useCallback(() => {
+        setShowSizeColumn((prev) => {
+            const next = !prev;
+            persistBrowserPrefs({ browserShowSizeColumn: next });
+            return next;
+        });
+    }, [persistBrowserPrefs]);
+
+    const toggleTypeColumn = useCallback(() => {
+        setShowTypeColumn((prev) => {
+            const next = !prev;
+            persistBrowserPrefs({ browserShowTypeColumn: next });
+            return next;
+        });
+    }, [persistBrowserPrefs]);
 
     const toggleSection = useCallback((id: string) => {
         setCollapsedSections(prev => {
@@ -651,6 +698,32 @@ export const AssetBrowser = () => {
         row?.scrollIntoView({ block: 'nearest' });
     }, []);
 
+    const syncPreviewForItem = useCallback((item: BrowserItem | null) => {
+        if (item?.type === 'audio' && item.path) {
+            engineApi.getWaveformPeaks(item.path)
+                .then(peaks => {
+                    setPreviewPeaks(selectBestPeakLevel(peaks.mip_levels));
+                    if (peaks.sample_rate > 0 && peaks.total_samples > 0) {
+                        audioDurationSecRef.current[item.path!] = peaks.total_samples / peaks.sample_rate;
+                    }
+                })
+                .catch(() => setPreviewPeaks(null));
+
+            if (previewEnabled) {
+                engineApi.previewAudioFile(item.path)
+                    .catch(err => {
+                        console.warn('[Preview]', err);
+                    });
+            } else {
+                engineApi.stopPreview().catch(() => { });
+            }
+            return;
+        }
+
+        engineApi.stopPreview().catch(() => { });
+        setPreviewPeaks(null);
+    }, [previewEnabled]);
+
     useEffect(() => {
         scrollSelectedIntoView(selectedItemId);
     }, [selectedItemId, scrollSelectedIntoView]);
@@ -666,6 +739,7 @@ export const AssetBrowser = () => {
         const next = items[nextIndex];
         if (!next) return;
         setSelectedItemId(next.id);
+        syncPreviewForItem(next);
         // Scroll into view for virtual scrolling
         const el = fileListRef.current;
         if (el) {
@@ -679,7 +753,7 @@ export const AssetBrowser = () => {
                 el.scrollTop = itemBottom - el.clientHeight;
             }
         }
-    }, [items, selectedItemId]);
+    }, [items, selectedItemId, syncPreviewForItem]);
 
     const focusResults = useCallback(() => {
         fileListRef.current?.focus();
@@ -719,16 +793,18 @@ export const AssetBrowser = () => {
         if (!root) return;
         const rootRect = root.getBoundingClientRect();
         const onMove = (me: MouseEvent) => {
-            const nextWidth = Math.max(88, Math.min(220, Math.round(me.clientX - rootRect.left)));
+            const nextWidth = Math.max(84, Math.min(180, Math.round(me.clientX - rootRect.left)));
             setLeftPaneWidth(nextWidth);
         };
         const onUp = () => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
+            const finalWidth = Math.max(84, Math.min(180, leftPaneWidthRef.current));
+            persistBrowserPrefs({ browserLeftPaneWidth: finalWidth });
         };
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
-    }, []);
+    }, [persistBrowserPrefs]);
 
     // Track current section for collapse logic
     let currentSection: string | null = null;
@@ -987,33 +1063,6 @@ export const AssetBrowser = () => {
                                     value={sizeFilter}
                                     onChange={setSizeFilter}
                                 />
-                                <button
-                                    onClick={(e) => {
-                                        const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                                        setColumnMenuPos((prev) => prev
-                                            ? null
-                                            : { x: Math.round(rect.right - 8), y: Math.round(rect.bottom + 6) });
-                                    }}
-                                    style={{
-                                        marginLeft: 'auto',
-                                        background: columnMenuPos ? 'var(--color-control-bg-active)' : 'var(--color-control-bg)',
-                                        color: columnMenuPos ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                                        border: 'none',
-                                        borderRadius: 'var(--radius-xs)',
-                                        padding: '3px 5px',
-                                        fontSize: 10,
-                                        cursor: 'pointer',
-                                        fontWeight: 600,
-                                        whiteSpace: 'nowrap',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        minWidth: 20,
-                                    }}
-                                    title="Columns"
-                                >
-                                    <BrowserGlyph name="settings" size={11} />
-                                </button>
                             </>
                         )}
                     </div>
@@ -1071,6 +1120,32 @@ export const AssetBrowser = () => {
                                 top: 0,
                                 zIndex: 5,
                             }}>
+                            <button
+                                onClick={(e) => {
+                                    const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                                    setColumnMenuPos((prev) => prev
+                                        ? null
+                                        : { x: Math.round(rect.right - 8), y: Math.round(rect.bottom + 6) });
+                                }}
+                                style={{
+                                    width: 14,
+                                    minWidth: 14,
+                                    background: 'transparent',
+                                    color: columnMenuPos ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+                                    border: 'none',
+                                    borderRadius: 'var(--radius-xs)',
+                                    padding: 0,
+                                    fontSize: 10,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                }}
+                                title="Columns"
+                            >
+                                <BrowserGlyph name="settings" size={10} />
+                            </button>
                             <span style={{ flex: 1, minWidth: 0 }}>Name</span>
                             {showTypeColumn && (
                                 <span style={{ minWidth: 52, textAlign: 'left', flexShrink: 0 }}>Type</span>
@@ -1141,33 +1216,9 @@ export const AssetBrowser = () => {
                                                 return;
                                             }
 
-                                            setSelectedItemId(prev => {
-                                                const newId = prev === item.id ? null : item.id;
-                                                // Selected audio: always fetch waveform for footer line
-                                                if (isAudio && item.path && newId) {
-                                                    engineApi.getWaveformPeaks(item.path)
-                                                        .then(peaks => {
-                                                            setPreviewPeaks(selectBestPeakLevel(peaks.mip_levels));
-                                                            if (peaks.sample_rate > 0 && peaks.total_samples > 0) {
-                                                                audioDurationSecRef.current[item.path!] = peaks.total_samples / peaks.sample_rate;
-                                                            }
-                                                        })
-                                                        .catch(() => setPreviewPeaks(null));
-                                                    // Autoplay depends on preview toggle state
-                                                    if (previewEnabled) {
-                                                        engineApi.previewAudioFile(item.path)
-                                                            .catch(err => {
-                                                                console.warn('[Preview]', err);
-                                                            });
-                                                    } else {
-                                                        engineApi.stopPreview().catch(() => { });
-                                                    }
-                                                } else {
-                                                    engineApi.stopPreview().catch(() => { });
-                                                    setPreviewPeaks(null);
-                                                }
-                                                return newId;
-                                            });
+                                            const nextId = selectedItemId === item.id ? null : item.id;
+                                            setSelectedItemId(nextId);
+                                            syncPreviewForItem(nextId ? item : null);
                                         }}
                                         onMouseDown={(e) => {
                                             if (!isDraggable || !item.path || e.button !== 0) return;
@@ -1332,14 +1383,14 @@ export const AssetBrowser = () => {
                     }}
                 >
                     <button
-                        onClick={() => setShowSizeColumn((v) => !v)}
+                        onClick={toggleSizeColumn}
                         style={columnMenuItemStyle}
                     >
                         <span style={columnMenuCheckStyle}>{showSizeColumn ? '✓' : ''}</span>
                         Size
                     </button>
                     <button
-                        onClick={() => setShowTypeColumn((v) => !v)}
+                        onClick={toggleTypeColumn}
                         style={columnMenuItemStyle}
                     >
                         <span style={columnMenuCheckStyle}>{showTypeColumn ? '✓' : ''}</span>

@@ -2329,6 +2329,14 @@ struct AppSettings {
     open_router_api_key: String,
     #[serde(default = "default_open_router_model", alias = "openRouterModel")]
     open_router_model: String,
+    /// Browser file list columns visibility (persisted UI prefs).
+    #[serde(default = "default_true", alias = "browserShowSizeColumn")]
+    browser_show_size_column: bool,
+    #[serde(default, alias = "browserShowTypeColumn")]
+    browser_show_type_column: bool,
+    /// Browser left category pane width in pixels.
+    #[serde(default = "default_browser_left_pane_width", alias = "browserLeftPaneWidth")]
+    browser_left_pane_width: u32,
 }
 
 fn default_language() -> String { "English".into() }
@@ -2353,6 +2361,7 @@ fn default_samples_path() -> String {
 fn default_vst2_path() -> String { "/Library/Audio/Plug-Ins/VST".into() }
 fn default_vst3_path() -> String { "/Library/Audio/Plug-Ins/VST3".into() }
 fn default_open_router_model() -> String { "openai/gpt-4o-mini".into() }
+fn default_browser_left_pane_width() -> u32 { 92 }
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -2380,6 +2389,9 @@ impl Default for AppSettings {
             browser_folders: Vec::new(),
             open_router_api_key: String::new(),
             open_router_model: default_open_router_model(),
+            browser_show_size_column: true,
+            browser_show_type_column: false,
+            browser_left_pane_width: default_browser_left_pane_width(),
         }
     }
 }
@@ -2649,6 +2661,13 @@ struct ExportSettingsPayload {
     range: String,
     normalize: bool,
     tail_ms: u32,
+    /// Output format: "wav" or "mp3". Defaults to "wav" if omitted.
+    #[serde(default = "default_export_format")]
+    format: String,
+}
+
+fn default_export_format() -> String {
+    "wav".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

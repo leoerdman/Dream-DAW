@@ -67,7 +67,7 @@ interface TrimPreviewState {
 }
 
 /** Edge detection threshold in screen pixels. */
-const EDGE_GRIP_PX = 6;
+const EDGE_GRIP_PX = 8;
 /** Must match clip header visual height from CanvasClipRenderer. */
 const CLIP_HEADER_HEIGHT_PX = 22;
 /** Minimum loop region length in beats (1 bar in 4/4 time). */
@@ -119,6 +119,7 @@ export class TimelineEngine {
     private _ctx: CanvasRenderingContext2D | null = null;
     private _rafId: number = 0;
     private _resizeObserver: ResizeObserver | null = null;
+    private _resizeRafId = 0;
 
     // ── Data (fed by React) ───────────────────────────────────────────
     private _clips: TimelineClipData[] = [];
@@ -175,6 +176,7 @@ export class TimelineEngine {
     onScrollTop?: (scrollTop: number) => void;
     onLoopChange?: (loop: LoopRegion) => void;
     onClipBoxSelection?: (clipIds: string[]) => void;
+    onMarqueeSelectionStart?: () => void;
 
     // ═══════════════════════════════════════════════════════════════════
     // CONSTRUCTOR
@@ -224,7 +226,7 @@ export class TimelineEngine {
 
         // Observe resize
         this._resizeObserver = new ResizeObserver(() => {
-            this._syncCanvasSize();
+            this._scheduleCanvasResizeSync();
         });
         this._resizeObserver.observe(canvas);
 
@@ -251,6 +253,10 @@ export class TimelineEngine {
 
         this._resizeObserver?.disconnect();
         this._resizeObserver = null;
+        if (this._resizeRafId) {
+            cancelAnimationFrame(this._resizeRafId);
+            this._resizeRafId = 0;
+        }
 
         const canvas = this._canvas;
         if (canvas) {
@@ -432,6 +438,7 @@ export class TimelineEngine {
         if (!canvas) return;
 
         const rect = canvas.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
         const dpr = window.devicePixelRatio || 1;
 
         // Set backing store size (sharp rendering on HiDPI)
@@ -443,8 +450,22 @@ export class TimelineEngine {
             canvas.height = backingH;
         }
 
-        this._viewport.setViewportSize(rect.width, rect.height);
-        this._requestRedraw();
+        const viewportChanged =
+            Math.abs(this._viewport.viewportWidth - rect.width) > 0.5
+            || Math.abs(this._viewport.viewportHeight - rect.height) > 0.5;
+
+        if (viewportChanged) {
+            this._viewport.setViewportSize(rect.width, rect.height);
+            this._requestRedraw();
+        }
+    }
+
+    private _scheduleCanvasResizeSync(): void {
+        if (this._resizeRafId) return;
+        this._resizeRafId = requestAnimationFrame(() => {
+            this._resizeRafId = 0;
+            this._syncCanvasSize();
+        });
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -515,11 +536,15 @@ export class TimelineEngine {
         for (let i = this._clips.length - 1; i >= 0; i--) {
             const clip = this._clips[i];
             if (clip.trackIndex !== trackIndex) continue;
-            if (beat >= clip.startBeat && beat <= clip.startBeat + clip.durationBeats) {
-                // Edge detection: check if cursor is within EDGE_GRIP_PX of left/right edge
-                const clipLeftPx = this._viewport.beatsToScreenX(clip.startBeat);
-                const clipRightPx = this._viewport.beatsToScreenX(clip.startBeat + clip.durationBeats);
-                const localX = clientX - rect.left;
+
+            const clipLeftPx = this._viewport.beatsToScreenX(clip.startBeat);
+            const clipRightPx = this._viewport.beatsToScreenX(clip.startBeat + clip.durationBeats);
+            const localX = clientX - rect.left;
+
+            // Check if cursor is within clip bounds OR within EDGE_GRIP_PX of edges
+            const isInsideOrNear = localX >= clipLeftPx - EDGE_GRIP_PX && localX <= clipRightPx + EDGE_GRIP_PX;
+
+            if (isInsideOrNear) {
                 const clipTopPx =
                     this._viewport.rulerHeight + clip.trackIndex * this._viewport.trackHeight - this._viewport.scrollY;
                 const localYInClip = Math.max(0, clientY - rect.top - clipTopPx);
@@ -534,6 +559,12 @@ export class TimelineEngine {
                 } else if (Math.abs(localX - clipRightPx) <= EDGE_GRIP_PX) {
                     edge = 'right';
                 }
+
+                // If we are NOT near an edge, but outside the actual clip bounds, ignore this clip
+                if (!edge && (localX < clipLeftPx || localX > clipRightPx)) {
+                    continue;
+                }
+
                 return { type: 'clip', clipId: clip.id, beat, trackIndex, region, edge };
             }
         }
@@ -673,6 +704,7 @@ export class TimelineEngine {
             case 'track': {
                 // Empty area -> potential marquee box selection (grid-snapped).
                 const snappedBeat = this._snapBeat(hit.beat);
+                this.onMarqueeSelectionStart?.();
                 this._drag = {
                     mode: DragMode.MarqueeSelect,
                     clipId: null,
@@ -709,11 +741,11 @@ export class TimelineEngine {
             } else if (hit.type === 'clip' && hit.region === 'header') {
                 canvas.style.cursor = 'grab';
             } else if (hit.type === 'clip' && hit.region === 'body') {
-                canvas.style.cursor = 'crosshair';
+                canvas.style.cursor = 'default';
             } else if (hit.type === 'ruler' && hit.loopHandle) {
                 canvas.style.cursor = 'ew-resize';
             } else {
-                canvas.style.cursor = 'crosshair';
+                canvas.style.cursor = 'default';
             }
             return;
         }
@@ -803,6 +835,7 @@ export class TimelineEngine {
                     if (newStart !== this._loop.start) {
                         this._loop = { ...this._loop, start: newStart };
                         this.onLoopChange?.(this._loop);
+                        this._requestRedraw();
                     }
                 }
                 break;
@@ -818,13 +851,14 @@ export class TimelineEngine {
                     if (newEnd !== this._loop.end) {
                         this._loop = { ...this._loop, end: newEnd };
                         this.onLoopChange?.(this._loop);
+                        this._requestRedraw();
                     }
                 }
                 break;
             }
 
             case DragMode.MarqueeSelect: {
-                canvas.style.cursor = 'crosshair';
+                canvas.style.cursor = 'default';
                 const snappedBeat = this._snapBeat(Math.max(0, beat));
                 const clampedTrack = Math.max(0, Math.min(this._viewport.trackCount - 1, track));
                 this._drag.currentBeat = snappedBeat;

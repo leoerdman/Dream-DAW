@@ -345,6 +345,8 @@ async fn save_project_dialog(
         format!("{}.ddpj", project.name)
     };
 
+    log::info!("[SaveDialog] Opening native save dialog with default_name={:?}", default_name);
+
     let (tx, rx) = std::sync::mpsc::channel();
 
     app.dialog().file()
@@ -352,12 +354,25 @@ async fn save_project_dialog(
         .set_title("Save Project As")
         .set_file_name(&default_name)
         .save_file(move |file| {
-            let _ = tx.send(file.map(|p| p.to_string()));
+            let result = file.map(|p| {
+                let raw = p.to_string();
+                log::info!("[SaveDialog] Raw FilePath from dialog: {:?}", raw);
+                // Enforce .ddpj extension — macOS NSSavePanel may not auto-append it
+                if !raw.to_lowercase().ends_with(".ddpj") {
+                    format!("{}.ddpj", raw)
+                } else {
+                    raw
+                }
+            });
+            log::info!("[SaveDialog] Sending result to channel: {:?}", result);
+            let _ = tx.send(result);
         });
 
-    tauri::async_runtime::spawn_blocking(move || {
-        rx.recv().map_err(|e| format!("Dialog error: {}", e))
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        rx.recv().map_err(|e| format!("Dialog channel recv error: {}", e))
     })
     .await
-    .map_err(|e| format!("Join error: {}", e))?
+    .map_err(|e| format!("Dialog join error: {}", e))?;
+    log::info!("[SaveDialog] Final result: {:?}", result);
+    result
 }

@@ -41,6 +41,10 @@ fn move_midi_clip_in_project(
         return false;
     };
     let target = &mut project.tracks[new_track_index];
+    
+    // Handle overlaps for MIDI clips
+    dream_models::mutators::handle_midi_overlaps(target, &clip);
+
     let insert_pos = target
         .midi_clips
         .binary_search_by(|c| c.position.cmp(&clip.position))
@@ -130,6 +134,10 @@ fn resize_midi_clip_in_project(
     // Safety check: re-insert into the same track if found
     if let Some(ti) = source_track_idx {
         let target = &mut project.tracks[ti];
+        
+        // Handle overlaps for MIDI clips
+        dream_models::mutators::handle_midi_overlaps(target, &clip);
+
         let insert_pos = target
             .midi_clips
             .binary_search_by(|c| c.position.cmp(&clip.position))
@@ -251,39 +259,18 @@ async fn duplicate_clip_cmd(
     push_undo(&project_state)?;
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let mut created_id: Option<Uuid> = None;
     let target_pos = new_position_frames.map(AbsoluteTime::new);
 
-    'outer: for track in &mut project.tracks {
-        if let Some(src) = track.clips.iter().find(|c| c.id == uuid).cloned() {
-            let mut dup = src.clone();
-            dup.id = Uuid::new_v4();
-            dup.position = target_pos.unwrap_or_else(|| src.end_position());
-            dup.is_selected = false;
-            let insert_at = track
-                .clips
-                .binary_search_by(|c| c.position.cmp(&dup.position))
-                .unwrap_or_else(|i| i);
-            created_id = Some(dup.id);
-            track.clips.insert(insert_at, dup);
-            break 'outer;
+    let new_id = match mutators::duplicate_clip(&mut project, uuid, target_pos) {
+        Ok(dup) => dup.id,
+        Err(_) => {
+            mutators::duplicate_midi_clip(&mut project, uuid, target_pos)
+                .map_err(mutator_err_to_string)?
+                .id
         }
-        if let Some(src) = track.midi_clips.iter().find(|c| c.id == uuid).cloned() {
-            let mut dup = src.clone();
-            dup.id = Uuid::new_v4();
-            dup.position = target_pos.unwrap_or_else(|| src.end_position());
-            dup.is_selected = false;
-            let insert_at = track
-                .midi_clips
-                .binary_search_by(|c| c.position.cmp(&dup.position))
-                .unwrap_or_else(|i| i);
-            created_id = Some(dup.id);
-            track.midi_clips.insert(insert_at, dup);
-            break 'outer;
-        }
-    }
+    };
 
-    let new_id = created_id.ok_or_else(|| format!("Clip not found: {clip_id}"))?;
+
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
@@ -548,6 +535,51 @@ async fn set_clip_muted_cmd(
     rebuild_midi_snapshot_from_project(&project, &handle);
 
     log::info!("[IPC] set_clip_muted_cmd clip={} muted={}", clip_id, muted);
+    Ok(())
+}
+
+/// Clear clip color overrides on a track so all clips inherit track color.
+#[tauri::command]
+async fn paint_track_clips_with_track_color_cmd(
+    track_id: String,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track ID: {e}"))?;
+    push_undo(&project_state)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let track = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.id == track_uuid)
+        .ok_or_else(|| format!("Track not found: {track_id}"))?;
+
+    let mut changed = false;
+
+    for clip in &mut track.clips {
+        if clip.color_override.is_some() || clip.color_hex.is_some() {
+            changed = true;
+        }
+        clip.color_override = None;
+        clip.color_hex = None;
+    }
+
+    for clip in &mut track.midi_clips {
+        if clip.color_override.is_some() || clip.color_hex.is_some() {
+            changed = true;
+        }
+        clip.color_override = None;
+        clip.color_hex = None;
+    }
+
+    if changed {
+        *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+        clip_pool_state.rebuild_snapshot(&project);
+        rebuild_midi_snapshot_from_project(&project, &handle);
+    }
+
     Ok(())
 }
 
@@ -857,6 +889,7 @@ async fn export_mix_cmd(
         end_frame,
         normalize: settings.normalize,
         tail_frames: ((settings.tail_ms as f64 / 1000.0) * settings.sample_rate as f64) as i64,
+        format: settings.format.clone(),
     };
     
     // Reset cancel flag and create bouncer with it

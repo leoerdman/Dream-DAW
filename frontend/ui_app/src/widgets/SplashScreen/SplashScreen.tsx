@@ -35,6 +35,24 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
             console.warn('[Splash] Failed to load settings:', e)
         }
 
+        const settings = useSettingsStore.getState().settings
+        const shouldOpenLastProject = settings.startupBehavior === 'last'
+
+        if (shouldOpenLastProject) {
+            try {
+                const recent = await engineApi.getRecentProjects()
+                const lastProject = recent[0]
+                if (lastProject?.path) {
+                    await engineApi.openProject(lastProject.path)
+                    console.info('[Splash] Opened last project on startup:', lastProject.path)
+                } else {
+                    console.info('[Splash] startupBehavior=last but recent list is empty')
+                }
+            } catch (e) {
+                console.warn('[Splash] Failed to open last project on startup:', e)
+            }
+        }
+
         // 2. Start telemetry loop — the DAW comes alive
         startTelemetryLoop()
 

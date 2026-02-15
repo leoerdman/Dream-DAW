@@ -28,6 +28,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use crate::dag::{AudioDag, AudioNode, EdgeDelayCompensation, ExecutionPlan, NodeKind};
+use petgraph::visit::EdgeRef;
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -540,9 +541,11 @@ impl GraphRenderer {
                 );
             }
         } else {
-            let inputs = dag.inputs(node_idx);
-            for &input_idx in &inputs {
-                let src_idx = input_idx.index();
+            for edge in dag
+                .graph()
+                .edges_directed(node_idx, petgraph::Direction::Incoming)
+            {
+                let src_idx = edge.source().index();
                 if src_idx >= self.node_buffers.len() || src_idx == idx {
                     continue;
                 }
@@ -648,6 +651,12 @@ impl GraphRenderer {
         ),
     {
         let n = frame_count.min(self.max_frames);
+        let out_n = n.min(output_left.len()).min(output_right.len());
+
+        // Clear output slice up-front so stale samples never leak when a plan is empty
+        // or a master node is absent from an outdated execution order.
+        output_left[..out_n].fill(0.0);
+        output_right[..out_n].fill(0.0);
 
         // 1) Clear active buffers.
         self.clear_active_buffers(plan, n);
@@ -979,6 +988,36 @@ mod tests {
         dst.mix_from(&src);
         assert_eq!(dst.left[0], 1.5);
         assert_eq!(dst.right[0], 2.3);
+    }
+
+    #[test]
+    fn render_silences_output_when_plan_has_no_nodes() {
+        let dag = build_simple_dag();
+        let plan = ExecutionPlan {
+            processing_order: Vec::new(),
+            delay_compensation: Vec::new(),
+            edge_delay_compensation: Vec::new(),
+            parallel_stages: Vec::new(),
+            parallelism_metrics: ParallelismMetrics::default(),
+        };
+
+        let mut renderer = GraphRenderer::new(8, 16);
+        renderer.update_plan(&plan, &dag);
+
+        let mut out_l = vec![0.75f32; 8];
+        let mut out_r = vec![0.75f32; 8];
+        renderer.render(
+            &plan,
+            &dag,
+            8,
+            &mut out_l,
+            &mut out_r,
+            |_node, _left, _right, _n| {},
+            |_node, _left, _right, _n| {},
+        );
+
+        assert!(out_l.iter().all(|&x| x == 0.0));
+        assert!(out_r.iter().all(|&x| x == 0.0));
     }
 
     #[test]

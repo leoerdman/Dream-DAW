@@ -126,6 +126,9 @@ export interface AppSettings {
     vst3Path: string;
     openRouterApiKey: string;
     openRouterModel: string;
+    browserShowSizeColumn: boolean;
+    browserShowTypeColumn: boolean;
+    browserLeftPaneWidth: number;
 }
 
 /** Recent project entry. */
@@ -755,6 +758,10 @@ export const deleteClip = (clipId: string) =>
 export const setClipMuted = (clipId: string, muted: boolean) =>
     invoke<void>('set_clip_muted_cmd', { clipId, muted });
 
+/** Clear clip color overrides on a track so clips inherit track color. */
+export const paintTrackClipsWithTrackColor = (trackId: string) =>
+    invoke<void>('paint_track_clips_with_track_color_cmd', { trackId });
+
 // ── Audio Device Management ─────────────────────────────────────────────
 
 /** Available audio devices on the system. */
@@ -938,6 +945,8 @@ export interface ExportSettings {
     range: 'full' | 'loop';
     normalize: boolean;
     tailMs: number;
+    /** Output format: 'wav' or 'mp3'. */
+    format: 'wav' | 'mp3';
 }
 
 /** Kick off an offline bounce/export. Rust disables the realtime cpal timer

@@ -9,6 +9,7 @@ export type TimelineCommand =
     | { type: 'clip-resize'; clipId: string; startBeat: number; duration: number }
     | { type: 'track-dblclick'; trackIndex: number; beat: number }
     | { type: 'clip-dblclick'; clipId: string; trackIndex: number }
+    | { type: 'marquee-start' }
     | { type: 'track-select'; trackIndex: number }
     | { type: 'drop'; item: BrowserDragItem; trackIndex: number; beat: number }
     | { type: 'scroll-top'; value: number };
@@ -27,4 +28,3 @@ export class TimelineCommandBus {
         return () => this.listeners.delete(listener);
     }
 }
-

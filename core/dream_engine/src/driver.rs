@@ -1442,6 +1442,8 @@ pub fn start_audio_thread_on_device(
                                         (Some(new_sample), Some(existing)) => {
                                             if !Arc::ptr_eq(new_sample, existing) {
                                                 engine.sample = Some(Arc::clone(new_sample));
+                                                engine.all_notes_off();
+                                                midi_note_states[idx] = MidiNoteMapState::default();
                                             }
                                         }
                                         (Some(new_sample), None) => {
@@ -1450,10 +1452,19 @@ pub fn start_audio_thread_on_device(
                                         (None, Some(_)) => {
                                             engine.sample = None;
                                             engine.all_notes_off();
+                                            midi_note_states[idx] = MidiNoteMapState::default();
                                         }
                                         (None, None) => {}
                                     }
                                 }
+                            }
+                            for idx in samples_snapshot.len()..sampler_engines.len() {
+                                let engine = &mut sampler_engines[idx];
+                                if engine.sample.is_some() || engine.has_active_voices() {
+                                    engine.sample = None;
+                                    engine.all_notes_off();
+                                }
+                                midi_note_states[idx] = MidiNoteMapState::default();
                             }
 
                             // Load MIDI snapshot and schedule notes
@@ -1588,12 +1599,32 @@ pub fn start_audio_thread_on_device(
                                     );
                                 }
 
-                                // Mix sampler output into interleaved data
-                                for i in 0..fc {
-                                    let base = i * channels;
-                                    if base + 1 < data.len() {
-                                        data[base] += sampler_left[i];
-                                        data[base + 1] += sampler_right[i];
+                                if let Some((meter_l, meter_r)) = render_ctx.meter_bank.track(track_idx) {
+                                    let sampler_rms_l = linear_to_db(compute_rms(&sampler_left[..fc]));
+                                    let sampler_rms_r = linear_to_db(compute_rms(&sampler_right[..fc]));
+                                    let sampler_peak_l = linear_to_db(compute_peak(&sampler_left[..fc]));
+                                    let sampler_peak_r = linear_to_db(compute_peak(&sampler_right[..fc]));
+
+                                    meter_l.store_rms(meter_l.load_rms().max(sampler_rms_l));
+                                    meter_r.store_rms(meter_r.load_rms().max(sampler_rms_r));
+                                    meter_l.store_peak_decay(meter_l.load_peak().max(sampler_peak_l), 0.99);
+                                    meter_r.store_peak_decay(meter_r.load_peak().max(sampler_peak_r), 0.99);
+                                }
+
+                                let route_to_output = render_ctx
+                                    .track_slots
+                                    .get(track_idx)
+                                    .map(|slot| slot.strip.is_output_enabled())
+                                    .unwrap_or(true);
+
+                                if route_to_output {
+                                    // Mix sampler output into interleaved data
+                                    for i in 0..fc {
+                                        let base = i * channels;
+                                        if base + 1 < data.len() {
+                                            data[base] += sampler_left[i];
+                                            data[base + 1] += sampler_right[i];
+                                        }
                                     }
                                 }
                             }
@@ -1637,6 +1668,47 @@ pub fn start_audio_thread_on_device(
                             master_gain_current +=
                                 (master_gain_target - master_gain_current) * 0.005;
                             *sample = soft_clip(*sample * master_gain_current);
+                        }
+
+                        // Keep master metering in sync with the real final output,
+                        // including sampler and preview contributions.
+                        if channels >= 2 {
+                            let mut sum_sq_l = 0.0f64;
+                            let mut sum_sq_r = 0.0f64;
+                            let mut peak_l = 0.0f32;
+                            let mut peak_r = 0.0f32;
+                            let mut frames = 0usize;
+
+                            for frame in data.chunks_exact(channels) {
+                                let l = frame[0];
+                                let r = frame[1];
+                                sum_sq_l += (l as f64) * (l as f64);
+                                sum_sq_r += (r as f64) * (r as f64);
+                                peak_l = peak_l.max(l.abs());
+                                peak_r = peak_r.max(r.abs());
+                                frames += 1;
+                            }
+
+                            if frames > 0 {
+                                let rms_l = (sum_sq_l / frames as f64).sqrt() as f32;
+                                let rms_r = (sum_sq_r / frames as f64).sqrt() as f32;
+                                render_ctx
+                                    .meter_bank
+                                    .master_left()
+                                    .store_rms(linear_to_db(rms_l));
+                                render_ctx
+                                    .meter_bank
+                                    .master_right()
+                                    .store_rms(linear_to_db(rms_r));
+                                render_ctx
+                                    .meter_bank
+                                    .master_left()
+                                    .store_peak_decay(linear_to_db(peak_l), 0.99);
+                                render_ctx
+                                    .meter_bank
+                                    .master_right()
+                                    .store_peak_decay(linear_to_db(peak_r), 0.99);
+                            }
                         }
 
                         // ── D. Advance master clock ─────────────────────

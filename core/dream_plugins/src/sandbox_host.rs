@@ -100,6 +100,8 @@ struct PluginSandboxInstance {
     control_stdin: Option<ChildStdin>,
     event_rx: Option<Receiver<PluginHostEventMessage>>,
     heartbeat_seq: u64,
+    heartbeat_seen: bool,
+    spawned_at: SystemTime,
 }
 
 /// Out-of-process plugin sandbox supervisor.
@@ -312,6 +314,8 @@ impl PluginSandboxSupervisor {
                 control_stdin,
                 event_rx,
                 heartbeat_seq: 0,
+                heartbeat_seen: false,
+                spawned_at: SystemTime::now(),
             },
         );
         if let Some(inst) = self.instances.get_mut(&instance_id) {
@@ -330,6 +334,7 @@ impl PluginSandboxSupervisor {
                 PluginSandboxStatus::Spawning | PluginSandboxStatus::TimedOut
             )
         {
+            instance.heartbeat_seen = true;
             instance.status = PluginSandboxStatus::Running;
             instance.bypass_requested = false;
             instance.last_error = None;
@@ -359,9 +364,11 @@ impl PluginSandboxSupervisor {
                         Ok(evt) => match evt {
                             PluginHostEventMessage::Ready { .. } => {
                                 instance.status = PluginSandboxStatus::Running;
+                                instance.heartbeat_seen = true;
                                 instance.bypass_requested = false;
                             }
                             PluginHostEventMessage::HeartbeatAck { .. } => {
+                                instance.heartbeat_seen = true;
                                 let _ = fs::write(&instance.heartbeat_file, b"ack");
                             }
                             PluginHostEventMessage::Crashed { reason, .. } => {
@@ -410,9 +417,11 @@ impl PluginSandboxSupervisor {
                                         None
                                     };
                                     instance.heartbeat_seq = 0;
+                                    instance.heartbeat_seen = false;
                                     instance.process = Some(new_child);
                                     instance.status = PluginSandboxStatus::Spawning;
                                     instance.restart_count = instance.restart_count.saturating_add(1);
+                                    instance.spawned_at = SystemTime::now();
                                     instance.bypass_requested = false;
                                     let _ = Self::prime_instance_protocol(*id, instance);
                                     continue;
@@ -427,71 +436,77 @@ impl PluginSandboxSupervisor {
                         bypass.push(*id);
                     }
                     Ok(None) => {
-                        let heartbeat_age = fs::metadata(&instance.heartbeat_file)
-                            .ok()
-                            .and_then(|m| m.modified().ok())
-                            .and_then(|modified| now.duration_since(modified).ok());
+                        let heartbeat_age = if instance.heartbeat_seen {
+                            fs::metadata(&instance.heartbeat_file)
+                                .ok()
+                                .and_then(|m| m.modified().ok())
+                                .and_then(|modified| now.duration_since(modified).ok())
+                                .or_else(|| now.duration_since(instance.spawned_at).ok())
+                        } else {
+                            now.duration_since(instance.spawned_at).ok()
+                        };
+
                         if let Some(age) = heartbeat_age {
-                            if age > timeout {
-                                if instance.restart_count < max_auto_restarts
-                                    && let Some(cfg) = self.config.as_ref()
-                                {
-                                    let _ = child.kill();
-                                    let _ = child.wait();
-                                    let _ = fs::write(&instance.heartbeat_file, b"0");
-                                    match Self::spawn_daemon_process(
-                                        cfg,
-                                        *id,
-                                            &instance.descriptor.path,
-                                            &instance.heartbeat_file,
-                                            std::path::Path::new(&instance.shared_region.map_name),
-                                            instance.shared_region.num_inputs,
-                                            instance.shared_region.num_outputs,
-                                            instance.shared_region.max_frames,
-                                        ) {
-                                        Ok(mut new_child) => {
-                                            instance.control_stdin = new_child.stdin.take();
-                                            instance.event_rx = if let (Some(stdout), Some(stderr)) =
-                                                (new_child.stdout.take(), new_child.stderr.take())
-                                            {
-                                                Some(Self::spawn_event_reader(stdout, stderr))
-                                            } else {
-                                                None
-                                            };
-                                            instance.heartbeat_seq = 0;
-                                            instance.process = Some(new_child);
-                                            instance.status = PluginSandboxStatus::Spawning;
-                                            instance.restart_count = instance.restart_count.saturating_add(1);
-                                            instance.bypass_requested = false;
-                                            instance.last_error = Some(format!(
-                                                "Recovered after heartbeat timeout ({}ms)",
-                                                timeout.as_millis()
-                                            ));
-                                            let _ = Self::prime_instance_protocol(*id, instance);
-                                            continue;
-                                        }
-                                        Err(err) => {
-                                            instance.last_error = Some(format!(
-                                                "Restart after timeout failed: {err}"
-                                            ));
-                                        }
-                                    }
-                                }
-                                instance.status = PluginSandboxStatus::TimedOut;
-                                instance.bypass_requested = true;
-                                if instance.last_error.is_none() {
+                            if age <= timeout {
+                                continue;
+                            }
+                        }
+
+                        if instance.restart_count < max_auto_restarts
+                            && let Some(cfg) = self.config.as_ref()
+                        {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            let _ = fs::write(&instance.heartbeat_file, b"0");
+                            match Self::spawn_daemon_process(
+                                cfg,
+                                *id,
+                                &instance.descriptor.path,
+                                &instance.heartbeat_file,
+                                std::path::Path::new(&instance.shared_region.map_name),
+                                instance.shared_region.num_inputs,
+                                instance.shared_region.num_outputs,
+                                instance.shared_region.max_frames,
+                            ) {
+                                Ok(mut new_child) => {
+                                    instance.control_stdin = new_child.stdin.take();
+                                    instance.event_rx = if let (Some(stdout), Some(stderr)) =
+                                        (new_child.stdout.take(), new_child.stderr.take())
+                                    {
+                                        Some(Self::spawn_event_reader(stdout, stderr))
+                                    } else {
+                                        None
+                                    };
+                                    instance.heartbeat_seq = 0;
+                                    instance.heartbeat_seen = false;
+                                    instance.process = Some(new_child);
+                                    instance.status = PluginSandboxStatus::Spawning;
+                                    instance.restart_count = instance.restart_count.saturating_add(1);
+                                    instance.spawned_at = SystemTime::now();
+                                    instance.bypass_requested = false;
                                     instance.last_error = Some(format!(
-                                        "Plugin host heartbeat timeout: {}ms",
+                                        "Recovered after heartbeat timeout ({}ms)",
                                         timeout.as_millis()
                                     ));
+                                    let _ = Self::prime_instance_protocol(*id, instance);
+                                    continue;
                                 }
-                                bypass.push(*id);
-                            } else if instance.status == PluginSandboxStatus::Spawning {
-                                instance.status = PluginSandboxStatus::Running;
+                                Err(err) => {
+                                    instance.last_error = Some(format!(
+                                        "Restart after timeout failed: {err}"
+                                    ));
+                                }
                             }
-                        } else if instance.status == PluginSandboxStatus::Spawning {
-                            instance.status = PluginSandboxStatus::Running;
                         }
+                        instance.status = PluginSandboxStatus::TimedOut;
+                        instance.bypass_requested = true;
+                        if instance.last_error.is_none() {
+                            instance.last_error = Some(format!(
+                                "Plugin host heartbeat timeout: {}ms",
+                                timeout.as_millis()
+                            ));
+                        }
+                        bypass.push(*id);
                     }
                     Err(err) => {
                         instance.status = PluginSandboxStatus::Crashed;
@@ -658,6 +673,8 @@ mod tests {
                 control_stdin: None,
                 event_rx: None,
                 heartbeat_seq: 0,
+                heartbeat_seen: false,
+                spawned_at: SystemTime::now(),
             },
         );
         sup.mark_heartbeat(id);

@@ -23,8 +23,8 @@ include!("sections/device_rack.rs");
 
 // ═══════════════════════════════════════════════════════════════════════
 
-pub(crate) fn invoke_handler()
--> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
+pub(crate) fn invoke_handler(
+) -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         // Transport
         play,
@@ -112,6 +112,7 @@ pub(crate) fn invoke_handler()
         set_clip_fades_cmd,
         set_clip_source_offset_cmd,
         set_clip_muted_cmd,
+        paint_track_clips_with_track_color_cmd,
         resolve_missing_file_cmd,
         // Automation / recording / export
         set_automation_points_cmd,

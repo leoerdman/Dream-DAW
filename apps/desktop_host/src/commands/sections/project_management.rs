@@ -7149,6 +7149,7 @@ async fn save_project_as(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let file_path = PathBuf::from(&path);
+    log::info!("[SaveAs] Received path: {:?}", file_path);
     let (snapshot, project_name) = {
         let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
         let computed_name = file_path
@@ -7167,14 +7168,19 @@ async fn save_project_as(
     let project_name_for_save = project_name.clone();
     let (actual_file_path, folder) = tauri::async_runtime::spawn_blocking(move || -> Result<(PathBuf, PathBuf), String> {
         let parent_dir = save_target.parent().unwrap_or(std::path::Path::new("."));
-        if ProjectManager::is_project_directory(parent_dir) {
+        let is_proj_dir = ProjectManager::is_project_directory(parent_dir);
+        log::info!("[SaveAs] parent_dir={:?}, is_project_dir={}, project_name={}", parent_dir, is_proj_dir, project_name_for_save);
+        if is_proj_dir {
+            log::info!("[SaveAs] Saving directly to existing project dir: {:?}", save_target);
             ProjectFile::save(&snapshot, &save_target).map_err(|e| e.to_string())?;
             Ok((save_target.clone(), parent_dir.to_path_buf()))
         } else {
+            log::info!("[SaveAs] Non-project dir — creating project folder '{}' under {:?}", project_name_for_save, parent_dir);
             let folder = ProjectManager::create_project_folder(parent_dir, &project_name_for_save)
                 .map_err(|e| e.to_string())?;
             let saved_path = ProjectManager::save_to_folder(&snapshot, &folder, true)
                 .map_err(|e| e.to_string())?;
+            log::info!("[SaveAs] Project saved to: {:?}", saved_path);
             Ok((saved_path, folder))
         }
     })

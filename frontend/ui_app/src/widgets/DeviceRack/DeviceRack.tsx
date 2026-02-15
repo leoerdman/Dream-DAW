@@ -73,6 +73,74 @@ interface DeviceSlot {
     guiMode?: string;
 }
 
+const INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID: Partial<Record<string, DeviceSlot['effectType']>> = {
+    'internal://instrument/wave-synth': 'waveSynth',
+    'internal://instrument/sampler': 'sampler',
+
+    'internal://effect/eq-eight': 'eq',
+    'internal://effect/channel-eq': 'eq',
+    'internal://effect/eq-three': 'eq',
+
+    'internal://effect/compressor': 'compressor',
+    'internal://effect/multiband-dynamics': 'compressor',
+    'internal://effect/transient-shaper': 'compressor',
+
+    'internal://effect/delay': 'delay',
+    'internal://effect/echo': 'delay',
+    'internal://effect/grain-delay': 'delay',
+    'internal://effect/beat-repeat': 'delay',
+    'internal://effect/looper': 'delay',
+    'internal://effect/spectral-time': 'delay',
+
+    'internal://effect/reverb': 'reverb',
+    'internal://effect/hybrid-reverb': 'reverb',
+    'internal://effect/corpus': 'reverb',
+    'internal://effect/resonators': 'reverb',
+    'internal://effect/spectral-resonator': 'reverb',
+
+    'internal://effect/chorus': 'chorus',
+    'internal://effect/saturator': 'saturator',
+    'internal://effect/drum-buss': 'saturator',
+    'internal://effect/dynamic-tube': 'saturator',
+
+    'internal://effect/utility': 'utility',
+    'internal://effect/tuner': 'utility',
+    'internal://effect/auto-shift': 'utility',
+    'internal://effect/shifter': 'utility',
+    'internal://effect/external-audio-effect': 'utility',
+
+    'internal://effect/limiter': 'limiter',
+    'internal://effect/gate': 'gate',
+
+    'internal://effect/auto-filter': 'autoFilter',
+    'internal://effect/vocoder': 'autoFilter',
+    'internal://effect/auto-pan': 'autoPan',
+    'internal://effect/phaser': 'phaser',
+    'internal://effect/flanger': 'flanger',
+
+    'internal://effect/distortion': 'distortion',
+    'internal://effect/amp': 'distortion',
+    'internal://effect/cabinet': 'distortion',
+    'internal://effect/overdrive': 'distortion',
+    'internal://effect/pedal': 'distortion',
+    'internal://effect/roar': 'distortion',
+    'internal://effect/erosion': 'distortion',
+    'internal://effect/bitcrusher': 'bitcrusher',
+
+    'internal://effect/noise-machine': 'noiseMachine',
+    'internal://effect/spectrum': 'spectrum',
+
+    'internal://midi-fx/pitch': 'midiPitch',
+    'internal://midi-fx/scale': 'midiScale',
+    'internal://midi-fx/chord': 'midiScale',
+    'internal://midi-fx/velocity': 'midiVelocity',
+    'internal://midi-fx/note-length': 'midiVelocity',
+    'internal://midi-fx/cc-control': 'midiVelocity',
+    'internal://midi-fx/expression-control': 'midiVelocity',
+    'internal://midi-fx/random': 'midiRandom',
+    'internal://midi-fx/arpeggiator': 'midiRandom',
+};
+
 const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<
     DeviceSlot['effectType'],
     Record<string, number>
@@ -334,7 +402,7 @@ export const DeviceRack = ({
     const [pluginCapability, setPluginCapability] = useState<
         Record<string, { supported: boolean; reason?: string }>
     >({});
-    const externalParamsByPluginId = useMemo<Record<string, PluginParam[]>>(() => ({}), []);
+    const externalParamsBySlotId = useMemo<Record<string, PluginParam[]>>(() => ({}), []);
     const [openGuiDevice, setOpenGuiDevice] = useState<DeviceSlot | null>(null);
     const [inlineSettingsOpen, setInlineSettingsOpen] = useState<Record<string, boolean>>({});
     const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
@@ -498,7 +566,8 @@ export const DeviceRack = ({
             let effectType: DeviceSlot['effectType'] =
                 selectedTrack.instrument?.id === id ? 'instrument' : isVst ? 'vst' : 'utility';
             const internalDef = getInternalPluginById(pluginIdLower);
-            if (internalDef?.id === 'internal://instrument/wave-synth') effectType = 'waveSynth';
+            const mappedInternalType = internalDef?.id ? INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID[internalDef.id] : undefined;
+            if (mappedInternalType) effectType = mappedInternalType;
             else if (normalized.includes('sampler')) effectType = 'sampler';
             else if (
                 normalized.includes('eq')
@@ -575,7 +644,7 @@ export const DeviceRack = ({
                     value: localParams[key] ?? backendValue,
                 };
             });
-            const cachedExternalParams = isVst ? (externalParamsByPluginId[pluginId] ?? []) : [];
+            const cachedExternalParams = isVst ? (externalParamsBySlotId[id] ?? []) : [];
             const vstParamsFromHost = cachedExternalParams.length > 0
                 ? cachedExternalParams.map((p) => {
                     const key = `${id}:${p.name}`;
@@ -621,7 +690,7 @@ export const DeviceRack = ({
         };
 
         return nodes.map(nodeToSlot).filter((s): s is DeviceSlot => s !== null);
-    }, [selectedTrack, localBypass, localParams, outLevel, externalParamsByPluginId]);
+    }, [selectedTrack, localBypass, localParams, outLevel, externalParamsBySlotId]);
 
     const setPluginSidechainSource = useCallback(async (slotId: string, sourceTrackId: string) => {
         if (!selectedTrack) return;
@@ -671,7 +740,7 @@ export const DeviceRack = ({
                     ? (value - paramDef.min) / Math.max(1e-9, paramDef.max - paramDef.min)
                     : value;
                 const clamped = Math.min(1, Math.max(0, normalized));
-                void engineApi.setExternalPluginParam(device.pluginId, paramIndex, clamped).catch((err) => {
+                void engineApi.setExternalPluginParamForSlot(selectedTrack.id, device.id, paramIndex, clamped).catch((err) => {
                     console.error('[DeviceRack] setExternalPluginParam failed:', err);
                     statusError(`External plugin parameter update failed: ${errorMessage(err)}`);
                 });
@@ -817,7 +886,10 @@ export const DeviceRack = ({
     useEffect(() => {
         let cancelled = false;
         const vstDevices = chain.filter((d) => d.isVst);
-        const missing = vstDevices.filter((d) => pluginCapability[d.pluginId] == null);
+        if (!selectedTrack) {
+            return;
+        }
+        const missing = vstDevices.filter((d) => pluginCapability[d.id] == null);
         if (missing.length === 0) {
             return;
         }
@@ -826,11 +898,11 @@ export const DeviceRack = ({
             const results = await Promise.all(
                 missing.map(async (device) => {
                     try {
-                        const cap = await engineApi.canOpenPluginEditor(device.pluginId);
-                        return [device.pluginId, { supported: cap.supported, reason: cap.reason ?? undefined }] as const;
+                        const cap = await engineApi.canOpenPluginEditorForSlot(selectedTrack.id, device.id);
+                        return [device.id, { supported: cap.supported, reason: cap.reason ?? undefined }] as const;
                     } catch (err) {
                         console.error('[DeviceRack] Capability probe failed:', err);
-                        return [device.pluginId, { supported: false, reason: 'Capability check failed.' }] as const;
+                        return [device.id, { supported: false, reason: 'Capability check failed.' }] as const;
                     }
                 })
             );
@@ -850,7 +922,7 @@ export const DeviceRack = ({
         return () => {
             cancelled = true;
         };
-    }, [chain, pluginCapability]);
+    }, [chain, pluginCapability, selectedTrack]);
 
     useEffect(() => {
         const onMouseMove = (e: MouseEvent) => {
@@ -997,8 +1069,8 @@ export const DeviceRack = ({
                                     order={idx + 1}
                                     device={device}
                                     isSelected={selectedDeviceIds.includes(device.id)}
-                                    editorSupported={pluginCapability[device.pluginId]?.supported ?? true}
-                                    editorReason={pluginCapability[device.pluginId]?.reason}
+                                    editorSupported={pluginCapability[device.id]?.supported ?? true}
+                                    editorReason={pluginCapability[device.id]?.reason}
                                     onToggle={() => toggleDevice(device)}
                                     onSelect={(e) => {
                                         selectDevice(device.id, e.shiftKey);
@@ -1072,11 +1144,12 @@ export const DeviceRack = ({
                                             statusClear();
                                             return;
                                         }
+                                        if (!selectedTrack) return;
                                         try {
-                                            const capability = await engineApi.canOpenPluginEditor(device.pluginId);
+                                            const capability = await engineApi.canOpenPluginEditorForSlot(selectedTrack.id, device.id);
                                             setPluginCapability((prev) => ({
                                                 ...prev,
-                                                [device.pluginId]: {
+                                                [device.id]: {
                                                     supported: capability.supported,
                                                     reason: capability.reason ?? undefined,
                                                 },
@@ -1089,7 +1162,7 @@ export const DeviceRack = ({
                                             }
                                             // Try native plugin editor bridge first (host-managed).
                                             // Keep DAW-owned UI fallback available for consistency.
-                                            await engineApi.openPluginWindow(device.pluginId);
+                                            await engineApi.openPluginWindowForSlot(selectedTrack.id, device.id);
                                             setOpenGuiDevice(device);
                                             statusClear();
                                         } catch (err) {
@@ -1678,6 +1751,131 @@ const pluginPanelKnobGrid = (columns: string): React.CSSProperties => ({
     alignItems: 'center',
     gap: 'var(--plugin-grid-gap)',
 });
+
+type QuickPreset = {
+    label: string;
+    values: Record<string, number>;
+};
+
+const QUICK_PRESETS_BY_EFFECT: Partial<Record<DeviceSlot['effectType'], QuickPreset[]>> = {
+    eq: [
+        { label: 'Flat', values: { low: 0, mid: 0, high: 0, out: 0 } },
+        { label: 'Air', values: { low: -1.5, mid: 1.5, high: 4, out: 0 } },
+        { label: 'Warm', values: { low: 2.5, mid: -1, high: -1.5, out: -0.5 } },
+    ],
+    compressor: [
+        { label: 'Gentle', values: { thr: -14, ratio: 2.5, atk: 18, rel: 120 } },
+        { label: 'Punch', values: { thr: -22, ratio: 5, atk: 6, rel: 70 } },
+        { label: 'Glue', values: { thr: -12, ratio: 2, atk: 30, rel: 180 } },
+    ],
+    delay: [
+        { label: 'Slap', values: { time: 95, fb: 18, 'dry/wet': 20 } },
+        { label: 'Wide', values: { time: 320, fb: 42, 'dry/wet': 34 } },
+        { label: 'Wash', values: { time: 560, fb: 60, 'dry/wet': 48 } },
+    ],
+    reverb: [
+        { label: 'Room', values: { decay: 26, tone: -8, 'dry/wet': 16 } },
+        { label: 'Hall', values: { decay: 52, tone: 4, 'dry/wet': 24 } },
+        { label: 'Shimmer', values: { decay: 72, tone: 28, 'dry/wet': 34 } },
+    ],
+    chorus: [
+        { label: 'Subtle', values: { rate: 0.8, depth: 24, mix: 18 } },
+        { label: 'Wide', values: { rate: 1.2, depth: 44, mix: 35 } },
+        { label: 'Vintage', values: { rate: 0.45, depth: 60, mix: 42 } },
+    ],
+    saturator: [
+        { label: 'Soft', values: { drive: 2.4, tone: 8, mix: 80 } },
+        { label: 'Warm', values: { drive: 5.5, tone: -4, mix: 88 } },
+        { label: 'Hard', values: { drive: 10.5, tone: 14, mix: 92 } },
+    ],
+    utility: [
+        { label: 'Center', values: { gain: 0, pan: 0, width: 100, mono: 0 } },
+        { label: 'Mono', values: { gain: 0, pan: 0, width: 0, mono: 1 } },
+        { label: 'Wide', values: { gain: 0, pan: 0, width: 150, mono: 0 } },
+    ],
+    limiter: [
+        { label: 'Safety', values: { thr: -2, rel: 120, ceil: -0.8 } },
+        { label: 'Loud', values: { thr: -6, rel: 80, ceil: -0.2 } },
+        { label: 'Transparent', values: { thr: -1.2, rel: 220, ceil: -0.3 } },
+    ],
+    gate: [
+        { label: 'Clean', values: { thr: -34, atk: 0.3, hold: 22, rel: 80, range: -80 } },
+        { label: 'Tight', values: { thr: -26, atk: 0.05, hold: 4, rel: 28, range: -60 } },
+        { label: 'Soft', values: { thr: -46, atk: 2.5, hold: 32, rel: 180, range: -48 } },
+    ],
+    autoFilter: [
+        { label: 'Sweep', values: { cutoff: 1800, res: 0.38, rate: 0.8, depth: 0.55, mix: 0.95 } },
+        { label: 'Wobble', values: { cutoff: 320, res: 0.52, rate: 3.2, depth: 0.8, mix: 1 } },
+        { label: 'Subtle', values: { cutoff: 4200, res: 0.2, rate: 0.3, depth: 0.22, mix: 0.68 } },
+    ],
+    autoPan: [
+        { label: 'Slow', values: { rate: 0.35, depth: 0.45, phase: 180, mix: 0.85 } },
+        { label: 'Wide', values: { rate: 0.9, depth: 0.8, phase: 180, mix: 1 } },
+        { label: 'Chop', values: { rate: 5.8, depth: 1, phase: 0, mix: 1 } },
+    ],
+    phaser: [
+        { label: 'Classic', values: { rate: 0.7, depth: 0.65, fb: 0.2, mix: 0.6 } },
+        { label: 'Deep', values: { rate: 0.24, depth: 0.92, fb: 0.45, mix: 0.72 } },
+        { label: 'Fast', values: { rate: 2.5, depth: 0.5, fb: 0.15, mix: 0.48 } },
+    ],
+    flanger: [
+        { label: 'Tape', values: { rate: 0.2, depth: 0.4, fb: 0.22, mix: 0.35 } },
+        { label: 'Jet', values: { rate: 0.55, depth: 0.75, fb: 0.48, mix: 0.62 } },
+        { label: 'Subtle', values: { rate: 0.16, depth: 0.24, fb: 0.1, mix: 0.28 } },
+    ],
+    distortion: [
+        { label: 'Edge', values: { drive: 4.5, tone: 8, mix: 70 } },
+        { label: 'Crunch', values: { drive: 8, tone: 0, mix: 86 } },
+        { label: 'Destroy', values: { drive: 16, tone: 20, mix: 100 } },
+    ],
+    bitcrusher: [
+        { label: 'Soft', values: { bits: 10, down: 1.4, mix: 42 } },
+        { label: 'Retro', values: { bits: 7, down: 3.2, mix: 64 } },
+        { label: 'Crush', values: { bits: 4, down: 8, mix: 90 } },
+    ],
+    noiseMachine: [
+        { label: 'Vinyl', values: { type: 0, level: 0.12, stereo: 0.2 } },
+        { label: 'Air', values: { type: 1, level: 0.08, stereo: 0.65 } },
+        { label: 'Storm', values: { type: 2, level: 0.28, stereo: 0.75 } },
+    ],
+    midiPitch: [
+        { label: '-12', values: { semitones: -12 } },
+        { label: '0', values: { semitones: 0 } },
+        { label: '+12', values: { semitones: 12 } },
+    ],
+    midiScale: [
+        { label: 'C', values: { root: 0 } },
+        { label: 'D', values: { root: 2 } },
+        { label: 'A', values: { root: 9 } },
+    ],
+    midiVelocity: [
+        { label: 'Even', values: { gain: 1, offset: 0 } },
+        { label: 'Accent', values: { gain: 1.3, offset: 8 } },
+        { label: 'Soft', values: { gain: 0.78, offset: -12 } },
+    ],
+    midiRandom: [
+        { label: 'Tight', values: { semitones: 2, chance: 0.15 } },
+        { label: 'Playful', values: { semitones: 7, chance: 0.35 } },
+        { label: 'Wild', values: { semitones: 12, chance: 0.7 } },
+    ],
+};
+
+function applyQuickPresetToDevice(
+    device: DeviceSlot,
+    preset: QuickPreset,
+    onParamChange: (paramName: string, value: number) => void,
+) {
+    const byName = new Map(device.params.map((p) => [p.name.toLowerCase(), p.name]));
+    for (const [rawName, value] of Object.entries(preset.values)) {
+        const key = rawName.toLowerCase();
+        const canonical =
+            byName.get(key)
+            ?? byName.get(key.replace(/\s+/g, ''))
+            ?? byName.get(key.replace(/\s*\/\s*/g, '/'));
+        if (!canonical) continue;
+        onParamChange(canonical, value);
+    }
+}
 
 const PluginGuiSurface = ({
     device,
@@ -2450,8 +2648,8 @@ const PluginGuiSurface = ({
                         <span>Mix {mix.toFixed(0)}%</span>
                     </div>
                 </div>
-                <div style={pluginPanelKnobGrid('repeat(3, minmax(0, 1fr))')}>
-                    {device.params.slice(0, 3).map((p) => (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(6, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
+                    {device.params.slice(0, 6).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
                 </div>
@@ -2500,8 +2698,8 @@ const PluginGuiSurface = ({
                         <span>Tone {tone.toFixed(0)}%</span>
                     </div>
                 </div>
-                <div style={pluginPanelKnobGrid('repeat(3, minmax(0, 1fr))')}>
-                    {device.params.slice(0, 3).map((p) => (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(6, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
+                    {device.params.slice(0, 6).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
                 </div>
@@ -2528,8 +2726,8 @@ const PluginGuiSurface = ({
                         <span>Depth {depth.toFixed(0)}%</span>
                     </div>
                 </div>
-                <div style={pluginPanelKnobGrid('repeat(3, minmax(0, 1fr))')}>
-                    {device.params.slice(0, 3).map((p) => (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(5, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
+                    {device.params.slice(0, 5).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
                 </div>
@@ -2556,8 +2754,8 @@ const PluginGuiSurface = ({
                     </svg>
                     <div style={pluginPanelMetaStyle}><span>{satTitle}</span><span>Drive {drive.toFixed(1)} dB</span></div>
                 </div>
-                <div style={pluginPanelKnobGrid('repeat(3, minmax(0, 1fr))')}>
-                    {device.params.slice(0, 3).map((p) => (
+                <div style={pluginPanelKnobGrid(`repeat(${Math.min(4, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
+                    {device.params.slice(0, 4).map((p) => (
                         <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                     ))}
                 </div>
@@ -2733,10 +2931,31 @@ const PluginGuiSurface = ({
                     : device.effectType === 'midiVelocity'
                         ? (guiMode.includes('note-length') ? 'Note Length' : guiMode.includes('cc-control') ? 'CC Control' : guiMode.includes('expression-control') ? 'Expression Control' : 'MIDI Velocity')
                         : (guiMode.includes('arpeggiator') ? 'Arpeggiator' : 'MIDI Random');
+        const spectrumBars = Array.from({ length: 24 }).map((_, idx) => {
+            const t = idx / 23;
+            const h = 18 + Math.sin((idx + 1) * 0.62) * 9 + (1 - Math.abs(0.5 - t) * 2) * 20;
+            return { x: 8 + idx * 13, h: Math.max(4, h) };
+        });
         return (
             <div style={pluginPanelLayoutStyle}>
                 <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-midi)' }}>
                     <div style={{ ...pluginPanelTitleStyle, color: '#b8c8e8' }}>{title}</div>
+                    {device.effectType === 'spectrum' && (
+                        <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: 46 }}>
+                            <rect x="0" y="0" width="320" height="52" fill="rgba(8, 10, 14, 0.7)" />
+                            {spectrumBars.map((bar, idx) => (
+                                <rect
+                                    key={idx}
+                                    x={bar.x}
+                                    y={46 - bar.h}
+                                    width="8"
+                                    height={bar.h}
+                                    rx="1.2"
+                                    fill={bar.h > 30 ? 'rgba(255,180,102,0.92)' : 'rgba(122,198,255,0.92)'}
+                                />
+                            ))}
+                        </svg>
+                    )}
                     <div style={pluginPanelMetaStyle}>
                         <span>{device.effectType === 'spectrum' ? 'Analyzer (native)' : 'MIDI FX (import-compatible)'}</span>
                     </div>
@@ -2776,8 +2995,13 @@ const PluginSettingsPanel = ({
     sidechainSourceTrackId?: string;
     sidechainOptions?: Array<{ id: string; name: string }>;
     onSidechainSourceChange?: (sourceTrackId: string) => void;
-}) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+}) => {
+    const quickPresets = device.source === 'internal'
+        ? (QUICK_PRESETS_BY_EFFECT[device.effectType] ?? [])
+        : [];
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {device.supportsSidechain && (
             <div
                 style={{
@@ -2816,6 +3040,39 @@ const PluginSettingsPanel = ({
                         <option key={track.id} value={track.id}>{track.name}</option>
                     ))}
                 </select>
+            </div>
+        )}
+        {quickPresets.length > 0 && (
+            <div style={{ display: 'grid', gap: 5 }}>
+                <span style={{
+                    fontSize: 10,
+                    color: 'var(--color-text-tertiary)',
+                    fontWeight: 700,
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                }}>
+                    Quick Presets
+                </span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {quickPresets.map((preset) => (
+                        <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => applyQuickPresetToDevice(device, preset, onParamChange)}
+                            style={{
+                                border: '1px solid var(--color-divider)',
+                                borderRadius: 4,
+                                background: 'var(--color-bg-header)',
+                                color: 'var(--color-text-secondary)',
+                                fontSize: 10,
+                                padding: '4px 8px',
+                                cursor: 'pointer',
+                            }}
+                        >
+                            {preset.label}
+                        </button>
+                    ))}
+                </div>
             </div>
         )}
         {device.effectType === 'sampler' && (
@@ -2857,8 +3114,9 @@ const PluginSettingsPanel = ({
                 <span style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>0 params</span>
             </div>
         )}
-    </div>
-);
+        </div>
+    );
+};
 
 // ── MeterBar (small vertical signal meter) ──────────────
 

@@ -3603,6 +3603,7 @@ fn import_ableton_project(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
 ) -> Result<Project, String> {
     if !PathBuf::from(&path)
@@ -3619,6 +3620,7 @@ fn import_ableton_project(
         clip_pool_state,
         automation_runtime,
         handle,
+        plugin_host_state,
         app,
     )
 }
@@ -7282,7 +7284,7 @@ fn open_project(
         match node {
             DeviceNode::Single(slot) => {
                 if !slot.plugin_id.starts_with("internal://")
-                    && let Ok(instance_id) = plugin_host_state.ensure_loaded_instance_for_plugin_id(&slot.plugin_id)
+                    && let Ok(instance_id) = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)
                 {
                     plugin_host_state.bind_slot_instance(slot.id, instance_id);
                 }

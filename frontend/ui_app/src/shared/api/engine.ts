@@ -846,6 +846,10 @@ export const restartAudioEngine = (deviceName: string) =>
 export const openPluginWindow = (pluginId: string) =>
     invoke<void>('open_plugin_window', { pluginId });
 
+/** Open plugin GUI for an exact slot on a track (duplicate-safe). */
+export const openPluginWindowForSlot = (trackId: string, slotId: string) =>
+    invoke<void>('open_plugin_window_for_slot', { trackId, slotId });
+
 /** Editor capability probe. Allows UI to fail fast with a clear reason. */
 export interface PluginEditorCapability {
     supported: boolean;
@@ -854,6 +858,10 @@ export interface PluginEditorCapability {
 
 export const canOpenPluginEditor = (pluginId: string) =>
     invoke<PluginEditorCapability>('can_open_plugin_editor', { pluginId });
+
+/** Probe editor capability for exact track/slot instance. */
+export const canOpenPluginEditorForSlot = (trackId: string, slotId: string) =>
+    invoke<PluginEditorCapability>('can_open_plugin_editor_for_slot', { trackId, slotId });
 
 /** Close an open plugin window. */
 export const closePluginWindow = (pluginId: string) =>
@@ -965,6 +973,20 @@ export const setExternalPluginParam = (
         value,
     });
 
+/** Set external plugin parameter for exact slot instance (duplicate-safe). */
+export const setExternalPluginParamForSlot = (
+    trackId: string,
+    slotId: string,
+    paramIndex: number,
+    value: number,
+) =>
+    invoke<void>('set_external_plugin_param_for_slot_cmd', {
+        trackId,
+        slotId,
+        paramIndex,
+        value,
+    });
+
 export interface ExternalPluginParamInfo {
     index: number;
     name: string;
@@ -977,6 +999,10 @@ export interface ExternalPluginParamInfo {
 /** Fetch external plugin parameters for inline controls. */
 export const getExternalPluginParams = (pluginId: string) =>
     invoke<ExternalPluginParamInfo[]>('get_external_plugin_params', { pluginId });
+
+/** Fetch external plugin parameters for exact slot instance. */
+export const getExternalPluginParamsForSlot = (trackId: string, slotId: string) =>
+    invoke<ExternalPluginParamInfo[]>('get_external_plugin_params_for_slot', { trackId, slotId });
 
 /** Assign sample file to track sampler and push into realtime sampler snapshot. */
 export const setSamplerSample = (

@@ -43,6 +43,43 @@ fn find_project_plugin_slot(project: &Project, plugin_id: &str) -> Option<Plugin
     None
 }
 
+fn find_slot_in_node_by_id(node: &DeviceNode, slot_id: Uuid) -> Option<PluginSlot> {
+    match node {
+        DeviceNode::Single(slot) => {
+            if slot.id == slot_id {
+                Some(slot.clone())
+            } else {
+                None
+            }
+        }
+        DeviceNode::Rack(rack) => {
+            for chain in &rack.chains {
+                for child in &chain.devices {
+                    if let Some(found) = find_slot_in_node_by_id(child, slot_id) {
+                        return Some(found);
+                    }
+                }
+            }
+            None
+        }
+    }
+}
+
+fn find_slot_on_track(project: &Project, track_id: Uuid, slot_id: Uuid) -> Option<PluginSlot> {
+    let track = project.tracks.iter().find(|t| t.id == track_id)?;
+    if let Some(inst) = &track.instrument
+        && let Some(found) = find_slot_in_node_by_id(inst, slot_id)
+    {
+        return Some(found);
+    }
+    for fx in &track.effects {
+        if let Some(found) = find_slot_in_node_by_id(fx, slot_id) {
+            return Some(found);
+        }
+    }
+    None
+}
+
 fn bind_runtime_instance_for_plugin_slots(
     project: &Project,
     plugin_id: &str,
@@ -58,7 +95,9 @@ fn bind_runtime_instance_for_plugin_slots(
         match node {
             DeviceNode::Single(slot) => {
                 if slot.plugin_id == plugin_id {
-                    plugin_host_state.bind_slot_instance(slot.id, instance_id);
+                    if !plugin_host_state.slot_instance_snapshot().contains_key(&slot.id) {
+                        plugin_host_state.bind_slot_instance(slot.id, instance_id);
+                    }
                 }
             }
             DeviceNode::Rack(rack) => {
@@ -369,6 +408,44 @@ fn open_plugin_window(
 }
 
 #[tauri::command]
+fn open_plugin_window_for_slot(
+    track_id: String,
+    slot_id: String,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
+        .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
+
+    if slot.plugin_id.starts_with("internal://") {
+        return Err("Internal device has no native external editor".to_string());
+    }
+
+    let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)?;
+    plugin_host_state.bind_slot_instance(slot.id, instance_id);
+
+    {
+        let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+        host.open_editor(instance_id)
+            .map_err(|e| format!("Failed to open plugin editor: {e}"))?;
+    }
+
+    clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
+    log::info!(
+        "[IPC] open_plugin_window_for_slot(track={}, slot={}) -> instance {}",
+        track_id,
+        slot_id,
+        instance_id
+    );
+    Ok(())
+}
+
+#[tauri::command]
 fn can_open_plugin_editor(
     plugin_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
@@ -427,6 +504,47 @@ fn can_open_plugin_editor(
         // We only do exact capability checks on already-loaded instances above.
         // For unloaded VST3 descriptors, report optimistic support and defer the
         // real result to open_plugin_window (where failures are surfaced safely).
+        supported: true,
+        reason: None,
+    })
+}
+
+#[tauri::command]
+fn can_open_plugin_editor_for_slot(
+    track_id: String,
+    slot_id: String,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<PluginEditorCapability, String> {
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
+        .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
+
+    if slot.plugin_id.starts_with("internal://") {
+        return Ok(PluginEditorCapability {
+            supported: false,
+            reason: Some("Internal device does not expose a native external editor.".to_string()),
+        });
+    }
+
+    let instance_id = plugin_host_state
+        .slot_instance_snapshot()
+        .get(&slot.id)
+        .copied();
+    if let Some(instance_id) = instance_id {
+        let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+        let supported = host
+            .supports_editor(instance_id)
+            .map_err(|e| format!("Failed to check editor capability: {e}"))?;
+        return Ok(PluginEditorCapability {
+            supported,
+            reason: if supported { None } else { Some("Native GUI is unavailable for this instance.".to_string()) },
+        });
+    }
+
+    Ok(PluginEditorCapability {
         supported: true,
         reason: None,
     })
@@ -504,6 +622,51 @@ fn set_external_plugin_param_cmd(
     log::debug!(
         "[IPC] set_external_plugin_param_cmd(plugin={}, idx={}, value={:.4})",
         plugin_id,
+        param_index,
+        normalized
+    );
+    Ok(())
+}
+
+#[tauri::command]
+fn set_external_plugin_param_for_slot_cmd(
+    track_id: String,
+    slot_id: String,
+    param_index: u32,
+    value: f64,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
+        .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
+    if slot.plugin_id.starts_with("internal://") {
+        return Err("Internal plugin slot does not support external parameter API".to_string());
+    }
+
+    let normalized = value.clamp(0.0, 1.0);
+    let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)?;
+    plugin_host_state.bind_slot_instance(slot.id, instance_id);
+
+    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+    let instance = host
+        .get_mut(instance_id)
+        .ok_or_else(|| format!("Plugin instance not found: {instance_id}"))?;
+    instance
+        .set_parameter(param_index, normalized)
+        .map_err(|e| format!("Failed to set external plugin parameter {param_index}: {e}"))?;
+    drop(host);
+
+    clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
+
+    log::debug!(
+        "[IPC] set_external_plugin_param_for_slot_cmd(track={}, slot={}, idx={}, value={:.4})",
+        track_id,
+        slot_id,
         param_index,
         normalized
     );
@@ -610,6 +773,66 @@ fn get_external_plugin_params(
         });
     }
     Ok(out)
+}
+
+#[tauri::command]
+fn get_external_plugin_params_for_slot(
+    track_id: String,
+    slot_id: String,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<Vec<ExternalPluginParamInfo>, String> {
+    fn fallback_param_block(metadata_count: usize) -> Vec<ExternalPluginParamInfo> {
+        let count = if metadata_count > 0 { metadata_count } else { 16 }.min(128);
+        (0..count)
+            .map(|idx| ExternalPluginParamInfo {
+                index: idx as u32,
+                name: format!("Param {}", idx + 1),
+                min: 0.0,
+                max: 1.0,
+                step: 0.001,
+                value: 0.5,
+            })
+            .collect()
+    }
+
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
+    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
+        .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
+
+    if slot.plugin_id.starts_with("internal://") {
+        return Ok(Vec::new());
+    }
+
+    let metadata_count = slot.external_parameter_count.unwrap_or(0).max(0) as usize;
+    let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)?;
+    plugin_host_state.bind_slot_instance(slot.id, instance_id);
+
+    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+    let Some(instance) = host.get_mut(instance_id) else {
+        return Ok(fallback_param_block(metadata_count));
+    };
+    let count_hint = instance.parameter_count().max(metadata_count as u32);
+    let count = (if count_hint > 0 { count_hint } else { 16 }).min(128);
+
+    let mut params = Vec::with_capacity(count as usize);
+    for idx in 0..count {
+        params.push(ExternalPluginParamInfo {
+            index: idx,
+            name: format!("Param {}", idx + 1),
+            min: 0.0,
+            max: 1.0,
+            step: 0.001,
+            value: instance.get_parameter(idx).unwrap_or(0.5),
+        });
+    }
+    drop(host);
+
+    clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
+    Ok(params)
 }
 
 /// Snapshot plugin sandbox runtime (supervisor + instance statuses).

@@ -23,8 +23,8 @@ include!("sections/device_rack.rs");
 
 // ═══════════════════════════════════════════════════════════════════════
 
-pub(crate) fn invoke_handler()
--> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
+pub(crate) fn invoke_handler(
+) -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         // Transport
         play,
@@ -147,9 +147,12 @@ pub(crate) fn invoke_handler()
         connect_midi_input,
         // Epic 2: plugin windows + routing
         open_plugin_window,
+        open_plugin_window_for_slot,
         can_open_plugin_editor,
+        can_open_plugin_editor_for_slot,
         close_plugin_window,
         get_external_plugin_params,
+        get_external_plugin_params_for_slot,
         get_plugin_sandbox_runtime,
         set_plugin_sandbox_enabled,
         tick_plugin_sandbox_watchdog,
@@ -162,6 +165,7 @@ pub(crate) fn invoke_handler()
         remove_plugin_from_track_cmd,
         set_internal_plugin_param_cmd,
         set_external_plugin_param_cmd,
+        set_external_plugin_param_for_slot_cmd,
         set_sampler_sample_cmd,
         eager_activate_external_plugins,
         // Device Chain

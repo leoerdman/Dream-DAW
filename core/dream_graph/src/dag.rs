@@ -358,12 +358,14 @@ impl AudioDag {
         let mut max_depth = 0usize;
 
         for &node_idx in topo_order {
-            let node_depth = self
-                .inputs(node_idx)
-                .into_iter()
-                .map(|src| depth[src.index()] + 1)
-                .max()
-                .unwrap_or(0);
+            let mut node_depth = 0usize;
+            for edge in self
+                .graph
+                .edges_directed(node_idx, petgraph::Direction::Incoming)
+            {
+                let src = edge.source();
+                node_depth = node_depth.max(depth[src.index()] + 1);
+            }
             depth[node_idx.index()] = node_depth;
             max_depth = max_depth.max(node_depth);
         }

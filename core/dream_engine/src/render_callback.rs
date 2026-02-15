@@ -22,7 +22,7 @@ use dream_clip_engine::reader::ClipReader;
 use dream_clip_engine::scheduler::{ActiveClipInfo, ClipScheduler, LoopRegion as ClipLoopRegion};
 use dream_dsp::device_chain::DeviceChain;
 use dream_dsp::fades::FadeCache;
-use dream_ipc::metering::{MeterBank, compute_peak, compute_rms, linear_to_db};
+use dream_ipc::metering::{compute_peak, compute_rms, linear_to_db, MeterBank};
 use dream_mixer::{ChannelStrip, SummingBus};
 use dream_transport::Playhead;
 
@@ -58,12 +58,12 @@ pub struct TrackSlot {
 
 impl TrackSlot {
     /// Creates a new pre-allocated track slot.
-    pub fn new(max_frames: usize) -> Self {
+    pub fn new(max_frames: usize, sample_rate: f64) -> Self {
         Self {
             buf_left: vec![0.0; max_frames],
             buf_right: vec![0.0; max_frames],
             strip: ChannelStrip::new(),
-            device_chain: DeviceChain::new(44100.0),
+            device_chain: DeviceChain::new(sample_rate as f32),
             active: false,
         }
     }
@@ -168,7 +168,7 @@ impl RenderContext {
         let actual_tracks = track_count.min(MAX_TRACKS);
         let mut track_slots: Vec<TrackSlot> = Vec::with_capacity(actual_tracks);
         for _ in 0..actual_tracks {
-            track_slots.push(TrackSlot::new(MAX_BUFFER_FRAMES));
+            track_slots.push(TrackSlot::new(MAX_BUFFER_FRAMES, sample_rate));
         }
 
         Self {

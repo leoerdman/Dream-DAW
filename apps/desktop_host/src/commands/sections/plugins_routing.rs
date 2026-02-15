@@ -270,6 +270,7 @@ fn open_plugin_window(
     plugin_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     if plugin_host_state.open_sandbox_editor(&plugin_id)? {
         log::info!("[IPC] open_plugin_window({plugin_id}) -> already managed by sandbox host");
@@ -286,9 +287,19 @@ fn open_plugin_window(
         if let Ok(project) = project_state.project.lock() {
             bind_runtime_instance_for_plugin_slots(&project, &plugin_id, instance_id, &plugin_host_state);
         }
-        let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-        host.open_editor(instance_id)
-            .map_err(|e| format!("Failed to open existing plugin editor: {e}"))?;
+        let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        app.run_on_main_thread(move || {
+            let result = (|| {
+                let mut host = host_arc.lock().map_err(|e| e.to_string())?;
+                host.open_editor(instance_id)
+                    .map_err(|e| format!("Failed to open existing plugin editor: {e}"))
+            })();
+            let _ = tx.send(result);
+        })
+        .map_err(|e| format!("Failed to schedule GUI open on main thread: {e}"))?;
+        rx.recv()
+            .map_err(|e| format!("Failed to receive GUI open result: {e}"))??;
         log::info!("[IPC] open_plugin_window({plugin_id}) -> reuse instance {instance_id}");
         return Ok(());
     }
@@ -314,26 +325,46 @@ fn open_plugin_window(
         }
     }
 
-    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-    let instance_id = host
-        .load_vst3(descriptor.clone())
-        .map_err(|e| format!("Failed to load plugin '{}': {e}", descriptor.name))?;
-    if let Ok(project) = project_state.project.lock()
-        && let Some(slot) = find_project_plugin_slot(&project, &plugin_id)
-        && let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, &slot)
+    let descriptor = plugin_host_state.resolve_descriptor(&plugin_id)?;
+    let instance_id = if let Some(existing) = plugin_host_state
+        .loaded_by_key
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(&plugin_id)
+        .copied()
     {
-        log::warn!(
-            "[PluginState] Could not restore imported state for '{}': {}",
-            slot.name,
-            err
-        );
-    }
-    if let Err(err) = host.open_editor(instance_id) {
-        // Roll back loaded instance on editor-open failure to avoid leaked/ghost instances.
-        let _ = host.remove(instance_id);
-        return Err(format!("Plugin loaded but editor failed to open: {err}"));
-    }
-    drop(host);
+        existing
+    } else {
+        let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+        let loaded = host
+            .load_vst3(descriptor.clone())
+            .map_err(|e| format!("Failed to load plugin '{}': {e}", descriptor.name))?;
+        if let Ok(project) = project_state.project.lock()
+            && let Some(slot) = find_project_plugin_slot(&project, &plugin_id)
+            && let Err(err) = apply_imported_external_state_blob(&mut host, loaded, &slot)
+        {
+            log::warn!(
+                "[PluginState] Could not restore imported state for '{}': {}",
+                slot.name,
+                err
+            );
+        }
+        drop(host);
+        loaded
+    };
+    let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
+    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+    app.run_on_main_thread(move || {
+        let result = (|| {
+            let mut host = host_arc.lock().map_err(|e| e.to_string())?;
+            host.open_editor(instance_id)
+                .map_err(|e| format!("Plugin loaded but editor failed to open: {e}"))
+        })();
+        let _ = tx.send(result);
+    })
+    .map_err(|e| format!("Failed to schedule GUI open on main thread: {e}"))?;
+    rx.recv()
+        .map_err(|e| format!("Failed to receive GUI open result: {e}"))??;
 
     plugin_host_state
         .loaded_by_key
@@ -359,6 +390,7 @@ fn open_plugin_window_for_slot(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
@@ -376,9 +408,22 @@ fn open_plugin_window_for_slot(
 
     let mut first_open_err: Option<String> = None;
     {
-        let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-        if let Err(err) = host.open_editor(instance_id) {
-            first_open_err = Some(err.to_string());
+        let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        app.run_on_main_thread(move || {
+            let result = (|| {
+                let mut host = host_arc.lock().map_err(|e| e.to_string())?;
+                host.open_editor(instance_id)
+                    .map_err(|e| e.to_string())
+            })();
+            let _ = tx.send(result);
+        })
+        .map_err(|e| format!("Failed to schedule GUI open on main thread: {e}"))?;
+        if let Err(err) = rx
+            .recv()
+            .map_err(|e| format!("Failed to receive GUI open result: {e}"))?
+        {
+            first_open_err = Some(err);
         }
     }
 
@@ -401,14 +446,26 @@ fn open_plugin_window_for_slot(
         let recovered_instance = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)?;
         plugin_host_state.bind_slot_instance(slot.id, recovered_instance);
         {
-            let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-            host.open_editor(recovered_instance).map_err(|e| {
-                format!(
-                    "Failed to open plugin editor (retry after reload). First error: {}. Retry error: {}",
-                    first_err,
-                    e
-                )
-            })?;
+            let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
+            let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+            app.run_on_main_thread(move || {
+                let result = (|| {
+                    let mut host = host_arc.lock().map_err(|e| e.to_string())?;
+                    host.open_editor(recovered_instance)
+                        .map_err(|e| e.to_string())
+                })();
+                let _ = tx.send(result);
+            })
+            .map_err(|e| format!("Failed to schedule GUI open retry on main thread: {e}"))?;
+            rx.recv()
+                .map_err(|e| format!("Failed to receive GUI open retry result: {e}"))?
+                .map_err(|e| {
+                    format!(
+                        "Failed to open plugin editor (retry after reload). First error: {}. Retry error: {}",
+                        first_err,
+                        e
+                    )
+                })?;
         }
     }
 
@@ -658,6 +715,35 @@ fn ensure_plugin_slot_active_cmd(
     Ok(())
 }
 
+/// Unload an external plugin slot instance from runtime (slot-scoped).
+#[tauri::command]
+fn unload_plugin_slot_cmd(
+    track_id: String,
+    slot_id: String,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
+    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
+        .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
+
+    if slot.plugin_id.starts_with("internal://") {
+        return Ok(());
+    }
+
+    plugin_host_state.unload_slot_instance(slot.id)?;
+    clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
+    log::info!(
+        "[IPC] unload_plugin_slot_cmd(track={}, slot={})",
+        track_id,
+        slot_id
+    );
+    Ok(())
+}
+
 /// Close plugin native GUI window.
 #[tauri::command]
 fn close_plugin_window(
@@ -685,6 +771,62 @@ fn close_plugin_window(
     } else {
         log::info!("[IPC] close_plugin_window({plugin_id}) -> no loaded instance");
     }
+    Ok(())
+}
+
+/// Close native editor for a specific plugin slot without unloading processing state.
+#[tauri::command]
+fn close_plugin_window_for_slot(
+    track_id: String,
+    slot_id: String,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<(), String> {
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
+        .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
+
+    if slot.plugin_id.starts_with("internal://") {
+        return Ok(());
+    }
+
+    if let Some(instance_id) = plugin_host_state.slot_instance_snapshot().get(&slot.id).copied() {
+        let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+        if let Err(err) = host.close_editor(instance_id) {
+            log::warn!(
+                "[IPC] close_plugin_window_for_slot(track={}, slot={}) failed to close in-process editor for {}: {}",
+                track_id,
+                slot_id,
+                instance_id,
+                err
+            );
+        }
+    }
+
+    if let Some(instance_id) = plugin_host_state
+        .loaded_sandbox_by_key
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(&slot.plugin_id)
+        .copied()
+    {
+        let mut supervisor = plugin_host_state
+            .sandbox_supervisor
+            .lock()
+            .map_err(|e| e.to_string())?;
+        if let Err(err) = supervisor.send_close_editor(instance_id) {
+            log::warn!(
+                "[IPC] close_plugin_window_for_slot(track={}, slot={}) failed to close sandbox editor for {}: {}",
+                track_id,
+                slot_id,
+                instance_id,
+                err
+            );
+        }
+    }
+
     Ok(())
 }
 
@@ -773,7 +915,8 @@ fn set_external_plugin_param_for_slot_cmd(
     {
         let mut project_mut = project_state.project.lock().map_err(|e| e.to_string())?;
         if let Some(track_mut) = project_mut.tracks.iter_mut().find(|t| t.id == track_uuid) {
-            let lane_param_id = format!("slot:{}:ext_param_{}", slot.id, param_index);
+            let lane_param_id = format!("ext:{}:{}", slot.id, param_index);
+            let legacy_param_id = format!("slot:{}:ext_param_{}", slot.id, param_index);
             let point = dream_models::project::AutomationPoint {
                 beat: 0.0,
                 value: normalized,
@@ -784,6 +927,10 @@ fn set_external_plugin_param_for_slot_cmd(
                 bezier_cp2x: None,
                 bezier_cp2y: None,
             };
+            track_mut
+                .automation_lanes
+                .retain(|lane| !lane.param_id.eq_ignore_ascii_case(&legacy_param_id));
+
             if let Some(existing_lane) = track_mut
                 .automation_lanes
                 .iter_mut()

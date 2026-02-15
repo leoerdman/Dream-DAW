@@ -415,6 +415,10 @@ impl GraphRenderer {
 
         self.configure_edge_pdc(&plan.edge_delay_compensation);
 
+        // Topology/latency changes can leave stale samples in delay lines.
+        // Reset runtime buffers after every plan reconfiguration.
+        self.reset();
+
         // Log the plan for diagnostics
         log::info!(
             "[GraphRenderer] Plan updated: {} nodes, {} stages, {} node-PDC, {} edge-PDC",

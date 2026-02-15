@@ -43,8 +43,8 @@ use arc_swap::ArcSwap;
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
 use dream_engine::driver::{
     AutomationPoint, MidiFxRuntimeConfig, MidiTrackRuntime, SharedAutomationSnapshot,
-    SharedClipSnapshot, SharedExternalFxSnapshot, SharedRoutingSnapshot, SharedSidechainSnapshot,
-    TrackAutomationState,
+    SharedClipSnapshot, SharedExternalFxSnapshot, SharedPreparedGraphSnapshot,
+    SharedRoutingSnapshot, SharedSidechainSnapshot, TrackAutomationState,
 };
 use dream_engine::offline_bounce::{BounceConfig, OfflineBouncer};
 use dream_engine::recording::RecordingSession;
@@ -109,6 +109,7 @@ struct AudioEngineHandle {
     clip_snapshot: Arc<SharedClipSnapshot>,
     midi_snapshot: Arc<dream_engine::driver::SharedMidiSnapshot>,
     routing_snapshot: Arc<SharedRoutingSnapshot>,
+    prepared_graph_snapshot: Arc<SharedPreparedGraphSnapshot>,
     sidechain_snapshot: Arc<SharedSidechainSnapshot>,
     external_fx_snapshot: Arc<SharedExternalFxSnapshot>,
     automation_snapshot: Arc<SharedAutomationSnapshot>,
@@ -1989,6 +1990,9 @@ struct ClipPoolState {
     /// Atomic snapshot of per-track routing destinations for DAG rendering.
     routing_snapshot: Arc<SharedRoutingSnapshot>,
 
+    /// Prebuilt DAG+plan snapshot consumed by the audio callback.
+    prepared_graph_snapshot: Arc<SharedPreparedGraphSnapshot>,
+
     /// Atomic snapshot of internal effect sidechain source mapping.
     sidechain_snapshot: Arc<SharedSidechainSnapshot>,
 
@@ -2003,6 +2007,7 @@ impl ClipPoolState {
             arc_pool: Arc::new(ArcSwap::from_pointee(ClipPool::new())),
             snapshot: Arc::new(SharedClipSnapshot::new()),
             routing_snapshot: Arc::new(SharedRoutingSnapshot::new()),
+            prepared_graph_snapshot: Arc::new(SharedPreparedGraphSnapshot::new()),
             sidechain_snapshot: Arc::new(SharedSidechainSnapshot::new()),
             external_fx_snapshot: Arc::new(SharedExternalFxSnapshot::new()),
         }
@@ -2033,6 +2038,9 @@ impl ClipPoolState {
             })
             .collect();
         self.routing_snapshot.swap(routing);
+        let routing_now = self.routing_snapshot.load();
+        self.prepared_graph_snapshot
+            .rebuild_for_routing(project.tracks.len(), routing_now.as_ref());
 
         let sidechains: Vec<Vec<Option<usize>>> = project
             .tracks
@@ -3214,6 +3222,7 @@ pub fn run() {
     rebuild_automation_snapshot_from_project(&bootstrap_project, &automation_runtime);
     let sampler_samples = Arc::new(dream_engine::driver::SharedSamplerSamples::new());
     let routing_snapshot_for_engine = Arc::clone(&clip_pool_state.routing_snapshot);
+    let prepared_graph_snapshot_for_engine = Arc::clone(&clip_pool_state.prepared_graph_snapshot);
     let sidechain_snapshot_for_engine = Arc::clone(&clip_pool_state.sidechain_snapshot);
     let external_fx_snapshot_for_engine = Arc::clone(&clip_pool_state.external_fx_snapshot);
     let midi_snapshot_for_engine = Arc::clone(&midi_snapshot);
@@ -3223,6 +3232,7 @@ pub fn run() {
     let clip_snapshot_for_handle = Arc::clone(&clip_pool_state.snapshot);
     let midi_snapshot_for_handle = Arc::clone(&midi_snapshot);
     let routing_snapshot_for_handle = Arc::clone(&clip_pool_state.routing_snapshot);
+    let prepared_graph_snapshot_for_handle = Arc::clone(&clip_pool_state.prepared_graph_snapshot);
     let sidechain_snapshot_for_handle = Arc::clone(&clip_pool_state.sidechain_snapshot);
     let external_fx_snapshot_for_handle = Arc::clone(&clip_pool_state.external_fx_snapshot);
     let automation_snapshot_for_handle = Arc::clone(&automation_runtime.snapshot);
@@ -3252,6 +3262,7 @@ pub fn run() {
         external_fx_snapshot_for_engine,
         automation_snapshot_for_engine,
         sampler_samples_for_engine,
+        prepared_graph_snapshot_for_engine,
         plugin_host_for_engine,
         preview_buffer_for_engine,
         preview_cursor_for_engine,
@@ -3279,6 +3290,7 @@ pub fn run() {
         clip_snapshot: clip_snapshot_for_handle,
         midi_snapshot: midi_snapshot_for_handle,
         routing_snapshot: routing_snapshot_for_handle,
+        prepared_graph_snapshot: prepared_graph_snapshot_for_handle,
         sidechain_snapshot: sidechain_snapshot_for_handle,
         external_fx_snapshot: external_fx_snapshot_for_handle,
         automation_snapshot: automation_snapshot_for_handle,

@@ -84,7 +84,6 @@ export const TransportBar = ({
     })();
 
     const tapTimestamps = useRef<number[]>([]);
-    const [cpuPercent] = useState(4);
     const midiLedRef = useRef<HTMLSpanElement>(null);
     const midiLedTimerRef = useRef<number | null>(null);
     const [pdcOpen, setPdcOpen] = useState(false);
@@ -349,7 +348,7 @@ export const TransportBar = ({
 
                 <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
                     <PillSection>
-                        <TransportBtn icon={<Rewind size={13} fill="currentColor" />} title="Rewind" onClick={() => { }} />
+                        <TransportBtn icon={<Rewind size={13} fill="currentColor" />} title="Rewind to Start" onClick={() => { void engineApi.seekToBeat(0); }} />
                         <TransportBtn
                             icon={<Play size={13} fill="currentColor" />}
                             title="Play"
@@ -452,7 +451,7 @@ export const TransportBar = ({
                         />
                         <span style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 600, color: 'var(--color-midi-indicator)' }}>MIDI</span>
                         <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-                            CPU {cpuPercent}%
+                            {projectTracks.length} Tracks
                         </span>
                         <button
                             onClick={() => setPdcOpen((v) => !v)}

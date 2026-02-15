@@ -553,7 +553,7 @@ export const DawShell = () => {
     const TRACK_HEIGHT_DEFAULT = 48;
     const TRACK_HEIGHT_MIN = 24;
     const TRACK_HEIGHT_MAX = 120;
-    const TRACK_HEIGHT_STEP = 8;
+    const TRACK_HEIGHT_STEP = 4;
     const TRACK_HEIGHT = trackHeightPx;
     const trackHeightReadyRef = useRef(false);
     const trackHeightSourceTrackRef = useRef<string | null>(null);

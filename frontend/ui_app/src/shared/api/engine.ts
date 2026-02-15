@@ -880,9 +880,17 @@ export const getPluginSlotRuntimeStatus = (trackId: string, slotId: string) =>
 export const ensurePluginSlotActive = (trackId: string, slotId: string) =>
     invoke<void>('ensure_plugin_slot_active_cmd', { trackId, slotId });
 
+/** Explicitly unload external plugin slot instance from runtime. */
+export const unloadPluginSlot = (trackId: string, slotId: string) =>
+    invoke<void>('unload_plugin_slot_cmd', { trackId, slotId });
+
 /** Close an open plugin window. */
 export const closePluginWindow = (pluginId: string) =>
     invoke<void>('close_plugin_window', { pluginId });
+
+/** Close native editor session for exact track/slot (keeps plugin loaded). */
+export const closePluginWindowForSlot = (trackId: string, slotId: string) =>
+    invoke<void>('close_plugin_window_for_slot', { trackId, slotId });
 
 export type PluginSandboxStatus = 'spawning' | 'running' | 'timed_out' | 'crashed' | 'stopped';
 

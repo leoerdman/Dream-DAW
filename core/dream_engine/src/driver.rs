@@ -24,12 +24,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use arc_swap::ArcSwap;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use dream_graph::{AudioDag, AudioNode, GraphBuilder, GraphRenderer, LiveGraph, NodeId, NodeKind};
+use dream_graph::{
+    AudioDag, AudioNode, ExecutionPlan, GraphBuilder, GraphRenderer, LiveGraph, NodeId, NodeKind,
+};
 use dream_plugins::{PluginHost, TransportContext};
 use log::{error, info};
 use uuid::Uuid;
 
-use dream_clip_engine::midi_scheduler::MidiScheduler;
+use dream_clip_engine::midi_scheduler::{MidiScheduler, ScheduledNote};
 use dream_clip_engine::pool::ClipAudio;
 use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::scheduler::LoopRegion;
@@ -572,6 +574,20 @@ fn parse_external_param_target(param_key: &str) -> Option<ExternalParamTarget> {
         return None;
     }
 
+    // ext:<slot_uuid>:<param_index> (canonical key)
+    if let Some(rest) = key.strip_prefix("ext:") {
+        let mut parts = rest.splitn(2, ':');
+        let slot_id_str = parts.next()?;
+        let param_index_str = parts.next()?;
+        let slot_id = Uuid::parse_str(slot_id_str).ok()?;
+        let idx = param_index_str.parse::<u32>().ok()?;
+        return Some(ExternalParamTarget {
+            slot_id: Some(slot_id),
+            slot_index: None,
+            param_index: idx,
+        });
+    }
+
     // slot:<uuid>:ext_param_<idx>
     if let Some(rest) = key.strip_prefix("slot:") {
         let mut parts = rest.splitn(2, ':');
@@ -756,6 +772,100 @@ fn build_dag_for_tracks(track_count: usize, routing: &[Option<usize>]) -> AudioD
         log::warn!("[Graph] build failed ({}), fallback to linear graph", err);
         build_linear_dag(track_count)
     })
+}
+
+fn build_master_only_dag() -> AudioDag {
+    GraphBuilder::new()
+        .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
+        .build()
+        .expect("master-only graph must be valid")
+}
+
+#[derive(Debug, Clone)]
+pub struct PreparedGraphSnapshot {
+    pub dag: AudioDag,
+    pub plan: ExecutionPlan,
+    pub track_count: usize,
+    pub generation: u64,
+}
+
+impl PreparedGraphSnapshot {
+    fn master_only() -> Self {
+        let dag = build_master_only_dag();
+        let plan = LiveGraph::from_dag(&dag)
+            .map(|live| (*live.load_full()).clone())
+            .unwrap_or_else(|_| ExecutionPlan {
+                processing_order: Vec::new(),
+                delay_compensation: Vec::new(),
+                edge_delay_compensation: Vec::new(),
+                parallel_stages: Vec::new(),
+                parallelism_metrics: dream_graph::dag::ParallelismMetrics::default(),
+            });
+        Self {
+            dag,
+            plan,
+            track_count: 0,
+            generation: 0,
+        }
+    }
+}
+
+pub fn prepare_graph_snapshot_for_routing(
+    track_count: usize,
+    routing: &[Option<usize>],
+    generation: u64,
+) -> PreparedGraphSnapshot {
+    let safe_track_count = track_count.min(64);
+    let dag = build_dag_for_tracks(safe_track_count, routing);
+    let plan = LiveGraph::from_dag(&dag)
+        .map(|live| (*live.load_full()).clone())
+        .unwrap_or_else(|_| ExecutionPlan {
+            processing_order: Vec::new(),
+            delay_compensation: Vec::new(),
+            edge_delay_compensation: Vec::new(),
+            parallel_stages: Vec::new(),
+            parallelism_metrics: dream_graph::dag::ParallelismMetrics::default(),
+        });
+
+    PreparedGraphSnapshot {
+        dag,
+        plan,
+        track_count: safe_track_count,
+        generation,
+    }
+}
+
+pub struct SharedPreparedGraphSnapshot {
+    inner: ArcSwap<PreparedGraphSnapshot>,
+    generation: std::sync::atomic::AtomicU64,
+}
+
+impl SharedPreparedGraphSnapshot {
+    pub fn new() -> Self {
+        Self {
+            inner: ArcSwap::from_pointee(PreparedGraphSnapshot::master_only()),
+            generation: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    pub fn rebuild_for_routing(&self, track_count: usize, routing: &[Option<usize>]) {
+        let generation = self
+            .generation
+            .fetch_add(1, Ordering::Relaxed)
+            .saturating_add(1);
+        let snapshot = prepare_graph_snapshot_for_routing(track_count, routing, generation);
+        self.inner.store(Arc::new(snapshot));
+    }
+
+    pub fn load(&self) -> arc_swap::Guard<Arc<PreparedGraphSnapshot>> {
+        self.inner.load()
+    }
+}
+
+impl Default for SharedPreparedGraphSnapshot {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ── Shared Sampler Samples (LOCK-FREE) ─────────────────────────────────
@@ -945,6 +1055,7 @@ pub fn start_audio_thread(
     external_fx_snapshot: Arc<SharedExternalFxSnapshot>,
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<SharedSamplerSamples>,
+    prepared_graph_snapshot: Arc<SharedPreparedGraphSnapshot>,
     plugin_host: Arc<Mutex<PluginHost>>,
     preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
@@ -961,6 +1072,7 @@ pub fn start_audio_thread(
         external_fx_snapshot,
         automation_snapshot,
         sampler_samples,
+        prepared_graph_snapshot,
         plugin_host,
         preview_buffer,
         preview_cursor,
@@ -985,6 +1097,7 @@ pub fn start_audio_thread_on_device(
     external_fx_snapshot: Arc<SharedExternalFxSnapshot>,
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<SharedSamplerSamples>,
+    prepared_graph_snapshot: Arc<SharedPreparedGraphSnapshot>,
     plugin_host: Arc<Mutex<PluginHost>>,
     preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
@@ -1044,16 +1157,15 @@ pub fn start_audio_thread_on_device(
         Arc::clone(&meter_bank),
     );
     let mut graph_renderer = GraphRenderer::new(256, 8192);
-    let mut live_graph = LiveGraph::empty();
-    let mut graph_dag = GraphBuilder::new()
-        .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
-        .build()
-        .expect("master-only graph must be valid");
+    let prepared_graph = prepared_graph_snapshot.load();
+    let mut graph_dag = prepared_graph.dag.clone();
+    let mut graph_plan = prepared_graph.plan.clone();
     let mut graph_out_left = vec![0.0f32; 8192];
     let mut graph_out_right = vec![0.0f32; 8192];
     let mut post_sum_processing_mask = vec![false; 64];
-    let mut graph_last_generation = u64::MAX;
-    let mut graph_last_track_count = usize::MAX;
+    graph_renderer.update_plan(&graph_plan, &graph_dag);
+    let mut graph_last_generation = prepared_graph.generation;
+    let mut graph_last_track_count = prepared_graph.track_count;
 
     // ── 4. Test tone state (fallback when no clips loaded) ──────────
     let mut test_tone_phase: f64 = 0.0;
@@ -1084,6 +1196,9 @@ pub fn start_audio_thread_on_device(
     let mut sampler_right = vec![0.0f32; 8192];
     let mut external_left = vec![0.0f32; 8192];
     let mut external_right = vec![0.0f32; 8192];
+    let mut midi_schedule_scratch: Vec<ScheduledNote> = Vec::with_capacity(512);
+    let mut midi_schedule_tmp: Vec<ScheduledNote> = Vec::with_capacity(512);
+    let mut midi_events_scratch: Vec<(usize, u8, u8, u8)> = Vec::with_capacity(1024);
     // Track which samples were last loaded per-track to avoid re-assigning
     let _last_sample_generation: u64 = 0;
 
@@ -1459,25 +1574,17 @@ pub fn start_audio_thread_on_device(
                             }
 
                             // ── B0. Rebuild graph on routing/track topology changes ─────────
-                            let route_gen = routing_snapshot.generation();
                             let snapshot = clip_snapshot.load();
                             let track_count = snapshot.len().min(64);
-
-                            if route_gen != graph_last_generation
-                                || track_count != graph_last_track_count
+                            let prepared = prepared_graph_snapshot.load();
+                            if prepared.generation != graph_last_generation
+                                || prepared.track_count != graph_last_track_count
                             {
-                                let routing = routing_snapshot.load();
-                                let new_dag = build_dag_for_tracks(track_count, &routing);
-                                graph_dag = new_dag;
-                                if live_graph.swap_graph(&graph_dag).is_err()
-                                    && let Ok(new_live) = LiveGraph::from_dag(&graph_dag)
-                                {
-                                    live_graph = new_live;
-                                }
-                                let plan = live_graph.load();
-                                graph_renderer.update_plan(&plan, &graph_dag);
-                                graph_last_generation = route_gen;
-                                graph_last_track_count = track_count;
+                                graph_dag = prepared.dag.clone();
+                                graph_plan = prepared.plan.clone();
+                                graph_renderer.update_plan(&graph_plan, &graph_dag);
+                                graph_last_generation = prepared.generation;
+                                graph_last_track_count = prepared.track_count;
                             }
 
                             // Tracks that receive routed input should apply strip/device
@@ -1532,9 +1639,8 @@ pub fn start_audio_thread_on_device(
                                 graph_out_left[..n].fill(0.0);
                                 graph_out_right[..n].fill(0.0);
 
-                                let plan = live_graph.load();
                                 graph_renderer.render(
-                                    &plan,
+                                    &graph_plan,
                                     &graph_dag,
                                     n,
                                     &mut graph_out_left[..n],
@@ -1862,11 +1968,13 @@ pub fn start_audio_thread_on_device(
                                     .loop_region
                                     .as_ref()
                                     .map(|r| dream_clip_engine::LoopRegion::new(r.start, r.end));
-                                let events = MidiScheduler::find_active_looped(
+                                MidiScheduler::fill_active_looped_with_tmp(
                                     &midi_track.clips,
                                     midi_playhead_pos,
                                     frame_count,
                                     midi_loop_region.as_ref(),
+                                    &mut midi_schedule_scratch,
+                                    &mut midi_schedule_tmp,
                                 );
 
                                 let fc = frame_count.min(sampler_left.len());
@@ -1879,11 +1987,15 @@ pub fn start_audio_thread_on_device(
                                 // Convert scheduled note windows into instantaneous events
                                 // and process them at exact sample offsets in this buffer.
                                 // kind: 0 = note-off, 1 = note-on (off first at same frame).
-                                let mut midi_events: Vec<(usize, u8, u8, u8)> =
-                                    Vec::with_capacity(events.len().saturating_mul(2));
-                                for event in &events {
+                                midi_events_scratch.clear();
+                                let reserve_target = midi_schedule_scratch.len().saturating_mul(2);
+                                if midi_events_scratch.capacity() < reserve_target {
+                                    midi_events_scratch
+                                        .reserve(reserve_target - midi_events_scratch.capacity());
+                                }
+                                for event in &midi_schedule_scratch {
                                     if event.is_note_off {
-                                        midi_events.push((
+                                        midi_events_scratch.push((
                                             event.buffer_offset_end.min(fc),
                                             0,
                                             event.pitch,
@@ -1891,7 +2003,7 @@ pub fn start_audio_thread_on_device(
                                         ));
                                     }
                                     if event.is_note_on {
-                                        midi_events.push((
+                                        midi_events_scratch.push((
                                             event.buffer_onset.min(fc),
                                             1,
                                             event.pitch,
@@ -1899,14 +2011,14 @@ pub fn start_audio_thread_on_device(
                                         ));
                                     }
                                 }
-                                midi_events.sort_by(|a, b| {
+                                midi_events_scratch.sort_by(|a, b| {
                                     a.0.cmp(&b.0)
                                         .then_with(|| a.1.cmp(&b.1))
                                         .then_with(|| a.2.cmp(&b.2))
                                 });
 
                                 let mut cursor = 0usize;
-                                for (event_frame, kind, pitch, velocity) in midi_events {
+                                for (event_frame, kind, pitch, velocity) in midi_events_scratch.iter().copied() {
                                     let frame = event_frame.min(fc);
                                     if frame > cursor && engine.has_active_voices() {
                                         let seg = frame - cursor;

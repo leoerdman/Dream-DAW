@@ -27,7 +27,6 @@
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use log::info;
 
 use crate::dag::{AudioDag, ExecutionPlan, GraphError};
 use crate::pdc;
@@ -87,14 +86,7 @@ impl LiveGraph {
     pub fn swap_graph(&self, dag: &AudioDag) -> Result<(), GraphError> {
         let new_plan = Self::compute_plan(dag)?;
         let new_arc = Arc::new(new_plan);
-
-        let old = self.current_plan.swap(new_arc);
-
-        info!(
-            "🔄 Graph swapped: {} nodes → {} nodes",
-            old.processing_order.len(),
-            self.load().processing_order.len()
-        );
+        self.current_plan.store(new_arc);
 
         Ok(())
     }
@@ -110,6 +102,11 @@ impl LiveGraph {
     #[inline(always)]
     pub fn load(&self) -> arc_swap::Guard<Arc<ExecutionPlan>> {
         self.current_plan.load()
+    }
+
+    /// Returns an owned Arc clone of the current execution plan.
+    pub fn load_full(&self) -> Arc<ExecutionPlan> {
+        self.current_plan.load_full()
     }
 
     /// Computes an execution plan from a validated DAG.

@@ -288,7 +288,8 @@ export const StatusBar = ({
                     </span>
 
                     <StatusText>{trackCount} tracks</StatusText>
-                    <StatusText>{sampleRate} Hz</StatusText>
+                    <StatusText>{bpm.toFixed(1)} BPM</StatusText>
+                    <StatusText>{(sampleRate / 1000).toFixed(1)} kHz</StatusText>
                     {pluginSandbox && (
                         <StatusText
                             title={`Plugin Sandbox: ${pluginSandbox.enabled ? 'enabled' : 'disabled'}; instances=${pluginSandbox.instances.length}`}

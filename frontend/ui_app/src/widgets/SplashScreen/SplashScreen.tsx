@@ -24,6 +24,7 @@ interface SplashScreenProps {
 export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenProps) {
     const [status, setStatus] = useState('Initializing Audio Engine...')
     const [phase, setPhase] = useState<'visible' | 'fading' | 'done'>('visible')
+    const [progress, setProgress] = useState(0)
 
     const startTelemetryLoop = useEngineStore((s) => s.startTelemetryLoop)
 
@@ -66,6 +67,7 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
         }
 
         // 4. Now fade out the splash overlay
+        setProgress(100)
         setPhase('fading')
 
         // 5. After fade completes - mount Workspace
@@ -77,15 +79,15 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
 
     useEffect(() => {
         const steps = [
-            { text: 'Loading Core Modules...', delay: 500 },
-            { text: 'Initializing DSP Pipeline...', delay: 1100 },
-            { text: 'Scanning Audio Devices...', delay: 1700 },
-            { text: 'Preparing Workspace...', delay: 2100 },
-            { text: 'Ready', delay: 2400 },
+            { text: 'Loading Core Modules...', delay: 500, pct: 20 },
+            { text: 'Initializing DSP Pipeline...', delay: 1100, pct: 45 },
+            { text: 'Scanning Audio Devices...', delay: 1700, pct: 70 },
+            { text: 'Preparing Workspace...', delay: 2100, pct: 88 },
+            { text: 'Ready', delay: 2400, pct: 96 },
         ]
 
-        const timers = steps.map(({ text, delay }) =>
-            setTimeout(() => setStatus(text), delay)
+        const timers = steps.map(({ text, delay, pct }) =>
+            setTimeout(() => { setStatus(text); setProgress(pct); }, delay)
         )
 
         // Dismiss after minimum duration
@@ -132,6 +134,9 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
                 <div className="splash-status-container">
                     <div className="splash-spinner" />
                     <span className="splash-status">{status}</span>
+                    <div className="splash-progress-bar">
+                        <div className="splash-progress-fill" style={{ width: `${progress}%` }} />
+                    </div>
                 </div>
             </div>
         </div>

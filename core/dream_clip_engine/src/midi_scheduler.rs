@@ -46,23 +46,15 @@ pub struct ScheduledNote {
 pub struct MidiScheduler;
 
 impl MidiScheduler {
-    /// Finds all MIDI notes active within the current buffer window.
-    ///
-    /// # Arguments
-    /// - `clips`: All MIDI clips on a track.
-    /// - `playhead_pos`: Current playhead position (sample frames, absolute).
-    /// - `frame_count`: Size of the current buffer in frames.
-    ///
-    /// # Returns
-    /// A list of `ScheduledNote` events to process this buffer.
-    /// Notes are sorted by `buffer_onset` for sequential processing.
-    pub fn find_active(
+    /// Fills caller-provided output with active MIDI notes (zero alloc reuse).
+    pub fn fill_active(
         clips: &[MidiClip],
         playhead_pos: i64,
         frame_count: usize,
-    ) -> Vec<ScheduledNote> {
+        out: &mut Vec<ScheduledNote>,
+    ) {
+        out.clear();
         let buffer_end = playhead_pos + frame_count as i64;
-        let mut events = Vec::new();
 
         for clip in clips {
             // Skip muted clips — they remain visible but produce no MIDI output.
@@ -73,23 +65,19 @@ impl MidiScheduler {
             let clip_start = clip.position.sample_frame;
             let clip_end = clip.end_position().sample_frame;
 
-            // Skip clips entirely outside the buffer window
+            // Skip clips entirely outside the buffer window.
             if clip_end <= playhead_pos || clip_start >= buffer_end {
                 continue;
             }
 
-            // Process each note in this clip
             for note in &clip.notes {
-                // Convert note positions from clip-relative to absolute
                 let note_abs_start = clip_start + note.start_frame;
                 let note_abs_end = clip_start + note.end_frame();
 
-                // Skip notes entirely outside buffer
                 if note_abs_end <= playhead_pos || note_abs_start >= buffer_end {
                     continue;
                 }
 
-                // Calculate buffer-relative positions
                 let onset = if note_abs_start >= playhead_pos {
                     (note_abs_start - playhead_pos) as usize
                 } else {
@@ -105,8 +93,6 @@ impl MidiScheduler {
                 let is_note_on = note_abs_start >= playhead_pos && note_abs_start < buffer_end;
                 let is_note_off = note_abs_end > playhead_pos && note_abs_end <= buffer_end;
 
-                // Clip fades for MIDI clips: scale note-on velocity by fade envelope
-                // at the note start position inside the clip.
                 let clip_fade_in = clip.fade_in_frames.max(0) as f64;
                 let clip_fade_out = clip.fade_out_frames.max(0) as f64;
                 let clip_len = clip.duration.sample_frame.max(1) as f64;
@@ -126,7 +112,7 @@ impl MidiScheduler {
                     .round()
                     .clamp(1.0, 127.0) as u8;
 
-                events.push(ScheduledNote {
+                out.push(ScheduledNote {
                     pitch: note.pitch,
                     velocity: velocity_scaled,
                     buffer_onset: onset.min(frame_count),
@@ -137,17 +123,101 @@ impl MidiScheduler {
             }
         }
 
-        // Deterministic ordering:
-        // 1) earlier sample first
-        // 2) note-off before note-on at the same sample (prevents overlaps/stuck voices)
-        // 3) lower pitch first as a stable final tie-break
-        events.sort_by(|a, b| {
+        out.sort_by(|a, b| {
             a.buffer_onset
                 .cmp(&b.buffer_onset)
                 .then_with(|| a.is_note_on.cmp(&b.is_note_on))
                 .then_with(|| a.pitch.cmp(&b.pitch))
         });
+    }
+
+    /// Finds all MIDI notes active within the current buffer window.
+    ///
+    /// # Arguments
+    /// - `clips`: All MIDI clips on a track.
+    /// - `playhead_pos`: Current playhead position (sample frames, absolute).
+    /// - `frame_count`: Size of the current buffer in frames.
+    ///
+    /// # Returns
+    /// A list of `ScheduledNote` events to process this buffer.
+    /// Notes are sorted by `buffer_onset` for sequential processing.
+    pub fn find_active(
+        clips: &[MidiClip],
+        playhead_pos: i64,
+        frame_count: usize,
+    ) -> Vec<ScheduledNote> {
+        let mut events = Vec::new();
+        Self::fill_active(clips, playhead_pos, frame_count, &mut events);
         events
+    }
+
+    /// Loop-aware MIDI scheduling into caller-provided scratch output.
+    pub fn fill_active_looped_with_tmp(
+        clips: &[MidiClip],
+        playhead_pos: i64,
+        frame_count: usize,
+        loop_region: Option<&LoopRegion>,
+        out: &mut Vec<ScheduledNote>,
+        tmp: &mut Vec<ScheduledNote>,
+    ) {
+        let lr = match loop_region {
+            Some(lr) if lr.is_valid() => lr,
+            _ => {
+                Self::fill_active(clips, playhead_pos, frame_count, out);
+                return;
+            }
+        };
+
+        let buffer_end = playhead_pos + frame_count as i64;
+        if buffer_end <= lr.end {
+            Self::fill_active(clips, playhead_pos, frame_count, out);
+            return;
+        }
+
+        let pre_wrap_frames = (lr.end - playhead_pos).max(0) as usize;
+        let post_wrap_frames = frame_count.saturating_sub(pre_wrap_frames);
+
+        out.clear();
+        if pre_wrap_frames > 0 {
+            Self::fill_active(clips, playhead_pos, pre_wrap_frames, out);
+        }
+
+        if post_wrap_frames > 0 {
+            Self::fill_active(clips, lr.start, post_wrap_frames, tmp);
+            for mut note in tmp.iter().copied() {
+                note.buffer_onset += pre_wrap_frames;
+                note.buffer_offset_end += pre_wrap_frames;
+                note.buffer_onset = note.buffer_onset.min(frame_count);
+                note.buffer_offset_end = note.buffer_offset_end.min(frame_count);
+                out.push(note);
+            }
+        }
+
+        out.sort_by(|a, b| {
+            a.buffer_onset
+                .cmp(&b.buffer_onset)
+                .then_with(|| a.is_note_on.cmp(&b.is_note_on))
+                .then_with(|| a.pitch.cmp(&b.pitch))
+        });
+    }
+
+    /// Loop-aware MIDI scheduling into caller-provided scratch output.
+    pub fn fill_active_looped(
+        clips: &[MidiClip],
+        playhead_pos: i64,
+        frame_count: usize,
+        loop_region: Option<&LoopRegion>,
+        out: &mut Vec<ScheduledNote>,
+    ) {
+        let mut tmp = Vec::new();
+        Self::fill_active_looped_with_tmp(
+            clips,
+            playhead_pos,
+            frame_count,
+            loop_region,
+            out,
+            &mut tmp,
+        );
     }
 
     /// Loop-aware MIDI note scheduling.
@@ -168,54 +238,8 @@ impl MidiScheduler {
         frame_count: usize,
         loop_region: Option<&LoopRegion>,
     ) -> Vec<ScheduledNote> {
-        // If no valid loop region, fall back to standard linear scheduling.
-        let lr = match loop_region {
-            Some(lr) if lr.is_valid() => lr,
-            _ => return Self::find_active(clips, playhead_pos, frame_count),
-        };
-
-        let buffer_end = playhead_pos + frame_count as i64;
-
-        // If the buffer doesn't cross the loop end, standard scheduling is fine.
-        if buffer_end <= lr.end {
-            return Self::find_active(clips, playhead_pos, frame_count);
-        }
-
-        // ── Buffer crosses loop boundary — split into two segments ──
-
-        // Pre-wrap: frames from playhead to loop end
-        let pre_wrap_frames = (lr.end - playhead_pos).max(0) as usize;
-        // Post-wrap: remaining frames from loop start
-        let post_wrap_frames = frame_count.saturating_sub(pre_wrap_frames);
-
         let mut events = Vec::new();
-
-        // Schedule notes in the pre-wrap segment
-        if pre_wrap_frames > 0 {
-            events = Self::find_active(clips, playhead_pos, pre_wrap_frames);
-        }
-
-        // Schedule notes in the post-wrap segment (from loop start)
-        if post_wrap_frames > 0 {
-            let post_events = Self::find_active(clips, lr.start, post_wrap_frames);
-            for mut note in post_events {
-                // Shift buffer offsets to account for pre-wrap frames
-                note.buffer_onset += pre_wrap_frames;
-                note.buffer_offset_end += pre_wrap_frames;
-                // Clamp to total buffer size
-                note.buffer_onset = note.buffer_onset.min(frame_count);
-                note.buffer_offset_end = note.buffer_offset_end.min(frame_count);
-                events.push(note);
-            }
-        }
-
-        // Keep the same deterministic ordering rules as `find_active`.
-        events.sort_by(|a, b| {
-            a.buffer_onset
-                .cmp(&b.buffer_onset)
-                .then_with(|| a.is_note_on.cmp(&b.is_note_on))
-                .then_with(|| a.pitch.cmp(&b.pitch))
-        });
+        Self::fill_active_looped(clips, playhead_pos, frame_count, loop_region, &mut events);
         events
     }
 }

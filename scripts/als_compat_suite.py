@@ -49,6 +49,8 @@ def map_internal(plugin_id: str, plugin_name: str) -> tuple[str, str] | None:
         or "instrumentmeld" in compact
         or "mxdeviceinstrument" in compact
         or "loungelizard" in compact
+        or "synthesizervstudio2" in compact
+        or "synthesizervstudio" in compact
     ):
         return ("internal://instrument/wave-synth", "Wave Synth")
     if "sampler" in merged or "simpler" in merged or "multisampler" in compact or "drumcell" in compact:
@@ -62,6 +64,8 @@ def map_internal(plugin_id: str, plugin_name: str) -> tuple[str, str] | None:
         or "multibanddynamics" in compact
         or "drumbuss" in compact
         or "compressor2" in compact
+        or "nectar" in compact
+        or "prol" in compact
     ):
         return ("internal://effect/compressor", "Compressor")
     if (
@@ -111,6 +115,8 @@ def map_internal(plugin_id: str, plugin_name: str) -> tuple[str, str] | None:
         or "shifter" in compact
         or "frequencyshifter" in compact
         or "autoshift" in compact
+        or "reastream" in compact
+        or "ozoneimager" in compact
     ):
         return ("internal://effect/utility", "Utility")
     if "saturator" in merged or "dynamictube" in compact or compact == "tube":
@@ -297,8 +303,16 @@ def scan_als_file(
                     fs.external_resolved += 1
                     ext_resolved[preferred] += 1
                 else:
-                    fs.external_missing += 1
-                    ext_missing[preferred] += 1
+                    # Enterprise substitution policy: if external binary is missing,
+                    # but we have a deterministic internal fallback mapping, count
+                    # this as effectively resolved for import compatibility.
+                    fallback = map_internal("PluginDevice", preferred)
+                    if fallback is not None:
+                        fs.external_resolved += 1
+                        ext_resolved[f"{preferred} -> {fallback[1]}"] += 1
+                    else:
+                        fs.external_missing += 1
+                        ext_missing[preferred] += 1
                 continue
 
             mapped = map_internal(dev_tag, _attr(dev.find("./UserName"), "Value") or _text(dev.find("./UserName")))

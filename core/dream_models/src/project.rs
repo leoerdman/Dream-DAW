@@ -338,6 +338,22 @@ pub struct PluginSlot {
     /// External plugin version from ALS metadata.
     #[serde(default)]
     pub external_plugin_version: Option<String>,
+
+    /// Raw serialized external plugin state blob (typically base64), when present in ALS.
+    #[serde(default)]
+    pub external_state_blob: Option<String>,
+
+    /// Kind/source tag for `external_state_blob` (for diagnostics/reconstruction).
+    #[serde(default)]
+    pub external_state_blob_kind: Option<String>,
+
+    /// Raw serialized external plugin preset blob (typically base64), when present in ALS.
+    #[serde(default)]
+    pub external_preset_blob: Option<String>,
+
+    /// Kind/source tag for `external_preset_blob` (for diagnostics/reconstruction).
+    #[serde(default)]
+    pub external_preset_blob_kind: Option<String>,
 }
 
 impl PluginSlot {
@@ -356,6 +372,10 @@ impl PluginSlot {
             external_parameter_count: None,
             external_stored_all_parameters: None,
             external_plugin_version: None,
+            external_state_blob: None,
+            external_state_blob_kind: None,
+            external_preset_blob: None,
+            external_preset_blob_kind: None,
         }
     }
 }
@@ -1961,6 +1981,10 @@ mod tests {
             external_parameter_count: None,
             external_stored_all_parameters: None,
             external_plugin_version: None,
+            external_state_blob: None,
+            external_state_blob_kind: None,
+            external_preset_blob: None,
+            external_preset_blob_kind: None,
         }));
 
         track.effects.push(DeviceNode::Single(PluginSlot {
@@ -1976,6 +2000,10 @@ mod tests {
             external_parameter_count: None,
             external_stored_all_parameters: None,
             external_plugin_version: None,
+            external_state_blob: None,
+            external_state_blob_kind: None,
+            external_preset_blob: None,
+            external_preset_blob_kind: None,
         }));
 
         track.effects.push(DeviceNode::Single(PluginSlot {
@@ -1991,6 +2019,10 @@ mod tests {
             external_parameter_count: None,
             external_stored_all_parameters: None,
             external_plugin_version: None,
+            external_state_blob: None,
+            external_state_blob_kind: None,
+            external_preset_blob: None,
+            external_preset_blob_kind: None,
         }));
 
         assert_eq!(track.total_latency_frames(), 64 + 128); // Instrument + active effect

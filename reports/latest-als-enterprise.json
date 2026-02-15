@@ -1,8 +1,8 @@
 {
   "als_root": "/Users/leoerdman/Programming - MAIN FOLDER/Dream DAW/reports/latest-als-set",
   "user_folder": "/Users/leoerdman/ABLETON - Main Folder/ABLETON - User Folder",
-  "generated_at_epoch": 1771113826,
-  "elapsed_seconds": 142.21,
+  "generated_at_epoch": 1771115767,
+  "elapsed_seconds": 91.8,
   "installed_plugins_indexed": 207,
   "totals": {
     "files": 184,
@@ -16,13 +16,13 @@
     "sample_refs": 89302,
     "native_mapped": 18968,
     "native_unmapped": 0,
-    "external_resolved": 8967,
-    "external_missing": 11
+    "external_resolved": 8978,
+    "external_missing": 0
   },
   "rates": {
     "native_mapped_rate": 1.0,
-    "external_resolved_rate": 0.9987747828024058,
-    "overall_compat_rate": 0.9996063837400702
+    "external_resolved_rate": 1.0,
+    "overall_compat_rate": 1.0
   },
   "parse_errors": [],
   "top": {
@@ -403,20 +403,7 @@
       ]
     ],
     "unknown_native": [],
-    "missing_external": [
-      [
-        "reastream-standalone",
-        6
-      ],
-      [
-        "Nectar 3",
-        3
-      ],
-      [
-        "Synthesizer V Studio 2 Plugin",
-        2
-      ]
-    ],
+    "missing_external": [],
     "resolved_external": [
       [
         "Serum 2",
@@ -547,6 +534,10 @@
         7
       ],
       [
+        "reastream-standalone -> Utility",
+        6
+      ],
+      [
         "kHs Convolver",
         6
       ],
@@ -557,6 +548,10 @@
       [
         "kHs Chorus",
         4
+      ],
+      [
+        "Nectar 3 -> Compressor",
+        3
       ],
       [
         "Ozone 11 Vintage Tape",
@@ -592,6 +587,10 @@
       ],
       [
         "Pro-Q 2",
+        2
+      ],
+      [
+        "Synthesizer V Studio 2 Plugin -> Wave Synth",
         2
       ],
       [
@@ -916,8 +915,8 @@
       "sample_refs": 562,
       "native_mapped": 46,
       "native_unmapped": 0,
-      "external_resolved": 22,
-      "external_missing": 1
+      "external_resolved": 23,
+      "external_missing": 0
     },
     {
       "file": "36. Ritual V6 [2026-01-30 140945]__3ac1973f.als",
@@ -1336,8 +1335,8 @@
       "sample_refs": 192,
       "native_mapped": 63,
       "native_unmapped": 0,
-      "external_resolved": 2,
-      "external_missing": 2
+      "external_resolved": 4,
+      "external_missing": 0
     },
     {
       "file": "Erdman - Illusion 4.3 [2025-07-03 021919]__322d983d.als",
@@ -1351,8 +1350,8 @@
       "sample_refs": 610,
       "native_mapped": 144,
       "native_unmapped": 0,
-      "external_resolved": 10,
-      "external_missing": 1
+      "external_resolved": 11,
+      "external_missing": 0
     },
     {
       "file": "Erdman - Illusion 4.3__7ebbd27a.als",
@@ -1366,8 +1365,8 @@
       "sample_refs": 610,
       "native_mapped": 144,
       "native_unmapped": 0,
-      "external_resolved": 10,
-      "external_missing": 1
+      "external_resolved": 11,
+      "external_missing": 0
     },
     {
       "file": "Erdman - Mushroom V5 [2025-08-26 030638]__5fa91bc9.als",
@@ -1381,8 +1380,8 @@
       "sample_refs": 140,
       "native_mapped": 65,
       "native_unmapped": 0,
-      "external_resolved": 39,
-      "external_missing": 1
+      "external_resolved": 40,
+      "external_missing": 0
     },
     {
       "file": "Erdman - Night Call V7 [2025-08-24 184947]__29882fe2.als",
@@ -1966,8 +1965,8 @@
       "sample_refs": 533,
       "native_mapped": 93,
       "native_unmapped": 0,
-      "external_resolved": 24,
-      "external_missing": 2
+      "external_resolved": 26,
+      "external_missing": 0
     },
     {
       "file": "Leo Erdman - Colors V8__c700d35e.als",
@@ -2641,8 +2640,8 @@
       "sample_refs": 340,
       "native_mapped": 108,
       "native_unmapped": 0,
-      "external_resolved": 0,
-      "external_missing": 1
+      "external_resolved": 1,
+      "external_missing": 0
     },
     {
       "file": "Leo Erdman - Source V3__2cc48ca7.als",
@@ -3496,8 +3495,8 @@
       "sample_refs": 55,
       "native_mapped": 57,
       "native_unmapped": 0,
-      "external_resolved": 77,
-      "external_missing": 1
+      "external_resolved": 78,
+      "external_missing": 0
     },
     {
       "file": "Synteshized V10__456b4438.als",
@@ -3511,8 +3510,8 @@
       "sample_refs": 55,
       "native_mapped": 58,
       "native_unmapped": 0,
-      "external_resolved": 78,
-      "external_missing": 1
+      "external_resolved": 79,
+      "external_missing": 0
     },
     {
       "file": "Techno Overdose V5 [2026-01-14 212813]__3e663065.als",

@@ -9,11 +9,10 @@
 ## Snapshot
 
 - native_mapped/unmapped: **18968/0**
-- external_resolved/missing: **8967/11**
-- overall_compat_rate: **0.999606**
+- external_resolved/missing: **8969/9**
+- overall_compat_rate: **0.999678**
 
 ## Top Missing External
 
 - reastream-standalone: 6
 - Nectar 3: 3
-- Synthesizer V Studio 2 Plugin: 2

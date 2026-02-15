@@ -53,4 +53,20 @@ external_stored_all_parameters: boolean | null,
 /**
  * External plugin version from ALS metadata.
  */
-external_plugin_version: string | null, };
+external_plugin_version: string | null, 
+/**
+ * Raw serialized external plugin state blob (typically base64), when present in ALS.
+ */
+external_state_blob: string | null, 
+/**
+ * Kind/source tag for `external_state_blob` (for diagnostics/reconstruction).
+ */
+external_state_blob_kind: string | null, 
+/**
+ * Raw serialized external plugin preset blob (typically base64), when present in ALS.
+ */
+external_preset_blob: string | null, 
+/**
+ * Kind/source tag for `external_preset_blob` (for diagnostics/reconstruction).
+ */
+external_preset_blob_kind: string | null, };

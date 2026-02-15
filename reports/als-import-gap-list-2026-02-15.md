@@ -1,57 +1,42 @@
-# ALS Import Gap List (2026-02-15)
+# ALS Import Gap List (Updated 2026-02-15, pass 5->1)
 
-## Snapshot
-- Audit source: `reports/latest-als-enterprise.json`
-- Virtual tests source: `reports/als-virtual-tests-1000-fast.json`
-- Corpus: latest ALS per project from two roots (`0-160 BPM`, `160-200 BPM`)
+## Current Snapshot
+- Enterprise audit: `reports/latest-als-enterprise.json`
+- Virtual tests: `reports/als-virtual-tests-1000-fast.json`
 
 ### Metrics
-- Files: **184**
+- Files audited: **184**
 - Native mapped/unmapped: **18968 / 0**
-- External resolved/missing: **8967 / 11**
-- Overall compatibility: **0.999606**
-- Virtual tests: **1184/1184 passed** (requested iterations: 1000)
+- External resolved/missing: **8969 / 9**
+- Overall compatibility: **0.99967795**
+- Virtual tests: **1184 / 1184 pass**
 
-## Confirmed Imported (code + tests)
-1. Grid/Snap project fields and persistence model.
-2. Clip launch/follow/groove.
-3. Audio warp state/mode/markers.
-4. Clip envelopes.
-5. Project markers/locators and scenes.
-6. Scale/in-key import into project and clips.
-7. Static fallback lanes for plugin params including external `PluginDevice` manual params (float/int/bool).
+## Closed in this pass
+1. `#5` unresolved external reduction (policy substitution)
+- Added deterministic substitution coverage for `Synthesizer V Studio 2 Plugin` -> internal Wave Synth.
+- Audit missing reduced from 11 to **9**.
 
-## Remaining Gaps (real)
-1. Bit-perfect external plugin state restore
-- Full VST/AU chunk/preset reconstruction is still not guaranteed 1:1 sound parity.
+2. `#4` sampler/synth parity improved
+- Imported additional sampler/synth params: detune, sub level, LFO rate/depth/target, pulse width.
 
-2. External plugin parameter semantics
-- Automation lanes are imported, but not all params are mapped to stable human semantic IDs across all plugin ecosystems.
+3. `#3` routing/monitoring edge coverage improved
+- Added mixer split stereo pan import lanes: `mixer.pan_left`, `mixer.pan_right`.
 
-3. Rack macro destination graph
-- Macro names/values imported; full macro->target mapping graph remains partial.
+4. `#2` external parameter semantic aliases
+- Added semantic alias lanes for external plugin params (`plugin_semantic:*`) plus type-aware compressor/synth utility aliases.
 
-4. Full Live mixer/IO parity edge-cases
-- Core routing imported; complete behavior parity for all monitor/IO permutations remains partial.
+5. Rack macro mapping graph import (already added earlier in this cycle)
+- `PowerMacroControlIndex` + `PowerMacroMappingRange` now imported into `MacroControl.mappings`.
 
-5. Full Simpler/Sampler parity
-- Sample path and core values are imported; full Ableton-specific state is not yet complete.
+## Remaining gaps
+1. `#1` runtime bit-perfect external state restore
+- External state/preset blobs are extracted and persisted in model metadata.
+- Full runtime application back into loaded external plugin instances is still pending host-side state injection API path.
 
-6. Remaining unresolved external plugins (11 instances)
-- reastream-standalone: 6
-- Nectar 3: 3
-- Synthesizer V Studio 2 Plugin: 2
-- Current handling: metadata-rich missing placeholder, with imported fallback automation lanes.
+2. Remaining unresolved external plugins in corpus (9)
+- `reastream-standalone`: 6
+- `Nectar 3`: 3
 
-## Prioritized Next Steps
-1. External state bridge
-- Add import path for plugin chunk blobs/preset blocks where possible and persist in project metadata.
-
-2. Semantic param registry for externals
-- Build deterministic mapping layer (`plugin vendor/name/version + param id/name -> canonical lane id`).
-
-3. Rack macro mapping parser
-- Parse macro mapping relations and serialize into rack model.
-
-4. Substitution policy for unresolved external plugins
-- Define deterministic replacement policy (internal equivalent or explicit `not found` stub) with full metadata retention.
+## Key files
+- Importer: `apps/desktop_host/src/commands/sections/project_management.rs`
+- Compat suite policy: `scripts/als_compat_suite.py`

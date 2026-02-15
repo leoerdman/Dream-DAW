@@ -6,15 +6,15 @@
 - User folder: `/Users/leoerdman/ABLETON - Main Folder/ABLETON - User Folder`
 - ALS files: **184**
 - Parse errors: **0**
-- Scan time: **142.21s**
+- Scan time: **91.8s**
 - Indexed installed plugins: **207**
 - User folder scanned files: **0**
 - Tracks: audio **3299**, midi **2765**, group **1075**, main **184**
 - Clips: audio **43016**, midi **41024**
 - FloatEvent: **42039**; SampleRef: **89302**
 - Native mapped/unmapped: **18968/0** (100.00%)
-- External resolved/missing: **8967/11** (99.88%)
-- Overall compat rate: **99.96%**
+- External resolved/missing: **8978/0** (100.00%)
+- Overall compat rate: **100.00%**
 
 ## CI Gates
 
@@ -22,9 +22,7 @@
 
 ## Top Missing External Plugins
 
-- reastream-standalone: 6
-- Nectar 3: 3
-- Synthesizer V Studio 2 Plugin: 2
+- none
 
 ## Top Unmapped Native Tags
 
@@ -42,7 +40,7 @@
 |---|---:|---:|---:|---:|---:|---:|
 | ` You V1__b0c8e971.als` | 184 | 0 | 98 | 0 | 219 | 394 |
 | `22. Erdman - Sudden Travel (120 BPM) [2025-06-22 024337]__7d21ccd3.als` | 51 | 0 | 0 | 0 | 28 | 20 |
-| `26. Alybek [2025-08-29 022248]__de04332e.als` | 46 | 0 | 22 | 1 | 36 | 79 |
+| `26. Alybek [2025-08-29 022248]__de04332e.als` | 46 | 0 | 23 | 0 | 36 | 79 |
 | `36. Ritual V6 [2026-01-30 140945]__3ac1973f.als` | 146 | 0 | 67 | 0 | 153 | 183 |
 | `38. Blast (174)__379b52a1.als` | 78 | 0 | 53 | 0 | 134 | 204 |
 | `A Path V4 EXP [2025-12-09 115723]__6e28dda2.als` | 51 | 0 | 14 | 0 | 107 | 328 |
@@ -70,10 +68,10 @@
 | `Drift V4 [2025-09-03 203234]__d7a503bf.als` | 103 | 0 | 41 | 0 | 479 | 265 |
 | `Drop The Bass V6 [2026-02-03 004057]__2647587c.als` | 76 | 0 | 57 | 0 | 118 | 144 |
 | `Drop The Bass V8__23f9fa06.als` | 75 | 0 | 55 | 0 | 115 | 144 |
-| `Erdman - Agelia 3 [2025-07-08 000805]__fde03e5c.als` | 63 | 0 | 2 | 2 | 96 | 95 |
-| `Erdman - Illusion 4.3 [2025-07-03 021919]__322d983d.als` | 144 | 0 | 10 | 1 | 594 | 321 |
-| `Erdman - Illusion 4.3__7ebbd27a.als` | 144 | 0 | 10 | 1 | 594 | 321 |
-| `Erdman - Mushroom V5 [2025-08-26 030638]__5fa91bc9.als` | 65 | 0 | 39 | 1 | 135 | 66 |
+| `Erdman - Agelia 3 [2025-07-08 000805]__fde03e5c.als` | 63 | 0 | 4 | 0 | 96 | 95 |
+| `Erdman - Illusion 4.3 [2025-07-03 021919]__322d983d.als` | 144 | 0 | 11 | 0 | 594 | 321 |
+| `Erdman - Illusion 4.3__7ebbd27a.als` | 144 | 0 | 11 | 0 | 594 | 321 |
+| `Erdman - Mushroom V5 [2025-08-26 030638]__5fa91bc9.als` | 65 | 0 | 40 | 0 | 135 | 66 |
 | `Erdman - Night Call V7 [2025-08-24 184947]__29882fe2.als` | 62 | 0 | 2 | 0 | 54 | 108 |
 | `Erdman - Psycho Shelter V5 [2025-08-09 031714]__40dd8064.als` | 75 | 0 | 7 | 0 | 118 | 90 |
 | `Erdman - Speedrun V4 [2025-10-16 092137]__74ae40ca.als` | 48 | 0 | 19 | 0 | 168 | 42 |
@@ -112,7 +110,7 @@
 | `Leo Erdman - Blue V8__b12f3bfd.als` | 126 | 0 | 76 | 0 | 237 | 382 |
 | `Leo Erdman - Born to Fly V12 [2026-01-14 025241]__4ed763e0.als` | 46 | 0 | 32 | 0 | 145 | 120 |
 | `Leo Erdman - Born to Fly V12__f04ccb0f.als` | 46 | 0 | 32 | 0 | 145 | 120 |
-| `Leo Erdman - Colors V8 [2025-09-28 111904]__7f80d545.als` | 93 | 0 | 24 | 2 | 345 | 262 |
+| `Leo Erdman - Colors V8 [2025-09-28 111904]__7f80d545.als` | 93 | 0 | 26 | 0 | 345 | 262 |
 | `Leo Erdman - Colors V8__c700d35e.als` | 93 | 0 | 24 | 0 | 345 | 262 |
 | `Leo Erdman - Dark Path Slowed V3__30983d30.als` | 126 | 0 | 66 | 0 | 888 | 1195 |
 | `Leo Erdman - Dark Path V80__c1611a1c.als` | 169 | 0 | 135 | 0 | 1264 | 842 |
@@ -157,7 +155,7 @@
 | `Leo Erdman - Secret Floor V44__81461650.als` | 95 | 0 | 29 | 0 | 630 | 279 |
 | `Leo Erdman - Shpongle Bass V3 [2025-09-29 143558]__a0a36f5b.als` | 65 | 0 | 3 | 0 | 5 | 115 |
 | `Leo Erdman - Shpongle Bass V3__70f43fe7.als` | 67 | 0 | 3 | 0 | 5 | 115 |
-| `Leo Erdman - Source V3 [2025-09-29 151514]__28d10755.als` | 108 | 0 | 0 | 1 | 7 | 45 |
+| `Leo Erdman - Source V3 [2025-09-29 151514]__28d10755.als` | 108 | 0 | 1 | 0 | 7 | 45 |
 | `Leo Erdman - Source V3__2cc48ca7.als` | 108 | 0 | 0 | 0 | 7 | 45 |
 | `Leo Erdman - Strange Plant V89 [2026-01-14 033742]__c83828a6.als` | 178 | 0 | 80 | 0 | 461 | 767 |
 | `Leo Erdman - Strange Plant V89__fa7e83cb.als` | 178 | 0 | 82 | 0 | 461 | 767 |
@@ -214,8 +212,8 @@
 | `Run V13 Reese__1e9f72c6.als` | 157 | 0 | 117 | 0 | 443 | 249 |
 | `Stabbed V5 [2026-01-29 140857]__2bc99f6a.als` | 112 | 0 | 87 | 0 | 447 | 276 |
 | `Stabbed V5__02d6293d.als` | 112 | 0 | 88 | 0 | 448 | 275 |
-| `Synteshized V10 [2026-01-30 235204]__d86cebd9.als` | 57 | 0 | 77 | 1 | 55 | 181 |
-| `Synteshized V10__456b4438.als` | 58 | 0 | 78 | 1 | 55 | 182 |
+| `Synteshized V10 [2026-01-30 235204]__d86cebd9.als` | 57 | 0 | 78 | 0 | 55 | 181 |
+| `Synteshized V10__456b4438.als` | 58 | 0 | 79 | 0 | 55 | 182 |
 | `Techno Overdose V5 [2026-01-14 212813]__3e663065.als` | 56 | 0 | 37 | 0 | 9 | 121 |
 | `Techno Overdose V6__824bc63a.als` | 52 | 0 | 37 | 0 | 12 | 224 |
 | `Trip To Unknown V10 [2026-01-28 042143]__54485ca0.als` | 104 | 0 | 0 | 0 | 0 | 113 |

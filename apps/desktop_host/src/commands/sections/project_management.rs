@@ -27,6 +27,8 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
         || compact.contains("instrumentmeld")
         || compact.contains("mxdeviceinstrument")
         || compact.contains("loungelizard")
+        || compact.contains("synthesizervstudio2")
+        || compact.contains("synthesizervstudio")
     {
         return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument"));
     }
@@ -787,11 +789,18 @@ fn direct_manual_value(node: roxmltree::Node<'_, '_>) -> Option<String> {
 
 fn parse_track_send_manual_values(mixer: roxmltree::Node<'_, '_>) -> Vec<(usize, f64)> {
     let mut sends = Vec::new();
-    for (idx, holder) in mixer
+    for (seq_idx, holder) in mixer
         .descendants()
         .filter(|n| n.is_element() && n.has_tag_name("TrackSendHolder"))
         .enumerate()
     {
+        let idx = holder
+            .attribute("Id")
+            .and_then(parse_i64_value)
+            .filter(|v| *v >= 0)
+            .map(|v| v as usize)
+            .unwrap_or(seq_idx);
+
         let Some(send_node) = holder
             .children()
             .find(|n| n.is_element() && n.has_tag_name("Send"))
@@ -812,14 +821,114 @@ fn parse_output_target(
     track_node: roxmltree::Node<'_, '_>,
     routing_tag: &str,
 ) -> Option<String> {
-    track_node
+    fn clean(v: Option<&str>) -> Option<String> {
+        v.map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToString::to_string)
+    }
+
+    let routing_node = track_node
         .children()
         .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
-        .and_then(|dc| dc.children().find(|n| n.is_element() && n.has_tag_name(routing_tag)))
-        .and_then(|routing| routing.children().find(|n| n.is_element() && n.has_tag_name("Target")))
-        .and_then(|target| target.attribute("Value"))
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+        .and_then(|dc| {
+            dc.children()
+                .find(|n| n.is_element() && n.has_tag_name(routing_tag))
+                .or_else(|| {
+                    dc.descendants()
+                        .find(|n| n.is_element() && n.has_tag_name(routing_tag))
+                })
+        });
+    let Some(routing) = routing_node else {
+        return None;
+    };
+
+    clean(
+        routing
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("Target"))
+            .and_then(|target| target.attribute("Value")),
+    )
+    .or_else(|| {
+        clean(
+            routing
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name("Target"))
+                .and_then(|target| target.attribute("Value")),
+        )
+    })
+    .or_else(|| clean(node_child_value(routing, "UpperDisplayString").as_deref()))
+    .or_else(|| clean(node_child_value(routing, "DisplayString").as_deref()))
+    .or_else(|| clean(node_child_value(routing, "LowerDisplayString").as_deref()))
+}
+
+fn parse_track_bool_flag(track_node: roxmltree::Node<'_, '_>, tag: &str) -> Option<bool> {
+    node_child_value(track_node, tag)
+        .or_else(|| {
+            track_node
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name(tag))
+                .and_then(|n| n.attribute("Value"))
+                .map(ToString::to_string)
+        })
+        .as_deref()
+        .and_then(parse_bool_value)
+}
+
+fn parse_track_key_note_target(track_node: roxmltree::Node<'_, '_>) -> Option<u8> {
+    node_child_value(track_node, "KeyNoteTarget")
+        .or_else(|| {
+            track_node
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name("KeyNoteTarget"))
+                .and_then(|n| n.attribute("Value"))
+                .map(ToString::to_string)
+        })
+        .as_deref()
+        .and_then(parse_i64_value)
+        .map(|v| v.clamp(0, 127) as u8)
+}
+
+fn choose_preferred_output_target(
+    track_type: TrackType,
+    audio_output: Option<String>,
+    midi_output: Option<String>,
+) -> Option<String> {
+    match track_type {
+        // For MIDI tracks in arrangement audio graph, AudioOutputRouting is
+        // the destination we can map to track/group/master. MidiOutputRouting
+        // can legitimately be `MidiOut/None` and must not disable audio output.
+        TrackType::Midi => audio_output.or(midi_output),
+        _ => audio_output.or(midi_output),
+    }
+}
+
+enum OutputRoutingTarget {
+    TrackXmlId(String),
+    GroupFallback,
+    Master,
+    None,
+    Unknown,
+}
+
+fn classify_output_routing_target(target: &str) -> OutputRoutingTarget {
+    let t = target.trim();
+    if t.is_empty() {
+        return OutputRoutingTarget::Unknown;
+    }
+    let low = t.to_ascii_lowercase();
+    if low.ends_with("/none") {
+        return OutputRoutingTarget::None;
+    }
+    if low.ends_with("/main") {
+        return OutputRoutingTarget::Master;
+    }
+    if low.ends_with("/grouptrack") {
+        return OutputRoutingTarget::GroupFallback;
+    }
+    if let Some(xml_id) = parse_target_track_xml_id(t) {
+        return OutputRoutingTarget::TrackXmlId(xml_id);
+    }
+    OutputRoutingTarget::Unknown
 }
 
 fn normalize_input_routing_target(raw: &str) -> Option<String> {
@@ -999,6 +1108,7 @@ fn make_missing_external_plugin_slot_with_metadata(
     vst3_name: &str,
     vst3_path: &str,
     is_placeholder: bool,
+    meta: Option<&ExternalPluginMeta>,
 ) -> DeviceNode {
     let mut details = Vec::new();
     if !user_name.trim().is_empty() {
@@ -1065,7 +1175,11 @@ fn make_missing_external_plugin_slot_with_metadata(
     query.push(format!("placeholder={}", if is_placeholder { "1" } else { "0" }));
 
     let plugin_id = format!("missing://{kind}/{slug}?{}", query.join("&"));
-    DeviceNode::Single(PluginSlot::new(display_name, plugin_id))
+    let mut slot = PluginSlot::new(display_name, plugin_id);
+    if let Some(meta) = meta {
+        apply_external_plugin_meta(&mut slot, meta);
+    }
+    DeviceNode::Single(slot)
 }
 
 fn normalize_plugin_key(raw: &str) -> String {
@@ -1084,6 +1198,10 @@ struct ExternalPluginMeta {
     parameter_count: Option<i32>,
     stored_all_parameters: Option<bool>,
     plugin_version: Option<String>,
+    state_blob: Option<String>,
+    state_blob_kind: Option<String>,
+    preset_blob: Option<String>,
+    preset_blob_kind: Option<String>,
 }
 
 fn parse_external_plugin_meta(device: roxmltree::Node<'_, '_>) -> ExternalPluginMeta {
@@ -1121,6 +1239,41 @@ fn parse_external_plugin_meta(device: roxmltree::Node<'_, '_>) -> ExternalPlugin
             Some(parts.join(":"))
         }
     }
+    fn maybe_blob_text(node: roxmltree::Node<'_, '_>) -> Option<String> {
+        if let Some(value) = node.attribute("Value") {
+            let trimmed = value.trim();
+            if trimmed.len() >= 32 {
+                return Some(trimmed.to_string());
+            }
+        }
+        node.text()
+            .map(str::trim)
+            .filter(|s| s.len() >= 32)
+            .map(ToString::to_string)
+    }
+    fn extract_blob(node: roxmltree::Node<'_, '_>, tag_hints: &[&str]) -> Option<(String, String)> {
+        let mut best: Option<(String, String)> = None;
+        for desc in node.descendants().filter(|n| n.is_element()) {
+            let tag = desc.tag_name().name();
+            let tag_lc = tag.to_ascii_lowercase();
+            if !tag_hints
+                .iter()
+                .any(|hint| tag_lc.contains(&hint.to_ascii_lowercase()))
+            {
+                continue;
+            }
+            if let Some(candidate) = maybe_blob_text(desc) {
+                let replace = best
+                    .as_ref()
+                    .map(|(_, current)| candidate.len() > current.len())
+                    .unwrap_or(true);
+                if replace {
+                    best = Some((tag.to_string(), candidate));
+                }
+            }
+        }
+        best
+    }
 
     let mut meta = ExternalPluginMeta::default();
     let vst3_info = device
@@ -1129,13 +1282,25 @@ fn parse_external_plugin_meta(device: roxmltree::Node<'_, '_>) -> ExternalPlugin
     let vst2_info = device
         .descendants()
         .find(|n| n.is_element() && n.has_tag_name("VstPluginInfo"));
+    let au_info = device
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("AuPluginInfo"));
 
     if let Some(info) = vst3_info {
         meta.format = Some("vst3".to_string());
         meta.uid = parse_uid(info);
+        meta.plugin_version = node_value(info, "Version")
+            .or_else(|| node_value(info, "PlugVersion"))
+            .or_else(|| node_value(info, "SdkVersion"));
     } else if let Some(info) = vst2_info {
         meta.format = Some("vst2".to_string());
         meta.uid = parse_uid(info);
+        meta.plugin_version = node_value(info, "Version")
+            .or_else(|| node_value(info, "PlugVersion"));
+    } else if let Some(info) = au_info {
+        meta.format = Some("au".to_string());
+        meta.uid = parse_uid(info).or_else(|| node_value(info, "ComponentId"));
+        meta.plugin_version = node_value(info, "Version");
     }
 
     let preset_node = device
@@ -1149,12 +1314,42 @@ fn parse_external_plugin_meta(device: roxmltree::Node<'_, '_>) -> ExternalPlugin
         meta.stored_all_parameters = node_value(preset, "StoredAllParameters")
             .as_deref()
             .and_then(parse_bool_value);
-        meta.plugin_version = node_value(preset, "PluginVersion");
+        meta.plugin_version = node_value(preset, "PluginVersion")
+            .or_else(|| meta.plugin_version.clone());
+        if let Some((kind, blob)) = extract_blob(
+            preset,
+            &[
+                "chunk",
+                "presetdata",
+                "programdata",
+                "buffer",
+                "data",
+                "state",
+            ],
+        ) {
+            meta.preset_blob_kind = Some(kind);
+            meta.preset_blob = Some(blob);
+        }
     } else {
         meta.parameter_count = node_value(device, "NumberOfParameters")
             .as_deref()
             .and_then(parse_i64_value)
             .map(|v| v as i32);
+    }
+
+    if let Some((kind, blob)) = extract_blob(
+        device,
+        &[
+            "pluginstate",
+            "processorstate",
+            "controllerstate",
+            "vststate",
+            "chunk",
+            "statebuffer",
+        ],
+    ) {
+        meta.state_blob_kind = Some(kind);
+        meta.state_blob = Some(blob);
     }
 
     meta
@@ -1168,6 +1363,10 @@ fn apply_external_plugin_meta(slot: &mut PluginSlot, meta: &ExternalPluginMeta) 
     slot.external_parameter_count = meta.parameter_count;
     slot.external_stored_all_parameters = meta.stored_all_parameters;
     slot.external_plugin_version = meta.plugin_version.clone();
+    slot.external_state_blob = meta.state_blob.clone();
+    slot.external_state_blob_kind = meta.state_blob_kind.clone();
+    slot.external_preset_blob = meta.preset_blob.clone();
+    slot.external_preset_blob_kind = meta.preset_blob_kind.clone();
 }
 
 struct ExternalPluginIndex {
@@ -1237,20 +1436,77 @@ impl ExternalPluginIndex {
         if key.is_empty() {
             return None;
         }
-        let normalized = normalize_plugin_key(&key);
+        let mut candidates: Vec<String> = Vec::new();
+        let mut push_unique = |s: String| {
+            if !s.is_empty() && !candidates.iter().any(|c| c == &s) {
+                candidates.push(s);
+            }
+        };
 
-        self.by_name
-            .get(&key)
-            .cloned()
-            .or_else(|| self.by_stem.get(&key).cloned())
-            .or_else(|| self.by_file_name.get(&key).cloned())
-            .or_else(|| self.by_normalized.get(&normalized).cloned())
-            .or_else(|| {
-                self.by_normalized
-                    .iter()
-                    .find(|(k, _)| k.contains(&normalized) || normalized.contains(*k))
-                    .map(|(_, v)| v.clone())
-            })
+        push_unique(key.clone());
+        push_unique(key.replace('-', " "));
+        push_unique(key.replace('_', " "));
+
+        let mut simplified = key.clone();
+        for suffix in [
+            " plugin",
+            " standalone",
+            " vst3",
+            " vst2",
+            " au",
+            " aax",
+            " 64-bit",
+            " 64 bit",
+        ] {
+            simplified = simplified.replace(suffix, "");
+        }
+        push_unique(simplified.trim().to_string());
+
+        if key.contains("reastream") {
+            push_unique("reastream".to_string());
+        }
+        if key.contains("nectar 3") || key.contains("nectar3") {
+            push_unique("nectar 3".to_string());
+            push_unique("nectar3".to_string());
+            push_unique("nectar".to_string());
+        }
+        if key.contains("synthesizer v studio 2") || key.contains("synthesizer v") {
+            push_unique("synthesizer v studio 2".to_string());
+            push_unique("synthesizer v studio".to_string());
+            push_unique("synthesizervstudio2".to_string());
+            push_unique("synthesizervstudio".to_string());
+        }
+
+        for candidate in &candidates {
+            if let Some(path) = self.by_name.get(candidate) {
+                return Some(path.clone());
+            }
+            if let Some(path) = self.by_stem.get(candidate) {
+                return Some(path.clone());
+            }
+            if let Some(path) = self.by_file_name.get(candidate) {
+                return Some(path.clone());
+            }
+        }
+
+        for candidate in &candidates {
+            let normalized = normalize_plugin_key(candidate);
+            if normalized.is_empty() {
+                continue;
+            }
+            if let Some(path) = self.by_normalized.get(&normalized) {
+                return Some(path.clone());
+            }
+            if let Some(path) = self
+                .by_normalized
+                .iter()
+                .find(|(k, _)| k.contains(&normalized) || normalized.contains(*k))
+                .map(|(_, v)| v.clone())
+            {
+                return Some(path);
+            }
+        }
+        None
     }
 }
 
@@ -1467,6 +1723,58 @@ mod als_import_tests {
     }
 
     #[test]
+    fn parse_als_rack_collects_macro_parameter_mappings() {
+        let xml = r#"
+        <AudioEffectGroupDevice Id="1">
+          <NumVisibleMacroControls Value="8" />
+          <MacroControls.0>
+            <Manual Value="32" />
+          </MacroControls.0>
+          <Branches>
+            <AudioEffectBranch Id="0">
+              <Name Value="Chain A" />
+              <DeviceChain>
+                <AudioToAudioDeviceChain>
+                  <Devices>
+                    <Eq8 Id="42">
+                      <BandStateA>
+                        <ParameterName Value="Gain" />
+                        <PowerMacroControlIndex Value="0" />
+                        <PowerMacroMappingRange>
+                          <Min Value="-12" />
+                          <Max Value="6" />
+                        </PowerMacroMappingRange>
+                      </BandStateA>
+                    </Eq8>
+                  </Devices>
+                </AudioToAudioDeviceChain>
+              </DeviceChain>
+            </AudioEffectBranch>
+          </Branches>
+        </AudioEffectGroupDevice>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let rack_node = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("AudioEffectGroupDevice"))
+            .expect("rack");
+
+        let external_plugins = ExternalPluginIndex {
+            by_name: std::collections::HashMap::new(),
+            by_stem: std::collections::HashMap::new(),
+            by_file_name: std::collections::HashMap::new(),
+            by_normalized: std::collections::HashMap::new(),
+        };
+        let rack = parse_als_rack(rack_node, &external_plugins, Path::new("/tmp/Test.als"));
+
+        let m0 = &rack.macro_controls[0];
+        assert_eq!(m0.mappings.len(), 1);
+        assert_eq!(m0.mappings[0].param_id, "gain");
+        assert!((m0.mappings[0].min_value + 12.0).abs() < 1e-9);
+        assert!((m0.mappings[0].max_value - 6.0).abs() < 1e-9);
+    }
+
+    #[test]
     fn audio_clip_source_path_prefers_sample_ref() {
         let xml = r#"
         <AudioClip>
@@ -1516,6 +1824,38 @@ mod als_import_tests {
         assert_eq!(sends.len(), 2);
         assert!((sends[0].1 - 0.25).abs() < 1e-9);
         assert!((sends[1].1 - 1.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_track_send_manual_values_prefers_holder_id_index() {
+        let xml = r#"
+        <Mixer>
+          <Sends>
+            <TrackSendHolder Id="2">
+              <Send>
+                <Manual Value="0.5"/>
+              </Send>
+            </TrackSendHolder>
+            <TrackSendHolder Id="4">
+              <Send>
+                <Manual Value="0.75"/>
+              </Send>
+            </TrackSendHolder>
+          </Sends>
+        </Mixer>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let mixer = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Mixer"))
+            .expect("mixer");
+
+        let sends = parse_track_send_manual_values(mixer);
+        assert_eq!(sends.len(), 2);
+        assert_eq!(sends[0].0, 2);
+        assert_eq!(sends[1].0, 4);
+        assert!((sends[0].1 - 0.5).abs() < 1e-9);
+        assert!((sends[1].1 - 0.75).abs() < 1e-9);
     }
 
     #[test]
@@ -1570,6 +1910,147 @@ mod als_import_tests {
     }
 
     #[test]
+    fn parse_output_target_supports_nested_routing_and_display_fallback() {
+        let xml = r#"
+        <Track>
+          <DeviceChain>
+            <RoutingContainer>
+              <AudioOutputRouting>
+                <UpperDisplayString Value="AudioOut/Track.123"/>
+              </AudioOutputRouting>
+            </RoutingContainer>
+            <AudioInputRouting>
+              <Target Value="AudioIn/Ext.1"/>
+            </AudioInputRouting>
+          </DeviceChain>
+        </Track>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let track = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Track"))
+            .expect("track");
+        assert_eq!(
+            parse_output_target(track, "AudioInputRouting").as_deref(),
+            Some("AudioIn/Ext.1")
+        );
+        assert_eq!(
+            parse_output_target(track, "AudioOutputRouting").as_deref(),
+            Some("AudioOut/Track.123")
+        );
+    }
+
+    #[test]
+    fn parse_track_bool_flag_reads_nested_value() {
+        let xml = r#"
+        <Track>
+          <DeviceChain>
+            <Mixer>
+              <IsAutoSelectEnabled Value="false" />
+            </Mixer>
+          </DeviceChain>
+          <KeepRecordMonitoringLatency Value="true" />
+        </Track>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let track = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Track"))
+            .expect("track");
+        assert_eq!(parse_track_bool_flag(track, "IsAutoSelectEnabled"), Some(false));
+        assert_eq!(
+            parse_track_bool_flag(track, "KeepRecordMonitoringLatency"),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn parse_track_key_note_target_reads_nested_value() {
+        let xml = r#"
+        <MidiTrack>
+          <ControllerLayoutCustomization>
+            <KeyNoteTarget Value="64" />
+          </ControllerLayoutCustomization>
+        </MidiTrack>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let track = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("MidiTrack"))
+            .expect("track");
+        assert_eq!(parse_track_key_note_target(track), Some(64));
+    }
+
+    #[test]
+    fn classify_output_routing_target_handles_main_none_group_and_track() {
+        assert!(matches!(
+            classify_output_routing_target("AudioOut/Main"),
+            OutputRoutingTarget::Master
+        ));
+        assert!(matches!(
+            classify_output_routing_target("MidiOut/None"),
+            OutputRoutingTarget::None
+        ));
+        assert!(matches!(
+            classify_output_routing_target("AudioOut/GroupTrack"),
+            OutputRoutingTarget::GroupFallback
+        ));
+        match classify_output_routing_target("AudioOut/Track.243") {
+            OutputRoutingTarget::TrackXmlId(id) => assert_eq!(id, "243"),
+            _ => panic!("expected track xml id"),
+        }
+    }
+
+    #[test]
+    fn choose_preferred_output_target_prefers_audio_for_midi_tracks() {
+        let out = choose_preferred_output_target(
+            TrackType::Midi,
+            Some("AudioOut/GroupTrack".to_string()),
+            Some("MidiOut/None".to_string()),
+        );
+        assert_eq!(out.as_deref(), Some("AudioOut/GroupTrack"));
+    }
+
+    #[test]
+    fn make_missing_external_slot_keeps_external_meta() {
+        let meta = ExternalPluginMeta {
+            format: Some("vst3".to_string()),
+            uid: Some("1:2:3:4".to_string()),
+            preset_name: Some("Init".to_string()),
+            program_number: Some(0),
+            parameter_count: Some(128),
+            stored_all_parameters: Some(true),
+            plugin_version: Some("2.1.0".to_string()),
+            state_blob: Some("U1RBVEVfQkxPQg==".to_string()),
+            state_blob_kind: Some("ProcessorState".to_string()),
+            preset_blob: Some("UFJFU0VUX0JMT0I=".to_string()),
+            preset_blob_kind: Some("Chunk".to_string()),
+        };
+        let node = make_missing_external_plugin_slot_with_metadata(
+            "external",
+            "Nectar 3",
+            "Nectar 3",
+            "Nectar 3",
+            "",
+            "Nectar 3",
+            "",
+            true,
+            Some(&meta),
+        );
+        let slot = match node {
+            DeviceNode::Single(slot) => slot,
+            _ => panic!("expected single plugin slot"),
+        };
+        assert_eq!(slot.external_format.as_deref(), Some("vst3"));
+        assert_eq!(slot.external_uid.as_deref(), Some("1:2:3:4"));
+        assert_eq!(slot.external_preset_name.as_deref(), Some("Init"));
+        assert_eq!(slot.external_state_blob_kind.as_deref(), Some("ProcessorState"));
+        assert_eq!(slot.external_state_blob.as_deref(), Some("U1RBVEVfQkxPQg=="));
+        assert_eq!(slot.external_preset_blob_kind.as_deref(), Some("Chunk"));
+        assert_eq!(slot.external_preset_blob.as_deref(), Some("UFJFU0VUX0JMT0I="));
+    }
+
+    #[test]
     fn build_pointee_map_captures_extended_mixer_targets() {
         let xml = r#"
         <Track>
@@ -1604,6 +2085,31 @@ mod als_import_tests {
         assert_eq!(map.get("1002").map(String::as_str), Some("mixer.solo"));
         assert_eq!(map.get("1003").map(String::as_str), Some("mixer.arm"));
         assert_eq!(map.get("1004").map(String::as_str), Some("send.A"));
+    }
+
+    #[test]
+    fn build_pointee_map_uses_track_send_holder_id() {
+        let xml = r#"
+        <Track>
+          <DeviceChain>
+            <Mixer>
+              <Sends>
+                <TrackSendHolder Id="2">
+                  <Send><AutomationTarget Id="2004"/></Send>
+                </TrackSendHolder>
+              </Sends>
+            </Mixer>
+          </DeviceChain>
+        </Track>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let track = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Track"))
+            .expect("track");
+
+        let map = build_pointee_map(track);
+        assert_eq!(map.get("2004").map(String::as_str), Some("send.C"));
     }
 
     #[test]
@@ -1693,8 +2199,12 @@ mod als_import_tests {
               <Name Value="Mastering A" />
               <ProgramNumber Value="7" />
               <ParameterCount Value="382" />
+              <Chunk Value="QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=" />
             </Vst3Preset>
           </Preset>
+          <PluginState>
+            <ProcessorState Value="QmFzZTY0U3RhdGVQYXlsb2FkXzEyMzQ1Njc4OTA=" />
+          </PluginState>
         </PluginDevice>
         "#;
         let doc = roxmltree::Document::parse(xml).expect("valid xml");
@@ -1710,6 +2220,55 @@ mod als_import_tests {
         assert_eq!(meta.parameter_count, Some(382));
         assert_eq!(meta.stored_all_parameters, Some(true));
         assert_eq!(meta.plugin_version.as_deref(), Some("1.2.3"));
+        assert_eq!(meta.preset_blob_kind.as_deref(), Some("Chunk"));
+        assert_eq!(
+            meta.preset_blob.as_deref(),
+            Some("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=")
+        );
+        assert_eq!(meta.state_blob_kind.as_deref(), Some("ProcessorState"));
+        assert_eq!(
+            meta.state_blob.as_deref(),
+            Some("QmFzZTY0U3RhdGVQYXlsb2FkXzEyMzQ1Njc4OTA=")
+        );
+    }
+
+    #[test]
+    fn external_plugin_index_resolves_common_aliases() {
+        let index = ExternalPluginIndex {
+            by_name: std::collections::HashMap::from([
+                ("reastream".to_string(), "/VST/ReaStream.vst3".to_string()),
+                ("nectar 3".to_string(), "/VST/Nectar 3.vst3".to_string()),
+                (
+                    "synthesizer v studio".to_string(),
+                    "/VST/Synthesizer V Studio.vst3".to_string(),
+                ),
+            ]),
+            by_stem: std::collections::HashMap::new(),
+            by_file_name: std::collections::HashMap::new(),
+            by_normalized: std::collections::HashMap::from([
+                ("reastream".to_string(), "/VST/ReaStream.vst3".to_string()),
+                ("nectar3".to_string(), "/VST/Nectar 3.vst3".to_string()),
+                (
+                    "synthesizervstudio".to_string(),
+                    "/VST/Synthesizer V Studio.vst3".to_string(),
+                ),
+            ]),
+        };
+
+        assert_eq!(
+            index.resolve_by_name("reastream-standalone").as_deref(),
+            Some("/VST/ReaStream.vst3")
+        );
+        assert_eq!(
+            index.resolve_by_name("Nectar 3 Plugin").as_deref(),
+            Some("/VST/Nectar 3.vst3")
+        );
+        assert_eq!(
+            index
+                .resolve_by_name("Synthesizer V Studio 2 Plugin")
+                .as_deref(),
+            Some("/VST/Synthesizer V Studio.vst3")
+        );
     }
 
     #[test]
@@ -1747,6 +2306,43 @@ mod als_import_tests {
     }
 
     #[test]
+    fn import_internal_sampler_params_populates_extended_sampler_fields() {
+        let xml = r#"
+        <OriginalSimpler>
+          <Detune><Manual Value="-12"/></Detune>
+          <Sub><Manual Value="45"/></Sub>
+          <LfoRate><Manual Value="3.5"/></LfoRate>
+          <LfoDepth><Manual Value="65"/></LfoDepth>
+          <LfoTarget><Manual Value="2"/></LfoTarget>
+          <PulseWidth><Manual Value="0.72"/></PulseWidth>
+        </OriginalSimpler>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let device = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("OriginalSimpler"))
+            .expect("device");
+        let mut track = Track::with_type("MIDI", TrackType::Midi, 0);
+        import_internal_device_static_params(&mut track, "internal://instrument/sampler", device);
+        let cfg = track.sampler.expect("sampler cfg");
+        assert!((cfg.detune_cents + 12.0).abs() < 1e-9);
+        assert!((cfg.sub_level - 0.45).abs() < 1e-9);
+        assert!((cfg.lfo_rate - 3.5).abs() < 1e-9);
+        assert!((cfg.lfo_depth - 0.65).abs() < 1e-9);
+        assert_eq!(cfg.lfo_target, 2);
+        assert!((cfg.pulse_width - 0.72).abs() < 1e-9);
+    }
+
+    #[test]
+    fn canonical_internal_plugin_for_import_maps_synthesizer_v_to_wave_synth() {
+        let mapped = canonical_internal_plugin_for_import("PluginDevice", "Synthesizer V Studio 2 Plugin");
+        assert_eq!(
+            mapped,
+            Some(("internal://instrument/wave-synth", "Wave Synth", "instrument"))
+        );
+    }
+
+    #[test]
     fn import_track_automation_adds_static_plugin_param_lane_when_no_envelope() {
         let xml = r#"
         <Track>
@@ -1776,10 +2372,20 @@ mod als_import_tests {
         let lane = track
             .automation_lanes
             .iter()
-            .find(|l| l.param_id == "plugin:0:myvst:cutoff")
+            .find(|l| l.param_id == "plugin:0:myvst:cutoff_id12")
             .expect("static plugin lane");
         assert_eq!(lane.points.len(), 1);
         assert!((lane.points[0].value - 0.66).abs() < 1e-9);
+    }
+
+    #[test]
+    fn plugin_param_lane_key_uses_parameter_id_for_stable_uniqueness() {
+        let k1 = plugin_param_lane_key(0, "My VST", "Cutoff", "12");
+        let k2 = plugin_param_lane_key(0, "My VST", "Cutoff", "13");
+        let k3 = plugin_param_lane_key(0, "My VST", "Cutoff", "-1");
+        assert_eq!(k1, "plugin:0:myvst:cutoff_id12");
+        assert_eq!(k2, "plugin:0:myvst:cutoff_id13");
+        assert_eq!(k3, "plugin:0:myvst:cutoff");
     }
 
     #[test]
@@ -1828,7 +2434,7 @@ mod als_import_tests {
         let lane = track
             .automation_lanes
             .iter()
-            .find(|l| l.param_id == "plugin:0:myvst:cutoff")
+            .find(|l| l.param_id == "plugin:0:myvst:cutoff_id12")
             .expect("plugin lane");
         assert_eq!(lane.points.len(), 2);
         assert!((lane.points[0].value - 0.25).abs() < 1e-9);
@@ -2685,6 +3291,98 @@ fn upsert_static_import_lane_if_missing(track: &mut Track, param_id: &str, value
     upsert_static_import_lane(track, param_id, value);
 }
 
+#[derive(Debug, Clone)]
+struct PendingMacroMapping {
+    macro_index: usize,
+    device_id: uuid::Uuid,
+    param_id: String,
+    min_value: f64,
+    max_value: f64,
+}
+
+fn collect_pending_macro_mappings_for_device(
+    device_xml: roxmltree::Node<'_, '_>,
+    device_node: &DeviceNode,
+) -> Vec<PendingMacroMapping> {
+    let Some(slot) = device_node.as_single() else {
+        return Vec::new();
+    };
+
+    fn child_value(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<String> {
+        node.children()
+            .find(|n| n.is_element() && n.has_tag_name(tag))
+            .and_then(|n| n.attribute("Value"))
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    let mut out = Vec::<PendingMacroMapping>::new();
+
+    for candidate in device_xml.descendants().filter(|n| n.is_element()) {
+        let Some(macro_idx) = child_value(candidate, "PowerMacroControlIndex")
+            .as_deref()
+            .and_then(parse_i64_value)
+            .and_then(|v| (0..=15).contains(&v).then_some(v as usize))
+        else {
+            continue;
+        };
+
+        let mapping_range = candidate
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("PowerMacroMappingRange"));
+        let min_value = mapping_range
+            .and_then(|r| {
+                r.children()
+                    .find(|n| n.is_element() && n.has_tag_name("Min"))
+                    .and_then(|n| n.attribute("Value"))
+                    .and_then(parse_f64_value)
+            })
+            .unwrap_or(0.0);
+        let max_value = mapping_range
+            .and_then(|r| {
+                r.children()
+                    .find(|n| n.is_element() && n.has_tag_name("Max"))
+                    .and_then(|n| n.attribute("Value"))
+                    .and_then(parse_f64_value)
+            })
+            .unwrap_or(127.0);
+
+        let param_id = child_value(candidate, "ParameterName")
+            .or_else(|| child_value(candidate, "ParameterId"))
+            .map(|s| {
+                let normalized = normalize_plugin_key(&s);
+                if normalized.is_empty() { s } else { normalized }
+            })
+            .unwrap_or_else(|| normalize_plugin_key(candidate.tag_name().name()));
+        if param_id.is_empty() {
+            continue;
+        }
+
+        out.push(PendingMacroMapping {
+            macro_index: macro_idx,
+            device_id: slot.id,
+            param_id,
+            min_value,
+            max_value,
+        });
+    }
+
+    out.sort_by(|a, b| {
+        a.macro_index
+            .cmp(&b.macro_index)
+            .then_with(|| a.device_id.cmp(&b.device_id))
+            .then_with(|| a.param_id.cmp(&b.param_id))
+    });
+    out.dedup_by(|a, b| {
+        a.macro_index == b.macro_index
+            && a.device_id == b.device_id
+            && a.param_id == b.param_id
+            && (a.min_value - b.min_value).abs() < 1e-9
+            && (a.max_value - b.max_value).abs() < 1e-9
+    });
+    out
+}
+
 // ── Recursive ALS Rack Parser ──────────────────────────────────────────
 
 /// Parses an Ableton group device XML node into a full `DeviceRack`.
@@ -2725,7 +3423,13 @@ fn parse_als_rack(
     let mut rack = DeviceRack::new(&rack_name, rack_type);
 
     // ── Parse Branches → RackChains ─────────────────────────────────
-    rack.chains = parse_als_rack_chains(group_device, external_plugins, als_path);
+    let mut pending_macro_mappings = Vec::<PendingMacroMapping>::new();
+    rack.chains = parse_als_rack_chains(
+        group_device,
+        external_plugins,
+        als_path,
+        &mut pending_macro_mappings,
+    );
 
     // If no branches found, create a single default chain.
     if rack.chains.is_empty() {
@@ -2748,6 +3452,9 @@ fn parse_als_rack(
         {
             max_macro_index = max_macro_index.max(idx);
         }
+    }
+    if let Some(mapped_max) = pending_macro_mappings.iter().map(|m| m.macro_index).max() {
+        max_macro_index = max_macro_index.max(mapped_max);
     }
     ensure_rack_macro_capacity(&mut rack, max_macro_index + 1);
 
@@ -2823,6 +3530,36 @@ fn parse_als_rack(
         }
     }
 
+    // ── Parse macro -> parameter mappings (PowerMacro*) ─────────────
+    for mapping in pending_macro_mappings {
+        if mapping.macro_index >= rack.macro_controls.len() {
+            continue;
+        }
+        rack.macro_controls[mapping.macro_index]
+            .mappings
+            .push(dream_models::project::MacroMapping {
+                device_id: mapping.device_id,
+                param_id: mapping.param_id,
+                min_value: mapping.min_value,
+                max_value: mapping.max_value,
+            });
+    }
+    for mc in &mut rack.macro_controls {
+        mc.mappings.sort_by(|a, b| {
+            a.device_id
+                .cmp(&b.device_id)
+                .then_with(|| a.param_id.cmp(&b.param_id))
+                .then_with(|| a.min_value.total_cmp(&b.min_value))
+                .then_with(|| a.max_value.total_cmp(&b.max_value))
+        });
+        mc.mappings.dedup_by(|a, b| {
+            a.device_id == b.device_id
+                && a.param_id == b.param_id
+                && (a.min_value - b.min_value).abs() < 1e-9
+                && (a.max_value - b.max_value).abs() < 1e-9
+        });
+    }
+
     // ── Parse bypass state ──────────────────────────────────────────
     rack.is_bypassed = group_device
         .children()
@@ -2864,6 +3601,7 @@ fn parse_als_rack_chains(
     group_device: roxmltree::Node<'_, '_>,
     external_plugins: &ExternalPluginIndex,
     als_path: &Path,
+    pending_macro_mappings: &mut Vec<PendingMacroMapping>,
 ) -> Vec<RackChain> {
     let mut chains = Vec::new();
 
@@ -3014,15 +3752,19 @@ fn parse_als_rack_chains(
                         if let Some(plugin_id) = resolved_plugin_id {
                             let mut slot = PluginSlot::new(preferred_name, plugin_id);
                             apply_external_plugin_meta(&mut slot, &meta);
-                            chain.devices.push(DeviceNode::Single(slot));
+                            let node = DeviceNode::Single(slot);
+                            pending_macro_mappings
+                                .extend(collect_pending_macro_mappings_for_device(child_device, &node));
+                            chain.devices.push(node);
                         } else if let Some((pid, pname, _)) =
                             canonical_internal_plugin_for_import("PluginDevice", &preferred_name)
                         {
-                            chain
-                                .devices
-                                .push(DeviceNode::Single(PluginSlot::new(pname, pid)));
+                            let node = DeviceNode::Single(PluginSlot::new(pname, pid));
+                            pending_macro_mappings
+                                .extend(collect_pending_macro_mappings_for_device(child_device, &node));
+                            chain.devices.push(node);
                         } else {
-                            chain.devices.push(make_missing_external_plugin_slot_with_metadata(
+                            let node = make_missing_external_plugin_slot_with_metadata(
                                 "external",
                                 &preferred_name,
                                 &user_name,
@@ -3031,7 +3773,11 @@ fn parse_als_rack_chains(
                                 &vst3_name,
                                 &vst3_path,
                                 false,
-                            ));
+                                Some(&meta),
+                            );
+                            pending_macro_mappings
+                                .extend(collect_pending_macro_mappings_for_device(child_device, &node));
+                            chain.devices.push(node);
                         }
                         continue;
                     }
@@ -3041,11 +3787,15 @@ fn parse_als_rack_chains(
                     if let Some((pid, pname, _)) =
                         canonical_internal_plugin_for_import(child_tag, &display)
                     {
-                        chain
-                            .devices
-                            .push(DeviceNode::Single(PluginSlot::new(pname, pid)));
+                        let node = DeviceNode::Single(PluginSlot::new(pname, pid));
+                        pending_macro_mappings
+                            .extend(collect_pending_macro_mappings_for_device(child_device, &node));
+                        chain.devices.push(node);
                     } else {
-                        chain.devices.push(make_missing_plugin_slot(child_tag, &display));
+                        let node = make_missing_plugin_slot(child_tag, &display);
+                        pending_macro_mappings
+                            .extend(collect_pending_macro_mappings_for_device(child_device, &node));
+                        chain.devices.push(node);
                     }
                 }
             }
@@ -3345,18 +4095,33 @@ fn import_internal_device_static_params(
     if key == "internal://instrument/wave-synth" {
         if let Some(v) = first_param_value(&params, &["Voice_Oscillator1_Pitch_Detune", "Detune"]) {
             upsert_static_import_lane(track, "synth.detune", v.clamp(-50.0, 50.0));
+            if let Some(cfg) = &mut track.sampler {
+                cfg.detune_cents = v.clamp(-50.0, 50.0);
+            }
         }
         if let Some(v) = first_param_value(&params, &["Voice_SubOscillator_Gain"]) {
             upsert_static_import_lane(track, "synth.sub", normalize_percent_or_unit(v));
+            if let Some(cfg) = &mut track.sampler {
+                cfg.sub_level = normalize_percent_or_unit(v);
+            }
         }
         if let Some(v) = first_param_value(&params, &["Voice_Filter1_Frequency", "Filter_Frequency"]) {
             upsert_static_import_lane(track, "synth.filter.cutoff", v.clamp(20.0, 20_000.0));
+            if let Some(cfg) = &mut track.sampler {
+                cfg.filter_cutoff = v.clamp(20.0, 20_000.0);
+            }
         }
         if let Some(v) = first_param_value(&params, &["Voice_Filter1_Resonance", "Filter_Resonance"]) {
             upsert_static_import_lane(track, "synth.filter.resonance", v.clamp(0.0, 0.99));
+            if let Some(cfg) = &mut track.sampler {
+                cfg.filter_resonance = v.clamp(0.0, 0.99);
+            }
         }
         if let Some(v) = first_param_value(&params, &["Voice_Filter1_Type", "Filter_Type"]) {
             upsert_static_import_lane(track, "synth.filter.type", v.round().clamp(0.0, 3.0));
+            if let Some(cfg) = &mut track.sampler {
+                cfg.filter_type = v.round().clamp(0.0, 3.0) as u8;
+            }
         }
 
         if let (Some(osc1), Some(osc2)) = (
@@ -3365,7 +4130,11 @@ fn import_internal_device_static_params(
         ) {
             let total = osc1.abs() + osc2.abs();
             if total > 1e-6 {
-                upsert_static_import_lane(track, "synth.osc.mix", (osc2.abs() / total).clamp(0.0, 1.0));
+                let mix = (osc2.abs() / total).clamp(0.0, 1.0);
+                upsert_static_import_lane(track, "synth.osc.mix", mix);
+                if let Some(cfg) = &mut track.sampler {
+                    cfg.osc_mix = mix;
+                }
             }
         }
 
@@ -3430,6 +4199,30 @@ fn import_internal_device_static_params(
         if let Some(v) = first_param_value(&params, &["Filter_Type", "FilterType"]) {
             cfg.filter_type = v.round().clamp(0.0, 3.0) as u8;
             lane_updates.push(("sampler.filter_type".to_string(), cfg.filter_type as f64));
+        }
+        if let Some(v) = first_param_value(&params, &["Detune", "FineTune", "SampleDetune"]) {
+            cfg.detune_cents = v.clamp(-50.0, 50.0);
+            lane_updates.push(("sampler.detune_cents".to_string(), cfg.detune_cents));
+        }
+        if let Some(v) = first_param_value(&params, &["Sub", "SubLevel", "SubOsc"]) {
+            cfg.sub_level = normalize_percent_or_unit(v);
+            lane_updates.push(("sampler.sub_level".to_string(), cfg.sub_level));
+        }
+        if let Some(v) = first_param_value(&params, &["LfoRate", "Lfo_Frequency"]) {
+            cfg.lfo_rate = v.clamp(0.01, 20.0);
+            lane_updates.push(("sampler.lfo_rate".to_string(), cfg.lfo_rate));
+        }
+        if let Some(v) = first_param_value(&params, &["LfoDepth", "Lfo_Amount"]) {
+            cfg.lfo_depth = normalize_percent_or_unit(v);
+            lane_updates.push(("sampler.lfo_depth".to_string(), cfg.lfo_depth));
+        }
+        if let Some(v) = first_param_value(&params, &["LfoTarget"]) {
+            cfg.lfo_target = v.round().clamp(0.0, 2.0) as u8;
+            lane_updates.push(("sampler.lfo_target".to_string(), cfg.lfo_target as f64));
+        }
+        if let Some(v) = first_param_value(&params, &["PulseWidth", "OscPulseWidth"]) {
+            cfg.pulse_width = v.clamp(0.05, 0.95);
+            lane_updates.push(("sampler.pulse_width".to_string(), cfg.pulse_width));
         }
 
         for (param_id, value) in lane_updates {
@@ -3694,6 +4487,7 @@ fn import_track_devices(
                     &vst3_name,
                     &vst3_path,
                     is_placeholder,
+                    Some(&meta),
                 )
             };
 
@@ -3879,11 +4673,20 @@ fn build_pointee_map(track_node: roxmltree::Node<'_, '_>) -> std::collections::H
         }
 
         // Send levels (SendA, SendB, etc.)
-        for (idx, send) in mixer
+        for (seq_idx, send) in mixer
             .descendants()
             .filter(|n| n.is_element() && n.has_tag_name("TrackSendHolder"))
             .enumerate()
         {
+            let idx = send
+                .attribute("Id")
+                .and_then(parse_i64_value)
+                .filter(|v| *v >= 0)
+                .map(|v| v as usize)
+                .unwrap_or(seq_idx);
+            if idx >= 26 {
+                continue;
+            }
             if let Some(send_node) = send.children().find(|n| n.is_element() && n.has_tag_name("Send")) {
                 if let Some(target) = send_node.descendants().find(|n| n.is_element() && n.has_tag_name("AutomationTarget")) {
                     if let Some(id) = target.attribute("Id") {
@@ -3962,12 +4765,18 @@ fn plugin_param_lane_key(
 ) -> String {
     let plugin_key = normalize_plugin_key(plugin_name);
     let mut param_key = normalize_plugin_key(param_name);
+    let maybe_numeric = param_id.trim().parse::<i64>().ok();
     if param_key.is_empty() {
-        let maybe_numeric = param_id.trim().parse::<i64>().ok();
         param_key = match maybe_numeric {
             Some(v) if v >= 0 => format!("id{v}"),
             _ => "unnamed".to_string(),
         };
+    } else if let Some(v) = maybe_numeric {
+        if v >= 0 {
+            // Preserve human-readable parameter names while avoiding collisions
+            // when multiple plugin params share the same display name.
+            param_key = format!("{param_key}_id{v}");
+        }
     }
     format!("plugin:{dev_idx}:{plugin_key}:{param_key}")
 }
@@ -3997,6 +4806,51 @@ fn plugin_param_manual_value(param_node: roxmltree::Node<'_, '_>) -> Option<f64>
         .filter(|v| v.is_finite())
 }
 
+fn semantic_external_aliases(
+    dev_idx: usize,
+    plugin_name: &str,
+    param_name: &str,
+    value: f64,
+) -> Vec<(String, f64)> {
+    let mut out = Vec::<(String, f64)>::new();
+    let plugin_key = normalize_plugin_key(plugin_name);
+    let param_key = normalize_plugin_key(param_name);
+    if plugin_key.is_empty() || param_key.is_empty() {
+        return out;
+    }
+
+    // Generic semantic key for readable diagnostics and tooling.
+    out.push((
+        format!("plugin_semantic:{dev_idx}:{plugin_key}:{param_key}"),
+        value,
+    ));
+
+    // Type-aware aliases that can drive native fallback processors.
+    if (plugin_key.contains("nectar") || plugin_key.contains("prol") || plugin_key.contains("compressor"))
+        && param_key.contains("threshold")
+    {
+        out.push(("effect.compressor.threshold".to_string(), value.clamp(-80.0, 0.0)));
+    } else if (plugin_key.contains("nectar") || plugin_key.contains("prol") || plugin_key.contains("compressor"))
+        && param_key.contains("ratio")
+    {
+        out.push(("effect.compressor.ratio".to_string(), value.clamp(1.0, 20.0)));
+    } else if (plugin_key.contains("nectar") || plugin_key.contains("prol") || plugin_key.contains("compressor"))
+        && param_key.contains("attack")
+    {
+        out.push(("effect.compressor.attack".to_string(), value.clamp(0.01, 200.0)));
+    } else if (plugin_key.contains("nectar") || plugin_key.contains("prol") || plugin_key.contains("compressor"))
+        && param_key.contains("release")
+    {
+        out.push(("effect.compressor.release".to_string(), value.clamp(1.0, 1000.0)));
+    } else if plugin_key.contains("reastream") && (param_key.contains("mix") || param_key.contains("wet")) {
+        out.push(("plugin.mono".to_string(), value.clamp(0.0, 1.0)));
+    } else if plugin_key.contains("synthesizerv") && param_key.contains("detune") {
+        out.push(("synth.detune".to_string(), value.clamp(-50.0, 50.0)));
+    }
+
+    out
+}
+
 fn import_plugin_device_static_automation_fallback(
     track_node: roxmltree::Node<'_, '_>,
     track: &mut Track,
@@ -4023,6 +4877,11 @@ fn import_plugin_device_static_automation_fallback(
                 continue;
             };
             upsert_static_import_lane_if_missing(track, &lane_key, value);
+            for (alias_key, alias_value) in
+                semantic_external_aliases(dev_idx, &plugin_name_raw, &param_name, value)
+            {
+                upsert_static_import_lane_if_missing(track, &alias_key, alias_value);
+            }
         }
     }
 }
@@ -4788,9 +5647,11 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
         {
             if let Some(volume) = maybe_parse_f64_manual(mixer, "Volume") {
                 track.volume = volume.clamp(0.0, 2.0);
+                static_mixer_values.push(("volume".to_string(), track.volume));
             }
             if let Some(pan) = maybe_parse_f64_manual(mixer, "Pan") {
                 track.pan = pan.clamp(-1.0, 1.0);
+                static_mixer_values.push(("pan".to_string(), track.pan));
             }
             let on = maybe_parse_bool_manual(mixer, "On");
             let speaker = maybe_parse_bool_manual(mixer, "Speaker");
@@ -4815,15 +5676,40 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
                     crossfade_state.clamp(0.0, 2.0),
                 ));
             }
+            if let Some(v) = maybe_parse_f64_manual(mixer, "SplitStereoPanL") {
+                static_mixer_values.push(("mixer.pan_left".to_string(), v.clamp(-1.0, 1.0)));
+            }
+            if let Some(v) = maybe_parse_f64_manual(mixer, "SplitStereoPanR") {
+                static_mixer_values.push(("mixer.pan_right".to_string(), v.clamp(-1.0, 1.0)));
+            }
             static_send_values = parse_track_send_manual_values(mixer);
         }
         if let Some(monitoring_mode) = node_child_value(track_node, "MonitoringEnum")
+            .or_else(|| {
+                track_node
+                    .descendants()
+                    .find(|n| n.is_element() && n.has_tag_name("MonitoringEnum"))
+                    .and_then(|n| n.attribute("Value"))
+                    .map(ToString::to_string)
+            })
             .as_deref()
             .and_then(parse_i64_value)
             .map(|v| v.clamp(0, 2) as u8)
         {
             track.monitoring_mode = Some(monitoring_mode);
             static_mixer_values.push(("mixer.monitoring_mode".to_string(), monitoring_mode as f64));
+        }
+        if let Some(v) = parse_track_bool_flag(track_node, "IsAutoSelectEnabled") {
+            static_mixer_values.push((
+                "mixer.is_auto_select_enabled".to_string(),
+                if v { 1.0 } else { 0.0 },
+            ));
+        }
+        if let Some(v) = parse_track_bool_flag(track_node, "KeepRecordMonitoringLatency") {
+            static_mixer_values.push((
+                "mixer.keep_record_monitoring_latency".to_string(),
+                if v { 1.0 } else { 0.0 },
+            ));
         }
 
         let preferred_input_target = if track_type == TrackType::Midi {
@@ -4847,17 +5733,6 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
             let send_letter = (b'A' + send_idx as u8) as char;
             upsert_static_import_lane_if_missing(&mut track, &format!("send.{send_letter}"), send_value);
         }
-        for (param_id, value) in static_mixer_values {
-            upsert_static_import_lane_if_missing(&mut track, &param_id, value);
-        }
-        consolidate_automation_lanes(&mut track);
-
-        if track_type == TrackType::Midi && track.instrument.is_none() {
-            track.instrument = Some(make_missing_plugin_slot("instrument", "Ableton Instrument"));
-            if track.sampler.is_none() {
-                track.sampler = Some(SamplerConfig::default());
-            }
-        }
 
         if let Some(xml_id) = track_node.attribute("Id")
             && !xml_id.trim().is_empty()
@@ -4873,17 +5748,42 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
             pending_group_refs.push((track.id, group_ref));
         }
 
-        let preferred_output_target = if track_type == TrackType::Midi {
-            parse_output_target(track_node, "MidiOutputRouting")
-                .or_else(|| parse_output_target(track_node, "AudioOutputRouting"))
-        } else {
-            parse_output_target(track_node, "AudioOutputRouting")
-        };
+        let preferred_output_target = choose_preferred_output_target(
+            track_type,
+            parse_output_target(track_node, "AudioOutputRouting"),
+            parse_output_target(track_node, "MidiOutputRouting"),
+        );
         if let Some(target) = preferred_output_target {
-            if let Some(xml_target_id) = parse_target_track_xml_id(&target) {
-                pending_output_refs.push((track.id, xml_target_id));
-            } else if target.eq_ignore_ascii_case("AudioOut/GroupTrack") {
-                pending_group_output_fallback.push(track.id);
+            match classify_output_routing_target(&target) {
+                OutputRoutingTarget::TrackXmlId(xml_target_id) => {
+                    pending_output_refs.push((track.id, xml_target_id));
+                    static_mixer_values.push(("mixer.output_enabled".to_string(), 1.0));
+                }
+                OutputRoutingTarget::GroupFallback => {
+                    pending_group_output_fallback.push(track.id);
+                    static_mixer_values.push(("mixer.output_enabled".to_string(), 1.0));
+                }
+                OutputRoutingTarget::Master => {
+                    // `None` output_destination_id already means "to master" in model.
+                    static_mixer_values.push(("mixer.output_enabled".to_string(), 1.0));
+                }
+                OutputRoutingTarget::None => {
+                    // Preserve explicit "no output" (distinct from "to master").
+                    static_mixer_values.push(("mixer.output_enabled".to_string(), 0.0));
+                }
+                OutputRoutingTarget::Unknown => {}
+            }
+        }
+
+        for (param_id, value) in static_mixer_values {
+            upsert_static_import_lane_if_missing(&mut track, &param_id, value);
+        }
+        consolidate_automation_lanes(&mut track);
+
+        if track_type == TrackType::Midi && track.instrument.is_none() {
+            track.instrument = Some(make_missing_plugin_slot("instrument", "Ableton Instrument"));
+            if track.sampler.is_none() {
+                track.sampler = Some(SamplerConfig::default());
             }
         }
 

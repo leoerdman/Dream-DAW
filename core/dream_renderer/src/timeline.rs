@@ -72,45 +72,44 @@ impl TimelineRenderer {
         });
 
         // ── Bind Group Layout ──────────────────────────────────────
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Timeline Bind Group Layout"),
-                entries: &[
-                    // @group(0) @binding(0): viewport uniforms
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Timeline Bind Group Layout"),
+            entries: &[
+                // @group(0) @binding(0): viewport uniforms
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                    // @group(0) @binding(1): clip instances (storage)
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                    count: None,
+                },
+                // @group(0) @binding(1): clip instances (storage)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                    // @group(0) @binding(2): waveform peaks (storage)
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                    count: None,
+                },
+                // @group(0) @binding(2): waveform peaks (storage)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                ],
-            });
+                    count: None,
+                },
+            ],
+        });
 
         // ── Pipeline Layout ────────────────────────────────────────
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -219,11 +218,8 @@ impl TimelineRenderer {
         let uniforms = ViewportUniforms {
             viewport_size: [viewport.width, viewport.height, 0.0, 0.0],
         };
-        self.queue.write_buffer(
-            &self.viewport_buffer,
-            0,
-            bytemuck::bytes_of(&uniforms),
-        );
+        self.queue
+            .write_buffer(&self.viewport_buffer, 0, bytemuck::bytes_of(&uniforms));
 
         // ── Upload clip instances ──────────────────────────────────
         self.queue.write_buffer(
@@ -252,8 +248,7 @@ impl TimelineRenderer {
             self.peak_buffer_capacity = new_capacity;
         }
 
-        self.queue
-            .write_buffer(&self.peak_buffer, 0, peak_bytes);
+        self.queue.write_buffer(&self.peak_buffer, 0, peak_bytes);
 
         // ── Create bind group ──────────────────────────────────────
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {

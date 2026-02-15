@@ -67,16 +67,15 @@ fn parse_args() -> Result<Args, String> {
 }
 
 fn open_shared_region(path: &PathBuf) -> Option<MmapMut> {
-    let file = std::fs::OpenOptions::new().read(true).write(true).open(path).ok()?;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .ok()?;
     unsafe { MmapMut::map_mut(&file).ok() }
 }
 
-fn process_passthrough(
-    mmap: &mut MmapMut,
-    num_inputs: u16,
-    num_outputs: u16,
-    max_frames: u32,
-) {
+fn process_passthrough(mmap: &mut MmapMut, num_inputs: u16, num_outputs: u16, max_frames: u32) {
     let header_bytes = 64usize;
     let stride = max_frames as usize * std::mem::size_of::<f32>();
     let total_needed = header_bytes + (num_inputs as usize + num_outputs as usize) * stride;
@@ -169,7 +168,10 @@ fn main() {
         loop {
             match cmd_rx.try_recv() {
                 Ok(msg) => match msg {
-                    PluginHostControlMessage::Hello { protocol_version, host_name } => {
+                    PluginHostControlMessage::Hello {
+                        protocol_version,
+                        host_name,
+                    } => {
                         let evt = PluginHostEventMessage::Ready {
                             protocol_version,
                             shared_region: None,
@@ -232,7 +234,10 @@ fn main() {
             }
         }
 
-        if let Err(err) = fs::write(&args.heartbeat_file, format!("{:?}", std::time::SystemTime::now())) {
+        if let Err(err) = fs::write(
+            &args.heartbeat_file,
+            format!("{:?}", std::time::SystemTime::now()),
+        ) {
             log::warn!(
                 "[plugin_host_daemon] heartbeat write failed (instance={}): {}",
                 args.instance_id,
@@ -265,5 +270,8 @@ fn main() {
         }
         thread::sleep(Duration::from_millis(25));
     }
-    log::info!("[plugin_host_daemon] shutdown instance={}", args.instance_id);
+    log::info!(
+        "[plugin_host_daemon] shutdown instance={}",
+        args.instance_id
+    );
 }

@@ -132,6 +132,9 @@ mod tests {
         let mut r = vec![0.5f32; 2048];
         proc.process_stereo(&mut l, &mut r, 44100.0);
         let diff: f32 = l.iter().zip(r.iter()).map(|(a, b)| (a - b).abs()).sum();
-        assert!(diff > 1e-3, "Auto Pan should create channel difference: {diff}");
+        assert!(
+            diff > 1e-3,
+            "Auto Pan should create channel difference: {diff}"
+        );
     }
 }

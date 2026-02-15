@@ -12,9 +12,9 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 pub mod curve;
-pub mod mode;
 pub mod lane;
+pub mod mode;
 
 pub use curve::{AutomationCurve, AutomationPoint, InterpolationMode};
-pub use mode::AutomationMode;
 pub use lane::AutomationLane;
+pub use mode::AutomationMode;

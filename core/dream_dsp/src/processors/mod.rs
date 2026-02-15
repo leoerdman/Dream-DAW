@@ -2,20 +2,20 @@
 // Dream DAW — Built-in DSP Processors Module
 // ═══════════════════════════════════════════════════════════════════════════
 
-pub mod utility;
-pub mod eq;
+pub mod chorus;
 pub mod compressor;
 pub mod delay;
+pub mod eq;
 pub mod reverb;
-pub mod chorus;
 pub mod saturator;
+pub mod utility;
 // Wave 1 — Essential Effects
-pub mod limiter;
-pub mod gate;
 pub mod auto_filter;
 pub mod auto_pan;
-pub mod phaser;
-pub mod flanger;
-pub mod distortion;
 pub mod bitcrusher;
+pub mod distortion;
+pub mod flanger;
+pub mod gate;
+pub mod limiter;
 pub mod noise_machine;
+pub mod phaser;

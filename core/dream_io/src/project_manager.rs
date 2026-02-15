@@ -61,17 +61,20 @@ impl ProjectManager {
     /// ```
     ///
     /// Returns the path to the created project folder.
-    pub fn create_project_folder(
-        parent: &Path,
-        name: &str,
-    ) -> Result<PathBuf, ProjectFileError> {
+    pub fn create_project_folder(parent: &Path, name: &str) -> Result<PathBuf, ProjectFileError> {
         let project_dir = parent.join(name);
         let samples_dir = project_dir.join(Self::SAMPLES_DIR);
         let imported_dir = samples_dir.join(Self::IMPORTED_DIR);
         let recorded_dir = samples_dir.join(Self::RECORDED_DIR);
         let backup_dir = project_dir.join(Self::BACKUP_DIR);
 
-        for dir in &[&project_dir, &samples_dir, &imported_dir, &recorded_dir, &backup_dir] {
+        for dir in &[
+            &project_dir,
+            &samples_dir,
+            &imported_dir,
+            &recorded_dir,
+            &backup_dir,
+        ] {
             fs::create_dir_all(dir)?;
         }
 
@@ -108,7 +111,13 @@ impl ProjectManager {
         let recorded_dir = samples_dir.join(Self::RECORDED_DIR);
         let backup_dir = folder.join(Self::BACKUP_DIR);
 
-        for dir in &[folder, &samples_dir, &imported_dir, &recorded_dir, &backup_dir] {
+        for dir in &[
+            folder,
+            &samples_dir,
+            &imported_dir,
+            &recorded_dir,
+            &backup_dir,
+        ] {
             fs::create_dir_all(dir)?;
         }
 
@@ -136,18 +145,12 @@ impl ProjectManager {
     /// Backup filename format: `{name}_backup_{YYYY-MM-DD_HH-MM-SS}.dream.json`
     ///
     /// Returns the path to the backup file, or `None` if no folder is set.
-    pub fn create_backup(
-        project: &Project,
-        folder: &Path,
-    ) -> Result<PathBuf, ProjectFileError> {
+    pub fn create_backup(project: &Project, folder: &Path) -> Result<PathBuf, ProjectFileError> {
         let backup_dir = folder.join(Self::BACKUP_DIR);
         fs::create_dir_all(&backup_dir)?;
 
         let timestamp = Self::timestamp_string();
-        let backup_name = format!(
-            "{}_backup_{}.dream.json",
-            project.name, timestamp
-        );
+        let backup_name = format!("{}_backup_{}.dream.json", project.name, timestamp);
         let backup_path = backup_dir.join(&backup_name);
 
         ProjectFile::save(project, &backup_path)?;
@@ -164,11 +167,7 @@ impl ProjectManager {
         let mut entries: Vec<PathBuf> = fs::read_dir(backup_dir)?
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
-            .filter(|path| {
-                path.extension()
-                    .and_then(|ext| ext.to_str())
-                    == Some("json")
-            })
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
             .collect();
 
         // Sort by modification time (newest first)
@@ -181,11 +180,7 @@ impl ProjectManager {
         // Remove excess backups
         for old_backup in entries.iter().skip(Self::MAX_BACKUPS) {
             if let Err(e) = fs::remove_file(old_backup) {
-                log::warn!(
-                    "Failed to prune backup {}: {}",
-                    old_backup.display(),
-                    e
-                );
+                log::warn!("Failed to prune backup {}: {}", old_backup.display(), e);
             }
         }
 
@@ -199,10 +194,7 @@ impl ProjectManager {
     ///
     /// Skips files that already exist at the destination or whose source
     /// doesn't exist on disk. This mirrors Swift's `copyAudioSamples()`.
-    pub fn copy_audio_samples(
-        project: &Project,
-        dest: &Path,
-    ) -> Result<(), ProjectFileError> {
+    pub fn copy_audio_samples(project: &Project, dest: &Path) -> Result<(), ProjectFileError> {
         fs::create_dir_all(dest)?;
 
         for track in &project.tracks {
@@ -243,7 +235,11 @@ impl ProjectManager {
         }
 
         fs::copy(source, &dest_path)?;
-        log::info!("Copied sample: {} → {}", source.display(), dest_path.display());
+        log::info!(
+            "Copied sample: {} → {}",
+            source.display(),
+            dest_path.display()
+        );
         Ok(())
     }
 
@@ -303,11 +299,7 @@ impl ProjectManager {
             .flatten()
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
-            .filter(|path| {
-                path.extension()
-                    .and_then(|ext| ext.to_str())
-                    == Some("json")
-            })
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
             .collect();
 
         entries.sort_by(|a, b| {
@@ -485,7 +477,11 @@ mod tests {
         ProjectManager::create_backup(&project, &folder).unwrap();
 
         let backups = ProjectManager::list_backups(&folder);
-        assert!(!backups.is_empty(), "Expected at least 1 backup, got {}", backups.len());
+        assert!(
+            !backups.is_empty(),
+            "Expected at least 1 backup, got {}",
+            backups.len()
+        );
 
         let _ = fs::remove_dir_all(&parent);
     }

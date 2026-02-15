@@ -102,7 +102,10 @@ impl TransportController {
     /// Whether the transport is actively advancing.
     #[inline]
     pub fn is_playing(&self) -> bool {
-        matches!(self.state, TransportState::Playing | TransportState::Recording)
+        matches!(
+            self.state,
+            TransportState::Playing | TransportState::Recording
+        )
     }
 
     /// Whether recording is active.
@@ -173,8 +176,7 @@ impl TransportController {
                 self.metronome_enabled = enabled;
                 return true;
             }
-            TransportCommand::SetLoopEnabled { .. }
-            | TransportCommand::SetLoopRegion { .. } => {
+            TransportCommand::SetLoopEnabled { .. } | TransportCommand::SetLoopRegion { .. } => {
                 // Loop commands are handled by the LoopRegion
                 return true;
             }

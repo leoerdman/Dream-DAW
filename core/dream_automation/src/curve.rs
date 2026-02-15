@@ -9,7 +9,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Interpolation mode between automation points.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -102,9 +102,11 @@ impl AutomationCurve {
     /// Removes the point closest to `position` within `tolerance` frames.
     /// Returns `true` if a point was removed.
     pub fn remove_near(&mut self, position: i64, tolerance: i64) -> bool {
-        if let Some(idx) = self.points.iter().position(|p| {
-            (p.position - position).abs() <= tolerance
-        }) {
+        if let Some(idx) = self
+            .points
+            .iter()
+            .position(|p| (p.position - position).abs() <= tolerance)
+        {
             self.points.remove(idx);
             true
         } else {
@@ -133,12 +135,9 @@ impl AutomationCurve {
         }
 
         // Binary search for the segment
-        let idx = match self
-            .points
-            .binary_search_by(|p| p.position.cmp(&position))
-        {
+        let idx = match self.points.binary_search_by(|p| p.position.cmp(&position)) {
             Ok(idx) => return self.points[idx].value, // Exact match
-            Err(idx) => idx - 1, // Between idx-1 and idx
+            Err(idx) => idx - 1,                      // Between idx-1 and idx
         };
 
         let p0 = &self.points[idx];
@@ -155,9 +154,7 @@ impl AutomationCurve {
         match p0.interpolation {
             InterpolationMode::Step => p0.value,
 
-            InterpolationMode::Linear => {
-                p0.value + (p1.value - p0.value) * t
-            }
+            InterpolationMode::Linear => p0.value + (p1.value - p0.value) * t,
 
             InterpolationMode::Smooth => {
                 // Cubic Hermite (smoothstep)
@@ -249,7 +246,9 @@ mod tests {
     fn step_interpolation() {
         let mut curve = AutomationCurve::new(0.0);
         curve.add_point(AutomationPoint::with_interpolation(
-            0, 0.0, InterpolationMode::Step,
+            0,
+            0.0,
+            InterpolationMode::Step,
         ));
         curve.add_point(AutomationPoint::new(1000, 1.0));
 
@@ -262,7 +261,9 @@ mod tests {
     fn smooth_interpolation() {
         let mut curve = AutomationCurve::new(0.0);
         curve.add_point(AutomationPoint::with_interpolation(
-            0, 0.0, InterpolationMode::Smooth,
+            0,
+            0.0,
+            InterpolationMode::Smooth,
         ));
         curve.add_point(AutomationPoint::new(1000, 1.0));
 

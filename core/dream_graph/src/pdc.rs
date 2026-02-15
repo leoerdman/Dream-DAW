@@ -149,10 +149,7 @@ pub fn compute_edge_delay_compensation(
 /// Returns diagnostic information about the PDC calculation for logging.
 pub fn pdc_summary(dag: &AudioDag, compensation: &[u32]) -> String {
     let mut lines = Vec::new();
-    lines.push(format!(
-        "PDC Summary ({} nodes):",
-        dag.node_count()
-    ));
+    lines.push(format!("PDC Summary ({} nodes):", dag.node_count()));
 
     let graph = dag.graph();
     for node_idx in graph.node_indices() {
@@ -180,10 +177,7 @@ pub fn pdc_summary(dag: &AudioDag, compensation: &[u32]) -> String {
 /// Returns diagnostic information about per-edge PDC calculation.
 pub fn pdc_edge_summary(dag: &AudioDag, edge_compensation: &[EdgeDelayCompensation]) -> String {
     let mut lines = Vec::new();
-    lines.push(format!(
-        "PDC Edge Summary ({} edges):",
-        dag.edge_count()
-    ));
+    lines.push(format!("PDC Edge Summary ({} edges):", dag.edge_count()));
 
     for edge in edge_compensation {
         if edge.delay_samples == 0 {
@@ -539,7 +533,8 @@ mod tests {
                     let v = max_to_output[src.index()] + edge_delay;
                     if let Some(target) = aligned {
                         assert_eq!(
-                            v, target,
+                            v,
+                            target,
                             "merge node {:?} has unaligned inputs",
                             dag.node(node_idx).id
                         );
@@ -558,9 +553,7 @@ mod tests {
             .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
             .add_node(AudioNode::new(
                 NodeId(1),
-                NodeKind::Track {
-                    name: "Wet".into(),
-                },
+                NodeKind::Track { name: "Wet".into() },
             ))
             .add_node(AudioNode::new(
                 NodeId(2),
@@ -571,9 +564,7 @@ mod tests {
             ))
             .add_node(AudioNode::new(
                 NodeId(3),
-                NodeKind::Track {
-                    name: "Dry".into(),
-                },
+                NodeKind::Track { name: "Dry".into() },
             ))
             .add_edge(NodeId(1), NodeId(2))
             .unwrap()
@@ -610,8 +601,14 @@ mod tests {
         // B -> FX3(50)  ----> Bus1
         let dag = GraphBuilder::new()
             .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
-            .add_node(AudioNode::new(NodeId(1), NodeKind::Track { name: "A".into() }))
-            .add_node(AudioNode::new(NodeId(2), NodeKind::Track { name: "B".into() }))
+            .add_node(AudioNode::new(
+                NodeId(1),
+                NodeKind::Track { name: "A".into() },
+            ))
+            .add_node(AudioNode::new(
+                NodeId(2),
+                NodeKind::Track { name: "B".into() },
+            ))
             .add_node(AudioNode::new(
                 NodeId(3),
                 NodeKind::Effect {
@@ -633,7 +630,12 @@ mod tests {
                     latency_samples: 50,
                 },
             ))
-            .add_node(AudioNode::new(NodeId(6), NodeKind::Bus { name: "Bus1".into() }))
+            .add_node(AudioNode::new(
+                NodeId(6),
+                NodeKind::Bus {
+                    name: "Bus1".into(),
+                },
+            ))
             .add_edge(NodeId(1), NodeId(3))
             .unwrap()
             .add_edge(NodeId(1), NodeId(4))

@@ -252,12 +252,7 @@ impl PdcDelayLine {
     /// O(n) where n = frame_count. No allocations, no branches beyond
     /// the hot loop.
     #[inline]
-    pub fn process(
-        &mut self,
-        left: &mut [f32],
-        right: &mut [f32],
-        frame_count: usize,
-    ) {
+    pub fn process(&mut self, left: &mut [f32], right: &mut [f32], frame_count: usize) {
         if self.delay_samples == 0 && self.frac_delay == 0.0 {
             return;
         }
@@ -391,7 +386,8 @@ impl GraphRenderer {
         // Ensure we have enough buffers
         while self.node_buffers.len() < self.active_node_count {
             self.node_buffers.push(NodeBuffer::new(self.max_frames));
-            self.pdc_delays.push(PdcDelayLine::new(MAX_PDC_DELAY_SAMPLES));
+            self.pdc_delays
+                .push(PdcDelayLine::new(MAX_PDC_DELAY_SAMPLES));
         }
 
         while self.edge_inputs_by_dst.len() < self.node_buffers.len() {
@@ -451,9 +447,7 @@ impl GraphRenderer {
             delay.set_delay(edge.delay_samples as usize);
 
             let runtime_idx = self.edge_pdc_delays.len();
-            self.edge_pdc_delays.push(EdgeDelayRuntime {
-                delay,
-            });
+            self.edge_pdc_delays.push(EdgeDelayRuntime { delay });
             self.edge_inputs_by_dst[dst_idx].push((src_idx, runtime_idx));
         }
     }
@@ -490,8 +484,7 @@ impl GraphRenderer {
         output_right: &mut [f32],
         track_processor: &mut FTrack,
         effect_processor: &mut FEffect,
-    )
-    where
+    ) where
         FTrack: FnMut(&AudioNode, &mut [f32], &mut [f32], usize),
         FEffect: FnMut(&AudioNode, &mut [f32], &mut [f32], usize),
     {
@@ -507,7 +500,10 @@ impl GraphRenderer {
             let edge_input_len = self.edge_inputs_by_dst[idx].len();
             for i in 0..edge_input_len {
                 let (src_idx, edge_runtime_idx) = self.edge_inputs_by_dst[idx][i];
-                if src_idx >= self.node_buffers.len() || src_idx == idx || edge_runtime_idx >= self.edge_pdc_delays.len() {
+                if src_idx >= self.node_buffers.len()
+                    || src_idx == idx
+                    || edge_runtime_idx >= self.edge_pdc_delays.len()
+                {
                     continue;
                 }
 
@@ -520,13 +516,11 @@ impl GraphRenderer {
                     copy_n
                 };
 
-                self.edge_pdc_delays[edge_runtime_idx]
-                    .delay
-                    .process(
-                        &mut self.edge_scratch.left[..copy_n],
-                        &mut self.edge_scratch.right[..copy_n],
-                        copy_n,
-                    );
+                self.edge_pdc_delays[edge_runtime_idx].delay.process(
+                    &mut self.edge_scratch.left[..copy_n],
+                    &mut self.edge_scratch.right[..copy_n],
+                    copy_n,
+                );
 
                 let dst = &mut self.node_buffers[idx];
                 mix_in_place(
@@ -635,19 +629,18 @@ impl GraphRenderer {
         output_right: &mut [f32],
         mut track_processor: FTrack,
         mut effect_processor: FEffect,
-    )
-    where
+    ) where
         FTrack: FnMut(
-            &AudioNode,            // node metadata
-            &mut [f32],            // left channel buffer
-            &mut [f32],            // right channel buffer
-            usize,                 // frame count
+            &AudioNode, // node metadata
+            &mut [f32], // left channel buffer
+            &mut [f32], // right channel buffer
+            usize,      // frame count
         ),
         FEffect: FnMut(
-            &AudioNode,            // node metadata
-            &mut [f32],            // left channel buffer (in-place)
-            &mut [f32],            // right channel buffer (in-place)
-            usize,                 // frame count
+            &AudioNode, // node metadata
+            &mut [f32], // left channel buffer (in-place)
+            &mut [f32], // right channel buffer (in-place)
+            usize,      // frame count
         ),
     {
         let n = frame_count.min(self.max_frames);
@@ -732,7 +725,9 @@ mod tests {
             .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
             .add_node(AudioNode::new(
                 NodeId(1),
-                NodeKind::Track { name: "Track 1".into() },
+                NodeKind::Track {
+                    name: "Track 1".into(),
+                },
             ))
             .add_edge(NodeId(1), NodeId(0))
             .unwrap()
@@ -746,7 +741,9 @@ mod tests {
             .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
             .add_node(AudioNode::new(
                 NodeId(1),
-                NodeKind::Track { name: "Piano".into() },
+                NodeKind::Track {
+                    name: "Piano".into(),
+                },
             ))
             .add_node(AudioNode::new(
                 NodeId(2),
@@ -1063,7 +1060,11 @@ mod tests {
             &mut out_r,
             |node, left, right, n| {
                 // T1 outputs 0.3, T2 outputs 0.7
-                let val = if node.display_name() == "T1" { 0.3 } else { 0.7 };
+                let val = if node.display_name() == "T1" {
+                    0.3
+                } else {
+                    0.7
+                };
                 for i in 0..n {
                     left[i] = val;
                     right[i] = val;

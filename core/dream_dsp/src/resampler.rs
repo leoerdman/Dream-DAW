@@ -16,9 +16,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use rubato::{
-    FastFixedIn, PolynomialDegree, Resampler as RubatoResampler,
-};
+use rubato::{FastFixedIn, PolynomialDegree, Resampler as RubatoResampler};
 
 // ── Error Type ─────────────────────────────────────────────────────────
 

@@ -51,12 +51,10 @@ impl PanLaw {
                     right: angle.sin(),
                 }
             }
-            Self::Linear => {
-                PanGains {
-                    left: (1.0 - pan) * 0.5,
-                    right: (1.0 + pan) * 0.5,
-                }
-            }
+            Self::Linear => PanGains {
+                left: (1.0 - pan) * 0.5,
+                right: (1.0 + pan) * 0.5,
+            },
         }
     }
 }

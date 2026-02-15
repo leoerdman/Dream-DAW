@@ -248,9 +248,7 @@ impl PeakCache {
         };
 
         let mut bytes = Vec::<u8>::with_capacity(
-            24
-                + indices.len() * 20
-                + flat_pairs.len() * std::mem::size_of::<WaveformPeakPair>(),
+            24 + indices.len() * 20 + flat_pairs.len() * std::mem::size_of::<WaveformPeakPair>(),
         );
         bytes.extend_from_slice(&header.magic);
         bytes.extend_from_slice(&header.version.to_le_bytes());
@@ -321,8 +319,8 @@ impl PeakCache {
                     chunk[11],
                 ]),
                 peak_offset_pairs: u64::from_le_bytes([
-                    chunk[12], chunk[13], chunk[14], chunk[15], chunk[16], chunk[17],
-                    chunk[18], chunk[19],
+                    chunk[12], chunk[13], chunk[14], chunk[15], chunk[16], chunk[17], chunk[18],
+                    chunk[19],
                 ]),
             });
         }
@@ -352,7 +350,8 @@ impl PeakCache {
             let mut peaks = Vec::<PeakPair>::with_capacity(count);
             for pair_idx in start..end {
                 let off = pair_idx * pair_size;
-                let pair: WaveformPeakPair = bytemuck::pod_read_unaligned(&data[off..off + pair_size]);
+                let pair: WaveformPeakPair =
+                    bytemuck::pod_read_unaligned(&data[off..off + pair_size]);
                 peaks.push(PeakPair {
                     min: pair.min,
                     max: pair.max,

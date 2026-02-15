@@ -17,9 +17,9 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 pub mod gpu_types;
-pub mod viewport;
 pub mod timeline;
+pub mod viewport;
 
 pub use gpu_types::*;
-pub use viewport::Viewport;
 pub use timeline::TimelineRenderer;
+pub use viewport::Viewport;

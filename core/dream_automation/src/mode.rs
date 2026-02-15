@@ -12,7 +12,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Automation read/write mode.
 ///
@@ -63,13 +63,7 @@ impl AutomationMode {
 
     /// Returns all available modes (for UI dropdowns).
     pub fn all() -> &'static [AutomationMode] {
-        &[
-            Self::Off,
-            Self::Read,
-            Self::Write,
-            Self::Touch,
-            Self::Latch,
-        ]
+        &[Self::Off, Self::Read, Self::Write, Self::Touch, Self::Latch]
     }
 }
 

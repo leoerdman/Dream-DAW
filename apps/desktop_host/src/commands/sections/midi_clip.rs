@@ -70,6 +70,20 @@ struct MidiNotePayload {
     duration_frames: i64,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MidiEnvelopePointPayload {
+    beat: f64,
+    value: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MidiClipEnvelopePayload {
+    param_id: String,
+    points: Vec<MidiEnvelopePointPayload>,
+}
+
 fn normalize_note_payloads(notes: &[MidiNotePayload], clip_len: i64) -> Vec<MidiNote> {
     let bounded_len = clip_len.max(1);
     let mut normalized: Vec<MidiNote> = notes
@@ -366,6 +380,7 @@ async fn generate_midi_variation_cmd(
 async fn update_midi_clip_cmd(
     clip_id: String,
     notes: Vec<MidiNotePayload>,
+    push_undo_step: Option<bool>,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
@@ -421,7 +436,9 @@ async fn update_midi_clip_cmd(
         return Ok(());
     }
 
-    push_undo(&project_state)?;
+    if push_undo_step.unwrap_or(true) {
+        push_undo(&project_state)?;
+    }
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     match target {
@@ -465,5 +482,72 @@ async fn update_midi_clip_cmd(
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_midi_clip_envelopes_cmd(
+    clip_id: String,
+    envelopes: Vec<MidiClipEnvelopePayload>,
+    push_undo_step: Option<bool>,
+    project_state: tauri::State<'_, ProjectState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
+
+    if push_undo_step.unwrap_or(true) {
+        push_undo(&project_state)?;
+    }
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut updated = false;
+
+    for track in &mut project.tracks {
+        if let Some(clip) = track.midi_clips.iter_mut().find(|c| c.id == uuid) {
+            let mut normalized: Vec<dream_models::project::ClipEnvelope> = envelopes
+                .iter()
+                .filter(|env| !env.param_id.trim().is_empty())
+                .map(|env| {
+                    let mut points: Vec<dream_models::project::AutomationPoint> = env
+                        .points
+                        .iter()
+                        .map(|p| dream_models::project::AutomationPoint {
+                            beat: p.beat.max(0.0),
+                            value: p.value.clamp(0.0, 1.0),
+                            curve_type: "linear".to_string(),
+                            tension: None,
+                            bezier_cp1x: None,
+                            bezier_cp1y: None,
+                            bezier_cp2x: None,
+                            bezier_cp2y: None,
+                        })
+                        .collect();
+                    points.sort_by(|a, b| a.beat.total_cmp(&b.beat));
+                    dream_models::project::ClipEnvelope {
+                        pointee_id: 0,
+                        param_id: env.param_id.clone(),
+                        points,
+                    }
+                })
+                .collect();
+            normalized.sort_by(|a, b| a.param_id.cmp(&b.param_id));
+
+            if clip.envelopes != normalized {
+                clip.envelopes = normalized;
+                updated = true;
+            }
+            break;
+        }
+    }
+
+    if !updated {
+        return Ok(());
+    }
+
+    let project_name = project.name.clone();
+    rebuild_midi_snapshot_from_project(&project, &handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
 }

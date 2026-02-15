@@ -33,10 +33,14 @@ interface ExportModalProps {
 // ── Bounce Progress Event Payload ────────────────────────────────────────
 
 interface BounceProgressPayload {
+    /** Optional job id for filtering multiple concurrent jobs. */
+    jobId?: string;
     /** 0..100 percentage complete. */
     progress: number;
     /** Current phase label from Rust (e.g. "Rendering tracks...", "Normalizing..."). */
     phase?: string;
+    /** Optional terminal status from backend job manager. */
+    status?: 'running' | 'completed' | 'failed' | 'cancelled' | string;
 }
 
 // ── Options ──────────────────────────────────────────────────────────────
@@ -84,6 +88,7 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
 
     // ── Event Listener Ref ───────────────────────────────────────────
     const unlistenRef = useRef<UnlistenFn | null>(null);
+    const activeJobIdRef = useRef<string | null>(null);
 
     // ── Cleanup event listener on unmount ─────────────────────────────
     useEffect(() => {
@@ -102,6 +107,7 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
             setProgress(0);
             setPhase('');
             setBounceError(null);
+            activeJobIdRef.current = null;
         }
     }, [isOpen]);
 
@@ -136,9 +142,37 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
 
             // 3. Subscribe to bounce_progress events from Rust
             unlistenRef.current = await listen<BounceProgressPayload>('bounce_progress', (event) => {
+                if (event.payload.jobId) {
+                    if (activeJobIdRef.current === null) {
+                        activeJobIdRef.current = event.payload.jobId;
+                    }
+                    if (event.payload.jobId !== activeJobIdRef.current) {
+                        return;
+                    }
+                }
                 setProgress(event.payload.progress);
                 if (event.payload.phase) {
                     setPhase(event.payload.phase);
+                }
+
+                if (event.payload.status === 'failed') {
+                    setBounceError('Export failed');
+                    setIsBouncing(false);
+                    if (unlistenRef.current) {
+                        unlistenRef.current();
+                        unlistenRef.current = null;
+                    }
+                    return;
+                }
+
+                if (event.payload.status === 'cancelled') {
+                    setPhase('Export cancelled');
+                    setIsBouncing(false);
+                    if (unlistenRef.current) {
+                        unlistenRef.current();
+                        unlistenRef.current = null;
+                    }
+                    return;
                 }
 
                 // Auto-complete on 100%
@@ -156,7 +190,7 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
             });
 
             // 4. Fire the export IPC command
-            await engineApi.exportMix({
+            const jobId = await engineApi.exportMix({
                 outputPath,
                 sampleRate,
                 bitDepth,
@@ -165,18 +199,7 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                 tailMs,
                 format,
             });
-
-            // Fallback for backends that don't emit a final 100% event yet.
-            setProgress(100);
-            setPhase('Export complete!');
-            if (unlistenRef.current) {
-                unlistenRef.current();
-                unlistenRef.current = null;
-            }
-            setTimeout(() => {
-                setIsBouncing(false);
-                onClose();
-            }, 900);
+            activeJobIdRef.current = jobId;
 
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -440,8 +463,19 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                     paddingTop: 4,
                 }}>
                     <button
-                        onClick={onClose}
-                        disabled={isBouncing}
+                        onClick={() => {
+                            if (isBouncing) {
+                                const currentJobId = activeJobIdRef.current;
+                                if (currentJobId) {
+                                    void engineApi.cancelBackgroundJob(currentJobId)
+                                        .catch(() => engineApi.cancelExport());
+                                } else {
+                                    void engineApi.cancelExport();
+                                }
+                                return;
+                            }
+                            onClose();
+                        }}
                         style={{
                             padding: '8px 16px',
                             borderRadius: 6,
@@ -450,11 +484,11 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                             color: 'var(--color-text-secondary, #aaa)',
                             fontSize: 12,
                             fontWeight: 500,
-                            cursor: isBouncing ? 'not-allowed' : 'pointer',
-                            opacity: isBouncing ? 0.5 : 1,
+                            cursor: 'pointer',
+                            opacity: 1,
                         }}
                     >
-                        Cancel
+                        {isBouncing ? 'Stop' : 'Cancel'}
                     </button>
                     <button
                         onClick={handleBounce}

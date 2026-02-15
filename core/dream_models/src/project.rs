@@ -330,6 +330,14 @@ pub struct PluginSlot {
     #[serde(default)]
     pub sidechain_source_track_id: Option<String>,
 
+    /// Whether the external plugin exposes a dedicated sidechain input bus.
+    #[serde(default)]
+    pub supports_sidechain_input: Option<bool>,
+
+    /// Number of external plugin audio input channels as reported by scanner/descriptor.
+    #[serde(default)]
+    pub external_audio_inputs: Option<u32>,
+
     /// External plugin format hint (`vst2`, `vst3`, `au`, ...).
     #[serde(default)]
     pub external_format: Option<String>,
@@ -385,6 +393,8 @@ impl PluginSlot {
             is_bypassed: false,
             latency_frames: 0,
             sidechain_source_track_id: None,
+            supports_sidechain_input: None,
+            external_audio_inputs: None,
             external_format: None,
             external_uid: None,
             external_preset_name: None,
@@ -2104,6 +2114,8 @@ mod tests {
             is_bypassed: false,
             latency_frames: 64,
             sidechain_source_track_id: None,
+            supports_sidechain_input: None,
+            external_audio_inputs: None,
             external_format: None,
             external_uid: None,
             external_preset_name: None,
@@ -2124,6 +2136,8 @@ mod tests {
             is_bypassed: false,
             latency_frames: 128,
             sidechain_source_track_id: None,
+            supports_sidechain_input: None,
+            external_audio_inputs: None,
             external_format: None,
             external_uid: None,
             external_preset_name: None,
@@ -2144,6 +2158,8 @@ mod tests {
             is_bypassed: true, // Bypassed — should NOT count
             latency_frames: 32,
             sidechain_source_track_id: None,
+            supports_sidechain_input: None,
+            external_audio_inputs: None,
             external_format: None,
             external_uid: None,
             external_preset_name: None,
@@ -2261,17 +2277,21 @@ mod tests {
         let project = Project::default();
 
         assert_eq!(project.tracks.len(), 6);
-        assert!(project
-            .tracks
-            .iter()
-            .take(3)
-            .all(|t| t.track_type == TrackType::Audio));
-        assert!(project
-            .tracks
-            .iter()
-            .skip(3)
-            .take(3)
-            .all(|t| t.track_type == TrackType::Midi));
+        assert!(
+            project
+                .tracks
+                .iter()
+                .take(3)
+                .all(|t| t.track_type == TrackType::Audio)
+        );
+        assert!(
+            project
+                .tracks
+                .iter()
+                .skip(3)
+                .take(3)
+                .all(|t| t.track_type == TrackType::Midi)
+        );
         assert_eq!(project.tracks[0].name, "Audio 1");
         assert_eq!(project.tracks[2].name, "Audio 3");
         assert_eq!(project.tracks[3].name, "MIDI 1");

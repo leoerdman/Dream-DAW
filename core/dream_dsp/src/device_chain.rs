@@ -122,6 +122,30 @@ impl DeviceChain {
         }
     }
 
+    /// Processes a single device slot with optional sidechain input.
+    #[inline]
+    pub fn process_slot_with_sidechain(
+        &mut self,
+        slot_index: usize,
+        left: &mut [f32],
+        right: &mut [f32],
+        sidechain_left: Option<&[f32]>,
+        sidechain_right: Option<&[f32]>,
+        sample_rate: f32,
+    ) {
+        if let Some(slot) = self.slots.get_mut(slot_index)
+            && !slot.is_bypassed
+        {
+            slot.processor.process_stereo_with_sidechain(
+                left,
+                right,
+                sidechain_left,
+                sidechain_right,
+                sample_rate,
+            );
+        }
+    }
+
     /// Resets all device processors (on transport seek / loop reset).
     pub fn reset_all(&mut self) {
         for slot in &mut self.slots {
@@ -193,7 +217,10 @@ mod tests {
         chain.process_stereo(&mut left, &mut right, 44100.0);
         // Signal should be near-silent
         let tail_avg: f32 = left[2000..].iter().map(|s| s.abs()).sum::<f32>() / 2096.0;
-        assert!(tail_avg < 0.1, "Gain at -60dB should silence signal: {tail_avg}");
+        assert!(
+            tail_avg < 0.1,
+            "Gain at -60dB should silence signal: {tail_avg}"
+        );
 
         // Now bypass the utility
         chain.set_bypass(0, true);
@@ -220,6 +247,9 @@ mod tests {
         chain.process_stereo(&mut left, &mut right, 44100.0);
 
         let tail_avg: f32 = left[2000..].iter().map(|s| s.abs()).sum::<f32>() / 2096.0;
-        assert!(tail_avg < 0.1, "Cascade: Utility should silence before Compressor");
+        assert!(
+            tail_avg < 0.1,
+            "Cascade: Utility should silence before Compressor"
+        );
     }
 }

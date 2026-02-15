@@ -316,7 +316,7 @@ impl SamplerVoice {
         self.phase_increment = (freq_hz / self.sample_rate).clamp(0.0, 0.5);
         self.envelope.note_on();
         self.filter_state.reset(); // Fresh filter state per note
-        self.lfo_phase = 0.0;      // Restart LFO per note for consistent timbre
+        self.lfo_phase = 0.0; // Restart LFO per note for consistent timbre
     }
 
     /// Release the note (enters ADSR release phase).
@@ -760,7 +760,13 @@ fn poly_blep(t: f64, dt: f64) -> f64 {
 /// - **Square**: Variable duty cycle (pulse_width), PolyBLEP at both transitions.
 /// - **Triangle**: Leaky-integrated PolyBLEP square (produces band-limited triangle).
 #[inline]
-fn oscillator_sample_blep(waveform: Waveform, phase: f64, dt: f64, tri_state: &mut f64, pulse_width: f64) -> f32 {
+fn oscillator_sample_blep(
+    waveform: Waveform,
+    phase: f64,
+    dt: f64,
+    tri_state: &mut f64,
+    pulse_width: f64,
+) -> f32 {
     let p = phase.fract().max(0.0);
     match waveform {
         Waveform::Sine => (p * std::f64::consts::TAU).sin() as f32,
@@ -845,28 +851,31 @@ fn render_oscillator_voice(
         let lfo_val = if lfo_depth > 0.0001 {
             let lfo_sample = (voice.lfo_phase * std::f64::consts::TAU).sin() as f32;
             voice.lfo_phase += lfo_inc;
-            if voice.lfo_phase >= 1.0 { voice.lfo_phase -= 1.0; }
+            if voice.lfo_phase >= 1.0 {
+                voice.lfo_phase -= 1.0;
+            }
             lfo_sample * lfo_depth
         } else {
             0.0
         };
 
         // ── Pitch modulation from LFO (vibrato) ──────────────────────
-        let (phase1, phase2, sub_phase, dt_mod, dt2_mod) = if lfo_target == LfoTarget::Pitch && lfo_val.abs() > 0.0001 {
-            // ±2 semitones max vibrato range
-            let pitch_mult = 2.0_f64.powf(lfo_val as f64 * 2.0 / 12.0);
-            let dt_m = dt * pitch_mult;
-            let dt2_m = dt2 * pitch_mult;
-            let p1 = voice.cursor;
-            let p2 = (voice.cursor * detune_ratio * pitch_mult).fract();
-            let sp = (voice.cursor * 0.5 * pitch_mult).fract();
-            (p1, p2, sp, dt_m, dt2_m)
-        } else {
-            let p1 = voice.cursor;
-            let p2 = (voice.cursor * detune_ratio).fract();
-            let sp = (voice.cursor * 0.5).fract();
-            (p1, p2, sp, dt, dt2)
-        };
+        let (phase1, phase2, sub_phase, dt_mod, dt2_mod) =
+            if lfo_target == LfoTarget::Pitch && lfo_val.abs() > 0.0001 {
+                // ±2 semitones max vibrato range
+                let pitch_mult = 2.0_f64.powf(lfo_val as f64 * 2.0 / 12.0);
+                let dt_m = dt * pitch_mult;
+                let dt2_m = dt2 * pitch_mult;
+                let p1 = voice.cursor;
+                let p2 = (voice.cursor * detune_ratio * pitch_mult).fract();
+                let sp = (voice.cursor * 0.5 * pitch_mult).fract();
+                (p1, p2, sp, dt_m, dt2_m)
+            } else {
+                let p1 = voice.cursor;
+                let p2 = (voice.cursor * detune_ratio).fract();
+                let sp = (voice.cursor * 0.5).fract();
+                (p1, p2, sp, dt, dt2)
+            };
 
         let osc1 = oscillator_sample_blep(waveform, phase1, dt_mod, &mut tri1, pw);
         let osc2 = oscillator_sample_blep(waveform2, phase2, dt2_mod, &mut tri2, pw);
@@ -876,14 +885,22 @@ fn render_oscillator_voice(
 
         // ── Per-voice SVF filter (with optional LFO cutoff modulation) ─
         if filter_enabled {
-            let (c, is_modulated) = if lfo_target == LfoTarget::FilterCutoff && lfo_val.abs() > 0.0001 {
-                // LFO modulates cutoff: ±4 octaves range scaled by depth
-                let mod_factor = 2.0_f32.powf(lfo_val * 4.0);
-                let modulated_cutoff = (filter_cutoff_base * mod_factor).clamp(20.0, 20000.0);
-                (SvfCoeffs::new(modulated_cutoff.into(), filter_resonance.into(), sample_rate), true)
-            } else {
-                (*filter_coeffs_base, false)
-            };
+            let (c, is_modulated) =
+                if lfo_target == LfoTarget::FilterCutoff && lfo_val.abs() > 0.0001 {
+                    // LFO modulates cutoff: ±4 octaves range scaled by depth
+                    let mod_factor = 2.0_f32.powf(lfo_val * 4.0);
+                    let modulated_cutoff = (filter_cutoff_base * mod_factor).clamp(20.0, 20000.0);
+                    (
+                        SvfCoeffs::new(
+                            modulated_cutoff.into(),
+                            filter_resonance.into(),
+                            sample_rate,
+                        ),
+                        true,
+                    )
+                } else {
+                    (*filter_coeffs_base, false)
+                };
             let _ = is_modulated; // suppress unused warning
 
             let s = &mut voice.filter_state;

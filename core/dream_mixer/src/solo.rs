@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn mute_overrides_solo() {
         let tracks = vec![
-            flags(true, true, false),  // Soloed + Muted → MUTED wins
+            flags(true, true, false),   // Soloed + Muted → MUTED wins
             flags(false, false, false), // Not soloed → silenced because solo exists
         ];
 
@@ -189,8 +189,8 @@ mod tests {
     #[test]
     fn master_always_audible() {
         let tracks = vec![
-            flags(true, false, false),  // Soloed
-            flags(false, false, true),  // Master
+            flags(true, false, false), // Soloed
+            flags(false, false, true), // Master
         ];
 
         let resolved = SoloResolver::resolve(&tracks);

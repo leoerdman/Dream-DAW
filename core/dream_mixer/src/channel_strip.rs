@@ -18,7 +18,7 @@
 
 use crate::gain::GAIN_SMOOTH_COEFF;
 use crate::meter::VuMeter;
-use crate::pan::{apply_pan_smoothed, PanLaw};
+use crate::pan::{PanLaw, apply_pan_smoothed};
 
 /// Per-track signal chain orchestrator.
 ///
@@ -36,7 +36,6 @@ use crate::pan::{apply_pan_smoothed, PanLaw};
 /// ```
 pub struct ChannelStrip {
     // ── Volume ─────────────────────────────────────────────────────────
-
     /// Target volume (set by UI thread).
     target_volume: f32,
 
@@ -50,7 +49,6 @@ pub struct ChannelStrip {
     effective_gain: f32,
 
     // ── Pan ────────────────────────────────────────────────────────────
-
     /// Target pan position (set by UI thread).
     target_pan: f32,
 
@@ -64,7 +62,6 @@ pub struct ChannelStrip {
     pan_law: PanLaw,
 
     // ── Metering ───────────────────────────────────────────────────────
-
     /// Left channel VU meter.
     meter_left: VuMeter,
 
@@ -72,7 +69,6 @@ pub struct ChannelStrip {
     meter_right: VuMeter,
 
     // ── Output Enable (Track Enable/Disable) ──────────────────────────
-
     /// Whether this track's output is routed into the audio graph.
     /// When `false`, the strip still processes gain/pan/metering normally
     /// (so meters stay alive), but the driver skips summing it into the

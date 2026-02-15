@@ -185,9 +185,7 @@ mod tests {
 
     fn sine_block(amplitude: f32, length: usize) -> Vec<f32> {
         (0..length)
-            .map(|i| {
-                (i as f32 * std::f32::consts::TAU / 100.0).sin() * amplitude
-            })
+            .map(|i| (i as f32 * std::f32::consts::TAU / 100.0).sin() * amplitude)
             .collect()
     }
 

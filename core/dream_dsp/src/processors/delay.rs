@@ -91,13 +91,13 @@ impl DelayProcessor {
     }
 
     fn update_delay_l(&mut self) {
-        self.delay_samples_l = (self.time_l_ms * 0.001 * self.sample_rate)
-            .clamp(1.0, (self.buf_size - 2) as f32);
+        self.delay_samples_l =
+            (self.time_l_ms * 0.001 * self.sample_rate).clamp(1.0, (self.buf_size - 2) as f32);
     }
 
     fn update_delay_r(&mut self) {
-        self.delay_samples_r = (self.time_r_ms * 0.001 * self.sample_rate)
-            .clamp(1.0, (self.buf_size - 2) as f32);
+        self.delay_samples_r =
+            (self.time_r_ms * 0.001 * self.sample_rate).clamp(1.0, (self.buf_size - 2) as f32);
     }
 
     /// Read with linear interpolation for fractional delays.
@@ -126,7 +126,9 @@ impl DspProcessor for DelayProcessor {
             // LFO modulation
             let lfo = (self.lfo_phase as f32 * std::f32::consts::TAU).sin();
             self.lfo_phase += lfo_inc;
-            if self.lfo_phase >= 1.0 { self.lfo_phase -= 1.0; }
+            if self.lfo_phase >= 1.0 {
+                self.lfo_phase -= 1.0;
+            }
 
             let mod_offset = lfo * mod_max;
             let dl = (self.delay_samples_l + mod_offset).clamp(1.0, (bs - 2) as f32);
@@ -140,8 +142,16 @@ impl DspProcessor for DelayProcessor {
             let dry_r = right[i];
 
             // Feedback signals with LP filtering for analog warmth
-            let fb_l_raw = if self.ping_pong { self.cross_fb_r } else { delayed_l };
-            let fb_r_raw = if self.ping_pong { self.cross_fb_l } else { delayed_r };
+            let fb_l_raw = if self.ping_pong {
+                self.cross_fb_r
+            } else {
+                delayed_l
+            };
+            let fb_r_raw = if self.ping_pong {
+                self.cross_fb_l
+            } else {
+                delayed_r
+            };
 
             // One-pole LP in feedback loop
             self.fb_filter_l += fc * (fb_l_raw - self.fb_filter_l);
@@ -165,14 +175,33 @@ impl DspProcessor for DelayProcessor {
 
     fn set_param(&mut self, index: u8, value: f32) {
         match index {
-            0 => { self.time_l_ms = value.clamp(1.0, 2000.0); self.update_delay_l(); }
-            1 => { self.time_r_ms = value.clamp(1.0, 2000.0); self.update_delay_r(); }
-            2 => { self.feedback = (value / 100.0).clamp(0.0, 0.95); }
-            3 => { self.dry_wet = (value / 100.0).clamp(0.0, 1.0); }
-            4 => { self.filter_freq = value.clamp(200.0, 15000.0); self.update_filter(); }
-            5 => { self.ping_pong = value > 0.5; }
-            6 => { self.mod_rate = value.clamp(0.0, 5.0); }
-            7 => { self.mod_depth = (value / 100.0).clamp(0.0, 1.0); }
+            0 => {
+                self.time_l_ms = value.clamp(1.0, 2000.0);
+                self.update_delay_l();
+            }
+            1 => {
+                self.time_r_ms = value.clamp(1.0, 2000.0);
+                self.update_delay_r();
+            }
+            2 => {
+                self.feedback = (value / 100.0).clamp(0.0, 0.95);
+            }
+            3 => {
+                self.dry_wet = (value / 100.0).clamp(0.0, 1.0);
+            }
+            4 => {
+                self.filter_freq = value.clamp(200.0, 15000.0);
+                self.update_filter();
+            }
+            5 => {
+                self.ping_pong = value > 0.5;
+            }
+            6 => {
+                self.mod_rate = value.clamp(0.0, 5.0);
+            }
+            7 => {
+                self.mod_depth = (value / 100.0).clamp(0.0, 1.0);
+            }
             _ => {}
         }
     }
@@ -222,7 +251,9 @@ mod tests {
         proc.process_stereo(&mut left, &mut right, 44100.0);
         // With modulation, echo might be slightly offset; check a range
         let echo_region: f32 = left[delay_samples.saturating_sub(30)..delay_samples + 30]
-            .iter().map(|s| s.abs()).sum();
+            .iter()
+            .map(|s| s.abs())
+            .sum();
         assert!(echo_region > 0.3, "Echo not found in region");
     }
 
@@ -240,6 +271,9 @@ mod tests {
         proc.process_stereo(&mut left, &mut right, 44100.0);
         // In ping-pong, right channel should receive echo from left
         let r_energy: f32 = right.iter().map(|s| s * s).sum();
-        assert!(r_energy > 0.01, "Ping-pong should send to right: {r_energy}");
+        assert!(
+            r_energy > 0.01,
+            "Ping-pong should send to right: {r_energy}"
+        );
     }
 }

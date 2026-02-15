@@ -15,17 +15,17 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-pub mod scheduler;
-pub mod reader;
-pub mod pool;
-pub mod midi_scheduler;
 pub mod disk_streamer;
+pub mod midi_scheduler;
+pub mod pool;
+pub mod reader;
+pub mod scheduler;
 
-pub use scheduler::{ClipScheduler, LoopRegion};
-pub use reader::ClipReader;
-pub use pool::ClipPool;
-pub use midi_scheduler::MidiScheduler;
 pub use disk_streamer::{
-    DiskStreamerHandle, StreamingWindow, StreamChunk,
-    should_stream, CHUNK_FRAMES, LOOK_AHEAD_CHUNKS, RAM_THRESHOLD_BYTES,
+    CHUNK_FRAMES, DiskStreamerHandle, LOOK_AHEAD_CHUNKS, RAM_THRESHOLD_BYTES, StreamChunk,
+    StreamingWindow, should_stream,
 };
+pub use midi_scheduler::MidiScheduler;
+pub use pool::ClipPool;
+pub use reader::ClipReader;
+pub use scheduler::{ClipScheduler, LoopRegion};

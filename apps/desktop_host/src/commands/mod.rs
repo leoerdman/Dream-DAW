@@ -23,8 +23,8 @@ include!("sections/device_rack.rs");
 
 // ═══════════════════════════════════════════════════════════════════════
 
-pub(crate) fn invoke_handler(
-) -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
+pub(crate) fn invoke_handler()
+-> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         // Transport
         play,
@@ -41,6 +41,8 @@ pub(crate) fn invoke_handler(
         set_master_volume,
         set_track_mute,
         set_track_solo,
+        preview_sampler_note_on_cmd,
+        preview_sampler_note_off_cmd,
         update_track,
         // State Queries
         get_state,
@@ -86,6 +88,7 @@ pub(crate) fn invoke_handler(
         import_audio_file,
         create_midi_clip_cmd,
         update_midi_clip_cmd,
+        set_midi_clip_envelopes_cmd,
         generate_midi_variation_cmd,
         // Waveform
         get_waveform_peaks,
@@ -125,6 +128,13 @@ pub(crate) fn invoke_handler(
         stop_recording_cmd,
         export_mix_cmd,
         cancel_export_cmd,
+        list_background_jobs_cmd,
+        cancel_background_job_cmd,
+        clear_finished_background_jobs_cmd,
+        bounce_selection_to_track_cmd,
+        bounce_track_cmd,
+        bounce_group_cmd,
+        split_track_to_stems_cmd,
         // Undo/Redo
         undo_cmd,
         redo_cmd,

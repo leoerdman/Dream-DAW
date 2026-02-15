@@ -24,8 +24,8 @@
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::thread;
 
 /// Size of each streaming chunk in frames.
@@ -84,7 +84,12 @@ pub struct StreamingWindow {
 
 impl StreamingWindow {
     /// Creates a new empty streaming window.
-    pub fn new(source_path: &str, total_frames: i64, num_channels: usize, sample_rate: u32) -> Self {
+    pub fn new(
+        source_path: &str,
+        total_frames: i64,
+        num_channels: usize,
+        sample_rate: u32,
+    ) -> Self {
         Self {
             chunks: VecDeque::with_capacity(LOOK_AHEAD_CHUNKS + 4),
             total_frames,
@@ -328,7 +333,10 @@ impl DiskStreamerHandle {
 
         log::info!(
             "DiskStreamer: spawned for '{}' ({} frames, {}ch, {}Hz)",
-            source_path, total_frames, num_channels, sample_rate
+            source_path,
+            total_frames,
+            num_channels,
+            sample_rate
         );
 
         Ok(Self {
@@ -439,13 +447,16 @@ fn disk_io_thread(
         }
     };
 
-    let mut decoder = match symphonia::default::get_codecs().make(
-        &track.codec_params,
-        &DecoderOptions::default(),
-    ) {
+    let mut decoder = match symphonia::default::get_codecs()
+        .make(&track.codec_params, &DecoderOptions::default())
+    {
         Ok(d) => d,
         Err(e) => {
-            log::error!("DiskIO: failed to create decoder for '{}': {}", path.display(), e);
+            log::error!(
+                "DiskIO: failed to create decoder for '{}': {}",
+                path.display(),
+                e
+            );
             return;
         }
     };
@@ -505,7 +516,10 @@ fn disk_io_thread(
             let seek_to_frame = current_playhead.max(0) as u64;
             match format.seek(
                 SeekMode::Coarse,
-                SeekTo::TimeStamp { ts: seek_to_frame, track_id },
+                SeekTo::TimeStamp {
+                    ts: seek_to_frame,
+                    track_id,
+                },
             ) {
                 Ok(seeked) => {
                     last_read_frame = seeked.actual_ts as i64;

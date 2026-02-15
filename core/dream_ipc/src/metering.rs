@@ -302,8 +302,10 @@ mod tests {
         //         = max(-20.0, -4.57)
         //         = -4.57
         let expected = METER_FLOOR_DB + (-3.0 - METER_FLOOR_DB) * 0.99;
-        assert!((result - expected).abs() < 0.01,
-            "Expected {expected}, got {result}");
+        assert!(
+            (result - expected).abs() < 0.01,
+            "Expected {expected}, got {result}"
+        );
 
         // Apply decay with a HIGHER new value — peak should jump up
         lfl.store_peak_decay(0.0, 0.99);
@@ -340,8 +342,18 @@ mod tests {
     fn f32_bits_roundtrip_fidelity() {
         // Verify the bit-cast trick preserves exact values
         let test_values = [
-            0.0_f32, -0.0, 1.0, -1.0, 0.5, -80.0, -160.0, 6.0, f32::INFINITY,
-            f32::NEG_INFINITY, f32::MIN_POSITIVE, f32::MAX,
+            0.0_f32,
+            -0.0,
+            1.0,
+            -1.0,
+            0.5,
+            -80.0,
+            -160.0,
+            6.0,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::MIN_POSITIVE,
+            f32::MAX,
         ];
         for val in test_values {
             let bits = val.to_bits();
@@ -377,15 +389,13 @@ mod tests {
         bank.reset_all();
 
         assert!((bank.track(0).unwrap().0.load_rms() - METER_FLOOR_DB).abs() < f32::EPSILON);
-        assert!(
-            (bank.master_left().load_peak() - METER_FLOOR_DB).abs() < f32::EPSILON
-        );
+        assert!((bank.master_left().load_peak() - METER_FLOOR_DB).abs() < f32::EPSILON);
     }
 
     #[test]
     fn linear_to_db_conversion() {
-        assert!((linear_to_db(1.0) - 0.0).abs() < 0.001);        // Unity = 0 dB
-        assert!((linear_to_db(0.5) - (-6.02)).abs() < 0.01);     // Half = ~-6 dB
+        assert!((linear_to_db(1.0) - 0.0).abs() < 0.001); // Unity = 0 dB
+        assert!((linear_to_db(0.5) - (-6.02)).abs() < 0.01); // Half = ~-6 dB
         assert!((linear_to_db(0.1) - (-20.0)).abs() < 0.01);
         assert_eq!(linear_to_db(0.0), METER_FLOOR_DB);
         assert_eq!(linear_to_db(1e-9), METER_FLOOR_DB);

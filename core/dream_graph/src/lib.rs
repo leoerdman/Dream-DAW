@@ -28,7 +28,8 @@ pub mod rcu;
 pub mod renderer;
 
 pub use dag::{
-    AudioDag, AudioEdge, AudioNode, EdgeDelayCompensation, ExecutionPlan, GraphBuilder, GraphError, NodeId, NodeKind,
+    AudioDag, AudioEdge, AudioNode, EdgeDelayCompensation, ExecutionPlan, GraphBuilder, GraphError,
+    NodeId, NodeKind,
 };
 pub use rcu::LiveGraph;
 pub use renderer::{GraphRenderer, NodeBuffer, PdcDelayLine};

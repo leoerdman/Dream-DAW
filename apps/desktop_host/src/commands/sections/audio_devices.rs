@@ -52,8 +52,11 @@ fn restart_audio_engine_impl(
         Arc::clone(&handle.clip_snapshot),
         Arc::clone(&handle.midi_snapshot),
         Arc::clone(&handle.routing_snapshot),
+        Arc::clone(&handle.sidechain_snapshot),
+        Arc::clone(&handle.external_fx_snapshot),
         Arc::clone(&handle.automation_snapshot),
         Arc::clone(&handle.sampler_samples),
+        Arc::clone(&handle.plugin_host),
         Arc::clone(&handle.preview_buffer),
         Arc::clone(&handle.preview_cursor),
         Some(device_name.as_str()),
@@ -76,14 +79,8 @@ fn restart_audio_engine_impl(
         .lock()
         .map_err(|e| e.to_string())?
         .clone();
-    push_command(
-        &handle,
-        EngineCommand::SetBpm(snapshot.bpm),
-    )?;
-    push_command(
-        &handle,
-        EngineCommand::SetFreq(snapshot.test_tone_freq),
-    )?;
+    push_command(&handle, EngineCommand::SetBpm(snapshot.bpm))?;
+    push_command(&handle, EngineCommand::SetFreq(snapshot.test_tone_freq))?;
     push_command(
         &handle,
         EngineCommand::SetLoopEnabled(snapshot.loop_enabled),
@@ -97,12 +94,12 @@ fn restart_audio_engine_impl(
             },
         )?;
     }
-    push_command(
-        &handle,
-        EngineCommand::SetPlay(snapshot.is_playing),
-    )?;
+    push_command(&handle, EngineCommand::SetPlay(snapshot.is_playing))?;
 
-    log::info!("Audio engine hot-swapped to output device '{}'", device_name);
+    log::info!(
+        "Audio engine hot-swapped to output device '{}'",
+        device_name
+    );
     Ok(())
 }
 
@@ -115,4 +112,3 @@ fn restart_audio_engine(
 ) -> Result<(), String> {
     restart_audio_engine_impl(device_name, handle, settings_state)
 }
-

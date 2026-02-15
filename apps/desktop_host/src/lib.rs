@@ -32,17 +32,18 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::Ordering;
-use std::time::Duration;
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use arc_swap::ArcSwap;
 
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
 use dream_engine::driver::{
-    AutomationPoint, MidiFxRuntimeConfig, MidiTrackRuntime, SharedAutomationSnapshot, SharedClipSnapshot, SharedRoutingSnapshot,
+    AutomationPoint, MidiFxRuntimeConfig, MidiTrackRuntime, SharedAutomationSnapshot,
+    SharedClipSnapshot, SharedExternalFxSnapshot, SharedRoutingSnapshot, SharedSidechainSnapshot,
     TrackAutomationState,
 };
 use dream_engine::offline_bounce::{BounceConfig, OfflineBouncer};
@@ -52,22 +53,24 @@ use dream_io::peak_cache::{PeakCache, WaveformPeaks};
 use dream_io::project_file::ProjectFile;
 use dream_io::project_manager::ProjectManager;
 use dream_io::wav_writer::WavWriter;
-use dream_plugins::{
-    PluginDescriptor, PluginHost, PluginSandboxConfig, PluginSandboxSnapshot, PluginSandboxSupervisor,
-    PluginScanner,
-};
-use dream_plugins::format::{PluginCategory, PluginFormat};
 use dream_ipc::metering::MeterBank;
 use dream_ipc::{EngineCommand, MasterClock};
-use dream_models::mutators::{self, MutatorError};
-use dream_models::midi::{MidiClip, MidiNote, SamplerConfig};
-use dream_models::project::{AudioClip, DeviceNode, PluginSlot, Project, TimeSignature, Track, TrackColor, TrackType};
-use dream_models::time::AbsoluteTime;
 use dream_models::PlaybackState;
-use tauri::{Manager, Emitter};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use dream_models::midi::{MidiClip, MidiNote, SamplerConfig};
+use dream_models::mutators::{self, MutatorError};
+use dream_models::project::{
+    AudioClip, DeviceNode, PluginSlot, Project, TimeSignature, Track, TrackColor, TrackType,
+};
+use dream_models::time::AbsoluteTime;
+use dream_plugins::format::{PluginCategory, PluginFormat};
+use dream_plugins::{
+    PluginDescriptor, PluginHost, PluginSandboxConfig, PluginSandboxSnapshot,
+    PluginSandboxSupervisor, PluginScanner,
+};
 use midir::MidiInput;
+use serde::{Deserialize, Serialize};
+use tauri::{Emitter, Manager};
+use uuid::Uuid;
 
 // ── Audio Engine State ─────────────────────────────────────────────────
 
@@ -106,8 +109,11 @@ struct AudioEngineHandle {
     clip_snapshot: Arc<SharedClipSnapshot>,
     midi_snapshot: Arc<dream_engine::driver::SharedMidiSnapshot>,
     routing_snapshot: Arc<SharedRoutingSnapshot>,
+    sidechain_snapshot: Arc<SharedSidechainSnapshot>,
+    external_fx_snapshot: Arc<SharedExternalFxSnapshot>,
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<dream_engine::driver::SharedSamplerSamples>,
+    plugin_host: Arc<Mutex<PluginHost>>,
 
     /// Estimated hardware output latency in sample frames.
     /// Captured from cpal at stream init. Passed to frontend so the
@@ -119,20 +125,20 @@ impl AudioEngineHandle {
     /// Load an interleaved stereo buffer for preview playback.
     /// Uses ArcSwap::store() — lock-free, never blocks the audio thread.
     fn set_preview_buffer(&self, buffer: Vec<f32>) {
-        self.preview_cursor.store(0, std::sync::atomic::Ordering::SeqCst);
+        self.preview_cursor
+            .store(0, std::sync::atomic::Ordering::SeqCst);
         self.preview_buffer.store(Arc::new(Some(buffer)));
     }
 
     /// Stop preview and discard the buffer.
     fn clear_preview_buffer(&self) {
         self.preview_buffer.store(Arc::new(None));
-        self.preview_cursor.store(0, std::sync::atomic::Ordering::SeqCst);
+        self.preview_cursor
+            .store(0, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
 // ── Project State (managed by Tauri) ──────────────────────────────────
-
-
 
 /// Structural-sharing snapshot of a project.
 ///
@@ -604,8 +610,10 @@ impl SharedProjectSnapshot {
                 .view_state_arranger_mixer_volume_section_height,
             view_state_session_track_width: self.view_state_session_track_width,
             view_state_main_window_clip_detail_open: self.view_state_main_window_clip_detail_open,
-            view_state_main_window_device_detail_open: self.view_state_main_window_device_detail_open,
-            view_state_second_window_clip_detail_open: self.view_state_second_window_clip_detail_open,
+            view_state_main_window_device_detail_open: self
+                .view_state_main_window_device_detail_open,
+            view_state_second_window_clip_detail_open: self
+                .view_state_second_window_clip_detail_open,
             view_state_second_window_device_detail_open: self
                 .view_state_second_window_device_detail_open,
             should_scene_tempo_time_signature_be_visible: self
@@ -782,10 +790,7 @@ impl ProjectHistory {
         let selected_len = selected.len();
         let count = limit.unwrap_or(selected_len).min(selected_len);
         let skip = selected_len.saturating_sub(count);
-        selected
-            .into_iter()
-            .skip(skip)
-            .collect()
+        selected.into_iter().skip(skip).collect()
     }
 }
 
@@ -844,7 +849,11 @@ impl ProjectState {
 
     /// Clears the dirty flag and updates the window title (removes `*`).
     #[allow(dead_code)]
-    fn clear_dirty(&self, project_name: &str, app: Option<&tauri::AppHandle>) -> Result<(), String> {
+    fn clear_dirty(
+        &self,
+        project_name: &str,
+        app: Option<&tauri::AppHandle>,
+    ) -> Result<(), String> {
         *self.is_dirty.lock().map_err(|e| e.to_string())? = false;
         if let Some(app) = app
             && let Some(window) = app.get_webview_window("main")
@@ -854,7 +863,11 @@ impl ProjectState {
         Ok(())
     }
 
-    fn record_history(&self, kind: impl Into<String>, detail: impl Into<String>) -> Result<(), String> {
+    fn record_history(
+        &self,
+        kind: impl Into<String>,
+        detail: impl Into<String>,
+    ) -> Result<(), String> {
         let mut history = self.history.lock().map_err(|e| e.to_string())?;
         history.push(kind, detail);
         Ok(())
@@ -927,7 +940,10 @@ fn rebuild_automation_snapshot_from_project(
     }
 
     fn is_track_volume_param(key: &str) -> bool {
-        matches!(key, "volume" | "gain" | "track.volume" | "track.gain" | "mixer.gain")
+        matches!(
+            key,
+            "volume" | "gain" | "track.volume" | "track.gain" | "mixer.gain"
+        )
     }
 
     fn canonical_plugin_param(key: &str) -> Option<&'static str> {
@@ -966,7 +982,9 @@ fn rebuild_automation_snapshot_from_project(
                 state.volume = points;
             } else if !points.is_empty() {
                 if let Some(alias) = canonical_plugin_param(&key) {
-                    state.plugin_params.insert(alias.to_string(), points.clone());
+                    state
+                        .plugin_params
+                        .insert(alias.to_string(), points.clone());
                 }
                 state.plugin_params.insert(lane.param_id.clone(), points);
             }
@@ -996,22 +1014,22 @@ fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngineHan
         .tracks
         .iter()
         .map(|track| {
-            let has_pitch = track
-                .effects
-                .iter()
-                .any(|fx| fx.plugin_id().eq_ignore_ascii_case("internal://midi-fx/pitch"));
-            let has_scale = track
-                .effects
-                .iter()
-                .any(|fx| fx.plugin_id().eq_ignore_ascii_case("internal://midi-fx/scale"));
-            let has_velocity = track
-                .effects
-                .iter()
-                .any(|fx| fx.plugin_id().eq_ignore_ascii_case("internal://midi-fx/velocity"));
-            let has_random = track
-                .effects
-                .iter()
-                .any(|fx| fx.plugin_id().eq_ignore_ascii_case("internal://midi-fx/random"));
+            let has_pitch = track.effects.iter().any(|fx| {
+                fx.plugin_id()
+                    .eq_ignore_ascii_case("internal://midi-fx/pitch")
+            });
+            let has_scale = track.effects.iter().any(|fx| {
+                fx.plugin_id()
+                    .eq_ignore_ascii_case("internal://midi-fx/scale")
+            });
+            let has_velocity = track.effects.iter().any(|fx| {
+                fx.plugin_id()
+                    .eq_ignore_ascii_case("internal://midi-fx/velocity")
+            });
+            let has_random = track.effects.iter().any(|fx| {
+                fx.plugin_id()
+                    .eq_ignore_ascii_case("internal://midi-fx/random")
+            });
 
             let fx = MidiFxRuntimeConfig {
                 pitch_enabled: has_pitch,
@@ -1023,13 +1041,9 @@ fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngineHan
                 .round()
                 .clamp(-48.0, 48.0) as i8,
                 scale_enabled: has_scale,
-                scale_root: first_lane_value(
-                    track,
-                    &["midi.scale.root", "midifx.scale.root"],
-                    0.0,
-                )
-                .round()
-                .rem_euclid(12.0) as u8,
+                scale_root: first_lane_value(track, &["midi.scale.root", "midifx.scale.root"], 0.0)
+                    .round()
+                    .rem_euclid(12.0) as u8,
                 scale_mask: first_lane_value(
                     track,
                     &["midi.scale.mask", "midifx.scale.mask"],
@@ -1096,7 +1110,21 @@ fn rebuild_sampler_snapshot_from_project(
     }
 
     let mut samples: Vec<Option<Arc<ClipAudio>>> = vec![None; project.tracks.len()];
-    let mut synth_settings: Vec<(usize, u8, u8, f32, f32, f32, f32, f32, u8, f32, f32, u8, f32)> = Vec::new();
+    let mut synth_settings: Vec<(
+        usize,
+        u8,
+        u8,
+        f32,
+        f32,
+        f32,
+        f32,
+        f32,
+        u8,
+        f32,
+        f32,
+        u8,
+        f32,
+    )> = Vec::new();
     if let Ok(pool) = clip_pool_state.pool.lock() {
         for (idx, track) in project.tracks.iter().enumerate() {
             let plugin_id_lower = track
@@ -1107,7 +1135,20 @@ fn rebuild_sampler_snapshot_from_project(
             let is_wave_synth = plugin_id_lower.starts_with("internal://instrument/wave-synth")
                 || plugin_id_lower.starts_with("internal://instrument/simple-sine-synth");
             if is_wave_synth {
-                let (waveform, osc2, mix, detune, sub, f_cutoff, f_res, f_type, lfo_r, lfo_d, lfo_t, pw) = track
+                let (
+                    waveform,
+                    osc2,
+                    mix,
+                    detune,
+                    sub,
+                    f_cutoff,
+                    f_res,
+                    f_type,
+                    lfo_r,
+                    lfo_d,
+                    lfo_t,
+                    pw,
+                ) = track
                     .sampler
                     .as_ref()
                     .map(|cfg| {
@@ -1127,7 +1168,10 @@ fn rebuild_sampler_snapshot_from_project(
                         )
                     })
                     .unwrap_or((0, 0, 0.35, 0.0, 0.0, 20000.0, 0.0, 0, 1.0, 0.0, 0, 0.5));
-                synth_settings.push((idx, waveform, osc2, mix, detune, sub, f_cutoff, f_res, f_type, lfo_r, lfo_d, lfo_t, pw));
+                synth_settings.push((
+                    idx, waveform, osc2, mix, detune, sub, f_cutoff, f_res, f_type, lfo_r, lfo_d,
+                    lfo_t, pw,
+                ));
             }
             if let Some(cfg) = &track.sampler
                 && !cfg.sample_path.trim().is_empty()
@@ -1139,7 +1183,22 @@ fn rebuild_sampler_snapshot_from_project(
         }
     }
     handle.sampler_samples.swap(samples);
-    for (track_idx, waveform, osc2, mix, detune, sub, f_cutoff, f_res, f_type, lfo_r, lfo_d, lfo_t, pw) in synth_settings {
+    for (
+        track_idx,
+        waveform,
+        osc2,
+        mix,
+        detune,
+        sub,
+        f_cutoff,
+        f_res,
+        f_type,
+        lfo_r,
+        lfo_d,
+        lfo_t,
+        pw,
+    ) in synth_settings
+    {
         if let Err(err) = push_command(
             handle,
             EngineCommand::SetSamplerWaveform {
@@ -1279,7 +1338,12 @@ fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
 
     // ── Keyword fallbacks (Ableton device names, aliases) ────────────
     // Order: more specific matches before generic ones to avoid shadowing.
-    if key.contains("eq eight") || key.contains("eq8") || key.contains("eq3") || key.contains("channel eq") || key.contains("eq") {
+    if key.contains("eq eight")
+        || key.contains("eq8")
+        || key.contains("eq3")
+        || key.contains("channel eq")
+        || key.contains("eq")
+    {
         return Some(FX_EQ);
     }
     if key.contains("compressor") || key.contains("glue") || key.contains("multiband dynamics") {
@@ -1306,7 +1370,10 @@ fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     if key.contains("auto-pan") || key.contains("autopan") || key.contains("auto pan") {
         return Some(FX_AUTO_PAN);
     }
-    if key.contains("noise-machine") || key.contains("noisemachine") || key.contains("noise machine") {
+    if key.contains("noise-machine")
+        || key.contains("noisemachine")
+        || key.contains("noise machine")
+    {
         return Some(FX_NOISE_MACHINE);
     }
     if key.contains("phaser") || key.contains("phaser-flanger") {
@@ -1315,7 +1382,12 @@ fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     if key.contains("flanger") {
         return Some(FX_FLANGER);
     }
-    if key.contains("distortion") || key.contains("overdrive") || key.contains("pedal") || key.contains("cabinet") || key.contains("amp") {
+    if key.contains("distortion")
+        || key.contains("overdrive")
+        || key.contains("pedal")
+        || key.contains("cabinet")
+        || key.contains("amp")
+    {
         return Some(FX_DISTORTION);
     }
     if key.contains("bitcrusher") || key.contains("bit-crusher") || key.contains("redux") {
@@ -1800,7 +1872,13 @@ fn rebuild_runtime_device_chains_from_project(
     for track_index in 0..project.tracks.len() {
         let track_index = track_index as u16;
         for slot_index in 0..MAX_DEVICE_SLOTS {
-            push_command(handle, EngineCommand::RemoveDevice { track_index, slot_index })?;
+            push_command(
+                handle,
+                EngineCommand::RemoveDevice {
+                    track_index,
+                    slot_index,
+                },
+            )?;
         }
     }
 
@@ -1853,7 +1931,10 @@ fn rebuild_runtime_device_chains_from_project(
     Ok(())
 }
 
-fn sync_transport_from_project(project: &Project, handle: &AudioEngineHandle) -> Result<(), String> {
+fn sync_transport_from_project(
+    project: &Project,
+    handle: &AudioEngineHandle,
+) -> Result<(), String> {
     let bpm = project.pulse_map.initial_bpm();
     let loop_enabled = project.is_looping;
     let loop_start = project.loop_start_frames.unwrap_or(0);
@@ -1875,10 +1956,13 @@ fn sync_transport_from_project(project: &Project, handle: &AudioEngineHandle) ->
     push_command(handle, EngineCommand::SetPlay(false))?;
     push_command(handle, EngineCommand::SetBpm(bpm))?;
     if loop_enabled && loop_end > loop_start {
-        push_command(handle, EngineCommand::SetLoopRegion {
-            start: loop_start,
-            end: loop_end,
-        })?;
+        push_command(
+            handle,
+            EngineCommand::SetLoopRegion {
+                start: loop_start,
+                end: loop_end,
+            },
+        )?;
     }
     push_command(handle, EngineCommand::SetLoopEnabled(loop_enabled))?;
     push_command(handle, EngineCommand::Seek(playhead))?;
@@ -1904,6 +1988,12 @@ struct ClipPoolState {
 
     /// Atomic snapshot of per-track routing destinations for DAG rendering.
     routing_snapshot: Arc<SharedRoutingSnapshot>,
+
+    /// Atomic snapshot of internal effect sidechain source mapping.
+    sidechain_snapshot: Arc<SharedSidechainSnapshot>,
+
+    /// Atomic snapshot of external FX runtime instances per track.
+    external_fx_snapshot: Arc<SharedExternalFxSnapshot>,
 }
 
 impl ClipPoolState {
@@ -1913,6 +2003,8 @@ impl ClipPoolState {
             arc_pool: Arc::new(ArcSwap::from_pointee(ClipPool::new())),
             snapshot: Arc::new(SharedClipSnapshot::new()),
             routing_snapshot: Arc::new(SharedRoutingSnapshot::new()),
+            sidechain_snapshot: Arc::new(SharedSidechainSnapshot::new()),
+            external_fx_snapshot: Arc::new(SharedExternalFxSnapshot::new()),
         }
     }
 
@@ -1942,9 +2034,72 @@ impl ClipPoolState {
             .collect();
         self.routing_snapshot.swap(routing);
 
+        let sidechains: Vec<Vec<Option<usize>>> = project
+            .tracks
+            .iter()
+            .map(|track| {
+                track
+                    .effects
+                    .iter()
+                    .filter_map(|node| node.as_single())
+                    .filter(|slot| slot.plugin_id.starts_with("internal://effect/"))
+                    .map(|slot| {
+                        slot.sidechain_source_track_id
+                            .as_ref()
+                            .and_then(|source_id| {
+                                project
+                                    .tracks
+                                    .iter()
+                                    .position(|candidate| candidate.id.to_string() == *source_id)
+                            })
+                    })
+                    .collect()
+            })
+            .collect();
+        self.sidechain_snapshot.swap(sidechains);
+
         // Sync decoded audio data to the lock-free ArcSwap pool
         // so the audio thread can read it without locks.
         self.sync_pool_to_arc();
+    }
+
+    fn rebuild_external_fx_snapshot(
+        &self,
+        project: &Project,
+        slot_instance_map: &HashMap<Uuid, Uuid>,
+    ) {
+        let external_fx: Vec<Vec<dream_engine::driver::ExternalFxRuntimeSlot>> = project
+            .tracks
+            .iter()
+            .map(|track| {
+                track
+                    .effects
+                    .iter()
+                    .filter_map(|node| node.as_single())
+                    .filter(|slot| !slot.plugin_id.starts_with("internal://"))
+                    .filter_map(|slot| {
+                        if slot.is_bypassed {
+                            return None;
+                        }
+                        let instance_id = slot_instance_map.get(&slot.id).copied()?;
+                        let sidechain_track_index =
+                            slot.sidechain_source_track_id
+                                .as_ref()
+                                .and_then(|source_id| {
+                                    project.tracks.iter().position(|candidate| {
+                                        candidate.id.to_string() == *source_id
+                                    })
+                                });
+                        Some(dream_engine::driver::ExternalFxRuntimeSlot {
+                            instance_id,
+                            sidechain_track_index,
+                        })
+                    })
+                    .collect()
+            })
+            .collect();
+
+        self.external_fx_snapshot.swap(external_fx);
     }
 
     /// Propagates the Mutex-guarded pool to the lock-free ArcSwap.
@@ -2034,7 +2189,9 @@ impl ClipPoolState {
 
         log::info!(
             "[ClipPool] load_project_clips: loaded={}, skipped={}, failed={}",
-            loaded, skipped, failed
+            loaded,
+            skipped,
+            failed
         );
 
         // Push to the audio thread's lock-free ArcSwap
@@ -2078,9 +2235,10 @@ impl MidiInputRuntime {
 
 /// Runtime plugin host state for native VST instance lifecycle.
 struct PluginHostState {
-    host: Mutex<PluginHost>,
+    host: Arc<Mutex<PluginHost>>,
     loaded_by_key: Mutex<HashMap<String, Uuid>>,
     loaded_sandbox_by_key: Mutex<HashMap<String, Uuid>>,
+    slot_instance_map: Arc<ArcSwap<HashMap<Uuid, Uuid>>>,
     sandbox_supervisor: Mutex<PluginSandboxSupervisor>,
 }
 
@@ -2088,11 +2246,28 @@ impl PluginHostState {
     fn new() -> Self {
         let sandbox_config = PluginSandboxConfig::from_env();
         Self {
-            host: Mutex::new(PluginHost::new(44100.0, 1024)),
+            host: Arc::new(Mutex::new(PluginHost::new(44100.0, 1024))),
             loaded_by_key: Mutex::new(HashMap::new()),
             loaded_sandbox_by_key: Mutex::new(HashMap::new()),
+            slot_instance_map: Arc::new(ArcSwap::from_pointee(HashMap::new())),
             sandbox_supervisor: Mutex::new(PluginSandboxSupervisor::new(sandbox_config)),
         }
+    }
+
+    fn bind_slot_instance(&self, slot_id: Uuid, instance_id: Uuid) {
+        let mut map = self.slot_instance_map.load_full().as_ref().clone();
+        map.insert(slot_id, instance_id);
+        self.slot_instance_map.store(Arc::new(map));
+    }
+
+    fn unbind_slot_instance(&self, slot_id: Uuid) {
+        let mut map = self.slot_instance_map.load_full().as_ref().clone();
+        map.remove(&slot_id);
+        self.slot_instance_map.store(Arc::new(map));
+    }
+
+    fn slot_instance_snapshot(&self) -> Arc<HashMap<Uuid, Uuid>> {
+        self.slot_instance_map.load_full()
     }
 
     fn resolve_descriptor(&self, plugin_id: &str) -> Result<PluginDescriptor, String> {
@@ -2215,7 +2390,8 @@ impl PluginHostState {
                 if let Some(key) = reverse.get(&id) {
                     log::error!(
                         "[PluginSandbox] Host unhealthy for key='{}' (instance={}) -> bypass requested",
-                        key, id
+                        key,
+                        id
                     );
                 } else {
                     log::error!(
@@ -2335,33 +2511,70 @@ struct AppSettings {
     #[serde(default, alias = "browserShowTypeColumn")]
     browser_show_type_column: bool,
     /// Browser left category pane width in pixels.
-    #[serde(default = "default_browser_left_pane_width", alias = "browserLeftPaneWidth")]
+    #[serde(
+        default = "default_browser_left_pane_width",
+        alias = "browserLeftPaneWidth"
+    )]
     browser_left_pane_width: u32,
 }
 
-fn default_language() -> String { "English".into() }
-fn default_startup_behavior() -> String { "new".into() }
-fn default_waveform_style() -> String { "colored".into() }
-fn default_driver_type() -> String { "CoreAudio".into() }
-fn default_output_device() -> String { "Default Output".into() }
-fn default_input_device() -> String { "Default Input".into() }
-fn default_sample_rate() -> u32 { 44100 }
-fn default_buffer_size() -> u32 { 512 }
-fn default_test_tone_volume() -> f64 { -20.0 }
-fn default_test_tone_frequency() -> f64 { 440.0 }
-fn default_true() -> bool { true }
+fn default_language() -> String {
+    "English".into()
+}
+fn default_startup_behavior() -> String {
+    "new".into()
+}
+fn default_waveform_style() -> String {
+    "colored".into()
+}
+fn default_driver_type() -> String {
+    "CoreAudio".into()
+}
+fn default_output_device() -> String {
+    "Default Output".into()
+}
+fn default_input_device() -> String {
+    "Default Input".into()
+}
+fn default_sample_rate() -> u32 {
+    44100
+}
+fn default_buffer_size() -> u32 {
+    512
+}
+fn default_test_tone_volume() -> f64 {
+    -20.0
+}
+fn default_test_tone_frequency() -> f64 {
+    440.0
+}
+fn default_true() -> bool {
+    true
+}
 fn default_user_folder() -> String {
     let home = dirs::home_dir().unwrap_or_default();
     home.join("Music").join("Dream DAW").display().to_string()
 }
 fn default_samples_path() -> String {
     let home = dirs::home_dir().unwrap_or_default();
-    home.join("Music").join("Dream DAW").join("Samples").display().to_string()
+    home.join("Music")
+        .join("Dream DAW")
+        .join("Samples")
+        .display()
+        .to_string()
 }
-fn default_vst2_path() -> String { "/Library/Audio/Plug-Ins/VST".into() }
-fn default_vst3_path() -> String { "/Library/Audio/Plug-Ins/VST3".into() }
-fn default_open_router_model() -> String { "openai/gpt-4o-mini".into() }
-fn default_browser_left_pane_width() -> u32 { 92 }
+fn default_vst2_path() -> String {
+    "/Library/Audio/Plug-Ins/VST".into()
+}
+fn default_vst3_path() -> String {
+    "/Library/Audio/Plug-Ins/VST3".into()
+}
+fn default_open_router_model() -> String {
+    "openai/gpt-4o-mini".into()
+}
+fn default_browser_left_pane_width() -> u32 {
+    92
+}
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -2429,7 +2642,9 @@ impl SettingsState {
             && let Ok(settings) = serde_json::from_str::<AppSettings>(&json)
         {
             log::info!("Settings loaded from: {}", user_info_path.display());
-            return Self { settings: Mutex::new(settings) };
+            return Self {
+                settings: Mutex::new(settings),
+            };
         }
 
         // Fallback: load from app_data_dir (legacy Tauri location)
@@ -2438,9 +2653,14 @@ impl SettingsState {
             && let Ok(json) = std::fs::read_to_string(&legacy_path)
             && let Ok(settings) = serde_json::from_str::<AppSettings>(&json)
         {
-            log::info!("Settings loaded from legacy path: {}", legacy_path.display());
+            log::info!(
+                "Settings loaded from legacy path: {}",
+                legacy_path.display()
+            );
             // Migrate: save to user folder and clean up
-            let state = Self { settings: Mutex::new(settings) };
+            let state = Self {
+                settings: Mutex::new(settings),
+            };
             if let Err(e) = state.save_to_user_folder() {
                 log::warn!("Failed to migrate settings: {}", e);
             }
@@ -2448,7 +2668,9 @@ impl SettingsState {
         }
 
         log::info!("No settings found, using defaults");
-        Self { settings: Mutex::new(defaults) }
+        Self {
+            settings: Mutex::new(defaults),
+        }
     }
 
     /// Save settings to `{user_folder_path}/User Info/settings.json`.
@@ -2472,7 +2694,9 @@ impl SettingsState {
 
     /// When the user_folder_path changes, migrate settings.json to the new location.
     fn migrate_to_new_folder(&self, old_path: &str, new_path: &str) -> Result<(), String> {
-        let old_settings_file = PathBuf::from(old_path).join("User Info").join("settings.json");
+        let old_settings_file = PathBuf::from(old_path)
+            .join("User Info")
+            .join("settings.json");
         let new_user_info_dir = PathBuf::from(new_path).join("User Info");
         let new_settings_file = new_user_info_dir.join("settings.json");
 
@@ -2484,7 +2708,11 @@ impl SettingsState {
         if old_settings_file.exists() && !new_settings_file.exists() {
             std::fs::copy(&old_settings_file, &new_settings_file)
                 .map_err(|e| format!("Failed to copy settings: {}", e))?;
-            log::info!("Settings migrated from {} to {}", old_settings_file.display(), new_settings_file.display());
+            log::info!(
+                "Settings migrated from {} to {}",
+                old_settings_file.display(),
+                new_settings_file.display()
+            );
         }
 
         // Now save current state to the new location
@@ -2532,11 +2760,14 @@ impl RecentProjects {
         // Remove existing entry for same path
         self.projects.retain(|p| p.path != path);
         // Add to front
-        self.projects.insert(0, RecentProject {
-            name,
-            path,
-            last_opened: chrono_now(),
-        });
+        self.projects.insert(
+            0,
+            RecentProject {
+                name,
+                path,
+                last_opened: chrono_now(),
+            },
+        );
         // Keep max 20 recent projects
         self.projects.truncate(20);
     }
@@ -2772,10 +3003,7 @@ struct LoadDevicePresetPayload {
 
 // ── Helper: push command with error handling ───────────────────────────
 
-fn push_command(
-    handle: &AudioEngineHandle,
-    cmd: EngineCommand,
-) -> Result<(), String> {
+fn push_command(handle: &AudioEngineHandle, cmd: EngineCommand) -> Result<(), String> {
     let mut producer = handle
         .producer
         .lock()
@@ -2813,6 +3041,7 @@ pub fn run() {
     let (producer, consumer) = rtrb::RingBuffer::<EngineCommand>::new(1024);
     let master_clock = Arc::new(MasterClock::new());
     let meter_bank = Arc::new(MeterBank::new(64)); // 64 tracks max
+    let plugin_host_state = PluginHostState::new();
 
     // Create shared clip pool and snapshot
     let clip_pool_state = ClipPoolState::new();
@@ -2828,6 +3057,8 @@ pub fn run() {
     rebuild_automation_snapshot_from_project(&bootstrap_project, &automation_runtime);
     let sampler_samples = Arc::new(dream_engine::driver::SharedSamplerSamples::new());
     let routing_snapshot_for_engine = Arc::clone(&clip_pool_state.routing_snapshot);
+    let sidechain_snapshot_for_engine = Arc::clone(&clip_pool_state.sidechain_snapshot);
+    let external_fx_snapshot_for_engine = Arc::clone(&clip_pool_state.external_fx_snapshot);
     let midi_snapshot_for_engine = Arc::clone(&midi_snapshot);
     let automation_snapshot_for_engine = Arc::clone(&automation_runtime.snapshot);
     let sampler_samples_for_engine = Arc::clone(&sampler_samples);
@@ -2835,12 +3066,17 @@ pub fn run() {
     let clip_snapshot_for_handle = Arc::clone(&clip_pool_state.snapshot);
     let midi_snapshot_for_handle = Arc::clone(&midi_snapshot);
     let routing_snapshot_for_handle = Arc::clone(&clip_pool_state.routing_snapshot);
+    let sidechain_snapshot_for_handle = Arc::clone(&clip_pool_state.sidechain_snapshot);
+    let external_fx_snapshot_for_handle = Arc::clone(&clip_pool_state.external_fx_snapshot);
     let automation_snapshot_for_handle = Arc::clone(&automation_runtime.snapshot);
     let sampler_samples_for_handle = Arc::clone(&sampler_samples);
+    let plugin_host_for_engine = Arc::clone(&plugin_host_state.host);
+    let plugin_host_for_handle = Arc::clone(&plugin_host_state.host);
 
     // Create preview buffer Arcs (shared between engine handle and audio driver)
     let preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>> = Arc::new(ArcSwap::from_pointee(None));
-    let preview_cursor: Arc<std::sync::atomic::AtomicUsize> = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let preview_cursor: Arc<std::sync::atomic::AtomicUsize> =
+        Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let preview_buffer_for_engine = Arc::clone(&preview_buffer);
     let preview_cursor_for_engine = Arc::clone(&preview_cursor);
 
@@ -2855,8 +3091,11 @@ pub fn run() {
         snapshot_for_engine,
         midi_snapshot_for_engine,
         routing_snapshot_for_engine,
+        sidechain_snapshot_for_engine,
+        external_fx_snapshot_for_engine,
         automation_snapshot_for_engine,
         sampler_samples_for_engine,
+        plugin_host_for_engine,
         preview_buffer_for_engine,
         preview_cursor_for_engine,
     ) {
@@ -2883,8 +3122,11 @@ pub fn run() {
         clip_snapshot: clip_snapshot_for_handle,
         midi_snapshot: midi_snapshot_for_handle,
         routing_snapshot: routing_snapshot_for_handle,
+        sidechain_snapshot: sidechain_snapshot_for_handle,
+        external_fx_snapshot: external_fx_snapshot_for_handle,
         automation_snapshot: automation_snapshot_for_handle,
         sampler_samples: sampler_samples_for_handle,
+        plugin_host: plugin_host_for_handle,
         output_latency_frames,
     };
 
@@ -2909,7 +3151,7 @@ pub fn run() {
         .manage(RecordingRuntime::new())
         .manage(automation_runtime)
         .manage(midi_input_runtime)
-        .manage(PluginHostState::new())
+        .manage(plugin_host_state)
         .invoke_handler(commands::invoke_handler())
         .setup(|app| {
             // ── Telemetry Push Thread (30fps) ─────────────────────────
@@ -3039,14 +3281,8 @@ mod tests {
         let events = history.snapshot(None, None);
         assert_eq!(events.len(), MAX_PROJECT_HISTORY);
         assert_eq!(events.first().map(|e| e.seq), Some(6));
-        assert_eq!(
-            events.first().map(|e| e.detail.as_str()),
-            Some("event-5")
-        );
-        assert_eq!(
-            events.last().map(|e| e.detail.as_str()),
-            Some("event-2052")
-        );
+        assert_eq!(events.first().map(|e| e.detail.as_str()), Some("event-5"));
+        assert_eq!(events.last().map(|e| e.detail.as_str()), Some("event-2052"));
 
         for pair in events.windows(2) {
             assert!(pair[0].seq < pair[1].seq);

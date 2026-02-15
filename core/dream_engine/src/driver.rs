@@ -18,21 +18,24 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use arc_swap::ArcSwap;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use dream_graph::{AudioDag, AudioNode, GraphBuilder, GraphRenderer, LiveGraph, NodeId, NodeKind};
+use dream_plugins::{PluginHost, TransportContext};
 use log::{error, info};
+use uuid::Uuid;
 
 use dream_clip_engine::midi_scheduler::MidiScheduler;
 use dream_clip_engine::pool::ClipAudio;
 use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::scheduler::LoopRegion;
-use dream_ipc::metering::{compute_peak, compute_rms, linear_to_db, MeterBank};
-use dream_ipc::{EngineCommand, MasterClock};
 use dream_dsp::dsp_processor::BuiltinEffectType;
+use dream_ipc::metering::{MeterBank, compute_peak, compute_rms, linear_to_db};
+use dream_ipc::{EngineCommand, MasterClock};
 use dream_models::midi::MidiClip;
 use dream_models::project::AudioClip;
 
@@ -198,6 +201,80 @@ impl SharedRoutingSnapshot {
 }
 
 impl Default for SharedRoutingSnapshot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Atomic snapshot of per-track internal device sidechain sources.
+///
+/// Shape: `[track_index][device_slot_index] -> Option<source_track_index>`.
+pub struct SharedSidechainSnapshot {
+    inner: ArcSwap<Vec<Vec<Option<usize>>>>,
+    generation: std::sync::atomic::AtomicU64,
+}
+
+impl SharedSidechainSnapshot {
+    pub fn new() -> Self {
+        Self {
+            inner: ArcSwap::from_pointee(Vec::new()),
+            generation: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    pub fn swap(&self, sidechains: Vec<Vec<Option<usize>>>) {
+        self.inner.store(Arc::new(sidechains));
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn load(&self) -> arc_swap::Guard<Arc<Vec<Vec<Option<usize>>>>> {
+        self.inner.load()
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
+    }
+}
+
+impl Default for SharedSidechainSnapshot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ExternalFxRuntimeSlot {
+    pub instance_id: Uuid,
+    pub sidechain_track_index: Option<usize>,
+}
+
+/// Atomic snapshot of per-track external effect runtime instances.
+///
+/// Shape: `[track_index] -> Vec<external_slots_in_track_order>`.
+pub struct SharedExternalFxSnapshot {
+    inner: ArcSwap<Vec<Vec<ExternalFxRuntimeSlot>>>,
+    generation: std::sync::atomic::AtomicU64,
+}
+
+impl SharedExternalFxSnapshot {
+    pub fn new() -> Self {
+        Self {
+            inner: ArcSwap::from_pointee(Vec::new()),
+            generation: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    pub fn swap(&self, fx: Vec<Vec<ExternalFxRuntimeSlot>>) {
+        self.inner.store(Arc::new(fx));
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn load(&self) -> arc_swap::Guard<Arc<Vec<Vec<ExternalFxRuntimeSlot>>>> {
+        self.inner.load()
+    }
+}
+
+impl Default for SharedExternalFxSnapshot {
     fn default() -> Self {
         Self::new()
     }
@@ -762,8 +839,11 @@ pub fn start_audio_thread(
     clip_snapshot: Arc<SharedClipSnapshot>,
     midi_snapshot: Arc<SharedMidiSnapshot>,
     routing_snapshot: Arc<SharedRoutingSnapshot>,
+    sidechain_snapshot: Arc<SharedSidechainSnapshot>,
+    external_fx_snapshot: Arc<SharedExternalFxSnapshot>,
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<SharedSamplerSamples>,
+    plugin_host: Arc<Mutex<PluginHost>>,
     preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
 ) -> Result<AudioStreamHandle, AudioDriverError> {
@@ -775,8 +855,11 @@ pub fn start_audio_thread(
         clip_snapshot,
         midi_snapshot,
         routing_snapshot,
+        sidechain_snapshot,
+        external_fx_snapshot,
         automation_snapshot,
         sampler_samples,
+        plugin_host,
         preview_buffer,
         preview_cursor,
         None,
@@ -796,8 +879,11 @@ pub fn start_audio_thread_on_device(
     clip_snapshot: Arc<SharedClipSnapshot>,
     midi_snapshot: Arc<SharedMidiSnapshot>,
     routing_snapshot: Arc<SharedRoutingSnapshot>,
+    sidechain_snapshot: Arc<SharedSidechainSnapshot>,
+    external_fx_snapshot: Arc<SharedExternalFxSnapshot>,
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<SharedSamplerSamples>,
+    plugin_host: Arc<Mutex<PluginHost>>,
     preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
     preferred_output_device: Option<&str>,
@@ -894,6 +980,8 @@ pub fn start_audio_thread_on_device(
     // Scratch buffers for sampler output (reused each buffer, zero-alloc)
     let mut sampler_left = vec![0.0f32; 8192];
     let mut sampler_right = vec![0.0f32; 8192];
+    let mut external_left = vec![0.0f32; 8192];
+    let mut external_right = vec![0.0f32; 8192];
     // Track which samples were last loaded per-track to avoid re-assigning
     let _last_sample_generation: u64 = 0;
 
@@ -1000,7 +1088,8 @@ pub fn start_audio_thread_on_device(
                                         track_disabled[idx] = muted;
                                         // Recalculate output-enabled state
                                         if idx < render_ctx.track_slots.len() {
-                                            let enabled = !muted && (!any_solo || track_soloed[idx]);
+                                            let enabled =
+                                                !muted && (!any_solo || track_soloed[idx]);
                                             render_ctx.track_slots[idx]
                                                 .strip
                                                 .set_output_enabled(enabled);
@@ -1017,8 +1106,11 @@ pub fn start_audio_thread_on_device(
                                         any_solo = track_soloed.iter().any(|s| *s);
                                         // Recalculate output-enabled state for ALL tracks
                                         for i in 0..render_ctx.track_slots.len().min(64) {
-                                            let enabled = !track_disabled[i] && (!any_solo || track_soloed[i]);
-                                            render_ctx.track_slots[i].strip.set_output_enabled(enabled);
+                                            let enabled = !track_disabled[i]
+                                                && (!any_solo || track_soloed[i]);
+                                            render_ctx.track_slots[i]
+                                                .strip
+                                                .set_output_enabled(enabled);
                                         }
                                     }
                                 }
@@ -1074,16 +1166,24 @@ pub fn start_audio_thread_on_device(
                                         });
                                     }
                                 }
-                                EngineCommand::SetSamplerWaveform { track_index, waveform } => {
+                                EngineCommand::SetSamplerWaveform {
+                                    track_index,
+                                    waveform,
+                                } => {
                                     let idx = track_index as usize;
                                     if idx < sampler_engines.len() {
-                                        sampler_engines[idx].set_waveform(Waveform::from_u8(waveform));
+                                        sampler_engines[idx]
+                                            .set_waveform(Waveform::from_u8(waveform));
                                     }
                                 }
-                                EngineCommand::SetSamplerOsc2Waveform { track_index, waveform } => {
+                                EngineCommand::SetSamplerOsc2Waveform {
+                                    track_index,
+                                    waveform,
+                                } => {
                                     let idx = track_index as usize;
                                     if idx < sampler_engines.len() {
-                                        sampler_engines[idx].set_waveform2(Waveform::from_u8(waveform));
+                                        sampler_engines[idx]
+                                            .set_waveform2(Waveform::from_u8(waveform));
                                     }
                                 }
                                 EngineCommand::SetSamplerOscMix { track_index, mix } => {
@@ -1104,19 +1204,28 @@ pub fn start_audio_thread_on_device(
                                         sampler_engines[idx].set_sub_level(level);
                                     }
                                 }
-                                EngineCommand::SetSamplerFilterCutoff { track_index, cutoff } => {
+                                EngineCommand::SetSamplerFilterCutoff {
+                                    track_index,
+                                    cutoff,
+                                } => {
                                     let idx = track_index as usize;
                                     if idx < sampler_engines.len() {
                                         sampler_engines[idx].set_filter_cutoff(cutoff);
                                     }
                                 }
-                                EngineCommand::SetSamplerFilterResonance { track_index, resonance } => {
+                                EngineCommand::SetSamplerFilterResonance {
+                                    track_index,
+                                    resonance,
+                                } => {
                                     let idx = track_index as usize;
                                     if idx < sampler_engines.len() {
                                         sampler_engines[idx].set_filter_resonance(resonance);
                                     }
                                 }
-                                EngineCommand::SetSamplerFilterType { track_index, filter_type } => {
+                                EngineCommand::SetSamplerFilterType {
+                                    track_index,
+                                    filter_type,
+                                } => {
                                     let idx = track_index as usize;
                                     if idx < sampler_engines.len() {
                                         sampler_engines[idx].set_filter_type(filter_type);
@@ -1134,7 +1243,10 @@ pub fn start_audio_thread_on_device(
                                         sampler_engines[idx].set_lfo_depth(depth);
                                     }
                                 }
-                                EngineCommand::SetSamplerLfoTarget { track_index, target } => {
+                                EngineCommand::SetSamplerLfoTarget {
+                                    track_index,
+                                    target,
+                                } => {
                                     let idx = track_index as usize;
                                     if idx < sampler_engines.len() {
                                         sampler_engines[idx].set_lfo_target(target);
@@ -1161,7 +1273,11 @@ pub fn start_audio_thread_on_device(
                                     }
                                 }
                                 // ── Device Chain Commands ────────────────────
-                                EngineCommand::AddDevice { track_index, slot_index, effect_type } => {
+                                EngineCommand::AddDevice {
+                                    track_index,
+                                    slot_index,
+                                    effect_type,
+                                } => {
                                     let idx = track_index as usize;
                                     if idx < render_ctx.track_slots.len()
                                         && let Some(etype) = BuiltinEffectType::from_u8(effect_type)
@@ -1171,7 +1287,10 @@ pub fn start_audio_thread_on_device(
                                             .add_device(slot_index as usize, etype);
                                     }
                                 }
-                                EngineCommand::RemoveDevice { track_index, slot_index } => {
+                                EngineCommand::RemoveDevice {
+                                    track_index,
+                                    slot_index,
+                                } => {
                                     let idx = track_index as usize;
                                     if idx < render_ctx.track_slots.len() {
                                         render_ctx.track_slots[idx]
@@ -1179,7 +1298,11 @@ pub fn start_audio_thread_on_device(
                                             .remove_device(slot_index as usize);
                                     }
                                 }
-                                EngineCommand::BypassDevice { track_index, slot_index, bypassed } => {
+                                EngineCommand::BypassDevice {
+                                    track_index,
+                                    slot_index,
+                                    bypassed,
+                                } => {
                                     let idx = track_index as usize;
                                     if idx < render_ctx.track_slots.len() {
                                         render_ctx.track_slots[idx]
@@ -1187,12 +1310,19 @@ pub fn start_audio_thread_on_device(
                                             .set_bypass(slot_index as usize, bypassed);
                                     }
                                 }
-                                EngineCommand::SetDeviceParam { track_index, slot_index, param_index, value } => {
+                                EngineCommand::SetDeviceParam {
+                                    track_index,
+                                    slot_index,
+                                    param_index,
+                                    value,
+                                } => {
                                     let idx = track_index as usize;
                                     if idx < render_ctx.track_slots.len() {
-                                        render_ctx.track_slots[idx]
-                                            .device_chain
-                                            .set_param(slot_index as usize, param_index, value);
+                                        render_ctx.track_slots[idx].device_chain.set_param(
+                                            slot_index as usize,
+                                            param_index,
+                                            value,
+                                        );
                                     }
                                 }
                             }
@@ -1210,6 +1340,9 @@ pub fn start_audio_thread_on_device(
                             // strip mixer controls here and apply absolute sample-accurate
                             // mixer automation later on graph output buffers.
                             let automation = automation_snapshot.load();
+                            let sidechain_map = sidechain_snapshot.load();
+                            let external_fx_map = external_fx_snapshot.load();
+                            let mut plugin_host_guard = plugin_host.try_lock().ok();
                             let playhead_pos = render_ctx.playhead.position();
                             for (track_idx, lane) in automation.iter().enumerate() {
                                 if track_idx >= render_ctx.track_slots.len() {
@@ -1309,7 +1442,14 @@ pub fn start_audio_thread_on_device(
                                             return;
                                         }
                                         let track_idx = (node.id.0 - 1) as usize;
-                                        if let Some(slot) = render_ctx.track_slots.get_mut(track_idx) {
+                                        if track_idx < render_ctx.track_slots.len() {
+                                            let (left_tracks, right_tracks) =
+                                                render_ctx.track_slots.split_at_mut(track_idx);
+                                            let Some((slot, right_tracks_rest)) =
+                                                right_tracks.split_first_mut()
+                                            else {
+                                                return;
+                                            };
                                             let c = count
                                                 .min(slot.buf_left.len())
                                                 .min(slot.buf_right.len());
@@ -1340,11 +1480,111 @@ pub fn start_audio_thread_on_device(
                                                     &mut right[..c],
                                                 );
                                                 if !slot.device_chain.is_empty() {
-                                                    slot.device_chain.process_stereo(
-                                                        &mut left[..c],
-                                                        &mut right[..c],
-                                                        sample_rate_f64 as f32,
-                                                    );
+                                                    let slot_count = slot.device_chain.slot_count();
+                                                    for device_slot_idx in 0..slot_count {
+                                                        let source_track_idx = sidechain_map
+                                                            .get(track_idx)
+                                                            .and_then(|slots| {
+                                                                slots.get(device_slot_idx)
+                                                            })
+                                                            .and_then(|v| *v);
+                                                        let source_slot = source_track_idx
+                                                            .and_then(|src_idx| {
+                                                                if src_idx < track_idx {
+                                                                    left_tracks.get(src_idx)
+                                                                } else if src_idx == track_idx {
+                                                                    None
+                                                                } else {
+                                                                    right_tracks_rest.get(
+                                                                        src_idx - track_idx - 1,
+                                                                    )
+                                                                }
+                                                            });
+                                                        let (sc_l, sc_r) = source_slot
+                                                            .map(|src_slot| {
+                                                                (
+                                                                    Some(&src_slot.buf_left[..c]),
+                                                                    Some(&src_slot.buf_right[..c]),
+                                                                )
+                                                            })
+                                                            .unwrap_or((None, None));
+
+                                                        slot.device_chain
+                                                            .process_slot_with_sidechain(
+                                                                device_slot_idx,
+                                                                &mut left[..c],
+                                                                &mut right[..c],
+                                                                sc_l,
+                                                                sc_r,
+                                                                sample_rate_f64 as f32,
+                                                            );
+                                                    }
+                                                }
+
+                                                if let Some(host) = plugin_host_guard.as_deref_mut()
+                                                    && let Some(ext_slots) =
+                                                        external_fx_map.get(track_idx)
+                                                {
+                                                    for ext in ext_slots {
+                                                        external_left[..c]
+                                                            .copy_from_slice(&left[..c]);
+                                                        external_right[..c]
+                                                            .copy_from_slice(&right[..c]);
+
+                                                        let main_inputs: [&[f32]; 2] =
+                                                            [&left[..c], &right[..c]];
+
+                                                        let sidechain_ref = ext
+                                                            .sidechain_track_index
+                                                            .and_then(|src_idx| {
+                                                                if src_idx < track_idx {
+                                                                    left_tracks.get(src_idx)
+                                                                } else if src_idx == track_idx {
+                                                                    None
+                                                                } else {
+                                                                    right_tracks_rest.get(
+                                                                        src_idx - track_idx - 1,
+                                                                    )
+                                                                }
+                                                            });
+                                                        let sc_pair = sidechain_ref.map(|src| {
+                                                            [
+                                                                &src.buf_left[..c],
+                                                                &src.buf_right[..c],
+                                                            ]
+                                                        });
+
+                                                        let transport = TransportContext {
+                                                            sample_rate: sample_rate_f64,
+                                                            position_samples: playhead_pos,
+                                                            tempo: _bpm,
+                                                            is_playing,
+                                                            is_recording: false,
+                                                        };
+                                                        let _ = host.set_transport_context(
+                                                            ext.instance_id,
+                                                            transport,
+                                                        );
+
+                                                        let mut out_slices: [&mut [f32]; 2] = [
+                                                            &mut external_left[..c],
+                                                            &mut external_right[..c],
+                                                        ];
+                                                        let _ = host.process_with_sidechain(
+                                                            ext.instance_id,
+                                                            &main_inputs,
+                                                            sc_pair
+                                                                .as_ref()
+                                                                .map(|pair| pair.as_slice()),
+                                                            &mut out_slices,
+                                                            c,
+                                                        );
+
+                                                        left[..c]
+                                                            .copy_from_slice(&external_left[..c]);
+                                                        right[..c]
+                                                            .copy_from_slice(&external_right[..c]);
+                                                    }
                                                 }
                                             }
 
@@ -1385,7 +1625,8 @@ pub fn start_audio_thread_on_device(
                                                 let rms_l = linear_to_db(compute_rms(&left[..c]));
                                                 let rms_r = linear_to_db(compute_rms(&right[..c]));
                                                 let peak_l = linear_to_db(compute_peak(&left[..c]));
-                                                let peak_r = linear_to_db(compute_peak(&right[..c]));
+                                                let peak_r =
+                                                    linear_to_db(compute_peak(&right[..c]));
                                                 meter_l.store_rms(rms_l);
                                                 meter_r.store_rms(rms_r);
                                                 meter_l.store_peak_decay(peak_l, 0.99);
@@ -1473,7 +1714,8 @@ pub fn start_audio_thread_on_device(
                             let midi_snap = midi_snapshot.load();
 
                             for (track_idx, midi_track) in midi_snap.iter().enumerate() {
-                                if track_idx >= sampler_engines.len() || midi_track.clips.is_empty() {
+                                if track_idx >= sampler_engines.len() || midi_track.clips.is_empty()
+                                {
                                     continue;
                                 }
 
@@ -1485,9 +1727,10 @@ pub fn start_audio_thread_on_device(
                                 // ▸ Loop-aware: splits the buffer at the loop
                                 //   boundary so MIDI notes at beat 1 of the
                                 //   loop are correctly triggered after wrap.
-                                let midi_loop_region = render_ctx.loop_region.as_ref().map(|r| {
-                                    dream_clip_engine::LoopRegion::new(r.start, r.end)
-                                });
+                                let midi_loop_region = render_ctx
+                                    .loop_region
+                                    .as_ref()
+                                    .map(|r| dream_clip_engine::LoopRegion::new(r.start, r.end));
                                 let events = MidiScheduler::find_active_looped(
                                     &midi_track.clips,
                                     midi_playhead_pos,
@@ -1509,10 +1752,20 @@ pub fn start_audio_thread_on_device(
                                     Vec::with_capacity(events.len().saturating_mul(2));
                                 for event in &events {
                                     if event.is_note_off {
-                                        midi_events.push((event.buffer_offset_end.min(fc), 0, event.pitch, event.velocity));
+                                        midi_events.push((
+                                            event.buffer_offset_end.min(fc),
+                                            0,
+                                            event.pitch,
+                                            event.velocity,
+                                        ));
                                     }
                                     if event.is_note_on {
-                                        midi_events.push((event.buffer_onset.min(fc), 1, event.pitch, event.velocity));
+                                        midi_events.push((
+                                            event.buffer_onset.min(fc),
+                                            1,
+                                            event.pitch,
+                                            event.velocity,
+                                        ));
                                     }
                                 }
                                 midi_events.sort_by(|a, b| {
@@ -1574,13 +1827,17 @@ pub fn start_audio_thread_on_device(
                                         let rnd01 = (x as f32) / (u32::MAX as f32);
                                         if rnd01 <= fx.random_chance.clamp(0.0, 1.0) {
                                             let span = fx.random_semitones.abs().max(1) as i16;
-                                            let signed = ((x >> 8) % ((span as u32) * 2 + 1)) as i16 - span;
-                                            mapped_pitch = clamp_midi_pitch(mapped_pitch as i16 + signed);
+                                            let signed =
+                                                ((x >> 8) % ((span as u32) * 2 + 1)) as i16 - span;
+                                            mapped_pitch =
+                                                clamp_midi_pitch(mapped_pitch as i16 + signed);
                                         }
                                     }
 
                                     if fx.velocity_enabled {
-                                        velocity_i16 = ((velocity_i16 as f32) * fx.velocity_gain).round() as i16
+                                        velocity_i16 = ((velocity_i16 as f32) * fx.velocity_gain)
+                                            .round()
+                                            as i16
                                             + fx.velocity_offset as i16;
                                     }
                                     let mapped_velocity = velocity_i16.clamp(1, 127) as u8;
@@ -1599,18 +1856,110 @@ pub fn start_audio_thread_on_device(
                                     );
                                 }
 
-                                if let Some(slot) = render_ctx.track_slots.get_mut(track_idx) {
+                                if track_idx < render_ctx.track_slots.len() {
+                                    let (left_tracks, right_tracks) =
+                                        render_ctx.track_slots.split_at_mut(track_idx);
+                                    let Some((slot, right_tracks_rest)) =
+                                        right_tracks.split_first_mut()
+                                    else {
+                                        continue;
+                                    };
                                     slot.strip.process_stereo(
                                         &mut sampler_left[..fc],
                                         &mut sampler_right[..fc],
                                     );
 
                                     if !slot.device_chain.is_empty() {
-                                        slot.device_chain.process_stereo(
-                                            &mut sampler_left[..fc],
-                                            &mut sampler_right[..fc],
-                                            sample_rate_f64 as f32,
-                                        );
+                                        let slot_count = slot.device_chain.slot_count();
+                                        for device_slot_idx in 0..slot_count {
+                                            let source_track_idx = sidechain_map
+                                                .get(track_idx)
+                                                .and_then(|slots| slots.get(device_slot_idx))
+                                                .and_then(|v| *v);
+                                            let source_slot =
+                                                source_track_idx.and_then(|src_idx| {
+                                                    if src_idx < track_idx {
+                                                        left_tracks.get(src_idx)
+                                                    } else if src_idx == track_idx {
+                                                        None
+                                                    } else {
+                                                        right_tracks_rest
+                                                            .get(src_idx - track_idx - 1)
+                                                    }
+                                                });
+                                            let (sc_l, sc_r) = source_slot
+                                                .map(|src_slot| {
+                                                    (
+                                                        Some(&src_slot.buf_left[..fc]),
+                                                        Some(&src_slot.buf_right[..fc]),
+                                                    )
+                                                })
+                                                .unwrap_or((None, None));
+                                            slot.device_chain.process_slot_with_sidechain(
+                                                device_slot_idx,
+                                                &mut sampler_left[..fc],
+                                                &mut sampler_right[..fc],
+                                                sc_l,
+                                                sc_r,
+                                                sample_rate_f64 as f32,
+                                            );
+                                        }
+                                    }
+
+                                    if let Some(host) = plugin_host_guard.as_deref_mut()
+                                        && let Some(ext_slots) = external_fx_map.get(track_idx)
+                                    {
+                                        for ext in ext_slots {
+                                            external_left[..fc]
+                                                .copy_from_slice(&sampler_left[..fc]);
+                                            external_right[..fc]
+                                                .copy_from_slice(&sampler_right[..fc]);
+
+                                            let main_inputs: [&[f32]; 2] =
+                                                [&sampler_left[..fc], &sampler_right[..fc]];
+
+                                            let source_slot =
+                                                ext.sidechain_track_index.and_then(|src_idx| {
+                                                    if src_idx < track_idx {
+                                                        left_tracks.get(src_idx)
+                                                    } else if src_idx == track_idx {
+                                                        None
+                                                    } else {
+                                                        right_tracks_rest
+                                                            .get(src_idx - track_idx - 1)
+                                                    }
+                                                });
+                                            let sc_pair = source_slot.map(|src| {
+                                                [&src.buf_left[..fc], &src.buf_right[..fc]]
+                                            });
+
+                                            let transport = TransportContext {
+                                                sample_rate: sample_rate_f64,
+                                                position_samples: playhead_pos,
+                                                tempo: _bpm,
+                                                is_playing,
+                                                is_recording: false,
+                                            };
+                                            let _ = host
+                                                .set_transport_context(ext.instance_id, transport);
+
+                                            let mut out_slices: [&mut [f32]; 2] = [
+                                                &mut external_left[..fc],
+                                                &mut external_right[..fc],
+                                            ];
+                                            let _ = host.process_with_sidechain(
+                                                ext.instance_id,
+                                                &main_inputs,
+                                                sc_pair.as_ref().map(|pair| pair.as_slice()),
+                                                &mut out_slices,
+                                                fc,
+                                            );
+
+                                            sampler_left[..fc]
+                                                .copy_from_slice(&external_left[..fc]);
+                                            sampler_right[..fc]
+                                                .copy_from_slice(&external_right[..fc]);
+                                        }
                                     }
 
                                     if let Some(lane) = automation.get(track_idx) {
@@ -1618,7 +1967,8 @@ pub fn start_audio_thread_on_device(
                                             &mut sampler_left[..fc],
                                             &mut sampler_right[..fc],
                                             playhead_pos,
-                                            (!lane.volume.is_empty()).then_some(lane.volume.as_slice()),
+                                            (!lane.volume.is_empty())
+                                                .then_some(lane.volume.as_slice()),
                                             (!lane.pan.is_empty()).then_some(lane.pan.as_slice()),
                                         );
 
@@ -1636,16 +1986,28 @@ pub fn start_audio_thread_on_device(
                                     }
                                 }
 
-                                if let Some((meter_l, meter_r)) = render_ctx.meter_bank.track(track_idx) {
-                                    let sampler_rms_l = linear_to_db(compute_rms(&sampler_left[..fc]));
-                                    let sampler_rms_r = linear_to_db(compute_rms(&sampler_right[..fc]));
-                                    let sampler_peak_l = linear_to_db(compute_peak(&sampler_left[..fc]));
-                                    let sampler_peak_r = linear_to_db(compute_peak(&sampler_right[..fc]));
+                                if let Some((meter_l, meter_r)) =
+                                    render_ctx.meter_bank.track(track_idx)
+                                {
+                                    let sampler_rms_l =
+                                        linear_to_db(compute_rms(&sampler_left[..fc]));
+                                    let sampler_rms_r =
+                                        linear_to_db(compute_rms(&sampler_right[..fc]));
+                                    let sampler_peak_l =
+                                        linear_to_db(compute_peak(&sampler_left[..fc]));
+                                    let sampler_peak_r =
+                                        linear_to_db(compute_peak(&sampler_right[..fc]));
 
                                     meter_l.store_rms(meter_l.load_rms().max(sampler_rms_l));
                                     meter_r.store_rms(meter_r.load_rms().max(sampler_rms_r));
-                                    meter_l.store_peak_decay(meter_l.load_peak().max(sampler_peak_l), 0.99);
-                                    meter_r.store_peak_decay(meter_r.load_peak().max(sampler_peak_r), 0.99);
+                                    meter_l.store_peak_decay(
+                                        meter_l.load_peak().max(sampler_peak_l),
+                                        0.99,
+                                    );
+                                    meter_r.store_peak_decay(
+                                        meter_r.load_peak().max(sampler_peak_r),
+                                        0.99,
+                                    );
                                 }
 
                                 let route_to_output = render_ctx
@@ -1677,7 +2039,9 @@ pub fn start_audio_thread_on_device(
                                         enabled: true,
                                     }
                                 });
-                                render_ctx.playhead.advance(frame_count, transport_loop.as_ref());
+                                render_ctx
+                                    .playhead
+                                    .advance(frame_count, transport_loop.as_ref());
                             }
                         }
 
@@ -1823,12 +2187,20 @@ pub fn list_audio_devices() -> (Vec<String>, Vec<String>) {
 
     let outputs: Vec<String> = host
         .output_devices()
-        .map(|devices| devices.filter_map(|d| d.description().ok().map(|desc| desc.name().to_string())).collect())
+        .map(|devices| {
+            devices
+                .filter_map(|d| d.description().ok().map(|desc| desc.name().to_string()))
+                .collect()
+        })
         .unwrap_or_default();
 
     let inputs: Vec<String> = host
         .input_devices()
-        .map(|devices| devices.filter_map(|d| d.description().ok().map(|desc| desc.name().to_string())).collect())
+        .map(|devices| {
+            devices
+                .filter_map(|d| d.description().ok().map(|desc| desc.name().to_string()))
+                .collect()
+        })
         .unwrap_or_default();
 
     info!(
@@ -1924,13 +2296,7 @@ mod tests {
             },
         ];
 
-        apply_plugin_automation_sample_accurate(
-            &mut left,
-            &mut right,
-            0,
-            Some(&gain_points),
-            None,
-        );
+        apply_plugin_automation_sample_accurate(&mut left, &mut right, 0, Some(&gain_points), None);
 
         assert!(left[0] < left[7]);
         assert!(right[0] < right[7]);
@@ -1953,13 +2319,7 @@ mod tests {
             },
         ];
 
-        apply_plugin_automation_sample_accurate(
-            &mut left,
-            &mut right,
-            0,
-            None,
-            Some(&pan_points),
-        );
+        apply_plugin_automation_sample_accurate(&mut left, &mut right, 0, None, Some(&pan_points));
 
         assert!(left[0] > right[0]);
         assert!(right[3] > left[3]);

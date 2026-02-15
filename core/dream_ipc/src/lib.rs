@@ -65,7 +65,11 @@ pub enum EngineCommand {
     // ── Sampler / MIDI Control ────────────────────────────────────────
     /// Trigger a note on the sampler for a specific track.
     /// `velocity` 0–127.
-    SamplerNoteOn { track_index: u16, pitch: u8, velocity: u8 },
+    SamplerNoteOn {
+        track_index: u16,
+        pitch: u8,
+        velocity: u8,
+    },
 
     /// Release a note on the sampler for a specific track.
     SamplerNoteOff { track_index: u16, pitch: u8 },
@@ -135,16 +139,29 @@ pub enum EngineCommand {
     // ── Device Chain ─────────────────────────────────────────────────
     /// Add a built-in DSP device to a track's insert chain.
     /// `effect_type` maps to `BuiltinEffectType` (0=eq..6=saturator).
-    AddDevice { track_index: u16, slot_index: u8, effect_type: u8 },
+    AddDevice {
+        track_index: u16,
+        slot_index: u8,
+        effect_type: u8,
+    },
 
     /// Remove a device from a track's insert chain.
     RemoveDevice { track_index: u16, slot_index: u8 },
 
     /// Bypass or un-bypass a device slot.
-    BypassDevice { track_index: u16, slot_index: u8, bypassed: bool },
+    BypassDevice {
+        track_index: u16,
+        slot_index: u8,
+        bypassed: bool,
+    },
 
     /// Set a parameter on a device in a track's insert chain.
-    SetDeviceParam { track_index: u16, slot_index: u8, param_index: u8, value: f32 },
+    SetDeviceParam {
+        track_index: u16,
+        slot_index: u8,
+        param_index: u8,
+        value: f32,
+    },
 
     // ── Engine Lifecycle ─────────────────────────────────────────────
     /// Request the engine to stop and clean up all resources.
@@ -188,7 +205,8 @@ impl MasterClock {
     /// Single `fetch_add` — one atomic CPU instruction, zero allocations.
     #[inline(always)]
     pub fn advance(&self, frame_count: i64) {
-        self.frames_rendered.fetch_add(frame_count, Ordering::Relaxed);
+        self.frames_rendered
+            .fetch_add(frame_count, Ordering::Relaxed);
     }
 
     /// Returns the current frame position. Called from the UI thread.

@@ -37,10 +37,7 @@ pub enum NodeKind {
 
     /// Audio effect — processes input buffer (e.g., reverb, EQ, compressor).
     /// `latency_samples` is the plugin's reported processing delay.
-    Effect {
-        name: String,
-        latency_samples: u32,
-    },
+    Effect { name: String, latency_samples: u32 },
 
     /// Auxiliary bus — sums multiple inputs (send/return routing).
     Bus { name: String },
@@ -120,10 +117,7 @@ pub enum GraphError {
     /// A node ID was referenced that doesn't exist in the graph.
     NodeNotFound(NodeId),
     /// Attempted to create a connection that would form a cycle.
-    ConnectionWouldCycle {
-        from: NodeId,
-        to: NodeId,
-    },
+    ConnectionWouldCycle { from: NodeId, to: NodeId },
 }
 
 impl fmt::Display for GraphError {
@@ -136,11 +130,7 @@ impl fmt::Display for GraphError {
             }
             Self::NodeNotFound(id) => write!(f, "Node {:?} not found in graph", id),
             Self::ConnectionWouldCycle { from, to } => {
-                write!(
-                    f,
-                    "Connection {:?} → {:?} would create a cycle",
-                    from, to
-                )
+                write!(f, "Connection {:?} → {:?} would create a cycle", from, to)
             }
         }
     }
@@ -533,10 +523,7 @@ mod tests {
             .add_node(AudioNode::new(NodeId(99), NodeKind::MasterOutput))
             .build();
 
-        assert!(matches!(
-            result,
-            Err(GraphError::MultipleMasterOutputs(2))
-        ));
+        assert!(matches!(result, Err(GraphError::MultipleMasterOutputs(2))));
     }
 
     #[test]

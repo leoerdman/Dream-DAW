@@ -125,10 +125,10 @@ mod stress_suite {
                 let mut v = Vec::new();
                 for band in 0..8u8 {
                     let base = band * 4;
-                    v.push((base, 20.0, 1000.0, 20000.0));   // freq
-                    v.push((base + 1, -24.0, 0.0, 24.0));    // gain
-                    v.push((base + 2, 0.1, 1.0, 18.0));      // Q
-                    v.push((base + 3, 0.0, 0.5, 1.0));       // enable
+                    v.push((base, 20.0, 1000.0, 20000.0)); // freq
+                    v.push((base + 1, -24.0, 0.0, 24.0)); // gain
+                    v.push((base + 2, 0.1, 1.0, 18.0)); // Q
+                    v.push((base + 3, 0.0, 0.5, 1.0)); // enable
                 }
                 v.push((32, -24.0, 0.0, 24.0)); // output gain
                 v
@@ -136,64 +136,64 @@ mod stress_suite {
             // Compressor
             1 => vec![
                 (0, -60.0, -18.0, 0.0),   // threshold
-                (1, 1.0, 4.0, 20.0),       // ratio
-                (2, 0.1, 10.0, 100.0),     // attack
-                (3, 10.0, 100.0, 1000.0),  // release
-                (4, 0.0, 6.0, 24.0),       // knee
-                (5, -12.0, 0.0, 24.0),     // makeup
-                (6, 0.0, 50.0, 100.0),     // mix
-                (7, 20.0, 100.0, 500.0),   // sc hpf
-                (8, 0.0, 0.5, 1.0),        // auto gain
-                (9, 0.0, 0.5, 1.0),        // rms mode
+                (1, 1.0, 4.0, 20.0),      // ratio
+                (2, 0.1, 10.0, 100.0),    // attack
+                (3, 10.0, 100.0, 1000.0), // release
+                (4, 0.0, 6.0, 24.0),      // knee
+                (5, -12.0, 0.0, 24.0),    // makeup
+                (6, 0.0, 50.0, 100.0),    // mix
+                (7, 20.0, 100.0, 500.0),  // sc hpf
+                (8, 0.0, 0.5, 1.0),       // auto gain
+                (9, 0.0, 0.5, 1.0),       // rms mode
             ],
             // Delay
             2 => vec![
-                (0, 1.0, 250.0, 2000.0),    // time L
-                (1, 1.0, 375.0, 2000.0),    // time R
-                (2, 0.0, 30.0, 95.0),       // feedback
-                (3, 0.0, 30.0, 100.0),      // mix
+                (0, 1.0, 250.0, 2000.0),     // time L
+                (1, 1.0, 375.0, 2000.0),     // time R
+                (2, 0.0, 30.0, 95.0),        // feedback
+                (3, 0.0, 30.0, 100.0),       // mix
                 (4, 200.0, 5000.0, 15000.0), // filter
-                (5, 0.0, 0.5, 1.0),         // ping-pong
-                (6, 0.0, 0.5, 5.0),         // mod rate
-                (7, 0.0, 10.0, 100.0),      // mod depth
+                (5, 0.0, 0.5, 1.0),          // ping-pong
+                (6, 0.0, 0.5, 5.0),          // mod rate
+                (7, 0.0, 10.0, 100.0),       // mod depth
             ],
             // Reverb
             3 => vec![
-                (0, 0.0, 50.0, 100.0),     // size
-                (1, 0.0, 40.0, 100.0),     // damping
-                (2, 0.0, 30.0, 100.0),     // mix
-                (3, 0.0, 10.0, 200.0),     // predelay
-                (4, 0.0, 50.0, 100.0),     // width
-                (5, 0.0, 20.0, 100.0),     // low damp
-                (6, 0.0, 0.3, 3.0),        // mod rate
-                (7, 0.0, 15.0, 100.0),     // mod depth
-                (8, 0.0, 0.5, 1.0),        // freeze
+                (0, 0.0, 50.0, 100.0), // size
+                (1, 0.0, 40.0, 100.0), // damping
+                (2, 0.0, 30.0, 100.0), // mix
+                (3, 0.0, 10.0, 200.0), // predelay
+                (4, 0.0, 50.0, 100.0), // width
+                (5, 0.0, 20.0, 100.0), // low damp
+                (6, 0.0, 0.3, 3.0),    // mod rate
+                (7, 0.0, 15.0, 100.0), // mod depth
+                (8, 0.0, 0.5, 1.0),    // freeze
             ],
             // Chorus
             4 => vec![
-                (0, 0.05, 1.0, 10.0),     // rate
-                (1, 0.0, 50.0, 100.0),    // depth
-                (2, 0.0, 50.0, 100.0),    // mix
-                (3, -95.0, 0.0, 95.0),    // feedback
-                (4, 1.0, 2.0, 3.0),       // voices
-                (5, 0.0, 80.0, 100.0),    // spread
-                (6, 20.0, 80.0, 500.0),   // hp freq
+                (0, 0.05, 1.0, 10.0),   // rate
+                (1, 0.0, 50.0, 100.0),  // depth
+                (2, 0.0, 50.0, 100.0),  // mix
+                (3, -95.0, 0.0, 95.0),  // feedback
+                (4, 1.0, 2.0, 3.0),     // voices
+                (5, 0.0, 80.0, 100.0),  // spread
+                (6, 20.0, 80.0, 500.0), // hp freq
             ],
             // Utility
             5 => vec![
-                (0, -60.0, 0.0, 24.0),    // gain
-                (1, -100.0, 0.0, 100.0),  // pan
-                (2, 0.0, 100.0, 200.0),   // width
-                (3, 0.0, 0.5, 1.0),       // mono
+                (0, -60.0, 0.0, 24.0),   // gain
+                (1, -100.0, 0.0, 100.0), // pan
+                (2, 0.0, 100.0, 200.0),  // width
+                (3, 0.0, 0.5, 1.0),      // mono
             ],
             // Saturator
             6 => vec![
-                (0, 0.0, 6.0, 36.0),      // drive
-                (1, 0.0, 50.0, 100.0),    // tone
-                (2, 0.0, 50.0, 100.0),    // mix
-                (3, 0.0, 2.0, 4.0),       // mode
-                (4, -24.0, 0.0, 6.0),     // output
-                (5, 0.0, 50.0, 100.0),    // color
+                (0, 0.0, 6.0, 36.0),   // drive
+                (1, 0.0, 50.0, 100.0), // tone
+                (2, 0.0, 50.0, 100.0), // mix
+                (3, 0.0, 2.0, 4.0),    // mode
+                (4, -24.0, 0.0, 6.0),  // output
+                (5, 0.0, 50.0, 100.0), // color
             ],
             // Limiter
             7 => vec![
@@ -206,14 +206,14 @@ mod stress_suite {
             ],
             // Gate
             8 => vec![
-                (0, -60.0, -30.0, 0.0),   // threshold
-                (1, 0.01, 0.5, 50.0),     // attack
-                (2, 0.0, 50.0, 500.0),    // hold
-                (3, 5.0, 100.0, 2000.0),  // release
-                (4, -96.0, -40.0, 0.0),   // range
-                (5, 20.0, 100.0, 500.0),  // sc hpf
-                (6, 0.0, 3.0, 12.0),      // hysteresis
-                (7, 0.0, 0.5, 1.0),       // duck mode
+                (0, -60.0, -30.0, 0.0),  // threshold
+                (1, 0.01, 0.5, 50.0),    // attack
+                (2, 0.0, 50.0, 500.0),   // hold
+                (3, 5.0, 100.0, 2000.0), // release
+                (4, -96.0, -40.0, 0.0),  // range
+                (5, 20.0, 100.0, 500.0), // sc hpf
+                (6, 0.0, 3.0, 12.0),     // hysteresis
+                (7, 0.0, 0.5, 1.0),      // duck mode
             ],
             // Auto Filter
             9 => vec![
@@ -230,58 +230,58 @@ mod stress_suite {
             ],
             // Phaser
             10 => vec![
-                (0, 0.01, 0.5, 10.0),      // rate
-                (1, 0.0, 50.0, 100.0),     // depth
-                (2, -95.0, 40.0, 95.0),    // feedback
-                (3, 2.0, 6.0, 12.0),       // stages
-                (4, 100.0, 1000.0, 8000.0), // center
-                (5, 0.0, 50.0, 100.0),     // mix
-                (6, 0.0, 50.0, 100.0),     // spread
-                (7, 0.0, 1.0, 3.0),        // lfo shape
+                (0, 0.01, 0.5, 10.0),        // rate
+                (1, 0.0, 50.0, 100.0),       // depth
+                (2, -95.0, 40.0, 95.0),      // feedback
+                (3, 2.0, 6.0, 12.0),         // stages
+                (4, 100.0, 1000.0, 8000.0),  // center
+                (5, 0.0, 50.0, 100.0),       // mix
+                (6, 0.0, 50.0, 100.0),       // spread
+                (7, 0.0, 1.0, 3.0),          // lfo shape
                 (8, 200.0, 4000.0, 10000.0), // range
             ],
             // Flanger
             11 => vec![
-                (0, 0.01, 0.3, 10.0),      // rate
-                (1, 0.0, 50.0, 100.0),     // depth
-                (2, -95.0, 40.0, 95.0),    // feedback
-                (3, 0.1, 2.0, 10.0),       // delay
-                (4, 0.0, 50.0, 100.0),     // mix
-                (5, 0.0, 90.0, 180.0),     // stereo offset
-                (6, 0.0, 1.0, 3.0),        // lfo shape
+                (0, 0.01, 0.3, 10.0),         // rate
+                (1, 0.0, 50.0, 100.0),        // depth
+                (2, -95.0, 40.0, 95.0),       // feedback
+                (3, 0.1, 2.0, 10.0),          // delay
+                (4, 0.0, 50.0, 100.0),        // mix
+                (5, 0.0, 90.0, 180.0),        // stereo offset
+                (6, 0.0, 1.0, 3.0),           // lfo shape
                 (7, 1000.0, 8000.0, 20000.0), // fb damp
-                (8, 0.0, 0.5, 1.0),        // tz mode
+                (8, 0.0, 0.5, 1.0),           // tz mode
             ],
             // Distortion
             12 => vec![
-                (0, 0.0, 50.0, 100.0),    // drive
-                (1, 0.0, 50.0, 100.0),    // tone
-                (2, 0.0, 50.0, 100.0),    // mix
-                (3, 0.0, 2.0, 4.0),       // mode
-                (4, -24.0, 0.0, 6.0),     // output
-                (5, 0.0, 0.5, 1.0),       // cab sim
-                (6, 0.0, 50.0, 100.0),    // tightness
-                (7, -100.0, 0.0, 100.0),  // bias
+                (0, 0.0, 50.0, 100.0),   // drive
+                (1, 0.0, 50.0, 100.0),   // tone
+                (2, 0.0, 50.0, 100.0),   // mix
+                (3, 0.0, 2.0, 4.0),      // mode
+                (4, -24.0, 0.0, 6.0),    // output
+                (5, 0.0, 0.5, 1.0),      // cab sim
+                (6, 0.0, 50.0, 100.0),   // tightness
+                (7, -100.0, 0.0, 100.0), // bias
             ],
             // Bitcrusher
             13 => vec![
-                (0, 1.0, 8.0, 32.0),      // bit depth
-                (1, 1.0, 8.0, 64.0),      // downsample
-                (2, 0.0, 50.0, 100.0),    // mix
-                (3, 0.0, 25.0, 100.0),    // jitter
+                (0, 1.0, 8.0, 32.0),         // bit depth
+                (1, 1.0, 8.0, 64.0),         // downsample
+                (2, 0.0, 50.0, 100.0),       // mix
+                (3, 0.0, 25.0, 100.0),       // jitter
                 (4, 200.0, 5000.0, 20000.0), // pre filter
                 (5, 200.0, 5000.0, 20000.0), // post filter
-                (6, 0.0, 0.5, 1.0),       // stereo mode
-                (7, 0.0, 25.0, 100.0),    // dither
+                (6, 0.0, 0.5, 1.0),          // stereo mode
+                (7, 0.0, 25.0, 100.0),       // dither
             ],
             // Noise Machine
             14 => vec![
-                (0, -60.0, -12.0, 0.0),   // volume
-                (1, 0.0, 2.0, 5.0),       // type
-                (2, 0.0, 50.0, 100.0),    // stereo
+                (0, -60.0, -12.0, 0.0),      // volume
+                (1, 0.0, 2.0, 5.0),          // type
+                (2, 0.0, 50.0, 100.0),       // stereo
                 (3, 200.0, 5000.0, 20000.0), // lp freq
-                (4, 20.0, 100.0, 5000.0), // hp freq
-                (5, -100.0, 0.0, 100.0),  // pan
+                (4, 20.0, 100.0, 5000.0),    // hp freq
+                (5, -100.0, 0.0, 100.0),     // pan
             ],
             _ => vec![],
         }
@@ -300,10 +300,7 @@ mod stress_suite {
                     let mut l = sine_buffer(1024, 440.0, SR);
                     let mut r = sine_buffer(1024, 440.0, SR);
                     proc.process_stereo(&mut l, &mut r, SR);
-                    assert_sane(
-                        &l,
-                        &format!("Effect {id} param {} = {val}", param_idx),
-                    );
+                    assert_sane(&l, &format!("Effect {id} param {} = {val}", param_idx));
                 }
             }
         }
@@ -380,8 +377,8 @@ mod stress_suite {
                 let mut l = sine_buffer(1024, 440.0, SR);
                 let mut r = sine_buffer(1024, 440.0, SR);
 
-                proc_b.process_stereo(&mut l, &mut r, SR);  // b first
-                proc_a.process_stereo(&mut l, &mut r, SR);  // then a
+                proc_b.process_stereo(&mut l, &mut r, SR); // b first
+                proc_a.process_stereo(&mut l, &mut r, SR); // then a
 
                 assert_sane(&l, &format!("Chain {b}→{a} L"));
                 assert_sane(&r, &format!("Chain {b}→{a} R"));
@@ -429,7 +426,7 @@ mod stress_suite {
                 let mut proc = ty.create_processor(SR);
                 proc.set_param(5, filter_type as f32);
                 proc.set_param(7, lfo_shape as f32);
-                proc.set_param(2, 2.0);  // faster LFO
+                proc.set_param(2, 2.0); // faster LFO
                 proc.set_param(3, 80.0); // deep
                 let mut l = sine_buffer(BUF, 440.0, SR);
                 let mut r = sine_buffer(BUF, 440.0, SR);
@@ -537,15 +534,8 @@ mod stress_suite {
             fresh.process_stereo(&mut l3, &mut r3, SR);
 
             // After reset, output should match fresh
-            let diff: f32 = l2
-                .iter()
-                .zip(l3.iter())
-                .map(|(a, b)| (a - b).abs())
-                .sum();
-            assert!(
-                diff < 5.0,
-                "Effect {id} reset divergence: {diff}"
-            );
+            let diff: f32 = l2.iter().zip(l3.iter()).map(|(a, b)| (a - b).abs()).sum();
+            assert!(diff < 5.0, "Effect {id} reset divergence: {diff}");
         }
     }
 
@@ -654,16 +644,16 @@ mod stress_suite {
     fn t090_triple_chains() {
         // Test common real-world chains
         let chains: Vec<[u8; 3]> = vec![
-            [0, 1, 5],    // EQ → Comp → Utility
-            [12, 6, 3],   // Distortion → Saturator → Reverb
-            [9, 11, 2],   // AutoFilter → Flanger → Delay
-            [1, 7, 5],    // Comp → Limiter → Utility
-            [0, 4, 3],    // EQ → Chorus → Reverb
-            [13, 12, 6],  // Bitcrusher → Distortion → Saturator
-            [8, 1, 7],    // Gate → Comp → Limiter
-            [10, 4, 3],   // Phaser → Chorus → Reverb
-            [14, 0, 5],   // NoiseMachine → EQ → Utility
-            [9, 2, 3],    // AutoFilter → Delay → Reverb
+            [0, 1, 5],   // EQ → Comp → Utility
+            [12, 6, 3],  // Distortion → Saturator → Reverb
+            [9, 11, 2],  // AutoFilter → Flanger → Delay
+            [1, 7, 5],   // Comp → Limiter → Utility
+            [0, 4, 3],   // EQ → Chorus → Reverb
+            [13, 12, 6], // Bitcrusher → Distortion → Saturator
+            [8, 1, 7],   // Gate → Comp → Limiter
+            [10, 4, 3],  // Phaser → Chorus → Reverb
+            [14, 0, 5],  // NoiseMachine → EQ → Utility
+            [9, 2, 3],   // AutoFilter → Delay → Reverb
         ];
         for chain in &chains {
             let mut procs: Vec<Box<dyn DspProcessor>> = chain
@@ -683,11 +673,11 @@ mod stress_suite {
     #[test]
     fn t091_quad_chains() {
         let chains: Vec<[u8; 4]> = vec![
-            [0, 1, 3, 7],    // EQ → Comp → Reverb → Limiter
-            [12, 6, 2, 5],   // Dist → Sat → Delay → Utility
-            [9, 10, 4, 3],   // AF → Phaser → Chorus → Reverb
-            [8, 0, 1, 7],    // Gate → EQ → Comp → Limiter
-            [13, 12, 0, 7],  // BC → Dist → EQ → Limiter
+            [0, 1, 3, 7],   // EQ → Comp → Reverb → Limiter
+            [12, 6, 2, 5],  // Dist → Sat → Delay → Utility
+            [9, 10, 4, 3],  // AF → Phaser → Chorus → Reverb
+            [8, 0, 1, 7],   // Gate → EQ → Comp → Limiter
+            [13, 12, 0, 7], // BC → Dist → EQ → Limiter
         ];
         for chain in &chains {
             let mut procs: Vec<Box<dyn DspProcessor>> = chain
@@ -915,10 +905,10 @@ mod stress_suite {
     fn t140_max_feedback_stability() {
         // Effects with feedback: Delay(2), Chorus(3), Phaser(2), Flanger(2)
         let configs: Vec<(u8, u8, f32)> = vec![
-            (2, 2, 95.0),    // Delay max FB
-            (4, 3, 95.0),    // Chorus max FB
-            (10, 2, 95.0),   // Phaser max FB
-            (11, 2, 95.0),   // Flanger max FB
+            (2, 2, 95.0),  // Delay max FB
+            (4, 3, 95.0),  // Chorus max FB
+            (10, 2, 95.0), // Phaser max FB
+            (11, 2, 95.0), // Flanger max FB
         ];
         for (effect_id, param_idx, fb_val) in configs {
             let ty = BuiltinEffectType::from_u8(effect_id).unwrap();

@@ -183,7 +183,11 @@ mod tests {
     fn fade_in_curve_boundaries() {
         let curve = generate_hann_fade_in(88);
         // First sample should be ≈0 (silence)
-        assert!(curve[0].abs() < 1e-6, "Fade-in start should be ≈0, got {}", curve[0]);
+        assert!(
+            curve[0].abs() < 1e-6,
+            "Fade-in start should be ≈0, got {}",
+            curve[0]
+        );
         // Last sample should be ≈1 (full volume)
         assert!(
             (curve[87] - 1.0).abs() < 1e-6,

@@ -38,6 +38,7 @@ export interface TimelineClipData {
     type: 'audio' | 'midi';
     color: string;
     selected?: boolean;
+    hovered?: boolean;
     filePath?: string;
     durationSamples?: number;
     sourceOffset?: number;
@@ -514,25 +515,27 @@ export class CanvasClipRenderer {
             }
         }
 
+        const showFadeUi = Boolean(clip.hovered);
+
         // ── 8. Fade overlays ──────────────────────────────────────────
-        if (clip.fadeIn && clip.fadeIn > 0) {
+        if (showFadeUi && clip.fadeIn && clip.fadeIn > 0) {
             this._drawFade(
                 ctx,
                 x,
-                y + 1,
+                bodyY,
                 w * clip.fadeIn,
-                h,
+                bodyH,
                 'in',
                 clip.fadeInCurve ?? 0.5,
             );
         }
-        if (clip.fadeOut && clip.fadeOut > 0) {
+        if (showFadeUi && clip.fadeOut && clip.fadeOut > 0) {
             this._drawFade(
                 ctx,
                 x + w - w * clip.fadeOut,
-                y + 1,
+                bodyY,
                 w * clip.fadeOut,
-                h,
+                bodyH,
                 'out',
                 clip.fadeOutCurve ?? 0.5,
             );
@@ -588,7 +591,7 @@ export class CanvasClipRenderer {
         }
 
         // ── 13. Fade grab points (on clip body) ───────────────────────
-        if (w >= 14 && bodyH >= 10) {
+        if (showFadeUi && w >= 14 && bodyH >= 10) {
             const handleY = bodyY + 6;
             const leftX = x + 4;
             const rightX = x + w - 4;
@@ -1076,11 +1079,13 @@ export class CanvasClipRenderer {
         ctx.save();
         const gradient = ctx.createLinearGradient(x, y, x + w, y);
         if (direction === 'in') {
-            gradient.addColorStop(0, 'rgba(0, 0, 0, 0.6)');
+            gradient.addColorStop(0, 'rgba(0, 0, 0, 0.58)');
+            gradient.addColorStop(0.55, 'rgba(0, 0, 0, 0.22)');
             gradient.addColorStop(1, 'rgba(0, 0, 0, 0.0)');
         } else {
             gradient.addColorStop(0, 'rgba(0, 0, 0, 0.0)');
-            gradient.addColorStop(1, 'rgba(0, 0, 0, 0.6)');
+            gradient.addColorStop(0.45, 'rgba(0, 0, 0, 0.22)');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0.58)');
         }
         ctx.fillStyle = gradient;
         ctx.fillRect(x, y, w, h);
@@ -1088,8 +1093,10 @@ export class CanvasClipRenderer {
         const cpX = direction === 'in' ? x + w * t : x + w * (1 - t);
         const startX = direction === 'in' ? x : x + w;
         const endX = direction === 'in' ? x + w : x;
-        ctx.strokeStyle = 'rgba(255, 190, 85, 0.9)';
-        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = 'rgba(255, 193, 92, 0.96)';
+        ctx.shadowColor = 'rgba(255, 190, 85, 0.32)';
+        ctx.shadowBlur = 3;
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(startX, y + h);
         ctx.quadraticCurveTo(cpX, y, endX, y + h);

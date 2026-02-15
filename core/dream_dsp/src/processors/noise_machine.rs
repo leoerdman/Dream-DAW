@@ -36,7 +36,13 @@ struct Rng {
 
 impl Rng {
     fn new(seed: u64) -> Self {
-        Self { state: if seed == 0 { 0xDEAD_BEEF_CAFE_1337 } else { seed } }
+        Self {
+            state: if seed == 0 {
+                0xDEAD_BEEF_CAFE_1337
+            } else {
+                seed
+            },
+        }
     }
 
     #[inline]
@@ -65,7 +71,11 @@ struct PinkGen {
 
 impl PinkGen {
     fn new() -> Self {
-        Self { rows: [0.0; 16], running_sum: 0.0, counter: 0 }
+        Self {
+            rows: [0.0; 16],
+            running_sum: 0.0,
+            counter: 0,
+        }
     }
 
     #[inline]
@@ -155,7 +165,6 @@ impl NoiseMachineProcessor {
         self.lp_coeff = (std::f32::consts::TAU * self.lp_freq / sr).min(0.99);
         self.hp_coeff = 1.0 / (1.0 + std::f32::consts::TAU * self.hp_freq / sr);
     }
-
 }
 
 impl DspProcessor for NoiseMachineProcessor {
@@ -177,12 +186,20 @@ impl DspProcessor for NoiseMachineProcessor {
         for i in 0..len {
             // Generate L channel noise
             let raw_l = Self::generate_sample_static(
-                self.noise_type, &mut self.rng_l, &mut self.pink_l, &mut self.brown_l,
-                &mut self.prev_white_l, &mut self.prev_blue_l,
+                self.noise_type,
+                &mut self.rng_l,
+                &mut self.pink_l,
+                &mut self.brown_l,
+                &mut self.prev_white_l,
+                &mut self.prev_blue_l,
             );
             let raw_r = Self::generate_sample_static(
-                self.noise_type, &mut self.rng_r, &mut self.pink_r, &mut self.brown_r,
-                &mut self.prev_white_r, &mut self.prev_blue_r,
+                self.noise_type,
+                &mut self.rng_r,
+                &mut self.pink_r,
+                &mut self.brown_r,
+                &mut self.prev_white_r,
+                &mut self.prev_blue_r,
             );
 
             // Stereo correlation: blend toward mono
@@ -213,12 +230,22 @@ impl DspProcessor for NoiseMachineProcessor {
         match index {
             0 => {
                 self.volume_db = value.clamp(-60.0, 0.0);
-                self.volume_lin = if self.volume_db <= -60.0 { 0.0 } else { 10.0_f32.powf(self.volume_db / 20.0) };
+                self.volume_lin = if self.volume_db <= -60.0 {
+                    0.0
+                } else {
+                    10.0_f32.powf(self.volume_db / 20.0)
+                };
             }
             1 => self.noise_type = (value as u8).min(5),
             2 => self.stereo = (value / 100.0).clamp(0.0, 1.0),
-            3 => { self.lp_freq = value.clamp(200.0, 20000.0); self.update_filters(); }
-            4 => { self.hp_freq = value.clamp(20.0, 5000.0); self.update_filters(); }
+            3 => {
+                self.lp_freq = value.clamp(200.0, 20000.0);
+                self.update_filters();
+            }
+            4 => {
+                self.hp_freq = value.clamp(20.0, 5000.0);
+                self.update_filters();
+            }
             5 => self.pan = (value / 100.0).clamp(-1.0, 1.0),
             _ => {}
         }
@@ -244,8 +271,12 @@ impl NoiseMachineProcessor {
     /// Static version of generate_sample to avoid borrow checker issues
     #[inline]
     fn generate_sample_static(
-        noise_type: u8, rng: &mut Rng, pink: &mut PinkGen, brown: &mut f32,
-        prev_white: &mut f32, prev_blue: &mut f32,
+        noise_type: u8,
+        rng: &mut Rng,
+        pink: &mut PinkGen,
+        brown: &mut f32,
+        prev_white: &mut f32,
+        prev_blue: &mut f32,
     ) -> f32 {
         match noise_type {
             0 => rng.next_f32(),

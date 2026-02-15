@@ -27,9 +27,8 @@ use crate::dsp_processor::DspProcessor;
 const NUM_BANDS: usize = 8;
 
 /// Default frequencies for 8 bands (log-spaced).
-const DEFAULT_FREQS: [f64; NUM_BANDS] = [
-    30.0, 100.0, 250.0, 800.0, 2500.0, 6000.0, 12000.0, 18000.0,
-];
+const DEFAULT_FREQS: [f64; NUM_BANDS] =
+    [30.0, 100.0, 250.0, 800.0, 2500.0, 6000.0, 12000.0, 18000.0];
 
 /// Default filter types per band.
 const DEFAULT_TYPES: [BiquadType; NUM_BANDS] = [
@@ -183,7 +182,7 @@ mod tests {
     fn eq_flat_passthrough() {
         let mut proc = EqProcessor::new(44100.0);
         // Disable cut bands so signal passes flat
-        proc.set_param(3, 0.0);   // disable band 0 (HP)
+        proc.set_param(3, 0.0); // disable band 0 (HP)
         proc.set_param(7 * 4 + 3, 0.0); // disable band 7 (LP)
         let input = vec![0.5f32; 256];
         let mut left = input.clone();
@@ -217,6 +216,11 @@ mod tests {
         let mut right = vec![0.25f32; 256];
         proc.process_stereo(&mut left, &mut right, 44100.0);
         let expected = 0.25 * 10.0_f32.powf(6.0 / 20.0);
-        assert!((left[100] - expected).abs() < 0.05, "Output gain failed: got {} expected {}", left[100], expected);
+        assert!(
+            (left[100] - expected).abs() < 0.05,
+            "Output gain failed: got {} expected {}",
+            left[100],
+            expected
+        );
     }
 }

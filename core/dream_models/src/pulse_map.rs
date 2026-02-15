@@ -96,7 +96,10 @@ impl PulseMap {
     /// # Panics
     /// Panics if `events` is empty.
     pub fn from_events(events: Vec<TempoEvent>, sample_rate: f64) -> Self {
-        assert!(!events.is_empty(), "PulseMap requires at least one tempo event");
+        assert!(
+            !events.is_empty(),
+            "PulseMap requires at least one tempo event"
+        );
         Self {
             tempo_events: events,
             sample_rate,
@@ -247,7 +250,10 @@ mod tests {
 
         // At 120 BPM: 1 beat = 0.5 seconds = 22050 samples
         let beats = pm.beats(22050);
-        assert!((beats - 1.0).abs() < 1e-10, "Expected 1.0 beat, got {beats}");
+        assert!(
+            (beats - 1.0).abs() < 1e-10,
+            "Expected 1.0 beat, got {beats}"
+        );
 
         let beats_at_4 = pm.beats(88200);
         assert!(
@@ -324,10 +330,7 @@ mod tests {
         // In the second region (60 BPM), 1 beat = 44100 samples
         // At sample 88200 + 44100 = 132300 → should be beat 5.0
         let b = pm.beats(132300);
-        assert!(
-            (b - 5.0).abs() < 1e-10,
-            "Expected 5.0, got {b}"
-        );
+        assert!((b - 5.0).abs() < 1e-10, "Expected 5.0, got {b}");
 
         // BPM query
         assert_eq!(pm.bpm_at(0), 120.0);

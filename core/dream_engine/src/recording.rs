@@ -26,8 +26,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -198,7 +198,10 @@ impl RecordingSession {
             .default_input_device()
             .ok_or(RecordingError::NoInputDevice)?;
 
-        let device_name = device.description().map(|d| d.name().to_string()).unwrap_or_else(|_| "Unknown".to_string());
+        let device_name = device
+            .description()
+            .map(|d| d.name().to_string())
+            .unwrap_or_else(|_| "Unknown".to_string());
         info!("[Recording] Input device: {}", device_name);
 
         let supported_config = device
@@ -418,12 +421,12 @@ fn write_wav_header(
 
     // fmt sub-chunk
     file.write_all(b"fmt ")?;
-    file.write_all(&16u32.to_le_bytes())?;          // SubChunk1Size (16 for PCM/float)
-    file.write_all(&3u16.to_le_bytes())?;            // AudioFormat (3 = IEEE float)
-    file.write_all(&channels.to_le_bytes())?;        // NumChannels
-    file.write_all(&sample_rate.to_le_bytes())?;     // SampleRate
-    file.write_all(&byte_rate.to_le_bytes())?;       // ByteRate
-    file.write_all(&block_align.to_le_bytes())?;     // BlockAlign
+    file.write_all(&16u32.to_le_bytes())?; // SubChunk1Size (16 for PCM/float)
+    file.write_all(&3u16.to_le_bytes())?; // AudioFormat (3 = IEEE float)
+    file.write_all(&channels.to_le_bytes())?; // NumChannels
+    file.write_all(&sample_rate.to_le_bytes())?; // SampleRate
+    file.write_all(&byte_rate.to_le_bytes())?; // ByteRate
+    file.write_all(&block_align.to_le_bytes())?; // BlockAlign
     file.write_all(&bits_per_sample.to_le_bytes())?; // BitsPerSample
 
     // data sub-chunk
@@ -462,11 +465,13 @@ fn recording_worker(
         RecordingError::IoError(format!("Failed to create {}: {e}", tmp_path.display()))
     })?;
 
-    write_wav_header(&mut file, sample_rate, ch, bits_per_sample, 0).map_err(|e| {
-        RecordingError::IoError(format!("Failed to write WAV header: {e}"))
-    })?;
+    write_wav_header(&mut file, sample_rate, ch, bits_per_sample, 0)
+        .map_err(|e| RecordingError::IoError(format!("Failed to write WAV header: {e}")))?;
 
-    info!("[RecordingWorker] Writing to {} (crash-safe mode)", tmp_path.display());
+    info!(
+        "[RecordingWorker] Writing to {} (crash-safe mode)",
+        tmp_path.display()
+    );
 
     let mut total_samples_written: u64 = 0;
     let mut samples_since_last_flush: u64 = 0;

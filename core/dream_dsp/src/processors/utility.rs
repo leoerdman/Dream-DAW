@@ -177,7 +177,11 @@ mod tests {
         // Mid = (1 + -1) / 2 = 0, so both channels should be ~0
         for i in 0..64 {
             assert!(left[i].abs() < 0.01, "Mono collapse failed L: {}", left[i]);
-            assert!(right[i].abs() < 0.01, "Mono collapse failed R: {}", right[i]);
+            assert!(
+                right[i].abs() < 0.01,
+                "Mono collapse failed R: {}",
+                right[i]
+            );
         }
     }
 }

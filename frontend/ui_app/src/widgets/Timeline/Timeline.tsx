@@ -40,6 +40,7 @@ interface TimelineProps {
     onClipMove?: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
     onClipResize?: (clipId: string, newStartBeat: number, newDuration: number) => void;
     onClipFades?: (clipId: string, fadeInFrames: number, fadeOutFrames: number) => void;
+    onClipFadeCurves?: (clipId: string, fadeInCurve: number, fadeOutCurve: number) => void;
     onDropBrowserItem?: (item: BrowserDragItem, trackIndex: number, beat: number) => void;
     onDoubleClickTrack?: (trackIndex: number, beat: number) => void;
     onOpenMidiClip?: (clipId: string, trackIndex: number) => void;
@@ -83,6 +84,7 @@ export const Timeline = (props: TimelineProps) => {
         onClipMove,
         onClipFades,
         onDropBrowserItem,
+        onClipFadeCurves,
         onDoubleClickTrack,
         onOpenMidiClip,
         onTrackSelect,
@@ -135,6 +137,7 @@ export const Timeline = (props: TimelineProps) => {
         onClipResize,
         onClipFades,
         onDropBrowserItem,
+        onClipFadeCurves,
         onDoubleClickTrack,
         onOpenMidiClip,
         onTrackSelect,
@@ -151,6 +154,7 @@ export const Timeline = (props: TimelineProps) => {
         onClipResize,
         onClipFades,
         onDropBrowserItem,
+        onClipFadeCurves,
         onDoubleClickTrack,
         onOpenMidiClip,
         onTrackSelect,
@@ -241,6 +245,10 @@ export const Timeline = (props: TimelineProps) => {
 
         engine.onClipFades = (clipId, fadeInFrames, fadeOutFrames) => {
             callbacksRef.current.onClipFades?.(clipId, fadeInFrames, fadeOutFrames);
+        };
+
+        engine.onClipFadeCurves = (clipId, fadeInCurve, fadeOutCurve) => {
+            callbacksRef.current.onClipFadeCurves?.(clipId, fadeInCurve, fadeOutCurve);
         };
 
         engine.onClipBoxSelection = (clipIds) => {
@@ -481,6 +489,7 @@ export const Timeline = (props: TimelineProps) => {
 
     useEffect(() => {
         if (!draggingItem) return;
+        if (draggingItem.type !== 'audio' && draggingItem.type !== 'midi') return;
 
         const onMouseUp = (e: MouseEvent) => {
             const engine = engineRef.current;

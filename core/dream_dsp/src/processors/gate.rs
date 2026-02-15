@@ -91,12 +91,18 @@ impl GateProcessor {
         if sr > 0.0 {
             self.attack_coeff = if self.attack_ms > 0.01 {
                 (-1.0 / (self.attack_ms * 0.001 * sr)).exp()
-            } else { 0.0 };
+            } else {
+                0.0
+            };
             self.release_coeff = (-1.0 / (self.release_ms * 0.001 * sr)).exp();
             self.hold_samples = self.hold_ms * 0.001 * sr;
             self.sc_coeff = 1.0 / (1.0 + std::f32::consts::TAU * self.sc_hpf_freq / sr);
         }
-        self.range_lin = if self.range_db <= -96.0 { 0.0 } else { 10.0_f32.powf(self.range_db / 20.0) };
+        self.range_lin = if self.range_db <= -96.0 {
+            0.0
+        } else {
+            10.0_f32.powf(self.range_db / 20.0)
+        };
     }
 
     #[inline]
@@ -118,12 +124,16 @@ impl DspProcessor for GateProcessor {
                 let p = self.sc_state_l;
                 self.sc_state_l = self.sc_coeff * (p + left[i]);
                 left[i] - self.sc_state_l + p * self.sc_coeff
-            } else { left[i] };
+            } else {
+                left[i]
+            };
             let sc_r = if self.sc_hpf_freq > 25.0 {
                 let p = self.sc_state_r;
                 self.sc_state_r = self.sc_coeff * (p + right[i]);
                 right[i] - self.sc_state_r + p * self.sc_coeff
-            } else { right[i] };
+            } else {
+                right[i]
+            };
 
             let level_db = Self::linear_to_db(sc_l.abs().max(sc_r.abs()));
 
@@ -135,7 +145,8 @@ impl DspProcessor for GateProcessor {
                     }
                 }
                 GateState::Attack => {
-                    self.envelope = self.attack_coeff * self.envelope + (1.0 - self.attack_coeff) * 1.0;
+                    self.envelope =
+                        self.attack_coeff * self.envelope + (1.0 - self.attack_coeff) * 1.0;
                     if self.envelope >= 0.999 {
                         self.envelope = 1.0;
                         self.state = GateState::Open;
@@ -158,7 +169,8 @@ impl DspProcessor for GateProcessor {
                     }
                 }
                 GateState::Release => {
-                    self.envelope = self.release_coeff * self.envelope + (1.0 - self.release_coeff) * 0.0;
+                    self.envelope =
+                        self.release_coeff * self.envelope + (1.0 - self.release_coeff) * 0.0;
                     if level_db > thresh_open {
                         self.state = GateState::Attack;
                     } else if self.envelope <= 0.001 {
@@ -181,16 +193,127 @@ impl DspProcessor for GateProcessor {
         }
     }
 
+    fn process_stereo_with_sidechain(
+        &mut self,
+        left: &mut [f32],
+        right: &mut [f32],
+        sidechain_left: Option<&[f32]>,
+        sidechain_right: Option<&[f32]>,
+        _sample_rate: f32,
+    ) {
+        let len = left.len().min(right.len());
+        let thresh_open = self.threshold_db;
+        let thresh_close = self.threshold_db - self.hysteresis;
+        let range = self.range_lin;
+
+        for i in 0..len {
+            let sc_in_l = sidechain_left
+                .and_then(|sc| sc.get(i).copied())
+                .unwrap_or(left[i]);
+            let sc_in_r = sidechain_right
+                .and_then(|sc| sc.get(i).copied())
+                .unwrap_or(right[i]);
+
+            let sc_l = if self.sc_hpf_freq > 25.0 {
+                let p = self.sc_state_l;
+                self.sc_state_l = self.sc_coeff * (p + sc_in_l);
+                sc_in_l - self.sc_state_l + p * self.sc_coeff
+            } else {
+                sc_in_l
+            };
+            let sc_r = if self.sc_hpf_freq > 25.0 {
+                let p = self.sc_state_r;
+                self.sc_state_r = self.sc_coeff * (p + sc_in_r);
+                sc_in_r - self.sc_state_r + p * self.sc_coeff
+            } else {
+                sc_in_r
+            };
+
+            let level_db = Self::linear_to_db(sc_l.abs().max(sc_r.abs()));
+
+            match self.state {
+                GateState::Closed => {
+                    if level_db > thresh_open {
+                        self.state = GateState::Attack;
+                    }
+                }
+                GateState::Attack => {
+                    self.envelope =
+                        self.attack_coeff * self.envelope + (1.0 - self.attack_coeff) * 1.0;
+                    if self.envelope >= 0.999 {
+                        self.envelope = 1.0;
+                        self.state = GateState::Open;
+                    }
+                }
+                GateState::Open => {
+                    self.envelope = 1.0;
+                    if level_db < thresh_close {
+                        self.state = GateState::Hold;
+                        self.hold_counter = 0.0;
+                    }
+                }
+                GateState::Hold => {
+                    self.envelope = 1.0;
+                    self.hold_counter += 1.0;
+                    if level_db > thresh_open {
+                        self.state = GateState::Open;
+                    } else if self.hold_counter >= self.hold_samples {
+                        self.state = GateState::Release;
+                    }
+                }
+                GateState::Release => {
+                    self.envelope =
+                        self.release_coeff * self.envelope + (1.0 - self.release_coeff) * 0.0;
+                    if level_db > thresh_open {
+                        self.state = GateState::Attack;
+                    } else if self.envelope <= 0.001 {
+                        self.envelope = 0.0;
+                        self.state = GateState::Closed;
+                    }
+                }
+            }
+
+            let mut gain = range + (1.0 - range) * self.envelope;
+            if self.duck_mode {
+                gain = range + (1.0 - range) * (1.0 - self.envelope);
+            }
+
+            left[i] *= gain;
+            right[i] *= gain;
+        }
+    }
+
     fn set_param(&mut self, index: u8, value: f32) {
         match index {
-            0 => { self.threshold_db = value.clamp(-60.0, 0.0); }
-            1 => { self.attack_ms = value.clamp(0.01, 50.0); self.update_all(); }
-            2 => { self.hold_ms = value.clamp(0.0, 500.0); self.update_all(); }
-            3 => { self.release_ms = value.clamp(5.0, 2000.0); self.update_all(); }
-            4 => { self.range_db = value.clamp(-96.0, 0.0); self.update_all(); }
-            5 => { self.sc_hpf_freq = value.clamp(20.0, 500.0); self.update_all(); }
-            6 => { self.hysteresis = value.clamp(0.0, 12.0); }
-            7 => { self.duck_mode = value > 0.5; }
+            0 => {
+                self.threshold_db = value.clamp(-60.0, 0.0);
+            }
+            1 => {
+                self.attack_ms = value.clamp(0.01, 50.0);
+                self.update_all();
+            }
+            2 => {
+                self.hold_ms = value.clamp(0.0, 500.0);
+                self.update_all();
+            }
+            3 => {
+                self.release_ms = value.clamp(5.0, 2000.0);
+                self.update_all();
+            }
+            4 => {
+                self.range_db = value.clamp(-96.0, 0.0);
+                self.update_all();
+            }
+            5 => {
+                self.sc_hpf_freq = value.clamp(20.0, 500.0);
+                self.update_all();
+            }
+            6 => {
+                self.hysteresis = value.clamp(0.0, 12.0);
+            }
+            7 => {
+                self.duck_mode = value > 0.5;
+            }
             _ => {}
         }
     }
@@ -215,7 +338,9 @@ mod tests {
         let mut l = vec![0.001f32; 512];
         let mut r = vec![0.001f32; 512];
         proc.process_stereo(&mut l, &mut r, 44100.0);
-        for s in &l { assert!(s.abs() < 0.01, "Should be muted: {s}"); }
+        for s in &l {
+            assert!(s.abs() < 0.01, "Should be muted: {s}");
+        }
     }
 
     #[test]

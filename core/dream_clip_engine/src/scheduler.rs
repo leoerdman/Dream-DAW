@@ -85,7 +85,8 @@ impl ClipScheduler {
                 0
             };
 
-            let source_start_frame = clip.source_offset.sample_frame + (intersect_start - clip_start);
+            let source_start_frame =
+                clip.source_offset.sample_frame + (intersect_start - clip_start);
             let is_clip_head = intersect_start == clip_start;
             let is_clip_tail = intersect_end == clip_end;
 
@@ -150,7 +151,14 @@ impl ClipScheduler {
         out: &mut Vec<ActiveClipInfo>,
     ) {
         let mut tmp = Vec::new();
-        Self::fill_active_looped_with_tmp(clips, playhead_pos, buffer_size, loop_region, out, &mut tmp);
+        Self::fill_active_looped_with_tmp(
+            clips,
+            playhead_pos,
+            buffer_size,
+            loop_region,
+            out,
+            &mut tmp,
+        );
     }
 
     /// Finds all clips that overlap the given playback window.
@@ -396,7 +404,11 @@ mod tests {
 
         let active = ClipScheduler::find_active_looped(&clips, 400, 256, Some(&loop_region));
 
-        assert_eq!(active.len(), 2, "Should have pre-wrap and post-wrap segments");
+        assert_eq!(
+            active.len(),
+            2,
+            "Should have pre-wrap and post-wrap segments"
+        );
 
         // Pre-wrap: starts at buffer offset 0, 100 frames
         assert_eq!(active[0].buffer_offset, 0);
@@ -417,26 +429,26 @@ mod tests {
     #[test]
     fn loop_region_validity() {
         assert!(LoopRegion::new(0, 1000).is_valid());
-        assert!(!LoopRegion::new(1000, 0).is_valid());     // Inverted
-        assert!(!LoopRegion::new(500, 500).is_valid());     // Zero length
-        assert!(!LoopRegion::new(-100, 500).is_valid());    // Negative start
+        assert!(!LoopRegion::new(1000, 0).is_valid()); // Inverted
+        assert!(!LoopRegion::new(500, 500).is_valid()); // Zero length
+        assert!(!LoopRegion::new(-100, 500).is_valid()); // Negative start
     }
 
     #[test]
     fn loop_region_wrap_position() {
         let lr = LoopRegion::new(0, 1000);
-        assert_eq!(lr.wrap_position(500), 500);     // Within loop
-        assert_eq!(lr.wrap_position(1000), 0);      // At end → wraps to start
-        assert_eq!(lr.wrap_position(1500), 500);    // Past end → wraps
-        assert_eq!(lr.wrap_position(2000), 0);      // Double wrap
+        assert_eq!(lr.wrap_position(500), 500); // Within loop
+        assert_eq!(lr.wrap_position(1000), 0); // At end → wraps to start
+        assert_eq!(lr.wrap_position(1500), 500); // Past end → wraps
+        assert_eq!(lr.wrap_position(2000), 0); // Double wrap
     }
 
     #[test]
     fn loop_region_wrap_with_offset() {
         let lr = LoopRegion::new(1000, 2000);
-        assert_eq!(lr.wrap_position(1500), 1500);   // Within
-        assert_eq!(lr.wrap_position(2000), 1000);   // At end → wraps
-        assert_eq!(lr.wrap_position(2500), 1500);   // Past end
+        assert_eq!(lr.wrap_position(1500), 1500); // Within
+        assert_eq!(lr.wrap_position(2000), 1000); // At end → wraps
+        assert_eq!(lr.wrap_position(2500), 1500); // Past end
     }
 
     #[test]

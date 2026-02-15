@@ -20,9 +20,9 @@ pub mod resampler;
 pub mod svf;
 
 // ── Device Chain DSP (Sprint: Insert FX Pipeline) ──────────────────────
+pub mod device_chain;
 pub mod dsp_processor;
 pub mod processors;
-pub mod device_chain;
 
 #[cfg(test)]
 mod stress_tests;

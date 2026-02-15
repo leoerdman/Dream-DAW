@@ -37,11 +37,7 @@ pub struct ClipAudio {
 
 impl ClipAudio {
     /// Creates a new ClipAudio from raw channel data.
-    pub fn new(
-        source_path: impl Into<String>,
-        channels: Vec<Vec<f32>>,
-        sample_rate: u32,
-    ) -> Self {
+    pub fn new(source_path: impl Into<String>, channels: Vec<Vec<f32>>, sample_rate: u32) -> Self {
         let num_frames = channels.first().map(|ch| ch.len()).unwrap_or(0);
         Self {
             source_path: source_path.into(),
@@ -132,7 +128,10 @@ impl ClipPool {
 
     /// Returns total memory usage in bytes.
     pub fn total_memory_bytes(&self) -> usize {
-        self.entries.values().map(|audio| audio.memory_bytes()).sum()
+        self.entries
+            .values()
+            .map(|audio| audio.memory_bytes())
+            .sum()
     }
 
     /// Clears all loaded audio data.

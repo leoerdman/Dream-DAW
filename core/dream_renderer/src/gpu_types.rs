@@ -210,11 +210,7 @@ mod tests {
     #[test]
     fn clip_instance_is_pod() {
         // Verify Pod trait is satisfied (no padding issues)
-        let clip = ClipInstance::audio(
-            10.0, 20.0, 200.0, 80.0,
-            [0.3, 0.5, 0.8, 1.0],
-            0, 512,
-        );
+        let clip = ClipInstance::audio(10.0, 20.0, 200.0, 80.0, [0.3, 0.5, 0.8, 1.0], 0, 512);
         let bytes = bytemuck::bytes_of(&clip);
         assert!(!bytes.is_empty());
     }

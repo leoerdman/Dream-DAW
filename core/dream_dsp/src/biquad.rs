@@ -76,13 +76,7 @@ impl BiquadCoeffs {
     /// - `q`: Quality factor (bandwidth). For shelf/peaking: dB gain.
     /// - `sample_rate`: Sample rate in Hz
     /// - `gain_db`: Gain in dB (only used for shelf and peaking filters).
-    pub fn new(
-        filter_type: BiquadType,
-        freq: f64,
-        q: f64,
-        sample_rate: f64,
-        gain_db: f64,
-    ) -> Self {
+    pub fn new(filter_type: BiquadType, freq: f64, q: f64, sample_rate: f64, gain_db: f64) -> Self {
         let omega = 2.0 * PI * freq / sample_rate;
         let cos_w = omega.cos();
         let sin_w = omega.sin();
@@ -180,12 +174,24 @@ impl BiquadCoeffs {
 
     /// Shorthand for Butterworth lowpass (Q = 1/√2 ≈ 0.7071).
     pub fn lowpass(freq: f64, sample_rate: f64) -> Self {
-        Self::new(BiquadType::Lowpass, freq, std::f64::consts::FRAC_1_SQRT_2, sample_rate, 0.0)
+        Self::new(
+            BiquadType::Lowpass,
+            freq,
+            std::f64::consts::FRAC_1_SQRT_2,
+            sample_rate,
+            0.0,
+        )
     }
 
     /// Shorthand for Butterworth highpass (Q = 1/√2 ≈ 0.7071).
     pub fn highpass(freq: f64, sample_rate: f64) -> Self {
-        Self::new(BiquadType::Highpass, freq, std::f64::consts::FRAC_1_SQRT_2, sample_rate, 0.0)
+        Self::new(
+            BiquadType::Highpass,
+            freq,
+            std::f64::consts::FRAC_1_SQRT_2,
+            sample_rate,
+            0.0,
+        )
     }
 
     /// Shorthand for parametric peaking EQ band.
@@ -253,9 +259,7 @@ impl BiquadFilter {
     /// 5 multiplies, 4 additions. Zero allocations.
     #[inline(always)]
     pub fn process(&mut self, x: f64) -> f64 {
-        let y = self.coeffs.b0 * x
-            + self.coeffs.b1 * self.x1
-            + self.coeffs.b2 * self.x2
+        let y = self.coeffs.b0 * x + self.coeffs.b1 * self.x1 + self.coeffs.b2 * self.x2
             - self.coeffs.a1 * self.y1
             - self.coeffs.a2 * self.y2;
 
@@ -316,7 +320,11 @@ impl BiquadCascade {
         for _ in 0..band_count {
             // Initialize as unity-gain allpass (effectively bypass)
             bands.push(BiquadFilter::new(BiquadCoeffs::new(
-                BiquadType::Peaking, 1000.0, 1.0, sample_rate, 0.0,
+                BiquadType::Peaking,
+                1000.0,
+                1.0,
+                sample_rate,
+                0.0,
             )));
         }
         Self { bands }
@@ -385,15 +393,14 @@ mod tests {
         filter.process_buffer(&mut low);
 
         // Measure RMS of last 2048 samples (skip transients)
-        let rms_high: f32 = (high[2048..].iter().map(|s| s * s).sum::<f32>()
-            / 2048.0)
-            .sqrt();
-        let rms_low: f32 = (low[2048..].iter().map(|s| s * s).sum::<f32>()
-            / 2048.0)
-            .sqrt();
+        let rms_high: f32 = (high[2048..].iter().map(|s| s * s).sum::<f32>() / 2048.0).sqrt();
+        let rms_low: f32 = (low[2048..].iter().map(|s| s * s).sum::<f32>() / 2048.0).sqrt();
 
         // Low signal should pass through relatively unattenuated
-        assert!(rms_low > 0.3, "100Hz should pass lowpass@300Hz, got rms={rms_low}");
+        assert!(
+            rms_low > 0.3,
+            "100Hz should pass lowpass@300Hz, got rms={rms_low}"
+        );
         // High signal should be significantly attenuated
         assert!(
             rms_high < 0.15,
@@ -419,8 +426,14 @@ mod tests {
         let rms_low: f32 = (low[2048..].iter().map(|s| s * s).sum::<f32>() / 2048.0).sqrt();
         let rms_high: f32 = (high[2048..].iter().map(|s| s * s).sum::<f32>() / 2048.0).sqrt();
 
-        assert!(rms_low < 0.2, "100Hz should be attenuated by highpass@1kHz, got rms={rms_low}");
-        assert!(rms_high > 0.3, "5kHz should pass highpass@1kHz, got rms={rms_high}");
+        assert!(
+            rms_low < 0.2,
+            "100Hz should be attenuated by highpass@1kHz, got rms={rms_low}"
+        );
+        assert!(
+            rms_high > 0.3,
+            "5kHz should pass highpass@1kHz, got rms={rms_high}"
+        );
     }
 
     #[test]
@@ -483,7 +496,10 @@ mod tests {
 
         // Output should not be silent
         let rms: f32 = (buffer.iter().map(|s| s * s).sum::<f32>() / buffer.len() as f32).sqrt();
-        assert!(rms > 0.01, "Cascade output should not be silent after boost");
+        assert!(
+            rms > 0.01,
+            "Cascade output should not be silent after boost"
+        );
     }
 
     #[test]
@@ -513,6 +529,9 @@ mod tests {
 
         // State should still be non-zero (not reset)
         let y = filter.process(0.0);
-        assert!(y.abs() > 1e-10, "State should persist after coefficient update");
+        assert!(
+            y.abs() > 1e-10,
+            "State should persist after coefficient update"
+        );
     }
 }

@@ -104,7 +104,9 @@ impl DistortionProcessor {
 }
 
 impl Default for DistortionProcessor {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DspProcessor for DistortionProcessor {
@@ -121,7 +123,8 @@ impl DspProcessor for DistortionProcessor {
         let hp_c = 1.0 / (1.0 + std::f32::consts::TAU * hp_freq / self.sample_rate);
 
         // Tone: tilt EQ (LP amount)
-        let tone_c = (std::f32::consts::TAU * (1000.0 + self.tone * 19000.0) / self.sample_rate).min(0.99);
+        let tone_c =
+            (std::f32::consts::TAU * (1000.0 + self.tone * 19000.0) / self.sample_rate).min(0.99);
 
         // Cabinet simulation LP (~4.5kHz)
         let cab_c = if self.cab_sim {
@@ -172,7 +175,10 @@ impl DspProcessor for DistortionProcessor {
             1 => self.tone = (value / 100.0).clamp(0.0, 1.0),
             2 => self.mix = (value / 100.0).clamp(0.0, 1.0),
             3 => self.mode = (value as u8).min(4),
-            4 => { self.output_db = value.clamp(-24.0, 6.0); self.output_lin = 10.0_f32.powf(self.output_db / 20.0); }
+            4 => {
+                self.output_db = value.clamp(-24.0, 6.0);
+                self.output_lin = 10.0_f32.powf(self.output_db / 20.0);
+            }
             5 => self.cab_sim = value > 0.5,
             6 => self.tightness = (value / 100.0).clamp(0.0, 1.0),
             7 => self.bias = (value / 100.0).clamp(-1.0, 1.0),
@@ -202,7 +208,9 @@ mod tests {
         let mut l = vec![0.5f32; 512];
         let mut r = vec![0.5f32; 512];
         proc.process_stereo(&mut l, &mut r, 44100.0);
-        for s in &l { assert!(s.abs() <= 1.5, "Too hot: {s}"); }
+        for s in &l {
+            assert!(s.abs() <= 1.5, "Too hot: {s}");
+        }
     }
 
     #[test]

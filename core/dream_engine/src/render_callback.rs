@@ -22,7 +22,7 @@ use dream_clip_engine::reader::ClipReader;
 use dream_clip_engine::scheduler::{ActiveClipInfo, ClipScheduler, LoopRegion as ClipLoopRegion};
 use dream_dsp::device_chain::DeviceChain;
 use dream_dsp::fades::FadeCache;
-use dream_ipc::metering::{compute_peak, compute_rms, linear_to_db, MeterBank};
+use dream_ipc::metering::{MeterBank, compute_peak, compute_rms, linear_to_db};
 use dream_mixer::{ChannelStrip, SummingBus};
 use dream_transport::Playhead;
 
@@ -358,8 +358,7 @@ impl RenderContext {
                 LAST_DIAG.store(diag_counter, std::sync::atomic::Ordering::Relaxed);
                 let total_clips: usize = clips_per_track.iter().map(|c| c.len()).sum();
                 if total_clips > 0 || _total_active > 0 {
-                    let pool_misses =
-                        POOL_MISS_COUNT.swap(0, std::sync::atomic::Ordering::Relaxed);
+                    let pool_misses = POOL_MISS_COUNT.swap(0, std::sync::atomic::Ordering::Relaxed);
                     log::info!(
                         "[Render] playhead={} total_clips={} active={} pool_hits={} pool_misses={}",
                         playhead_pos,

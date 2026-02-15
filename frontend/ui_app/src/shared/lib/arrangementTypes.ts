@@ -18,6 +18,17 @@ export interface TimelineMidiNote {
     velocity: number;
 }
 
+export interface TimelineEnvelopePoint {
+    beat: number;
+    value: number;
+    curveType?: string;
+}
+
+export interface TimelineClipEnvelope {
+    paramId: string;
+    points: TimelineEnvelopePoint[];
+}
+
 export interface TimelineClip {
     id: string;
     name: string;
@@ -36,4 +47,5 @@ export interface TimelineClip {
     muted?: boolean;
     isOffline?: boolean;
     midiNotes?: TimelineMidiNote[];
+    midiEnvelopes?: TimelineClipEnvelope[];
 }

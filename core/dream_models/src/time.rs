@@ -558,10 +558,10 @@ mod tests {
         let c = TimeRange::new(TimePosition::new(4.0), TimePosition::new(8.0));
         let d = TimeRange::new(TimePosition::new(5.0), TimePosition::new(6.0));
 
-        assert!(a.overlaps(&b));  // Partial overlap
+        assert!(a.overlaps(&b)); // Partial overlap
         assert!(!a.overlaps(&c)); // Adjacent, no overlap (end exclusive)
         assert!(!a.overlaps(&d)); // No overlap
-        assert!(b.overlaps(&c));  // Partial overlap
+        assert!(b.overlaps(&c)); // Partial overlap
     }
 
     #[test]

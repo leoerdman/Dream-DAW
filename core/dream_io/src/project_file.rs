@@ -16,7 +16,7 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
-use dream_models::project::{Project, PROJECT_FORMAT_VERSION};
+use dream_models::project::{PROJECT_FORMAT_VERSION, Project};
 use serde::{Deserialize, Serialize};
 
 /// Errors during project file operations.
@@ -29,10 +29,7 @@ pub enum ProjectFileError {
     SerializationError(String),
 
     /// Project file format version is newer than this build supports.
-    UnsupportedFormatVersion {
-        found: u32,
-        supported: u32,
-    },
+    UnsupportedFormatVersion { found: u32, supported: u32 },
 }
 
 impl std::fmt::Display for ProjectFileError {
@@ -104,11 +101,7 @@ impl ProjectFile {
         if path.exists() {
             let bak_path = path.with_extension("bak");
             if let Err(e) = fs::rename(path, &bak_path) {
-                log::warn!(
-                    "Could not create backup {}: {}",
-                    bak_path.display(),
-                    e
-                );
+                log::warn!("Could not create backup {}: {}", bak_path.display(), e);
                 // Fall through — still try to save
             }
         }
@@ -197,9 +190,7 @@ impl ProjectFile {
                 });
             }
             let project_val = raw.get("project").cloned().ok_or_else(|| {
-                ProjectFileError::SerializationError(
-                    "Envelope missing 'project' field".to_string(),
-                )
+                ProjectFileError::SerializationError("Envelope missing 'project' field".to_string())
             })?;
             (project_val, version)
         } else {
@@ -294,7 +285,10 @@ impl ProjectFile {
 mod tests {
     use super::*;
     use dream_models::midi::{MidiClip, MidiNote, SamplerConfig};
-    use dream_models::project::{AudioClip, AutomationLane, AutomationPoint, DeviceNode, PluginSlot, TimeSignature, Track, TrackColor, TrackType};
+    use dream_models::project::{
+        AudioClip, AutomationLane, AutomationPoint, DeviceNode, PluginSlot, TimeSignature, Track,
+        TrackColor, TrackType,
+    };
     use dream_models::time::AbsoluteTime;
     use std::path::PathBuf;
 
@@ -400,7 +394,11 @@ mod tests {
             "format_version": PROJECT_FORMAT_VERSION + 10,
             "project": project
         });
-        fs::write(&path, serde_json::to_string_pretty(&future_envelope).unwrap()).unwrap();
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&future_envelope).unwrap(),
+        )
+        .unwrap();
 
         let err = ProjectFile::load(&path).unwrap_err();
         match err {
@@ -442,8 +440,14 @@ mod tests {
         let mut midi_track = Track::with_type("MIDI 1", TrackType::Midi, 0);
         midi_track.volume = 0.77;
         midi_track.pan = -0.15;
-        midi_track.instrument = Some(DeviceNode::Single(PluginSlot::new("Sampler", "internal://instrument/sampler")));
-        midi_track.effects.push(DeviceNode::Single(PluginSlot::new("Utility", "internal://effect/utility")));
+        midi_track.instrument = Some(DeviceNode::Single(PluginSlot::new(
+            "Sampler",
+            "internal://instrument/sampler",
+        )));
+        midi_track.effects.push(DeviceNode::Single(PluginSlot::new(
+            "Utility",
+            "internal://effect/utility",
+        )));
         midi_track.sampler = Some(SamplerConfig {
             sample_path: "Samples/snare.wav".to_string(),
             root_note: 60,
@@ -467,8 +471,26 @@ mod tests {
         midi_track.automation_lanes.push(AutomationLane {
             param_id: "volume".to_string(),
             points: vec![
-                AutomationPoint { beat: 4.0, value: 0.5, curve_type: "linear".to_string(), tension: None, bezier_cp1x: None, bezier_cp1y: None, bezier_cp2x: None, bezier_cp2y: None },
-                AutomationPoint { beat: 8.0, value: 0.8, curve_type: "bezier".to_string(), tension: Some(0.35), bezier_cp1x: None, bezier_cp1y: None, bezier_cp2x: None, bezier_cp2y: None },
+                AutomationPoint {
+                    beat: 4.0,
+                    value: 0.5,
+                    curve_type: "linear".to_string(),
+                    tension: None,
+                    bezier_cp1x: None,
+                    bezier_cp1y: None,
+                    bezier_cp2x: None,
+                    bezier_cp2y: None,
+                },
+                AutomationPoint {
+                    beat: 8.0,
+                    value: 0.8,
+                    curve_type: "bezier".to_string(),
+                    tension: Some(0.35),
+                    bezier_cp1x: None,
+                    bezier_cp1y: None,
+                    bezier_cp2x: None,
+                    bezier_cp2y: None,
+                },
             ],
         });
 
@@ -539,6 +561,8 @@ mod tests {
             is_bypassed: false,
             latency_frames: 32,
             sidechain_source_track_id: None,
+            supports_sidechain_input: None,
+            external_audio_inputs: None,
             external_format: None,
             external_uid: None,
             external_preset_name: None,
@@ -558,6 +582,8 @@ mod tests {
             is_bypassed: true,
             latency_frames: 64,
             sidechain_source_track_id: None,
+            supports_sidechain_input: None,
+            external_audio_inputs: None,
             external_format: None,
             external_uid: None,
             external_preset_name: None,

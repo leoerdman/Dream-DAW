@@ -77,7 +77,13 @@ impl PhaserProcessor {
             0 => (phase * std::f32::consts::TAU).sin(),
             1 => 1.0 - 4.0 * (phase - 0.5).abs(),
             2 => 2.0 * phase - 1.0,
-            3 => if phase < 0.5 { 1.0 } else { -1.0 },
+            3 => {
+                if phase < 0.5 {
+                    1.0
+                } else {
+                    -1.0
+                }
+            }
             _ => (phase * std::f32::consts::TAU).sin(),
         }
     }
@@ -86,7 +92,9 @@ impl PhaserProcessor {
     #[inline]
     fn allpass(input: f32, state: &mut f32, coeff: f32) -> f32 {
         // Guard: if state is NaN/Inf, reset it
-        if !state.is_finite() { *state = 0.0; }
+        if !state.is_finite() {
+            *state = 0.0;
+        }
         let input = if input.is_finite() { input } else { 0.0 };
         let y = *state + coeff * (input - *state);
         *state = input + coeff * (y - input);
@@ -136,15 +144,25 @@ impl DspProcessor for PhaserProcessor {
                 out_r = Self::allpass(out_r, &mut self.ap_state_r[s], coeff_r);
             }
 
-            self.fb_l = if out_l.is_finite() { out_l.clamp(-5.0, 5.0) } else { 0.0 };
-            self.fb_r = if out_r.is_finite() { out_r.clamp(-5.0, 5.0) } else { 0.0 };
+            self.fb_l = if out_l.is_finite() {
+                out_l.clamp(-5.0, 5.0)
+            } else {
+                0.0
+            };
+            self.fb_r = if out_r.is_finite() {
+                out_r.clamp(-5.0, 5.0)
+            } else {
+                0.0
+            };
 
             // Mix
             left[i] = left[i] * (1.0 - self.mix) + out_l * self.mix;
             right[i] = right[i] * (1.0 - self.mix) + out_r * self.mix;
 
             self.lfo_phase += lfo_inc;
-            if self.lfo_phase >= 1.0 { self.lfo_phase -= 1.0; }
+            if self.lfo_phase >= 1.0 {
+                self.lfo_phase -= 1.0;
+            }
         }
     }
 
@@ -191,7 +209,9 @@ mod tests {
         proc.set_param(1, 100.0);
         proc.set_param(5, 100.0);
         let sr = 44100.0;
-        let mut l: Vec<f32> = (0..4096).map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / sr).sin() * 0.5).collect();
+        let mut l: Vec<f32> = (0..4096)
+            .map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / sr).sin() * 0.5)
+            .collect();
         let orig = l.clone();
         let mut r = l.clone();
         proc.process_stereo(&mut l, &mut r, sr);

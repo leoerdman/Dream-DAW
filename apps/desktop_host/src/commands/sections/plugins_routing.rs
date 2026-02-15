@@ -43,6 +43,47 @@ fn find_project_plugin_slot(project: &Project, plugin_id: &str) -> Option<Plugin
     None
 }
 
+fn bind_runtime_instance_for_plugin_slots(
+    project: &Project,
+    plugin_id: &str,
+    instance_id: Uuid,
+    plugin_host_state: &tauri::State<'_, PluginHostState>,
+) {
+    fn visit_node(
+        node: &DeviceNode,
+        plugin_id: &str,
+        instance_id: Uuid,
+        plugin_host_state: &tauri::State<'_, PluginHostState>,
+    ) {
+        match node {
+            DeviceNode::Single(slot) => {
+                if slot.plugin_id == plugin_id {
+                    plugin_host_state.bind_slot_instance(slot.id, instance_id);
+                }
+            }
+            DeviceNode::Rack(rack) => {
+                for chain in &rack.chains {
+                    for child in &chain.devices {
+                        visit_node(child, plugin_id, instance_id, plugin_host_state);
+                    }
+                }
+            }
+        }
+    }
+
+    for track in &project.tracks {
+        if let Some(inst) = &track.instrument {
+            visit_node(inst, plugin_id, instance_id, plugin_host_state);
+        }
+        for node in &track.effects {
+            visit_node(node, plugin_id, instance_id, plugin_host_state);
+        }
+    }
+    for node in &project.master_track.effects {
+        visit_node(node, plugin_id, instance_id, plugin_host_state);
+    }
+}
+
 fn apply_imported_external_state_blob(
     host: &mut PluginHost,
     instance_id: uuid::Uuid,
@@ -193,6 +234,9 @@ fn ensure_loaded_external_instance(
         .get(plugin_id)
         .copied()
     {
+        if let Ok(project) = project_state.project.lock() {
+            bind_runtime_instance_for_plugin_slots(&project, plugin_id, instance_id, plugin_host_state);
+        }
         return Ok(instance_id);
     }
 
@@ -226,6 +270,10 @@ fn ensure_loaded_external_instance(
         .map_err(|e| e.to_string())?
         .insert(plugin_id.to_string(), instance_id);
 
+    if let Ok(project) = project_state.project.lock() {
+        bind_runtime_instance_for_plugin_slots(&project, plugin_id, instance_id, plugin_host_state);
+    }
+
     Ok(instance_id)
 }
 
@@ -251,6 +299,9 @@ fn open_plugin_window(
         .get(&plugin_id)
         .copied()
     {
+        if let Ok(project) = project_state.project.lock() {
+            bind_runtime_instance_for_plugin_slots(&project, &plugin_id, instance_id, &plugin_host_state);
+        }
         let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
         host.open_editor(instance_id)
             .map_err(|e| format!("Failed to open existing plugin editor: {e}"))?;
@@ -305,6 +356,9 @@ fn open_plugin_window(
         .lock()
         .map_err(|e| e.to_string())?
         .insert(plugin_id.clone(), instance_id);
+    if let Ok(project) = project_state.project.lock() {
+        bind_runtime_instance_for_plugin_slots(&project, &plugin_id, instance_id, &plugin_host_state);
+    }
 
     log::info!(
         "[IPC] open_plugin_window({plugin_id}) -> loaded VST instance {} ({})",
@@ -424,18 +478,21 @@ fn set_external_plugin_param_cmd(
     }
 
     let normalized = value.clamp(0.0, 1.0);
-    let instance_id = plugin_host_state
+    let maybe_instance_id = plugin_host_state
         .loaded_by_key
         .lock()
         .map_err(|e| e.to_string())?
         .get(&plugin_id)
-        .copied()
-        .ok_or_else(|| {
-            format!(
-                "Plugin is not active yet: {}. Open plugin window first before controlling external params.",
-                plugin_id
-            )
-        })?;
+        .copied();
+    let Some(instance_id) = maybe_instance_id else {
+        log::debug!(
+            "[IPC] set_external_plugin_param_cmd(plugin={}, idx={}, value={:.4}) skipped: plugin not active",
+            plugin_id,
+            param_index,
+            normalized
+        );
+        return Ok(());
+    };
     let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
     let instance = host
         .get_mut(instance_id)
@@ -703,6 +760,7 @@ fn set_plugin_sidechain_source_cmd(
     source_track_id: String,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<(), String> {
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
@@ -768,6 +826,8 @@ fn set_plugin_sidechain_source_cmd(
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     log::info!(
         "[IPC] set_plugin_sidechain_source_cmd(track={} slot={} source={})",
         track_id,
@@ -1085,6 +1145,7 @@ fn add_plugin_to_track_cmd(
     let is_wave_synth_instrument = plugin_id_lower.starts_with("internal://instrument/wave-synth")
         || plugin_id_lower.starts_with("internal://instrument/simple-sine-synth");
     let mut slot_data = PluginSlot::new(effective_plugin_name.clone(), effective_plugin_id.clone());
+    let new_slot_id = slot_data.id;
     if !effective_plugin_id.starts_with("internal://")
         && let Ok(desc) = plugin_host_state.resolve_descriptor(&effective_plugin_id)
     {
@@ -1118,6 +1179,19 @@ fn add_plugin_to_track_cmd(
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
+    if !effective_plugin_id.starts_with("internal://") {
+        if let Some(instance_id) = plugin_host_state
+            .loaded_by_key
+            .lock()
+            .map_err(|e| e.to_string())?
+            .get(&effective_plugin_id)
+            .copied()
+        {
+            plugin_host_state.bind_slot_instance(new_slot_id, instance_id);
+        }
+    }
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     if let Some((track_id, slot_index, effect_type)) = runtime_add {
         // Map project UUID track ordering to runtime track index.
         if let Some(runtime_track_index) = project.tracks.iter().position(|t| t.id == track_id) {
@@ -1152,6 +1226,7 @@ fn remove_plugin_from_track_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<(), String> {
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
@@ -1199,7 +1274,10 @@ fn remove_plugin_from_track_cmd(
     }
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    plugin_host_state.unbind_slot_instance(slot_uuid);
     clip_pool_state.rebuild_snapshot(&project);
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     if let Some(slot_index) = runtime_remove_slot
         && let Some(runtime_track_index) = project.tracks.iter().position(|t| t.id == track_uuid)
     {
@@ -1678,6 +1756,7 @@ fn collect_external_plugin_ids_from_devices(nodes: &[DeviceNode], out: &mut Vec<
 fn eager_activate_external_plugins(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
 ) -> Result<serde_json::Value, String> {
     let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
 
@@ -1730,6 +1809,9 @@ fn eager_activate_external_plugins(
         loaded,
         failed
     );
+
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
 
     Ok(serde_json::json!({
         "total": total,

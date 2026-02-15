@@ -127,6 +127,23 @@ pub trait PluginInstance: Send {
         num_frames: usize,
     ) -> Result<(), PluginError>;
 
+    /// Processes audio with an optional dedicated sidechain input bus.
+    ///
+    /// `main_inputs` represent the primary input bus (typically stereo).
+    /// `sidechain_inputs`, when provided, represent the auxiliary sidechain bus.
+    ///
+    /// Default behavior ignores sidechain and delegates to `process`.
+    fn process_with_sidechain(
+        &mut self,
+        main_inputs: &[&[f32]],
+        sidechain_inputs: Option<&[&[f32]]>,
+        outputs: &mut [&mut [f32]],
+        num_frames: usize,
+    ) -> Result<(), PluginError> {
+        let _ = sidechain_inputs;
+        self.process(main_inputs, outputs, num_frames)
+    }
+
     /// Returns the plugin's processing latency in samples.
     ///
     /// Used by the PDC engine to compensate parallel paths.
@@ -186,11 +203,7 @@ pub trait PluginInstance: Send {
     ///
     /// `kind` is an optional source hint (e.g. `ProcessorState`, `Chunk`).
     /// The default implementation reports unsupported.
-    fn load_state_blob(
-        &mut self,
-        _kind: Option<&str>,
-        _data: &[u8],
-    ) -> Result<(), PluginError> {
+    fn load_state_blob(&mut self, _kind: Option<&str>, _data: &[u8]) -> Result<(), PluginError> {
         Err(PluginError::UnsupportedFormat(
             "Plugin state restore is not supported for this instance".to_string(),
         ))

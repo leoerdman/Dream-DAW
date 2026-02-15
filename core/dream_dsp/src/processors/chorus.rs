@@ -141,7 +141,9 @@ impl DspProcessor for ChorusProcessor {
                 // Pan voices for stereo spread
                 let pan = if nv > 1 {
                     (v as f32 / (nv - 1).max(1) as f32 - 0.5) * 2.0 * self.spread
-                } else { 0.0 };
+                } else {
+                    0.0
+                };
                 let pan_l = (1.0 - pan.max(0.0)).min(1.0);
                 let pan_r = (1.0 + pan.min(0.0)).min(1.0);
 
@@ -151,8 +153,10 @@ impl DspProcessor for ChorusProcessor {
 
             // HP filter on wet signal (preserve bass clarity)
             // Standard one-pole HP: y[n] = alpha * (y[n-1] + x[n] - x[n-1])
-            self.hp_state_l = (self.hp_coeff * (self.hp_state_l + wet_l - self.hp_prev_l)).clamp(-4.0, 4.0);
-            self.hp_state_r = (self.hp_coeff * (self.hp_state_r + wet_r - self.hp_prev_r)).clamp(-4.0, 4.0);
+            self.hp_state_l =
+                (self.hp_coeff * (self.hp_state_l + wet_l - self.hp_prev_l)).clamp(-4.0, 4.0);
+            self.hp_state_r =
+                (self.hp_coeff * (self.hp_state_r + wet_r - self.hp_prev_r)).clamp(-4.0, 4.0);
             self.hp_prev_l = wet_l;
             self.hp_prev_r = wet_r;
 
@@ -161,7 +165,9 @@ impl DspProcessor for ChorusProcessor {
             right[i] = (dry_r * (1.0 - self.mix) + self.hp_state_r * self.mix).clamp(-4.0, 4.0);
 
             self.lfo_phase += phase_inc;
-            if self.lfo_phase >= 1.0 { self.lfo_phase -= 1.0; }
+            if self.lfo_phase >= 1.0 {
+                self.lfo_phase -= 1.0;
+            }
             self.write_pos = (self.write_pos + 1) % MAX_DELAY_SAMPLES;
         }
     }
@@ -174,7 +180,10 @@ impl DspProcessor for ChorusProcessor {
             3 => self.feedback = (value / 100.0).clamp(-0.95, 0.95),
             4 => self.num_voices = (value as usize).clamp(1, MAX_VOICES),
             5 => self.spread = (value / 100.0).clamp(0.0, 1.0),
-            6 => { self.hp_freq = value.clamp(20.0, 500.0); self.update_hp(); }
+            6 => {
+                self.hp_freq = value.clamp(20.0, 500.0);
+                self.update_hp();
+            }
             _ => {}
         }
     }
@@ -216,8 +225,11 @@ mod tests {
         let mut left = vec![0.5f32; 4096];
         let mut right = vec![0.5f32; 4096];
         proc.process_stereo(&mut left, &mut right, 44100.0);
-        let diffs: f32 = left.iter().zip(right.iter())
-            .map(|(l, r)| (l - r).abs()).sum();
+        let diffs: f32 = left
+            .iter()
+            .zip(right.iter())
+            .map(|(l, r)| (l - r).abs())
+            .sum();
         assert!(diffs > 0.1, "Should create stereo difference: {diffs}");
     }
 

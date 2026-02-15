@@ -181,6 +181,48 @@ function selectBestPeakLevel(levels: { peaks: PeakPair[] }[]): PeakPair[] | null
     return null;
 }
 
+function fuzzyScore(text: string, query: string): number | null {
+    const t = text.toLowerCase();
+    const q = query.toLowerCase().trim();
+    if (!q) return 0;
+
+    if (t === q) return 0;
+
+    const starts = t.startsWith(q);
+    if (starts) {
+        return 1 + (t.length - q.length) * 0.02;
+    }
+
+    const wordMatch = t.match(new RegExp(`(^|[^a-z0-9])${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    if (wordMatch) {
+        const idx = wordMatch.index ?? 0;
+        return 6 + idx * 0.2 + (t.length - q.length) * 0.02;
+    }
+
+    const idx = t.indexOf(q);
+    if (idx >= 0) {
+        return 12 + idx * 0.35 + (t.length - q.length) * 0.03;
+    }
+
+    // Subsequence fallback: good for short fuzzy typing like "zbr" -> "Zebra".
+    let ti = 0;
+    let qi = 0;
+    let first = -1;
+    let last = -1;
+    while (ti < t.length && qi < q.length) {
+        if (t[ti] === q[qi]) {
+            if (first < 0) first = ti;
+            last = ti;
+            qi += 1;
+        }
+        ti += 1;
+    }
+    if (qi !== q.length) return null;
+    const span = Math.max(1, last - first + 1);
+    const gaps = span - q.length;
+    return 40 + gaps * 1.8 + first * 0.3 + (t.length - q.length) * 0.04;
+}
+
 // ── Component ──────────────────────────────────────────
 
 export const AssetBrowser = () => {
@@ -521,6 +563,7 @@ export const AssetBrowser = () => {
     // Get items based on selected category
     const items = useMemo(() => {
         let base: BrowserItem[] = [];
+        const pluginSearchMode = selectedCategoryId === 'plugins' && searchQuery.trim().length > 0;
 
         // Check if this is a user-folder category
         if (activeCategory?.folderPath || folderStack.length > 0) {
@@ -560,7 +603,22 @@ export const AssetBrowser = () => {
 
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
-            base = base.filter(i => i.name.toLowerCase().includes(q));
+            if (selectedCategoryId === 'plugins') {
+                base = base
+                    .map((item) => {
+                        const sourceHint = item.pluginSource ? ` ${item.pluginSource}` : '';
+                        const score = fuzzyScore(`${item.name} ${item.format ?? ''} ${item.meta ?? ''}${sourceHint}`, q);
+                        return { item, score };
+                    })
+                    .filter((entry) => entry.score !== null)
+                    .sort((a, b) => {
+                        if (a.score !== b.score) return (a.score ?? 0) - (b.score ?? 0);
+                        return a.item.name.toLowerCase().localeCompare(b.item.name.toLowerCase());
+                    })
+                    .map((entry) => entry.item);
+            } else {
+                base = base.filter(i => i.name.toLowerCase().includes(q));
+            }
         }
 
         if (selectedCategoryId === 'plugins' && pluginSourceFilter !== 'all') {
@@ -571,6 +629,10 @@ export const AssetBrowser = () => {
             base = base.filter((i) => (i.sizeBytes ?? 0) < 1024 * 1024);
         } else if (sizeFilter === 2) {
             base = base.filter((i) => (i.sizeBytes ?? 0) >= 1024 * 1024);
+        }
+
+        if (pluginSearchMode) {
+            return base;
         }
 
         if (sortFilter === 0) {

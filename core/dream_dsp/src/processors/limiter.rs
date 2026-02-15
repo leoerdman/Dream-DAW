@@ -77,9 +77,10 @@ impl LimiterProcessor {
         let sr = self.sample_rate;
         if sr > 0.0 {
             self.release_coeff = (-1.0 / (self.release_ms * 0.001 * sr)).exp();
-            self.fast_release = (-1.0 / (5.0 * 0.001 * sr)).exp();   // 5ms fast
+            self.fast_release = (-1.0 / (5.0 * 0.001 * sr)).exp(); // 5ms fast
             self.slow_release = (-1.0 / (200.0 * 0.001 * sr)).exp(); // 200ms slow
-            self.la_samples = ((self.lookahead_ms * 0.001 * sr) as usize).clamp(1, MAX_LOOKAHEAD - 1);
+            self.la_samples =
+                ((self.lookahead_ms * 0.001 * sr) as usize).clamp(1, MAX_LOOKAHEAD - 1);
         }
     }
 }
@@ -121,7 +122,8 @@ impl DspProcessor for LimiterProcessor {
                 let slow = self.slow_release * self.gain + (1.0 - self.slow_release) * target_gain;
                 self.gain = fast * 0.5 + slow * 0.5;
             } else {
-                self.gain = self.release_coeff * self.gain + (1.0 - self.release_coeff) * target_gain;
+                self.gain =
+                    self.release_coeff * self.gain + (1.0 - self.release_coeff) * target_gain;
             }
 
             // Apply gain and ceiling
@@ -133,10 +135,22 @@ impl DspProcessor for LimiterProcessor {
 
     fn set_param(&mut self, index: u8, value: f32) {
         match index {
-            0 => { self.threshold_db = value.clamp(-30.0, 0.0); self.threshold_lin = 10.0_f32.powf(self.threshold_db / 20.0); }
-            1 => { self.release_ms = value.clamp(10.0, 1000.0); self.update_coefficients(); }
-            2 => { self.ceiling_db = value.clamp(-6.0, 0.0); self.ceiling_lin = 10.0_f32.powf(self.ceiling_db / 20.0); }
-            3 => { self.lookahead_ms = value.clamp(0.1, 5.0); self.update_coefficients(); }
+            0 => {
+                self.threshold_db = value.clamp(-30.0, 0.0);
+                self.threshold_lin = 10.0_f32.powf(self.threshold_db / 20.0);
+            }
+            1 => {
+                self.release_ms = value.clamp(10.0, 1000.0);
+                self.update_coefficients();
+            }
+            2 => {
+                self.ceiling_db = value.clamp(-6.0, 0.0);
+                self.ceiling_lin = 10.0_f32.powf(self.ceiling_db / 20.0);
+            }
+            3 => {
+                self.lookahead_ms = value.clamp(0.1, 5.0);
+                self.update_coefficients();
+            }
             4 => self.auto_release = value > 0.5,
             5 => self.stereo_link = (value / 100.0).clamp(0.0, 1.0),
             _ => {}

@@ -19,6 +19,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
@@ -26,6 +27,7 @@ use dream_clip_engine::pool::ClipPool;
 use dream_engine::driver::SharedClipSnapshot;
 use dream_ipc::metering::MeterBank;
 use dream_ipc::{self, EngineCommand, MasterClock};
+use dream_plugins::PluginHost;
 
 fn main() {
     // ── Initialize logging ──────────────────────────────────────────
@@ -56,8 +58,11 @@ fn main() {
         clip_snapshot,
         Arc::new(dream_engine::driver::SharedMidiSnapshot::new()),
         Arc::new(dream_engine::driver::SharedRoutingSnapshot::new()),
+        Arc::new(dream_engine::driver::SharedSidechainSnapshot::new()),
+        Arc::new(dream_engine::driver::SharedExternalFxSnapshot::new()),
         Arc::new(dream_engine::driver::SharedAutomationSnapshot::new()),
         Arc::new(dream_engine::driver::SharedSamplerSamples::new()),
+        Arc::new(Mutex::new(PluginHost::new(44100.0, 1024))),
         Arc::new(arc_swap::ArcSwap::from_pointee(None)), // preview buffer (unused in standalone)
         Arc::new(std::sync::atomic::AtomicUsize::new(0)), // preview cursor
     ) {
@@ -94,10 +99,7 @@ fn main() {
     log::info!("───────────────────────────────────────────────────");
     log::info!("✅ Proof of Life COMPLETE");
     log::info!("   Frames rendered: {}", clock.position());
-    log::info!(
-        "   ≈ {:.2}s of audio",
-        clock.position() as f64 / 48000.0
-    );
+    log::info!("   ≈ {:.2}s of audio", clock.position() as f64 / 48000.0);
     log::info!("═══════════════════════════════════════════════════");
 }
 

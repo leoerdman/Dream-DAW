@@ -116,7 +116,10 @@ pub struct PluginSandboxSupervisor {
 }
 
 impl PluginSandboxSupervisor {
-    fn spawn_event_reader(stdout: ChildStdout, stderr: ChildStderr) -> Receiver<PluginHostEventMessage> {
+    fn spawn_event_reader(
+        stdout: ChildStdout,
+        stderr: ChildStderr,
+    ) -> Receiver<PluginHostEventMessage> {
         let (tx, rx) = mpsc::channel::<PluginHostEventMessage>();
 
         std::thread::spawn(move || {
@@ -159,7 +162,10 @@ impl PluginSandboxSupervisor {
             .map_err(|e| PluginError::ProcessError(format!("write control message: {e}")))
     }
 
-    fn prime_instance_protocol(instance_id: Uuid, instance: &mut PluginSandboxInstance) -> Result<(), PluginError> {
+    fn prime_instance_protocol(
+        instance_id: Uuid,
+        instance: &mut PluginSandboxInstance,
+    ) -> Result<(), PluginError> {
         if let Some(stdin) = instance.control_stdin.as_mut() {
             Self::send_control_message(
                 stdin,
@@ -261,7 +267,8 @@ impl PluginSandboxSupervisor {
         })?;
 
         let instance_id = Uuid::new_v4();
-        let heartbeat_file = std::env::temp_dir().join(format!("dream_daw_plugin_host_{instance_id}.hb"));
+        let heartbeat_file =
+            std::env::temp_dir().join(format!("dream_daw_plugin_host_{instance_id}.hb"));
         let _ = fs::write(&heartbeat_file, b"0");
         let shared_region_path =
             std::env::temp_dir().join(format!("dream_daw_plugin_audio_{instance_id}.bin"));
@@ -292,11 +299,12 @@ impl PluginSandboxSupervisor {
         )?;
         let mut child = child;
         let control_stdin = child.stdin.take();
-        let event_rx = if let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) {
-            Some(Self::spawn_event_reader(stdout, stderr))
-        } else {
-            None
-        };
+        let event_rx =
+            if let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) {
+                Some(Self::spawn_event_reader(stdout, stderr))
+            } else {
+                None
+            };
 
         self.instances.insert(
             instance_id,
@@ -400,13 +408,13 @@ impl PluginSandboxSupervisor {
                             match Self::spawn_daemon_process(
                                 cfg,
                                 *id,
-                                    &instance.descriptor.path,
-                                    &instance.heartbeat_file,
-                                    std::path::Path::new(&instance.shared_region.map_name),
-                                    instance.shared_region.num_inputs,
-                                    instance.shared_region.num_outputs,
-                                    instance.shared_region.max_frames,
-                                ) {
+                                &instance.descriptor.path,
+                                &instance.heartbeat_file,
+                                std::path::Path::new(&instance.shared_region.map_name),
+                                instance.shared_region.num_inputs,
+                                instance.shared_region.num_outputs,
+                                instance.shared_region.max_frames,
+                            ) {
                                 Ok(mut new_child) => {
                                     instance.control_stdin = new_child.stdin.take();
                                     instance.event_rx = if let (Some(stdout), Some(stderr)) =
@@ -420,14 +428,16 @@ impl PluginSandboxSupervisor {
                                     instance.heartbeat_seen = false;
                                     instance.process = Some(new_child);
                                     instance.status = PluginSandboxStatus::Spawning;
-                                    instance.restart_count = instance.restart_count.saturating_add(1);
+                                    instance.restart_count =
+                                        instance.restart_count.saturating_add(1);
                                     instance.spawned_at = SystemTime::now();
                                     instance.bypass_requested = false;
                                     let _ = Self::prime_instance_protocol(*id, instance);
                                     continue;
                                 }
                                 Err(err) => {
-                                    instance.last_error = Some(format!("Auto-restart failed: {err}"));
+                                    instance.last_error =
+                                        Some(format!("Auto-restart failed: {err}"));
                                 }
                             }
                         }
@@ -481,7 +491,8 @@ impl PluginSandboxSupervisor {
                                     instance.heartbeat_seen = false;
                                     instance.process = Some(new_child);
                                     instance.status = PluginSandboxStatus::Spawning;
-                                    instance.restart_count = instance.restart_count.saturating_add(1);
+                                    instance.restart_count =
+                                        instance.restart_count.saturating_add(1);
                                     instance.spawned_at = SystemTime::now();
                                     instance.bypass_requested = false;
                                     instance.last_error = Some(format!(
@@ -492,9 +503,8 @@ impl PluginSandboxSupervisor {
                                     continue;
                                 }
                                 Err(err) => {
-                                    instance.last_error = Some(format!(
-                                        "Restart after timeout failed: {err}"
-                                    ));
+                                    instance.last_error =
+                                        Some(format!("Restart after timeout failed: {err}"));
                                 }
                             }
                         }
@@ -512,7 +522,8 @@ impl PluginSandboxSupervisor {
                         instance.status = PluginSandboxStatus::Crashed;
                         instance.crash_count = instance.crash_count.saturating_add(1);
                         instance.bypass_requested = true;
-                        instance.last_error = Some(format!("Failed to poll plugin host process: {err}"));
+                        instance.last_error =
+                            Some(format!("Failed to poll plugin host process: {err}"));
                         bypass.push(*id);
                     }
                 }
@@ -563,7 +574,9 @@ impl PluginSandboxSupervisor {
     }
 
     pub fn shared_region_for_instance(&self, instance_id: Uuid) -> Option<SharedAudioRegion> {
-        self.instances.get(&instance_id).map(|i| i.shared_region.clone())
+        self.instances
+            .get(&instance_id)
+            .map(|i| i.shared_region.clone())
     }
 
     pub fn send_set_parameter(
@@ -605,7 +618,10 @@ impl PluginSandboxSupervisor {
         let stdin = instance.control_stdin.as_mut().ok_or_else(|| {
             PluginError::InvalidState("Sandbox control pipe is not available".to_string())
         })?;
-        Self::send_control_message(stdin, &PluginHostControlMessage::CloseEditor { instance_id })
+        Self::send_control_message(
+            stdin,
+            &PluginHostControlMessage::CloseEditor { instance_id },
+        )
     }
 }
 

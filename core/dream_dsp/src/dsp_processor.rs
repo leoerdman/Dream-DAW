@@ -31,6 +31,21 @@ pub trait DspProcessor: Send {
     /// MUST be O(N) where N = buffer length. Zero allocations.
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32);
 
+    /// Processes stereo audio with optional external sidechain signal.
+    ///
+    /// Default behavior ignores sidechain and falls back to `process_stereo`.
+    #[allow(unused_variables)]
+    fn process_stereo_with_sidechain(
+        &mut self,
+        left: &mut [f32],
+        right: &mut [f32],
+        sidechain_left: Option<&[f32]>,
+        sidechain_right: Option<&[f32]>,
+        sample_rate: f32,
+    ) {
+        self.process_stereo(left, right, sample_rate);
+    }
+
     /// Sets a parameter by index.
     ///
     /// # Arguments
@@ -104,21 +119,33 @@ impl BuiltinEffectType {
         match self {
             Self::Utility => Box::new(super::processors::utility::UtilityProcessor::new()),
             Self::Eq => Box::new(super::processors::eq::EqProcessor::new(sample_rate as f64)),
-            Self::Compressor => Box::new(super::processors::compressor::CompressorProcessor::new(sample_rate)),
+            Self::Compressor => Box::new(super::processors::compressor::CompressorProcessor::new(
+                sample_rate,
+            )),
             Self::Delay => Box::new(super::processors::delay::DelayProcessor::new(sample_rate)),
             Self::Reverb => Box::new(super::processors::reverb::ReverbProcessor::new(sample_rate)),
             Self::Chorus => Box::new(super::processors::chorus::ChorusProcessor::new(sample_rate)),
             Self::Saturator => Box::new(super::processors::saturator::SaturatorProcessor::new()),
             // Wave 1
-            Self::Limiter => Box::new(super::processors::limiter::LimiterProcessor::new(sample_rate)),
+            Self::Limiter => Box::new(super::processors::limiter::LimiterProcessor::new(
+                sample_rate,
+            )),
             Self::Gate => Box::new(super::processors::gate::GateProcessor::new(sample_rate)),
-            Self::AutoFilter => Box::new(super::processors::auto_filter::AutoFilterProcessor::new(sample_rate)),
+            Self::AutoFilter => Box::new(super::processors::auto_filter::AutoFilterProcessor::new(
+                sample_rate,
+            )),
             Self::Phaser => Box::new(super::processors::phaser::PhaserProcessor::new(sample_rate)),
-            Self::Flanger => Box::new(super::processors::flanger::FlangerProcessor::new(sample_rate)),
+            Self::Flanger => Box::new(super::processors::flanger::FlangerProcessor::new(
+                sample_rate,
+            )),
             Self::Distortion => Box::new(super::processors::distortion::DistortionProcessor::new()),
             Self::Bitcrusher => Box::new(super::processors::bitcrusher::BitcrusherProcessor::new()),
-            Self::NoiseMachine => Box::new(super::processors::noise_machine::NoiseMachineProcessor::new(sample_rate)),
-            Self::AutoPan => Box::new(super::processors::auto_pan::AutoPanProcessor::new(sample_rate)),
+            Self::NoiseMachine => {
+                Box::new(super::processors::noise_machine::NoiseMachineProcessor::new(sample_rate))
+            }
+            Self::AutoPan => Box::new(super::processors::auto_pan::AutoPanProcessor::new(
+                sample_rate,
+            )),
         }
     }
 }

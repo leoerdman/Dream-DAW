@@ -158,7 +158,9 @@ impl DspProcessor for FlangerProcessor {
             right[i] = dry_r * (1.0 - self.mix) + wet_r * self.mix;
 
             self.lfo_phase += lfo_inc;
-            if self.lfo_phase >= 1.0 { self.lfo_phase -= 1.0; }
+            if self.lfo_phase >= 1.0 {
+                self.lfo_phase -= 1.0;
+            }
             self.write_pos = (self.write_pos + 1) % MAX_DELAY_SAMPLES;
         }
     }
@@ -172,7 +174,10 @@ impl DspProcessor for FlangerProcessor {
             4 => self.mix = (value / 100.0).clamp(0.0, 1.0),
             5 => self.stereo_offset = value.clamp(0.0, 180.0) / 360.0,
             6 => self.lfo_shape = (value as u8).min(3),
-            7 => { self.fb_damp_freq = value.clamp(1000.0, 20000.0); self.update_damp(); }
+            7 => {
+                self.fb_damp_freq = value.clamp(1000.0, 20000.0);
+                self.update_damp();
+            }
             8 => self.tz_mode = value > 0.5,
             _ => {}
         }
@@ -209,7 +214,9 @@ mod tests {
         proc.set_param(1, 100.0);
         proc.set_param(4, 100.0);
         let sr = 44100.0;
-        let mut l: Vec<f32> = (0..4096).map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / sr).sin() * 0.5).collect();
+        let mut l: Vec<f32> = (0..4096)
+            .map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / sr).sin() * 0.5)
+            .collect();
         let orig = l.clone();
         let mut r = l.clone();
         proc.process_stereo(&mut l, &mut r, sr);

@@ -52,15 +52,11 @@ impl PluginScanner {
         };
 
         // System-wide
-        paths.push(PathBuf::from(format!(
-            "/Library/Audio/Plug-Ins/{subdir}"
-        )));
+        paths.push(PathBuf::from(format!("/Library/Audio/Plug-Ins/{subdir}")));
 
         // User-local
         if let Some(home) = dirs_home() {
-            paths.push(home.join(format!(
-                "Library/Audio/Plug-Ins/{subdir}"
-            )));
+            paths.push(home.join(format!("Library/Audio/Plug-Ins/{subdir}")));
         }
 
         paths
@@ -104,11 +100,7 @@ impl PluginScanner {
             }
         }
 
-        info!(
-            "Found {} {} plugin(s)",
-            results.len(),
-            format
-        );
+        info!("Found {} {} plugin(s)", results.len(), format);
         results
     }
 
@@ -160,10 +152,7 @@ impl PluginScanner {
     fn guess_vendor(path: &Path, plugin_name: &str) -> String {
         // Check if there's a vendor directory between the standard path and the plugin
         if let Some(parent) = path.parent() {
-            let parent_name = parent
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let parent_name = parent.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
             // If parent is not a standard directory, it's likely the vendor
             let standard_dirs = ["VST3", "CLAP", "Components", "Plug-Ins"];
@@ -182,22 +171,45 @@ impl PluginScanner {
 
         // Instrument keywords
         let instrument_keywords = [
-            "synth", "sampler", "piano", "keys", "bass", "drum",
-            "serum", "massive", "vital", "kontakt", "omnisphere",
-            "instrument", "organ", "string",
+            "synth",
+            "sampler",
+            "piano",
+            "keys",
+            "bass",
+            "drum",
+            "serum",
+            "massive",
+            "vital",
+            "kontakt",
+            "omnisphere",
+            "instrument",
+            "organ",
+            "string",
         ];
 
         // Effect keywords
         let effect_keywords = [
-            "eq", "comp", "reverb", "delay", "chorus", "flanger",
-            "phaser", "distortion", "limiter", "gate", "filter",
-            "saturator", "exciter", "de-ess", "multiband", "ott",
+            "eq",
+            "comp",
+            "reverb",
+            "delay",
+            "chorus",
+            "flanger",
+            "phaser",
+            "distortion",
+            "limiter",
+            "gate",
+            "filter",
+            "saturator",
+            "exciter",
+            "de-ess",
+            "multiband",
+            "ott",
         ];
 
         // Analyzer keywords
         let analyzer_keywords = [
-            "meter", "analyzer", "spectrum", "scope", "monitor",
-            "loudness", "vumeter",
+            "meter", "analyzer", "spectrum", "scope", "monitor", "loudness", "vumeter",
         ];
 
         for kw in &instrument_keywords {
@@ -250,9 +262,10 @@ mod tests {
         assert!(clap.iter().any(|p| p.to_str().unwrap().contains("CLAP")));
 
         let au = PluginScanner::standard_paths(PluginFormat::AudioUnit);
-        assert!(au
-            .iter()
-            .any(|p| p.to_str().unwrap().contains("Components")));
+        assert!(
+            au.iter()
+                .any(|p| p.to_str().unwrap().contains("Components"))
+        );
     }
 
     #[test]
@@ -347,9 +360,11 @@ mod tests {
         scanner.add_custom_path("/my/custom/plugins");
 
         let paths = scanner.search_paths(PluginFormat::VST3);
-        assert!(paths
-            .iter()
-            .any(|p| p == &PathBuf::from("/my/custom/plugins")));
+        assert!(
+            paths
+                .iter()
+                .any(|p| p == &PathBuf::from("/my/custom/plugins"))
+        );
     }
 
     #[test]

@@ -25,8 +25,8 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use log::info;
 
@@ -154,6 +154,25 @@ impl OfflineBouncer {
         self.cancel_flag.store(false, Ordering::SeqCst);
     }
 
+    fn create_render_ctx(
+        &self,
+        project: &Project,
+        loop_region: Option<&ClipLoopRegion>,
+        sample_rate: f64,
+    ) -> RenderContext {
+        let meter_bank = Arc::new(MeterBank::new(project.tracks.len().max(1)));
+        let mut render_ctx = RenderContext::new(
+            project.tracks.len().max(1),
+            sample_rate,
+            OFFLINE_CHANNELS,
+            meter_bank,
+        );
+        render_ctx.loop_region = loop_region.cloned();
+        render_ctx.playhead.seek(self.config.start_frame);
+        render_ctx.playhead.set_advancing(true);
+        render_ctx
+    }
+
     /// Executes the offline bounce.
     ///
     /// This is a **blocking** operation — call from a background thread
@@ -200,23 +219,6 @@ impl OfflineBouncer {
             total_frames, self.config.sample_rate, self.config.bit_depth, self.config.output_path
         );
 
-        // ── Create standalone RenderContext ──────────────────────
-        // This is completely independent from the audio thread's context.
-        let meter_bank = Arc::new(MeterBank::new(project.tracks.len().max(1)));
-        let mut render_ctx = RenderContext::new(
-            project.tracks.len().max(1),
-            sample_rate,
-            OFFLINE_CHANNELS,
-            meter_bank,
-        );
-
-        // Set loop region if provided
-        render_ctx.loop_region = loop_region.cloned();
-
-        // Seek to start position
-        render_ctx.playhead.seek(self.config.start_frame);
-        render_ctx.playhead.set_advancing(true);
-
         // ── Prepare per-track clip slices ────────────────────────
         // Build the same structure that driver.rs uses for RenderContext::render().
         let clips_per_track: Vec<Vec<AudioClip>> = project
@@ -224,123 +226,235 @@ impl OfflineBouncer {
             .iter()
             .map(|track| track.clips.clone())
             .collect();
-
-        // ── Pre-allocate output buffers ──────────────────────────
-        let mut output_left: Vec<f32> = Vec::with_capacity(total_frames);
-        let mut output_right: Vec<f32> = Vec::with_capacity(total_frames);
-
-        // Scratch buffer for interleaved render output
-        let buf_size = OFFLINE_BUFFER_FRAMES * OFFLINE_CHANNELS;
-        let mut interleaved_buf = vec![0.0f32; buf_size];
-
-        // ── Render loop ─────────────────────────────────────────
-        let mut frames_rendered: usize = 0;
-        let mut last_progress: f32 = -1.0;
-
-        while frames_rendered < total_frames {
-            // Check cancellation flag
-            if self.cancel_flag.load(Ordering::SeqCst) {
-                info!(
-                    "[Bounce] Cancelled by user at {:.1}%",
-                    (frames_rendered as f32 / total_frames as f32) * 100.0
-                );
-                // Clean up partial file
-                let _ = std::fs::remove_file(&self.config.output_path);
-                return Err(BounceError::RenderError(
-                    "Bounce cancelled by user".to_string(),
-                ));
-            }
-
-            let remaining = total_frames - frames_rendered;
-            let chunk_frames = remaining.min(OFFLINE_BUFFER_FRAMES);
-            let chunk_samples = chunk_frames * OFFLINE_CHANNELS;
-
-            // Clear the interleaved buffer
-            interleaved_buf[..chunk_samples].fill(0.0);
-
-            // Render one buffer through the full pipeline
-            render_ctx.render(
-                &mut interleaved_buf[..chunk_samples],
-                &clips_per_track,
-                clip_pool,
-            );
-
-            // De-interleave: [L, R, L, R, ...] → separate L/R channels
-            for i in 0..chunk_frames {
-                let base = i * OFFLINE_CHANNELS;
-                output_left.push(interleaved_buf[base]);
-                output_right.push(if base + 1 < chunk_samples {
-                    interleaved_buf[base + 1]
-                } else {
-                    0.0
-                });
-            }
-
-            frames_rendered += chunk_frames;
-
-            // Report progress (throttled to avoid excessive callbacks)
-            let progress = frames_rendered as f32 / total_frames as f32;
-            if progress - last_progress >= 0.01 {
-                progress_callback(progress.min(1.0));
-                last_progress = progress;
-            }
-        }
-
-        // ── Normalize if requested ──────────────────────────────
-        if self.config.normalize {
-            let peak = output_left
-                .iter()
-                .chain(output_right.iter())
-                .map(|s| s.abs())
-                .fold(0.0f32, f32::max);
-
-            if peak > 0.0 && peak != 1.0 {
-                let gain = 1.0 / peak;
-                info!(
-                    "[Bounce] Normalizing: peak={:.4}, gain={:.4}dB",
-                    peak,
-                    20.0 * gain.log10()
-                );
-                for s in output_left.iter_mut() {
-                    *s *= gain;
-                }
-                for s in output_right.iter_mut() {
-                    *s *= gain;
-                }
-            }
-        }
-
-        // ── Write output file ────────────────────────────────────
         let is_mp3 = self.config.format.eq_ignore_ascii_case("mp3");
 
         if is_mp3 {
-            info!(
-                "[Bounce] Writing MP3: {} frames, {}",
-                output_left.len(),
-                self.config.output_path
-            );
+            // MP3 path: streaming encode to avoid full-render RAM growth.
+            let mut render_ctx = self.create_render_ctx(project, loop_region, sample_rate);
 
-            Mp3Writer::write_channels(
-                &self.config.output_path,
-                &[&output_left, &output_right],
-                self.config.sample_rate,
-            )
-            .map_err(|e| BounceError::WriteError(e.to_string()))?;
+            let mut interleaved_buf = vec![0.0f32; OFFLINE_BUFFER_FRAMES * OFFLINE_CHANNELS];
+            let mut frames_rendered = 0usize;
+            let mut last_progress = -1.0f32;
+
+            let gain = if self.config.normalize {
+                let mut peak = 0.0f32;
+                while frames_rendered < total_frames {
+                    if self.cancel_flag.load(Ordering::SeqCst) {
+                        let _ = std::fs::remove_file(&self.config.output_path);
+                        return Err(BounceError::RenderError(
+                            "Bounce cancelled by user".to_string(),
+                        ));
+                    }
+
+                    let remaining = total_frames - frames_rendered;
+                    let chunk_frames = remaining.min(OFFLINE_BUFFER_FRAMES);
+                    let chunk_samples = chunk_frames * OFFLINE_CHANNELS;
+                    interleaved_buf[..chunk_samples].fill(0.0);
+
+                    render_ctx.render(
+                        &mut interleaved_buf[..chunk_samples],
+                        &clips_per_track,
+                        clip_pool,
+                    );
+
+                    for &s in &interleaved_buf[..chunk_samples] {
+                        peak = peak.max(s.abs());
+                    }
+
+                    frames_rendered += chunk_frames;
+                    let progress = 0.5 * (frames_rendered as f32 / total_frames as f32);
+                    if progress - last_progress >= 0.01 {
+                        progress_callback(progress.min(1.0));
+                        last_progress = progress;
+                    }
+                }
+
+                if peak > 0.0 && peak != 1.0 {
+                    let g = 1.0 / peak;
+                    info!(
+                        "[Bounce] Normalizing MP3 path: peak={:.4}, gain={:.4}dB",
+                        peak,
+                        20.0 * g.log10()
+                    );
+                    g
+                } else {
+                    1.0
+                }
+            } else {
+                1.0
+            };
+
+            // Recreate render context for encode pass when normalization scanned first.
+            let mut render_ctx = self.create_render_ctx(project, loop_region, sample_rate);
+            frames_rendered = 0;
+            last_progress = -1.0;
+            let mut mp3_writer =
+                Mp3Writer::create_streaming(&self.config.output_path, self.config.sample_rate)
+                    .map_err(|e| BounceError::WriteError(e.to_string()))?;
+
+            while frames_rendered < total_frames {
+                if self.cancel_flag.load(Ordering::SeqCst) {
+                    let _ = std::fs::remove_file(&self.config.output_path);
+                    return Err(BounceError::RenderError(
+                        "Bounce cancelled by user".to_string(),
+                    ));
+                }
+
+                let remaining = total_frames - frames_rendered;
+                let chunk_frames = remaining.min(OFFLINE_BUFFER_FRAMES);
+                let chunk_samples = chunk_frames * OFFLINE_CHANNELS;
+                interleaved_buf[..chunk_samples].fill(0.0);
+
+                render_ctx.render(
+                    &mut interleaved_buf[..chunk_samples],
+                    &clips_per_track,
+                    clip_pool,
+                );
+
+                let mut left = Vec::with_capacity(chunk_frames);
+                let mut right = Vec::with_capacity(chunk_frames);
+                for i in 0..chunk_frames {
+                    let base = i * OFFLINE_CHANNELS;
+                    let l = interleaved_buf[base] * gain;
+                    let r = interleaved_buf[base + 1] * gain;
+                    left.push(l);
+                    right.push(r);
+                }
+
+                mp3_writer
+                    .write_chunk(&left, &right)
+                    .map_err(|e| BounceError::WriteError(e.to_string()))?;
+
+                frames_rendered += chunk_frames;
+                let progress = if self.config.normalize {
+                    0.5 + 0.5 * (frames_rendered as f32 / total_frames as f32)
+                } else {
+                    frames_rendered as f32 / total_frames as f32
+                };
+                if progress - last_progress >= 0.01 {
+                    progress_callback(progress.min(1.0));
+                    last_progress = progress;
+                }
+            }
+
+            mp3_writer
+                .finalize()
+                .map_err(|e| BounceError::WriteError(e.to_string()))?;
         } else {
             info!(
-                "[Bounce] Writing WAV: {} frames, {}-bit, {}",
-                output_left.len(),
-                self.config.bit_depth,
-                self.config.output_path
+                "[Bounce] Writing WAV (streaming): {}-bit, {}",
+                self.config.bit_depth, self.config.output_path
             );
 
-            WavWriter::write_channels(
+            let mut interleaved_buf = vec![0.0f32; OFFLINE_BUFFER_FRAMES * OFFLINE_CHANNELS];
+
+            let gain = if self.config.normalize {
+                // Pass 1: peak scan.
+                let mut render_ctx = self.create_render_ctx(project, loop_region, sample_rate);
+                let mut frames_rendered = 0usize;
+                let mut peak = 0.0f32;
+                let mut last_progress = -1.0f32;
+
+                while frames_rendered < total_frames {
+                    if self.cancel_flag.load(Ordering::SeqCst) {
+                        let _ = std::fs::remove_file(&self.config.output_path);
+                        return Err(BounceError::RenderError(
+                            "Bounce cancelled by user".to_string(),
+                        ));
+                    }
+                    let remaining = total_frames - frames_rendered;
+                    let chunk_frames = remaining.min(OFFLINE_BUFFER_FRAMES);
+                    let chunk_samples = chunk_frames * OFFLINE_CHANNELS;
+                    interleaved_buf[..chunk_samples].fill(0.0);
+
+                    render_ctx.render(
+                        &mut interleaved_buf[..chunk_samples],
+                        &clips_per_track,
+                        clip_pool,
+                    );
+                    for &s in &interleaved_buf[..chunk_samples] {
+                        peak = peak.max(s.abs());
+                    }
+
+                    frames_rendered += chunk_frames;
+                    let progress = 0.5 * (frames_rendered as f32 / total_frames as f32);
+                    if progress - last_progress >= 0.01 {
+                        progress_callback(progress.min(1.0));
+                        last_progress = progress;
+                    }
+                }
+
+                if peak > 0.0 && peak != 1.0 {
+                    let g = 1.0 / peak;
+                    info!(
+                        "[Bounce] Normalizing WAV path: peak={:.4}, gain={:.4}dB",
+                        peak,
+                        20.0 * g.log10()
+                    );
+                    g
+                } else {
+                    1.0
+                }
+            } else {
+                1.0
+            };
+
+            // Pass 2 (or only pass when normalize=false): render + stream-write.
+            let mut render_ctx = self.create_render_ctx(project, loop_region, sample_rate);
+            let mut writer = WavWriter::create_streaming(
                 &self.config.output_path,
-                &[&output_left, &output_right],
                 self.config.sample_rate,
+                OFFLINE_CHANNELS as u16,
                 self.config.bit_depth,
             )
             .map_err(|e| BounceError::WriteError(e.to_string()))?;
+
+            let mut frames_rendered = 0usize;
+            let mut last_progress = -1.0f32;
+            while frames_rendered < total_frames {
+                if self.cancel_flag.load(Ordering::SeqCst) {
+                    let _ = std::fs::remove_file(&self.config.output_path);
+                    return Err(BounceError::RenderError(
+                        "Bounce cancelled by user".to_string(),
+                    ));
+                }
+
+                let remaining = total_frames - frames_rendered;
+                let chunk_frames = remaining.min(OFFLINE_BUFFER_FRAMES);
+                let chunk_samples = chunk_frames * OFFLINE_CHANNELS;
+                interleaved_buf[..chunk_samples].fill(0.0);
+
+                render_ctx.render(
+                    &mut interleaved_buf[..chunk_samples],
+                    &clips_per_track,
+                    clip_pool,
+                );
+
+                if gain != 1.0 {
+                    for s in &mut interleaved_buf[..chunk_samples] {
+                        *s *= gain;
+                    }
+                }
+
+                writer
+                    .write_interleaved_chunk(&interleaved_buf[..chunk_samples])
+                    .map_err(|e| BounceError::WriteError(e.to_string()))?;
+
+                frames_rendered += chunk_frames;
+                let progress = if self.config.normalize {
+                    0.5 + 0.5 * (frames_rendered as f32 / total_frames as f32)
+                } else {
+                    frames_rendered as f32 / total_frames as f32
+                };
+                if progress - last_progress >= 0.01 {
+                    progress_callback(progress.min(1.0));
+                    last_progress = progress;
+                }
+            }
+
+            writer
+                .finalize()
+                .map_err(|e| BounceError::WriteError(e.to_string()))?;
         }
 
         // Final progress
@@ -350,7 +464,7 @@ impl OfflineBouncer {
             "[Bounce] Complete: {} [{}] ({:.1}s @ {}Hz)",
             self.config.output_path,
             self.config.format,
-            output_left.len() as f64 / sample_rate,
+            total_frames as f64 / sample_rate,
             self.config.sample_rate
         );
 

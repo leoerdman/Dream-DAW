@@ -106,7 +106,10 @@ impl SpatialHashGrid {
         }
 
         let start_bin = Self::bin_index(entry.start_sample, self.bin_size);
-        let end_bin = Self::bin_index((entry.end_sample - 1).max(entry.start_sample), self.bin_size);
+        let end_bin = Self::bin_index(
+            (entry.end_sample - 1).max(entry.start_sample),
+            self.bin_size,
+        );
 
         for b in start_bin..=end_bin {
             bins.entry(b).or_default().insert(entry.clip_id);
@@ -144,7 +147,8 @@ impl SpatialHashGrid {
 
         for clip in clips {
             let start_bin = Self::bin_index(clip.start_sample, self.bin_size);
-            let end_bin = Self::bin_index((clip.end_sample - 1).max(clip.start_sample), self.bin_size);
+            let end_bin =
+                Self::bin_index((clip.end_sample - 1).max(clip.start_sample), self.bin_size);
 
             for b in start_bin..=end_bin {
                 bins.entry(b).or_default().insert(clip.clip_id);
@@ -272,11 +276,7 @@ impl SpatialHashGrid {
     }
 
     /// Remove a clip entry from all its bins (caller must hold write lock).
-    fn remove_from_bins(
-        bins: &mut HashMap<i64, HashSet<Uuid>>,
-        entry: &ClipEntry,
-        bin_size: i64,
-    ) {
+    fn remove_from_bins(bins: &mut HashMap<i64, HashSet<Uuid>>, entry: &ClipEntry, bin_size: i64) {
         let start_bin = Self::bin_index(entry.start_sample, bin_size);
         let end_bin = Self::bin_index((entry.end_sample - 1).max(entry.start_sample), bin_size);
 
@@ -432,8 +432,8 @@ mod tests {
 
         assert_eq!(grid.hit_test(25_000, 2), Some(id));
         assert_eq!(grid.hit_test(25_000, 0), None); // Wrong track
-        assert_eq!(grid.hit_test(5_000, 2), None);  // Before clip
-        assert_eq!(grid.hit_test(50_000, 2), None);  // At end (exclusive)
+        assert_eq!(grid.hit_test(5_000, 2), None); // Before clip
+        assert_eq!(grid.hit_test(50_000, 2), None); // At end (exclusive)
     }
 
     #[test]
@@ -469,9 +469,9 @@ mod tests {
         // Insert 10,000 clips across the timeline
         for i in 0..10_000 {
             let entry = make_entry(
-                i % 32,                              // 32 tracks
-                i as i64 * 22050,                    // Every 0.5s at 44.1kHz
-                i as i64 * 22050 + 44100,            // 1s each
+                i % 32,                   // 32 tracks
+                i as i64 * 22050,         // Every 0.5s at 44.1kHz
+                i as i64 * 22050 + 44100, // 1s each
             );
             ids.push(entry.clip_id);
             grid.insert(entry);

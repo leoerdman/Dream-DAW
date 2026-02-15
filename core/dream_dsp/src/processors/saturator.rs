@@ -32,7 +32,10 @@ struct OnePole {
 
 impl OnePole {
     fn new(cutoff: f32, sr: f32) -> Self {
-        Self { state: 0.0, coeff: Self::calc(cutoff, sr) }
+        Self {
+            state: 0.0,
+            coeff: Self::calc(cutoff, sr),
+        }
     }
     fn calc(cutoff: f32, sr: f32) -> f32 {
         (std::f32::consts::TAU * cutoff / sr).min(0.99)
@@ -45,7 +48,9 @@ impl OnePole {
     fn set_cutoff(&mut self, cutoff: f32, sr: f32) {
         self.coeff = Self::calc(cutoff, sr);
     }
-    fn reset(&mut self) { self.state = 0.0; }
+    fn reset(&mut self) {
+        self.state = 0.0;
+    }
 }
 
 pub struct SaturatorProcessor {
@@ -60,8 +65,10 @@ pub struct SaturatorProcessor {
     tone_l: OnePole,
     tone_r: OnePole,
     // DC blocker state
-    dc_x_l: f32, dc_y_l: f32,
-    dc_x_r: f32, dc_y_r: f32,
+    dc_x_l: f32,
+    dc_y_l: f32,
+    dc_x_r: f32,
+    dc_y_r: f32,
     // Pre-emphasis filter
     pre_state_l: f32,
     pre_state_r: f32,
@@ -83,8 +90,10 @@ impl SaturatorProcessor {
             color: 0.5,
             tone_l: OnePole::new(cutoff, sr),
             tone_r: OnePole::new(cutoff, sr),
-            dc_x_l: 0.0, dc_y_l: 0.0,
-            dc_x_r: 0.0, dc_y_r: 0.0,
+            dc_x_l: 0.0,
+            dc_y_l: 0.0,
+            dc_x_r: 0.0,
+            dc_y_r: 0.0,
             pre_state_l: 0.0,
             pre_state_r: 0.0,
             sample_rate: sr,
@@ -148,7 +157,9 @@ impl SaturatorProcessor {
 }
 
 impl Default for SaturatorProcessor {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DspProcessor for SaturatorProcessor {
@@ -200,7 +211,10 @@ impl DspProcessor for SaturatorProcessor {
 
     fn set_param(&mut self, index: u8, value: f32) {
         match index {
-            0 => { self.drive_db = value.clamp(0.0, 36.0); self.drive_lin = 10.0_f32.powf(self.drive_db / 20.0); }
+            0 => {
+                self.drive_db = value.clamp(0.0, 36.0);
+                self.drive_lin = 10.0_f32.powf(self.drive_db / 20.0);
+            }
             1 => {
                 self.tone_pct = value.clamp(0.0, 100.0);
                 let cutoff = Self::tone_to_cutoff(self.tone_pct);
@@ -209,7 +223,10 @@ impl DspProcessor for SaturatorProcessor {
             }
             2 => self.mix = (value / 100.0).clamp(0.0, 1.0),
             3 => self.mode = (value as u8).min(4),
-            4 => { self.output_db = value.clamp(-24.0, 6.0); self.output_lin = 10.0_f32.powf(self.output_db / 20.0); }
+            4 => {
+                self.output_db = value.clamp(-24.0, 6.0);
+                self.output_lin = 10.0_f32.powf(self.output_db / 20.0);
+            }
             5 => self.color = (value / 100.0).clamp(0.0, 1.0),
             _ => {}
         }
@@ -218,8 +235,10 @@ impl DspProcessor for SaturatorProcessor {
     fn reset(&mut self) {
         self.tone_l.reset();
         self.tone_r.reset();
-        self.dc_x_l = 0.0; self.dc_y_l = 0.0;
-        self.dc_x_r = 0.0; self.dc_y_r = 0.0;
+        self.dc_x_l = 0.0;
+        self.dc_y_l = 0.0;
+        self.dc_x_r = 0.0;
+        self.dc_y_r = 0.0;
         self.pre_state_l = 0.0;
         self.pre_state_r = 0.0;
     }
@@ -237,7 +256,9 @@ mod tests {
         let mut l = vec![1.0f32; 256];
         let mut r = vec![1.0f32; 256];
         proc.process_stereo(&mut l, &mut r, 44100.0);
-        for s in &l { assert!(s.abs() <= 1.5, "Sat too hot: {s}"); }
+        for s in &l {
+            assert!(s.abs() <= 1.5, "Sat too hot: {s}");
+        }
     }
 
     #[test]
@@ -252,7 +273,10 @@ mod tests {
         proc.process_stereo(&mut l, &mut r, 44100.0);
         // With pre-emphasis and DC blocking, value may differ more from pure tanh(0.3)
         let tail_avg: f32 = l[512..].iter().sum::<f32>() / 512.0;
-        assert!(tail_avg > 0.0 && tail_avg < 0.5, "Expected small positive, got: {tail_avg}");
+        assert!(
+            tail_avg > 0.0 && tail_avg < 0.5,
+            "Expected small positive, got: {tail_avg}"
+        );
     }
 
     #[test]

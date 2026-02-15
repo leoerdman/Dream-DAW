@@ -496,6 +496,45 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 return;
             }
 
+            // ── B: Bounce selected clips/area to new track ──────────
+            if (e.key.toLowerCase() === 'b' && !isModKey(e) && !e.shiftKey && !e.altKey) {
+                if (inPianoRoll || inDeviceRack) return;
+                e.preventDefault();
+                e.stopPropagation();
+
+                const targets = selectedClipIds.length > 0
+                    ? selectedClipIds
+                    : (selectedClipId ? [selectedClipId] : []);
+
+                try {
+                    if (targets.length > 0) {
+                        await engine.bounceSelectionToTrack({ clipIds: targets });
+                        onProjectMutated();
+                        return;
+                    }
+
+                    if (!marqueeSelection) return;
+                    const store = useEngineStore.getState();
+                    const bpm = store.projectBpm || store.transport.bpm || 120;
+                    const sr = store.projectSampleRate || store.transport.sample_rate || 44100;
+                    const beatsToFrames = (beat: number) => Math.round((beat * 60 * sr) / bpm);
+                    const startBeat = Math.min(marqueeSelection.startBeat, marqueeSelection.endBeat);
+                    const endBeat = Math.max(marqueeSelection.startBeat, marqueeSelection.endBeat);
+                    if (endBeat - startBeat <= 1e-6) return;
+
+                    await engine.bounceSelectionToTrack({
+                        rangeStartFrames: Math.max(0, beatsToFrames(startBeat)),
+                        rangeEndFrames: Math.max(1, beatsToFrames(endBeat)),
+                        startTrackIndex: Math.min(marqueeSelection.startTrack, marqueeSelection.endTrack),
+                        endTrackIndex: Math.max(marqueeSelection.startTrack, marqueeSelection.endTrack),
+                    });
+                    onProjectMutated();
+                } catch (err) {
+                    console.error('[Shortcuts] Bounce selection failed:', err);
+                }
+                return;
+            }
+
             // ── Cmd/Ctrl + L: Loop Selection ─────────────────────────
             // Selects the bounding box of all selected clips and sets
             // the loop region to it. Pressing again toggles off.

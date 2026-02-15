@@ -101,7 +101,9 @@ impl BitcrusherProcessor {
 }
 
 impl Default for BitcrusherProcessor {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DspProcessor for BitcrusherProcessor {
@@ -125,29 +127,47 @@ impl DspProcessor for BitcrusherProcessor {
             // Jitter offset
             let jitter_offset = if self.jitter > 0.001 {
                 self.next_random() * jitter_range
-            } else { 0.0 };
+            } else {
+                0.0
+            };
 
             // S&H (left channel)
             self.counter_l += 1.0;
             if self.counter_l >= step + jitter_offset {
                 self.counter_l = 0.0;
-                let d = if dither_amt > 0.0001 { self.next_random() * dither_amt } else { 0.0 };
+                let d = if dither_amt > 0.0001 {
+                    self.next_random() * dither_amt
+                } else {
+                    0.0
+                };
                 self.hold_l = Self::quantize(pre_l, levels, d);
             }
 
             // S&H (right channel — linked or independent)
             if self.stereo_mode {
                 self.counter_r += 1.0;
-                let j2 = if self.jitter > 0.001 { self.next_random() * jitter_range } else { 0.0 };
+                let j2 = if self.jitter > 0.001 {
+                    self.next_random() * jitter_range
+                } else {
+                    0.0
+                };
                 if self.counter_r >= step + j2 {
                     self.counter_r = 0.0;
-                    let d = if dither_amt > 0.0001 { self.next_random() * dither_amt } else { 0.0 };
+                    let d = if dither_amt > 0.0001 {
+                        self.next_random() * dither_amt
+                    } else {
+                        0.0
+                    };
                     self.hold_r = Self::quantize(pre_r, levels, d);
                 }
             } else {
                 // Linked: same timing as L
                 if self.counter_l == 0.0 {
-                    let d = if dither_amt > 0.0001 { self.next_random() * dither_amt } else { 0.0 };
+                    let d = if dither_amt > 0.0001 {
+                        self.next_random() * dither_amt
+                    } else {
+                        0.0
+                    };
                     self.hold_r = Self::quantize(pre_r, levels, d);
                 }
             }
@@ -167,8 +187,14 @@ impl DspProcessor for BitcrusherProcessor {
             1 => self.downsample = value.clamp(1.0, 64.0),
             2 => self.mix = (value / 100.0).clamp(0.0, 1.0),
             3 => self.jitter = (value / 100.0).clamp(0.0, 1.0),
-            4 => { self.pre_freq = value.clamp(200.0, 20000.0); self.update_filters(); }
-            5 => { self.post_freq = value.clamp(200.0, 20000.0); self.update_filters(); }
+            4 => {
+                self.pre_freq = value.clamp(200.0, 20000.0);
+                self.update_filters();
+            }
+            5 => {
+                self.post_freq = value.clamp(200.0, 20000.0);
+                self.update_filters();
+            }
             6 => self.stereo_mode = value > 0.5,
             7 => self.dither = (value / 100.0).clamp(0.0, 1.0),
             _ => {}
@@ -203,7 +229,11 @@ mod tests {
         let mut right = left.clone();
         proc.process_stereo(&mut left, &mut right, sr);
         let unique: std::collections::HashSet<u32> = left.iter().map(|s| s.to_bits()).collect();
-        assert!(unique.len() < 200, "4-bit should step: got {}", unique.len());
+        assert!(
+            unique.len() < 200,
+            "4-bit should step: got {}",
+            unique.len()
+        );
     }
 
     #[test]
@@ -216,7 +246,11 @@ mod tests {
         let mut right = left.clone();
         proc.process_stereo(&mut left, &mut right, 44100.0);
         let mut runs = 0;
-        for w in left.windows(2) { if w[0] == w[1] { runs += 1; } }
+        for w in left.windows(2) {
+            if w[0] == w[1] {
+                runs += 1;
+            }
+        }
         assert!(runs > 200, "Runs: {runs}");
     }
 

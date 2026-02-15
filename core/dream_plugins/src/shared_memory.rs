@@ -86,7 +86,11 @@ impl SharedAudioBufferRegion {
         Ok(Self { path, layout, mmap })
     }
 
-    pub fn write_output_channel(&mut self, output_index: usize, samples: &[f32]) -> Result<(), String> {
+    pub fn write_output_channel(
+        &mut self,
+        output_index: usize,
+        samples: &[f32],
+    ) -> Result<(), String> {
         if output_index >= self.layout.num_outputs as usize {
             return Err(format!("output channel out of range: {}", output_index));
         }
@@ -108,7 +112,11 @@ impl SharedAudioBufferRegion {
         Ok(())
     }
 
-    pub fn write_input_channel(&mut self, input_index: usize, samples: &[f32]) -> Result<(), String> {
+    pub fn write_input_channel(
+        &mut self,
+        input_index: usize,
+        samples: &[f32],
+    ) -> Result<(), String> {
         if input_index >= self.layout.num_inputs as usize {
             return Err(format!("input channel out of range: {}", input_index));
         }
@@ -141,7 +149,9 @@ impl SharedAudioBufferRegion {
         if num_frames > self.layout.max_frames as usize || num_frames > out.len() {
             return Err(format!(
                 "requested frames out of bounds: requested={} max={} out_len={}",
-                num_frames, self.layout.max_frames, out.len()
+                num_frames,
+                self.layout.max_frames,
+                out.len()
             ));
         }
         let base = self.layout.output_offset(output_index);
@@ -209,7 +219,9 @@ impl SharedAudioBufferRegion {
     }
 
     pub fn flush(&mut self) -> Result<(), String> {
-        self.mmap.flush().map_err(|e| format!("flush shared mmap: {e}"))
+        self.mmap
+            .flush()
+            .map_err(|e| format!("flush shared mmap: {e}"))
     }
 
     pub fn path_ref(&self) -> &Path {

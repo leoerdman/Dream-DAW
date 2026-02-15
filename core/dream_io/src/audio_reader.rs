@@ -121,9 +121,8 @@ impl AudioReader {
     /// Call from a worker thread, not the audio callback.
     pub fn read(path: impl AsRef<Path>) -> Result<AudioBuffer, AudioReaderError> {
         let path = path.as_ref();
-        let file = File::open(path).map_err(|e| {
-            AudioReaderError::FileNotFound(format!("{}: {e}", path.display()))
-        })?;
+        let file = File::open(path)
+            .map_err(|e| AudioReaderError::FileNotFound(format!("{}: {e}", path.display())))?;
 
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
@@ -140,9 +139,7 @@ impl AudioReader {
                 &FormatOptions::default(),
                 &MetadataOptions::default(),
             )
-            .map_err(|e| {
-                AudioReaderError::UnsupportedFormat(format!("{}: {e}", path.display()))
-            })?;
+            .map_err(|e| AudioReaderError::UnsupportedFormat(format!("{}: {e}", path.display())))?;
 
         let mut format_reader = probed.format;
 
@@ -150,9 +147,7 @@ impl AudioReader {
         let track = format_reader
             .tracks()
             .iter()
-            .find(|t| {
-                t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL
-            })
+            .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)
             .ok_or(AudioReaderError::NoAudioTrack)?;
 
         let track_id = track.id;
@@ -162,10 +157,7 @@ impl AudioReader {
             .sample_rate
             .ok_or_else(|| AudioReaderError::DecodeError("Unknown sample rate".into()))?;
 
-        let num_channels = codec_params
-            .channels
-            .map(|c| c.count())
-            .unwrap_or(2);
+        let num_channels = codec_params.channels.map(|c| c.count()).unwrap_or(2);
 
         // Create decoder
         let mut decoder = symphonia::default::get_codecs()
@@ -245,9 +237,8 @@ impl AudioReader {
         path: impl AsRef<Path>,
     ) -> Result<(u32, usize, Option<u64>), AudioReaderError> {
         let path = path.as_ref();
-        let file = File::open(path).map_err(|e| {
-            AudioReaderError::FileNotFound(format!("{}: {e}", path.display()))
-        })?;
+        let file = File::open(path)
+            .map_err(|e| AudioReaderError::FileNotFound(format!("{}: {e}", path.display())))?;
 
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
@@ -263,17 +254,13 @@ impl AudioReader {
                 &FormatOptions::default(),
                 &MetadataOptions::default(),
             )
-            .map_err(|e| {
-                AudioReaderError::UnsupportedFormat(format!("{}: {e}", path.display()))
-            })?;
+            .map_err(|e| AudioReaderError::UnsupportedFormat(format!("{}: {e}", path.display())))?;
 
         let track = probed
             .format
             .tracks()
             .iter()
-            .find(|t| {
-                t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL
-            })
+            .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)
             .ok_or(AudioReaderError::NoAudioTrack)?;
 
         let sample_rate = track
@@ -281,11 +268,7 @@ impl AudioReader {
             .sample_rate
             .ok_or_else(|| AudioReaderError::DecodeError("Unknown sample rate".into()))?;
 
-        let channels = track
-            .codec_params
-            .channels
-            .map(|c| c.count())
-            .unwrap_or(2);
+        let channels = track.codec_params.channels.map(|c| c.count()).unwrap_or(2);
 
         let num_frames = track.codec_params.n_frames;
 

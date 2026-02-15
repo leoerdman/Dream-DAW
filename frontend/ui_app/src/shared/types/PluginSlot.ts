@@ -31,6 +31,14 @@ latency_frames: number,
  */
 sidechain_source_track_id: string | null, 
 /**
+ * Whether the external plugin exposes a dedicated sidechain input bus.
+ */
+supports_sidechain_input: boolean | null, 
+/**
+ * Number of external plugin audio input channels as reported by scanner/descriptor.
+ */
+external_audio_inputs: number | null, 
+/**
  * External plugin format hint (`vst2`, `vst3`, `au`, ...).
  */
 external_format: string | null, 

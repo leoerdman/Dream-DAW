@@ -15,10 +15,12 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use std::path::Path;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::{Path, PathBuf};
 
 use log::info;
-use mp3lame_encoder::{Builder, Bitrate, Quality, DualPcm, FlushNoGap};
+use mp3lame_encoder::{Bitrate, Builder, DualPcm, FlushNoGap, Quality};
 
 // ── Error Type ──────────────────────────────────────────────────────────
 
@@ -59,10 +61,61 @@ impl std::error::Error for Mp3WriterError {}
 /// `OfflineBouncer`, substituting the WAV backend with LAME MP3 encoding.
 pub struct Mp3Writer;
 
+/// Incremental MP3 writer for large offline renders.
+pub struct StreamingMp3Writer {
+    encoder: mp3lame_encoder::Encoder,
+    writer: BufWriter<File>,
+    path: PathBuf,
+    sample_rate: u32,
+    frames_written: usize,
+}
+
 /// Chunk size for feeding the encoder (frames per iteration).
 const ENCODE_CHUNK_FRAMES: usize = 4096;
 
 impl Mp3Writer {
+    /// Creates a streaming MP3 writer.
+    pub fn create_streaming(
+        path: impl AsRef<Path>,
+        sample_rate: u32,
+    ) -> Result<StreamingMp3Writer, Mp3WriterError> {
+        let mut mp3_encoder = Builder::new().ok_or_else(|| {
+            Mp3WriterError::EncoderInit("Failed to create LAME builder".to_string())
+        })?;
+
+        mp3_encoder
+            .set_num_channels(2)
+            .map_err(|e| Mp3WriterError::EncoderInit(format!("set_num_channels: {e:?}")))?;
+
+        mp3_encoder
+            .set_sample_rate(sample_rate)
+            .map_err(|e| Mp3WriterError::EncoderInit(format!("set_sample_rate: {e:?}")))?;
+
+        mp3_encoder
+            .set_brate(Bitrate::Kbps320)
+            .map_err(|e| Mp3WriterError::EncoderInit(format!("set_brate: {e:?}")))?;
+
+        mp3_encoder
+            .set_quality(Quality::Best)
+            .map_err(|e| Mp3WriterError::EncoderInit(format!("set_quality: {e:?}")))?;
+
+        let encoder = mp3_encoder.build().map_err(|e| {
+            Mp3WriterError::EncoderInit(format!("Failed to build LAME encoder: {e:?}"))
+        })?;
+
+        let path_buf = path.as_ref().to_path_buf();
+        let file = File::create(&path_buf)
+            .map_err(|e| Mp3WriterError::WriteError(format!("Failed to create MP3 file: {e}")))?;
+
+        Ok(StreamingMp3Writer {
+            encoder,
+            writer: BufWriter::new(file),
+            path: path_buf,
+            sample_rate,
+            frames_written: 0,
+        })
+    }
+
     /// Writes de-interleaved f32 channel data to an MP3 file.
     ///
     /// # Arguments
@@ -100,9 +153,7 @@ impl Mp3Writer {
 
         let total_frames = left.len();
         if total_frames == 0 {
-            return Err(Mp3WriterError::InvalidData(
-                "Empty audio data".to_string(),
-            ));
+            return Err(Mp3WriterError::InvalidData("Empty audio data".to_string()));
         }
 
         info!(
@@ -112,87 +163,72 @@ impl Mp3Writer {
             path.as_ref().display()
         );
 
-        // ── Initialize LAME encoder ─────────────────────────────────
-        let mut mp3_encoder = Builder::new().ok_or_else(|| {
-            Mp3WriterError::EncoderInit("Failed to create LAME builder".to_string())
-        })?;
-
-        mp3_encoder
-            .set_num_channels(2)
-            .map_err(|e| Mp3WriterError::EncoderInit(format!("set_num_channels: {e:?}")))?;
-
-        mp3_encoder
-            .set_sample_rate(sample_rate)
-            .map_err(|e| Mp3WriterError::EncoderInit(format!("set_sample_rate: {e:?}")))?;
-
-        mp3_encoder
-            .set_brate(Bitrate::Kbps320)
-            .map_err(|e| Mp3WriterError::EncoderInit(format!("set_brate: {e:?}")))?;
-
-        mp3_encoder
-            .set_quality(Quality::Best)
-            .map_err(|e| Mp3WriterError::EncoderInit(format!("set_quality: {e:?}")))?;
-
-        let mut encoder = mp3_encoder.build().map_err(|e| {
-            Mp3WriterError::EncoderInit(format!("Failed to build LAME encoder: {e:?}"))
-        })?;
-
-        // ── Encode in chunks ────────────────────────────────────────
-        let mut mp3_buffer: Vec<u8> = Vec::with_capacity(total_frames * 2); // rough estimate
-        let mut offset = 0;
-
+        let mut stream = Self::create_streaming(path, sample_rate)?;
+        let mut offset = 0usize;
         while offset < total_frames {
             let chunk_end = (offset + ENCODE_CHUNK_FRAMES).min(total_frames);
-            let left_chunk = &left[offset..chunk_end];
-            let right_chunk = &right[offset..chunk_end];
-
-            let input = DualPcm {
-                left: left_chunk,
-                right: right_chunk,
-            };
-
-            // Ensure enough capacity for this chunk
-            let required = mp3lame_encoder::max_required_buffer_size(left_chunk.len());
-            mp3_buffer.reserve(required);
-
-            let encoded_size = encoder
-                .encode(input, mp3_buffer.spare_capacity_mut())
-                .map_err(|e| Mp3WriterError::EncodeError(format!("encode chunk: {e:?}")))?;
-
-            unsafe {
-                mp3_buffer.set_len(mp3_buffer.len().wrapping_add(encoded_size));
-            }
-
+            stream.write_chunk(&left[offset..chunk_end], &right[offset..chunk_end])?;
             offset = chunk_end;
         }
+        stream.finalize()
+    }
+}
 
-        // ── Flush remaining encoder data ────────────────────────────
-        let flush_required = mp3lame_encoder::max_required_buffer_size(0);
-        mp3_buffer.reserve(flush_required);
-
-        let flush_size = encoder
-            .flush::<FlushNoGap>(mp3_buffer.spare_capacity_mut())
-            .map_err(|e| Mp3WriterError::EncodeError(format!("flush: {e:?}")))?;
-
-        unsafe {
-            mp3_buffer.set_len(mp3_buffer.len().wrapping_add(flush_size));
+impl StreamingMp3Writer {
+    /// Encodes one stereo chunk.
+    pub fn write_chunk(&mut self, left: &[f32], right: &[f32]) -> Result<(), Mp3WriterError> {
+        if left.len() != right.len() {
+            return Err(Mp3WriterError::InvalidData(
+                "Left and right chunk lengths do not match".to_string(),
+            ));
+        }
+        if left.is_empty() {
+            return Ok(());
         }
 
-        // ── Write to disk ────────────────────────────────────────────
-        std::fs::write(path.as_ref(), &mp3_buffer).map_err(|e| {
-            Mp3WriterError::WriteError(format!(
-                "Failed to write {}: {e}",
-                path.as_ref().display()
-            ))
-        })?;
+        let input = DualPcm { left, right };
+        let required = mp3lame_encoder::max_required_buffer_size(left.len());
+        let mut out: Vec<u8> = Vec::with_capacity(required);
+        let encoded_size = self
+            .encoder
+            .encode(input, out.spare_capacity_mut())
+            .map_err(|e| Mp3WriterError::EncodeError(format!("encode chunk: {e:?}")))?;
+
+        unsafe {
+            out.set_len(encoded_size);
+        }
+
+        self.writer
+            .write_all(&out)
+            .map_err(|e| Mp3WriterError::WriteError(format!("write chunk: {e}")))?;
+        self.frames_written += left.len();
+        Ok(())
+    }
+
+    /// Flushes encoder and finalizes file.
+    pub fn finalize(mut self) -> Result<(), Mp3WriterError> {
+        let required = mp3lame_encoder::max_required_buffer_size(0);
+        let mut out: Vec<u8> = Vec::with_capacity(required);
+        let flush_size = self
+            .encoder
+            .flush::<FlushNoGap>(out.spare_capacity_mut())
+            .map_err(|e| Mp3WriterError::EncodeError(format!("flush: {e:?}")))?;
+        unsafe {
+            out.set_len(flush_size);
+        }
+        self.writer
+            .write_all(&out)
+            .map_err(|e| Mp3WriterError::WriteError(format!("write flush: {e}")))?;
+        self.writer
+            .flush()
+            .map_err(|e| Mp3WriterError::WriteError(format!("flush file: {e}")))?;
 
         info!(
-            "[Mp3Writer] Complete: {} bytes written ({:.1}s @ {}Hz)",
-            mp3_buffer.len(),
-            total_frames as f64 / sample_rate as f64,
-            sample_rate
+            "[Mp3Writer] Complete(stream): {} ({:.1}s @ {}Hz)",
+            self.path.display(),
+            self.frames_written as f64 / self.sample_rate as f64,
+            self.sample_rate
         );
-
         Ok(())
     }
 }
@@ -218,11 +254,7 @@ mod tests {
         let left = sine_samples(440.0, 44100.0, 0.5);
         let right = sine_samples(880.0, 44100.0, 0.5);
 
-        let result = Mp3Writer::write_channels(
-            &out_path,
-            &[&left, &right],
-            44100,
-        );
+        let result = Mp3Writer::write_channels(&out_path, &[&left, &right], 44100);
 
         assert!(result.is_ok(), "MP3 write failed: {:?}", result.err());
         assert!(out_path.exists(), "MP3 file not created");
@@ -238,11 +270,7 @@ mod tests {
         let out_path = std::env::temp_dir().join("dream_mp3_mono_test.mp3");
         let mono = sine_samples(440.0, 48000.0, 0.2);
 
-        let result = Mp3Writer::write_channels(
-            &out_path,
-            &[&mono],
-            48000,
-        );
+        let result = Mp3Writer::write_channels(&out_path, &[&mono], 48000);
 
         assert!(result.is_ok(), "Mono MP3 write failed: {:?}", result.err());
         assert!(out_path.exists());
@@ -253,11 +281,7 @@ mod tests {
     #[test]
     fn empty_channels_returns_error() {
         let out_path = std::env::temp_dir().join("dream_mp3_empty_test.mp3");
-        let result = Mp3Writer::write_channels(
-            &out_path,
-            &[],
-            44100,
-        );
+        let result = Mp3Writer::write_channels(&out_path, &[], 44100);
         assert!(matches!(result, Err(Mp3WriterError::InvalidData(_))));
     }
 
@@ -267,11 +291,7 @@ mod tests {
         let right = vec![0.0f32; 200];
         let out_path = std::env::temp_dir().join("dream_mp3_mismatch_test.mp3");
 
-        let result = Mp3Writer::write_channels(
-            &out_path,
-            &[&left, &right],
-            44100,
-        );
+        let result = Mp3Writer::write_channels(&out_path, &[&left, &right], 44100);
         assert!(matches!(result, Err(Mp3WriterError::InvalidData(_))));
     }
 }

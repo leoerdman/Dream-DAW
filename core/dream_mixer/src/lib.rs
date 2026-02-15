@@ -15,16 +15,16 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-pub mod gain;
-pub mod pan;
-pub mod meter;
 pub mod bus;
 pub mod channel_strip;
+pub mod gain;
+pub mod meter;
+pub mod pan;
 pub mod solo;
 
-pub use gain::{db_to_linear, linear_to_db, apply_gain, apply_gain_ramp};
-pub use pan::{PanLaw, apply_pan};
-pub use meter::VuMeter;
 pub use bus::SummingBus;
 pub use channel_strip::ChannelStrip;
-pub use solo::{SoloResolver, ResolvedTrack, TrackFlags};
+pub use gain::{apply_gain, apply_gain_ramp, db_to_linear, linear_to_db};
+pub use meter::VuMeter;
+pub use pan::{PanLaw, apply_pan};
+pub use solo::{ResolvedTrack, SoloResolver, TrackFlags};

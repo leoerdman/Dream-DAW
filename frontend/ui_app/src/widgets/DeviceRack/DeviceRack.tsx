@@ -70,6 +70,7 @@ interface DeviceSlot {
     samplePath?: string;
     supportsSidechain?: boolean;
     sidechainSourceTrackId?: string | null;
+    guiMode?: string;
 }
 
 const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<
@@ -333,14 +334,13 @@ export const DeviceRack = ({
     const [pluginCapability, setPluginCapability] = useState<
         Record<string, { supported: boolean; reason?: string }>
     >({});
-    const [externalParamsByPluginId, setExternalParamsByPluginId] = useState<Record<string, PluginParam[]>>({});
+    const externalParamsByPluginId = useMemo<Record<string, PluginParam[]>>(() => ({}), []);
     const [openGuiDevice, setOpenGuiDevice] = useState<DeviceSlot | null>(null);
     const [inlineSettingsOpen, setInlineSettingsOpen] = useState<Record<string, boolean>>({});
     const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
     const statusError = useStatusStore((s) => s.setError);
     const statusClear = useStatusStore((s) => s.clear);
     const throttledParamSendsRef = useRef<Map<string, (value: number) => void>>(new Map());
-    const externalParamPollInFlightRef = useRef(false);
     const projectTracks = useEngineStore((s) => s.projectTracks);
     const meters = useEngineStore((s) => s.meters);
     const fetchProject = useEngineStore((s) => s.fetchProject);
@@ -410,48 +410,31 @@ export const DeviceRack = ({
         ? masterProjectTrack
         : (trackIndex >= 0 ? projectTracks[trackIndex] : null);
     const dropTargetTrack = selectedTrack;
+    const dropTargetTrackRef = useRef<typeof dropTargetTrack>(dropTargetTrack);
+    const onDropPluginToTrackRef = useRef(onDropPluginToTrack);
+    const fetchProjectRef = useRef(fetchProject);
+    const statusClearRef = useRef(statusClear);
+    const statusErrorRef = useRef(statusError);
     const sidechainOptions = useMemo(
         () => projectTracks
             .filter((t) => t.id !== (selectedTrack?.id ?? ''))
             .map((t) => ({ id: t.id, name: t.name })),
         [projectTracks, selectedTrack?.id],
     );
-    const mapExternalParams = useCallback((params: engineApi.ExternalPluginParamInfo[]): PluginParam[] =>
-        params.map((p) => ({
-            name: p.name,
-            min: p.min,
-            max: p.max,
-            step: p.step,
-            suffix: '',
-            value: p.value,
-        })), []);
 
-    const refreshExternalPluginParams = useCallback(async (pluginId: string) => {
-        try {
-            const params = await engineApi.getExternalPluginParams(pluginId);
-            if (!params || params.length === 0) return;
-            const mapped = mapExternalParams(params);
-            setExternalParamsByPluginId((prev) => {
-                const current = prev[pluginId];
-                if (
-                    current
-                    && current.length === mapped.length
-                    && current.every((c, i) =>
-                        c.name === mapped[i].name
-                        && c.min === mapped[i].min
-                        && c.max === mapped[i].max
-                        && c.step === mapped[i].step
-                        && Math.abs(c.value - mapped[i].value) < 1e-6)
-                ) {
-                    return prev;
-                }
-                return { ...prev, [pluginId]: mapped };
-            });
-        } catch (err) {
-            console.warn('[DeviceRack] getExternalPluginParams failed:', err);
-        }
-    }, [mapExternalParams]);
+    useEffect(() => {
+        dropTargetTrackRef.current = dropTargetTrack;
+    }, [dropTargetTrack]);
 
+    useEffect(() => {
+        onDropPluginToTrackRef.current = onDropPluginToTrack;
+    }, [onDropPluginToTrack]);
+
+    useEffect(() => {
+        fetchProjectRef.current = fetchProject;
+        statusClearRef.current = statusClear;
+        statusErrorRef.current = statusError;
+    }, [fetchProject, statusClear, statusError]);
     const chain = useMemo((): DeviceSlot[] => {
         if (!selectedTrack) return [];
 
@@ -467,6 +450,7 @@ export const DeviceRack = ({
             is_bypassed?: boolean;
             external_parameter_count?: number;
             sidechain_source_track_id?: string | null;
+            supports_sidechain_input?: boolean | null;
             type?: string;
             rack_type?: string;
         };
@@ -516,19 +500,45 @@ export const DeviceRack = ({
             const internalDef = getInternalPluginById(pluginIdLower);
             if (internalDef?.id === 'internal://instrument/wave-synth') effectType = 'waveSynth';
             else if (normalized.includes('sampler')) effectType = 'sampler';
-            else if (normalized.includes('eq')) effectType = 'eq';
-            else if (normalized.includes('compressor')) effectType = 'compressor';
-            else if (normalized.includes('delay')) effectType = 'delay';
-            else if (normalized.includes('reverb')) effectType = 'reverb';
+            else if (
+                normalized.includes('eq')
+                || normalized.includes('channel eq')
+                || normalized.includes('band eq')
+            ) effectType = 'eq';
+            else if (
+                normalized.includes('compressor')
+                || normalized.includes('transient shaper')
+                || normalized.includes('multiband dynamics')
+            ) effectType = 'compressor';
+            else if (
+                normalized.includes('delay')
+                || normalized.includes('echo')
+                || normalized.includes('beat repeat')
+                || normalized.includes('looper')
+                || normalized.includes('spectral time')
+            ) effectType = 'delay';
+            else if (
+                normalized.includes('reverb')
+                || normalized.includes('corpus')
+                || normalized.includes('resonators')
+                || normalized.includes('spectral resonator')
+            ) effectType = 'reverb';
             else if (normalized.includes('chorus')) effectType = 'chorus';
-            else if (normalized.includes('saturator')) effectType = 'saturator';
+            else if (normalized.includes('saturator') || normalized.includes('drum buss') || normalized.includes('dynamic tube')) effectType = 'saturator';
             else if (normalized.includes('limiter')) effectType = 'limiter';
             else if (normalized.includes('gate')) effectType = 'gate';
             else if (normalized.includes('auto pan') || normalized.includes('auto-pan') || normalized.includes('autopan')) effectType = 'autoPan';
-            else if (normalized.includes('auto filter') || normalized.includes('auto-filter') || normalized.includes('autofilter')) effectType = 'autoFilter';
-            else if (normalized.includes('phaser')) effectType = 'phaser';
+            else if (normalized.includes('auto filter') || normalized.includes('auto-filter') || normalized.includes('autofilter') || normalized.includes('vocoder')) effectType = 'autoFilter';
+            else if (normalized.includes('phaser') || normalized.includes('phaser-flanger')) effectType = 'phaser';
             else if (normalized.includes('flanger')) effectType = 'flanger';
-            else if (normalized.includes('distortion')) effectType = 'distortion';
+            else if (
+                normalized.includes('distortion')
+                || normalized.includes('amp')
+                || normalized.includes('cabinet')
+                || normalized.includes('overdrive')
+                || normalized.includes('pedal')
+                || normalized.includes('roar')
+            ) effectType = 'distortion';
             else if (normalized.includes('bitcrusher') || normalized.includes('bit-crusher')) effectType = 'bitcrusher';
             else if (normalized.includes('noise-machine') || normalized.includes('noise machine') || normalized.includes('noisemachine')) effectType = 'noiseMachine';
             else if (normalized.includes('spectrum')) effectType = 'spectrum';
@@ -536,7 +546,12 @@ export const DeviceRack = ({
             else if (normalized.includes('internal://midi-fx/scale') || normalized.includes('midiscale')) effectType = 'midiScale';
             else if (normalized.includes('internal://midi-fx/velocity') || normalized.includes('midivelocity')) effectType = 'midiVelocity';
             else if (normalized.includes('internal://midi-fx/random') || normalized.includes('midirandom')) effectType = 'midiRandom';
+            else if (normalized.includes('arpeggiator')) effectType = 'midiRandom';
+            else if (normalized.includes('chord')) effectType = 'midiScale';
+            else if (normalized.includes('note length') || normalized.includes('cc control') || normalized.includes('expression control')) effectType = 'midiVelocity';
             else if (selectedTrack.instrument?.id === id && !isVst) effectType = 'instrument';
+
+            const guiMode = internalDef?.id || effectType;
 
             const defaultParams = (DEVICE_PARAM_PRESETS[effectType] ?? []).map((template) => {
                 const key = `${id}:${template.name}`;
@@ -596,8 +611,9 @@ export const DeviceRack = ({
                 pluginId,
                 isVst,
                 source: isInternal ? 'internal' : isVst ? 'vst' : 'unknown',
-                supportsSidechain: isVst && effectType === 'vst',
+                supportsSidechain: slot.supports_sidechain_input ?? (effectType === 'compressor' || effectType === 'gate'),
                 sidechainSourceTrackId: slot.sidechain_source_track_id ?? null,
+                guiMode,
                 samplePath: effectType === 'sampler' || effectType === 'instrument' || effectType === 'waveSynth'
                     ? (selectedTrack.sampler?.sample_path ?? undefined)
                     : undefined,
@@ -606,38 +622,6 @@ export const DeviceRack = ({
 
         return nodes.map(nodeToSlot).filter((s): s is DeviceSlot => s !== null);
     }, [selectedTrack, localBypass, localParams, outLevel, externalParamsByPluginId]);
-
-    useEffect(() => {
-        const openVstPluginIds = Array.from(
-            new Set(
-                chain
-                    .filter((d) => d.source === 'vst' && inlineSettingsOpen[d.id])
-                    .map((d) => d.pluginId),
-            ),
-        );
-        if (openVstPluginIds.length === 0) return;
-
-        let cancelled = false;
-        const poll = async () => {
-            if (cancelled || externalParamPollInFlightRef.current) return;
-            externalParamPollInFlightRef.current = true;
-            try {
-                await Promise.all(openVstPluginIds.map((id) => refreshExternalPluginParams(id)));
-            } finally {
-                externalParamPollInFlightRef.current = false;
-            }
-        };
-
-        void poll();
-        const timer = window.setInterval(() => {
-            void poll();
-        }, 450);
-
-        return () => {
-            cancelled = true;
-            window.clearInterval(timer);
-        };
-    }, [chain, inlineSettingsOpen, refreshExternalPluginParams]);
 
     const setPluginSidechainSource = useCallback(async (slotId: string, sourceTrackId: string) => {
         if (!selectedTrack) return;
@@ -871,10 +855,9 @@ export const DeviceRack = ({
     useEffect(() => {
         const onMouseMove = (e: MouseEvent) => {
             const dragging = useDragStore.getState().draggingItem;
-            if (!dragging || !dropTargetTrack || !canDropInZone(dragging, 'device-rack').allowed) {
-                if (isDropActive) {
-                    setIsDropActive(false);
-                }
+            const targetTrack = dropTargetTrackRef.current;
+            if (!dragging || !targetTrack || !canDropInZone(dragging, 'device-rack').allowed) {
+                setIsDropActive(false);
                 return;
             }
             const rect = rackRef.current?.getBoundingClientRect();
@@ -884,14 +867,13 @@ export const DeviceRack = ({
                 e.clientX <= rect.right &&
                 e.clientY >= rect.top &&
                 e.clientY <= rect.bottom;
-            if (inside !== isDropActive) {
-                setIsDropActive(inside);
-            }
+            setIsDropActive(inside);
         };
 
         const onMouseUp = async (e: MouseEvent) => {
             const dragging = useDragStore.getState().draggingItem;
-            if (!dragging || !dropTargetTrack || !canDropInZone(dragging, 'device-rack').allowed) return;
+            const targetTrack = dropTargetTrackRef.current;
+            if (!dragging || !targetTrack || !canDropInZone(dragging, 'device-rack').allowed) return;
             const rect = rackRef.current?.getBoundingClientRect();
             if (!rect) return;
             const inside =
@@ -904,17 +886,10 @@ export const DeviceRack = ({
                 return;
             }
 
-            const targetTrack = dropTargetTrack;
-            if (!targetTrack) {
-                statusError('No target track selected.');
-                useDragStore.getState().endDrag();
-                setIsDropActive(false);
-                return;
-            }
-
             try {
-                if (onDropPluginToTrack) {
-                    await onDropPluginToTrack(dragging, targetTrack.id);
+                const dropHandler = onDropPluginToTrackRef.current;
+                if (dropHandler) {
+                    await dropHandler(dragging, targetTrack.id);
                 } else {
                     const hint = dragging.slotHint ?? 'auto';
                     const slot: 'instrument' | 'effect' =
@@ -931,25 +906,25 @@ export const DeviceRack = ({
                         dragging.name,
                         slot,
                     );
-                    await fetchProject();
+                    await fetchProjectRef.current();
                 }
-                statusClear();
+                statusClearRef.current();
             } catch (err) {
                 console.error('[DeviceRack] addPluginToTrack failed:', err);
-                statusError('Failed to add plugin to track.');
+                statusErrorRef.current('Failed to add plugin to track.');
             } finally {
                 useDragStore.getState().endDrag();
                 setIsDropActive(false);
             }
         };
 
-        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mousemove', onMouseMove, true);
         window.addEventListener('mouseup', onMouseUp, true);
         return () => {
-            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mousemove', onMouseMove, true);
             window.removeEventListener('mouseup', onMouseUp, true);
         };
-    }, [isDropActive, dropTargetTrack, fetchProject, statusClear, statusError, onDropPluginToTrack]);
+    }, []);
 
     const selectDevice = useCallback((deviceId: string, additive: boolean) => {
         setSelectedDeviceIds((prev) => {
@@ -1041,9 +1016,6 @@ export const DeviceRack = ({
                                             ...prev,
                                             [device.id]: !prev[device.id],
                                         }));
-                                        if (device.source === 'vst' && !externalParamsByPluginId[device.pluginId]) {
-                                            void refreshExternalPluginParams(device.pluginId);
-                                        }
                                         statusClear();
                                     }}
                                     onParamChange={(name, value) => {
@@ -1669,24 +1641,24 @@ const headerIconBtnStyle = (disabled: boolean, active = false) =>
 const pluginPanelLayoutStyle: React.CSSProperties = {
     display: 'grid',
     gridTemplateRows: '90px auto',
-    gap: 10,
+    gap: 'var(--plugin-grid-gap)',
     height: '100%',
 };
 
 const pluginPanelCardBaseStyle: React.CSSProperties = {
-    border: '1px solid color-mix(in srgb, var(--surface-3) 74%, #5f6f86)',
-    borderRadius: 8,
-    padding: '10px 12px',
+    border: '1px solid var(--plugin-card-border)',
+    borderRadius: 'var(--plugin-card-radius)',
+    padding: 'var(--plugin-card-pad-y) var(--plugin-card-pad-x)',
     display: 'grid',
     gridTemplateRows: '1fr auto',
-    gap: 8,
-    background: 'linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 88%, #172033) 0%, color-mix(in srgb, var(--surface-1) 92%, #0e1523) 100%)',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 6px 18px rgba(0,0,0,0.24)',
+    gap: 'var(--plugin-card-gap)',
+    background: 'var(--plugin-card-bg-main)',
+    boxShadow: 'var(--plugin-card-shadow)',
 };
 
 const pluginPanelTitleStyle: React.CSSProperties = {
     fontSize: 10,
-    color: '#d2e2ff',
+    color: 'var(--plugin-title-color)',
     letterSpacing: '0.05em',
     textTransform: 'uppercase',
     fontWeight: 700,
@@ -1696,7 +1668,7 @@ const pluginPanelMetaStyle: React.CSSProperties = {
     display: 'flex',
     justifyContent: 'space-between',
     fontSize: 10,
-    color: 'color-mix(in srgb, var(--color-text-secondary) 82%, #8ab7ff)',
+    color: 'var(--plugin-meta-color)',
     fontFamily: 'var(--font-mono)',
 };
 
@@ -1704,7 +1676,7 @@ const pluginPanelKnobGrid = (columns: string): React.CSSProperties => ({
     display: 'grid',
     gridTemplateColumns: columns,
     alignItems: 'center',
-    gap: 10,
+    gap: 'var(--plugin-grid-gap)',
 });
 
 const PluginGuiSurface = ({
@@ -1723,6 +1695,8 @@ const PluginGuiSurface = ({
     const [waveformPeaks, setWaveformPeaks] = useState<engineApi.PeakPair[] | null>(null);
     const eqSurfaceRef = useRef<SVGSVGElement | null>(null);
     const [dragEqBand, setDragEqBand] = useState<'low' | 'mid' | 'high' | null>(null);
+    const pluginNameLower = device.name.toLowerCase();
+    const guiMode = (device.guiMode || '').toLowerCase();
 
     useEffect(() => {
         const samplePath = device.samplePath?.trim();
@@ -1872,6 +1846,86 @@ const PluginGuiSurface = ({
             onParamChange('Sustain', randomInRange(0.25, 1.0, 0.01));
             onParamChange('Release', randomInRange(0.02, 2.2, 0.001));
         };
+        const applyMacroPreset = (preset: 'init' | 'bass' | 'lead' | 'pad' | 'pluck') => {
+            const set = (name: string, value: number) => onParamChange(name, value);
+            if (preset === 'init') {
+                set('Osc1Wave', 0);
+                set('Osc2Wave', 2);
+                set('Mix', 0.35);
+                set('Detune', 0);
+                set('Sub', 0);
+                set('Cutoff', 20000);
+                set('Res', 0);
+                set('FiltType', 0);
+                set('Vol', 1);
+                set('Attack', 0.01);
+                set('Decay', 0.1);
+                set('Sustain', 1);
+                set('Release', 0.05);
+                return;
+            }
+            if (preset === 'bass') {
+                set('Osc1Wave', 2);
+                set('Osc2Wave', 3);
+                set('Mix', 0.58);
+                set('Detune', -4.8);
+                set('Sub', 0.42);
+                set('Cutoff', 980);
+                set('Res', 0.26);
+                set('FiltType', 0);
+                set('Vol', 1.18);
+                set('Attack', 0.004);
+                set('Decay', 0.2);
+                set('Sustain', 0.62);
+                set('Release', 0.16);
+                return;
+            }
+            if (preset === 'lead') {
+                set('Osc1Wave', 3);
+                set('Osc2Wave', 2);
+                set('Mix', 0.45);
+                set('Detune', 8.5);
+                set('Sub', 0.12);
+                set('Cutoff', 5200);
+                set('Res', 0.34);
+                set('FiltType', 1);
+                set('Vol', 1.05);
+                set('Attack', 0.006);
+                set('Decay', 0.22);
+                set('Sustain', 0.7);
+                set('Release', 0.28);
+                return;
+            }
+            if (preset === 'pad') {
+                set('Osc1Wave', 1);
+                set('Osc2Wave', 0);
+                set('Mix', 0.63);
+                set('Detune', 13.2);
+                set('Sub', 0.18);
+                set('Cutoff', 2600);
+                set('Res', 0.2);
+                set('FiltType', 0);
+                set('Vol', 0.92);
+                set('Attack', 0.42);
+                set('Decay', 0.72);
+                set('Sustain', 0.84);
+                set('Release', 1.6);
+                return;
+            }
+            set('Osc1Wave', 2);
+            set('Osc2Wave', 3);
+            set('Mix', 0.2);
+            set('Detune', 2.4);
+            set('Sub', 0.06);
+            set('Cutoff', 1800);
+            set('Res', 0.62);
+            set('FiltType', 0);
+            set('Vol', 1.08);
+            set('Attack', 0.001);
+            set('Decay', 0.09);
+            set('Sustain', 0.18);
+            set('Release', 0.14);
+        };
         return (
             <div style={{ ...pluginPanelLayoutStyle, gridTemplateRows: '126px auto' }}>
                 <div style={{
@@ -1882,9 +1936,9 @@ const PluginGuiSurface = ({
                     gap: 8,
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                        <span style={{ ...pluginPanelTitleStyle, fontSize: 10, color: '#d3efe3' }}>
-                            Wave Synth Pro
-                        </span>
+                            <span style={{ ...pluginPanelTitleStyle, fontSize: 10, color: '#d3efe3' }}>
+                            Essense
+                            </span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <span style={{ fontSize: 10, color: '#80d7b0', fontFamily: 'var(--font-mono)' }}>
                                 OSC Blend {(mix * 100).toFixed(0)}%
@@ -1907,6 +1961,34 @@ const PluginGuiSurface = ({
                                 Random
                             </button>
                         </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        {[
+                            { id: 'init', label: 'INIT' },
+                            { id: 'bass', label: 'BASS' },
+                            { id: 'lead', label: 'LEAD' },
+                            { id: 'pad', label: 'PAD' },
+                            { id: 'pluck', label: 'PLUCK' },
+                        ].map((preset) => (
+                            <button
+                                key={preset.id}
+                                type="button"
+                                onClick={() => applyMacroPreset(preset.id as 'init' | 'bass' | 'lead' | 'pad' | 'pluck')}
+                                style={{
+                                    border: '1px solid #446b5d',
+                                    borderRadius: 4,
+                                    background: 'linear-gradient(180deg, rgba(30, 52, 45, 0.85) 0%, rgba(20, 35, 31, 0.9) 100%)',
+                                    color: '#c9f7df',
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    letterSpacing: '0.03em',
+                                    cursor: 'pointer',
+                                    padding: '3px 7px',
+                                }}
+                            >
+                                {preset.label}
+                            </button>
+                        ))}
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                         <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height: 26, opacity: 0.9 }}>
@@ -2114,6 +2196,8 @@ const PluginGuiSurface = ({
     }
 
     if (device.effectType === 'eq') {
+        const isBandEq = guiMode.includes('eq-three') || pluginNameLower.includes('band eq');
+        const eqTitle = isBandEq ? 'Band EQ' : 'EQ';
         const lowFreq = device.params.find((p) => p.name.toLowerCase() === 'lowfreq')?.value ?? 120;
         const low = device.params.find((p) => p.name.toLowerCase() === 'low')?.value ?? 0;
         const midFreq = device.params.find((p) => p.name.toLowerCase() === 'midfreq')?.value ?? 1800;
@@ -2136,7 +2220,7 @@ const PluginGuiSurface = ({
             <div style={{ ...pluginPanelLayoutStyle, gridTemplateRows: '96px auto' }}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
-                    background: 'linear-gradient(180deg, var(--surface-1) 0%, color-mix(in srgb, var(--surface-1) 86%, #000) 100%)',
+                    background: 'var(--plugin-bg-eq)',
                     overflow: 'hidden',
                     padding: 0,
                 }}>
@@ -2147,6 +2231,12 @@ const PluginGuiSurface = ({
                         {Array.from({ length: 5 }).map((_, i) => (
                             <line key={`hx-${i}`} x1={0} y1={i * 23} x2={480} y2={i * 23} stroke="rgba(90,178,255,0.12)" strokeWidth="1" />
                         ))}
+                        {isBandEq && (
+                            <>
+                                <rect x={xLow - 10} y={0} width="2" height="92" fill="rgba(122,191,255,0.4)" />
+                                <rect x={xHigh - 10} y={0} width="2" height="92" fill="rgba(255,172,89,0.4)" />
+                            </>
+                        )}
                         <path d={curve} fill="none" stroke="#d9a625" strokeWidth="3" strokeLinecap="round" />
                         <path d={curve} fill="none" stroke="rgba(217,166,37,0.22)" strokeWidth="10" strokeLinecap="round" />
                         <line x1="0" y1="46" x2="480" y2="46" stroke="rgba(90,178,255,0.18)" strokeWidth="1" />
@@ -2173,6 +2263,7 @@ const PluginGuiSurface = ({
                     })}
                 </div>
                 <div style={{ ...pluginPanelMetaStyle, alignItems: 'center' }}>
+                    <span>{eqTitle}</span>
                     <span>Low {lowFreq.toFixed(0)}Hz</span>
                     <span>Mid {midFreq.toFixed(0)}Hz</span>
                     <span>High {highFreq.toFixed(0)}Hz</span>
@@ -2183,6 +2274,15 @@ const PluginGuiSurface = ({
     }
 
     if (device.effectType === 'utility') {
+        const utilityTitle = guiMode.includes('tuner')
+            ? 'Tuner'
+            : guiMode.includes('external-audio-effect')
+                ? 'External Audio Effect'
+                : guiMode.includes('auto-shift')
+                    ? 'Auto Shift'
+                    : guiMode.includes('shifter')
+                        ? 'Shifter'
+                        : 'Utility';
         const gain = device.params.find((p) => p.name.toLowerCase() === 'gain')?.value ?? 0;
         const pan = device.params.find((p) => p.name.toLowerCase() === 'pan')?.value ?? 0;
         const width = device.params.find((p) => p.name.toLowerCase() === 'width')?.value ?? 100;
@@ -2193,7 +2293,7 @@ const PluginGuiSurface = ({
             <div style={pluginPanelLayoutStyle}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
-                    background: 'linear-gradient(180deg, var(--surface-1) 0%, color-mix(in srgb, var(--surface-1) 88%, #000) 100%)',
+                    background: 'var(--plugin-bg-utility)',
                     display: 'grid',
                     gridTemplateColumns: '1fr 1fr',
                     gap: 10,
@@ -2226,7 +2326,7 @@ const PluginGuiSurface = ({
                         </div>
                     </div>
                     <div style={{ ...pluginPanelTitleStyle, color: 'var(--color-text-secondary)' }}>
-                        Gain: <span style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>{gain.toFixed(1)} dB</span>
+                        {utilityTitle}: <span style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>{gain.toFixed(1)} dB</span>
                     </div>
                     <div style={{ ...pluginPanelTitleStyle, color: mono ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }}>
                         {mono ? 'Mono Enabled' : 'Stereo'}
@@ -2244,25 +2344,46 @@ const PluginGuiSurface = ({
     if (
         device.effectType === 'compressor'
     ) {
+        const isTransientShaper = pluginNameLower.includes('transient shaper');
         const thr = device.params.find((p) => p.name.toLowerCase() === 'thr')?.value ?? -18;
         const ratio = device.params.find((p) => p.name.toLowerCase() === 'ratio')?.value ?? 4;
         const pseudoGr = Math.max(0, Math.min(24, ((-thr) / 60) * ratio * 2.4));
+        const attackAmt = device.params.find((p) => p.name.toLowerCase().includes('attack'))?.value ?? 0;
+        const sustainAmt = device.params.find((p) => p.name.toLowerCase().includes('sustain'))?.value ?? 0;
+        const attackNorm = Math.max(0, Math.min(1, (attackAmt + 24) / 48));
+        const sustainNorm = Math.max(0, Math.min(1, (sustainAmt + 24) / 48));
         return (
             <div style={pluginPanelLayoutStyle}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
-                    background: 'linear-gradient(180deg, var(--surface-1) 0%, color-mix(in srgb, var(--surface-1) 88%, #000) 100%)',
+                    background: 'var(--plugin-bg-compressor)',
                     display: 'grid',
                     gridTemplateColumns: '1fr auto',
                     gap: 10,
                     alignItems: 'center',
                 }}>
-                    <svg viewBox="0 0 280 86" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
-                        <rect x="0" y="0" width="280" height="86" fill="rgba(22,24,30,0.65)" />
-                        <path d="M 14 70 L 120 70 Q 170 70 235 20 L 260 20" fill="none" stroke="#6ac3ff" strokeWidth="3" strokeLinecap="round" />
-                        <line x1="14" y1="20" x2="14" y2="70" stroke="rgba(255,255,255,0.2)" />
-                        <line x1="14" y1="70" x2="260" y2="70" stroke="rgba(255,255,255,0.2)" />
-                    </svg>
+                    {isTransientShaper ? (
+                        <div style={{ display: 'grid', gap: 6 }}>
+                            <div style={{ ...pluginPanelTitleStyle, color: '#b9d7ff' }}>Transient Shaper</div>
+                            <div style={{ height: 8, borderRadius: 999, background: 'rgba(18,26,34,0.9)', overflow: 'hidden' }}>
+                                <div style={{ width: `${(attackNorm * 100).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #53b0ff 0%, #8ecfff 100%)' }} />
+                            </div>
+                            <div style={{ height: 8, borderRadius: 999, background: 'rgba(18,26,34,0.9)', overflow: 'hidden' }}>
+                                <div style={{ width: `${(sustainNorm * 100).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #78d6ad 0%, #b5f0d5 100%)' }} />
+                            </div>
+                            <div style={pluginPanelMetaStyle}>
+                                <span>Attack {attackAmt.toFixed(1)} dB</span>
+                                <span>Sustain {sustainAmt.toFixed(1)} dB</span>
+                            </div>
+                        </div>
+                    ) : (
+                        <svg viewBox="0 0 280 86" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
+                            <rect x="0" y="0" width="280" height="86" fill="rgba(22,24,30,0.65)" />
+                            <path d="M 14 70 L 120 70 Q 170 70 235 20 L 260 20" fill="none" stroke="#6ac3ff" strokeWidth="3" strokeLinecap="round" />
+                            <line x1="14" y1="20" x2="14" y2="70" stroke="rgba(255,255,255,0.2)" />
+                            <line x1="14" y1="70" x2="260" y2="70" stroke="rgba(255,255,255,0.2)" />
+                        </svg>
+                    )}
                     <div style={{ width: 46, height: 72, borderRadius: 4, background: '#1c1f24', border: '1px solid #3d434d', padding: 3 }}>
                         <div style={{ width: '100%', height: `${(pseudoGr / 24) * 100}%`, marginTop: `${100 - (pseudoGr / 24) * 100}%`, background: 'linear-gradient(180deg, #66cc33 0%, #ffcc1a 60%, #ff3333 100%)', borderRadius: 2 }} />
                     </div>
@@ -2277,6 +2398,18 @@ const PluginGuiSurface = ({
     }
 
     if (device.effectType === 'delay') {
+        const delayTitle = guiMode.includes('echo')
+            ? 'Echo'
+            : guiMode.includes('beat-repeat')
+                ? 'Beat Repeat'
+                : guiMode.includes('looper')
+                    ? 'Looper'
+                    : guiMode.includes('spectral-time')
+                        ? 'Spectral Time'
+                        : 'Delay';
+        const isBeatRepeat = delayTitle === 'Beat Repeat';
+        const isLooper = delayTitle === 'Looper';
+        const isSpectralTime = delayTitle === 'Spectral Time';
         const time = device.params.find((p) => p.name.toLowerCase() === 'time')?.value ?? 280;
         const fb = device.params.find((p) => p.name.toLowerCase() === 'fb')?.value ?? 30;
         const mix = device.params.find((p) => p.name.toLowerCase() === 'dry/wet')?.value ?? 35;
@@ -2284,17 +2417,34 @@ const PluginGuiSurface = ({
             <div style={pluginPanelLayoutStyle}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
-                    background: 'linear-gradient(180deg, #1a2230 0%, #0f1520 100%)',
+                    background: 'var(--plugin-bg-delay)',
                 }}>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
                         <rect x="0" y="0" width="320" height="52" fill="rgba(14,20,30,0.6)" />
-                        {Array.from({ length: 8 }).map((_, i) => {
+                        {!isLooper && !isSpectralTime && !isBeatRepeat && Array.from({ length: 8 }).map((_, i) => {
                             const x = 16 + i * 36;
                             const h = 24 * Math.pow((fb / 100), i);
                             return <rect key={i} x={x} y={26 - h / 2} width="10" height={h} fill={i === 0 ? '#7cc4ff' : '#4a9eff'} opacity={0.95 - i * 0.08} rx="1.5" />;
                         })}
+                        {isBeatRepeat && Array.from({ length: 16 }).map((_, i) => {
+                            const x = 10 + i * 18;
+                            const on = i % 4 === 0 || i % 7 === 0;
+                            return <rect key={i} x={x} y={on ? 12 : 18} width="12" height={on ? 28 : 16} fill={on ? '#78c3ff' : 'rgba(120,170,230,0.35)'} rx="2" />;
+                        })}
+                        {isLooper && (
+                            <>
+                                <circle cx="160" cy="26" r="16" fill="none" stroke="rgba(124,196,255,0.45)" strokeWidth="2" />
+                                <path d="M 160 10 A 16 16 0 1 1 148 16" fill="none" stroke="#7cc4ff" strokeWidth="3" strokeLinecap="round" />
+                            </>
+                        )}
+                        {isSpectralTime && Array.from({ length: 24 }).map((_, i) => {
+                            const x = 6 + i * 13;
+                            const h = 8 + (Math.sin(i * 0.8) + 1) * 14;
+                            return <rect key={i} x={x} y={26 - h / 2} width="8" height={h} fill="rgba(138,205,255,0.85)" rx="1.5" />;
+                        })}
                     </svg>
                     <div style={pluginPanelMetaStyle}>
+                        <span>{delayTitle}</span>
                         <span>{time.toFixed(0)}ms</span>
                         <span>FB {fb.toFixed(0)}%</span>
                         <span>Mix {mix.toFixed(0)}%</span>
@@ -2310,13 +2460,22 @@ const PluginGuiSurface = ({
     }
 
     if (device.effectType === 'reverb') {
+        const reverbTitle = guiMode.includes('hybrid-reverb')
+            ? 'Hybrid Reverb'
+            : guiMode.includes('corpus')
+                ? 'Corpus'
+                : guiMode.includes('resonators')
+                    ? 'Resonators'
+                    : guiMode.includes('spectral-resonator')
+                        ? 'Spectral Resonator'
+                        : 'Reverb';
         const decay = device.params.find((p) => p.name.toLowerCase() === 'decay')?.value ?? 45;
         const tone = device.params.find((p) => p.name.toLowerCase() === 'tone')?.value ?? 0;
         return (
             <div style={pluginPanelLayoutStyle}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
-                    background: 'radial-gradient(circle at 30% 20%, rgba(137, 89, 194, 0.5) 0%, rgba(28, 24, 38, 0.92) 65%)',
+                    background: 'var(--plugin-bg-reverb)',
                 }}>
                     <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 4, background: 'rgba(10,10,12,0.45)' }}>
                         {Array.from({ length: 5 }).map((_, i) => (
@@ -2336,6 +2495,7 @@ const PluginGuiSurface = ({
                         ))}
                     </div>
                     <div style={pluginPanelMetaStyle}>
+                        <span>{reverbTitle}</span>
                         <span>Decay {decay.toFixed(0)}%</span>
                         <span>Tone {tone.toFixed(0)}%</span>
                     </div>
@@ -2356,7 +2516,7 @@ const PluginGuiSurface = ({
             <div style={pluginPanelLayoutStyle}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
-                    background: 'linear-gradient(180deg, #24172a 0%, #14111b 100%)',
+                    background: 'var(--plugin-bg-chorus)',
                 }}>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
                         <rect x="0" y="0" width="320" height="52" fill="rgba(12, 11, 18, 0.65)" />
@@ -2378,18 +2538,23 @@ const PluginGuiSurface = ({
     }
 
     if (device.effectType === 'saturator') {
+        const satTitle = guiMode.includes('drum-buss')
+            ? 'Drum Buss'
+            : guiMode.includes('dynamic-tube')
+                ? 'Dynamic Tube'
+                : 'Saturator';
         const drive = device.params.find((p) => p.name.toLowerCase() === 'drive')?.value ?? 3;
         return (
             <div style={pluginPanelLayoutStyle}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
-                    background: 'linear-gradient(180deg, #2d1d13 0%, #1a120d 100%)',
+                    background: 'var(--plugin-bg-saturator)',
                 }}>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
                         <rect x="0" y="0" width="320" height="52" fill="rgba(20, 13, 9, 0.7)" />
                         <path d="M 12 46 C 72 46, 112 6, 160 6 C 208 6, 248 46, 308 46" fill="none" stroke="#ffac59" strokeWidth={Math.max(2, 2 + drive / 8)} strokeLinecap="round" />
                     </svg>
-                    <div style={pluginPanelMetaStyle}><span>Drive {drive.toFixed(1)} dB</span></div>
+                    <div style={pluginPanelMetaStyle}><span>{satTitle}</span><span>Drive {drive.toFixed(1)} dB</span></div>
                 </div>
                 <div style={pluginPanelKnobGrid('repeat(3, minmax(0, 1fr))')}>
                     {device.params.slice(0, 3).map((p) => (
@@ -2406,7 +2571,7 @@ const PluginGuiSurface = ({
         const safety = Math.max(0, Math.min(1, 1 - Math.abs(thr - ceil) / 30));
         return (
             <div style={pluginPanelLayoutStyle}>
-                <div style={{ ...pluginPanelCardBaseStyle, background: 'linear-gradient(180deg, #152625 0%, #0f1616 100%)' }}>
+                <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-limiter)' }}>
                     <div style={{ ...pluginPanelTitleStyle, color: '#a4d9d3' }}>Lookahead Limiter</div>
                     <div style={{ height: 10, borderRadius: 999, background: '#222d2e', overflow: 'hidden' }}>
                         <div style={{ width: `${(safety * 100).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #4bc4b2 0%, #89f0de 100%)' }} />
@@ -2431,7 +2596,7 @@ const PluginGuiSurface = ({
         const openness = Math.max(0, Math.min(1, (80 + thr) / 80));
         return (
             <div style={pluginPanelLayoutStyle}>
-                <div style={{ ...pluginPanelCardBaseStyle, background: 'linear-gradient(180deg, #1a2415 0%, #101611 100%)' }}>
+                <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-gate)' }}>
                     <div style={{ ...pluginPanelTitleStyle, color: '#b8dfad' }}>Noise Gate</div>
                     <div style={{ height: 34, borderRadius: 4, background: '#1b2018', position: 'relative' }}>
                         <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${(openness * 100).toFixed(1)}%`, background: 'linear-gradient(90deg, #6bc66e 0%, #d2f18b 100%)' }} />
@@ -2452,7 +2617,10 @@ const PluginGuiSurface = ({
 
     if (device.effectType === 'autoFilter' || device.effectType === 'autoPan' || device.effectType === 'phaser' || device.effectType === 'flanger') {
         const params = device.params;
-        const title = device.effectType === 'autoFilter'
+        const isVocoder = guiMode.includes('vocoder');
+        const title = isVocoder
+            ? 'Vocoder'
+            : device.effectType === 'autoFilter'
             ? 'Auto Filter'
             : device.effectType === 'autoPan'
                 ? 'Auto Pan'
@@ -2470,11 +2638,18 @@ const PluginGuiSurface = ({
             <div style={pluginPanelLayoutStyle}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
-                    background: 'linear-gradient(180deg, #151a24 0%, #0f141b 100%)',
+                    background: 'var(--plugin-bg-mod)',
                 }}>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
                         <rect x="0" y="0" width="320" height="52" fill="rgba(8, 10, 14, 0.65)" />
-                        <path d="M 0 30 C 32 10, 64 46, 96 26 C 128 6, 160 44, 192 24 C 224 8, 256 42, 288 22 C 304 12, 320 26, 320 26" fill="none" stroke={hue} strokeWidth="2.4" />
+                        {!isVocoder && (
+                            <path d="M 0 30 C 32 10, 64 46, 96 26 C 128 6, 160 44, 192 24 C 224 8, 256 42, 288 22 C 304 12, 320 26, 320 26" fill="none" stroke={hue} strokeWidth="2.4" />
+                        )}
+                        {isVocoder && Array.from({ length: 20 }).map((_, i) => {
+                            const x = 8 + i * 15;
+                            const h = 8 + ((i * 17) % 34);
+                            return <rect key={i} x={x} y={42 - h} width="9" height={h} rx="1.5" fill="rgba(120,200,255,0.9)" />;
+                        })}
                     </svg>
                     <div style={pluginPanelMetaStyle}>
                         <span>{title}</span>
@@ -2491,13 +2666,25 @@ const PluginGuiSurface = ({
     }
 
     if (device.effectType === 'distortion' || device.effectType === 'bitcrusher') {
-        const title = device.effectType === 'distortion' ? 'Distortion' : 'Bitcrusher';
+        const title = device.effectType === 'bitcrusher'
+            ? 'Bitcrusher'
+            : guiMode.includes('amp')
+                ? 'Amp'
+                : guiMode.includes('cabinet')
+                    ? 'Cabinet'
+                    : guiMode.includes('overdrive')
+                        ? 'Overdrive'
+                        : guiMode.includes('pedal')
+                            ? 'Pedal'
+                            : guiMode.includes('roar')
+                                ? 'Roar'
+                                : 'Distortion';
         const color = device.effectType === 'distortion' ? '#ff965e' : '#f2de72';
         return (
             <div style={pluginPanelLayoutStyle}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
-                    background: 'linear-gradient(180deg, #261a12 0%, #15100c 100%)',
+                    background: 'var(--plugin-bg-distortion)',
                 }}>
                     <div style={{ ...pluginPanelTitleStyle, color: '#d6c1a5' }}>{title}</div>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: 44 }}>
@@ -2519,7 +2706,7 @@ const PluginGuiSurface = ({
             <div style={pluginPanelLayoutStyle}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
-                    background: 'linear-gradient(180deg, #17261a 0%, #0e150f 100%)',
+                    background: 'var(--plugin-bg-noise)',
                 }}>
                     <div style={{ ...pluginPanelTitleStyle, color: '#a5d6b0' }}>Noise Machine</div>
                     <svg viewBox="0 0 320 52" preserveAspectRatio="none" style={{ width: '100%', height: 44 }}>
@@ -2542,13 +2729,13 @@ const PluginGuiSurface = ({
             : device.effectType === 'midiPitch'
                 ? 'MIDI Pitch'
                 : device.effectType === 'midiScale'
-                    ? 'MIDI Scale'
+                    ? (guiMode.includes('chord') ? 'Chord' : 'MIDI Scale')
                     : device.effectType === 'midiVelocity'
-                        ? 'MIDI Velocity'
-                        : 'MIDI Random';
+                        ? (guiMode.includes('note-length') ? 'Note Length' : guiMode.includes('cc-control') ? 'CC Control' : guiMode.includes('expression-control') ? 'Expression Control' : 'MIDI Velocity')
+                        : (guiMode.includes('arpeggiator') ? 'Arpeggiator' : 'MIDI Random');
         return (
             <div style={pluginPanelLayoutStyle}>
-                <div style={{ ...pluginPanelCardBaseStyle, background: 'linear-gradient(180deg, #1b1f2a 0%, #121521 100%)' }}>
+                <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-midi)' }}>
                     <div style={{ ...pluginPanelTitleStyle, color: '#b8c8e8' }}>{title}</div>
                     <div style={pluginPanelMetaStyle}>
                         <span>{device.effectType === 'spectrum' ? 'Analyzer (native)' : 'MIDI FX (import-compatible)'}</span>

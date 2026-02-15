@@ -20,10 +20,10 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+use std::collections::HashMap;
+use std::ffi::{c_char, c_void};
 use std::path::{Path, PathBuf};
 use std::ptr;
-use std::ffi::{c_void, c_char};
-use std::collections::HashMap;
 
 use log::info;
 use uuid::Uuid;
@@ -166,14 +166,12 @@ const IID_ICOMPONENT: Tuid = [
 
 // IHostApplication IID: {58E595CC-DB2D-4969-8B6A-AF8C36A664E5}
 const IID_IHOST_APPLICATION: Tuid = [
-    0x58, 0xE5, 0x95, 0xCC, 0xDB, 0x2D, 0x49, 0x69,
-    0x8B, 0x6A, 0xAF, 0x8C, 0x36, 0xA6, 0x64, 0xE5,
+    0x58, 0xE5, 0x95, 0xCC, 0xDB, 0x2D, 0x49, 0x69, 0x8B, 0x6A, 0xAF, 0x8C, 0x36, 0xA6, 0x64, 0xE5,
 ];
 
 // FUnknown IID: {00000000-0000-0000-C000-000000000046}
 const IID_FUNKNOWN: Tuid = [
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46,
 ];
 
 // ── Minimal IHostApplication (COM singleton) ───────────────────────────
@@ -188,11 +186,17 @@ const IID_FUNKNOWN: Tuid = [
 /// Layout: FUnknown (query_interface, addRef, release) + getName + createInstance.
 #[repr(C)]
 struct IHostApplicationVtbl {
-    query_interface: unsafe extern "system" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
+    query_interface:
+        unsafe extern "system" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
     add_ref: unsafe extern "system" fn(*mut c_void) -> u32,
     release: unsafe extern "system" fn(*mut c_void) -> u32,
     get_name: unsafe extern "system" fn(*mut c_void, *mut u16) -> Tresult,
-    create_instance: unsafe extern "system" fn(*mut c_void, *const Tuid, *const Tuid, *mut *mut c_void) -> Tresult,
+    create_instance: unsafe extern "system" fn(
+        *mut c_void,
+        *const Tuid,
+        *const Tuid,
+        *mut *mut c_void,
+    ) -> Tresult,
 }
 
 /// The singleton IHostApplication object.
@@ -223,10 +227,14 @@ unsafe extern "system" fn host_query_interface(
     }
     // We respond to FUnknown and IHostApplication queries
     if tuid_eq(iid, &IID_FUNKNOWN) || tuid_eq(iid, &IID_IHOST_APPLICATION) {
-        unsafe { *obj = this; }
+        unsafe {
+            *obj = this;
+        }
         K_RESULT_OK
     } else {
-        unsafe { *obj = ptr::null_mut(); }
+        unsafe {
+            *obj = ptr::null_mut();
+        }
         K_NO_INTERFACE
     }
 }
@@ -247,12 +255,20 @@ unsafe extern "system" fn host_get_name(_this: *mut c_void, name: *mut u16) -> T
     }
     // Write "Dream DAW" as UTF-16LE (VST3 uses Steinberg::String128 = wchar_t[128])
     let text: &[u16] = &[
-        b'D' as u16, b'r' as u16, b'e' as u16, b'a' as u16, b'm' as u16,
+        b'D' as u16,
+        b'r' as u16,
+        b'e' as u16,
+        b'a' as u16,
+        b'm' as u16,
         b' ' as u16,
-        b'D' as u16, b'A' as u16, b'W' as u16,
+        b'D' as u16,
+        b'A' as u16,
+        b'W' as u16,
         0, // null terminator
     ];
-    unsafe { ptr::copy_nonoverlapping(text.as_ptr(), name, text.len()); }
+    unsafe {
+        ptr::copy_nonoverlapping(text.as_ptr(), name, text.len());
+    }
     K_RESULT_OK
 }
 
@@ -265,7 +281,9 @@ unsafe extern "system" fn host_create_instance(
     // We don't provide any additional host services (e.g. IMessage).
     // This is valid — most plugins handle this gracefully.
     if !_obj.is_null() {
-        unsafe { *_obj = ptr::null_mut(); }
+        unsafe {
+            *_obj = ptr::null_mut();
+        }
     }
     K_NO_INTERFACE
 }
@@ -300,7 +318,8 @@ struct FUnknown {
 #[repr(C)]
 #[allow(dead_code)]
 struct FUnknownVtbl {
-    query_interface: unsafe extern "C" fn(*mut FUnknown, *const c_char, *mut *mut c_void) -> Tresult,
+    query_interface:
+        unsafe extern "C" fn(*mut FUnknown, *const c_char, *mut *mut c_void) -> Tresult,
     add_ref: unsafe extern "C" fn(*mut FUnknown) -> u32,
     release: unsafe extern "C" fn(*mut FUnknown) -> u32,
 }
@@ -320,7 +339,8 @@ struct IPluginFactory {
 
 #[repr(C)]
 struct IPluginFactoryVtbl {
-    query_interface: unsafe extern "C" fn(*mut IPluginFactory, *const c_char, *mut *mut c_void) -> Tresult,
+    query_interface:
+        unsafe extern "C" fn(*mut IPluginFactory, *const c_char, *mut *mut c_void) -> Tresult,
     add_ref: unsafe extern "C" fn(*mut IPluginFactory) -> u32,
     release: unsafe extern "C" fn(*mut IPluginFactory) -> u32,
     get_factory_info: unsafe extern "C" fn(*mut IPluginFactory, *mut c_void) -> Tresult,
@@ -341,7 +361,8 @@ struct IComponent {
 
 #[repr(C)]
 struct IComponentVtbl {
-    query_interface: unsafe extern "C" fn(*mut IComponent, *const c_char, *mut *mut c_void) -> Tresult,
+    query_interface:
+        unsafe extern "C" fn(*mut IComponent, *const c_char, *mut *mut c_void) -> Tresult,
     add_ref: unsafe extern "C" fn(*mut IComponent) -> u32,
     release: unsafe extern "C" fn(*mut IComponent) -> u32,
     initialize: unsafe extern "C" fn(*mut IComponent, *mut c_void) -> Tresult,
@@ -400,7 +421,8 @@ struct IParamValueQueue {
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct IParamValueQueueVtbl {
-    query_interface: unsafe extern "C" fn(*mut IParamValueQueue, *const c_char, *mut *mut c_void) -> Tresult,
+    query_interface:
+        unsafe extern "C" fn(*mut IParamValueQueue, *const c_char, *mut *mut c_void) -> Tresult,
     add_ref: unsafe extern "C" fn(*mut IParamValueQueue) -> u32,
     release: unsafe extern "C" fn(*mut IParamValueQueue) -> u32,
     get_parameter_id: unsafe extern "C" fn(*mut IParamValueQueue) -> u32,
@@ -418,12 +440,14 @@ struct IParameterChanges {
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct IParameterChangesVtbl {
-    query_interface: unsafe extern "C" fn(*mut IParameterChanges, *const c_char, *mut *mut c_void) -> Tresult,
+    query_interface:
+        unsafe extern "C" fn(*mut IParameterChanges, *const c_char, *mut *mut c_void) -> Tresult,
     add_ref: unsafe extern "C" fn(*mut IParameterChanges) -> u32,
     release: unsafe extern "C" fn(*mut IParameterChanges) -> u32,
     get_parameter_count: unsafe extern "C" fn(*mut IParameterChanges) -> i32,
     get_parameter_data: unsafe extern "C" fn(*mut IParameterChanges, i32) -> *mut IParamValueQueue,
-    add_parameter_data: unsafe extern "C" fn(*mut IParameterChanges, *mut u32, *mut i32) -> *mut IParamValueQueue,
+    add_parameter_data:
+        unsafe extern "C" fn(*mut IParameterChanges, *mut u32, *mut i32) -> *mut IParamValueQueue,
 }
 
 #[repr(C)]
@@ -467,11 +491,7 @@ impl HostParameterChanges {
             queue_count: 0,
             queues: [HostParamValueQueue::empty(); MAX_HOST_PARAM_CHANGES],
         };
-        for (slot, (param_id, value)) in changes
-            .iter()
-            .take(MAX_HOST_PARAM_CHANGES)
-            .enumerate()
-        {
+        for (slot, (param_id, value)) in changes.iter().take(MAX_HOST_PARAM_CHANGES).enumerate() {
             this.queues[slot].param_id = *param_id;
             this.queues[slot].sample_offset = 0;
             this.queues[slot].value = value.clamp(0.0, 1.0);
@@ -488,7 +508,9 @@ unsafe extern "C" fn host_param_queue_query_interface(
     obj: *mut *mut c_void,
 ) -> Tresult {
     if !obj.is_null() {
-        unsafe { *obj = ptr::null_mut(); }
+        unsafe {
+            *obj = ptr::null_mut();
+        }
     }
     K_NO_INTERFACE
 }
@@ -561,7 +583,9 @@ unsafe extern "C" fn host_param_queue_add_point(
     queue.value = value.clamp(0.0, 1.0);
     queue.has_point = 1;
     if !index.is_null() {
-        unsafe { *index = 0; }
+        unsafe {
+            *index = 0;
+        }
     }
     K_RESULT_OK
 }
@@ -572,7 +596,9 @@ unsafe extern "C" fn host_param_changes_query_interface(
     obj: *mut *mut c_void,
 ) -> Tresult {
     if !obj.is_null() {
-        unsafe { *obj = ptr::null_mut(); }
+        unsafe {
+            *obj = ptr::null_mut();
+        }
     }
     K_NO_INTERFACE
 }
@@ -629,7 +655,9 @@ unsafe extern "C" fn host_param_changes_add_parameter_data(
     let changes = unsafe { &mut *(this as *mut HostParameterChanges) };
     if changes.queue_count as usize >= MAX_HOST_PARAM_CHANGES {
         if !index.is_null() {
-            unsafe { *index = -1; }
+            unsafe {
+                *index = -1;
+            }
         }
         return ptr::null_mut();
     }
@@ -641,7 +669,9 @@ unsafe extern "C" fn host_param_changes_add_parameter_data(
     changes.queues[slot].value = 0.0;
     changes.queues[slot].has_point = 0;
     if !index.is_null() {
-        unsafe { *index = slot as i32; }
+        unsafe {
+            *index = slot as i32;
+        }
     }
     (&mut changes.queues[slot] as *mut HostParamValueQueue).cast::<IParamValueQueue>()
 }
@@ -672,11 +702,14 @@ struct IAudioProcessor {
 
 #[repr(C)]
 struct IAudioProcessorVtbl {
-    query_interface: unsafe extern "C" fn(*mut IAudioProcessor, *const c_char, *mut *mut c_void) -> Tresult,
+    query_interface:
+        unsafe extern "C" fn(*mut IAudioProcessor, *const c_char, *mut *mut c_void) -> Tresult,
     add_ref: unsafe extern "C" fn(*mut IAudioProcessor) -> u32,
     release: unsafe extern "C" fn(*mut IAudioProcessor) -> u32,
-    set_bus_arrangements: unsafe extern "C" fn(*mut IAudioProcessor, *mut c_void, i32, *mut c_void, i32) -> Tresult,
-    get_bus_arrangement: unsafe extern "C" fn(*mut IAudioProcessor, i32, i32, *mut c_void) -> Tresult,
+    set_bus_arrangements:
+        unsafe extern "C" fn(*mut IAudioProcessor, *mut c_void, i32, *mut c_void, i32) -> Tresult,
+    get_bus_arrangement:
+        unsafe extern "C" fn(*mut IAudioProcessor, i32, i32, *mut c_void) -> Tresult,
     can_process_sample_size: unsafe extern "C" fn(*mut IAudioProcessor, i32) -> Tresult,
     get_latency_samples: unsafe extern "C" fn(*mut IAudioProcessor) -> u32,
     setup_processing: unsafe extern "C" fn(*mut IAudioProcessor, *const ProcessSetup) -> Tresult,
@@ -692,7 +725,8 @@ struct IBStream {
 
 #[repr(C)]
 struct IBStreamVtbl {
-    query_interface: unsafe extern "C" fn(*mut IBStream, *const c_char, *mut *mut c_void) -> Tresult,
+    query_interface:
+        unsafe extern "C" fn(*mut IBStream, *const c_char, *mut *mut c_void) -> Tresult,
     add_ref: unsafe extern "C" fn(*mut IBStream) -> u32,
     release: unsafe extern "C" fn(*mut IBStream) -> u32,
     read: unsafe extern "C" fn(*mut IBStream, *mut c_void, i32, *mut i32) -> Tresult,
@@ -939,6 +973,8 @@ pub struct Vst3Instance {
     /// Pre-allocated scratch buffer for VST3 interleaved→planar conversion.
     scratch_left: Vec<f32>,
     scratch_right: Vec<f32>,
+    scratch_sidechain_left: Vec<f32>,
+    scratch_sidechain_right: Vec<f32>,
 
     /// Optional native DSP bridge symbol for block processing.
     process_fn: Option<DreamDawProcessF32Fn>,
@@ -1026,7 +1062,8 @@ impl Vst3Instance {
                 category: [0; 32],
                 name: [0; 64],
             };
-            let class_ok = unsafe { ((*(*factory).vtbl).get_class_info)(factory, idx, &mut cls) } == K_RESULT_OK;
+            let class_ok = unsafe { ((*(*factory).vtbl).get_class_info)(factory, idx, &mut cls) }
+                == K_RESULT_OK;
             if !class_ok {
                 continue;
             }
@@ -1069,7 +1106,11 @@ impl Vst3Instance {
             ));
         }
 
-        Ok((factory as usize, component_ptr as usize, processor_ptr as usize))
+        Ok((
+            factory as usize,
+            component_ptr as usize,
+            processor_ptr as usize,
+        ))
     }
 
     /// Loads a VST3 plugin from a bundle path.
@@ -1110,10 +1151,7 @@ impl Vst3Instance {
         // Load the native dynamic library
         let library = unsafe {
             libloading::Library::new(&binary_path).map_err(|e| {
-                PluginError::LoadFailed(format!(
-                    "Failed to load {}: {e}",
-                    binary_path.display()
-                ))
+                PluginError::LoadFailed(format!("Failed to load {}: {e}", binary_path.display()))
             })?
         };
 
@@ -1121,7 +1159,10 @@ impl Vst3Instance {
         let (factory_ptr, component_ptr, processor_ptr) = match Self::init_vst3_com(&library) {
             Ok(ptrs) => ptrs,
             Err(err) => {
-                info!("[VST3] COM bootstrap failed for '{}': {}. Using bridge/fallback path.", descriptor.name, err);
+                info!(
+                    "[VST3] COM bootstrap failed for '{}': {}. Using bridge/fallback path.",
+                    descriptor.name, err
+                );
                 (0, 0, 0)
             }
         };
@@ -1147,8 +1188,7 @@ impl Vst3Instance {
 
         info!(
             "[VST3] Successfully loaded: {} ({})",
-            descriptor.name,
-            descriptor.vendor
+            descriptor.name, descriptor.vendor
         );
         if process_fn.is_none() {
             info!(
@@ -1168,6 +1208,8 @@ impl Vst3Instance {
             editor_open: false,
             scratch_left: Vec::new(),
             scratch_right: Vec::new(),
+            scratch_sidechain_left: Vec::new(),
+            scratch_sidechain_right: Vec::new(),
             process_fn,
             open_editor_fn,
             set_parameter_fn,
@@ -1196,6 +1238,8 @@ impl Vst3Instance {
             editor_open: false,
             scratch_left: Vec::new(),
             scratch_right: Vec::new(),
+            scratch_sidechain_left: Vec::new(),
+            scratch_sidechain_right: Vec::new(),
             process_fn: None,
             open_editor_fn: None,
             set_parameter_fn: None,
@@ -1242,6 +1286,8 @@ impl PluginInstance for Vst3Instance {
         // Pre-allocate scratch buffers
         self.scratch_left = vec![0.0; max_buffer_size];
         self.scratch_right = vec![0.0; max_buffer_size];
+        self.scratch_sidechain_left = vec![0.0; max_buffer_size];
+        self.scratch_sidechain_right = vec![0.0; max_buffer_size];
         if self.processor_ptr != 0 {
             let processor = self.processor_ptr as *mut IAudioProcessor;
             if self.component_ptr != 0 {
@@ -1305,59 +1351,114 @@ impl PluginInstance for Vst3Instance {
         num_frames: usize,
     ) -> Result<(), PluginError> {
         if !self.is_active {
-            return Err(PluginError::InvalidState(
-                "Plugin not active".to_string(),
-            ));
+            return Err(PluginError::InvalidState("Plugin not active".to_string()));
         }
 
         if self.com_initialized && self.processor_ptr != 0 {
-            let channels = inputs.len().min(outputs.len());
-            if channels == 0 {
+            let main_channels = outputs.len().min(2);
+            if main_channels == 0 {
                 return Ok(());
             }
-            if channels > 2 || num_frames > self.max_buffer_size {
+            if num_frames > self.max_buffer_size {
                 passthrough(inputs, outputs, num_frames);
                 return Ok(());
             }
 
-            for (ch, input) in inputs.iter().enumerate().take(channels) {
-                let n = num_frames.min(input.len());
+            let supports_sidechain_bus = self.descriptor.audio_inputs > 2;
+            let has_sidechain_signal = supports_sidechain_bus && inputs.len() > 2;
+
+            // Main bus input copy (L/R)
+            for ch in 0..main_channels {
+                let src = inputs.get(ch).copied().unwrap_or(&[][..]);
+                let n = num_frames.min(src.len());
                 if ch == 0 {
-                    self.scratch_left[..n].copy_from_slice(&input[..n]);
+                    self.scratch_left[..n].copy_from_slice(&src[..n]);
                     if n < num_frames {
                         self.scratch_left[n..num_frames].fill(0.0);
                     }
                 } else {
-                    self.scratch_right[..n].copy_from_slice(&input[..n]);
+                    self.scratch_right[..n].copy_from_slice(&src[..n]);
                     if n < num_frames {
                         self.scratch_right[n..num_frames].fill(0.0);
                     }
                 }
             }
+            if main_channels == 1 {
+                self.scratch_right[..num_frames].copy_from_slice(&self.scratch_left[..num_frames]);
+            }
 
-            let mut in_ptrs = [self.scratch_left.as_mut_ptr(), self.scratch_right.as_mut_ptr()];
+            // Sidechain bus copy (optional L/R)
+            if has_sidechain_signal {
+                for sc_ch in 0..2usize {
+                    let src = inputs.get(2 + sc_ch).copied().unwrap_or_else(|| {
+                        if sc_ch == 1 {
+                            inputs.get(2).copied().unwrap_or(&[][..])
+                        } else {
+                            &[][..]
+                        }
+                    });
+                    let n = num_frames.min(src.len());
+                    if sc_ch == 0 {
+                        self.scratch_sidechain_left[..n].copy_from_slice(&src[..n]);
+                        if n < num_frames {
+                            self.scratch_sidechain_left[n..num_frames].fill(0.0);
+                        }
+                    } else {
+                        self.scratch_sidechain_right[..n].copy_from_slice(&src[..n]);
+                        if n < num_frames {
+                            self.scratch_sidechain_right[n..num_frames].fill(0.0);
+                        }
+                    }
+                }
+            } else {
+                self.scratch_sidechain_left[..num_frames].fill(0.0);
+                self.scratch_sidechain_right[..num_frames].fill(0.0);
+            }
+
+            let mut in_ptrs = [
+                self.scratch_left.as_mut_ptr(),
+                self.scratch_right.as_mut_ptr(),
+                self.scratch_sidechain_left.as_mut_ptr(),
+                self.scratch_sidechain_right.as_mut_ptr(),
+            ];
             let mut out_ptrs = [ptr::null_mut::<f32>(), ptr::null_mut::<f32>()];
-            for ch in 0..channels {
+            for ch in 0..main_channels {
                 out_ptrs[ch] = outputs[ch].as_mut_ptr();
             }
-            if channels == 1 {
-                in_ptrs[1] = in_ptrs[0];
+            if main_channels == 1 {
                 out_ptrs[1] = out_ptrs[0];
             }
 
-            let mut in_bus = AudioBusBuffers {
-                num_channels: channels as i32,
+            let input_bus_count = if supports_sidechain_bus { 2 } else { 1 };
+            let main_bus_channels = if supports_sidechain_bus {
+                2
+            } else {
+                main_channels as i32
+            };
+
+            let in_main_bus = AudioBusBuffers {
+                num_channels: main_bus_channels,
                 silence_flags: 0,
                 channel_buffers32: in_ptrs.as_mut_ptr(),
                 channel_buffers64: ptr::null_mut(),
             };
+            let in_sidechain_bus = AudioBusBuffers {
+                num_channels: 2,
+                silence_flags: if has_sidechain_signal { 0 } else { u64::MAX },
+                channel_buffers32: unsafe { in_ptrs.as_mut_ptr().add(2) },
+                channel_buffers64: ptr::null_mut(),
+            };
             let mut out_bus = AudioBusBuffers {
-                num_channels: channels as i32,
+                num_channels: main_channels as i32,
                 silence_flags: 0,
                 channel_buffers32: out_ptrs.as_mut_ptr(),
                 channel_buffers64: ptr::null_mut(),
             };
-            let mut in_param_changes = HostParameterChanges::from_pending(&self.pending_param_changes);
+
+            let mut input_buses = [in_main_bus, in_sidechain_bus];
+
+            let mut in_param_changes =
+                HostParameterChanges::from_pending(&self.pending_param_changes);
             self.pending_param_changes.clear();
             let input_param_ptr = if in_param_changes.queue_count > 0 {
                 (&mut in_param_changes as *mut HostParameterChanges).cast::<c_void>()
@@ -1369,9 +1470,9 @@ impl PluginInstance for Vst3Instance {
                 process_mode: K_REALTIME,
                 symbolic_sample_size: K_SAMPLE32,
                 num_samples: num_frames as i32,
-                num_inputs: 1,
+                num_inputs: input_bus_count,
                 num_outputs: 1,
-                inputs: &mut in_bus,
+                inputs: input_buses.as_mut_ptr(),
                 outputs: &mut out_bus,
                 input_parameter_changes: input_param_ptr,
                 output_parameter_changes: ptr::null_mut(),
@@ -1387,7 +1488,7 @@ impl PluginInstance for Vst3Instance {
             if status != K_RESULT_OK {
                 passthrough(inputs, outputs, num_frames);
             } else {
-                for out in outputs.iter_mut().skip(channels) {
+                for out in outputs.iter_mut().skip(main_channels) {
                     out.fill(0.0);
                 }
             }
@@ -1434,6 +1535,35 @@ impl PluginInstance for Vst3Instance {
         Ok(())
     }
 
+    fn process_with_sidechain(
+        &mut self,
+        main_inputs: &[&[f32]],
+        sidechain_inputs: Option<&[&[f32]]>,
+        outputs: &mut [&mut [f32]],
+        num_frames: usize,
+    ) -> Result<(), PluginError> {
+        let mut merged: [&[f32]; 4] = [&[][..], &[][..], &[][..], &[][..]];
+
+        if let Some(ch) = main_inputs.first() {
+            merged[0] = ch;
+        }
+        if let Some(ch) = main_inputs.get(1) {
+            merged[1] = ch;
+        }
+
+        if let Some(sc) = sidechain_inputs {
+            if let Some(ch) = sc.first() {
+                merged[2] = ch;
+            }
+            if let Some(ch) = sc.get(1) {
+                merged[3] = ch;
+            }
+        }
+
+        let merged_len = if sidechain_inputs.is_some() { 4 } else { 2 };
+        self.process(&merged[..merged_len], outputs, num_frames)
+    }
+
     fn latency_samples(&self) -> u32 {
         self.latency
     }
@@ -1446,6 +1576,8 @@ impl PluginInstance for Vst3Instance {
         // Clear scratch buffers
         self.scratch_left.fill(0.0);
         self.scratch_right.fill(0.0);
+        self.scratch_sidechain_left.fill(0.0);
+        self.scratch_sidechain_right.fill(0.0);
     }
 
     fn set_transport_context(&mut self, ctx: TransportContext) {
@@ -1548,11 +1680,7 @@ impl PluginInstance for Vst3Instance {
         self.open_editor_fn.is_some()
     }
 
-    fn load_state_blob(
-        &mut self,
-        kind: Option<&str>,
-        data: &[u8],
-    ) -> Result<(), PluginError> {
+    fn load_state_blob(&mut self, kind: Option<&str>, data: &[u8]) -> Result<(), PluginError> {
         if data.is_empty() {
             return Ok(());
         }
@@ -1617,10 +1745,7 @@ impl PluginHost {
     }
 
     /// Loads, activates, and registers a VST3 plugin.
-    pub fn load_vst3(
-        &mut self,
-        descriptor: PluginDescriptor,
-    ) -> Result<Uuid, PluginError> {
+    pub fn load_vst3(&mut self, descriptor: PluginDescriptor) -> Result<Uuid, PluginError> {
         let mut instance = Vst3Instance::load(descriptor)?;
         instance.activate(self.sample_rate, self.buffer_size)?;
 
@@ -1663,6 +1788,34 @@ impl PluginHost {
     /// Returns a mutable reference to a plugin instance by its ID.
     pub fn get_mut(&mut self, id: Uuid) -> Option<&mut Box<dyn PluginInstance>> {
         self.instances.iter_mut().find(|inst| inst.id() == id)
+    }
+
+    /// Sets transport context for an instance (RT-safe call-through).
+    pub fn set_transport_context(
+        &mut self,
+        id: Uuid,
+        ctx: TransportContext,
+    ) -> Result<(), PluginError> {
+        let instance = self
+            .get_mut(id)
+            .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
+        instance.set_transport_context(ctx);
+        Ok(())
+    }
+
+    /// Processes one plugin instance with optional sidechain bus.
+    pub fn process_with_sidechain(
+        &mut self,
+        id: Uuid,
+        main_inputs: &[&[f32]],
+        sidechain_inputs: Option<&[&[f32]]>,
+        outputs: &mut [&mut [f32]],
+        num_frames: usize,
+    ) -> Result<(), PluginError> {
+        let instance = self
+            .get_mut(id)
+            .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
+        instance.process_with_sidechain(main_inputs, sidechain_inputs, outputs, num_frames)
     }
 
     /// Removes and deactivates a plugin instance by its ID.
@@ -1810,6 +1963,32 @@ mod tests {
 
         stub.deactivate().unwrap();
         assert!(!stub.is_active());
+    }
+
+    #[test]
+    fn vst3_stub_accepts_sidechain_channel_layout() {
+        let mut desc = make_test_descriptor();
+        desc.audio_inputs = 4;
+        let mut stub = Vst3Instance::stub(desc, 0);
+        stub.activate(48000.0, 64).unwrap();
+
+        let main_l = vec![0.25f32; 64];
+        let main_r = vec![0.5f32; 64];
+        let sc_l = vec![1.0f32; 64];
+        let sc_r = vec![1.0f32; 64];
+        let mut out_l = vec![0.0f32; 64];
+        let mut out_r = vec![0.0f32; 64];
+
+        stub.process(
+            &[&main_l, &main_r, &sc_l, &sc_r],
+            &mut [&mut out_l, &mut out_r],
+            64,
+        )
+        .unwrap();
+
+        // Stub/fallback path remains transparent for main bus.
+        assert_eq!(out_l[0], 0.25);
+        assert_eq!(out_r[0], 0.5);
     }
 
     #[test]

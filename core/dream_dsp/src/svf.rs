@@ -293,13 +293,17 @@ mod tests {
         filter.reset();
         filter.process_buffer(&mut low);
 
-        let rms_high: f32 =
-            (high[2048..].iter().map(|s| s * s).sum::<f32>() / 2048.0).sqrt();
-        let rms_low: f32 =
-            (low[2048..].iter().map(|s| s * s).sum::<f32>() / 2048.0).sqrt();
+        let rms_high: f32 = (high[2048..].iter().map(|s| s * s).sum::<f32>() / 2048.0).sqrt();
+        let rms_low: f32 = (low[2048..].iter().map(|s| s * s).sum::<f32>() / 2048.0).sqrt();
 
-        assert!(rms_low > 0.3, "100Hz should pass SVF LP@500Hz, rms={rms_low}");
-        assert!(rms_high < 0.1, "5kHz should be cut by SVF LP@500Hz, rms={rms_high}");
+        assert!(
+            rms_low > 0.3,
+            "100Hz should pass SVF LP@500Hz, rms={rms_low}"
+        );
+        assert!(
+            rms_high < 0.1,
+            "5kHz should be cut by SVF LP@500Hz, rms={rms_high}"
+        );
     }
 
     #[test]
@@ -320,8 +324,14 @@ mod tests {
         let rms_low: f32 = (low[2048..].iter().map(|s| s * s).sum::<f32>() / 2048.0).sqrt();
         let rms_high: f32 = (high[2048..].iter().map(|s| s * s).sum::<f32>() / 2048.0).sqrt();
 
-        assert!(rms_low < 0.1, "100Hz should be cut by SVF HP@2kHz, rms={rms_low}");
-        assert!(rms_high > 0.2, "10kHz should pass SVF HP@2kHz, rms={rms_high}");
+        assert!(
+            rms_low < 0.1,
+            "100Hz should be cut by SVF HP@2kHz, rms={rms_low}"
+        );
+        assert!(
+            rms_high > 0.2,
+            "10kHz should pass SVF HP@2kHz, rms={rms_high}"
+        );
     }
 
     #[test]
@@ -379,7 +389,10 @@ mod tests {
 
         // Should not produce NaN or Inf
         let y = filter.process(0.5);
-        assert!(y.is_finite(), "Filter produced non-finite after param update: {y}");
+        assert!(
+            y.is_finite(),
+            "Filter produced non-finite after param update: {y}"
+        );
     }
 
     #[test]

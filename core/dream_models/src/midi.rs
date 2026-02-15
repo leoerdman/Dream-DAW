@@ -498,7 +498,7 @@ mod tests {
     #[test]
     fn midi_note_pitch_ratio() {
         let note = MidiNote::new(72, 100, 0, 1); // C5
-                                                 // Relative to root C4 (60), should be 2.0 (one octave up)
+        // Relative to root C4 (60), should be 2.0 (one octave up)
         assert!((note.pitch_ratio(60) - 2.0).abs() < 0.001);
 
         let same = MidiNote::new(60, 100, 0, 1);

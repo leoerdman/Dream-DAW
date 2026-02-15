@@ -11,7 +11,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::curve::AutomationCurve;
@@ -100,9 +100,7 @@ impl AutomationLane {
         match self.mode {
             AutomationMode::Off => None,
 
-            AutomationMode::Read => {
-                Some(self.curve.evaluate(position))
-            }
+            AutomationMode::Read => Some(self.curve.evaluate(position)),
 
             AutomationMode::Write => {
                 // In write mode, user is always in control
@@ -133,9 +131,7 @@ impl AutomationLane {
             AutomationTarget::TrackVolume => "Volume".to_string(),
             AutomationTarget::TrackPan => "Pan".to_string(),
             AutomationTarget::TrackMute => "Mute".to_string(),
-            AutomationTarget::PluginParameter { param_name, .. } => {
-                param_name.clone()
-            }
+            AutomationTarget::PluginParameter { param_name, .. } => param_name.clone(),
             AutomationTarget::SendLevel { .. } => "Send Level".to_string(),
         }
     }
@@ -147,8 +143,8 @@ impl AutomationLane {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::curve::AutomationPoint;
+    use super::*;
 
     #[test]
     fn lane_creation() {

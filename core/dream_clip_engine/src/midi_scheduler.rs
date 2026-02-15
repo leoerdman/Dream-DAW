@@ -15,8 +15,8 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use dream_models::midi::MidiClip;
 use crate::scheduler::LoopRegion;
+use dream_models::midi::MidiClip;
 
 /// A MIDI note event scheduled for the current buffer.
 ///
@@ -231,20 +231,20 @@ mod tests {
     use dream_models::time::AbsoluteTime;
 
     fn make_midi_clip(pos: i64, dur: i64, notes: Vec<MidiNote>) -> MidiClip {
-        let mut clip = MidiClip::new(
-            "Test",
-            AbsoluteTime::new(pos),
-            AbsoluteTime::new(dur),
-        );
+        let mut clip = MidiClip::new("Test", AbsoluteTime::new(pos), AbsoluteTime::new(dur));
         clip.notes = notes;
         clip
     }
 
     #[test]
     fn note_inside_buffer() {
-        let clip = make_midi_clip(0, 44100, vec![
-            MidiNote::new(60, 100, 100, 500), // starts at frame 100, 500 frames long
-        ]);
+        let clip = make_midi_clip(
+            0,
+            44100,
+            vec![
+                MidiNote::new(60, 100, 100, 500), // starts at frame 100, 500 frames long
+            ],
+        );
 
         let events = MidiScheduler::find_active(&[clip], 0, 1024);
         assert_eq!(events.len(), 1);
@@ -256,9 +256,13 @@ mod tests {
 
     #[test]
     fn note_spans_buffer() {
-        let clip = make_midi_clip(0, 44100, vec![
-            MidiNote::new(64, 80, 0, 44100), // spans entire clip
-        ]);
+        let clip = make_midi_clip(
+            0,
+            44100,
+            vec![
+                MidiNote::new(64, 80, 0, 44100), // spans entire clip
+            ],
+        );
 
         let events = MidiScheduler::find_active(&[clip], 512, 1024);
         assert_eq!(events.len(), 1);
@@ -269,9 +273,13 @@ mod tests {
 
     #[test]
     fn note_before_buffer() {
-        let clip = make_midi_clip(0, 44100, vec![
-            MidiNote::new(60, 100, 0, 100), // ends at frame 100
-        ]);
+        let clip = make_midi_clip(
+            0,
+            44100,
+            vec![
+                MidiNote::new(60, 100, 0, 100), // ends at frame 100
+            ],
+        );
 
         let events = MidiScheduler::find_active(&[clip], 200, 1024);
         assert!(events.is_empty()); // note ended before buffer
@@ -279,9 +287,7 @@ mod tests {
 
     #[test]
     fn note_after_buffer() {
-        let clip = make_midi_clip(0, 44100, vec![
-            MidiNote::new(60, 100, 2000, 500),
-        ]);
+        let clip = make_midi_clip(0, 44100, vec![MidiNote::new(60, 100, 2000, 500)]);
 
         let events = MidiScheduler::find_active(&[clip], 0, 1024);
         assert!(events.is_empty()); // note starts after buffer
@@ -289,11 +295,15 @@ mod tests {
 
     #[test]
     fn multiple_notes_sorted_by_onset() {
-        let clip = make_midi_clip(0, 44100, vec![
-            MidiNote::new(60, 100, 500, 200),
-            MidiNote::new(64, 100, 100, 200),
-            MidiNote::new(67, 100, 300, 200),
-        ]);
+        let clip = make_midi_clip(
+            0,
+            44100,
+            vec![
+                MidiNote::new(60, 100, 500, 200),
+                MidiNote::new(64, 100, 100, 200),
+                MidiNote::new(67, 100, 300, 200),
+            ],
+        );
 
         let events = MidiScheduler::find_active(&[clip], 0, 1024);
         assert_eq!(events.len(), 3);
@@ -305,9 +315,13 @@ mod tests {
     #[test]
     fn clip_offset_applied() {
         // Clip starts at absolute frame 10000
-        let clip = make_midi_clip(10000, 44100, vec![
-            MidiNote::new(60, 100, 100, 500), // absolute: 10100–10600
-        ]);
+        let clip = make_midi_clip(
+            10000,
+            44100,
+            vec![
+                MidiNote::new(60, 100, 100, 500), // absolute: 10100–10600
+            ],
+        );
 
         // Buffer at 10000..11024
         let events = MidiScheduler::find_active(&[clip], 10000, 1024);
@@ -335,10 +349,7 @@ mod tests {
         );
 
         let events = MidiScheduler::find_active(&[clip], 0, 256);
-        let at_100: Vec<_> = events
-            .iter()
-            .filter(|e| e.buffer_onset == 100)
-            .collect();
+        let at_100: Vec<_> = events.iter().filter(|e| e.buffer_onset == 100).collect();
         assert_eq!(at_100.len(), 2);
         assert_eq!(at_100[0].pitch, 60);
         assert_eq!(at_100[1].pitch, 67);
@@ -348,9 +359,7 @@ mod tests {
 
     #[test]
     fn looped_no_wrap_same_as_standard() {
-        let clip = make_midi_clip(0, 44100, vec![
-            MidiNote::new(60, 100, 100, 500),
-        ]);
+        let clip = make_midi_clip(0, 44100, vec![MidiNote::new(60, 100, 100, 500)]);
         let lr = LoopRegion::new(0, 44100);
 
         let standard = MidiScheduler::find_active(&[clip.clone()], 0, 1024);
@@ -370,9 +379,13 @@ mod tests {
         // Pre-wrap: 3800..4000 (200 frames)
         // Post-wrap: 0..312 (from loop start)
         // The kick at frame 0 MUST be scheduled in the post-wrap segment.
-        let clip = make_midi_clip(0, 4000, vec![
-            MidiNote::new(36, 100, 0, 200), // Kick at frame 0, 200 frames long
-        ]);
+        let clip = make_midi_clip(
+            0,
+            4000,
+            vec![
+                MidiNote::new(36, 100, 0, 200), // Kick at frame 0, 200 frames long
+            ],
+        );
         let lr = LoopRegion::new(0, 4000);
 
         let events = MidiScheduler::find_active_looped(&[clip], 3800, 512, Some(&lr));
@@ -388,10 +401,14 @@ mod tests {
     #[test]
     fn looped_notes_both_segments() {
         // Note near loop end AND note at loop start
-        let clip = make_midi_clip(0, 4000, vec![
-            MidiNote::new(36, 100, 0, 200),    // At frame 0 (loop start)
-            MidiNote::new(42, 100, 3900, 50),  // Near loop end
-        ]);
+        let clip = make_midi_clip(
+            0,
+            4000,
+            vec![
+                MidiNote::new(36, 100, 0, 200),   // At frame 0 (loop start)
+                MidiNote::new(42, 100, 3900, 50), // Near loop end
+            ],
+        );
         let lr = LoopRegion::new(0, 4000);
 
         // Playhead at 3800, buffer 512: pre-wrap 200 frames, post-wrap 312 frames
@@ -408,9 +425,7 @@ mod tests {
 
     #[test]
     fn looped_no_region_falls_back() {
-        let clip = make_midi_clip(0, 44100, vec![
-            MidiNote::new(60, 100, 100, 500),
-        ]);
+        let clip = make_midi_clip(0, 44100, vec![MidiNote::new(60, 100, 100, 500)]);
         let events = MidiScheduler::find_active_looped(&[clip], 0, 1024, None);
         assert_eq!(events.len(), 1);
     }
@@ -420,9 +435,13 @@ mod tests {
         // Loop region doesn't start at 0
         // Loop: 10000..14000, clip: 10000..14000
         // Note at frame 0 inside clip (absolute frame 10000 = loop start)
-        let clip = make_midi_clip(10000, 4000, vec![
-            MidiNote::new(60, 100, 0, 200), // absolute: 10000..10200
-        ]);
+        let clip = make_midi_clip(
+            10000,
+            4000,
+            vec![
+                MidiNote::new(60, 100, 0, 200), // absolute: 10000..10200
+            ],
+        );
         let lr = LoopRegion::new(10000, 14000);
 
         // Playhead at 13800, buffer 512 → crosses 14000

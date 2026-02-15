@@ -11,7 +11,9 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use std::path::Path;
+use std::fs::File;
+use std::io::BufWriter;
+use std::path::{Path, PathBuf};
 
 use hound::{SampleFormat, WavSpec};
 
@@ -39,7 +41,60 @@ impl std::error::Error for WavWriterError {}
 /// WAV file writer for audio export.
 pub struct WavWriter;
 
+/// Incremental WAV writer for large offline renders.
+///
+/// Allows writing interleaved chunks without keeping the entire render in memory.
+pub struct StreamingWavWriter {
+    writer: hound::WavWriter<BufWriter<File>>,
+    path: PathBuf,
+    channels: u16,
+    sample_rate: u32,
+    bit_depth: u16,
+    frames_written: usize,
+}
+
 impl WavWriter {
+    /// Creates a streaming WAV writer for chunked output.
+    pub fn create_streaming(
+        path: impl AsRef<Path>,
+        sample_rate: u32,
+        channels: u16,
+        bit_depth: u16,
+    ) -> Result<StreamingWavWriter, WavWriterError> {
+        if channels == 0 {
+            return Err(WavWriterError::InvalidData("channels must be > 0".into()));
+        }
+        if bit_depth != 16 && bit_depth != 24 && bit_depth != 32 {
+            return Err(WavWriterError::InvalidData(format!(
+                "Unsupported bit depth: {bit_depth}"
+            )));
+        }
+
+        let spec = WavSpec {
+            channels,
+            sample_rate,
+            bits_per_sample: bit_depth,
+            sample_format: if bit_depth == 32 {
+                SampleFormat::Float
+            } else {
+                SampleFormat::Int
+            },
+        };
+
+        let path_buf = path.as_ref().to_path_buf();
+        let writer = hound::WavWriter::create(&path_buf, spec)
+            .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
+
+        Ok(StreamingWavWriter {
+            writer,
+            path: path_buf,
+            channels,
+            sample_rate,
+            bit_depth,
+            frames_written: 0,
+        })
+    }
+
     /// Writes interleaved f32 samples to a WAV file.
     ///
     /// # Arguments
@@ -164,6 +219,72 @@ impl WavWriter {
             num_channels as u16,
             bit_depth,
         )
+    }
+}
+
+impl StreamingWavWriter {
+    /// Writes one interleaved chunk (`[L, R, L, R, ...]`).
+    pub fn write_interleaved_chunk(&mut self, samples: &[f32]) -> Result<(), WavWriterError> {
+        if samples.len() % self.channels as usize != 0 {
+            return Err(WavWriterError::InvalidData(format!(
+                "Chunk length {} is not divisible by channels {}",
+                samples.len(),
+                self.channels
+            )));
+        }
+
+        match self.bit_depth {
+            16 => {
+                for &sample in samples {
+                    let clamped = sample.clamp(-1.0, 1.0);
+                    let int_sample = (clamped * i16::MAX as f32) as i16;
+                    self.writer
+                        .write_sample(int_sample)
+                        .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
+                }
+            }
+            24 => {
+                for &sample in samples {
+                    let clamped = sample.clamp(-1.0, 1.0);
+                    let int_sample = (clamped * 8_388_607.0) as i32;
+                    self.writer
+                        .write_sample(int_sample)
+                        .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
+                }
+            }
+            32 => {
+                for &sample in samples {
+                    self.writer
+                        .write_sample(sample)
+                        .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
+                }
+            }
+            _ => {
+                return Err(WavWriterError::InvalidData(format!(
+                    "Unsupported bit depth: {}",
+                    self.bit_depth
+                )));
+            }
+        }
+
+        self.frames_written += samples.len() / self.channels as usize;
+        Ok(())
+    }
+
+    /// Finalizes the file and flushes headers.
+    pub fn finalize(self) -> Result<(), WavWriterError> {
+        self.writer
+            .finalize()
+            .map_err(|e| WavWriterError::WriteError(e.to_string()))?;
+        log::info!(
+            "WAV exported (stream): {} — {}ch × {} frames @ {}Hz, {}bit",
+            self.path.display(),
+            self.channels,
+            self.frames_written,
+            self.sample_rate,
+            self.bit_depth,
+        );
+        Ok(())
     }
 }
 

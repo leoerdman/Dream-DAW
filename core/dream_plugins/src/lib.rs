@@ -21,8 +21,8 @@ pub mod descriptor;
 pub mod format;
 pub mod instance;
 pub mod sandbox_host;
-pub mod sandbox_ipc;
 pub mod sandbox_instance;
+pub mod sandbox_ipc;
 pub mod scanner;
 pub mod shared_memory;
 pub mod vst3_host;
@@ -34,4 +34,4 @@ pub use sandbox_host::{
     PluginSandboxConfig, PluginSandboxSnapshot, PluginSandboxStatus, PluginSandboxSupervisor,
 };
 pub use scanner::PluginScanner;
-pub use vst3_host::{Vst3Instance, PluginHost};
+pub use vst3_host::{PluginHost, Vst3Instance};

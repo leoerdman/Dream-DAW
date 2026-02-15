@@ -13,10 +13,10 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-pub mod state;
-pub mod playhead;
 pub mod loop_region;
+pub mod playhead;
+pub mod state;
 
-pub use state::{TransportState, TransportCommand};
-pub use playhead::Playhead;
 pub use loop_region::LoopRegion;
+pub use playhead::Playhead;
+pub use state::{TransportCommand, TransportState};

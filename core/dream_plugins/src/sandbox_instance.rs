@@ -139,6 +139,72 @@ impl PluginInstance for SandboxedPluginInstance {
         Ok(())
     }
 
+    fn process_with_sidechain(
+        &mut self,
+        main_inputs: &[&[f32]],
+        sidechain_inputs: Option<&[&[f32]]>,
+        outputs: &mut [&mut [f32]],
+        num_frames: usize,
+    ) -> Result<(), PluginError> {
+        if !self.active {
+            return Err(PluginError::InvalidState(
+                "Sandboxed plugin is not active".to_string(),
+            ));
+        }
+        if num_frames > self.shared_region.layout.max_frames as usize {
+            return Err(PluginError::ProcessError(format!(
+                "num_frames={} exceeds shared max={}",
+                num_frames, self.shared_region.layout.max_frames
+            )));
+        }
+
+        let sidechain = sidechain_inputs.unwrap_or(&[]);
+        let input_channels = self.shared_region.layout.num_inputs as usize;
+
+        for ch in 0..input_channels {
+            let src: &[f32] = if ch < 2 {
+                main_inputs.get(ch).copied().unwrap_or(&[])
+            } else {
+                sidechain
+                    .get(ch - 2)
+                    .copied()
+                    .or_else(|| sidechain.first().copied())
+                    .unwrap_or(&[])
+            };
+
+            let n = src.len().min(num_frames);
+            self.shared_region
+                .write_input_channel(ch, &src[..n])
+                .map_err(PluginError::ProcessError)?;
+        }
+
+        self.shared_region.set_requested_frames(num_frames as u32);
+        self.request_seq = self.request_seq.wrapping_add(1);
+        self.shared_region.set_request_seq(self.request_seq);
+        let _ = self.shared_region.flush();
+
+        let processed_seq = self.shared_region.processed_seq();
+        let has_new_block = processed_seq != 0 && processed_seq >= self.request_seq;
+        self.last_seen_processed_seq = processed_seq;
+
+        if has_new_block {
+            let mut read_ok = true;
+            for (ch, out) in outputs.iter_mut().enumerate() {
+                if let Err(_err) = self.shared_region.read_output_channel(ch, num_frames, out) {
+                    read_ok = false;
+                    break;
+                }
+            }
+            if !read_ok {
+                self.pass_through(main_inputs, outputs, num_frames)?;
+            }
+        } else {
+            self.pass_through(main_inputs, outputs, num_frames)?;
+        }
+
+        Ok(())
+    }
+
     fn latency_samples(&self) -> u32 {
         self.latency_samples
     }

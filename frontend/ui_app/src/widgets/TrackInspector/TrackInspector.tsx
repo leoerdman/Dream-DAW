@@ -177,6 +177,8 @@ export const TrackInspector = ({
         startY: number;
         active: boolean;
     } | null>(null);
+    const dragPointerYRef = useRef<number | null>(null);
+    const autoScrollRafRef = useRef<number | null>(null);
     const suppressNextClickRef = useRef(false);
     const trackRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -454,6 +456,33 @@ export const TrackInspector = ({
         setContextMenu(null);
     }, []);
 
+    const handleBounceTrack = useCallback((trackId: string) => {
+        void engineApi.bounceTrack(trackId)
+            .then(() => useEngineStore.getState().fetchProject('track-context:bounce-track'))
+            .catch((err) => {
+                console.error('[TrackInspector] bounceTrack failed:', err);
+            });
+        setContextMenu(null);
+    }, []);
+
+    const handleBounceGroup = useCallback((groupTrackId: string) => {
+        void engineApi.bounceGroup(groupTrackId)
+            .then(() => useEngineStore.getState().fetchProject('track-context:bounce-group'))
+            .catch((err) => {
+                console.error('[TrackInspector] bounceGroup failed:', err);
+            });
+        setContextMenu(null);
+    }, []);
+
+    const handleSplitTrackToStems = useCallback((trackId: string) => {
+        void engineApi.splitTrackToStems(trackId)
+            .then(() => useEngineStore.getState().fetchProject('track-context:split-to-stems'))
+            .catch((err) => {
+                console.error('[TrackInspector] splitTrackToStems failed:', err);
+            });
+        setContextMenu(null);
+    }, []);
+
     // ── Cmd+R keyboard shortcut for rename ──
     useEffect(() => {
         const handleKey = (e: KeyboardEvent) => {
@@ -615,8 +644,8 @@ export const TrackInspector = ({
                 && !isDescendantOf(track.id, dragId),
             );
             if (canNestIntoGroup) {
-                const topZone = rect.top + rect.height * 0.28;
-                const bottomZone = rect.bottom - rect.height * 0.28;
+                const topZone = rect.top + rect.height * 0.18;
+                const bottomZone = rect.bottom - rect.height * 0.18;
                 if (clientY >= topZone && clientY <= bottomZone) {
                     return { groupId: track.id, insertIndex: null as number | null };
                 }
@@ -642,11 +671,13 @@ export const TrackInspector = ({
 
     useEffect(() => {
         if (!pointerDrag) return;
+        dragPointerYRef.current = pointerDrag.startY;
 
         const onPointerMove = (e: PointerEvent) => {
             const dx = e.clientX - pointerDrag.startX;
             const dy = e.clientY - pointerDrag.startY;
             const distance = Math.hypot(dx, dy);
+            dragPointerYRef.current = e.clientY;
 
             if (!pointerDrag.active && distance < 4) return;
 
@@ -661,6 +692,40 @@ export const TrackInspector = ({
             setGroupDropTargetId(target.groupId);
             setDropInsertIndex(target.insertIndex);
             e.preventDefault();
+        };
+
+        const runAutoScroll = () => {
+            autoScrollRafRef.current = window.requestAnimationFrame(runAutoScroll);
+            const y = dragPointerYRef.current;
+            if (!pointerDrag.active || y == null) return;
+            const listEl = scrollRef.current;
+            if (!listEl) return;
+
+            const rect = listEl.getBoundingClientRect();
+            const edgeSize = 42;
+            let velocity = 0;
+
+            if (y < rect.top + edgeSize) {
+                const t = (rect.top + edgeSize - y) / edgeSize;
+                velocity = -Math.max(2, Math.min(16, t * 16));
+            } else if (y > rect.bottom - edgeSize) {
+                const t = (y - (rect.bottom - edgeSize)) / edgeSize;
+                velocity = Math.max(2, Math.min(16, t * 16));
+            }
+
+            if (velocity === 0) return;
+
+            const maxScroll = Math.max(0, listEl.scrollHeight - listEl.clientHeight);
+            const nextScrollTop = Math.max(0, Math.min(maxScroll, listEl.scrollTop + velocity));
+            if (nextScrollTop === listEl.scrollTop) return;
+
+            listEl.scrollTop = nextScrollTop;
+
+            const activeDragId = draggingTrackIdRef.current ?? draggingTrackId ?? pointerDrag.trackId;
+            if (!activeDragId) return;
+            const target = resolveDropTargetFromClientY(y, activeDragId);
+            setGroupDropTargetId(target.groupId);
+            setDropInsertIndex(target.insertIndex);
         };
 
         const onPointerUp = (e: PointerEvent) => {
@@ -684,11 +749,17 @@ export const TrackInspector = ({
             resetTrackDragState();
         };
 
+        autoScrollRafRef.current = window.requestAnimationFrame(runAutoScroll);
         window.addEventListener('pointermove', onPointerMove, { passive: false });
         window.addEventListener('pointerup', onPointerUp);
         return () => {
             window.removeEventListener('pointermove', onPointerMove);
             window.removeEventListener('pointerup', onPointerUp);
+            if (autoScrollRafRef.current !== null) {
+                window.cancelAnimationFrame(autoScrollRafRef.current);
+                autoScrollRafRef.current = null;
+            }
+            dragPointerYRef.current = null;
         };
     }, [
         pointerDrag,
@@ -758,6 +829,17 @@ export const TrackInspector = ({
                         resetTrackDragState();
                         return;
                     }
+                    if (groupDropTargetId) {
+                        const targetIndex = findGroupTailInsertIndex(groupDropTargetId);
+                        void engineApi.moveTrackWithParent(dragId, targetIndex, groupDropTargetId).then(() => {
+                            void useEngineStore.getState().fetchProject();
+                        }).catch((err) => {
+                            console.error('[TrackInspector] moveTrackWithParent(scroll drop) failed:', err);
+                        }).finally(() => {
+                            resetTrackDragState();
+                        });
+                        return;
+                    }
                     const targetVisibleIndex = dropInsertIndex ?? visibleTracks.length;
                     commitDraggedTrackToVisibleIndex(dragId, targetVisibleIndex);
                     resetTrackDragState();
@@ -775,7 +857,9 @@ export const TrackInspector = ({
                     const trackIndex = getTrackIndex(track.id);
 
                     const visibleIndex = visibleTracks.findIndex((t) => t.id === track.id);
+                    const prevVisible = visibleTracks[visibleIndex - 1];
                     const nextVisible = visibleTracks[visibleIndex + 1];
+                    const isFirstInParentGroup = Boolean(track.groupId) && (!prevVisible || prevVisible.groupId !== track.groupId);
                     const isLastInParentGroup = Boolean(track.groupId) && (!nextVisible || nextVisible.groupId !== track.groupId);
                     return (
                         <div
@@ -850,6 +934,7 @@ export const TrackInspector = ({
                                 onHeaderPointerDown={(e) => beginHeaderPointerDrag(e, track.id)}
                                 isGroupDropTarget={groupDropTargetId === track.id}
                                 groupStripeColor={track.groupId ? (tracks.find((t) => t.id === track.groupId)?.color ?? track.color) : track.color}
+                                isFirstInParentGroup={isFirstInParentGroup}
                                 isLastInParentGroup={isLastInParentGroup}
                                 mixerFocusMode={mixerFocusMode}
                             />
@@ -928,9 +1013,16 @@ export const TrackInspector = ({
                         const ctxTrack = tracks.find((t) => t.id === contextMenu.trackId);
                         return !!ctxTrack && (ctxTrack.type === 'group' || !!ctxTrack.groupId);
                     })()}
+                    canBounceGroup={(() => {
+                        const ctxTrack = tracks.find((t) => t.id === contextMenu.trackId);
+                        return !!ctxTrack && ctxTrack.type === 'group';
+                    })()}
                     onDelete={() => handleDeleteTrack(contextMenu.trackId)}
                     onChangeColor={() => handleOpenColorPicker(contextMenu.trackId, contextMenu.x, contextMenu.y)}
                     onPaintClips={() => handlePaintClipsWithTrackColor(contextMenu.trackId)}
+                    onBounceTrack={() => handleBounceTrack(contextMenu.trackId)}
+                    onBounceGroup={() => handleBounceGroup(contextMenu.trackId)}
+                    onSplitToStems={() => handleSplitTrackToStems(contextMenu.trackId)}
                     onDismiss={() => setContextMenu(null)}
                 />
             )}
@@ -952,16 +1044,20 @@ export const TrackInspector = ({
 // ── Context Menu Popup ──────────────────────────────────────────
 
 const ContextMenuPopup = ({
-    x, y, onRename, onGroup, onUngroup, canUngroup, onDelete, onChangeColor, onPaintClips, onDismiss,
+    x, y, onRename, onGroup, onUngroup, canUngroup, canBounceGroup, onDelete, onChangeColor, onPaintClips, onBounceTrack, onBounceGroup, onSplitToStems, onDismiss,
 }: {
     x: number; y: number;
     onRename: () => void;
     onGroup: () => void;
     onUngroup: () => void;
     canUngroup: boolean;
+    canBounceGroup: boolean;
     onDelete: () => void;
     onChangeColor: () => void;
     onPaintClips: () => void;
+    onBounceTrack: () => void;
+    onBounceGroup: () => void;
+    onSplitToStems: () => void;
     onDismiss: () => void;
 }) => {
     const ref = useRef<HTMLDivElement>(null);
@@ -980,7 +1076,7 @@ const ContextMenuPopup = ({
     }, [onDismiss]);
 
     const clampedX = Math.min(x, window.innerWidth - 168);
-    const clampedY = Math.min(y, window.innerHeight - 180);
+    const clampedY = Math.min(y, window.innerHeight - (canBounceGroup ? 282 : 248));
 
     const itemStyle: React.CSSProperties = {
         width: '100%', padding: '6px 12px',
@@ -1011,6 +1107,23 @@ const ContextMenuPopup = ({
                 onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
                 <span style={{ width: 14, fontSize: 12 }}>🖌</span> Paint Clips As Track
+            </button>
+            <button style={itemStyle} onClick={onBounceTrack}
+                onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                <span style={{ width: 14, fontSize: 12 }}>📀</span> Bounce Track
+            </button>
+            {canBounceGroup && (
+                <button style={itemStyle} onClick={onBounceGroup}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                    <span style={{ width: 14, fontSize: 12 }}>📦</span> Bounce Group
+                </button>
+            )}
+            <button style={itemStyle} onClick={onSplitToStems}
+                onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                <span style={{ width: 14, fontSize: 12 }}>🧪</span> Split To 4 Stems
             </button>
             <button style={itemStyle} onClick={onGroup}
                 onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
@@ -1705,13 +1818,14 @@ const VerticalMixerStrip = ({
 // ── TrackRow (3-block Ableton-style layout) ──────────────────────────────
 
 const TrackRow = ({
-    track, allTracks, trackHeight, displayNum, isSelected: _isSelected, isCollapsed, depth,
+    track, allTracks, trackHeight, displayNum, isSelected, isCollapsed, depth,
     isRenaming, renameValue, onRenameChange, onRenameCommit, onRenameCancel,
     onClick, onToggleMute, onToggleSolo, onToggleArm, onToggleCollapse,
     onVolumeChange, onPanChange, onOutputChange, onInputChange, onContextMenu,
     onHeaderPointerDown,
     isGroupDropTarget = false,
     groupStripeColor,
+    isFirstInParentGroup = false,
     isLastInParentGroup = false,
     isMasterFixed, mixerFocusMode = false,
 }: {
@@ -1740,12 +1854,15 @@ const TrackRow = ({
     onHeaderPointerDown?: (e: React.PointerEvent<HTMLDivElement>) => void;
     isGroupDropTarget?: boolean;
     groupStripeColor?: string;
+    isFirstInParentGroup?: boolean;
     isLastInParentGroup?: boolean;
     isMasterFixed?: boolean;
     mixerFocusMode?: boolean;
 }) => {
     const isMaster = track.type === 'master';
     const isGroup = track.type === 'group';
+    const showGroupRail = !isMaster && (isGroup || depth > 0);
+    const groupRailColor = isGroup ? track.color : (groupStripeColor || track.color);
     const renameInputRef = useRef<HTMLInputElement>(null);
 
     const availableRoutingTargets = allTracks.filter(t => t.id !== track.id && t.type !== 'master');
@@ -1782,28 +1899,57 @@ const TrackRow = ({
                 display: 'flex', alignItems: 'stretch', height: trackHeight,
                 borderBottom: isMasterFixed ? 'none' : '1px solid var(--color-divider)',
                 borderTop: 'none',
-                background: 'var(--surface-1)',
+                background: isGroupDropTarget
+                    ? 'color-mix(in srgb, var(--color-accent-primary) 20%, var(--surface-1))'
+                    : isSelected
+                    ? 'color-mix(in srgb, var(--color-accent-primary) 14%, var(--surface-1))'
+                    : 'var(--surface-1)',
                 cursor: 'default',
                 opacity: isEnabled ? 1 : 0.45,
                 transition: 'background 0.12s ease, opacity 0.12s ease',
-                position: 'relative', paddingLeft: depth * 12, flexShrink: 0,
-                outline: isGroupDropTarget ? '1px solid color-mix(in srgb, var(--color-accent-primary) 72%, white)' : 'none',
-                outlineOffset: isGroupDropTarget ? '-1px' : 0,
+                position: 'relative', paddingLeft: 0, flexShrink: 0,
+                outline: isGroupDropTarget ? '2px solid color-mix(in srgb, var(--color-accent-primary) 82%, white)' : 'none',
+                outlineOffset: isGroupDropTarget ? '-2px' : 0,
+                boxShadow: isGroupDropTarget
+                    ? 'inset 0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 45%, transparent), 0 0 10px color-mix(in srgb, var(--color-accent-primary) 32%, transparent)'
+                    : 'none',
             }}
         >
-            {depth > 0 && (
+            {showGroupRail && (
                 <div style={{
                     position: 'absolute',
                     left: 0,
-                    top: 0,
-                    bottom: 0,
-                    width: depth * 12,
-                    background: groupStripeColor || 'var(--color-accent-primary)',
-                    borderRight: '1px solid rgba(0,0,0,0.22)',
-                    borderBottom: isLastInParentGroup ? '1px solid var(--color-divider)' : 'none',
+                    top: -1,
+                    bottom: -1,
+                    width: 2,
+                    background: groupRailColor,
                     opacity: 1,
                     pointerEvents: 'none',
-                    zIndex: 1,
+                    zIndex: 3,
+                }} />
+            )}
+            {depth > 0 && isFirstInParentGroup && (
+                <div style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: -1,
+                    width: 8,
+                    height: 2,
+                    background: groupRailColor,
+                    pointerEvents: 'none',
+                    zIndex: 3,
+                }} />
+            )}
+            {depth > 0 && isLastInParentGroup && (
+                <div style={{
+                    position: 'absolute',
+                    left: 0,
+                    bottom: -1,
+                    width: 8,
+                    height: 2,
+                    background: groupRailColor,
+                    pointerEvents: 'none',
+                    zIndex: 3,
                 }} />
             )}
             {/* ════ BLOCK 1: Track Header (colored) ════ */}

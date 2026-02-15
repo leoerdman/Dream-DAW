@@ -197,6 +197,21 @@ export const setTrackMute = (trackIndex: number, muted: boolean) =>
 export const setTrackSolo = (trackIndex: number, soloed: boolean) =>
     invoke<void>('set_track_solo', { trackIndex, soloed });
 
+/** Live audition note-on for sampler on a track (Piano Roll preview). */
+export const previewSamplerNoteOn = (trackIndex: number, pitch: number, velocity: number = 100) =>
+    invoke<void>('preview_sampler_note_on_cmd', {
+        trackIndex,
+        pitch: Math.max(0, Math.min(127, Math.round(pitch))),
+        velocity: Math.max(1, Math.min(127, Math.round(velocity))),
+    });
+
+/** Live audition note-off for sampler on a track (Piano Roll preview). */
+export const previewSamplerNoteOff = (trackIndex: number, pitch: number) =>
+    invoke<void>('preview_sampler_note_off_cmd', {
+        trackIndex,
+        pitch: Math.max(0, Math.min(127, Math.round(pitch))),
+    });
+
 // ── Device Chain Commands ────────────────────────────────────────────────
 
 /** Built-in effect type values (mirrors BuiltinEffectType in Rust). */
@@ -448,14 +463,44 @@ export const createMidiClip = (
 export const updateMidiClip = (
     clipId: string,
     notes: MidiClipNoteUpdate[],
+    options?: { pushUndoStep?: boolean },
 ) =>
     invoke<void>('update_midi_clip_cmd', {
         clipId,
+        push_undo_step: options?.pushUndoStep ?? true,
         notes: notes.map((n) => ({
             pitch: Math.max(0, Math.min(127, Math.round(n.pitch))),
             velocity: Math.max(1, Math.min(127, Math.round(n.velocity))),
             start_frames: Math.max(0, Math.round(n.startFrames)),
             duration_frames: Math.max(1, Math.round(n.durationFrames)),
+        })),
+    });
+
+export interface MidiClipEnvelopePointUpdate {
+    beat: number;
+    value: number;
+}
+
+export interface MidiClipEnvelopeUpdate {
+    paramId: string;
+    points: MidiClipEnvelopePointUpdate[];
+}
+
+/** Replace MIDI clip envelopes (CC-style lanes) for this clip. */
+export const setMidiClipEnvelopes = (
+    clipId: string,
+    envelopes: MidiClipEnvelopeUpdate[],
+    options?: { pushUndoStep?: boolean },
+) =>
+    invoke<void>('set_midi_clip_envelopes_cmd', {
+        clipId,
+        push_undo_step: options?.pushUndoStep ?? true,
+        envelopes: envelopes.map((env) => ({
+            param_id: env.paramId,
+            points: env.points.map((p) => ({
+                beat: Math.max(0, Number(p.beat || 0)),
+                value: Math.max(0, Math.min(1, Number(p.value || 0))),
+            })),
         })),
     });
 
@@ -968,15 +1013,65 @@ export interface ExportSettings {
     format: 'wav' | 'mp3';
 }
 
+export interface BackgroundJobSnapshot {
+    id: string;
+    kind: string;
+    status: 'running' | 'completed' | 'failed' | 'cancelled' | string;
+    progress: number;
+    phase: string;
+    startedAtMs: number;
+    finishedAtMs?: number | null;
+    error?: string | null;
+    cancellable: boolean;
+}
+
 /** Kick off an offline bounce/export. Rust disables the realtime cpal timer
  *  and spins the render loop at max CPU speed. Progress is emitted via
  *  'bounce_progress' Tauri event (payload: { progress: number 0..100 }). */
 export const exportMix = (settings: ExportSettings) =>
-    invoke<void>('export_mix_cmd', { settings });
+    invoke<string>('export_mix_cmd', { settings });
 
 /** Cancel an in-progress export/bounce operation. */
 export const cancelExport = () =>
     invoke<void>('cancel_export_cmd');
+
+/** List all background render jobs (running + recent history). */
+export const listBackgroundJobs = () =>
+    invoke<BackgroundJobSnapshot[]>('list_background_jobs_cmd');
+
+/** Cancel a specific background job by ID. */
+export const cancelBackgroundJob = (jobId: string) =>
+    invoke<void>('cancel_background_job_cmd', { jobId });
+
+/** Clears completed/failed/cancelled jobs history, keeps running jobs. */
+export const clearFinishedBackgroundJobs = () =>
+    invoke<number>('clear_finished_background_jobs_cmd');
+
+export interface BounceSelectionToTrackPayload {
+    clipIds?: string[];
+    rangeStartFrames?: number;
+    rangeEndFrames?: number;
+    startTrackIndex?: number;
+    endTrackIndex?: number;
+}
+
+/** Bounce selected clips or selected area to a new audio track. */
+export const bounceSelectionToTrack = (payload: BounceSelectionToTrackPayload) =>
+    invoke<void>('bounce_selection_to_track_cmd', { payload });
+
+/** Bounce full track (with FX chain) to a new audio track. */
+export const bounceTrack = (trackId: string) =>
+    invoke<void>('bounce_track_cmd', { trackId });
+
+/** Bounce a group (group + child tracks) to a new audio track. */
+export const bounceGroup = (groupTrackId: string) =>
+    invoke<void>('bounce_group_cmd', { groupTrackId });
+
+/** Split a track into 4 stems (drums, bass, other, vocals). */
+export const splitTrackToStems = (trackId: string) =>
+    invoke<void>('split_track_to_stems_cmd', {
+        payload: { trackId },
+    });
 
 // ── Undo / Redo ─────────────────────────────────────────────────────────
 

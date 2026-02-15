@@ -90,7 +90,8 @@ impl CompressorProcessor {
     }
 
     fn update_sc_hpf(&mut self) {
-        self.sc_hp_coeff = 1.0 / (1.0 + std::f32::consts::TAU * self.sc_hpf_freq / self.sample_rate);
+        self.sc_hp_coeff =
+            1.0 / (1.0 + std::f32::consts::TAU * self.sc_hpf_freq / self.sample_rate);
     }
 
     fn compute_auto_makeup(&self) -> f32 {
@@ -184,10 +185,79 @@ impl DspProcessor for CompressorProcessor {
             let input_db = Self::linear_to_db(detection);
 
             // Envelope
-            let coeff = if input_db > self.envelope_db { attack } else { release };
+            let coeff = if input_db > self.envelope_db {
+                attack
+            } else {
+                release
+            };
             self.envelope_db = coeff * self.envelope_db + (1.0 - coeff) * input_db;
 
             // Gain computation (with soft knee)
+            let gain_db = self.compute_gain_reduction(self.envelope_db);
+            let gain = Self::db_to_linear(gain_db) * makeup;
+
+            left[i] = dry_l * dry_mix + dry_l * gain * mix;
+            right[i] = dry_r * dry_mix + dry_r * gain * mix;
+        }
+    }
+
+    fn process_stereo_with_sidechain(
+        &mut self,
+        left: &mut [f32],
+        right: &mut [f32],
+        sidechain_left: Option<&[f32]>,
+        sidechain_right: Option<&[f32]>,
+        _sample_rate: f32,
+    ) {
+        let len = left.len().min(right.len());
+        let attack = self.attack_coeff;
+        let release = self.release_coeff;
+        let makeup = self.compute_auto_makeup();
+        let mix = self.mix;
+        let dry_mix = 1.0 - mix;
+        let rms_coeff = if self.rms_mode { 0.001 } else { 0.0 };
+
+        for i in 0..len {
+            let dry_l = left[i];
+            let dry_r = right[i];
+
+            let sc_src_l = sidechain_left
+                .and_then(|sc| sc.get(i).copied())
+                .unwrap_or(dry_l);
+            let sc_src_r = sidechain_right
+                .and_then(|sc| sc.get(i).copied())
+                .unwrap_or(dry_r);
+
+            let sc_l = if self.sc_hpf_freq > 25.0 {
+                let prev = self.sc_hp_state_l;
+                self.sc_hp_state_l = self.sc_hp_coeff * (prev + sc_src_l);
+                sc_src_l - self.sc_hp_state_l + prev * self.sc_hp_coeff
+            } else {
+                sc_src_l
+            };
+            let sc_r = if self.sc_hpf_freq > 25.0 {
+                let prev = self.sc_hp_state_r;
+                self.sc_hp_state_r = self.sc_hp_coeff * (prev + sc_src_r);
+                sc_src_r - self.sc_hp_state_r + prev * self.sc_hp_coeff
+            } else {
+                sc_src_r
+            };
+
+            let detection = if self.rms_mode {
+                let sq = (sc_l * sc_l + sc_r * sc_r) * 0.5;
+                self.rms_state += rms_coeff * (sq - self.rms_state);
+                self.rms_state.max(0.0).sqrt()
+            } else {
+                sc_l.abs().max(sc_r.abs())
+            };
+
+            let input_db = Self::linear_to_db(detection);
+            let coeff = if input_db > self.envelope_db {
+                attack
+            } else {
+                release
+            };
+            self.envelope_db = coeff * self.envelope_db + (1.0 - coeff) * input_db;
             let gain_db = self.compute_gain_reduction(self.envelope_db);
             let gain = Self::db_to_linear(gain_db) * makeup;
 
@@ -200,12 +270,24 @@ impl DspProcessor for CompressorProcessor {
         match index {
             0 => self.threshold_db = value.clamp(-60.0, 0.0),
             1 => self.ratio = value.clamp(1.0, 20.0),
-            2 => { self.attack_ms = value.clamp(0.1, 100.0); self.update_coefficients(); }
-            3 => { self.release_ms = value.clamp(10.0, 1000.0); self.update_coefficients(); }
+            2 => {
+                self.attack_ms = value.clamp(0.1, 100.0);
+                self.update_coefficients();
+            }
+            3 => {
+                self.release_ms = value.clamp(10.0, 1000.0);
+                self.update_coefficients();
+            }
             4 => self.knee_db = value.clamp(0.0, 24.0),
-            5 => { self.makeup_db = value.clamp(-12.0, 24.0); self.makeup_lin = Self::db_to_linear(self.makeup_db); }
+            5 => {
+                self.makeup_db = value.clamp(-12.0, 24.0);
+                self.makeup_lin = Self::db_to_linear(self.makeup_db);
+            }
             6 => self.mix = (value / 100.0).clamp(0.0, 1.0),
-            7 => { self.sc_hpf_freq = value.clamp(20.0, 500.0); self.update_sc_hpf(); }
+            7 => {
+                self.sc_hpf_freq = value.clamp(20.0, 500.0);
+                self.update_sc_hpf();
+            }
             8 => self.auto_gain = value > 0.5,
             9 => self.rms_mode = value > 0.5,
             _ => {}
@@ -248,7 +330,10 @@ mod tests {
         let mut right = vec![1.0f32; 4096];
         proc.process_stereo(&mut left, &mut right, 44100.0);
         let tail_avg: f32 = left[2048..].iter().sum::<f32>() / 2048.0;
-        assert!(tail_avg < 0.5, "Loud signal should be compressed, got: {tail_avg}");
+        assert!(
+            tail_avg < 0.5,
+            "Loud signal should be compressed, got: {tail_avg}"
+        );
     }
 
     #[test]

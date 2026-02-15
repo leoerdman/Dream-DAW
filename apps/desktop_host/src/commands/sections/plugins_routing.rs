@@ -99,6 +99,88 @@ fn apply_imported_external_state_blob(
     Ok(())
 }
 
+fn normalize_plugin_key_local(raw: &str) -> String {
+    raw.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
+fn humanize_param_token(raw: &str) -> String {
+    let trimmed = raw.trim_matches('_').trim();
+    if trimmed.is_empty() {
+        return "Param".to_string();
+    }
+    let mut out = String::with_capacity(trimmed.len() + 4);
+    let mut upper = true;
+    for ch in trimmed.chars() {
+        if ch == '_' || ch == '-' {
+            out.push(' ');
+            upper = true;
+            continue;
+        }
+        if upper {
+            out.push(ch.to_ascii_uppercase());
+            upper = false;
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn lane_param_name_hints(project: &Project, plugin_id: &str) -> std::collections::HashMap<u32, String> {
+    fn scan_lanes(
+        lanes: &[dream_models::project::AutomationLane],
+        plugin_key: &str,
+        out: &mut std::collections::HashMap<u32, String>,
+    ) {
+        for lane in lanes {
+            let key = lane.param_id.trim().to_lowercase();
+            let Some(rest) = key.strip_prefix("plugin:") else { continue };
+            let mut parts = rest.splitn(3, ':');
+            let _dev_idx = parts.next();
+            let lane_plugin_key = parts.next().unwrap_or_default();
+            let param_token = parts.next().unwrap_or_default();
+            if lane_plugin_key != plugin_key || param_token.is_empty() {
+                continue;
+            }
+
+            // Expected token shape from ALS import: "<name>_idN" or "idN".
+            let mut id_idx: Option<u32> = None;
+            if let Some(id_pos) = param_token.rfind("_id") {
+                let suffix = &param_token[id_pos + 3..];
+                if let Ok(v) = suffix.parse::<u32>() {
+                    id_idx = Some(v);
+                }
+            } else if let Some(suffix) = param_token.strip_prefix("id")
+                && let Ok(v) = suffix.parse::<u32>()
+            {
+                id_idx = Some(v);
+            }
+            let Some(param_index) = id_idx else { continue };
+
+            let display = if let Some(id_pos) = param_token.rfind("_id") {
+                humanize_param_token(&param_token[..id_pos])
+            } else if let Some(stripped) = param_token.strip_prefix("id") {
+                let idx = stripped.parse::<u32>().unwrap_or(param_index) + 1;
+                format!("Param {idx}")
+            } else {
+                humanize_param_token(param_token)
+            };
+            out.entry(param_index).or_insert(display);
+        }
+    }
+
+    let plugin_key = normalize_plugin_key_local(plugin_id);
+    let mut out = std::collections::HashMap::new();
+    for track in &project.tracks {
+        scan_lanes(&track.automation_lanes, &plugin_key, &mut out);
+    }
+    scan_lanes(&project.master_track.automation_lanes, &plugin_key, &mut out);
+    out
+}
+
 fn ensure_loaded_external_instance(
     plugin_id: &str,
     plugin_host_state: &tauri::State<'_, PluginHostState>,
@@ -157,12 +239,7 @@ fn open_plugin_window(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
 ) -> Result<(), String> {
-    if plugin_host_state
-        .loaded_sandbox_by_key
-        .lock()
-        .map_err(|e| e.to_string())?
-        .contains_key(&plugin_id)
-    {
+    if plugin_host_state.open_sandbox_editor(&plugin_id)? {
         log::info!("[IPC] open_plugin_window({plugin_id}) -> already managed by sandbox host");
         return Ok(());
     }
@@ -246,29 +323,11 @@ fn can_open_plugin_editor(
         .loaded_sandbox_by_key
         .lock()
         .map_err(|e| e.to_string())?
-        .get(&plugin_id)
-        .copied()
-        .is_some()
+        .contains_key(&plugin_id)
     {
-        let maybe_id = plugin_host_state
-            .loaded_sandbox_by_key
-            .lock()
-            .map_err(|e| e.to_string())?
-            .get(&plugin_id)
-            .copied();
-        let supported = if let Some(id) = maybe_id {
-            let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-            host.supports_editor(id).unwrap_or(false)
-        } else {
-            false
-        };
         return Ok(PluginEditorCapability {
-            supported,
-            reason: if supported {
-                None
-            } else {
-                Some("Sandboxed plugin editor bridge is not enabled for this instance yet.".to_string())
-            },
+            supported: true,
+            reason: None,
         });
     }
 
@@ -368,13 +427,8 @@ fn set_external_plugin_param_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
 ) -> Result<(), String> {
-    if plugin_host_state
-        .loaded_sandbox_by_key
-        .lock()
-        .map_err(|e| e.to_string())?
-        .contains_key(&plugin_id)
-    {
-        return Err("External parameter control is not available for sandbox-hosted plugins yet.".to_string());
+    if plugin_host_state.set_sandbox_parameter(&plugin_id, param_index, value)? {
+        return Ok(());
     }
 
     let normalized = value.clamp(0.0, 1.0);
@@ -403,21 +457,31 @@ fn get_external_plugin_params(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
 ) -> Result<Vec<ExternalPluginParamInfo>, String> {
+    let plugin_key = normalize_plugin_key_local(&plugin_id);
     if plugin_host_state
         .loaded_sandbox_by_key
         .lock()
         .map_err(|e| e.to_string())?
         .contains_key(&plugin_id)
     {
-        return Ok(Vec::new());
+        return Ok(vec![ExternalPluginParamInfo {
+            index: 0,
+            name: "Gain".to_string(),
+            min: 0.0,
+            max: 2.0,
+            step: 0.001,
+            value: 1.0,
+        }]);
     }
 
-    let metadata_count = {
+    let (metadata_count, lane_name_hints) = {
         let project = project_state.project.lock().map_err(|e| e.to_string())?;
-        find_project_plugin_slot(&project, &plugin_id)
+        let count = find_project_plugin_slot(&project, &plugin_id)
             .and_then(|slot| slot.external_parameter_count)
             .unwrap_or(0)
-            .max(0) as usize
+            .max(0) as usize;
+        let hints = lane_param_name_hints(&project, &plugin_key);
+        (count, hints)
     };
 
     let instance_id = ensure_loaded_external_instance(&plugin_id, &plugin_host_state, &project_state)?;
@@ -442,9 +506,14 @@ fn get_external_plugin_params(
             .get_parameter(idx as u32)
             .unwrap_or(0.5)
             .clamp(0.0, 1.0);
+        let fallback_name = format!("Param {}", idx + 1);
+        let name = lane_name_hints
+            .get(&(idx as u32))
+            .cloned()
+            .unwrap_or(fallback_name);
         out.push(ExternalPluginParamInfo {
             index: idx as u32,
-            name: format!("Param {}", idx + 1),
+            name,
             min: 0.0,
             max: 1.0,
             step: 0.001,

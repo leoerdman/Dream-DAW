@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
@@ -9,7 +10,7 @@ use uuid::Uuid;
 
 use crate::descriptor::PluginDescriptor;
 use crate::instance::PluginError;
-use crate::sandbox_ipc::SharedAudioRegion;
+use crate::sandbox_ipc::{PluginHostControlMessage, SharedAudioRegion};
 use crate::shared_memory::{SharedAudioBufferLayout, SharedAudioBufferRegion};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -95,6 +96,7 @@ struct PluginSandboxInstance {
     heartbeat_file: PathBuf,
     shared_region: SharedAudioRegion,
     _shared_region_owner: SharedAudioBufferRegion,
+    control_stdin: Option<ChildStdin>,
 }
 
 /// Out-of-process plugin sandbox supervisor.
@@ -109,6 +111,41 @@ pub struct PluginSandboxSupervisor {
 }
 
 impl PluginSandboxSupervisor {
+    fn send_control_message(
+        control_stdin: &mut ChildStdin,
+        msg: &PluginHostControlMessage,
+    ) -> Result<(), PluginError> {
+        let mut payload = serde_json::to_vec(msg)
+            .map_err(|e| PluginError::ProcessError(format!("serialize control message: {e}")))?;
+        payload.push(b'\n');
+        control_stdin
+            .write_all(&payload)
+            .and_then(|_| control_stdin.flush())
+            .map_err(|e| PluginError::ProcessError(format!("write control message: {e}")))
+    }
+
+    fn prime_instance_protocol(instance_id: Uuid, instance: &mut PluginSandboxInstance) -> Result<(), PluginError> {
+        if let Some(stdin) = instance.control_stdin.as_mut() {
+            Self::send_control_message(
+                stdin,
+                &PluginHostControlMessage::Hello {
+                    protocol_version: 1,
+                    host_name: "Dream DAW".to_string(),
+                },
+            )?;
+            Self::send_control_message(
+                stdin,
+                &PluginHostControlMessage::LoadPlugin {
+                    instance_id,
+                    plugin_path: instance.descriptor.path.to_string_lossy().to_string(),
+                    sample_rate: 44_100.0,
+                    max_block_size: instance.shared_region.max_frames,
+                },
+            )?;
+        }
+        Ok(())
+    }
+
     fn spawn_daemon_process(
         config: &PluginSandboxConfig,
         instance_id: Uuid,
@@ -218,6 +255,8 @@ impl PluginSandboxSupervisor {
             layout.num_outputs,
             layout.max_frames,
         )?;
+        let mut child = child;
+        let control_stdin = child.stdin.take();
 
         self.instances.insert(
             instance_id,
@@ -232,8 +271,12 @@ impl PluginSandboxSupervisor {
                 heartbeat_file,
                 shared_region,
                 _shared_region_owner: shared_region_owner,
+                control_stdin,
             },
         );
+        if let Some(inst) = self.instances.get_mut(&instance_id) {
+            let _ = Self::prime_instance_protocol(instance_id, inst);
+        }
         Ok(instance_id)
     }
 
@@ -280,11 +323,13 @@ impl PluginSandboxSupervisor {
                                     instance.shared_region.num_outputs,
                                     instance.shared_region.max_frames,
                                 ) {
-                                Ok(new_child) => {
+                                Ok(mut new_child) => {
+                                    instance.control_stdin = new_child.stdin.take();
                                     instance.process = Some(new_child);
                                     instance.status = PluginSandboxStatus::Spawning;
                                     instance.restart_count = instance.restart_count.saturating_add(1);
                                     instance.bypass_requested = false;
+                                    let _ = Self::prime_instance_protocol(*id, instance);
                                     continue;
                                 }
                                 Err(err) => {
@@ -319,7 +364,8 @@ impl PluginSandboxSupervisor {
                                             instance.shared_region.num_outputs,
                                             instance.shared_region.max_frames,
                                         ) {
-                                        Ok(new_child) => {
+                                        Ok(mut new_child) => {
+                                            instance.control_stdin = new_child.stdin.take();
                                             instance.process = Some(new_child);
                                             instance.status = PluginSandboxStatus::Spawning;
                                             instance.restart_count = instance.restart_count.saturating_add(1);
@@ -328,6 +374,7 @@ impl PluginSandboxSupervisor {
                                                 "Recovered after heartbeat timeout ({}ms)",
                                                 timeout.as_millis()
                                             ));
+                                            let _ = Self::prime_instance_protocol(*id, instance);
                                             continue;
                                         }
                                         Err(err) => {
@@ -369,6 +416,13 @@ impl PluginSandboxSupervisor {
 
     pub fn remove_instance(&mut self, instance_id: Uuid) {
         if let Some(mut instance) = self.instances.remove(&instance_id) {
+            if let Some(stdin) = instance.control_stdin.as_mut() {
+                let _ = Self::send_control_message(
+                    stdin,
+                    &PluginHostControlMessage::UnloadPlugin { instance_id },
+                );
+                let _ = Self::send_control_message(stdin, &PluginHostControlMessage::Shutdown);
+            }
             if let Some(mut child) = instance.process.take() {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -402,6 +456,48 @@ impl PluginSandboxSupervisor {
 
     pub fn shared_region_for_instance(&self, instance_id: Uuid) -> Option<SharedAudioRegion> {
         self.instances.get(&instance_id).map(|i| i.shared_region.clone())
+    }
+
+    pub fn send_set_parameter(
+        &mut self,
+        instance_id: Uuid,
+        index: u32,
+        value: f64,
+    ) -> Result<(), PluginError> {
+        let instance = self.instances.get_mut(&instance_id).ok_or_else(|| {
+            PluginError::InvalidState(format!("Sandbox instance not found: {instance_id}"))
+        })?;
+        let stdin = instance.control_stdin.as_mut().ok_or_else(|| {
+            PluginError::InvalidState("Sandbox control pipe is not available".to_string())
+        })?;
+        Self::send_control_message(
+            stdin,
+            &PluginHostControlMessage::SetParameter {
+                instance_id,
+                index,
+                value,
+            },
+        )
+    }
+
+    pub fn send_open_editor(&mut self, instance_id: Uuid) -> Result<(), PluginError> {
+        let instance = self.instances.get_mut(&instance_id).ok_or_else(|| {
+            PluginError::InvalidState(format!("Sandbox instance not found: {instance_id}"))
+        })?;
+        let stdin = instance.control_stdin.as_mut().ok_or_else(|| {
+            PluginError::InvalidState("Sandbox control pipe is not available".to_string())
+        })?;
+        Self::send_control_message(stdin, &PluginHostControlMessage::OpenEditor { instance_id })
+    }
+
+    pub fn send_close_editor(&mut self, instance_id: Uuid) -> Result<(), PluginError> {
+        let instance = self.instances.get_mut(&instance_id).ok_or_else(|| {
+            PluginError::InvalidState(format!("Sandbox instance not found: {instance_id}"))
+        })?;
+        let stdin = instance.control_stdin.as_mut().ok_or_else(|| {
+            PluginError::InvalidState("Sandbox control pipe is not available".to_string())
+        })?;
+        Self::send_control_message(stdin, &PluginHostControlMessage::CloseEditor { instance_id })
     }
 }
 
@@ -466,6 +562,7 @@ mod tests {
                     },
                 )
                 .unwrap(),
+                control_stdin: None,
             },
         );
         sup.mark_heartbeat(id);

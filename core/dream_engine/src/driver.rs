@@ -296,6 +296,36 @@ fn eval_automation_with_cursor(
 }
 
 #[inline]
+fn pan_points_use_unit_interval_domain(points: &[AutomationPoint]) -> bool {
+    if points.is_empty() {
+        return false;
+    }
+
+    let mut min_v = f32::INFINITY;
+    let mut max_v = f32::NEG_INFINITY;
+    let mut saw_center_hint = false;
+    for p in points {
+        let v = p.value;
+        min_v = min_v.min(v);
+        max_v = max_v.max(v);
+        if (v - 0.5).abs() <= 0.08 {
+            saw_center_hint = true;
+        }
+    }
+
+    if min_v < 0.0 || max_v > 1.0 {
+        return false;
+    }
+
+    // Treat as [0..1] only when evidence is explicit:
+    // - lane contains center-like values (~0.5), or
+    // - lane spans near full [0..1] endpoints.
+    // This prevents all-zero lanes (common imported center pan) from being
+    // misread as hard-left after [0..1] -> [-1..1] conversion.
+    saw_center_hint || (min_v <= 0.01 && max_v >= 0.99)
+}
+
+#[inline]
 fn apply_plugin_automation_sample_accurate(
     left: &mut [f32],
     right: &mut [f32],
@@ -324,7 +354,7 @@ fn apply_plugin_automation_sample_accurate(
             .map(|p| p.value)
             .unwrap_or(0.0);
         let pan = if pan_points
-            .map(|pts| !pts.is_empty() && pts.iter().all(|p| (0.0..=1.0).contains(&p.value)))
+            .map(pan_points_use_unit_interval_domain)
             .unwrap_or(false)
         {
             raw_pan * 2.0 - 1.0
@@ -342,7 +372,7 @@ fn apply_plugin_automation_sample_accurate(
     }
 
     let pan_is_unit_interval = pan_points
-        .map(|pts| !pts.is_empty() && pts.iter().all(|p| (0.0..=1.0).contains(&p.value)))
+        .map(pan_points_use_unit_interval_domain)
         .unwrap_or(false);
 
     let mut gain_cursor = 0usize;
@@ -401,7 +431,7 @@ fn apply_track_mixer_automation_sample_accurate(
             .map(|p| p.value)
             .unwrap_or(0.0);
         let pan = if pan_points
-            .map(|pts| !pts.is_empty() && pts.iter().all(|p| (0.0..=1.0).contains(&p.value)))
+            .map(pan_points_use_unit_interval_domain)
             .unwrap_or(false)
         {
             raw_pan * 2.0 - 1.0
@@ -419,7 +449,7 @@ fn apply_track_mixer_automation_sample_accurate(
     }
 
     let pan_is_unit_interval = pan_points
-        .map(|pts| !pts.is_empty() && pts.iter().all(|p| (0.0..=1.0).contains(&p.value)))
+        .map(pan_points_use_unit_interval_domain)
         .unwrap_or(false);
 
     let mut volume_cursor = 0usize;
@@ -890,6 +920,16 @@ pub fn start_audio_thread_on_device(
                             use std::arch::x86_64::*;
                             let csr = _mm_getcsr();
                             _mm_setcsr(csr | 0x8040); // DAZ + FTZ bits
+                        }
+                        #[cfg(target_arch = "aarch64")]
+                        unsafe {
+                            // ARM FPCR bit 24 = FZ (Flush-to-Zero).
+                            // AArch64 has no DAZ equivalent — FZ covers both
+                            // input denormals and output denormals.
+                            let mut fpcr: u64;
+                            std::arch::asm!("mrs {}, fpcr", out(reg) fpcr);
+                            fpcr |= 1 << 24; // FZ bit
+                            std::arch::asm!("msr fpcr, {}", in(reg) fpcr);
                         }
 
                         let frame_count = data.len() / channels;
@@ -1814,6 +1854,28 @@ mod tests {
 
         assert!(left[0] > right[0]);
         assert!(right[3] > left[3]);
+    }
+
+    #[test]
+    fn sample_accurate_track_pan_all_zero_stays_centered() {
+        let mut left = vec![1.0f32; 4];
+        let mut right = vec![1.0f32; 4];
+        let pan_points = vec![AutomationPoint {
+            sample_frame: 0,
+            value: 0.0,
+        }];
+
+        apply_track_mixer_automation_sample_accurate(
+            &mut left,
+            &mut right,
+            0,
+            None,
+            Some(&pan_points),
+        );
+
+        for i in 0..left.len().min(right.len()) {
+            assert!((left[i] - right[i]).abs() <= 1e-6);
+        }
     }
 
     #[test]

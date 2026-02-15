@@ -762,10 +762,30 @@ impl ProjectHistory {
         }
     }
 
-    fn snapshot(&self, limit: Option<usize>) -> Vec<ProjectHistoryEvent> {
-        let count = limit.unwrap_or(self.events.len()).min(self.events.len());
-        let start = self.events.len().saturating_sub(count);
-        self.events.iter().skip(start).cloned().collect()
+    fn snapshot(&self, limit: Option<usize>, since_seq: Option<u64>) -> Vec<ProjectHistoryEvent> {
+        let selected: Vec<ProjectHistoryEvent> = if let Some(since) = since_seq {
+            // If caller cursor is ahead of our tail, history likely reset
+            // (new/open project). Fall back to recent full slice.
+            let tail_seq = self.events.back().map(|e| e.seq).unwrap_or(0);
+            if since > tail_seq {
+                self.events.iter().cloned().collect()
+            } else {
+                self.events
+                    .iter()
+                    .filter(|e| e.seq > since)
+                    .cloned()
+                    .collect()
+            }
+        } else {
+            self.events.iter().cloned().collect()
+        };
+        let selected_len = selected.len();
+        let count = limit.unwrap_or(selected_len).min(selected_len);
+        let skip = selected_len.saturating_sub(count);
+        selected
+            .into_iter()
+            .skip(skip)
+            .collect()
     }
 }
 
@@ -840,9 +860,13 @@ impl ProjectState {
         Ok(())
     }
 
-    fn history_snapshot(&self, limit: Option<usize>) -> Result<Vec<ProjectHistoryEvent>, String> {
+    fn history_snapshot(
+        &self,
+        limit: Option<usize>,
+        since_seq: Option<u64>,
+    ) -> Result<Vec<ProjectHistoryEvent>, String> {
         let history = self.history.lock().map_err(|e| e.to_string())?;
-        Ok(history.snapshot(limit))
+        Ok(history.snapshot(limit, since_seq))
     }
 }
 
@@ -2161,6 +2185,9 @@ impl PluginHostState {
             .map_err(|e| e.to_string())?
             .remove(plugin_key);
         if let Some(id) = maybe_id {
+            if let Ok(mut supervisor) = self.sandbox_supervisor.lock() {
+                let _ = supervisor.send_close_editor(id);
+            }
             if let Ok(mut host) = self.host.lock() {
                 let _ = host.remove(id);
             }
@@ -2195,6 +2222,41 @@ impl PluginHostState {
             }
         }
         Ok(supervisor.snapshot())
+    }
+
+    fn open_sandbox_editor(&self, plugin_key: &str) -> Result<bool, String> {
+        let maybe_id = self
+            .loaded_sandbox_by_key
+            .lock()
+            .map_err(|e| e.to_string())?
+            .get(plugin_key)
+            .copied();
+        let Some(id) = maybe_id else { return Ok(false) };
+        let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+        supervisor
+            .send_open_editor(id)
+            .map_err(|e| format!("Sandbox open editor failed: {e}"))?;
+        Ok(true)
+    }
+
+    fn set_sandbox_parameter(
+        &self,
+        plugin_key: &str,
+        param_index: u32,
+        value: f64,
+    ) -> Result<bool, String> {
+        let maybe_id = self
+            .loaded_sandbox_by_key
+            .lock()
+            .map_err(|e| e.to_string())?
+            .get(plugin_key)
+            .copied();
+        let Some(id) = maybe_id else { return Ok(false) };
+        let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+        supervisor
+            .send_set_parameter(id, param_index, value)
+            .map_err(|e| format!("Sandbox set parameter failed: {e}"))?;
+        Ok(true)
     }
 }
 
@@ -2951,7 +3013,7 @@ mod tests {
             history.push("mutation", format!("event-{i}"));
         }
 
-        let events = history.snapshot();
+        let events = history.snapshot(None, None);
         assert_eq!(events.len(), MAX_PROJECT_HISTORY);
         assert_eq!(events.first().map(|e| e.seq), Some(6));
         assert_eq!(
@@ -2969,12 +3031,37 @@ mod tests {
     }
 
     #[test]
+    fn project_history_snapshot_since_returns_only_new_events() {
+        let mut history = ProjectHistory::new();
+        for i in 0..8 {
+            history.push("mutation", format!("event-{i}"));
+        }
+
+        let events = history.snapshot(None, Some(5));
+        assert_eq!(events.len(), 3);
+        assert_eq!(events.first().map(|e| e.seq), Some(6));
+        assert_eq!(events.last().map(|e| e.seq), Some(8));
+    }
+
+    #[test]
+    fn project_history_snapshot_since_falls_back_after_reset_cursor() {
+        let mut history = ProjectHistory::new();
+        history.push("open_project", "loaded A");
+        history.push("save", "saved A");
+
+        let events = history.snapshot(Some(10), Some(999));
+        assert_eq!(events.len(), 2);
+        assert_eq!(events.first().map(|e| e.seq), Some(1));
+        assert_eq!(events.last().map(|e| e.seq), Some(2));
+    }
+
+    #[test]
     fn push_undo_records_history_event() {
         let state = ProjectState::new();
         push_undo(&state).expect("push_undo should snapshot default project");
 
         let history = state
-            .history_snapshot()
+            .history_snapshot(None, None)
             .expect("history snapshot should be readable");
         assert_eq!(history.len(), 1);
         let event = &history[0];

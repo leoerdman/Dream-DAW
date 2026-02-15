@@ -160,6 +160,9 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 const isAbleton = path.toLowerCase().endsWith('.als');
                 if (isAbleton) {
                     await engineApi.importAbletonProject(path);
+                    engineApi.eagerActivateExternalPlugins().catch((e) =>
+                        console.warn('[ProjectManager] Eager plugin activation:', e),
+                    );
                 } else {
                     await engineApi.openProject(path);
                 }

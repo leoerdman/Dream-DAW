@@ -47,6 +47,7 @@ pub(crate) fn invoke_handler()
         get_transport,
         get_meters,
         get_project_history,
+        get_pdc_debug_snapshot,
         // Project Management
         new_project,
         save_project,

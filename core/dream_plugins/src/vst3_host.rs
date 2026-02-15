@@ -23,6 +23,7 @@
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::ffi::{c_void, c_char};
+use std::collections::HashMap;
 
 use log::info;
 use uuid::Uuid;
@@ -960,6 +961,12 @@ pub struct Vst3Instance {
 
     /// Pending normalized parameter writes (param_id/index, value 0..1).
     pending_param_changes: Vec<(u32, f64)>,
+
+    /// Best-known normalized parameter values for UI readback.
+    parameter_values: HashMap<u32, f64>,
+
+    /// Best-known external parameter count hint.
+    parameter_count_hint: u32,
 }
 
 impl Drop for Vst3Instance {
@@ -1170,6 +1177,8 @@ impl Vst3Instance {
             com_initialized: false,
             transport_ctx: TransportContext::default(),
             pending_param_changes: Vec::new(),
+            parameter_values: HashMap::new(),
+            parameter_count_hint: 0,
         })
     }
 
@@ -1196,6 +1205,8 @@ impl Vst3Instance {
             com_initialized: false,
             transport_ctx: TransportContext::default(),
             pending_param_changes: Vec::new(),
+            parameter_values: HashMap::new(),
+            parameter_count_hint: 0,
         }
     }
 }
@@ -1445,6 +1456,21 @@ impl PluginInstance for Vst3Instance {
         self.is_active
     }
 
+    fn parameter_count(&self) -> u32 {
+        let inferred = self
+            .parameter_values
+            .keys()
+            .copied()
+            .max()
+            .map(|v| v.saturating_add(1))
+            .unwrap_or(0);
+        self.parameter_count_hint.max(inferred)
+    }
+
+    fn get_parameter(&self, index: u32) -> Option<f64> {
+        self.parameter_values.get(&index).copied()
+    }
+
     fn set_parameter(&mut self, index: u32, value: f64) -> Result<(), PluginError> {
         if !self.is_active {
             return Err(PluginError::InvalidState(
@@ -1452,6 +1478,8 @@ impl PluginInstance for Vst3Instance {
             ));
         }
         let normalized = value.clamp(0.0, 1.0);
+        self.parameter_values.insert(index, normalized);
+        self.parameter_count_hint = self.parameter_count_hint.max(index.saturating_add(1));
 
         if let Some(set_parameter) = self.set_parameter_fn {
             let status = unsafe { set_parameter(index, normalized) };

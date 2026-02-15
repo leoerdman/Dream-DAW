@@ -177,6 +177,33 @@ pub fn pdc_summary(dag: &AudioDag, compensation: &[u32]) -> String {
     lines.join("\n")
 }
 
+/// Returns diagnostic information about per-edge PDC calculation.
+pub fn pdc_edge_summary(dag: &AudioDag, edge_compensation: &[EdgeDelayCompensation]) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "PDC Edge Summary ({} edges):",
+        dag.edge_count()
+    ));
+
+    for edge in edge_compensation {
+        if edge.delay_samples == 0 {
+            continue;
+        }
+        let from = dag.node(edge.from).display_name();
+        let to = dag.node(edge.to).display_name();
+        lines.push(format!(
+            "  {} -> {} [delay={}smp]",
+            from, to, edge.delay_samples
+        ));
+    }
+
+    if lines.len() == 1 {
+        lines.push("  (no edge compensation needed)".to_string());
+    }
+
+    lines.join("\n")
+}
+
 // ── Tests ───────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -447,6 +474,7 @@ mod tests {
             let dag = builder.build().unwrap();
             let order = dag.topological_order().unwrap();
             let comp = compute_delay_compensation(&dag, &order);
+            let edge_comp = compute_edge_delay_compensation(&dag, &order);
 
             let mut memo = HashMap::new();
             let mut global_max = 0u32;
@@ -480,6 +508,44 @@ mod tests {
                         "non-source node {:?} should not have compensation",
                         dag.node(idx).id
                     );
+                }
+            }
+
+            // Property 3: at every merge node, edge-compensated inputs align.
+            let mut max_to_output = vec![0u32; dag.graph().node_count()];
+            for &node_idx in &order {
+                let max_input = dag
+                    .inputs(node_idx)
+                    .into_iter()
+                    .map(|src| max_to_output[src.index()])
+                    .max()
+                    .unwrap_or(0);
+                max_to_output[node_idx.index()] = max_input + dag.node(node_idx).latency_samples();
+            }
+
+            for node_idx in dag.graph().node_indices() {
+                let incoming = dag.inputs(node_idx);
+                if incoming.len() <= 1 {
+                    continue;
+                }
+
+                let mut aligned: Option<u32> = None;
+                for src in incoming {
+                    let edge_delay = edge_comp
+                        .iter()
+                        .find(|e| e.from == src && e.to == node_idx)
+                        .map(|e| e.delay_samples)
+                        .unwrap_or(0);
+                    let v = max_to_output[src.index()] + edge_delay;
+                    if let Some(target) = aligned {
+                        assert_eq!(
+                            v, target,
+                            "merge node {:?} has unaligned inputs",
+                            dag.node(node_idx).id
+                        );
+                    } else {
+                        aligned = Some(v);
+                    }
                 }
             }
         }
@@ -534,5 +600,99 @@ mod tests {
             .unwrap_or(0);
 
         assert_eq!(dry_edge_delay, 512);
+    }
+
+    #[test]
+    fn edge_compensation_handles_multilevel_split_rejoin() {
+        // A -> FX1(300) --\
+        //                  Bus1 -> Master
+        // A -> FX2(100) --/
+        // B -> FX3(50)  ----> Bus1
+        let dag = GraphBuilder::new()
+            .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
+            .add_node(AudioNode::new(NodeId(1), NodeKind::Track { name: "A".into() }))
+            .add_node(AudioNode::new(NodeId(2), NodeKind::Track { name: "B".into() }))
+            .add_node(AudioNode::new(
+                NodeId(3),
+                NodeKind::Effect {
+                    name: "FX1".into(),
+                    latency_samples: 300,
+                },
+            ))
+            .add_node(AudioNode::new(
+                NodeId(4),
+                NodeKind::Effect {
+                    name: "FX2".into(),
+                    latency_samples: 100,
+                },
+            ))
+            .add_node(AudioNode::new(
+                NodeId(5),
+                NodeKind::Effect {
+                    name: "FX3".into(),
+                    latency_samples: 50,
+                },
+            ))
+            .add_node(AudioNode::new(NodeId(6), NodeKind::Bus { name: "Bus1".into() }))
+            .add_edge(NodeId(1), NodeId(3))
+            .unwrap()
+            .add_edge(NodeId(1), NodeId(4))
+            .unwrap()
+            .add_edge(NodeId(2), NodeId(5))
+            .unwrap()
+            .add_edge(NodeId(3), NodeId(6))
+            .unwrap()
+            .add_edge(NodeId(4), NodeId(6))
+            .unwrap()
+            .add_edge(NodeId(5), NodeId(6))
+            .unwrap()
+            .add_edge(NodeId(6), NodeId(0))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let order = dag.topological_order().unwrap();
+        let edges = compute_edge_delay_compensation(&dag, &order);
+
+        let bus_idx = dag
+            .graph()
+            .node_indices()
+            .find(|&i| dag.node(i).id == NodeId(6))
+            .unwrap();
+        let fx1_idx = dag
+            .graph()
+            .node_indices()
+            .find(|&i| dag.node(i).id == NodeId(3))
+            .unwrap();
+        let fx2_idx = dag
+            .graph()
+            .node_indices()
+            .find(|&i| dag.node(i).id == NodeId(4))
+            .unwrap();
+        let fx3_idx = dag
+            .graph()
+            .node_indices()
+            .find(|&i| dag.node(i).id == NodeId(5))
+            .unwrap();
+
+        let d1 = edges
+            .iter()
+            .find(|e| e.from == fx1_idx && e.to == bus_idx)
+            .map(|e| e.delay_samples)
+            .unwrap_or(0);
+        let d2 = edges
+            .iter()
+            .find(|e| e.from == fx2_idx && e.to == bus_idx)
+            .map(|e| e.delay_samples)
+            .unwrap_or(0);
+        let d3 = edges
+            .iter()
+            .find(|e| e.from == fx3_idx && e.to == bus_idx)
+            .map(|e| e.delay_samples)
+            .unwrap_or(0);
+
+        assert_eq!(d1, 0);
+        assert_eq!(d2, 200);
+        assert_eq!(d3, 250);
     }
 }

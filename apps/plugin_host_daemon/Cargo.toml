@@ -11,3 +11,6 @@ serde_json = "1.0"
 log = { workspace = true }
 env_logger = { workspace = true }
 memmap2 = "0.9"
+bytemuck = { workspace = true }
+uuid = { workspace = true }
+dream_plugins = { path = "../../core/dream_plugins" }

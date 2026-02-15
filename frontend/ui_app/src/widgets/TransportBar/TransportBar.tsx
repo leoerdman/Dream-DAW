@@ -11,6 +11,10 @@ import {
     ArrowRight,
     Music,
     Settings,
+    Eye,
+    EyeOff,
+    RefreshCw,
+    X,
 } from 'lucide-react';
 
 const KEY_TONICS = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'] as const;
@@ -76,6 +80,11 @@ export const TransportBar = ({
     const [cpuPercent] = useState(4);
     const midiLedRef = useRef<HTMLSpanElement>(null);
     const midiLedTimerRef = useRef<number | null>(null);
+    const [pdcOpen, setPdcOpen] = useState(false);
+    const [pdcLoading, setPdcLoading] = useState(false);
+    const [pdcError, setPdcError] = useState<string | null>(null);
+    const [pdcSnapshot, setPdcSnapshot] = useState<engineApi.PdcDebugSnapshot | null>(null);
+    const pdcPanelRef = useRef<HTMLDivElement | null>(null);
 
     const handleTapTempo = useCallback(() => {
         const now = Date.now();
@@ -95,6 +104,20 @@ export const TransportBar = ({
             setBpmText(rounded.toFixed(2));
         }
     }, [engineSetBpm]);
+
+    const loadPdcSnapshot = useCallback(async () => {
+        setPdcLoading(true);
+        try {
+            const snapshot = await engineApi.getPdcDebugSnapshot();
+            setPdcSnapshot(snapshot);
+            setPdcError(null);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            setPdcError(msg);
+        } finally {
+            setPdcLoading(false);
+        }
+    }, []);
 
     const commitBpm = () => {
         const val = parseFloat(bpmText);
@@ -169,6 +192,34 @@ export const TransportBar = ({
             if (unlisten) unlisten();
         };
     }, []);
+
+    useEffect(() => {
+        if (!pdcOpen) return;
+        void loadPdcSnapshot();
+        const id = window.setInterval(() => {
+            void loadPdcSnapshot();
+        }, 1500);
+        return () => window.clearInterval(id);
+    }, [pdcOpen, loadPdcSnapshot]);
+
+    useEffect(() => {
+        if (!pdcOpen) return;
+        const onDown = (e: MouseEvent) => {
+            const target = e.target as Node;
+            if (pdcPanelRef.current && !pdcPanelRef.current.contains(target)) {
+                setPdcOpen(false);
+            }
+        };
+        const onEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setPdcOpen(false);
+        };
+        document.addEventListener('mousedown', onDown);
+        document.addEventListener('keydown', onEsc);
+        return () => {
+            document.removeEventListener('mousedown', onDown);
+            document.removeEventListener('keydown', onEsc);
+        };
+    }, [pdcOpen]);
 
     return (
         <div data-testid="transport-bar" className="glass-pill" style={{ height: 'var(--daw-transport-height)', zIndex: 'var(--z-transport)' }}>
@@ -323,6 +374,24 @@ export const TransportBar = ({
                             CPU {cpuPercent}%
                         </span>
                         <button
+                            onClick={() => setPdcOpen((v) => !v)}
+                            title="PDC Inspector"
+                            style={{
+                                width: 24,
+                                height: 24,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                background: pdcOpen ? 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)' : 'transparent',
+                                border: 'none',
+                                borderRadius: 'var(--radius-xs)',
+                                color: pdcOpen ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)',
+                                cursor: 'pointer',
+                            }}
+                        >
+                            {pdcOpen ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                        <button
                             onClick={onSettingsClick}
                             title="Settings (⌘,)"
                             style={{
@@ -342,9 +411,136 @@ export const TransportBar = ({
                         </button>
                     </PillSection>
                 </div>
+                {pdcOpen && (
+                    <div
+                        ref={pdcPanelRef}
+                        style={{
+                            position: 'absolute',
+                            right: 10,
+                            top: 'calc(100% + 8px)',
+                            width: 440,
+                            maxHeight: 'min(58vh, 540px)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            background: 'color-mix(in srgb, var(--color-bg-panel) 96%, #000 4%)',
+                            border: '1px solid var(--color-divider)',
+                            borderRadius: 10,
+                            boxShadow: '0 16px 42px rgba(0,0,0,0.35)',
+                            backdropFilter: 'blur(8px)',
+                            zIndex: 1400,
+                            overflow: 'hidden',
+                        }}
+                    >
+                        <div
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '8px 10px',
+                                borderBottom: '1px solid var(--color-divider)',
+                            }}
+                        >
+                            <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                                PDC Inspector
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <button
+                                    onClick={() => void loadPdcSnapshot()}
+                                    title="Refresh"
+                                    style={miniButtonStyle}
+                                >
+                                    <RefreshCw size={13} />
+                                </button>
+                                <button
+                                    onClick={() => setPdcOpen(false)}
+                                    title="Close"
+                                    style={miniButtonStyle}
+                                >
+                                    <X size={13} />
+                                </button>
+                            </div>
+                        </div>
+                        <div
+                            style={{
+                                padding: '8px 10px',
+                                fontFamily: 'var(--font-mono)',
+                                fontSize: 10,
+                                color: 'var(--color-text-secondary)',
+                                borderBottom: '1px solid var(--color-divider)',
+                                display: 'grid',
+                                gridTemplateColumns: '1fr 1fr',
+                                gap: 4,
+                            }}
+                        >
+                            <div>Nodes: <strong style={{ color: 'var(--color-text-primary)' }}>{pdcSnapshot?.node_count ?? '—'}</strong></div>
+                            <div>Edges: <strong style={{ color: 'var(--color-text-primary)' }}>{pdcSnapshot?.edge_count ?? '—'}</strong></div>
+                            <div>Node PDC: <strong style={{ color: 'var(--color-text-primary)' }}>{pdcSnapshot?.node_pdc_nonzero ?? '—'}</strong></div>
+                            <div>Edge PDC: <strong style={{ color: 'var(--color-text-primary)' }}>{pdcSnapshot?.edge_pdc_nonzero ?? '—'}</strong></div>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', minHeight: 210, maxHeight: 'min(45vh, 380px)' }}>
+                            <div style={{ borderRight: '1px solid var(--color-divider)', overflow: 'auto' }}>
+                                <div style={sectionHeaderStyle}>Node Delays</div>
+                                {(pdcSnapshot?.nodes ?? []).map((n) => (
+                                    <div key={`node-${n.node_id}`} style={rowStyle}>
+                                        <div style={{ color: 'var(--color-text-primary)' }}>{n.name}</div>
+                                        <div>#{n.node_id} · {n.kind}</div>
+                                        <div>own {n.own_latency_samples} / pdc {n.node_delay_samples} smp</div>
+                                    </div>
+                                ))}
+                            </div>
+                            <div style={{ overflow: 'auto' }}>
+                                <div style={sectionHeaderStyle}>Edge Compensation</div>
+                                {(pdcSnapshot?.edges ?? []).map((e, idx) => (
+                                    <div key={`edge-${e.from_node_id}-${e.to_node_id}-${idx}`} style={rowStyle}>
+                                        <div style={{ color: 'var(--color-text-primary)' }}>{e.from_name} → {e.to_name}</div>
+                                        <div>{e.from_node_id}→{e.to_node_id}</div>
+                                        <div>{e.edge_delay_samples} smp</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <div style={{ padding: '6px 10px', borderTop: '1px solid var(--color-divider)', fontSize: 10, color: 'var(--color-text-secondary)' }}>
+                            {pdcLoading ? 'Updating…' : pdcError ? `Error: ${pdcError}` : pdcSnapshot?.edge_summary || 'No PDC diagnostics'}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
+};
+
+const miniButtonStyle: React.CSSProperties = {
+    width: 22,
+    height: 22,
+    border: 'none',
+    borderRadius: 5,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    color: 'var(--color-text-secondary)',
+    cursor: 'pointer',
+};
+
+const sectionHeaderStyle: React.CSSProperties = {
+    position: 'sticky',
+    top: 0,
+    zIndex: 1,
+    padding: '6px 8px',
+    fontSize: 10,
+    fontWeight: 700,
+    color: 'var(--color-text-primary)',
+    background: 'color-mix(in srgb, var(--color-bg-panel) 92%, #000 8%)',
+    borderBottom: '1px solid var(--color-divider)',
+};
+
+const rowStyle: React.CSSProperties = {
+    padding: '6px 8px',
+    borderBottom: '1px solid color-mix(in srgb, var(--color-divider) 55%, transparent)',
+    fontFamily: 'var(--font-mono)',
+    fontSize: 10,
+    color: 'var(--color-text-secondary)',
+    lineHeight: 1.35,
 };
 
 const PillSection = ({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) => (

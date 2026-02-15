@@ -3099,6 +3099,81 @@ mod als_import_tests {
     }
 
     #[test]
+    fn import_demo_als_smoke_keeps_multi_device_tracks() {
+        use std::fs;
+        use std::path::PathBuf;
+
+        if std::env::var("DREAM_DAW_ALS_SMOKE").ok().as_deref() != Some("1") {
+            eprintln!("skip: set DREAM_DAW_ALS_SMOKE=1 to run heavy ALS smoke import");
+            return;
+        }
+
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..");
+        let demo_dir = workspace_root.join("Demo/51. Rainbow");
+        if !demo_dir.exists() {
+            eprintln!("skip: demo folder not found: {}", demo_dir.display());
+            return;
+        }
+
+        let mut als_files = fs::read_dir(&demo_dir)
+            .expect("read demo dir")
+            .filter_map(|entry| entry.ok().map(|e| e.path()))
+            .filter(|p| {
+                p.extension()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.eq_ignore_ascii_case("als"))
+                    .unwrap_or(false)
+            })
+            .collect::<Vec<_>>();
+        als_files.sort();
+        if als_files.is_empty() {
+            eprintln!("skip: no .als files in {}", demo_dir.display());
+            return;
+        }
+
+        // Keep default test runtime deterministic and fast.
+        // Set DREAM_DAW_LONG_TESTS=1 to run the full corpus locally.
+        if std::env::var("DREAM_DAW_LONG_TESTS").ok().as_deref() != Some("1") {
+            als_files.truncate(1);
+        }
+
+        for als_path in als_files {
+            let project = import_als_project(&als_path).unwrap_or_else(|e| {
+                panic!("import failed for {}: {e}", als_path.display());
+            });
+
+            assert!(
+                !project.tracks.is_empty(),
+                "no tracks imported from {}",
+                als_path.display()
+            );
+
+            let mut max_devices_on_track = 0usize;
+            let mut tracks_with_any_device = 0usize;
+            for track in &project.tracks {
+                let device_count =
+                    usize::from(track.instrument.is_some()) + track.effects.len();
+                if device_count > 0 {
+                    tracks_with_any_device += 1;
+                }
+                max_devices_on_track = max_devices_on_track.max(device_count);
+            }
+
+            assert!(
+                tracks_with_any_device > 0,
+                "no devices imported from {}",
+                als_path.display()
+            );
+            assert!(
+                max_devices_on_track >= 2,
+                "all tracks collapsed to <=1 device in {}",
+                als_path.display()
+            );
+        }
+    }
+
+    #[test]
     fn parse_live_set_session_scroll_and_breakpoint() {
         let xml = r#"
         <LiveSet>

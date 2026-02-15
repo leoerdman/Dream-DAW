@@ -60,6 +60,35 @@ export interface ProjectHistoryEvent {
     timestampMs: number;
 }
 
+/** Debug snapshot of backend-built PDC graph diagnostics. */
+export interface PdcDebugSnapshot {
+    node_count: number;
+    edge_count: number;
+    node_pdc_nonzero: number;
+    edge_pdc_nonzero: number;
+    processing_order: string[];
+    nodes: PdcNodeDebug[];
+    edges: PdcEdgeDebug[];
+    node_summary: string;
+    edge_summary: string;
+}
+
+export interface PdcNodeDebug {
+    node_id: number;
+    name: string;
+    kind: 'Track' | 'Effect' | 'Bus' | 'MasterOutput' | string;
+    own_latency_samples: number;
+    node_delay_samples: number;
+}
+
+export interface PdcEdgeDebug {
+    from_node_id: number;
+    to_node_id: number;
+    from_name: string;
+    to_name: string;
+    edge_delay_samples: number;
+}
+
 /** MIDI input port descriptor. */
 export interface MidiInputPort {
     name: string;
@@ -313,8 +342,15 @@ export const getTransport = () => invoke<TransportState>('get_transport');
 export const getMeters = () => invoke<MeteringSnapshot>('get_meters');
 
 /** Get recent project history events from backend event journal. */
-export const getProjectHistory = () =>
-    invoke<ProjectHistoryEvent[]>('get_project_history');
+export const getProjectHistory = (options?: { limit?: number; sinceSeq?: number }) =>
+    invoke<ProjectHistoryEvent[]>('get_project_history', {
+        limit: options?.limit,
+        sinceSeq: options?.sinceSeq,
+    });
+
+/** Build a backend routing DAG snapshot and return PDC diagnostics. */
+export const getPdcDebugSnapshot = () =>
+    invoke<PdcDebugSnapshot>('get_pdc_debug_snapshot');
 
 // ── Legacy / Debug ───────────────────────────────────────────────────────
 
@@ -467,6 +503,12 @@ export const openProject = (path: string) =>
 /** Import an Ableton Live .als project into Dream DAW. */
 export const importAbletonProject = (path: string) =>
     invoke<unknown>('import_ableton_project', { path });
+
+/** Eagerly activate all resolved external VST3 plugins and restore their state blobs. */
+export const eagerActivateExternalPlugins = () =>
+    invoke<{ total: number; loaded: number; failed: number; skipped: number }>(
+        'eager_activate_external_plugins',
+    );
 
 /** Get list of recently opened projects. */
 export const getRecentProjects = () =>

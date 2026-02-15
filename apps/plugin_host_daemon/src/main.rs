@@ -1,9 +1,13 @@
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
+use std::sync::mpsc::{self, TryRecvError};
 use std::thread;
 use std::time::Duration;
 
+use dream_plugins::sandbox_ipc::{PluginHostControlMessage, PluginHostEventMessage};
 use memmap2::MmapMut;
+use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 struct Args {
@@ -132,9 +136,102 @@ fn main() {
         log::info!("[plugin_host_daemon] shared region attached");
     }
 
+    let (cmd_tx, cmd_rx) = mpsc::channel::<PluginHostControlMessage>();
+    thread::spawn(move || {
+        let stdin = std::io::stdin();
+        let reader = BufReader::new(stdin);
+        for line in reader.lines() {
+            let Ok(line) = line else { break };
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            match serde_json::from_str::<PluginHostControlMessage>(trimmed) {
+                Ok(cmd) => {
+                    if cmd_tx.send(cmd).is_err() {
+                        break;
+                    }
+                }
+                Err(err) => {
+                    log::warn!("[plugin_host_daemon] invalid control message: {err}");
+                }
+            }
+        }
+    });
+
+    let mut running = true;
+    let mut loaded_instances: Vec<Uuid> = Vec::new();
+    let mut output_gain: f32 = 1.0;
+
     // Current phase: watchdog heartbeat + process isolation shell.
     // Audio/data bridge will be attached over shared memory in next iteration.
-    loop {
+    while running {
+        loop {
+            match cmd_rx.try_recv() {
+                Ok(msg) => match msg {
+                    PluginHostControlMessage::Hello { protocol_version, host_name } => {
+                        let evt = PluginHostEventMessage::Ready {
+                            protocol_version,
+                            shared_region: None,
+                        };
+                        if let Ok(json) = serde_json::to_string(&evt) {
+                            println!("{json}");
+                        }
+                        log::info!("[plugin_host_daemon] hello from host: {host_name}");
+                    }
+                    PluginHostControlMessage::LoadPlugin {
+                        instance_id,
+                        plugin_path: _,
+                        sample_rate: _,
+                        max_block_size: _,
+                    } => {
+                        if !loaded_instances.contains(&instance_id) {
+                            loaded_instances.push(instance_id);
+                        }
+                    }
+                    PluginHostControlMessage::UnloadPlugin { instance_id } => {
+                        loaded_instances.retain(|id| *id != instance_id);
+                    }
+                    PluginHostControlMessage::SetParameter {
+                        instance_id: _,
+                        index,
+                        value,
+                    } => {
+                        // Basic bridge: Param0 drives output gain in daemon.
+                        if index == 0 {
+                            output_gain = value.clamp(0.0, 2.0) as f32;
+                        }
+                    }
+                    PluginHostControlMessage::OpenEditor { instance_id } => {
+                        let evt = PluginHostEventMessage::EditorOpened { instance_id };
+                        if let Ok(json) = serde_json::to_string(&evt) {
+                            println!("{json}");
+                        }
+                    }
+                    PluginHostControlMessage::CloseEditor { instance_id } => {
+                        let evt = PluginHostEventMessage::EditorClosed { instance_id };
+                        if let Ok(json) = serde_json::to_string(&evt) {
+                            println!("{json}");
+                        }
+                    }
+                    PluginHostControlMessage::Heartbeat { seq } => {
+                        let evt = PluginHostEventMessage::HeartbeatAck { seq };
+                        if let Ok(json) = serde_json::to_string(&evt) {
+                            println!("{json}");
+                        }
+                    }
+                    PluginHostControlMessage::Shutdown => {
+                        running = false;
+                    }
+                },
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    running = false;
+                    break;
+                }
+            }
+        }
+
         if let Err(err) = fs::write(&args.heartbeat_file, format!("{:?}", std::time::SystemTime::now())) {
             log::warn!(
                 "[plugin_host_daemon] heartbeat write failed (instance={}): {}",
@@ -146,9 +243,27 @@ fn main() {
             && !mmap.is_empty()
         {
             process_passthrough(mmap, args.num_inputs, args.num_outputs, args.max_frames);
+            if (output_gain - 1.0).abs() > f32::EPSILON {
+                // Apply gain to output channels in-place.
+                let header_bytes = 64usize;
+                let stride = args.max_frames as usize * std::mem::size_of::<f32>();
+                for out_idx in 0..args.num_outputs as usize {
+                    let out_off = header_bytes + (args.num_inputs as usize + out_idx) * stride;
+                    let out_end = out_off + stride;
+                    if out_end > mmap.len() {
+                        continue;
+                    }
+                    let slice = &mut mmap[out_off..out_end];
+                    let samples: &mut [f32] = bytemuck::cast_slice_mut(slice);
+                    for s in samples.iter_mut() {
+                        *s *= output_gain;
+                    }
+                }
+            }
             mmap[0] = mmap[0].wrapping_add(1);
             let _ = mmap.flush_async();
         }
         thread::sleep(Duration::from_millis(25));
     }
+    log::info!("[plugin_host_daemon] shutdown instance={}", args.instance_id);
 }

@@ -152,6 +152,8 @@ interface EngineStore {
     lastError: string | null;
     /** Recent event-sourcing journal entries from backend. */
     projectHistory: ProjectHistoryEvent[];
+    /** Last seen backend history sequence number (incremental sync cursor). */
+    projectHistoryCursor: number;
     /** Master fader volume (linear gain 0.0..2.0). */
     masterVolume: number;
     /** Runtime state of out-of-process plugin sandbox supervisor. */
@@ -274,6 +276,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     projectBpm: 120,
     lastError: null,
     projectHistory: [],
+    projectHistoryCursor: 0,
     masterVolume: 1.0,
     pluginSandbox: null,
 
@@ -532,7 +535,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             console.debug(`[ProjectFetch] start #${requestSeq} reason=${reason}`);
         }
         try {
-            const [project, projectHistory] = await Promise.all([
+            const historyCursor = get().projectHistoryCursor;
+            const [project, projectHistoryDelta] = await Promise.all([
                 engine.getProject() as Promise<{
                 name?: string;
                 tracks: Array<{
@@ -596,7 +600,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 arrangement_snap_to_grid?: boolean;
                 arrangement_grid_fixed?: boolean;
                 }>,
-                engine.getProjectHistory(),
+                engine.getProjectHistory({
+                    limit: 256,
+                    sinceSeq: historyCursor > 0 ? historyCursor : undefined,
+                }),
             ]);
 
             // Ignore stale/out-of-order responses (e.g. startup fetch resolving
@@ -728,11 +735,28 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
             if (requestSeq === projectFetchSeq) {
                 set((s) => ({
+                    // Append incremental delta from backend history journal.
+                    // Backend falls back to full slice when cursor becomes stale
+                    // (e.g. after new/open project reset).
+                    projectHistory: (() => {
+                        if (projectHistoryDelta.length === 0) {
+                            return s.projectHistory;
+                        }
+                        const firstSeq = projectHistoryDelta[0].seq;
+                        const shouldReplace = s.projectHistory.length === 0
+                            || firstSeq <= s.projectHistoryCursor;
+                        const merged = shouldReplace
+                            ? projectHistoryDelta
+                            : [...s.projectHistory, ...projectHistoryDelta];
+                        return merged.length > 256 ? merged.slice(-256) : merged;
+                    })(),
+                    projectHistoryCursor: projectHistoryDelta.length > 0
+                        ? projectHistoryDelta[projectHistoryDelta.length - 1].seq
+                        : s.projectHistoryCursor,
                     timelineClips,
                     projectTracks,
                     projectSampleRate: sr,
                     projectBpm: bpm,
-                    projectHistory,
                     // Keep transport.bpm in sync so TransportBar/StatusBar
                     // show correct BPM immediately, even before next telemetry tick.
                     transport: { ...s.transport, bpm },

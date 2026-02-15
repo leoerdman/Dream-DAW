@@ -85,6 +85,9 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 if (isAbleton) {
                     console.warn('[NativeMenu:Open] importing ALS...');
                     await engineApi.importAbletonProject(path);
+                    engineApi.eagerActivateExternalPlugins().catch((e) =>
+                        console.warn('[NativeMenu] Eager plugin activation:', e),
+                    );
                     console.warn('[NativeMenu:Open] ALS import done, calling fetchProject...');
                 } else {
                     console.warn('[NativeMenu:Open] opening project...');
@@ -245,6 +248,9 @@ async function buildRecentSubmenu(
                                 if (isAbleton) {
                                     console.warn('[NativeMenu:OpenRecent] importing ALS...');
                                     await engineApi.importAbletonProject(rp.path);
+                                    engineApi.eagerActivateExternalPlugins().catch((e) =>
+                                        console.warn('[NativeMenu] Eager plugin activation:', e),
+                                    );
                                     console.warn('[NativeMenu:OpenRecent] ALS import done');
                                 } else {
                                     console.warn('[NativeMenu:OpenRecent] opening...');

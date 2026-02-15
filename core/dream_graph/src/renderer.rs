@@ -51,7 +51,13 @@ fn mix_in_place(dst: &mut [f32], src: &[f32], n: usize) {
         unsafe { mix_in_place_sse(dst, src, count) };
         return;
     }
-    #[cfg(not(target_arch = "x86_64"))]
+    #[cfg(target_arch = "aarch64")]
+    {
+        // NEON is guaranteed on AArch64 (Apple Silicon M1–M4).
+        unsafe { mix_in_place_neon(dst, src, count) };
+        return;
+    }
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     {
         for i in 0..count {
             dst[i] += src[i];
@@ -61,6 +67,7 @@ fn mix_in_place(dst: &mut [f32], src: &[f32], n: usize) {
 
 #[cfg(target_arch = "x86_64")]
 #[inline]
+#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn mix_in_place_sse(dst: &mut [f32], src: &[f32], count: usize) {
     use std::arch::x86_64::*;
 
@@ -74,6 +81,28 @@ unsafe fn mix_in_place_sse(dst: &mut [f32], src: &[f32], count: usize) {
     }
     while i < count {
         dst[i] += src[i];
+        i += 1;
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+#[inline]
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn mix_in_place_neon(dst: &mut [f32], src: &[f32], count: usize) {
+    use std::arch::aarch64::*;
+
+    let mut i = 0usize;
+    while i + 4 <= count {
+        unsafe {
+            let a = vld1q_f32(dst.as_ptr().add(i));
+            let b = vld1q_f32(src.as_ptr().add(i));
+            let c = vaddq_f32(a, b);
+            vst1q_f32(dst.as_mut_ptr().add(i), c);
+        }
+        i += 4;
+    }
+    while i < count {
+        unsafe { *dst.get_unchecked_mut(i) += *src.get_unchecked(i) };
         i += 1;
     }
 }

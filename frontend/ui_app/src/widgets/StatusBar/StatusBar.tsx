@@ -37,6 +37,7 @@ export const StatusBar = ({
     const projectTracks = useEngineStore((s) => s.projectTracks);
     const latestHistory = useEngineStore((s) => s.projectHistory[s.projectHistory.length - 1]);
     const projectHistory = useEngineStore((s) => s.projectHistory);
+    const pluginSandbox = useEngineStore((s) => s.pluginSandbox);
 
     // Status bar messages
     const statusMessage = useStatusStore((s) => s.message);
@@ -202,6 +203,13 @@ export const StatusBar = ({
 
                     <StatusText>{trackCount} tracks</StatusText>
                     <StatusText>{sampleRate} Hz</StatusText>
+                    {pluginSandbox && (
+                        <StatusText
+                            title={`Plugin Sandbox: ${pluginSandbox.enabled ? 'enabled' : 'disabled'}; instances=${pluginSandbox.instances.length}`}
+                        >
+                            {pluginSandbox.enabled ? `Sandbox ${pluginSandbox.instances.length}` : 'Sandbox Off'}
+                        </StatusText>
+                    )}
 
                     <div style={{
                         display: 'flex',
@@ -345,11 +353,17 @@ const StatusValue = ({ children }: { children: React.ReactNode }) => (
     </span>
 );
 
-const StatusText = ({ children }: { children: React.ReactNode }) => (
+const StatusText = ({
+    children,
+    title,
+}: {
+    children: React.ReactNode;
+    title?: string;
+}) => (
     <span style={{
         color: 'var(--color-text-secondary)',
         fontWeight: 500,
-    }}>
+    }} title={title}>
         {children}
     </span>
 );

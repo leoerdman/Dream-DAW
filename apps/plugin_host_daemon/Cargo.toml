@@ -1,0 +1,13 @@
+[package]
+name = "plugin_host_daemon"
+description = "Dream DAW — External plugin sandbox daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = "1.0"
+log = { workspace = true }
+env_logger = { workspace = true }
+memmap2 = "0.9"

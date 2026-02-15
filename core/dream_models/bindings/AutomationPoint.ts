@@ -17,6 +17,22 @@ value: number,
  */
 curve_type: string, 
 /**
- * Optional curve tension for bezier-like shapes.
+ * Optional curve tension for bezier-like shapes (legacy approximation).
  */
-tension: number | null, };
+tension: number | null, 
+/**
+ * Full cubic bezier control point 1 X (normalized 0..1 within segment).
+ */
+bezier_cp1x?: number | null, 
+/**
+ * Full cubic bezier control point 1 Y (normalized 0..1 within value range).
+ */
+bezier_cp1y?: number | null, 
+/**
+ * Full cubic bezier control point 2 X (normalized 0..1 within segment).
+ */
+bezier_cp2x?: number | null, 
+/**
+ * Full cubic bezier control point 2 Y (normalized 0..1 within value range).
+ */
+bezier_cp2y?: number | null, };

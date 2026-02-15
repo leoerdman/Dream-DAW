@@ -1,4 +1,4 @@
-import type { BrowserDragItem } from '@/shared/types/Arrangement';
+import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 
 export type DropZoneType = 'timeline-track' | 'device-rack' | 'sampler-surface';
 

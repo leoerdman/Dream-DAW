@@ -18,7 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[cfg(test)]
-mod stress_tests {
+mod stress_suite {
     use crate::dsp_processor::{BuiltinEffectType, DspProcessor};
 
     const SR: f32 = 44100.0;

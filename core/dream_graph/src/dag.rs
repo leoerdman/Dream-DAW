@@ -166,11 +166,26 @@ pub struct ExecutionPlan {
     /// A value of 0 means no compensation needed.
     pub delay_compensation: Vec<u32>,
 
+    /// Per-edge delay compensation in samples.
+    ///
+    /// This aligns inputs at merge points (bus/master) and handles
+    /// split/rejoin topologies where node-level source compensation
+    /// alone is insufficient.
+    pub edge_delay_compensation: Vec<EdgeDelayCompensation>,
+
     /// Topology layers for parallel scheduling.
     ///
     /// Nodes within one stage are dependency-independent and can be
     /// processed concurrently. Stages themselves must execute in order.
     pub parallel_stages: Vec<Vec<NodeIndex>>,
+}
+
+/// Delay compensation to apply on a specific graph edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EdgeDelayCompensation {
+    pub from: NodeIndex,
+    pub to: NodeIndex,
+    pub delay_samples: u32,
 }
 
 // ── Graph Builder ───────────────────────────────────────────────────────

@@ -1140,7 +1140,7 @@ const PanFader = ({
 
 // ── Tri-Color VU Meter (vertical) ──────────────────────────
 
-const TriColorVU = ({ peakDb, isMidi, compact = false }: { peakDb: number; isMidi: boolean; compact?: boolean }) => {
+const TriColorVU = ({ peakDb, isMidi, compact = false, isEnabled = true }: { peakDb: number; isMidi: boolean; compact?: boolean; isEnabled?: boolean }) => {
     const normalizedLevel = vuNorm(peakDb); // 0..1
     const meterHeight = compact ? 28 : 32;
     const fillHeight = normalizedLevel * meterHeight;
@@ -1186,6 +1186,9 @@ const TriColorVU = ({ peakDb, isMidi, compact = false }: { peakDb: number; isMid
             border: '1px solid color-mix(in srgb, var(--text-primary) 10%, transparent)',
             marginLeft: 2,
             cursor: 'pointer',
+            filter: isEnabled ? 'none' : 'grayscale(1)',
+            opacity: isEnabled ? 1 : 0.5,
+            transition: 'filter 0.15s ease, opacity 0.15s ease',
         }}
             title="Click to reset peak/clip"
             onClick={(e) => {
@@ -1389,6 +1392,7 @@ const VerticalMixerStrip = ({
                     height: `${meterNorm * 100}%`,
                     background: isMidi ? 'rgba(255,149,0,0.5)' : 'rgba(64,204,90,0.5)',
                     pointerEvents: 'none',
+                    filter: 'inherit',
                 }} />
                 <div style={{
                     position: 'absolute',
@@ -1628,16 +1632,16 @@ const TrackRow = ({
                 onDragStart={onDragStartTrack}
                 onDragEnd={onDragEndTrack}
                 style={{
-                display: 'flex', flexDirection: 'column', justifyContent: 'center',
-                minWidth: isMasterFixed ? 88 : 98,
-                maxWidth: mixerFocusMode ? 132 : 120,
-                padding: mixerFocusMode ? '2px 8px 2px 5px' : '2px 6px 2px 4px',
-                background: `color-mix(in srgb, ${track.color} ${isSelected ? '90%' : isHovered ? '80%' : '70%'}, #1a1a1a)`,
-                borderRight: '1px solid rgba(255,255,255,0.08)',
-                gap: 1,
-                position: 'relative',
-                cursor: !isMaster ? 'grab' : 'default',
-            }}>
+                    display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                    minWidth: isMasterFixed ? 88 : 98,
+                    maxWidth: mixerFocusMode ? 132 : 120,
+                    padding: mixerFocusMode ? '2px 8px 2px 5px' : '2px 6px 2px 4px',
+                    background: `color-mix(in srgb, ${track.color} ${isSelected ? '90%' : isHovered ? '80%' : '70%'}, #1a1a1a)`,
+                    borderRight: '1px solid rgba(255,255,255,0.08)',
+                    gap: 1,
+                    position: 'relative',
+                    cursor: !isMaster ? 'grab' : 'default',
+                }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                     {/* Collapse / Group icon */}
                     {isGroup && onToggleCollapse ? (
@@ -1903,9 +1907,9 @@ const TrackRow = ({
                             />
                         )}
 
-                        {/* Tri-Color VU Meter */}
+                        {/* Tri-Color VU Meter — grayed out when track disabled */}
                         {!isGroup && (
-                            <TriColorVU peakDb={track.vuLevel} isMidi={track.type === 'midi'} compact />
+                            <TriColorVU peakDb={track.vuLevel} isMidi={track.type === 'midi'} compact isEnabled={isEnabled} />
                         )}
                     </>
                 )}

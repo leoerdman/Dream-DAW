@@ -1,13 +1,16 @@
 use std::collections::HashMap;
+use std::fs;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::descriptor::PluginDescriptor;
 use crate::instance::PluginError;
+use crate::sandbox_ipc::SharedAudioRegion;
+use crate::shared_memory::{SharedAudioBufferLayout, SharedAudioBufferRegion};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -29,6 +32,7 @@ pub struct PluginSandboxRuntimeInfo {
     pub restart_count: u32,
     pub bypass_requested: bool,
     pub last_error: Option<String>,
+    pub shared_region: Option<SharedAudioRegion>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -49,7 +53,8 @@ impl PluginSandboxConfig {
         let host_binary = std::env::var("DREAM_DAW_PLUGIN_HOST_BIN")
             .ok()
             .map(PathBuf::from)
-            .filter(|p| p.exists())?;
+            .filter(|p| p.exists())
+            .or_else(Self::discover_default_host_binary)?;
         let heartbeat_timeout_ms = std::env::var("DREAM_DAW_PLUGIN_HEARTBEAT_TIMEOUT_MS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
@@ -58,6 +63,24 @@ impl PluginSandboxConfig {
             host_binary,
             heartbeat_timeout: Duration::from_millis(heartbeat_timeout_ms),
         })
+    }
+
+    fn discover_default_host_binary() -> Option<PathBuf> {
+        // 1) Beside current executable (packaged app)
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(dir) = exe.parent()
+        {
+            let candidate = dir.join("plugin_host_daemon");
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+        // 2) Dev workspace target output
+        let dev_candidate = PathBuf::from("target/debug/plugin_host_daemon");
+        if dev_candidate.exists() {
+            return Some(dev_candidate);
+        }
+        None
     }
 }
 
@@ -69,7 +92,9 @@ struct PluginSandboxInstance {
     restart_count: u32,
     bypass_requested: bool,
     last_error: Option<String>,
-    last_heartbeat: Instant,
+    heartbeat_file: PathBuf,
+    shared_region: SharedAudioRegion,
+    _shared_region_owner: SharedAudioBufferRegion,
 }
 
 /// Out-of-process plugin sandbox supervisor.
@@ -84,6 +109,44 @@ pub struct PluginSandboxSupervisor {
 }
 
 impl PluginSandboxSupervisor {
+    fn spawn_daemon_process(
+        config: &PluginSandboxConfig,
+        instance_id: Uuid,
+        plugin_path: &std::path::Path,
+        heartbeat_file: &std::path::Path,
+        shared_region_file: &std::path::Path,
+        num_inputs: u16,
+        num_outputs: u16,
+        max_frames: u32,
+    ) -> Result<Child, PluginError> {
+        let mut cmd = Command::new(&config.host_binary);
+        cmd.arg("--daemon")
+            .arg("--instance-id")
+            .arg(instance_id.to_string())
+            .arg("--plugin-path")
+            .arg(plugin_path.to_string_lossy().to_string())
+            .arg("--heartbeat-file")
+            .arg(heartbeat_file.to_string_lossy().to_string())
+            .arg("--shared-region-file")
+            .arg(shared_region_file.to_string_lossy().to_string())
+            .arg("--num-inputs")
+            .arg(num_inputs.to_string())
+            .arg("--num-outputs")
+            .arg(num_outputs.to_string())
+            .arg("--max-frames")
+            .arg(max_frames.to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        cmd.spawn().map_err(|e| {
+            PluginError::LoadFailed(format!(
+                "Failed to spawn plugin host daemon '{}': {e}",
+                config.host_binary.display()
+            ))
+        })
+    }
+
     pub fn new(config: Option<PluginSandboxConfig>) -> Self {
         Self {
             enabled: config.is_some(),
@@ -126,22 +189,35 @@ impl PluginSandboxSupervisor {
         })?;
 
         let instance_id = Uuid::new_v4();
-        let mut cmd = Command::new(&config.host_binary);
-        cmd.arg("--plugin-host-daemon")
-            .arg("--instance-id")
-            .arg(instance_id.to_string())
-            .arg("--plugin-path")
-            .arg(descriptor.path.to_string_lossy().to_string())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        let child = cmd.spawn().map_err(|e| {
-            PluginError::LoadFailed(format!(
-                "Failed to spawn plugin host daemon '{}': {e}",
-                config.host_binary.display()
-            ))
-        })?;
+        let heartbeat_file = std::env::temp_dir().join(format!("dream_daw_plugin_host_{instance_id}.hb"));
+        let _ = fs::write(&heartbeat_file, b"0");
+        let shared_region_path =
+            std::env::temp_dir().join(format!("dream_daw_plugin_audio_{instance_id}.bin"));
+        let layout = SharedAudioBufferLayout {
+            num_inputs: 2,
+            num_outputs: 2,
+            max_frames: 2048,
+        };
+        let shared_region_owner =
+            SharedAudioBufferRegion::create(shared_region_path.clone(), layout.clone())
+                .map_err(PluginError::LoadFailed)?;
+        let shared_region = SharedAudioRegion {
+            map_name: shared_region_path.to_string_lossy().to_string(),
+            num_inputs: layout.num_inputs,
+            num_outputs: layout.num_outputs,
+            max_frames: layout.max_frames,
+            total_bytes: layout.total_bytes(),
+        };
+        let child = Self::spawn_daemon_process(
+            config,
+            instance_id,
+            &descriptor.path,
+            &heartbeat_file,
+            shared_region_owner.path_ref(),
+            layout.num_inputs,
+            layout.num_outputs,
+            layout.max_frames,
+        )?;
 
         self.instances.insert(
             instance_id,
@@ -153,23 +229,27 @@ impl PluginSandboxSupervisor {
                 restart_count: 0,
                 bypass_requested: false,
                 last_error: None,
-                last_heartbeat: Instant::now(),
+                heartbeat_file,
+                shared_region,
+                _shared_region_owner: shared_region_owner,
             },
         );
         Ok(instance_id)
     }
 
     pub fn mark_heartbeat(&mut self, instance_id: Uuid) {
-        if let Some(instance) = self.instances.get_mut(&instance_id) {
-            instance.last_heartbeat = Instant::now();
-            if matches!(
+        if let Some(instance) = self.instances.get(&instance_id) {
+            let _ = fs::write(&instance.heartbeat_file, b"1");
+        }
+        if let Some(instance) = self.instances.get_mut(&instance_id)
+            && matches!(
                 instance.status,
                 PluginSandboxStatus::Spawning | PluginSandboxStatus::TimedOut
-            ) {
-                instance.status = PluginSandboxStatus::Running;
-                instance.bypass_requested = false;
-                instance.last_error = None;
-            }
+            )
+        {
+            instance.status = PluginSandboxStatus::Running;
+            instance.bypass_requested = false;
+            instance.last_error = None;
         }
     }
 
@@ -177,25 +257,98 @@ impl PluginSandboxSupervisor {
     pub fn tick_watchdog(&mut self) -> Vec<Uuid> {
         let mut bypass = Vec::new();
         let timeout = self.heartbeat_timeout();
-        let now = Instant::now();
+        let now = SystemTime::now();
+        let max_auto_restarts: u32 = 1;
 
         for (id, instance) in &mut self.instances {
             if let Some(child) = instance.process.as_mut() {
                 match child.try_wait() {
                     Ok(Some(status)) => {
-                        instance.status = PluginSandboxStatus::Crashed;
                         instance.crash_count = instance.crash_count.saturating_add(1);
-                        instance.bypass_requested = true;
                         instance.last_error = Some(format!("Plugin host exited: {status}"));
+                        if instance.restart_count < max_auto_restarts
+                            && let Some(cfg) = self.config.as_ref()
+                        {
+                            let _ = fs::write(&instance.heartbeat_file, b"0");
+                            match Self::spawn_daemon_process(
+                                cfg,
+                                *id,
+                                    &instance.descriptor.path,
+                                    &instance.heartbeat_file,
+                                    std::path::Path::new(&instance.shared_region.map_name),
+                                    instance.shared_region.num_inputs,
+                                    instance.shared_region.num_outputs,
+                                    instance.shared_region.max_frames,
+                                ) {
+                                Ok(new_child) => {
+                                    instance.process = Some(new_child);
+                                    instance.status = PluginSandboxStatus::Spawning;
+                                    instance.restart_count = instance.restart_count.saturating_add(1);
+                                    instance.bypass_requested = false;
+                                    continue;
+                                }
+                                Err(err) => {
+                                    instance.last_error = Some(format!("Auto-restart failed: {err}"));
+                                }
+                            }
+                        }
+                        instance.status = PluginSandboxStatus::Crashed;
+                        instance.bypass_requested = true;
                         bypass.push(*id);
                     }
                     Ok(None) => {
-                        if now.saturating_duration_since(instance.last_heartbeat) > timeout {
-                            instance.status = PluginSandboxStatus::TimedOut;
-                            instance.bypass_requested = true;
-                            instance.last_error =
-                                Some(format!("Plugin host heartbeat timeout: {}ms", timeout.as_millis()));
-                            bypass.push(*id);
+                        let heartbeat_age = fs::metadata(&instance.heartbeat_file)
+                            .ok()
+                            .and_then(|m| m.modified().ok())
+                            .and_then(|modified| now.duration_since(modified).ok());
+                        if let Some(age) = heartbeat_age {
+                            if age > timeout {
+                                if instance.restart_count < max_auto_restarts
+                                    && let Some(cfg) = self.config.as_ref()
+                                {
+                                    let _ = child.kill();
+                                    let _ = child.wait();
+                                    let _ = fs::write(&instance.heartbeat_file, b"0");
+                                    match Self::spawn_daemon_process(
+                                        cfg,
+                                        *id,
+                                            &instance.descriptor.path,
+                                            &instance.heartbeat_file,
+                                            std::path::Path::new(&instance.shared_region.map_name),
+                                            instance.shared_region.num_inputs,
+                                            instance.shared_region.num_outputs,
+                                            instance.shared_region.max_frames,
+                                        ) {
+                                        Ok(new_child) => {
+                                            instance.process = Some(new_child);
+                                            instance.status = PluginSandboxStatus::Spawning;
+                                            instance.restart_count = instance.restart_count.saturating_add(1);
+                                            instance.bypass_requested = false;
+                                            instance.last_error = Some(format!(
+                                                "Recovered after heartbeat timeout ({}ms)",
+                                                timeout.as_millis()
+                                            ));
+                                            continue;
+                                        }
+                                        Err(err) => {
+                                            instance.last_error = Some(format!(
+                                                "Restart after timeout failed: {err}"
+                                            ));
+                                        }
+                                    }
+                                }
+                                instance.status = PluginSandboxStatus::TimedOut;
+                                instance.bypass_requested = true;
+                                if instance.last_error.is_none() {
+                                    instance.last_error = Some(format!(
+                                        "Plugin host heartbeat timeout: {}ms",
+                                        timeout.as_millis()
+                                    ));
+                                }
+                                bypass.push(*id);
+                            } else if instance.status == PluginSandboxStatus::Spawning {
+                                instance.status = PluginSandboxStatus::Running;
+                            }
                         } else if instance.status == PluginSandboxStatus::Spawning {
                             instance.status = PluginSandboxStatus::Running;
                         }
@@ -220,6 +373,8 @@ impl PluginSandboxSupervisor {
                 let _ = child.kill();
                 let _ = child.wait();
             }
+            let _ = fs::remove_file(instance.heartbeat_file);
+            let _ = fs::remove_file(instance.shared_region.map_name);
         }
     }
 
@@ -235,6 +390,7 @@ impl PluginSandboxSupervisor {
                 restart_count: inst.restart_count,
                 bypass_requested: inst.bypass_requested,
                 last_error: inst.last_error.clone(),
+                shared_region: Some(inst.shared_region.clone()),
             });
         }
         PluginSandboxSnapshot {
@@ -242,6 +398,10 @@ impl PluginSandboxSupervisor {
             heartbeat_timeout_ms: self.heartbeat_timeout().as_millis() as u64,
             instances,
         }
+    }
+
+    pub fn shared_region_for_instance(&self, instance_id: Uuid) -> Option<SharedAudioRegion> {
+        self.instances.get(&instance_id).map(|i| i.shared_region.clone())
     }
 }
 
@@ -286,7 +446,26 @@ mod tests {
                 restart_count: 0,
                 bypass_requested: false,
                 last_error: None,
-                last_heartbeat: Instant::now() - Duration::from_secs(10),
+                heartbeat_file: std::env::temp_dir().join("dream_daw_plugin_host_test.hb"),
+                shared_region: SharedAudioRegion {
+                    map_name: "test".to_string(),
+                    num_inputs: 2,
+                    num_outputs: 2,
+                    max_frames: 64,
+                    total_bytes: 0,
+                },
+                _shared_region_owner: SharedAudioBufferRegion::create(
+                    std::env::temp_dir().join(format!(
+                        "dream_daw_plugin_host_test_region_{}.bin",
+                        Uuid::new_v4()
+                    )),
+                    SharedAudioBufferLayout {
+                        num_inputs: 2,
+                        num_outputs: 2,
+                        max_frames: 64,
+                    },
+                )
+                .unwrap(),
             },
         );
         sup.mark_heartbeat(id);
@@ -295,4 +474,3 @@ mod tests {
         assert_eq!(snap.instances[0].status, PluginSandboxStatus::Running);
     }
 }
-

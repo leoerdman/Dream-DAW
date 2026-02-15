@@ -592,10 +592,13 @@ export const AssetBrowser = () => {
         try {
             if (item.type === 'plugin') {
                 const primary: 'instrument' | 'effect' | 'auto' = item.slotHint ?? 'auto';
-                const fallbackSlot = primary === 'instrument' ? 'effect' : 'instrument';
+                const fallbackSlot: 'instrument' | 'effect' =
+                    primary === 'instrument' ? 'effect' : 'instrument';
                 let lastErr: unknown = null;
-                const attempts: Array<'instrument' | 'effect' | 'auto'> = [primary, 'auto', fallbackSlot]
-                    .filter((slot, index, arr) => arr.indexOf(slot) === index);
+                const attempts: Array<'instrument' | 'effect' | 'auto'> = [];
+                for (const slot of [primary, 'auto', fallbackSlot] as const) {
+                    if (!attempts.includes(slot)) attempts.push(slot);
+                }
                 for (const attempt of attempts) {
                     try {
                         await engineApi.addPluginToTrack(track.id, item.path, item.name, attempt);

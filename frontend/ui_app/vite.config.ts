@@ -65,10 +65,31 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (
+            id.includes('/react/')
+            || id.includes('/react-dom/')
+            || id.includes('/scheduler/')
+            || id.includes('/react-is/')
+            || id.includes('/use-sync-external-store/')
+            || id.includes('/loose-envify/')
+            || id.includes('/object-assign/')
+          ) return 'vendor-react'
+          if (id.includes('/@tauri-apps/')) return 'vendor-tauri'
+          if (id.includes('/lodash.throttle/')) return 'vendor-utils'
+          if (id.includes('/zustand/') || id.includes('/lucide-react/')) return 'vendor-ui'
+          return 'vendor-misc'
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
     },
   },
 })
-

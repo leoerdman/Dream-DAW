@@ -17,18 +17,18 @@
 //
 // This gives us sample-accurate phase alignment across all routing paths.
 //
-// ALGORITHM: Bottom-Up Longest-Path (O(V + E) on the DAG)
-//   Since the graph is a DAG, we use the topological sort (already computed)
-//   to perform dynamic programming: for each node, compute the maximum
-//   latency from any source to that node. Then, for each node, the
-//   compensation is `global_max_latency - path_latency_to_this_node`.
+// ALGORITHM: Reverse Longest-Path (O(V + E) on the DAG)
+//   Since the graph is a DAG, we use reverse topological order:
+//   for each node, compute max latency from this node to master.
+//   Then we compensate only source nodes so every source path sums
+//   to the same critical-path latency.
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 
-use crate::dag::AudioDag;
+use crate::dag::{AudioDag, EdgeDelayCompensation};
 
 /// Computes per-node delay compensation values.
 ///
@@ -93,6 +93,59 @@ pub fn compute_delay_compensation(dag: &AudioDag, topo_order: &[NodeIndex]) -> V
     compensation
 }
 
+/// Computes per-edge delay compensation for merge-point alignment.
+///
+/// For each destination node, all incoming edges are aligned to the latest
+/// upstream contribution (maximum accumulated latency to each source node).
+pub fn compute_edge_delay_compensation(
+    dag: &AudioDag,
+    topo_order: &[NodeIndex],
+) -> Vec<EdgeDelayCompensation> {
+    let graph = dag.graph();
+    let node_count = graph.node_count();
+
+    // Max latency from any source to the output of each node.
+    let mut max_to_output = vec![0u32; node_count];
+
+    for &node_idx in topo_order {
+        let max_input = graph
+            .edges_directed(node_idx, petgraph::Direction::Incoming)
+            .map(|e| max_to_output[e.source().index()])
+            .max()
+            .unwrap_or(0);
+        max_to_output[node_idx.index()] = max_input + dag.node(node_idx).latency_samples();
+    }
+
+    let mut edge_delays = Vec::new();
+    for dst in graph.node_indices() {
+        let incoming: Vec<_> = graph
+            .edges_directed(dst, petgraph::Direction::Incoming)
+            .map(|e| e.source())
+            .collect();
+        if incoming.is_empty() {
+            continue;
+        }
+
+        let max_incoming = incoming
+            .iter()
+            .map(|src| max_to_output[src.index()])
+            .max()
+            .unwrap_or(0);
+
+        for src in incoming {
+            let src_latency = max_to_output[src.index()];
+            let delay_samples = max_incoming.saturating_sub(src_latency);
+            edge_delays.push(EdgeDelayCompensation {
+                from: src,
+                to: dst,
+                delay_samples,
+            });
+        }
+    }
+
+    edge_delays
+}
+
 /// Returns diagnostic information about the PDC calculation for logging.
 pub fn pdc_summary(dag: &AudioDag, compensation: &[u32]) -> String {
     let mut lines = Vec::new();
@@ -130,6 +183,7 @@ pub fn pdc_summary(dag: &AudioDag, compensation: &[u32]) -> String {
 mod tests {
     use super::*;
     use crate::dag::*;
+    use std::collections::HashMap;
 
     #[test]
     fn no_latency_no_compensation() {
@@ -293,5 +347,192 @@ mod tests {
 
         let summary = pdc_summary(&dag, &comp);
         assert!(summary.contains("PDC Summary"));
+    }
+
+    #[derive(Clone, Copy)]
+    struct XorShift64(u64);
+
+    impl XorShift64 {
+        fn new(seed: u64) -> Self {
+            Self(seed)
+        }
+
+        fn next_u32(&mut self) -> u32 {
+            let mut x = self.0;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.0 = x;
+            (x >> 16) as u32
+        }
+
+        fn range(&mut self, min: u32, max_exclusive: u32) -> u32 {
+            min + (self.next_u32() % (max_exclusive - min).max(1))
+        }
+    }
+
+    fn longest_to_master(
+        dag: &AudioDag,
+        node_idx: petgraph::graph::NodeIndex,
+        memo: &mut HashMap<petgraph::graph::NodeIndex, u32>,
+    ) -> u32 {
+        if let Some(v) = memo.get(&node_idx) {
+            return *v;
+        }
+
+        let own = dag.node(node_idx).latency_samples();
+        let outs = dag.outputs(node_idx);
+        let best_child = outs
+            .iter()
+            .map(|&child| longest_to_master(dag, child, memo))
+            .max()
+            .unwrap_or(0);
+        let total = own + best_child;
+        memo.insert(node_idx, total);
+        total
+    }
+
+    #[test]
+    fn randomized_dag_compensation_property_holds() {
+        let mut rng = XorShift64::new(0xC0FFEE_u64);
+
+        // Fuzz-style deterministic sweep of random DAGs.
+        for _ in 0..300 {
+            let node_count = rng.range(4, 14) as usize;
+            let master_id = (node_count - 1) as u64;
+
+            let mut builder = GraphBuilder::new()
+                .add_node(AudioNode::new(NodeId(master_id), NodeKind::MasterOutput));
+
+            for id in 0..(node_count as u64 - 1) {
+                let choose = rng.range(0, 3);
+                let node = match choose {
+                    0 => AudioNode::new(
+                        NodeId(id),
+                        NodeKind::Track {
+                            name: format!("T{id}"),
+                        },
+                    ),
+                    1 => AudioNode::new(
+                        NodeId(id),
+                        NodeKind::Bus {
+                            name: format!("B{id}"),
+                        },
+                    ),
+                    _ => AudioNode::new(
+                        NodeId(id),
+                        NodeKind::Effect {
+                            name: format!("FX{id}"),
+                            latency_samples: rng.range(0, 2049),
+                        },
+                    ),
+                };
+                builder = builder.add_node(node);
+            }
+
+            // Mandatory forward chain guarantees all nodes reach master.
+            for id in 0..(node_count as u64 - 1) {
+                let next = id + 1;
+                builder = builder.add_edge(NodeId(id), NodeId(next)).unwrap();
+            }
+
+            // Random extra edges (acyclic by construction: from lower id to higher id).
+            let extra_edges = rng.range(0, (node_count * 3) as u32) as usize;
+            for _ in 0..extra_edges {
+                let from = rng.range(0, (node_count - 1) as u32) as u64;
+                let to = rng.range((from + 1) as u32, node_count as u32) as u64;
+                builder = builder.add_edge(NodeId(from), NodeId(to)).unwrap();
+            }
+
+            let dag = builder.build().unwrap();
+            let order = dag.topological_order().unwrap();
+            let comp = compute_delay_compensation(&dag, &order);
+
+            let mut memo = HashMap::new();
+            let mut global_max = 0u32;
+            let sources: Vec<_> = dag
+                .graph()
+                .node_indices()
+                .filter(|&idx| dag.inputs(idx).is_empty())
+                .collect();
+
+            for &src in &sources {
+                global_max = global_max.max(longest_to_master(&dag, src, &mut memo));
+            }
+
+            // Property 1: source latency + compensation equals critical path.
+            for &src in &sources {
+                let total = longest_to_master(&dag, src, &mut memo);
+                assert_eq!(
+                    total + comp[src.index()],
+                    global_max,
+                    "source {:?} not aligned to critical path",
+                    dag.node(src).id
+                );
+            }
+
+            // Property 2: non-source nodes do not receive source-level compensation.
+            for idx in dag.graph().node_indices() {
+                if !dag.inputs(idx).is_empty() {
+                    assert_eq!(
+                        comp[idx.index()],
+                        0,
+                        "non-source node {:?} should not have compensation",
+                        dag.node(idx).id
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn edge_compensation_aligns_master_inputs() {
+        // Wet(512) -> Master, Dry(0) -> Master
+        let dag = GraphBuilder::new()
+            .add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput))
+            .add_node(AudioNode::new(
+                NodeId(1),
+                NodeKind::Track {
+                    name: "Wet".into(),
+                },
+            ))
+            .add_node(AudioNode::new(
+                NodeId(2),
+                NodeKind::Effect {
+                    name: "FX".into(),
+                    latency_samples: 512,
+                },
+            ))
+            .add_node(AudioNode::new(
+                NodeId(3),
+                NodeKind::Track {
+                    name: "Dry".into(),
+                },
+            ))
+            .add_edge(NodeId(1), NodeId(2))
+            .unwrap()
+            .add_edge(NodeId(2), NodeId(0))
+            .unwrap()
+            .add_edge(NodeId(3), NodeId(0))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let order = dag.topological_order().unwrap();
+        let edge = compute_edge_delay_compensation(&dag, &order);
+
+        let dry_idx = dag
+            .graph()
+            .node_indices()
+            .find(|&i| dag.node(i).id == NodeId(3))
+            .unwrap();
+        let master_idx = dag.master_index();
+        let dry_edge_delay = edge
+            .iter()
+            .find(|e| e.from == dry_idx && e.to == master_idx)
+            .map(|e| e.delay_samples)
+            .unwrap_or(0);
+
+        assert_eq!(dry_edge_delay, 512);
     }
 }

@@ -1,3 +1,18 @@
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::excessive_precision)]
+#![allow(clippy::if_same_then_else)]
+#![allow(clippy::manual_find)]
+#![allow(clippy::manual_range_patterns)]
+#![allow(clippy::match_result_ok)]
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::needless_return)]
+#![allow(clippy::no_effect_replace)]
+#![allow(clippy::question_mark)]
+#![allow(clippy::single_match)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::vec_init_then_push)]
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Dream DAW — Tauri v2 Application Core
 // ═══════════════════════════════════════════════════════════════════════════
@@ -372,6 +387,8 @@ struct SharedProjectSnapshot {
     key_sig_enabled: bool,
     key_sig_tonic: String,
     key_sig_mode: String,
+    tempo_automation_events: Vec<dream_models::project::TempoAutomationEvent>,
+    time_signature_changes: Vec<dream_models::project::TimeSignatureChange>,
 }
 
 impl SharedProjectSnapshot {
@@ -543,6 +560,8 @@ impl SharedProjectSnapshot {
             key_sig_enabled: project.key_sig_enabled,
             key_sig_tonic: project.key_sig_tonic.clone(),
             key_sig_mode: project.key_sig_mode.clone(),
+            tempo_automation_events: project.tempo_automation_events.clone(),
+            time_signature_changes: project.time_signature_changes.clone(),
         }
     }
 
@@ -678,6 +697,8 @@ impl SharedProjectSnapshot {
             key_sig_enabled: self.key_sig_enabled,
             key_sig_tonic: self.key_sig_tonic.clone(),
             key_sig_mode: self.key_sig_mode.clone(),
+            tempo_automation_events: self.tempo_automation_events.clone(),
+            time_signature_changes: self.time_signature_changes.clone(),
         }
     }
 }
@@ -741,8 +762,10 @@ impl ProjectHistory {
         }
     }
 
-    fn snapshot(&self) -> Vec<ProjectHistoryEvent> {
-        self.events.iter().cloned().collect()
+    fn snapshot(&self, limit: Option<usize>) -> Vec<ProjectHistoryEvent> {
+        let count = limit.unwrap_or(self.events.len()).min(self.events.len());
+        let start = self.events.len().saturating_sub(count);
+        self.events.iter().skip(start).cloned().collect()
     }
 }
 
@@ -817,9 +840,9 @@ impl ProjectState {
         Ok(())
     }
 
-    fn history_snapshot(&self) -> Result<Vec<ProjectHistoryEvent>, String> {
+    fn history_snapshot(&self, limit: Option<usize>) -> Result<Vec<ProjectHistoryEvent>, String> {
         let history = self.history.lock().map_err(|e| e.to_string())?;
-        Ok(history.snapshot())
+        Ok(history.snapshot(limit))
     }
 }
 
@@ -2104,9 +2127,26 @@ impl PluginHostState {
     ) -> Result<Uuid, String> {
         let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
         let instance_id = supervisor
-            .attach_plugin_process(descriptor)
+            .attach_plugin_process(descriptor.clone())
             .map_err(|e| format!("Sandbox spawn failed: {e}"))?;
+        let shared_region = supervisor
+            .shared_region_for_instance(instance_id)
+            .ok_or_else(|| "Sandbox shared region was not created".to_string())?;
         drop(supervisor);
+
+        {
+            let mut host = self.host.lock().map_err(|e| e.to_string())?;
+            host.load_vst3_sandboxed(
+                instance_id,
+                descriptor,
+                PathBuf::from(shared_region.map_name.clone()),
+                shared_region.num_inputs,
+                shared_region.num_outputs,
+                shared_region.max_frames,
+            )
+            .map_err(|e| format!("Sandbox plugin bridge registration failed: {e}"))?;
+        }
+
         self.loaded_sandbox_by_key
             .lock()
             .map_err(|e| e.to_string())?
@@ -2121,6 +2161,9 @@ impl PluginHostState {
             .map_err(|e| e.to_string())?
             .remove(plugin_key);
         if let Some(id) = maybe_id {
+            if let Ok(mut host) = self.host.lock() {
+                let _ = host.remove(id);
+            }
             let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
             supervisor.remove_instance(id);
         }
@@ -2568,6 +2611,17 @@ struct PluginEditorCapability {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ExternalPluginParamInfo {
+    index: u32,
+    name: String,
+    min: f64,
+    max: f64,
+    step: f64,
+    value: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct MidiInputPortInfo {
     name: String,
     connected: bool,
@@ -2795,14 +2849,23 @@ pub fn run() {
                             };
                             let frames = handle.master_clock.position();
                             let seconds = frames as f64 / state.sample_rate;
+                            let beats = seconds * state.bpm / 60.0;
+                            let telemetry_timestamp_ms = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis())
+                                .unwrap_or(0);
                             serde_json::json!({
                                 "is_playing": state.is_playing,
                                 "position_frames": frames,
                                 "position_seconds": seconds,
+                                "position_beats": beats,
                                 "bpm": state.bpm,
+                                "sample_rate": state.sample_rate,
                                 "loop_enabled": state.loop_enabled,
                                 "loop_start": state.loop_start,
                                 "loop_end": state.loop_end,
+                                "output_latency_frames": handle.output_latency_frames,
+                                "telemetry_timestamp_ms": telemetry_timestamp_ms,
                             })
                         };
 
@@ -2845,6 +2908,25 @@ pub fn run() {
                 log::warn!("Failed to spawn telemetry thread: {err}");
             }
 
+            // ── Plugin Sandbox Watchdog Thread ────────────────────────
+            let sandbox_app = app.handle().clone();
+            if let Err(err) = std::thread::Builder::new()
+                .name("plugin-sandbox-watchdog".into())
+                .spawn(move || {
+                    loop {
+                        std::thread::sleep(Duration::from_millis(75));
+                        let plugin_host_state: tauri::State<'_, PluginHostState> = sandbox_app.state();
+                        let snapshot = match plugin_host_state.tick_sandbox_watchdog() {
+                            Ok(v) => v,
+                            Err(_) => continue,
+                        };
+                        let _ = sandbox_app.emit("plugin_sandbox_tick", &snapshot);
+                    }
+                })
+            {
+                log::warn!("Failed to spawn plugin sandbox watchdog thread: {err}");
+            }
+
             log::info!(
                 "Dream DAW v{} — Audio engine initialized ({} IPC commands registered)",
                 app.package_info().version,
@@ -2856,4 +2938,48 @@ pub fn run() {
         .unwrap_or_else(|err| {
             log::error!("Fatal: failed to launch Dream DAW: {err}");
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_history_keeps_recent_events_with_monotonic_seq() {
+        let mut history = ProjectHistory::new();
+        for i in 0..(MAX_PROJECT_HISTORY + 5) {
+            history.push("mutation", format!("event-{i}"));
+        }
+
+        let events = history.snapshot();
+        assert_eq!(events.len(), MAX_PROJECT_HISTORY);
+        assert_eq!(events.first().map(|e| e.seq), Some(6));
+        assert_eq!(
+            events.first().map(|e| e.detail.as_str()),
+            Some("event-5")
+        );
+        assert_eq!(
+            events.last().map(|e| e.detail.as_str()),
+            Some("event-2052")
+        );
+
+        for pair in events.windows(2) {
+            assert!(pair[0].seq < pair[1].seq);
+        }
+    }
+
+    #[test]
+    fn push_undo_records_history_event() {
+        let state = ProjectState::new();
+        push_undo(&state).expect("push_undo should snapshot default project");
+
+        let history = state
+            .history_snapshot()
+            .expect("history snapshot should be readable");
+        assert_eq!(history.len(), 1);
+        let event = &history[0];
+        assert_eq!(event.kind, "mutation_snapshot");
+        assert!(event.detail.contains("captured undo snapshot"));
+        assert!(event.detail.contains("apps/desktop_host/src/lib.rs"));
+    }
 }

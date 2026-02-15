@@ -19,9 +19,12 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+  },
+  {
+    files: ['src/app/**/*.{ts,tsx}', 'src/widgets/StatusBar/**/*.{ts,tsx}'],
     rules: {
       // UI tokens v2 migration guardrail:
-      // discourage raw colors in component code; use semantic CSS variables instead.
+      // enforce in active shell/status surfaces first; legacy widgets are migrated incrementally.
       'no-restricted-syntax': [
         'warn',
         {

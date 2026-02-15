@@ -263,31 +263,6 @@ fn soft_clip(sample: f32) -> f32 {
 }
 
 #[inline]
-fn eval_automation(points: &[AutomationPoint], at_frame: i64) -> Option<f32> {
-    if points.is_empty() {
-        return None;
-    }
-    if points.len() == 1 {
-        return Some(points[0].value);
-    }
-    if at_frame <= points[0].sample_frame {
-        return Some(points[0].value);
-    }
-
-    for window in points.windows(2) {
-        let a = &window[0];
-        let b = &window[1];
-        if at_frame <= b.sample_frame {
-            let span = (b.sample_frame - a.sample_frame).max(1) as f32;
-            let t = ((at_frame - a.sample_frame) as f32 / span).clamp(0.0, 1.0);
-            return Some(a.value + (b.value - a.value) * t);
-        }
-    }
-
-    points.last().map(|p| p.value)
-}
-
-#[inline]
 fn eval_automation_with_cursor(
     points: &[AutomationPoint],
     at_frame: i64,
@@ -337,6 +312,35 @@ fn apply_plugin_automation_sample_accurate(
         return;
     }
 
+    // Fast path: static values (no interpolation needed).
+    if gain_points.is_none_or(|p| p.len() <= 1) && pan_points.is_none_or(|p| p.len() <= 1) {
+        let gain = gain_points
+            .and_then(|p| p.first())
+            .map(|p| p.value)
+            .unwrap_or(1.0)
+            .clamp(0.0, 2.0);
+        let raw_pan = pan_points
+            .and_then(|p| p.first())
+            .map(|p| p.value)
+            .unwrap_or(0.0);
+        let pan = if pan_points
+            .map(|pts| !pts.is_empty() && pts.iter().all(|p| (0.0..=1.0).contains(&p.value)))
+            .unwrap_or(false)
+        {
+            raw_pan * 2.0 - 1.0
+        } else {
+            raw_pan
+        }
+        .clamp(-1.0, 1.0);
+        let left_mul = if pan > 0.0 { 1.0 - pan } else { 1.0 };
+        let right_mul = if pan < 0.0 { 1.0 + pan } else { 1.0 };
+        for i in 0..n {
+            left[i] *= gain * left_mul;
+            right[i] *= gain * right_mul;
+        }
+        return;
+    }
+
     let pan_is_unit_interval = pan_points
         .map(|pts| !pts.is_empty() && pts.iter().all(|p| (0.0..=1.0).contains(&p.value)))
         .unwrap_or(false);
@@ -366,6 +370,83 @@ fn apply_plugin_automation_sample_accurate(
 
         left[i] *= gain * left_mul;
         right[i] *= gain * right_mul;
+    }
+}
+
+#[inline]
+fn apply_track_mixer_automation_sample_accurate(
+    left: &mut [f32],
+    right: &mut [f32],
+    buffer_start_frame: i64,
+    volume_points: Option<&[AutomationPoint]>,
+    pan_points: Option<&[AutomationPoint]>,
+) {
+    let n = left.len().min(right.len());
+    if n == 0 {
+        return;
+    }
+    if volume_points.is_none() && pan_points.is_none() {
+        return;
+    }
+
+    // Fast path: static values (no interpolation needed).
+    if volume_points.is_none_or(|p| p.len() <= 1) && pan_points.is_none_or(|p| p.len() <= 1) {
+        let vol = volume_points
+            .and_then(|p| p.first())
+            .map(|p| p.value)
+            .unwrap_or(1.0)
+            .clamp(0.0, 2.0);
+        let raw_pan = pan_points
+            .and_then(|p| p.first())
+            .map(|p| p.value)
+            .unwrap_or(0.0);
+        let pan = if pan_points
+            .map(|pts| !pts.is_empty() && pts.iter().all(|p| (0.0..=1.0).contains(&p.value)))
+            .unwrap_or(false)
+        {
+            raw_pan * 2.0 - 1.0
+        } else {
+            raw_pan
+        }
+        .clamp(-1.0, 1.0);
+        let left_mul = if pan > 0.0 { 1.0 - pan } else { 1.0 };
+        let right_mul = if pan < 0.0 { 1.0 + pan } else { 1.0 };
+        for i in 0..n {
+            left[i] *= vol * left_mul;
+            right[i] *= vol * right_mul;
+        }
+        return;
+    }
+
+    let pan_is_unit_interval = pan_points
+        .map(|pts| !pts.is_empty() && pts.iter().all(|p| (0.0..=1.0).contains(&p.value)))
+        .unwrap_or(false);
+
+    let mut volume_cursor = 0usize;
+    let mut pan_cursor = 0usize;
+
+    for i in 0..n {
+        let frame = buffer_start_frame + i as i64;
+        let vol = volume_points
+            .and_then(|pts| eval_automation_with_cursor(pts, frame, &mut volume_cursor))
+            .unwrap_or(1.0)
+            .clamp(0.0, 2.0);
+
+        let raw_pan = pan_points
+            .and_then(|pts| eval_automation_with_cursor(pts, frame, &mut pan_cursor))
+            .unwrap_or(0.0);
+        let pan = if pan_is_unit_interval {
+            raw_pan * 2.0 - 1.0
+        } else {
+            raw_pan
+        }
+        .clamp(-1.0, 1.0);
+
+        let left_mul = if pan > 0.0 { 1.0 - pan } else { 1.0 };
+        let right_mul = if pan < 0.0 { 1.0 + pan } else { 1.0 };
+
+        left[i] *= vol * left_mul;
+        right[i] *= vol * right_mul;
     }
 }
 
@@ -767,8 +848,8 @@ pub fn start_audio_thread_on_device(
     let mut _bpm: f64 = 120.0;
     let mut master_gain_target: f32 = 1.0;
     let mut master_gain_current: f32 = 1.0;
-    // per-track mute/solo state (used for effective gain calculation)
-    let mut track_muted: [bool; 64] = [false; 64];
+    // per-track disable/solo state (used for output-enable calculation)
+    let mut track_disabled: [bool; 64] = [false; 64];
     let mut track_soloed: [bool; 64] = [false; 64];
     let mut any_solo: bool = false;
 
@@ -789,6 +870,7 @@ pub fn start_audio_thread_on_device(
     let stream = device
         .build_output_stream(
             &config,
+            // RT_CALLBACK_START
             // ┌──────────────────────────────────────────────────────┐
             // │  THE HOT PATH — Real-Time Audio Callback             │
             // │  NO allocations. NO locks (except Arc::clone which   │
@@ -875,13 +957,13 @@ pub fn start_audio_thread_on_device(
                                 EngineCommand::SetTrackMute { track_index, muted } => {
                                     let idx = track_index as usize;
                                     if idx < 64 {
-                                        track_muted[idx] = muted;
-                                        // Recalculate effective gain
+                                        track_disabled[idx] = muted;
+                                        // Recalculate output-enabled state
                                         if idx < render_ctx.track_slots.len() {
-                                            let eff = if muted { 0.0 } else { 1.0 };
+                                            let enabled = !muted && (!any_solo || track_soloed[idx]);
                                             render_ctx.track_slots[idx]
                                                 .strip
-                                                .set_effective_gain(eff);
+                                                .set_output_enabled(enabled);
                                         }
                                     }
                                 }
@@ -893,14 +975,10 @@ pub fn start_audio_thread_on_device(
                                     if idx < 64 {
                                         track_soloed[idx] = soloed;
                                         any_solo = track_soloed.iter().any(|s| *s);
-                                        // Recalculate effective gain for ALL tracks
+                                        // Recalculate output-enabled state for ALL tracks
                                         for i in 0..render_ctx.track_slots.len().min(64) {
-                                            let eff = if track_muted[i] || (any_solo && !track_soloed[i]) {
-                                                0.0
-                                            } else {
-                                                1.0
-                                            };
-                                            render_ctx.track_slots[i].strip.set_effective_gain(eff);
+                                            let enabled = !track_disabled[i] && (!any_solo || track_soloed[i]);
+                                            render_ctx.track_slots[i].strip.set_output_enabled(enabled);
                                         }
                                     }
                                 }
@@ -1087,23 +1165,21 @@ pub fn start_audio_thread_on_device(
                             // still run below so browser audition works when
                             // transport is stopped.
                         } else {
-                            // ── B-1. Apply track automation targets (volume/pan) ───────────
-                            // ChannelStrip already smooths per-sample, so this remains click-free.
+                            // ── B-1. Prepare track strips for mixer automation ──────────────
+                            // If a track has volume/pan automation lanes, we neutralize the
+                            // strip mixer controls here and apply absolute sample-accurate
+                            // mixer automation later on graph output buffers.
                             let automation = automation_snapshot.load();
                             let playhead_pos = render_ctx.playhead.position();
                             for (track_idx, lane) in automation.iter().enumerate() {
                                 if track_idx >= render_ctx.track_slots.len() {
                                     break;
                                 }
-                                if let Some(v) = eval_automation(&lane.volume, playhead_pos) {
-                                    render_ctx.track_slots[track_idx]
-                                        .strip
-                                        .set_volume(v.max(0.0));
+                                if !lane.volume.is_empty() {
+                                    render_ctx.track_slots[track_idx].strip.set_volume(1.0);
                                 }
-                                if let Some(p) = eval_automation(&lane.pan, playhead_pos) {
-                                    render_ctx.track_slots[track_idx]
-                                        .strip
-                                        .set_pan(p.clamp(-1.0, 1.0));
+                                if !lane.pan.is_empty() {
+                                    render_ctx.track_slots[track_idx].strip.set_pan(0.0);
                                 }
                             }
 
@@ -1197,16 +1273,28 @@ pub fn start_audio_thread_on_device(
                                             let c = count
                                                 .min(slot.buf_left.len())
                                                 .min(slot.buf_right.len());
-                                            for i in 0..c {
-                                                left[i] += slot.buf_left[i];
-                                                right[i] += slot.buf_right[i];
+
+                                            // ── Output gate ──────────────────────────
+                                            // Disabled tracks (muted or excluded by solo)
+                                            // still process through the strip and meter,
+                                            // but their audio does NOT contribute to the
+                                            // graph output. This lets meters show gray
+                                            // activity without affecting the mix.
+                                            let route_to_graph = slot.strip.is_output_enabled();
+
+                                            if route_to_graph {
+                                                for i in 0..c {
+                                                    left[i] += slot.buf_left[i];
+                                                    right[i] += slot.buf_right[i];
+                                                }
                                             }
 
-                                            if post_sum_processing_mask
+                                            let post_sum_processed = post_sum_processing_mask
                                                 .get(track_idx)
                                                 .copied()
-                                                .unwrap_or(false)
-                                            {
+                                                .unwrap_or(false);
+
+                                            if post_sum_processed {
                                                 slot.strip.process_stereo(
                                                     &mut left[..c],
                                                     &mut right[..c],
@@ -1218,24 +1306,23 @@ pub fn start_audio_thread_on_device(
                                                         sample_rate_f64 as f32,
                                                     );
                                                 }
-                                                if let Some((meter_l, meter_r)) =
-                                                    render_ctx.meter_bank.track(track_idx)
-                                                {
-                                                    let rms_l = linear_to_db(compute_rms(&left[..c]));
-                                                    let rms_r = linear_to_db(compute_rms(&right[..c]));
-                                                    let peak_l = linear_to_db(compute_peak(&left[..c]));
-                                                    let peak_r = linear_to_db(compute_peak(&right[..c]));
-                                                    meter_l.store_rms(rms_l);
-                                                    meter_r.store_rms(rms_r);
-                                                    meter_l.store_peak_decay(peak_l, 0.99);
-                                                    meter_r.store_peak_decay(peak_r, 0.99);
-                                                }
                                             }
 
-                                            // Canonicalized in desktop_host:
-                                            // __plugin_gain__ => [0..2], __plugin_pan__ => [0..1] or [-1..1].
-                                            // Apply sample-accurate values across the current buffer.
                                             if let Some(lane) = automation.get(track_idx) {
+                                                // Track mixer automation (volume/pan) with sample accuracy.
+                                                apply_track_mixer_automation_sample_accurate(
+                                                    &mut left[..c],
+                                                    &mut right[..c],
+                                                    playhead_pos,
+                                                    (!lane.volume.is_empty())
+                                                        .then_some(lane.volume.as_slice()),
+                                                    (!lane.pan.is_empty())
+                                                        .then_some(lane.pan.as_slice()),
+                                                );
+
+                                                // Canonicalized in desktop_host:
+                                                // __plugin_gain__ => [0..2], __plugin_pan__ => [0..1] or [-1..1].
+                                                // Apply sample-accurate values across the current buffer.
                                                 apply_plugin_automation_sample_accurate(
                                                     &mut left[..c],
                                                     &mut right[..c],
@@ -1247,6 +1334,22 @@ pub fn start_audio_thread_on_device(
                                                         .get("__plugin_pan__")
                                                         .map(|v| v.as_slice()),
                                                 );
+                                            }
+
+                                            // Always meter — even disabled tracks show
+                                            // levels (grayed out in the UI).
+                                            if post_sum_processed
+                                                && let Some((meter_l, meter_r)) =
+                                                    render_ctx.meter_bank.track(track_idx)
+                                            {
+                                                let rms_l = linear_to_db(compute_rms(&left[..c]));
+                                                let rms_r = linear_to_db(compute_rms(&right[..c]));
+                                                let peak_l = linear_to_db(compute_peak(&left[..c]));
+                                                let peak_r = linear_to_db(compute_peak(&right[..c]));
+                                                meter_l.store_rms(rms_l);
+                                                meter_r.store_rms(rms_r);
+                                                meter_l.store_peak_decay(peak_l, 0.99);
+                                                meter_r.store_peak_decay(peak_r, 0.99);
                                             }
                                         }
                                     },
@@ -1341,81 +1444,116 @@ pub fn start_audio_thread_on_device(
                                     midi_loop_region.as_ref(),
                                 );
 
-                                // Process note-on/off events
+                                let fc = frame_count.min(sampler_left.len());
+                                if fc == 0 {
+                                    continue;
+                                }
+                                sampler_left[..fc].fill(0.0);
+                                sampler_right[..fc].fill(0.0);
+
+                                // Convert scheduled note windows into instantaneous events
+                                // and process them at exact sample offsets in this buffer.
+                                // kind: 0 = note-off, 1 = note-on (off first at same frame).
+                                let mut midi_events: Vec<(usize, u8, u8, u8)> =
+                                    Vec::with_capacity(events.len().saturating_mul(2));
                                 for event in &events {
-                                    if event.is_note_on {
-                                        let mut pitch_i16 = event.pitch as i16;
-                                        let mut velocity_i16 = event.velocity as i16;
-
-                                        if fx.pitch_enabled {
-                                            pitch_i16 += fx.pitch_semitones as i16;
-                                        }
-                                        let mut mapped_pitch = clamp_midi_pitch(pitch_i16);
-
-                                        if fx.scale_enabled {
-                                            mapped_pitch = quantize_to_scale(
-                                                mapped_pitch,
-                                                fx.scale_root,
-                                                fx.scale_mask,
-                                            );
-                                        }
-
-                                        if fx.random_enabled && fx.random_semitones != 0 {
-                                            // Xorshift32 deterministic PRNG (RT-safe, no allocations).
-                                            let mut x = note_state.rng_state;
-                                            x ^= x << 13;
-                                            x ^= x >> 17;
-                                            x ^= x << 5;
-                                            note_state.rng_state = x;
-                                            let rnd01 = (x as f32) / (u32::MAX as f32);
-                                            if rnd01 <= fx.random_chance.clamp(0.0, 1.0) {
-                                                let span = fx.random_semitones.abs().max(1) as i16;
-                                                let signed = ((x >> 8) % ((span as u32) * 2 + 1)) as i16 - span;
-                                                mapped_pitch = clamp_midi_pitch(mapped_pitch as i16 + signed);
-                                            }
-                                        }
-
-                                        if fx.velocity_enabled {
-                                            velocity_i16 = ((velocity_i16 as f32) * fx.velocity_gain).round() as i16
-                                                + fx.velocity_offset as i16;
-                                        }
-                                        let mapped_velocity = velocity_i16.clamp(1, 127) as u8;
-
-                                        note_state.mapped_pitch[event.pitch as usize] = mapped_pitch;
-                                        note_state.active[event.pitch as usize] = true;
-                                        engine.note_on(mapped_pitch, mapped_velocity);
-                                    }
                                     if event.is_note_off {
-                                        let src = event.pitch as usize;
+                                        midi_events.push((event.buffer_offset_end.min(fc), 0, event.pitch, event.velocity));
+                                    }
+                                    if event.is_note_on {
+                                        midi_events.push((event.buffer_onset.min(fc), 1, event.pitch, event.velocity));
+                                    }
+                                }
+                                midi_events.sort_by(|a, b| {
+                                    a.0.cmp(&b.0)
+                                        .then_with(|| a.1.cmp(&b.1))
+                                        .then_with(|| a.2.cmp(&b.2))
+                                });
+
+                                let mut cursor = 0usize;
+                                for (event_frame, kind, pitch, velocity) in midi_events {
+                                    let frame = event_frame.min(fc);
+                                    if frame > cursor && engine.has_active_voices() {
+                                        let seg = frame - cursor;
+                                        engine.render(
+                                            &mut sampler_left[cursor..frame],
+                                            &mut sampler_right[cursor..frame],
+                                            seg,
+                                        );
+                                        cursor = frame;
+                                    } else if frame > cursor {
+                                        cursor = frame;
+                                    }
+
+                                    if kind == 0 {
+                                        let src = pitch as usize;
                                         let off_pitch = if note_state.active[src] {
                                             note_state.active[src] = false;
                                             note_state.mapped_pitch[src]
                                         } else {
-                                            event.pitch
+                                            pitch
                                         };
                                         engine.note_off(off_pitch);
+                                        continue;
                                     }
+
+                                    let mut pitch_i16 = pitch as i16;
+                                    let mut velocity_i16 = velocity as i16;
+
+                                    if fx.pitch_enabled {
+                                        pitch_i16 += fx.pitch_semitones as i16;
+                                    }
+                                    let mut mapped_pitch = clamp_midi_pitch(pitch_i16);
+
+                                    if fx.scale_enabled {
+                                        mapped_pitch = quantize_to_scale(
+                                            mapped_pitch,
+                                            fx.scale_root,
+                                            fx.scale_mask,
+                                        );
+                                    }
+
+                                    if fx.random_enabled && fx.random_semitones != 0 {
+                                        // Xorshift32 deterministic PRNG (RT-safe, no allocations).
+                                        let mut x = note_state.rng_state;
+                                        x ^= x << 13;
+                                        x ^= x >> 17;
+                                        x ^= x << 5;
+                                        note_state.rng_state = x;
+                                        let rnd01 = (x as f32) / (u32::MAX as f32);
+                                        if rnd01 <= fx.random_chance.clamp(0.0, 1.0) {
+                                            let span = fx.random_semitones.abs().max(1) as i16;
+                                            let signed = ((x >> 8) % ((span as u32) * 2 + 1)) as i16 - span;
+                                            mapped_pitch = clamp_midi_pitch(mapped_pitch as i16 + signed);
+                                        }
+                                    }
+
+                                    if fx.velocity_enabled {
+                                        velocity_i16 = ((velocity_i16 as f32) * fx.velocity_gain).round() as i16
+                                            + fx.velocity_offset as i16;
+                                    }
+                                    let mapped_velocity = velocity_i16.clamp(1, 127) as u8;
+
+                                    note_state.mapped_pitch[pitch as usize] = mapped_pitch;
+                                    note_state.active[pitch as usize] = true;
+                                    engine.note_on(mapped_pitch, mapped_velocity);
                                 }
 
-                                // Render sampler output if any voices active
-                                if engine.has_active_voices() {
-                                    let fc = frame_count.min(sampler_left.len());
-                                    sampler_left[..fc].fill(0.0);
-                                    sampler_right[..fc].fill(0.0);
-
+                                if cursor < fc && engine.has_active_voices() {
+                                    let seg = fc - cursor;
                                     engine.render(
-                                        &mut sampler_left[..fc],
-                                        &mut sampler_right[..fc],
-                                        fc,
+                                        &mut sampler_left[cursor..fc],
+                                        &mut sampler_right[cursor..fc],
+                                        seg,
                                     );
+                                }
 
-                                    // Mix sampler output into interleaved data
-                                    for i in 0..fc {
-                                        let base = i * channels;
-                                        if base + 1 < data.len() {
-                                            data[base] += sampler_left[i];
-                                            data[base + 1] += sampler_right[i];
-                                        }
+                                // Mix sampler output into interleaved data
+                                for i in 0..fc {
+                                    let base = i * channels;
+                                    if base + 1 < data.len() {
+                                        data[base] += sampler_left[i];
+                                        data[base + 1] += sampler_right[i];
                                     }
                                 }
                             }
@@ -1489,6 +1627,7 @@ pub fn start_audio_thread_on_device(
                     );
                 }
             },
+            // RT_CALLBACK_END
             move |err| {
                 error!("Audio stream error: {}", err);
             },
@@ -1554,6 +1693,45 @@ pub fn list_audio_devices() -> (Vec<String>, Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn realtime_callback_forbidden_ops_guard() {
+        let src = include_str!("driver.rs");
+        let start_marker = "// RT_CALLBACK_START";
+        let end_marker = "// RT_CALLBACK_END";
+
+        let start = src
+            .find(start_marker)
+            .expect("RT callback start marker must exist");
+        let rest = &src[start + start_marker.len()..];
+        let end_rel = rest
+            .find(end_marker)
+            .expect("RT callback end marker must exist");
+        let callback_src = &rest[..end_rel];
+
+        let forbidden = [
+            "std::sync::Mutex",
+            "std::sync::RwLock",
+            ".lock(",
+            "println!(",
+            "eprintln!(",
+            "dbg!(",
+            "std::fs::",
+            "File::",
+            "std::net::",
+            "thread::sleep(",
+            "Vec::new(",
+            "vec![",
+            "String::from(",
+        ];
+
+        for token in forbidden {
+            assert!(
+                !callback_src.contains(token),
+                "forbidden token in realtime callback: {token}",
+            );
+        }
+    }
 
     #[test]
     #[allow(clippy::assertions_on_constants)]
@@ -1636,5 +1814,44 @@ mod tests {
 
         assert!(left[0] > right[0]);
         assert!(right[3] > left[3]);
+    }
+
+    #[test]
+    fn sample_accurate_track_mixer_volume_and_pan_change_within_buffer() {
+        let mut left = vec![1.0f32; 6];
+        let mut right = vec![1.0f32; 6];
+        let vol_points = vec![
+            AutomationPoint {
+                sample_frame: 0,
+                value: 0.5,
+            },
+            AutomationPoint {
+                sample_frame: 5,
+                value: 1.5,
+            },
+        ];
+        let pan_points = vec![
+            AutomationPoint {
+                sample_frame: 0,
+                value: -1.0,
+            },
+            AutomationPoint {
+                sample_frame: 5,
+                value: 1.0,
+            },
+        ];
+
+        apply_track_mixer_automation_sample_accurate(
+            &mut left,
+            &mut right,
+            0,
+            Some(&vol_points),
+            Some(&pan_points),
+        );
+
+        // Early frames biased left with lower volume; later frames biased right with higher volume.
+        assert!(left[0] > right[0]);
+        assert!(right[5] > left[5]);
+        assert!(left[5] > left[0] || right[5] > right[0]);
     }
 }

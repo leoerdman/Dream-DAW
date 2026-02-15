@@ -46,6 +46,9 @@ pub struct ChannelStrip {
     /// Smoothing coefficient for volume.
     volume_smooth_coeff: f32,
 
+    /// Extra runtime gain multiplier (mute/solo resolution).
+    effective_gain: f32,
+
     // ── Pan ────────────────────────────────────────────────────────────
 
     /// Target pan position (set by UI thread).
@@ -68,11 +71,14 @@ pub struct ChannelStrip {
     /// Right channel VU meter.
     meter_right: VuMeter,
 
-    // ── Mute/Solo multiplier ───────────────────────────────────────────
+    // ── Output Enable (Track Enable/Disable) ──────────────────────────
 
-    /// Effective gain multiplier from solo/mute logic (0.0 or 1.0).
-    /// Set externally by the `SoloResolver`.
-    effective_gain: f32,
+    /// Whether this track's output is routed into the audio graph.
+    /// When `false`, the strip still processes gain/pan/metering normally
+    /// (so meters stay alive), but the driver skips summing it into the
+    /// graph output. This is the "track enable/disable" semantic —
+    /// distinct from the old mute, which zeroed the signal before metering.
+    output_enabled: bool,
 }
 
 impl ChannelStrip {
@@ -82,13 +88,14 @@ impl ChannelStrip {
             target_volume: 1.0,
             current_volume: 1.0,
             volume_smooth_coeff: GAIN_SMOOTH_COEFF,
+            effective_gain: 1.0,
             target_pan: 0.0,
             current_pan: 0.0,
             pan_smooth_coeff: GAIN_SMOOTH_COEFF,
             pan_law: PanLaw::ConstantPower,
             meter_left: VuMeter::new(),
             meter_right: VuMeter::new(),
-            effective_gain: 1.0,
+            output_enabled: true,
         }
     }
 
@@ -116,11 +123,28 @@ impl ChannelStrip {
         self.target_pan = pan.clamp(-1.0, 1.0);
     }
 
-    /// Sets the effective gain multiplier from solo/mute logic.
-    /// This is typically 0.0 (muted by solo) or 1.0 (audible).
+    /// Sets effective gain from mute/solo resolver.
+    ///
+    /// 1.0 = normal, 0.0 = fully silenced.
     #[inline]
     pub fn set_effective_gain(&mut self, gain: f32) {
-        self.effective_gain = gain;
+        self.effective_gain = gain.max(0.0);
+    }
+
+    /// Enables or disables this track's output routing.
+    ///
+    /// When disabled, the strip still processes gain/pan/metering (meters
+    /// stay alive and show gray in the UI), but the driver skips summing
+    /// this track into the audio graph.
+    #[inline]
+    pub fn set_output_enabled(&mut self, enabled: bool) {
+        self.output_enabled = enabled;
+    }
+
+    /// Returns whether this track's output is enabled (routed into graph).
+    #[inline]
+    pub fn is_output_enabled(&self) -> bool {
+        self.output_enabled
     }
 
     // ── Audio Thread Processing ────────────────────────────────────────
@@ -138,7 +162,9 @@ impl ChannelStrip {
             return;
         }
 
-        // Combined target = fader volume × solo/mute multiplier
+        // The strip always processes at the fader volume.
+        // Output gating (enable/disable) is handled externally by the driver
+        // at the graph summing phase, so meters remain alive on disabled tracks.
         let combined_target = self.target_volume * self.effective_gain;
 
         // Apply smoothed gain to BOTH channels simultaneously.
@@ -214,6 +240,7 @@ impl ChannelStrip {
     pub fn reset(&mut self) {
         self.current_volume = self.target_volume;
         self.current_pan = self.target_pan;
+        self.effective_gain = 1.0;
         self.meter_left.reset();
         self.meter_right.reset();
     }
@@ -289,23 +316,35 @@ mod tests {
     }
 
     #[test]
-    fn mute_via_effective_gain() {
+    fn output_enabled_flag_does_not_silence_strip() {
+        // When output_enabled is false, the strip still processes audio
+        // (gain, pan, metering). The driver handles output gating externally.
         let mut strip = ChannelStrip::new();
-        strip.set_effective_gain(0.0);
+        assert!(strip.is_output_enabled());
 
+        strip.set_output_enabled(false);
+        assert!(!strip.is_output_enabled());
+
+        // Process several blocks to let smoothing converge
         for _ in 0..10 {
             let (mut left, mut right) = stereo_sine(1.0, 512);
             strip.process_stereo(&mut left, &mut right);
         }
 
-        // After convergence, output should be near-silent
+        // Output should NOT be silent — the strip processes normally
         let (mut left, mut right) = stereo_sine(1.0, 512);
         strip.process_stereo(&mut left, &mut right);
 
         let max_level = left.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
         assert!(
-            max_level < 0.01,
-            "Expected silence when effective_gain=0, got {max_level}"
+            max_level > 0.1,
+            "Disabled track strip should still produce audio, got {max_level}"
+        );
+
+        // Metering should still update
+        assert!(
+            strip.left_peak_linear() > 0.1,
+            "Disabled track meter should still update"
         );
     }
 

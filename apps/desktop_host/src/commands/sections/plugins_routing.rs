@@ -50,9 +50,18 @@ fn apply_imported_external_state_blob(
 ) -> Result<(), String> {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-    let mut attempts: Vec<(&str, Option<&String>, Option<&String>)> = Vec::new();
-    attempts.push(("state", slot.external_state_blob.as_ref(), slot.external_state_blob_kind.as_ref()));
-    attempts.push(("preset", slot.external_preset_blob.as_ref(), slot.external_preset_blob_kind.as_ref()));
+    let attempts: Vec<(&str, Option<&String>, Option<&String>)> = vec![
+        (
+            "state",
+            slot.external_state_blob.as_ref(),
+            slot.external_state_blob_kind.as_ref(),
+        ),
+        (
+            "preset",
+            slot.external_preset_blob.as_ref(),
+            slot.external_preset_blob_kind.as_ref(),
+        ),
+    ];
 
     for (label, maybe_blob, maybe_kind) in attempts {
         let Some(blob) = maybe_blob else { continue };
@@ -88,6 +97,54 @@ fn apply_imported_external_state_blob(
     }
 
     Ok(())
+}
+
+fn ensure_loaded_external_instance(
+    plugin_id: &str,
+    plugin_host_state: &tauri::State<'_, PluginHostState>,
+    project_state: &tauri::State<'_, ProjectState>,
+) -> Result<Uuid, String> {
+    if let Some(instance_id) = plugin_host_state
+        .loaded_by_key
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(plugin_id)
+        .copied()
+    {
+        return Ok(instance_id);
+    }
+
+    let descriptor = plugin_host_state.resolve_descriptor(plugin_id)?;
+    if descriptor.format != PluginFormat::VST3 {
+        return Err(format!(
+            "External parameter control is currently supported only for VST3 (got {})",
+            descriptor.format
+        ));
+    }
+
+    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+    let instance_id = host
+        .load_vst3(descriptor.clone())
+        .map_err(|e| format!("Failed to load plugin '{}': {e}", descriptor.name))?;
+    if let Ok(project) = project_state.project.lock()
+        && let Some(slot) = find_project_plugin_slot(&project, plugin_id)
+        && let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, &slot)
+    {
+        log::warn!(
+            "[PluginState] Could not restore imported state for '{}': {}",
+            slot.name,
+            err
+        );
+    }
+    drop(host);
+
+    plugin_host_state
+        .loaded_by_key
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(plugin_id.to_string(), instance_id);
+
+    Ok(instance_id)
 }
 
 /// Open plugin native GUI window.
@@ -189,11 +246,29 @@ fn can_open_plugin_editor(
         .loaded_sandbox_by_key
         .lock()
         .map_err(|e| e.to_string())?
-        .contains_key(&plugin_id)
+        .get(&plugin_id)
+        .copied()
+        .is_some()
     {
+        let maybe_id = plugin_host_state
+            .loaded_sandbox_by_key
+            .lock()
+            .map_err(|e| e.to_string())?
+            .get(&plugin_id)
+            .copied();
+        let supported = if let Some(id) = maybe_id {
+            let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+            host.supports_editor(id).unwrap_or(false)
+        } else {
+            false
+        };
         return Ok(PluginEditorCapability {
-            supported: true,
-            reason: None,
+            supported,
+            reason: if supported {
+                None
+            } else {
+                Some("Sandboxed plugin editor bridge is not enabled for this instance yet.".to_string())
+            },
         });
     }
 
@@ -280,6 +355,103 @@ fn close_plugin_window(
         log::info!("[IPC] close_plugin_window({plugin_id}) -> no loaded instance");
     }
     Ok(())
+}
+
+/// Set a normalized parameter on an external plugin instance.
+///
+/// `value` is expected in the plugin-native normalized range [0..1].
+#[tauri::command]
+fn set_external_plugin_param_cmd(
+    plugin_id: String,
+    param_index: u32,
+    value: f64,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<(), String> {
+    if plugin_host_state
+        .loaded_sandbox_by_key
+        .lock()
+        .map_err(|e| e.to_string())?
+        .contains_key(&plugin_id)
+    {
+        return Err("External parameter control is not available for sandbox-hosted plugins yet.".to_string());
+    }
+
+    let normalized = value.clamp(0.0, 1.0);
+    let instance_id = ensure_loaded_external_instance(&plugin_id, &plugin_host_state, &project_state)?;
+    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+    let instance = host
+        .get_mut(instance_id)
+        .ok_or_else(|| format!("Plugin instance not found: {instance_id}"))?;
+    instance
+        .set_parameter(param_index, normalized)
+        .map_err(|e| format!("Failed to set external plugin parameter {param_index}: {e}"))?;
+
+    log::debug!(
+        "[IPC] set_external_plugin_param_cmd(plugin={}, idx={}, value={:.4})",
+        plugin_id,
+        param_index,
+        normalized
+    );
+    Ok(())
+}
+
+/// Returns externally controllable plugin params for inline UI.
+#[tauri::command]
+fn get_external_plugin_params(
+    plugin_id: String,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<Vec<ExternalPluginParamInfo>, String> {
+    if plugin_host_state
+        .loaded_sandbox_by_key
+        .lock()
+        .map_err(|e| e.to_string())?
+        .contains_key(&plugin_id)
+    {
+        return Ok(Vec::new());
+    }
+
+    let metadata_count = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        find_project_plugin_slot(&project, &plugin_id)
+            .and_then(|slot| slot.external_parameter_count)
+            .unwrap_or(0)
+            .max(0) as usize
+    };
+
+    let instance_id = ensure_loaded_external_instance(&plugin_id, &plugin_host_state, &project_state)?;
+    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+    let instance = host
+        .get_mut(instance_id)
+        .ok_or_else(|| format!("Plugin instance not found: {instance_id}"))?;
+
+    let host_count = instance.parameter_count() as usize;
+    let count = if host_count > 0 {
+        host_count
+    } else if metadata_count > 0 {
+        metadata_count
+    } else {
+        16
+    }
+    .min(128);
+
+    let mut out = Vec::with_capacity(count);
+    for idx in 0..count {
+        let value = instance
+            .get_parameter(idx as u32)
+            .unwrap_or(0.5)
+            .clamp(0.0, 1.0);
+        out.push(ExternalPluginParamInfo {
+            index: idx as u32,
+            name: format!("Param {}", idx + 1),
+            min: 0.0,
+            max: 1.0,
+            step: 0.001,
+            value,
+        });
+    }
+    Ok(out)
 }
 
 /// Snapshot plugin sandbox runtime (supervisor + instance statuses).
@@ -796,6 +968,7 @@ fn upsert_static_automation_lane(track: &mut Track, param_id: &str, value: f64) 
             value,
             curve_type: "linear".to_string(),
             tension: None,
+            bezier_cp1x: None, bezier_cp1y: None, bezier_cp2x: None, bezier_cp2y: None,
         }];
         existing.param_id = param_id.to_string();
         return;
@@ -808,6 +981,7 @@ fn upsert_static_automation_lane(track: &mut Track, param_id: &str, value: f64) 
             value,
             curve_type: "linear".to_string(),
             tension: None,
+            bezier_cp1x: None, bezier_cp1y: None, bezier_cp2x: None, bezier_cp2y: None,
         }],
     });
 }
@@ -1210,4 +1384,98 @@ fn set_sampler_sample_cmd(
         sample_path
     );
     Ok(())
+}
+
+// ── STUB-10 FIX: Eager external plugin activation at project load ─────────
+//
+// During ALS import, resolved external plugins have their state blobs stored
+// on PluginSlot.external_state_blob / external_preset_blob. However, the
+// plugins only get instantiated lazily (when user opens the editor).
+//
+// This command eagerly activates ALL resolved external plugins in the project,
+// so their stored state is applied immediately and they are ready for playback.
+
+fn collect_external_plugin_ids_from_devices(nodes: &[DeviceNode], out: &mut Vec<String>) {
+    for node in nodes {
+        match node {
+            DeviceNode::Single(slot) => {
+                if !slot.plugin_id.starts_with("internal://")
+                    && !slot.plugin_id.is_empty()
+                    && slot.external_format.is_some()
+                {
+                    out.push(slot.plugin_id.clone());
+                }
+            }
+            DeviceNode::Rack(rack) => {
+                for chain in &rack.chains {
+                    collect_external_plugin_ids_from_devices(&chain.devices, out);
+                }
+            }
+        }
+    }
+}
+
+#[tauri::command]
+fn eager_activate_external_plugins(
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<serde_json::Value, String> {
+    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+
+    let mut external_ids: Vec<String> = Vec::new();
+    for track in &project.tracks {
+        if let Some(inst) = &track.instrument {
+            collect_external_plugin_ids_from_devices(std::slice::from_ref(inst), &mut external_ids);
+        }
+        collect_external_plugin_ids_from_devices(&track.effects, &mut external_ids);
+    }
+    // Also check master track
+    collect_external_plugin_ids_from_devices(&project.master_track.effects, &mut external_ids);
+
+    // Deduplicate (same plugin_id can appear on multiple tracks)
+    external_ids.sort();
+    external_ids.dedup();
+
+    let total = external_ids.len();
+    let mut loaded = 0u32;
+    let mut failed = 0u32;
+    let skipped = 0u32;
+
+    for plugin_id in &external_ids {
+        match ensure_loaded_external_instance(plugin_id, &plugin_host_state, &project_state) {
+            Ok(_) => {
+                loaded += 1;
+                log::info!(
+                    "[EagerActivate] Plugin '{}' loaded and state restored ({}/{})",
+                    plugin_id,
+                    loaded,
+                    total
+                );
+            }
+            Err(err) => {
+                // Don't fail the whole operation for one bad plugin
+                failed += 1;
+                log::warn!(
+                    "[EagerActivate] Failed to activate '{}': {}",
+                    plugin_id,
+                    err
+                );
+            }
+        }
+    }
+
+    // Already-loaded plugins are counted as loaded (ensure_ is idempotent)
+    log::info!(
+        "[EagerActivate] Done: {} external plugins found, {} loaded, {} failed",
+        total,
+        loaded,
+        failed
+    );
+
+    Ok(serde_json::json!({
+        "total": total,
+        "loaded": loaded,
+        "failed": failed,
+        "skipped": skipped,
+    }))
 }

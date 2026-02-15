@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import * as engineApi from '@/shared/api/engine';
-import type { BrowserDragItem } from '@/shared/types/Arrangement';
+import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import { defaultInternalPluginForTrack } from '@/shared/lib/internalPlugins';
 
@@ -9,7 +9,7 @@ interface UseBrowserDnDOrchestratorArgs {
     projectBpm: number;
     transportBpm: number;
     projectSampleRate: number;
-    importFile: (path: string, trackIndex?: number, positionFrames?: number) => Promise<void>;
+    importFile: (path: string, trackIndex: number, positionFrames?: number) => Promise<unknown>;
     fetchProject: () => Promise<void>;
 }
 

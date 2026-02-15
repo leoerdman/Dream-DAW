@@ -383,23 +383,18 @@ impl PluginSlot {
 // ── Device Rack ────────────────────────────────────────────────────────
 
 /// Type of device rack.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Default)]
 #[ts(export)]
 pub enum RackType {
     /// Instrument rack (contains instruments + effects, parallel chains).
     Instrument,
     /// Audio effect rack (parallel effect chains).
+    #[default]
     AudioEffect,
     /// Drum rack (pad-based instrument container).
     DrumRack,
     /// MIDI effect rack (MIDI processing chains).
     MidiEffect,
-}
-
-impl Default for RackType {
-    fn default() -> Self {
-        Self::AudioEffect
-    }
 }
 
 /// Zone settings for a rack chain — key, velocity, and chain selector ranges.
@@ -964,9 +959,21 @@ pub struct AutomationPoint {
     /// Curve type to next point ("linear", "bezier", "step").
     #[serde(default = "default_automation_curve_type")]
     pub curve_type: String,
-    /// Optional curve tension for bezier-like shapes.
+    /// Optional curve tension for bezier-like shapes (legacy approximation).
     #[serde(default)]
     pub tension: Option<f64>,
+    /// Full cubic bezier control point 1 X (normalized 0..1 within segment).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bezier_cp1x: Option<f64>,
+    /// Full cubic bezier control point 1 Y (normalized 0..1 within value range).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bezier_cp1y: Option<f64>,
+    /// Full cubic bezier control point 2 X (normalized 0..1 within segment).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bezier_cp2x: Option<f64>,
+    /// Full cubic bezier control point 2 Y (normalized 0..1 within value range).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bezier_cp2y: Option<f64>,
 }
 
 fn default_automation_curve_type() -> String {
@@ -1158,6 +1165,42 @@ impl Track {
             .max_by_key(|t| t.sample_frame)
             .unwrap_or(AbsoluteTime::ZERO)
     }
+}
+
+// ── Tempo & Time Signature Automation ──────────────────────────────────
+
+/// A single tempo change event for variable-BPM playback.
+///
+/// When `tempo_automation_events` is non-empty on a `Project`, the transport
+/// engine should interpolate BPM between events rather than using a single
+/// fixed tempo. The `beat` field is in Ableton quarter-note beats.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TempoAutomationEvent {
+    /// Beat position (quarter-note beats from project start).
+    pub beat: f64,
+    /// BPM value at this position.
+    pub bpm: f64,
+    /// Interpolation type to the NEXT event ("linear" or "step").
+    #[serde(default = "default_tempo_curve")]
+    pub curve_type: String,
+}
+
+fn default_tempo_curve() -> String { "linear".to_string() }
+
+/// A mid-song time signature change.
+///
+/// Stored in chronological order. The *first* entry (if any) represents the
+/// initial time signature. Subsequent entries mark where the signature changes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TimeSignatureChange {
+    /// Beat position where this time signature takes effect.
+    pub beat: f64,
+    /// Time signature numerator.
+    pub numerator: u8,
+    /// Time signature denominator.
+    pub denominator: u8,
 }
 
 // ── Project ────────────────────────────────────────────────────────────
@@ -1623,6 +1666,21 @@ pub struct Project {
     /// Key signature mode (e.g., "Major", "Minor", "Dorian").
     #[serde(default = "default_key_mode")]
     pub key_sig_mode: String,
+
+    // ── Tempo Automation ──────────────────────────────────────────────
+
+    /// Tempo automation events for variable-BPM playback.
+    ///
+    /// Empty = fixed tempo (use `pulse_map` BPM). Non-empty = the transport
+    /// should interpolate BPM between these events.
+    #[serde(default)]
+    pub tempo_automation_events: Vec<TempoAutomationEvent>,
+
+    /// Mid-song time signature changes.
+    ///
+    /// Empty = single time signature (use `time_signature` field).
+    #[serde(default)]
+    pub time_signature_changes: Vec<TimeSignatureChange>,
 }
 
 fn default_key_tonic() -> String { "C".to_string() }
@@ -1766,6 +1824,9 @@ impl Project {
             key_sig_enabled: false,
             key_sig_tonic: "C".to_string(),
             key_sig_mode: "Major".to_string(),
+            // Tempo automation
+            tempo_automation_events: Vec::new(),
+            time_signature_changes: Vec::new(),
         }
     }
 

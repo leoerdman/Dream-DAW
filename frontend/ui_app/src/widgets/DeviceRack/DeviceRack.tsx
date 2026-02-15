@@ -8,10 +8,9 @@ import * as engineApi from '@/shared/api/engine';
 import { PluginWindow } from '@/widgets/PluginWindow/PluginWindow';
 import {
     PluginKnob,
-    PluginSlider,
     type PluginParam,
 } from '@/widgets/DeviceRack/StandardPluginControls';
-import type { BrowserDragItem } from '@/shared/types/Arrangement';
+import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
 import {
     defaultInternalPluginForTrack,
@@ -335,8 +334,9 @@ export const DeviceRack = ({
     const [pluginCapability, setPluginCapability] = useState<
         Record<string, { supported: boolean; reason?: string }>
     >({});
+    const [externalParamsByPluginId, setExternalParamsByPluginId] = useState<Record<string, PluginParam[]>>({});
     const [openGuiDevice, setOpenGuiDevice] = useState<DeviceSlot | null>(null);
-    const [openSettingsDevice, setOpenSettingsDevice] = useState<DeviceSlot | null>(null);
+    const [inlineSettingsOpen, setInlineSettingsOpen] = useState<Record<string, boolean>>({});
     const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
     const statusError = useStatusStore((s) => s.setError);
     const statusClear = useStatusStore((s) => s.clear);
@@ -411,30 +411,42 @@ export const DeviceRack = ({
             ...(selectedTrack.effects ?? []),
         ];
 
+        type DeviceNodeShape = {
+            id?: string;
+            name?: string;
+            plugin_id?: string;
+            is_bypassed?: boolean;
+            external_parameter_count?: number;
+            type?: string;
+            rack_type?: string;
+        };
+
         // Helper: convert a single DeviceNode to a DeviceSlot.
         const nodeToSlot = (node: (typeof nodes)[number]): DeviceSlot | null => {
             // Extract common fields based on node type (tagged union from Rust serde).
-            const nodeType = (node as any).type as string | undefined;
+            const nodeShape = node as unknown as DeviceNodeShape;
+            const nodeType = nodeShape.type;
             const isRack = nodeType === 'Rack';
 
             // For rack nodes, show as a rack container device.
             if (isRack) {
-                const rackNode = node as any;
+                const rackNode = nodeShape;
+                const rackId = rackNode.id ?? '';
                 return {
-                    id: rackNode.id ?? '',
+                    id: rackId,
                     name: rackNode.name ?? 'Device Rack',
                     effectType: 'rack' as DeviceSlot['effectType'],
-                    isEnabled: !(localBypass[rackNode.id] ?? rackNode.is_bypassed),
+                    isEnabled: !(localBypass[rackId] ?? rackNode.is_bypassed),
                     params: [],
                     vuLevel: outLevel,
-                    pluginId: `rack://${rackNode.rack_type}/${rackNode.id}`,
+                    pluginId: `rack://${rackNode.rack_type}/${rackId}`,
                     isVst: false,
                     source: 'internal',
                 };
             }
 
             // Single plugin node — the PluginSlot fields are at the top level.
-            const slot = node as any;
+            const slot = nodeShape;
             const pluginId: string = slot.plugin_id || slot.id || '';
             const name: string = slot.name || '';
             const id: string = slot.id || '';
@@ -443,6 +455,10 @@ export const DeviceRack = ({
             const pluginIdLower = normalizeInternalPluginId(pluginId.toLowerCase());
             const isVst = pluginIdLower.includes('vst3') || pluginIdLower.includes('.vst') || pluginIdLower.includes('vst');
             const isInternal = pluginIdLower.startsWith('internal://');
+            const rawExternalParamCount = Math.max(0, Number(slot.external_parameter_count ?? 0) || 0);
+            const externalParamCount = isVst
+                ? (rawExternalParamCount > 0 ? rawExternalParamCount : 16)
+                : 0;
 
             const normalized = `${name} ${pluginId}`.toLowerCase();
             let effectType: DeviceSlot['effectType'] =
@@ -472,33 +488,60 @@ export const DeviceRack = ({
             else if (normalized.includes('internal://midi-fx/random') || normalized.includes('midirandom')) effectType = 'midiRandom';
             else if (selectedTrack.instrument?.id === id && !isVst) effectType = 'instrument';
 
+            const defaultParams = (DEVICE_PARAM_PRESETS[effectType] ?? []).map((template) => {
+                const key = `${id}:${template.name}`;
+                let backendValue = template.value;
+                if ((effectType === 'sampler' || effectType === 'instrument' || effectType === 'waveSynth') && selectedTrack.sampler) {
+                    const n = template.name.toLowerCase();
+                    if (n === 'wave' || n === 'osc1wave') backendValue = waveformIndexFromSamplePath(selectedTrack.sampler.sample_path);
+                    else if (n === 'osc2wave') backendValue = Math.max(0, Math.min(3, selectedTrack.sampler.osc2_waveform ?? 0));
+                    else if (n === 'mix') backendValue = Math.max(0, Math.min(1, selectedTrack.sampler.osc_mix ?? 0.35));
+                    else if (n === 'detune') backendValue = Math.max(-50, Math.min(50, selectedTrack.sampler.detune_cents ?? 0));
+                    else if (n === 'sub') backendValue = Math.max(0, Math.min(1, selectedTrack.sampler.sub_level ?? 0));
+                    else if (n === 'vol') backendValue = selectedTrack.sampler.volume;
+                    else if (n === 'attack') backendValue = selectedTrack.sampler.attack;
+                    else if (n === 'decay') backendValue = selectedTrack.sampler.decay;
+                    else if (n === 'sustain') backendValue = selectedTrack.sampler.sustain;
+                    else if (n === 'release') backendValue = selectedTrack.sampler.release;
+                    else if (n === 'root') backendValue = selectedTrack.sampler.root_note;
+                }
+                return {
+                    ...template,
+                    value: localParams[key] ?? backendValue,
+                };
+            });
+            const cachedExternalParams = isVst ? (externalParamsByPluginId[pluginId] ?? []) : [];
+            const vstParamsFromHost = cachedExternalParams.length > 0
+                ? cachedExternalParams.map((p) => {
+                    const key = `${id}:${p.name}`;
+                    return {
+                        ...p,
+                        value: localParams[key] ?? p.value,
+                    };
+                })
+                : [];
+            const vstParamsFallback = isVst && externalParamCount > 0
+                ? Array.from({ length: Math.min(32, externalParamCount) }, (_, idx) => {
+                    const name = `Param ${idx + 1}`;
+                    const key = `${id}:${name}`;
+                    return {
+                        name,
+                        min: 0,
+                        max: 1,
+                        step: 0.001,
+                        suffix: '',
+                        value: localParams[key] ?? 0.5,
+                    } as PluginParam;
+                })
+                : [];
+            const vstParams = vstParamsFromHost.length > 0 ? vstParamsFromHost : vstParamsFallback;
+
             return {
                 id,
                 name,
                 effectType,
                 isEnabled: !(localBypass[id] ?? isBypassed),
-                params: (DEVICE_PARAM_PRESETS[effectType] ?? []).map((template) => {
-                    const key = `${id}:${template.name}`;
-                    let backendValue = template.value;
-                    if ((effectType === 'sampler' || effectType === 'instrument' || effectType === 'waveSynth') && selectedTrack.sampler) {
-                        const n = template.name.toLowerCase();
-                        if (n === 'wave' || n === 'osc1wave') backendValue = waveformIndexFromSamplePath(selectedTrack.sampler.sample_path);
-                        else if (n === 'osc2wave') backendValue = Math.max(0, Math.min(3, selectedTrack.sampler.osc2_waveform ?? 0));
-                        else if (n === 'mix') backendValue = Math.max(0, Math.min(1, selectedTrack.sampler.osc_mix ?? 0.35));
-                        else if (n === 'detune') backendValue = Math.max(-50, Math.min(50, selectedTrack.sampler.detune_cents ?? 0));
-                        else if (n === 'sub') backendValue = Math.max(0, Math.min(1, selectedTrack.sampler.sub_level ?? 0));
-                        else if (n === 'vol') backendValue = selectedTrack.sampler.volume;
-                        else if (n === 'attack') backendValue = selectedTrack.sampler.attack;
-                        else if (n === 'decay') backendValue = selectedTrack.sampler.decay;
-                        else if (n === 'sustain') backendValue = selectedTrack.sampler.sustain;
-                        else if (n === 'release') backendValue = selectedTrack.sampler.release;
-                        else if (n === 'root') backendValue = selectedTrack.sampler.root_note;
-                    }
-                    return {
-                        ...template,
-                        value: localParams[key] ?? backendValue,
-                    };
-                }),
+                params: vstParams.length > 0 ? vstParams : defaultParams,
                 vuLevel: outLevel,
                 pluginId,
                 isVst,
@@ -510,7 +553,7 @@ export const DeviceRack = ({
         };
 
         return nodes.map(nodeToSlot).filter((s): s is DeviceSlot => s !== null);
-    }, [selectedTrack, localBypass, localParams, isMaster, outLevel]);
+    }, [selectedTrack, localBypass, localParams, isMaster, outLevel, externalParamsByPluginId]);
 
     const toggleDevice = useCallback((device: DeviceSlot) => {
         const currentBypassed = localBypass[device.id] ?? !device.isEnabled;
@@ -534,6 +577,27 @@ export const DeviceRack = ({
     const sendInternalParam = useCallback(
         (device: DeviceSlot, paramName: string, value: number) => {
             if (!selectedTrack || selectedTrackId === 'master') return;
+            if (device.source === 'vst') {
+                const idxFromList = device.params.findIndex((p) => p.name === paramName);
+                const idxFromName = (() => {
+                    const m = paramName.match(/(\d+)/);
+                    return m ? Number.parseInt(m[1], 10) : -1;
+                })();
+                const paramIndex = idxFromList >= 0 ? idxFromList : idxFromName;
+                if (paramIndex < 0 || !Number.isFinite(paramIndex)) return;
+
+                const paramDef = idxFromList >= 0 ? device.params[idxFromList] : null;
+                const normalized = paramDef
+                    ? (value - paramDef.min) / Math.max(1e-9, paramDef.max - paramDef.min)
+                    : value;
+                const clamped = Math.min(1, Math.max(0, normalized));
+                void engineApi.setExternalPluginParam(device.pluginId, paramIndex, clamped).catch((err) => {
+                    console.error('[DeviceRack] setExternalPluginParam failed:', err);
+                    statusError(`External plugin parameter update failed: ${errorMessage(err)}`);
+                });
+                return;
+            }
+
             const trackIdx = projectTracks.findIndex((t) => t.id === selectedTrack.id);
             const effectSlotIdx = selectedTrack.effects.findIndex((fx) => fx.id === device.id);
             const pushPluginParam = (paramIndex: number, paramValue: number) => {
@@ -615,7 +679,7 @@ export const DeviceRack = ({
             }
             sender(value);
         },
-        [selectedTrack, selectedTrackId, projectTracks],
+        [selectedTrack, selectedTrackId, projectTracks, statusError],
     );
 
     useEffect(() => {
@@ -636,12 +700,15 @@ export const DeviceRack = ({
             if (!next) setOpenGuiDevice(null);
             else setOpenGuiDevice(next);
         }
-        if (openSettingsDevice) {
-            const next = chain.find((d) => d.id === openSettingsDevice.id);
-            if (!next) setOpenSettingsDevice(null);
-            else setOpenSettingsDevice(next);
-        }
-    }, [chain, selectedDeviceId, openGuiDevice, openSettingsDevice]);
+        setInlineSettingsOpen((prev) => {
+            const next: Record<string, boolean> = {};
+            const ids = new Set(chain.map((d) => d.id));
+            for (const [id, isOpen] of Object.entries(prev)) {
+                if (ids.has(id) && isOpen) next[id] = true;
+            }
+            return next;
+        });
+    }, [chain, selectedDeviceId, openGuiDevice]);
 
     useEffect(() => {
         const onKeyDown = async (e: KeyboardEvent) => {
@@ -653,7 +720,12 @@ export const DeviceRack = ({
             try {
                 await engineApi.removePluginFromTrack(selectedTrack.id, selectedDeviceId);
                 if (openGuiDevice?.id === selectedDeviceId) setOpenGuiDevice(null);
-                if (openSettingsDevice?.id === selectedDeviceId) setOpenSettingsDevice(null);
+                setInlineSettingsOpen((prev) => {
+                    if (!prev[selectedDeviceId]) return prev;
+                    const next = { ...prev };
+                    delete next[selectedDeviceId];
+                    return next;
+                });
                 setSelectedDeviceId(null);
                 await fetchProject();
                 statusClear();
@@ -664,7 +736,7 @@ export const DeviceRack = ({
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [selectedDeviceId, selectedTrack, selectedTrackId, openGuiDevice, openSettingsDevice, fetchProject, statusClear, statusError]);
+    }, [selectedDeviceId, selectedTrack, selectedTrackId, openGuiDevice, fetchProject, statusClear, statusError]);
 
     useEffect(() => {
         let cancelled = false;
@@ -865,9 +937,31 @@ export const DeviceRack = ({
                                     statusClear();
                                 }}
                                 onOpenSettings={() => {
-                                    if (device.source !== 'vst') return;
                                     setSelectedDeviceId(device.id);
-                                    setOpenSettingsDevice(device);
+                                    setInlineSettingsOpen((prev) => ({
+                                        ...prev,
+                                        [device.id]: !prev[device.id],
+                                    }));
+                                    if (device.source === 'vst' && !externalParamsByPluginId[device.pluginId]) {
+                                        void engineApi.getExternalPluginParams(device.pluginId)
+                                            .then((params) => {
+                                                if (!params || params.length === 0) return;
+                                                setExternalParamsByPluginId((prev) => ({
+                                                    ...prev,
+                                                    [device.pluginId]: params.map((p) => ({
+                                                        name: p.name,
+                                                        min: p.min,
+                                                        max: p.max,
+                                                        step: p.step,
+                                                        suffix: '',
+                                                        value: p.value,
+                                                    })),
+                                                }));
+                                            })
+                                            .catch((err) => {
+                                                console.warn('[DeviceRack] getExternalPluginParams failed:', err);
+                                            });
+                                    }
                                     statusClear();
                                 }}
                                 onParamChange={(name, value) => {
@@ -875,6 +969,7 @@ export const DeviceRack = ({
                                     sendInternalParam(device, name, value);
                                 }}
                                 onParamContextMenu={(e, paramName) => handleParamContextMenu(e, paramName, device.id)}
+                                showSettings={!!inlineSettingsOpen[device.id]}
                                 onDropSample={async (samplePath) => {
                                     if (!selectedTrack || selectedTrackId === 'master') return;
                                     try {
@@ -1095,46 +1190,6 @@ export const DeviceRack = ({
                     />
                 </PluginWindow>
             )}
-            {openSettingsDevice && openSettingsDevice.isVst && (
-                <PluginWindow
-                    pluginId={`${openSettingsDevice.pluginId}:settings`}
-                    pluginName={`${openSettingsDevice.name} • Settings`}
-                    pluginType={openSettingsDevice.effectType === 'sampler' || openSettingsDevice.effectType === 'instrument' || openSettingsDevice.effectType === 'waveSynth' ? 'instrument' : 'effect'}
-                    isBypassed={!openSettingsDevice.isEnabled}
-                    onToggleBypass={() => toggleDevice(openSettingsDevice)}
-                    onClose={() => setOpenSettingsDevice(null)}
-                    width={560}
-                    height={400}
-                >
-                    <PluginSettingsPanel
-                        device={openSettingsDevice}
-                        onParamChange={(name, value) => {
-                            setPluginParam(openSettingsDevice.id, name, value);
-                            sendInternalParam(openSettingsDevice, name, value);
-                        }}
-                        onLoadSample={async () => {
-                            if (!selectedTrack || selectedTrackId === 'master') return;
-                            try {
-                                const { open } = await import('@tauri-apps/plugin-dialog');
-                                const picked = await open({
-                                    multiple: false,
-                                    title: 'Load Sampler Sample',
-                                    filters: [{ name: 'Audio', extensions: ['wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg', 'm4a', 'aac'] }],
-                                });
-                                const normalizedPath = normalizePickedPath(picked);
-                                if (normalizedPath) {
-                                    await engineApi.setSamplerSample(selectedTrack.id, normalizedPath);
-                                    statusClear();
-                                    await fetchProject();
-                                }
-                            } catch (err) {
-                                console.error('[DeviceRack] setSamplerSample failed:', err);
-                                statusError(`Failed to load sampler sample: ${errorMessage(err)}`);
-                            }
-                        }}
-                    />
-                </PluginWindow>
-            )}
         </>
     );
 
@@ -1249,6 +1304,7 @@ const DeviceNode = ({
     order,
     device, onToggle, onOpenGUI,
     isSelected,
+    showSettings,
     onSelect,
     onOpenSettings,
     onParamChange,
@@ -1261,6 +1317,7 @@ const DeviceNode = ({
     device: DeviceSlot;
     onToggle: () => void;
     isSelected: boolean;
+    showSettings: boolean;
     onSelect: () => void;
     onOpenSettings: () => void;
     onParamChange: (paramName: string, value: number) => void;
@@ -1302,7 +1359,7 @@ const DeviceNode = ({
         vst: '#4a9eff',
     };
     const typeColor = typeColorMap[device.effectType] || 'var(--color-accent-primary)';
-    const rackWidth = isSelected && device.source === 'internal'
+    const baseWidth = isSelected && device.source === 'internal'
         ? device.effectType === 'waveSynth'
             ? 980
             : device.effectType === 'eq'
@@ -1323,6 +1380,8 @@ const DeviceNode = ({
                                 : device.effectType === 'gate'
                                     ? 340
                                     : 320;
+    const settingsWidth = Math.min(1460, Math.max(baseWidth, 280 + device.params.length * 110));
+    const rackWidth = showSettings ? settingsWidth : baseWidth;
 
     return (
         <div
@@ -1424,15 +1483,19 @@ const DeviceNode = ({
                         <button
                             onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
                             title="Plugin Settings / Automatable Params"
-                            style={headerIconBtnStyle(false)}
+                            style={headerIconBtnStyle(false, showSettings)}
                         >
                             🔧
                         </button>
                     </div>
                 ) : (
-                    <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)', fontWeight: 700 }}>
-                        INLINE
-                    </span>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
+                        title="Inline Controls"
+                        style={headerIconBtnStyle(false, showSettings)}
+                    >
+                        🔧
+                    </button>
                 )}
                 <span style={{
                     fontSize: 8,
@@ -1445,7 +1508,15 @@ const DeviceNode = ({
                 </span>
             </div>
 
-            {isSelected && device.source === 'internal' ? (
+            {showSettings ? (
+                <div style={{ padding: 6, flex: 1, minHeight: 0, overflow: 'auto' }}>
+                    <PluginSettingsPanel
+                        device={device}
+                        onParamChange={onParamChange}
+                        onLoadSample={onLoadSample}
+                    />
+                </div>
+            ) : isSelected && device.source === 'internal' ? (
                 <div style={{ padding: 6, flex: 1, minHeight: 0 }}>
                     <PluginGuiSurface
                         device={device}
@@ -1504,15 +1575,23 @@ const DeviceNode = ({
     );
 };
 
-const headerIconBtnStyle = (disabled: boolean) =>
+const headerIconBtnStyle = (disabled: boolean, active = false) =>
     ({
         minWidth: 24,
         height: 18,
         padding: '0 6px',
         borderRadius: 4,
-        border: '1px solid var(--color-divider)',
-        background: disabled ? 'rgba(120, 120, 120, 0.25)' : 'var(--color-bg-elevated)',
-        color: disabled ? 'var(--color-text-tertiary)' : 'var(--color-text-secondary)',
+        border: active ? '1px solid var(--color-accent-primary)' : '1px solid var(--color-divider)',
+        background: disabled
+            ? 'rgba(120, 120, 120, 0.25)'
+            : active
+                ? 'color-mix(in srgb, var(--color-accent-primary) 20%, var(--color-bg-elevated))'
+                : 'var(--color-bg-elevated)',
+        color: disabled
+            ? 'var(--color-text-tertiary)'
+            : active
+                ? 'var(--color-accent-primary)'
+                : 'var(--color-text-secondary)',
         fontSize: 9,
         fontWeight: 700,
         cursor: disabled ? 'not-allowed' : 'pointer',
@@ -2432,15 +2511,27 @@ const PluginSettingsPanel = ({
                 Load Sample
             </button>
         )}
-        <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(2, minmax(180px, 1fr))',
-            gap: 10,
-        }}>
-            {device.params.map((p) => (
-                <PluginSlider key={p.name} param={p} onChange={onParamChange} />
-            ))}
-        </div>
+        {device.params.length > 0 ? (
+            <div style={pluginPanelKnobGrid(`repeat(${Math.min(10, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
+                {device.params.map((p) => (
+                    <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                ))}
+            </div>
+        ) : (
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                border: '1px solid var(--color-divider)',
+                borderRadius: 6,
+                padding: '8px 10px',
+                color: 'var(--color-text-secondary)',
+                fontSize: 10,
+            }}>
+                <span>No exported params</span>
+                <span style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>0 params</span>
+            </div>
+        )}
     </div>
 );
 

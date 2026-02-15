@@ -12,10 +12,22 @@ bash scripts/quality_gate.sh
 
 1. Sync Rust-generated TS bindings into frontend type directories.
 2. `cargo check --workspace`.
-3. `cargo clippy` for critical runtime crates with `-D warnings`.
+3. `cargo clippy` for critical runtime crates with `-D warnings` and
+   temporary suppression of `clippy::style` and `clippy::complexity` groups.
 4. `cargo test --workspace --lib`.
 5. Frontend lint.
 6. Frontend production build.
+7. Optional headless fuzz gate (`scripts/headless_fuzz_gate.sh`).
+8. Optional sanitizer gate (`scripts/sanitizer_gate.sh`).
+
+## Hardening modes
+
+Enable extra gates locally/CI by setting env vars before running the main gate:
+
+```bash
+DREAM_ENABLE_HEADLESS_FUZZ=1 bash scripts/quality_gate.sh
+DREAM_ENABLE_SANITIZERS=1 bash scripts/quality_gate.sh
+```
 
 ## Policy
 

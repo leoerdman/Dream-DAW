@@ -92,13 +92,7 @@ pub struct EqProcessor {
 impl EqProcessor {
     pub fn new(sample_rate: f64) -> Self {
         let bands = std::array::from_fn(|i| {
-            let gain = if DEFAULT_TYPES[i] == BiquadType::Highpass
-                || DEFAULT_TYPES[i] == BiquadType::Lowpass
-            {
-                0.0 // Cuts don't use gain
-            } else {
-                0.0 // Flat by default
-            };
+            let gain = 0.0;
             EqBand::new(DEFAULT_FREQS[i], gain, 0.71, DEFAULT_TYPES[i], sample_rate)
         });
         Self {

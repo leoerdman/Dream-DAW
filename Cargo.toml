@@ -13,11 +13,12 @@ members = [
     "core/dream_clip_engine",
     "core/dream_automation",
     "apps/desktop_host",
+    "apps/plugin_host_daemon",
 ]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.11"
+version = "0.1.23"
 edition = "2024"
 license = "Proprietary"
 

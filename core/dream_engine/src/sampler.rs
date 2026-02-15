@@ -798,6 +798,7 @@ fn oscillator_sample_blep_stateless(waveform: Waveform, phase: f64, dt: f64) -> 
     oscillator_sample_blep(waveform, phase, dt, &mut dummy, 0.5)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_oscillator_voice(
     voice: &mut SamplerVoice,
     waveform: Waveform,

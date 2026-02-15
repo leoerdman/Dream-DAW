@@ -87,7 +87,7 @@ impl DelayProcessor {
 
     fn update_filter(&mut self) {
         let w = std::f32::consts::TAU * self.filter_freq / self.sample_rate;
-        self.fb_filter_coeff = w.min(0.99).max(0.01);
+        self.fb_filter_coeff = w.clamp(0.01, 0.99);
     }
 
     fn update_delay_l(&mut self) {

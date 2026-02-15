@@ -562,6 +562,7 @@ fn parse_clip_envelopes(
                 value,
                 curve_type: "linear".to_string(),
                 tension: None,
+                bezier_cp1x: None, bezier_cp1y: None, bezier_cp2x: None, bezier_cp2y: None,
             });
         }
         if points.is_empty() {
@@ -1008,7 +1009,6 @@ fn resolve_als_file_path(
             trimmed.replace(" - ", "-"),
             trimmed.replace(" -", "-"),
             trimmed.replace("- ", "-"),
-            trimmed.replace("ABLETON - Projects", "ABLETON - Projects"),
             trimmed.replace("160 - 200 BPM", "160-200 BPM"),
         ];
         for candidate in candidates {
@@ -2052,6 +2052,7 @@ mod als_import_tests {
                 value: 0.7,
                 curve_type: "linear".to_string(),
                 tension: None,
+                bezier_cp1x: None, bezier_cp1y: None, bezier_cp2x: None, bezier_cp2y: None,
             }],
         });
 
@@ -3604,6 +3605,7 @@ fn upsert_static_import_lane(track: &mut Track, param_id: &str, value: f64) {
             value,
             curve_type: "linear".to_string(),
             tension: None,
+            bezier_cp1x: None, bezier_cp1y: None, bezier_cp2x: None, bezier_cp2y: None,
         }];
         existing.param_id = param_id.to_string();
         return;
@@ -3615,6 +3617,7 @@ fn upsert_static_import_lane(track: &mut Track, param_id: &str, value: f64) {
             value,
             curve_type: "linear".to_string(),
             tension: None,
+            bezier_cp1x: None, bezier_cp1y: None, bezier_cp2x: None, bezier_cp2y: None,
         }],
     });
 }
@@ -4573,6 +4576,184 @@ fn import_internal_device_static_params(
         for (param_id, value) in lane_updates {
             upsert_static_import_lane(track, &param_id, value);
         }
+        return;
+    }
+
+    // ── STUB-3 FIX: Complete parameter importers for remaining effects ──
+
+    if key == "internal://effect/chorus" {
+        if let Some(v) = first_param_value(&params, &["Rate", "Rate1", "LfoRate"]) {
+            upsert_static_import_lane(track, "effect.chorus.rate", v.clamp(0.01, 20.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Depth", "Amount", "DelayModAmount"]) {
+            upsert_static_import_lane(track, "effect.chorus.depth", normalize_percent_or_unit(v));
+        }
+        if let Some(v) = first_param_value(&params, &["Delay1", "DelayTime"]) {
+            upsert_static_import_lane(track, "effect.chorus.delay", v.clamp(0.0, 20.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Feedback", "FeedbackAmount"]) {
+            upsert_static_import_lane(track, "effect.chorus.feedback", normalize_percent_or_unit(v));
+        }
+        if let Some(v) = first_param_value(&params, &["DryWet", "Mix"]) {
+            upsert_static_import_lane(track, "effect.chorus.mix", normalize_percent_or_unit(v));
+        }
+        return;
+    }
+
+    if key == "internal://effect/flanger" {
+        if let Some(v) = first_param_value(&params, &["Frequency", "Rate", "HiPassFreq"]) {
+            upsert_static_import_lane(track, "effect.flanger.rate", v.clamp(0.01, 20.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Depth", "Amount"]) {
+            upsert_static_import_lane(track, "effect.flanger.depth", normalize_percent_or_unit(v));
+        }
+        if let Some(v) = first_param_value(&params, &["Feedback"]) {
+            upsert_static_import_lane(track, "effect.flanger.feedback", normalize_percent_or_unit(v));
+        }
+        if let Some(v) = first_param_value(&params, &["Delay", "DelayTime"]) {
+            upsert_static_import_lane(track, "effect.flanger.delay", v.clamp(0.0, 20.0));
+        }
+        if let Some(v) = first_param_value(&params, &["DryWet", "Mix"]) {
+            upsert_static_import_lane(track, "effect.flanger.mix", normalize_percent_or_unit(v));
+        }
+        return;
+    }
+
+    if key == "internal://effect/phaser" {
+        if let Some(v) = first_param_value(&params, &["Frequency", "Rate"]) {
+            upsert_static_import_lane(track, "effect.phaser.rate", v.clamp(0.01, 20.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Depth", "Amount"]) {
+            upsert_static_import_lane(track, "effect.phaser.depth", normalize_percent_or_unit(v));
+        }
+        if let Some(v) = first_param_value(&params, &["Poles"]) {
+            upsert_static_import_lane(track, "effect.phaser.poles", v.round().clamp(1.0, 12.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Feedback"]) {
+            upsert_static_import_lane(track, "effect.phaser.feedback", normalize_percent_or_unit(v));
+        }
+        if let Some(v) = first_param_value(&params, &["DryWet", "Mix"]) {
+            upsert_static_import_lane(track, "effect.phaser.mix", normalize_percent_or_unit(v));
+        }
+        return;
+    }
+
+    if key == "internal://effect/distortion" {
+        if let Some(v) = first_param_value(&params, &["Drive", "DriveAmount", "Gain"]) {
+            upsert_static_import_lane(track, "effect.distortion.drive", v.clamp(0.0, 48.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Type", "Mode"]) {
+            upsert_static_import_lane(track, "effect.distortion.type", v.round().clamp(0.0, 10.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Tone", "Color", "Filter_Frequency"]) {
+            upsert_static_import_lane(track, "effect.distortion.tone", v.clamp(20.0, 20_000.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Output", "Volume", "OutputGain"]) {
+            upsert_static_import_lane(track, "effect.distortion.output", v.clamp(-24.0, 24.0));
+        }
+        if let Some(v) = first_param_value(&params, &["DryWet", "Mix"]) {
+            upsert_static_import_lane(track, "effect.distortion.mix", normalize_percent_or_unit(v));
+        }
+        return;
+    }
+
+    if key == "internal://effect/saturator" {
+        if let Some(v) = first_param_value(&params, &["Drive", "PreDrive"]) {
+            upsert_static_import_lane(track, "effect.saturator.drive", v.clamp(0.0, 36.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Type", "WaveshapeType"]) {
+            upsert_static_import_lane(track, "effect.saturator.type", v.round().clamp(0.0, 6.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Output", "PostGain"]) {
+            upsert_static_import_lane(track, "effect.saturator.output", v.clamp(-24.0, 24.0));
+        }
+        if let Some(v) = first_param_value(&params, &["DryWet", "Mix"]) {
+            upsert_static_import_lane(track, "effect.saturator.mix", normalize_percent_or_unit(v));
+        }
+        return;
+    }
+
+    if key == "internal://effect/gate" {
+        if let Some(v) = first_param_value(&params, &["Threshold"]) {
+            upsert_static_import_lane(track, "effect.gate.threshold", v.clamp(-80.0, 0.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Return", "Range"]) {
+            upsert_static_import_lane(track, "effect.gate.range", v.clamp(-80.0, 0.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Attack"]) {
+            upsert_static_import_lane(track, "effect.gate.attack", v.clamp(0.01, 100.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Hold", "HoldTime"]) {
+            upsert_static_import_lane(track, "effect.gate.hold", v.clamp(0.0, 500.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Release"]) {
+            upsert_static_import_lane(track, "effect.gate.release", v.clamp(1.0, 1000.0));
+        }
+        if let Some(v) = first_param_value(&params, &["FlipMode", "Flip"]) {
+            upsert_static_import_lane(track, "effect.gate.flip", if v >= 0.5 { 1.0 } else { 0.0 });
+        }
+        return;
+    }
+
+    if key == "internal://effect/limiter" {
+        if let Some(v) = first_param_value(&params, &["Gain", "InputGain"]) {
+            upsert_static_import_lane(track, "effect.limiter.gain", v.clamp(-24.0, 24.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Ceiling"]) {
+            upsert_static_import_lane(track, "effect.limiter.ceiling", v.clamp(-24.0, 0.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Release", "ReleaseTime"]) {
+            upsert_static_import_lane(track, "effect.limiter.release", v.clamp(0.1, 1000.0));
+        }
+        return;
+    }
+
+    if key == "internal://effect/bitcrusher" {
+        if let Some(v) = first_param_value(&params, &["BitDepth", "Bits"]) {
+            upsert_static_import_lane(track, "effect.bitcrusher.bits", v.clamp(1.0, 24.0));
+        }
+        if let Some(v) = first_param_value(&params, &["SampleRateReduction", "Downsample"]) {
+            upsert_static_import_lane(track, "effect.bitcrusher.downsample", v.clamp(1.0, 200.0));
+        }
+        if let Some(v) = first_param_value(&params, &["DryWet", "Mix"]) {
+            upsert_static_import_lane(track, "effect.bitcrusher.mix", normalize_percent_or_unit(v));
+        }
+        return;
+    }
+
+    if key == "internal://effect/auto-pan" {
+        if let Some(v) = first_param_value(&params, &["Frequency", "Rate"]) {
+            upsert_static_import_lane(track, "effect.auto_pan.rate", v.clamp(0.01, 30.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Amount", "Depth"]) {
+            upsert_static_import_lane(track, "effect.auto_pan.depth", normalize_percent_or_unit(v));
+        }
+        if let Some(v) = first_param_value(&params, &["Shape"]) {
+            upsert_static_import_lane(track, "effect.auto_pan.shape", v.round().clamp(0.0, 5.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Phase"]) {
+            upsert_static_import_lane(track, "effect.auto_pan.phase", v.clamp(0.0, 360.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Offset"]) {
+            upsert_static_import_lane(track, "effect.auto_pan.offset", v.clamp(-1.0, 1.0));
+        }
+        return;
+    }
+
+    if key == "internal://effect/noise-machine" {
+        if let Some(v) = first_param_value(&params, &["Volume", "Level", "Gain"]) {
+            upsert_static_import_lane(track, "effect.noise_machine.level", v.clamp(0.0, 1.0));
+        }
+        if let Some(v) = first_param_value(&params, &["Color", "Type"]) {
+            upsert_static_import_lane(track, "effect.noise_machine.color", v.round().clamp(0.0, 4.0));
+        }
+        return;
+    }
+
+    // Spectrum is an analysis-only device — no runtime parameters needed.
+    // Keeping this case explicitly documented for completeness.
+    if key == "internal://effect/spectrum" {
+        return;
     }
 }
 
@@ -5329,20 +5510,29 @@ fn import_track_automation(
                     "linear".to_string()
                 };
 
-                // Extract tension from bezier control points if present
-                let tension = if has_curve {
-                    let c1y = event
+                // Extract full cubic bezier control points for lossless import
+                let (bezier_cp1x, bezier_cp1y, bezier_cp2x, bezier_cp2y, tension) = if has_curve {
+                    let cp1x = event
+                        .attribute("CurveControl1X")
+                        .and_then(parse_f64_value)
+                        .unwrap_or(0.0);
+                    let cp1y = event
                         .attribute("CurveControl1Y")
                         .and_then(parse_f64_value)
                         .unwrap_or(0.5);
-                    let c2y = event
+                    let cp2x = event
+                        .attribute("CurveControl2X")
+                        .and_then(parse_f64_value)
+                        .unwrap_or(1.0);
+                    let cp2y = event
                         .attribute("CurveControl2Y")
                         .and_then(parse_f64_value)
                         .unwrap_or(0.5);
-                    // Approximate tension from control points: 0 = linear, ±1 = extreme curve
-                    Some((c2y - c1y).clamp(-1.0, 1.0))
+                    // Backward-compatible tension approximation
+                    let tension = (cp2y - cp1y).clamp(-1.0, 1.0);
+                    (Some(cp1x), Some(cp1y), Some(cp2x), Some(cp2y), Some(tension))
                 } else {
-                    None
+                    (None, None, None, None, None)
                 };
 
                 points.push(dream_models::project::AutomationPoint {
@@ -5350,6 +5540,10 @@ fn import_track_automation(
                     value,
                     curve_type,
                     tension,
+                    bezier_cp1x,
+                    bezier_cp1y,
+                    bezier_cp2x,
+                    bezier_cp2y,
                 });
             }
 
@@ -5532,7 +5726,30 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
         .filter(|s| !s.is_empty())
         .unwrap_or("Imported Ableton Project")
         .to_string();
-    let sample_rate = 44100.0;
+    // ── STUB-11 FIX: Dynamic sample rate detection ─────────────────────
+    // Ableton stores a preferred sample rate in <SampleRate><Manual>.  We also
+    // check <OverrideSampleRate> for projects that explicitly override it.
+    let sample_rate = live_set
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("OverrideSampleRate"))
+        .and_then(|n| n.children().find(|c| c.is_element() && c.has_tag_name("Manual")))
+        .and_then(|n| n.attribute("Value"))
+        .and_then(parse_f64_value)
+        .filter(|v| *v > 0.0)
+        .or_else(|| {
+            live_set
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name("SampleRate"))
+                .and_then(|n| n.children().find(|c| c.is_element() && c.has_tag_name("Manual")))
+                .and_then(|n| n.attribute("Value"))
+                .and_then(parse_f64_value)
+                .filter(|v| *v > 0.0)
+        })
+        .unwrap_or(44100.0);
+    log::info!(
+        "[ALS Import] Sample rate detected: {} Hz",
+        sample_rate
+    );
     let mut project = Project::new(project_name, tempo, sample_rate);
     project.tracks.clear();
     project.markers = parse_project_markers(live_set);
@@ -6057,6 +6274,194 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
                 .map(|v| v.clamp(1, 32) as u8)
                 .unwrap_or(4);
             project.time_signature = TimeSignature::new(numerator, denominator);
+        }
+
+        // ── STUB-12 FIX: Parse tempo automation from MainTrack ─────────
+        // Ableton stores tempo automation under:
+        //   MainTrack > AutomationEnvelopes > Envelopes > AutomationEnvelope
+        // where the PointeeId resolves to the Tempo parameter.
+        // We look for FloatEvent entries inside the Tempo node's automation.
+        if let Some(tempo_node) = main_track.descendants().find(|n| n.is_element() && n.has_tag_name("Tempo")) {
+            // The AutomationTarget may have an Id we can map, but for tempo
+            // we can also directly walk FloatEvent entries under AutomationEnvelopes
+            // that reference the tempo PointeeId.
+            let tempo_pointee_id = tempo_node
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name("AutomationTarget"))
+                .and_then(|at| at.attribute("Id"))
+                .unwrap_or_default()
+                .to_string();
+
+            if !tempo_pointee_id.is_empty() {
+                // Walk the MainTrack's AutomationEnvelopes
+                if let Some(env_container) = main_track
+                    .children()
+                    .find(|n| n.is_element() && n.has_tag_name("AutomationEnvelopes"))
+                    .and_then(|ae| ae.children().find(|n| n.is_element() && n.has_tag_name("Envelopes")))
+                {
+                    for envelope in env_container
+                        .children()
+                        .filter(|n| n.is_element() && n.has_tag_name("AutomationEnvelope"))
+                    {
+                        let pid = envelope
+                            .descendants()
+                            .find(|n| n.is_element() && n.has_tag_name("PointeeId"))
+                            .and_then(|n| n.attribute("Value"))
+                            .unwrap_or_default();
+
+                        if pid != tempo_pointee_id {
+                            continue;
+                        }
+
+                        // Found the tempo automation envelope — extract events
+                        let mut events = Vec::new();
+                        for event in envelope
+                            .descendants()
+                            .filter(|n| n.is_element() && n.has_tag_name("FloatEvent"))
+                        {
+                            let beat = event
+                                .attribute("Time")
+                                .and_then(parse_f64_value)
+                                .unwrap_or(0.0);
+                            // Skip Ableton sentinel (negative infinity)
+                            if beat < -1_000_000.0 {
+                                continue;
+                            }
+                            let bpm = event
+                                .attribute("Value")
+                                .and_then(parse_f64_value)
+                                .unwrap_or(tempo);
+                            let curve_type = if event.attribute("CurveControl1X").is_some() {
+                                "bezier".to_string()
+                            } else {
+                                "linear".to_string()
+                            };
+                            events.push(dream_models::project::TempoAutomationEvent {
+                                beat,
+                                bpm: bpm.clamp(20.0, 999.0),
+                                curve_type,
+                            });
+                        }
+                        if !events.is_empty() {
+                            events.sort_by(|a, b| a.beat.partial_cmp(&b.beat).unwrap_or(std::cmp::Ordering::Equal));
+                            log::info!(
+                                "[ALS Import] Tempo automation: {} events (range {:.1}–{:.1} BPM)",
+                                events.len(),
+                                events.iter().map(|e| e.bpm).fold(f64::INFINITY, f64::min),
+                                events.iter().map(|e| e.bpm).fold(f64::NEG_INFINITY, f64::max),
+                            );
+                            project.tempo_automation_events = events;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // ── STUB-13 FIX: Parse time signature automation events ────────
+        // Ableton stores time signature changes similarly via automation
+        // envelopes on the TimeSignature parameter of MainTrack.
+        // The numerator and denominator are encoded as FloatEvent values.
+        if let Some(ts_node) = main_track.descendants().find(|n| n.is_element() && n.has_tag_name("TimeSignature")) {
+            // Check for automation events on Numerator
+            let num_pointee = ts_node
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name("Numerator"))
+                .and_then(|n| n.descendants().find(|c| c.is_element() && c.has_tag_name("AutomationTarget")))
+                .and_then(|at| at.attribute("Id"))
+                .unwrap_or_default()
+                .to_string();
+
+            let den_pointee = ts_node
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name("Denominator"))
+                .and_then(|n| n.descendants().find(|c| c.is_element() && c.has_tag_name("AutomationTarget")))
+                .and_then(|at| at.attribute("Id"))
+                .unwrap_or_default()
+                .to_string();
+
+            if !num_pointee.is_empty() {
+                // Collect numerator automation events
+                let mut num_events: Vec<(f64, u8)> = Vec::new();
+                let mut den_events: Vec<(f64, u8)> = Vec::new();
+
+                if let Some(env_container) = main_track
+                    .children()
+                    .find(|n| n.is_element() && n.has_tag_name("AutomationEnvelopes"))
+                    .and_then(|ae| ae.children().find(|n| n.is_element() && n.has_tag_name("Envelopes")))
+                {
+                    for envelope in env_container
+                        .children()
+                        .filter(|n| n.is_element() && n.has_tag_name("AutomationEnvelope"))
+                    {
+                        let pid = envelope
+                            .descendants()
+                            .find(|n| n.is_element() && n.has_tag_name("PointeeId"))
+                            .and_then(|n| n.attribute("Value"))
+                            .unwrap_or_default();
+
+                        let is_num = pid == num_pointee;
+                        let is_den = !den_pointee.is_empty() && pid == den_pointee;
+                        if !is_num && !is_den {
+                            continue;
+                        }
+
+                        for event in envelope
+                            .descendants()
+                            .filter(|n| n.is_element() && n.has_tag_name("FloatEvent"))
+                        {
+                            let beat = event
+                                .attribute("Time")
+                                .and_then(parse_f64_value)
+                                .unwrap_or(0.0);
+                            if beat < -1_000_000.0 {
+                                continue;
+                            }
+                            let val = event
+                                .attribute("Value")
+                                .and_then(parse_f64_value)
+                                .unwrap_or(4.0);
+                            let clamped = val.round().clamp(1.0, 32.0) as u8;
+                            if is_num {
+                                num_events.push((beat, clamped));
+                            } else {
+                                den_events.push((beat, clamped));
+                            }
+                        }
+                    }
+                }
+
+                if !num_events.is_empty() {
+                    num_events.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                    den_events.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+                    let default_den = project.time_signature.denominator;
+
+                    let mut ts_changes = Vec::new();
+                    for (beat, num) in &num_events {
+                        // Find the denominator at this beat position (last <= beat)
+                        let den = den_events
+                            .iter()
+                            .rev()
+                            .find(|(b, _)| *b <= *beat)
+                            .map(|(_, d)| *d)
+                            .unwrap_or(default_den);
+                        ts_changes.push(dream_models::project::TimeSignatureChange {
+                            beat: *beat,
+                            numerator: *num,
+                            denominator: den,
+                        });
+                    }
+
+                    if !ts_changes.is_empty() {
+                        log::info!(
+                            "[ALS Import] Time signature automation: {} change(s)",
+                            ts_changes.len()
+                        );
+                        project.time_signature_changes = ts_changes;
+                    }
+                }
+            }
         }
     }
 

@@ -627,6 +627,7 @@ async fn set_automation_points_cmd(
                 value: p.value,
                 curve_type: p.curve_type.clone(),
                 tension: p.tension,
+                bezier_cp1x: None, bezier_cp1y: None, bezier_cp2x: None, bezier_cp2y: None,
             })
             .collect();
         persistent_points.sort_by(|a, b| a.beat.total_cmp(&b.beat));

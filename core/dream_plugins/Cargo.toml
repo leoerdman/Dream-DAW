@@ -10,6 +10,8 @@ serde = { workspace = true }
 uuid = { workspace = true }
 log = { workspace = true }
 libloading = { workspace = true }
+memmap2 = "0.9"
+bytemuck = { workspace = true }
 
 dream_models = { path = "../dream_models" }
 

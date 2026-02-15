@@ -52,6 +52,14 @@ export interface MeteringSnapshot {
     master_right: MeterReading;
 }
 
+/** Project event-sourcing history item (backend in-memory journal). */
+export interface ProjectHistoryEvent {
+    seq: number;
+    kind: string;
+    detail: string;
+    timestampMs: number;
+}
+
 /** MIDI input port descriptor. */
 export interface MidiInputPort {
     name: string;
@@ -303,6 +311,10 @@ export const getTransport = () => invoke<TransportState>('get_transport');
 
 /** Get lock-free meter readings (VU levels). ~60fps polling target. */
 export const getMeters = () => invoke<MeteringSnapshot>('get_meters');
+
+/** Get recent project history events from backend event journal. */
+export const getProjectHistory = () =>
+    invoke<ProjectHistoryEvent[]>('get_project_history');
 
 // ── Legacy / Debug ───────────────────────────────────────────────────────
 
@@ -742,6 +754,37 @@ export const canOpenPluginEditor = (pluginId: string) =>
 export const closePluginWindow = (pluginId: string) =>
     invoke<void>('close_plugin_window', { pluginId });
 
+export type PluginSandboxStatus = 'spawning' | 'running' | 'timed_out' | 'crashed' | 'stopped';
+
+export interface PluginSandboxRuntimeInfo {
+    plugin_instance_id: string;
+    plugin_name: string;
+    plugin_path: string;
+    status: PluginSandboxStatus;
+    crash_count: number;
+    restart_count: number;
+    bypass_requested: boolean;
+    last_error?: string | null;
+}
+
+export interface PluginSandboxSnapshot {
+    enabled: boolean;
+    heartbeat_timeout_ms: number;
+    instances: PluginSandboxRuntimeInfo[];
+}
+
+/** Read runtime snapshot of plugin sandbox processes and watchdog statuses. */
+export const getPluginSandboxRuntime = () =>
+    invoke<PluginSandboxSnapshot>('get_plugin_sandbox_runtime');
+
+/** Enable/disable out-of-process plugin sandbox mode. */
+export const setPluginSandboxEnabled = (enabled: boolean) =>
+    invoke<PluginSandboxSnapshot>('set_plugin_sandbox_enabled', { enabled });
+
+/** Manual watchdog tick (useful for diagnostics tools). */
+export const tickPluginSandboxWatchdog = () =>
+    invoke<PluginSandboxSnapshot>('tick_plugin_sandbox_watchdog');
+
 /** Send a frontend crash/error payload to backend unified logs. */
 export const logFrontendError = (module: string, error: string, stack?: string) =>
     invoke<void>('log_frontend_error', { module, error, stack: stack ?? null });
@@ -796,6 +839,31 @@ export const setInternalPluginParam = (
     invoke<void>('set_internal_plugin_param_cmd', {
         payload: { trackId, slotId, paramId, value },
     });
+
+/** Set normalized parameter [0..1] on an external VST plugin instance. */
+export const setExternalPluginParam = (
+    pluginId: string,
+    paramIndex: number,
+    value: number,
+) =>
+    invoke<void>('set_external_plugin_param_cmd', {
+        pluginId,
+        paramIndex,
+        value,
+    });
+
+export interface ExternalPluginParamInfo {
+    index: number;
+    name: string;
+    min: number;
+    max: number;
+    step: number;
+    value: number;
+}
+
+/** Fetch external plugin parameters for inline controls. */
+export const getExternalPluginParams = (pluginId: string) =>
+    invoke<ExternalPluginParamInfo[]>('get_external_plugin_params', { pluginId });
 
 /** Assign sample file to track sampler and push into realtime sampler snapshot. */
 export const setSamplerSample = (

@@ -3,7 +3,9 @@ import type { MidiEditorLaneState } from "./MidiEditorLaneState";
 import type { ProjectMarker } from "./ProjectMarker";
 import type { ProjectScene } from "./ProjectScene";
 import type { PulseMap } from "./PulseMap";
+import type { TempoAutomationEvent } from "./TempoAutomationEvent";
 import type { TimeSignature } from "./TimeSignature";
+import type { TimeSignatureChange } from "./TimeSignatureChange";
 import type { Track } from "./Track";
 
 /**
@@ -490,4 +492,17 @@ key_sig_tonic: string,
 /**
  * Key signature mode (e.g., "Major", "Minor", "Dorian").
  */
-key_sig_mode: string, };
+key_sig_mode: string, 
+/**
+ * Tempo automation events for variable-BPM playback.
+ *
+ * Empty = fixed tempo (use `pulse_map` BPM). Non-empty = the transport
+ * should interpolate BPM between these events.
+ */
+tempo_automation_events: Array<TempoAutomationEvent>, 
+/**
+ * Mid-song time signature changes.
+ *
+ * Empty = single time signature (use `time_signature` field).
+ */
+time_signature_changes: Array<TimeSignatureChange>, };

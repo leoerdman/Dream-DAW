@@ -79,7 +79,7 @@ impl LimiterProcessor {
             self.release_coeff = (-1.0 / (self.release_ms * 0.001 * sr)).exp();
             self.fast_release = (-1.0 / (5.0 * 0.001 * sr)).exp();   // 5ms fast
             self.slow_release = (-1.0 / (200.0 * 0.001 * sr)).exp(); // 200ms slow
-            self.la_samples = ((self.lookahead_ms * 0.001 * sr) as usize).min(MAX_LOOKAHEAD - 1).max(1);
+            self.la_samples = ((self.lookahead_ms * 0.001 * sr) as usize).clamp(1, MAX_LOOKAHEAD - 1);
         }
     }
 }

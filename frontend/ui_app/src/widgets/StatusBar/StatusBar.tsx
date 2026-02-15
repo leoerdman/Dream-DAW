@@ -35,6 +35,8 @@ export const StatusBar = ({
     const connected = useEngineStore((s) => s.connected);
     const projectSampleRate = useEngineStore((s) => s.projectSampleRate);
     const projectTracks = useEngineStore((s) => s.projectTracks);
+    const latestHistory = useEngineStore((s) => s.projectHistory[s.projectHistory.length - 1]);
+    const projectHistory = useEngineStore((s) => s.projectHistory);
 
     // Status bar messages
     const statusMessage = useStatusStore((s) => s.message);
@@ -48,7 +50,9 @@ export const StatusBar = ({
     const gridTriplet = useGridStore((s) => s.triplet);
     const setGridDivision = useGridStore((s) => s.setDivision);
     const [gridOpen, setGridOpen] = useState(false);
+    const [historyOpen, setHistoryOpen] = useState(false);
     const gridRef = useRef<HTMLDivElement | null>(null);
+    const historyRef = useRef<HTMLDivElement | null>(null);
 
     // Compute bar.beat.sub from live playhead
     const bar = Math.floor((positionSeconds / 60) * bpm / 4) + 1;
@@ -67,6 +71,19 @@ export const StatusBar = ({
         document.addEventListener('mousedown', onDown);
         return () => document.removeEventListener('mousedown', onDown);
     }, [gridOpen]);
+
+    useEffect(() => {
+        if (!historyOpen) return;
+        const onDown = (e: MouseEvent) => {
+            if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
+                setHistoryOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [historyOpen]);
+
+    const historyItems = projectHistory.slice(-10).reverse();
 
     return (
         <div style={{ flexShrink: 0 }}>
@@ -105,6 +122,60 @@ export const StatusBar = ({
                         <StatusLabel>Length:</StatusLabel>
                         <StatusValue>{duration}</StatusValue>
                     </StatusGroup>
+                    {latestHistory && (
+                        <div ref={historyRef} style={{ position: 'relative' }}>
+                            <StatusGroup>
+                                <StatusLabel>Event:</StatusLabel>
+                                <button
+                                    onClick={() => setHistoryOpen((v) => !v)}
+                                    style={{
+                                        border: 'none',
+                                        background: 'transparent',
+                                        color: 'var(--color-text-primary)',
+                                        fontFamily: 'var(--font-mono)',
+                                        fontSize: 'var(--font-size-2xs)',
+                                        cursor: 'pointer',
+                                        padding: 0,
+                                    }}
+                                    title={latestHistory.detail}
+                                >
+                                    {latestHistory.kind}
+                                </button>
+                            </StatusGroup>
+                            {historyOpen && (
+                                <div
+                                    style={{
+                                        position: 'absolute',
+                                        left: 0,
+                                        bottom: 22,
+                                        width: 360,
+                                        maxHeight: 240,
+                                        overflowY: 'auto',
+                                        background: 'var(--color-bg-elevated)',
+                                        border: '1px solid var(--color-divider)',
+                                        borderRadius: 4,
+                                        boxShadow: '0 8px 18px rgba(0,0,0,0.35)',
+                                        zIndex: 1200,
+                                        padding: '6px 8px',
+                                    }}
+                                >
+                                    {historyItems.map((item) => {
+                                        const dt = new Date(item.timestampMs);
+                                        return (
+                                            <div key={item.seq} style={{ marginBottom: 6 }}>
+                                                <div style={{ color: 'var(--color-text-primary)', fontSize: 10 }}>
+                                                    #{item.seq} {item.kind}
+                                                </div>
+                                                <div style={{ color: 'var(--color-text-secondary)', fontSize: 10 }}>
+                                                    {dt.toLocaleTimeString()} • {item.detail}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 {/* Right section */}
@@ -221,14 +292,14 @@ export const StatusBar = ({
                         fontSize: 'var(--font-size-2xs)',
                         fontWeight: 500,
                         background: statusSeverity === 'error'
-                            ? 'rgba(217, 64, 64, 0.14)'
-                            : 'rgba(74, 158, 255, 0.10)',
+                            ? 'color-mix(in srgb, var(--color-status-error) 14%, transparent)'
+                            : 'color-mix(in srgb, var(--color-accent-primary) 10%, transparent)',
                         color: statusSeverity === 'error'
                             ? 'var(--color-status-error)'
                             : 'var(--color-accent-primary)',
                         borderTop: `1px solid ${statusSeverity === 'error'
-                            ? 'rgba(217, 64, 64, 0.3)'
-                            : 'rgba(74, 158, 255, 0.2)'}`,
+                            ? 'color-mix(in srgb, var(--color-status-error) 30%, transparent)'
+                            : 'color-mix(in srgb, var(--color-accent-primary) 20%, transparent)'}`,
                     }}
                 >
                     <span>{statusSeverity === 'error' ? '⚠ ' : 'ℹ '}{statusMessage}</span>

@@ -10,7 +10,7 @@ import type { TimelineClipData } from '@/shared/lib/CanvasClipRenderer';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
-import type { BrowserDragItem, TimelineClip } from '@/shared/types/Arrangement';
+import type { BrowserDragItem, TimelineClip } from '@/shared/lib/arrangementTypes';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
 import { TimelineCommandBus } from '@/shared/lib/TimelineCommandBus';
 import { AutomationOverlay } from './AutomationOverlay';

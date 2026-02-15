@@ -1,4 +1,25 @@
 
+#[inline]
+fn beat_to_engine_frames(beat: f64, pulse_map: Option<&dream_models::pulse_map::PulseMap>, fallback_bpm: f64, sample_rate: f64) -> i64 {
+    if !beat.is_finite() {
+        return 0;
+    }
+    if let Some(pm) = pulse_map {
+        return pm.sample_frame(beat.max(0.0)).max(0);
+    }
+    let bpm = if fallback_bpm.is_finite() && fallback_bpm > 0.0 {
+        fallback_bpm
+    } else {
+        120.0
+    };
+    let sr = if sample_rate.is_finite() && sample_rate > 0.0 {
+        sample_rate
+    } else {
+        44_100.0
+    };
+    ((beat.max(0.0) * 60.0 / bpm) * sr).round() as i64
+}
+
 #[tauri::command]
 fn play(handle: tauri::State<'_, AudioEngineHandle>) -> Result<(), String> {
     push_command(&handle, EngineCommand::SetPlay(true))?;
@@ -78,6 +99,7 @@ fn seek_seconds(
 fn seek_to_beat(
     beat: f64,
     handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
 ) -> Result<(), String> {
     let state = handle
         .playback_state
@@ -87,8 +109,11 @@ fn seek_to_beat(
     let sample_rate = state.sample_rate;
     drop(state);
 
-    let seconds = beat * 60.0 / bpm;
-    let frames = (seconds * sample_rate) as i64;
+    let frames = if let Ok(project) = project_state.project.lock() {
+        beat_to_engine_frames(beat, Some(&project.pulse_map), bpm, sample_rate)
+    } else {
+        beat_to_engine_frames(beat, None, bpm, sample_rate)
+    };
     push_command(&handle, EngineCommand::Seek(frames))?;
     log::info!("[IPC] seek_to_beat({beat:.4} beat → {frames} frames)");
     Ok(())
@@ -245,4 +270,29 @@ fn set_loop(
 
     log::info!("[IPC] set_loop(enabled={enabled}, {start_frames}–{end_frames})");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::beat_to_engine_frames;
+    use dream_models::pulse_map::PulseMap;
+
+    #[test]
+    fn beat_to_engine_frames_prefers_project_pulse_map_over_fallback_bpm() {
+        let pm = PulseMap::new(174.0, 44_100.0);
+        // 33 bars at 4/4 => 132 beats.
+        let beat = 132.0;
+        let expected = pm.sample_frame(beat);
+        // Deliberately mismatched fallback BPM to verify pulse map is authoritative.
+        let got = beat_to_engine_frames(beat, Some(&pm), 120.0, 44_100.0);
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn beat_to_engine_frames_falls_back_to_bpm_when_no_pulse_map() {
+        let beat = 16.0;
+        let got = beat_to_engine_frames(beat, None, 120.0, 44_100.0);
+        // 16 beats at 120 BPM => 8 seconds => 352800 frames @ 44.1kHz.
+        assert_eq!(got, 352_800);
+    }
 }

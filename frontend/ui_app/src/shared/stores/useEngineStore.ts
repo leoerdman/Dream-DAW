@@ -7,12 +7,8 @@
 // Architecture:
 //   1. UI calls an ACTION (e.g., togglePlay)
 //   2. Action sends IPC command to Rust engine
-//   3. Telemetry loop reads engine state back at 60fps
+//   3. Backend emits push telemetry events (`telemetry_tick`) at ~30fps
 //   4. Store updates → React re-renders
-//
-// The telemetry loop bridges the gap between the lock-free Rust world
-// and the React rendering cycle. It polls `get_transport` and `get_meters`
-// using requestAnimationFrame for smooth, jank-free meter animation.
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -24,8 +20,10 @@ import type {
     TransportState,
     MeteringSnapshot,
     ImportAudioResponse,
+    ProjectHistoryEvent,
+    PluginSandboxSnapshot,
 } from '@/shared/api/engine';
-import type { TimelineClip } from '@/shared/types/Arrangement';
+import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import { useGridStore } from '@/shared/stores/useGridStore';
 
 /** Track info from Rust project. */
@@ -126,7 +124,7 @@ const throttledMasterVolumeSend = throttle((volume: number) => {
 
 interface EngineStore {
     // ── State ────────────────────────────────────────────────────────────
-    /** Whether the telemetry loop has started. */
+    /** Whether push telemetry listener has started. */
     telemetryRunning: boolean;
 
     /** Whether we've successfully connected to the engine at least once. */
@@ -152,12 +150,16 @@ interface EngineStore {
 
     /** Last IPC error (for error boundary / status bar display). */
     lastError: string | null;
+    /** Recent event-sourcing journal entries from backend. */
+    projectHistory: ProjectHistoryEvent[];
     /** Master fader volume (linear gain 0.0..2.0). */
     masterVolume: number;
+    /** Runtime state of out-of-process plugin sandbox supervisor. */
+    pluginSandbox: PluginSandboxSnapshot | null;
 
     // ── Actions ──────────────────────────────────────────────────────────
 
-    /** Start/stop playback. Sends IPC command, then telemetry loop syncs state. */
+    /** Start/stop playback. Sends IPC command, then push telemetry syncs state. */
     togglePlay: () => Promise<void>;
 
     /** Start playback. */
@@ -218,17 +220,10 @@ interface EngineStore {
     /** Expand window from splash to full DAW mode. */
     expandWindow: () => Promise<void>;
 
-    /**
-     * Start the 60fps telemetry loop.
-     * Polls `get_transport` and `get_meters` via requestAnimationFrame.
-     * Should be called once at app startup (after splash screen).
-     */
+    /** Start push telemetry listener (called once at app startup). */
     startTelemetryLoop: () => void;
 
-    /**
-     * Stop the telemetry loop.
-     * Called on app unmount or when switching to a different view.
-     */
+    /** Stop push telemetry listener. */
     stopTelemetryLoop: () => void;
 }
 
@@ -263,6 +258,7 @@ const DEFAULT_METERS: MeteringSnapshot = {
 // ── Telemetry Loop Control ───────────────────────────────────────────────
 
 let _telemetryUnlisten: UnlistenFn | null = null;
+let _pluginSandboxUnlisten: UnlistenFn | null = null;
 
 // ── Store Creation ───────────────────────────────────────────────────────
 
@@ -277,7 +273,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     projectSampleRate: 44100,
     projectBpm: 120,
     lastError: null,
+    projectHistory: [],
     masterVolume: 1.0,
+    pluginSandbox: null,
 
     // ── Transport Actions ──────────────────────────────────────────────
 
@@ -534,7 +532,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             console.debug(`[ProjectFetch] start #${requestSeq} reason=${reason}`);
         }
         try {
-            const project = await engine.getProject() as {
+            const [project, projectHistory] = await Promise.all([
+                engine.getProject() as Promise<{
+                name?: string;
                 tracks: Array<{
                     id: string;
                     name: string;
@@ -595,7 +595,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 arrangement_grid_ntoles?: number;
                 arrangement_snap_to_grid?: boolean;
                 arrangement_grid_fixed?: boolean;
-            };
+                }>,
+                engine.getProjectHistory(),
+            ]);
 
             // Ignore stale/out-of-order responses (e.g. startup fetch resolving
             // after Open Project fetch). Latest invocation always wins.
@@ -606,11 +608,11 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 }
                 return;
             }
-            console.warn(`[fetchProject] ACCEPTED #${requestSeq} reason="${reason}" tracks=${project.tracks?.length ?? '?'} name="${(project as any).name ?? '?'}"`);
+            console.warn(`[fetchProject] ACCEPTED #${requestSeq} reason="${reason}" tracks=${project.tracks?.length ?? '?'} name="${project.name ?? '?'}"`);
 
             // CRITICAL: Use the project's own PulseMap BPM as the authoritative SSOT
-            // for frame↔beat conversion. The telemetry loop's transport.bpm may be
-            // stale after open_project (race condition — telemetry hasn't polled yet).
+            // for frame↔beat conversion. transport.bpm may be stale immediately
+            // after open_project until the next telemetry tick arrives.
             const bpm = project.pulse_map?.tempo_events?.[0]?.bpm || get().transport.bpm || 120;
             const sr = project.sample_rate || 44100;
             const beatsPerSecond = bpm / 60;
@@ -730,8 +732,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     projectTracks,
                     projectSampleRate: sr,
                     projectBpm: bpm,
+                    projectHistory,
                     // Keep transport.bpm in sync so TransportBar/StatusBar
-                    // show correct BPM immediately, even before next telemetry poll
+                    // show correct BPM immediately, even before next telemetry tick.
                     transport: { ...s.transport, bpm },
                 }));
                 if (DEBUG_PROJECT_FETCH) {
@@ -794,6 +797,12 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         set({ meters: nextMeters });
                     }
                 });
+                _pluginSandboxUnlisten = await listen<PluginSandboxSnapshot>(
+                    'plugin_sandbox_tick',
+                    (event) => {
+                        set({ pluginSandbox: event.payload });
+                    },
+                );
             } catch (e) {
                 const msg = String(e);
                 if (get().lastError !== msg) {
@@ -808,6 +817,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         if (_telemetryUnlisten) {
             _telemetryUnlisten();
             _telemetryUnlisten = null;
+        }
+        if (_pluginSandboxUnlisten) {
+            _pluginSandboxUnlisten();
+            _pluginSandboxUnlisten = null;
         }
     },
 }));

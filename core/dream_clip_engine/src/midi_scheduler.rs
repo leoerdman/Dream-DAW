@@ -137,8 +137,16 @@ impl MidiScheduler {
             }
         }
 
-        // Sort by onset time for sequential processing
-        events.sort_by_key(|e| e.buffer_onset);
+        // Deterministic ordering:
+        // 1) earlier sample first
+        // 2) note-off before note-on at the same sample (prevents overlaps/stuck voices)
+        // 3) lower pitch first as a stable final tie-break
+        events.sort_by(|a, b| {
+            a.buffer_onset
+                .cmp(&b.buffer_onset)
+                .then_with(|| a.is_note_on.cmp(&b.is_note_on))
+                .then_with(|| a.pitch.cmp(&b.pitch))
+        });
         events
     }
 
@@ -201,8 +209,13 @@ impl MidiScheduler {
             }
         }
 
-        // Re-sort by onset time after merging both segments
-        events.sort_by_key(|e| e.buffer_onset);
+        // Keep the same deterministic ordering rules as `find_active`.
+        events.sort_by(|a, b| {
+            a.buffer_onset
+                .cmp(&b.buffer_onset)
+                .then_with(|| a.is_note_on.cmp(&b.is_note_on))
+                .then_with(|| a.pitch.cmp(&b.pitch))
+        });
         events
     }
 }
@@ -308,6 +321,27 @@ mod tests {
         let clip = make_midi_clip(0, 44100, vec![]);
         let events = MidiScheduler::find_active(&[clip], 0, 1024);
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn notes_with_same_onset_are_sorted_by_pitch_as_tie_break() {
+        let clip = make_midi_clip(
+            0,
+            44100,
+            vec![
+                MidiNote::new(67, 110, 100, 200),
+                MidiNote::new(60, 100, 100, 200),
+            ],
+        );
+
+        let events = MidiScheduler::find_active(&[clip], 0, 256);
+        let at_100: Vec<_> = events
+            .iter()
+            .filter(|e| e.buffer_onset == 100)
+            .collect();
+        assert_eq!(at_100.len(), 2);
+        assert_eq!(at_100[0].pitch, 60);
+        assert_eq!(at_100[1].pitch, 67);
     }
 
     // ── Loop-Aware Scheduling Tests ────────────────────────────────────

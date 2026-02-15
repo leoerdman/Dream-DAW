@@ -246,10 +246,10 @@ impl ProjectFile {
             }
 
             // ── instrument: Option<DeviceNode> ──────────────────────
-            if let Some(inst) = track.get_mut("instrument") {
-                if !inst.is_null() {
-                    Self::inject_device_node_type(inst);
-                }
+            if let Some(inst) = track.get_mut("instrument")
+                && !inst.is_null()
+            {
+                Self::inject_device_node_type(inst);
             }
         }
     }
@@ -261,13 +261,13 @@ impl ProjectFile {
     /// Objects that already have `"type": "Single"` or `"type": "Rack"` are
     /// left untouched (V3+ format or nested rack structures).
     fn inject_device_node_type(val: &mut serde_json::Value) {
-        if let Some(obj) = val.as_object_mut() {
-            if !obj.contains_key("type") {
-                obj.insert(
-                    "type".to_string(),
-                    serde_json::Value::String("Single".to_string()),
-                );
-            }
+        if let Some(obj) = val.as_object_mut()
+            && !obj.contains_key("type")
+        {
+            obj.insert(
+                "type".to_string(),
+                serde_json::Value::String("Single".to_string()),
+            );
         }
     }
 
@@ -467,8 +467,8 @@ mod tests {
         midi_track.automation_lanes.push(AutomationLane {
             param_id: "volume".to_string(),
             points: vec![
-                AutomationPoint { beat: 4.0, value: 0.5, curve_type: "linear".to_string(), tension: None },
-                AutomationPoint { beat: 8.0, value: 0.8, curve_type: "bezier".to_string(), tension: Some(0.35) },
+                AutomationPoint { beat: 4.0, value: 0.5, curve_type: "linear".to_string(), tension: None, bezier_cp1x: None, bezier_cp1y: None, bezier_cp2x: None, bezier_cp2y: None },
+                AutomationPoint { beat: 8.0, value: 0.8, curve_type: "bezier".to_string(), tension: Some(0.35), bezier_cp1x: None, bezier_cp1y: None, bezier_cp2x: None, bezier_cp2y: None },
             ],
         });
 
@@ -545,6 +545,10 @@ mod tests {
             external_parameter_count: None,
             external_stored_all_parameters: None,
             external_plugin_version: None,
+            external_state_blob: None,
+            external_state_blob_kind: None,
+            external_preset_blob: None,
+            external_preset_blob_kind: None,
         }));
         midi_track.effects.push(DeviceNode::Single(PluginSlot {
             id: uuid::Uuid::new_v4(),
@@ -559,6 +563,10 @@ mod tests {
             external_parameter_count: None,
             external_stored_all_parameters: None,
             external_plugin_version: None,
+            external_state_blob: None,
+            external_state_blob_kind: None,
+            external_preset_blob: None,
+            external_preset_blob_kind: None,
         }));
         project.add_track(midi_track);
 

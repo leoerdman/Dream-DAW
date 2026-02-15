@@ -40,10 +40,12 @@ pub enum PluginHostControlMessage {
 /// Shared-memory descriptor for the audio bridge.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SharedAudioRegion {
+    /// Shared region identifier (file path or OS mapping name).
     pub map_name: String,
     pub num_inputs: u16,
     pub num_outputs: u16,
     pub max_frames: u32,
+    pub total_bytes: usize,
 }
 
 /// Responses/events emitted by external host process.
@@ -77,4 +79,3 @@ pub enum PluginHostEventMessage {
         seq: u64,
     },
 }
-

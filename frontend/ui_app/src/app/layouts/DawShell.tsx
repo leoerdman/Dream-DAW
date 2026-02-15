@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from 'react';
 import throttle from 'lodash.throttle';
 import { listen } from '@tauri-apps/api/event';
 import { TransportBar } from '@/widgets/TransportBar/TransportBar';
@@ -7,18 +7,14 @@ import { useNativeMenu } from '@/shared/hooks/useNativeMenu';
 import { useProjectManager } from '@/shared/hooks/useProjectManager';
 import { ErrorBoundary } from '@/shared/ui/ErrorBoundary';
 import { AssetBrowser } from '@/widgets/AssetBrowser/AssetBrowser';
-import { DeviceRack } from '@/widgets/DeviceRack/DeviceRack';
-import { TrackInspector } from '@/widgets/TrackInspector/TrackInspector';
 import { StatusBar } from '@/widgets/StatusBar/StatusBar';
 import { Timeline } from '@/widgets/Timeline/Timeline';
 import { ClipRenderer } from '@/widgets/Timeline/ClipRenderer';
-import type { BrowserDragItem } from '@/shared/types/Arrangement';
-import { SettingsPanel } from '@/widgets/SettingsPanel/SettingsPanel';
-import { PianoRoll, type MidiNote } from '@/widgets/PianoRoll/PianoRoll';
+import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
+import type { MidiNote } from '@/widgets/PianoRoll/PianoRoll';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
-import { ExportModal } from '@/widgets/ExportModal/ExportModal';
 import * as engineApi from '@/shared/api/engine';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
@@ -33,6 +29,22 @@ const isAudioFile = (path: string): boolean => {
     const ext = path.slice(path.lastIndexOf('.')).toLowerCase();
     return AUDIO_EXTENSIONS.has(ext);
 };
+
+const TrackInspector = lazy(async () => ({
+    default: (await import('@/widgets/TrackInspector/TrackInspector')).TrackInspector,
+}));
+const DeviceRack = lazy(async () => ({
+    default: (await import('@/widgets/DeviceRack/DeviceRack')).DeviceRack,
+}));
+const PianoRoll = lazy(async () => ({
+    default: (await import('@/widgets/PianoRoll/PianoRoll')).PianoRoll,
+}));
+const SettingsPanel = lazy(async () => ({
+    default: (await import('@/widgets/SettingsPanel/SettingsPanel')).SettingsPanel,
+}));
+const ExportModal = lazy(async () => ({
+    default: (await import('@/widgets/ExportModal/ExportModal')).ExportModal,
+}));
 
 /**
  * DawShell — The "Hole-Punch Architecture" Layout with integrated Timeline.
@@ -743,14 +755,16 @@ export const DawShell = () => {
                         }}
                     >
                         <ErrorBoundary module="Track Inspector">
-                            <TrackInspector
-                                selectedTrackId={selectedTrackId}
-                                onSelectTrack={handleSelectTrack}
-                                trackHeight={TRACK_HEIGHT}
-                                rulerHeight={RULER_HEIGHT}
-                                scrollTop={timelineScrollTop}
-                                mixerFocusMode={mixerFocusMode}
-                            />
+                            <Suspense fallback={null}>
+                                <TrackInspector
+                                    selectedTrackId={selectedTrackId}
+                                    onSelectTrack={handleSelectTrack}
+                                    trackHeight={TRACK_HEIGHT}
+                                    rulerHeight={RULER_HEIGHT}
+                                    scrollTop={timelineScrollTop}
+                                    mixerFocusMode={mixerFocusMode}
+                                />
+                            </Suspense>
                         </ErrorBoundary>
                     </aside>
                 </main>
@@ -766,16 +780,26 @@ export const DawShell = () => {
                 >
                     {bottomPanelMode === 'rack' ? (
                         <ErrorBoundary module="Device Rack">
-                            <DeviceRack
-                                selectedTrackId={selectedTrackId}
-                                onDropPluginToTrack={(item, trackId) => dropPluginOnTrack(item, trackId)}
-                                onAddDefaultDeviceToTrack={(trackId) => addDefaultDeviceToTrack(trackId)}
-                            />
+                            <Suspense fallback={null}>
+                                <DeviceRack
+                                    selectedTrackId={selectedTrackId}
+                                    onDropPluginToTrack={(item, trackId) => dropPluginOnTrack(item, trackId)}
+                                    onAddDefaultDeviceToTrack={(trackId) => addDefaultDeviceToTrack(trackId)}
+                                />
+                            </Suspense>
                         </ErrorBoundary>
                     ) : (
                         <ErrorBoundary module="Clip Editor">
                             {selectedTimelineClip?.type === 'midi' ? (
-                                <PianoRoll
+                                <Suspense fallback={null}>
+                                    <PianoRoll
+                                    key={[
+                                        selectedTimelineClip.id,
+                                        Math.max(0, Math.round(selectedTimelineClip.fadeIn ?? 0)),
+                                        Math.max(0, Math.round(selectedTimelineClip.fadeOut ?? 0)),
+                                        selectedTimelineClip.fadeInCurve ?? 0.5,
+                                        selectedTimelineClip.fadeOutCurve ?? 0.5,
+                                    ].join(':')}
                                     notes={midiNotesByClip[selectedTimelineClip.id] ?? []}
                                     onNotesChange={(notes) => {
                                         const clipId = selectedTimelineClip.id;
@@ -830,10 +854,18 @@ export const DawShell = () => {
                                             },
                                         }));
                                     }}
-                                />
+                                    />
+                                </Suspense>
                             ) : selectedTimelineClip?.type === 'audio' ? (
                                 <SampleClipEditor
-                                    key={selectedTimelineClip.id}
+                                    key={[
+                                        selectedTimelineClip.id,
+                                        selectedTimelineClip.sourceOffset ?? 0,
+                                        selectedTimelineClip.fadeIn ?? 0,
+                                        selectedTimelineClip.fadeOut ?? 0,
+                                        selectedTimelineClip.fadeInCurve ?? 0.5,
+                                        selectedTimelineClip.fadeOutCurve ?? 0.5,
+                                    ].join(':')}
                                     clip={selectedTimelineClip}
                                     onSetFadeCurves={(fadeInCurve, fadeOutCurve) => {
                                         setClipFadeCurves((prev) => ({
@@ -865,22 +897,24 @@ export const DawShell = () => {
             </div>
 
             {/* ═══ SETTINGS MODAL ═══ */}
-            <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+            <Suspense fallback={null}>
+                <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+            </Suspense>
 
             {/* ═══ DRAG-OVER OVERLAY ═══ */}
             {isDragOver && (
                 <div
                     className="absolute inset-0 z-[999] flex items-center justify-center pointer-events-none"
                     style={{
-                        background: 'rgba(59, 130, 246, 0.12)',
-                        border: '3px dashed rgba(59, 130, 246, 0.6)',
+                        background: 'color-mix(in srgb, var(--color-accent-primary) 12%, transparent)',
+                        border: '3px dashed color-mix(in srgb, var(--color-accent-primary) 60%, transparent)',
                         borderRadius: '12px',
                         margin: '8px',
                     }}
                 >
                     <div style={{
-                        background: 'rgba(0, 0, 0, 0.75)',
-                        color: '#fff',
+                        background: 'color-mix(in srgb, var(--color-bg-elevated) 88%, transparent)',
+                        color: 'var(--color-text-primary)',
                         padding: '12px 24px',
                         borderRadius: '8px',
                         fontSize: '14px',
@@ -892,11 +926,13 @@ export const DawShell = () => {
                 </div>
             )}
             {/* ── Export Modal ── */}
-            <ExportModal
-                isOpen={exportOpen}
-                onClose={() => setExportOpen(false)}
-                projectName="My Project"
-            />
+            <Suspense fallback={null}>
+                <ExportModal
+                    isOpen={exportOpen}
+                    onClose={() => setExportOpen(false)}
+                    projectName="My Project"
+                />
+            </Suspense>
 
         </div>
     );
@@ -1037,12 +1073,6 @@ const SampleClipEditor = ({
     const [draftFadeInCurve, setDraftFadeInCurve] = useState<number>(clip.fadeInCurve ?? 0.5);
     const [draftFadeOutCurve, setDraftFadeOutCurve] = useState<number>(clip.fadeOutCurve ?? 0.5);
     const [isPreviewing, setIsPreviewing] = useState(false);
-
-    useEffect(() => setDraftOffset(clip.sourceOffset ?? 0), [clip.id, clip.sourceOffset]);
-    useEffect(() => setDraftFadeIn(clip.fadeIn ?? 0), [clip.id, clip.fadeIn]);
-    useEffect(() => setDraftFadeOut(clip.fadeOut ?? 0), [clip.id, clip.fadeOut]);
-    useEffect(() => setDraftFadeInCurve(clip.fadeInCurve ?? 0.5), [clip.id, clip.fadeInCurve]);
-    useEffect(() => setDraftFadeOutCurve(clip.fadeOutCurve ?? 0.5), [clip.id, clip.fadeOutCurve]);
 
     const commitOffset = useCallback(async (value: number) => {
         const next = Math.max(0, Math.min(maxOffset, Math.round(value)));
@@ -1260,7 +1290,7 @@ const SampleClipEditor = ({
                         border: '1px solid var(--color-divider)',
                         borderRadius: 4,
                         overflow: 'hidden',
-                        background: 'rgba(5, 10, 18, 0.55)',
+                        background: 'color-mix(in srgb, var(--color-bg-panel) 82%, transparent)',
                         position: 'relative',
                     }}>
                         <div style={{ overflowX: 'auto', overflowY: 'hidden', height: '100%' }}>
@@ -1271,15 +1301,15 @@ const SampleClipEditor = ({
                                     top: 0,
                                     right: 0,
                                     height: 20,
-                                    borderBottom: '1px solid rgba(255,255,255,0.08)',
-                                    background: 'rgba(9,13,22,0.6)',
+                                    borderBottom: '1px solid color-mix(in srgb, var(--color-text-primary) 8%, transparent)',
+                                    background: 'color-mix(in srgb, var(--color-bg-elevated) 86%, transparent)',
                                 }}>
                                     {Array.from({ length: gridLineCount }).map((_, i) => {
                                         const beat = i * gridStep;
                                         const x = beat * pxPerBeat;
                                         const isBar = Math.abs((beat / beatsPerBar) - Math.round(beat / beatsPerBar)) < 1e-6;
                                         return (
-                                            <div key={`audio-ruler-${i}`} style={{ position: 'absolute', left: x, top: 0, bottom: 0, width: 1, background: isBar ? 'rgba(125,175,255,0.58)' : 'rgba(255,255,255,0.15)' }}>
+                                            <div key={`audio-ruler-${i}`} style={{ position: 'absolute', left: x, top: 0, bottom: 0, width: 1, background: isBar ? 'color-mix(in srgb, var(--color-accent-primary) 58%, transparent)' : 'color-mix(in srgb, var(--color-text-primary) 15%, transparent)' }}>
                                                 {isBar && (
                                                     <span style={{ position: 'absolute', top: 2, left: 3, fontSize: 9, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
                                                         {Math.floor(beat / beatsPerBar) + 1}
@@ -1305,8 +1335,8 @@ const SampleClipEditor = ({
                                             top: 0,
                                             bottom: 0,
                                             width: fadeInPx,
-                                            background: 'linear-gradient(90deg, rgba(255,190,85,0.25) 0%, rgba(255,190,85,0.05) 100%)',
-                                            borderRight: '1px solid rgba(255,190,85,0.6)',
+                                            background: 'linear-gradient(90deg, color-mix(in srgb, var(--color-accent-primary) 25%, transparent) 0%, color-mix(in srgb, var(--color-accent-primary) 5%, transparent) 100%)',
+                                            borderRight: '1px solid color-mix(in srgb, var(--color-accent-primary) 60%, transparent)',
                                             pointerEvents: 'none',
                                         }} />
                                     )}
@@ -1317,8 +1347,8 @@ const SampleClipEditor = ({
                                             top: 0,
                                             bottom: 0,
                                             width: fadeOutPx,
-                                            background: 'linear-gradient(270deg, rgba(255,190,85,0.25) 0%, rgba(255,190,85,0.05) 100%)',
-                                            borderLeft: '1px solid rgba(255,190,85,0.6)',
+                                            background: 'linear-gradient(270deg, color-mix(in srgb, var(--color-accent-primary) 25%, transparent) 0%, color-mix(in srgb, var(--color-accent-primary) 5%, transparent) 100%)',
+                                            borderLeft: '1px solid color-mix(in srgb, var(--color-accent-primary) 60%, transparent)',
                                             pointerEvents: 'none',
                                         }} />
                                     )}
@@ -1332,7 +1362,7 @@ const SampleClipEditor = ({
                                                 <path
                                                     d={`M 0 ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)} Q ${fadeInPx * draftFadeInCurve} 0 ${fadeInPx} ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)}`}
                                                     fill="none"
-                                                    stroke="rgba(255,190,85,0.95)"
+                                                    stroke="color-mix(in srgb, var(--color-accent-primary) 95%, transparent)"
                                                     strokeWidth={1.5}
                                                 />
                                             )}
@@ -1340,7 +1370,7 @@ const SampleClipEditor = ({
                                                 <path
                                                     d={`M ${waveformWidth} ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)} Q ${waveformWidth - fadeOutPx * draftFadeOutCurve} 0 ${waveformWidth - fadeOutPx} ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)}`}
                                                     fill="none"
-                                                    stroke="rgba(255,190,85,0.95)"
+                                                    stroke="color-mix(in srgb, var(--color-accent-primary) 95%, transparent)"
                                                     strokeWidth={1.5}
                                                 />
                                             )}

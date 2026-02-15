@@ -15,6 +15,7 @@
 //   3. PDC (Plugin Delay Compensation) — automatic latency alignment.
 //      Finds the longest path through the DAG and inserts compensating
 //      delay buffers on shorter paths, ensuring sample-accurate phase.
+//      Includes edge-level compensation for split/rejoin merge points.
 //
 //   4. Renderer — topological executor that walks the ExecutionPlan,
 //      dispatching to Track/Effect/Bus/Master nodes with PDC delay lines.
@@ -26,6 +27,8 @@ pub mod pdc;
 pub mod rcu;
 pub mod renderer;
 
-pub use dag::{AudioDag, AudioNode, AudioEdge, NodeId, NodeKind, ExecutionPlan, GraphBuilder, GraphError};
+pub use dag::{
+    AudioDag, AudioEdge, AudioNode, EdgeDelayCompensation, ExecutionPlan, GraphBuilder, GraphError, NodeId, NodeKind,
+};
 pub use rcu::LiveGraph;
 pub use renderer::{GraphRenderer, NodeBuffer, PdcDelayLine};

@@ -133,6 +133,7 @@ pub(crate) fn invoke_handler()
         open_plugin_window,
         can_open_plugin_editor,
         close_plugin_window,
+        get_external_plugin_params,
         get_plugin_sandbox_runtime,
         set_plugin_sandbox_enabled,
         tick_plugin_sandbox_watchdog,
@@ -143,7 +144,9 @@ pub(crate) fn invoke_handler()
         add_plugin_to_track_cmd,
         remove_plugin_from_track_cmd,
         set_internal_plugin_param_cmd,
+        set_external_plugin_param_cmd,
         set_sampler_sample_cmd,
+        eager_activate_external_plugins,
         // Device Chain
         add_device_cmd,
         remove_device_cmd,

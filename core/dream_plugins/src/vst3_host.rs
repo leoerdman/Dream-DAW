@@ -30,6 +30,7 @@ use uuid::Uuid;
 use crate::descriptor::PluginDescriptor;
 use crate::format::PluginFormat;
 use crate::instance::{PluginError, PluginInstance, TransportContext};
+use crate::sandbox_instance::SandboxedPluginInstance;
 
 type DreamDawProcessF32Fn = unsafe extern "C" fn(
     inputs: *const *const f32,
@@ -41,6 +42,7 @@ type DreamDawProcessF32Fn = unsafe extern "C" fn(
 ) -> i32;
 
 type DreamDawOpenEditorFn = unsafe extern "C" fn() -> i32;
+type DreamDawSetParameterFn = unsafe extern "C" fn(index: u32, value: f64) -> i32;
 
 // ── Minimal VST3 ABI (COM) ─────────────────────────────────────────────
 
@@ -386,6 +388,282 @@ struct ProcessData {
     process_context: *mut c_void,
 }
 
+const MAX_HOST_PARAM_CHANGES: usize = 256;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct IParamValueQueue {
+    vtbl: *const IParamValueQueueVtbl,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct IParamValueQueueVtbl {
+    query_interface: unsafe extern "C" fn(*mut IParamValueQueue, *const c_char, *mut *mut c_void) -> Tresult,
+    add_ref: unsafe extern "C" fn(*mut IParamValueQueue) -> u32,
+    release: unsafe extern "C" fn(*mut IParamValueQueue) -> u32,
+    get_parameter_id: unsafe extern "C" fn(*mut IParamValueQueue) -> u32,
+    get_point_count: unsafe extern "C" fn(*mut IParamValueQueue) -> i32,
+    get_point: unsafe extern "C" fn(*mut IParamValueQueue, i32, *mut i32, *mut f64) -> Tresult,
+    add_point: unsafe extern "C" fn(*mut IParamValueQueue, i32, f64, *mut i32) -> Tresult,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct IParameterChanges {
+    vtbl: *const IParameterChangesVtbl,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct IParameterChangesVtbl {
+    query_interface: unsafe extern "C" fn(*mut IParameterChanges, *const c_char, *mut *mut c_void) -> Tresult,
+    add_ref: unsafe extern "C" fn(*mut IParameterChanges) -> u32,
+    release: unsafe extern "C" fn(*mut IParameterChanges) -> u32,
+    get_parameter_count: unsafe extern "C" fn(*mut IParameterChanges) -> i32,
+    get_parameter_data: unsafe extern "C" fn(*mut IParameterChanges, i32) -> *mut IParamValueQueue,
+    add_parameter_data: unsafe extern "C" fn(*mut IParameterChanges, *mut u32, *mut i32) -> *mut IParamValueQueue,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct HostParamValueQueue {
+    vtbl: *const IParamValueQueueVtbl,
+    ref_count: u32,
+    param_id: u32,
+    sample_offset: i32,
+    value: f64,
+    has_point: i32,
+}
+
+impl HostParamValueQueue {
+    const fn empty() -> Self {
+        Self {
+            vtbl: &HOST_PARAM_VALUE_QUEUE_VTBL,
+            ref_count: 1,
+            param_id: 0,
+            sample_offset: 0,
+            value: 0.0,
+            has_point: 0,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct HostParameterChanges {
+    vtbl: *const IParameterChangesVtbl,
+    ref_count: u32,
+    queue_count: i32,
+    queues: [HostParamValueQueue; MAX_HOST_PARAM_CHANGES],
+}
+
+impl HostParameterChanges {
+    fn from_pending(changes: &[(u32, f64)]) -> Self {
+        let mut this = Self {
+            vtbl: &HOST_PARAMETER_CHANGES_VTBL,
+            ref_count: 1,
+            queue_count: 0,
+            queues: [HostParamValueQueue::empty(); MAX_HOST_PARAM_CHANGES],
+        };
+        for (slot, (param_id, value)) in changes
+            .iter()
+            .take(MAX_HOST_PARAM_CHANGES)
+            .enumerate()
+        {
+            this.queues[slot].param_id = *param_id;
+            this.queues[slot].sample_offset = 0;
+            this.queues[slot].value = value.clamp(0.0, 1.0);
+            this.queues[slot].has_point = 1;
+            this.queue_count += 1;
+        }
+        this
+    }
+}
+
+unsafe extern "C" fn host_param_queue_query_interface(
+    _this: *mut IParamValueQueue,
+    _iid: *const c_char,
+    obj: *mut *mut c_void,
+) -> Tresult {
+    if !obj.is_null() {
+        unsafe { *obj = ptr::null_mut(); }
+    }
+    K_NO_INTERFACE
+}
+
+unsafe extern "C" fn host_param_queue_add_ref(this: *mut IParamValueQueue) -> u32 {
+    if this.is_null() {
+        return 1;
+    }
+    let queue = unsafe { &mut *(this as *mut HostParamValueQueue) };
+    queue.ref_count = queue.ref_count.saturating_add(1);
+    queue.ref_count
+}
+
+unsafe extern "C" fn host_param_queue_release(this: *mut IParamValueQueue) -> u32 {
+    if this.is_null() {
+        return 1;
+    }
+    let queue = unsafe { &mut *(this as *mut HostParamValueQueue) };
+    queue.ref_count = queue.ref_count.saturating_sub(1);
+    queue.ref_count
+}
+
+unsafe extern "C" fn host_param_queue_get_parameter_id(this: *mut IParamValueQueue) -> u32 {
+    if this.is_null() {
+        return 0;
+    }
+    let queue = unsafe { &*(this as *mut HostParamValueQueue) };
+    queue.param_id
+}
+
+unsafe extern "C" fn host_param_queue_get_point_count(this: *mut IParamValueQueue) -> i32 {
+    if this.is_null() {
+        return 0;
+    }
+    let queue = unsafe { &*(this as *mut HostParamValueQueue) };
+    queue.has_point
+}
+
+unsafe extern "C" fn host_param_queue_get_point(
+    this: *mut IParamValueQueue,
+    index: i32,
+    sample_offset: *mut i32,
+    value: *mut f64,
+) -> Tresult {
+    if this.is_null() || sample_offset.is_null() || value.is_null() || index != 0 {
+        return K_RESULT_FALSE;
+    }
+    let queue = unsafe { &*(this as *mut HostParamValueQueue) };
+    if queue.has_point <= 0 {
+        return K_RESULT_FALSE;
+    }
+    unsafe {
+        *sample_offset = queue.sample_offset;
+        *value = queue.value;
+    }
+    K_RESULT_OK
+}
+
+unsafe extern "C" fn host_param_queue_add_point(
+    this: *mut IParamValueQueue,
+    sample_offset: i32,
+    value: f64,
+    index: *mut i32,
+) -> Tresult {
+    if this.is_null() {
+        return K_RESULT_FALSE;
+    }
+    let queue = unsafe { &mut *(this as *mut HostParamValueQueue) };
+    queue.sample_offset = sample_offset;
+    queue.value = value.clamp(0.0, 1.0);
+    queue.has_point = 1;
+    if !index.is_null() {
+        unsafe { *index = 0; }
+    }
+    K_RESULT_OK
+}
+
+unsafe extern "C" fn host_param_changes_query_interface(
+    _this: *mut IParameterChanges,
+    _iid: *const c_char,
+    obj: *mut *mut c_void,
+) -> Tresult {
+    if !obj.is_null() {
+        unsafe { *obj = ptr::null_mut(); }
+    }
+    K_NO_INTERFACE
+}
+
+unsafe extern "C" fn host_param_changes_add_ref(this: *mut IParameterChanges) -> u32 {
+    if this.is_null() {
+        return 1;
+    }
+    let changes = unsafe { &mut *(this as *mut HostParameterChanges) };
+    changes.ref_count = changes.ref_count.saturating_add(1);
+    changes.ref_count
+}
+
+unsafe extern "C" fn host_param_changes_release(this: *mut IParameterChanges) -> u32 {
+    if this.is_null() {
+        return 1;
+    }
+    let changes = unsafe { &mut *(this as *mut HostParameterChanges) };
+    changes.ref_count = changes.ref_count.saturating_sub(1);
+    changes.ref_count
+}
+
+unsafe extern "C" fn host_param_changes_get_parameter_count(this: *mut IParameterChanges) -> i32 {
+    if this.is_null() {
+        return 0;
+    }
+    let changes = unsafe { &*(this as *mut HostParameterChanges) };
+    changes.queue_count
+}
+
+unsafe extern "C" fn host_param_changes_get_parameter_data(
+    this: *mut IParameterChanges,
+    index: i32,
+) -> *mut IParamValueQueue {
+    if this.is_null() || index < 0 {
+        return ptr::null_mut();
+    }
+    let changes = unsafe { &mut *(this as *mut HostParameterChanges) };
+    let idx = index as usize;
+    if idx >= changes.queue_count as usize || idx >= MAX_HOST_PARAM_CHANGES {
+        return ptr::null_mut();
+    }
+    (&mut changes.queues[idx] as *mut HostParamValueQueue).cast::<IParamValueQueue>()
+}
+
+unsafe extern "C" fn host_param_changes_add_parameter_data(
+    this: *mut IParameterChanges,
+    id: *mut u32,
+    index: *mut i32,
+) -> *mut IParamValueQueue {
+    if this.is_null() {
+        return ptr::null_mut();
+    }
+    let changes = unsafe { &mut *(this as *mut HostParameterChanges) };
+    if changes.queue_count as usize >= MAX_HOST_PARAM_CHANGES {
+        if !index.is_null() {
+            unsafe { *index = -1; }
+        }
+        return ptr::null_mut();
+    }
+    let slot = changes.queue_count as usize;
+    changes.queue_count += 1;
+    let param_id = if id.is_null() { 0 } else { unsafe { *id } };
+    changes.queues[slot].param_id = param_id;
+    changes.queues[slot].sample_offset = 0;
+    changes.queues[slot].value = 0.0;
+    changes.queues[slot].has_point = 0;
+    if !index.is_null() {
+        unsafe { *index = slot as i32; }
+    }
+    (&mut changes.queues[slot] as *mut HostParamValueQueue).cast::<IParamValueQueue>()
+}
+
+static HOST_PARAM_VALUE_QUEUE_VTBL: IParamValueQueueVtbl = IParamValueQueueVtbl {
+    query_interface: host_param_queue_query_interface,
+    add_ref: host_param_queue_add_ref,
+    release: host_param_queue_release,
+    get_parameter_id: host_param_queue_get_parameter_id,
+    get_point_count: host_param_queue_get_point_count,
+    get_point: host_param_queue_get_point,
+    add_point: host_param_queue_add_point,
+};
+
+static HOST_PARAMETER_CHANGES_VTBL: IParameterChangesVtbl = IParameterChangesVtbl {
+    query_interface: host_param_changes_query_interface,
+    add_ref: host_param_changes_add_ref,
+    release: host_param_changes_release,
+    get_parameter_count: host_param_changes_get_parameter_count,
+    get_parameter_data: host_param_changes_get_parameter_data,
+    add_parameter_data: host_param_changes_add_parameter_data,
+};
+
 #[repr(C)]
 struct IAudioProcessor {
     vtbl: *const IAudioProcessorVtbl,
@@ -667,6 +945,9 @@ pub struct Vst3Instance {
     /// Optional native editor bridge symbol.
     open_editor_fn: Option<DreamDawOpenEditorFn>,
 
+    /// Optional native bridge symbol for parameter writes.
+    set_parameter_fn: Option<DreamDawSetParameterFn>,
+
     /// Raw COM pointers (stored as address to keep struct `Send`).
     factory_ptr: usize,
     component_ptr: usize,
@@ -676,6 +957,9 @@ pub struct Vst3Instance {
     /// Cached transport context (set before each process() call).
     /// Updated via set_transport_context() — zero-alloc Copy struct.
     transport_ctx: TransportContext,
+
+    /// Pending normalized parameter writes (param_id/index, value 0..1).
+    pending_param_changes: Vec<(u32, f64)>,
 }
 
 impl Drop for Vst3Instance {
@@ -847,6 +1131,12 @@ impl Vst3Instance {
                 .ok()
                 .map(|f| *f)
         };
+        let set_parameter_fn = unsafe {
+            library
+                .get::<DreamDawSetParameterFn>(b"dream_daw_set_parameter\0")
+                .ok()
+                .map(|f| *f)
+        };
 
         info!(
             "[VST3] Successfully loaded: {} ({})",
@@ -873,11 +1163,13 @@ impl Vst3Instance {
             scratch_right: Vec::new(),
             process_fn,
             open_editor_fn,
+            set_parameter_fn,
             factory_ptr,
             component_ptr,
             processor_ptr,
             com_initialized: false,
             transport_ctx: TransportContext::default(),
+            pending_param_changes: Vec::new(),
         })
     }
 
@@ -897,11 +1189,13 @@ impl Vst3Instance {
             scratch_right: Vec::new(),
             process_fn: None,
             open_editor_fn: None,
+            set_parameter_fn: None,
             factory_ptr: 0,
             component_ptr: 0,
             processor_ptr: 0,
             com_initialized: false,
             transport_ctx: TransportContext::default(),
+            pending_param_changes: Vec::new(),
         }
     }
 }
@@ -1052,6 +1346,13 @@ impl PluginInstance for Vst3Instance {
                 channel_buffers32: out_ptrs.as_mut_ptr(),
                 channel_buffers64: ptr::null_mut(),
             };
+            let mut in_param_changes = HostParameterChanges::from_pending(&self.pending_param_changes);
+            self.pending_param_changes.clear();
+            let input_param_ptr = if in_param_changes.queue_count > 0 {
+                (&mut in_param_changes as *mut HostParameterChanges).cast::<c_void>()
+            } else {
+                ptr::null_mut()
+            };
             let mut process_ctx = Vst3ProcessContext::from_transport(&self.transport_ctx);
             let mut data = ProcessData {
                 process_mode: K_REALTIME,
@@ -1061,7 +1362,7 @@ impl PluginInstance for Vst3Instance {
                 num_outputs: 1,
                 inputs: &mut in_bus,
                 outputs: &mut out_bus,
-                input_parameter_changes: ptr::null_mut(),
+                input_parameter_changes: input_param_ptr,
                 output_parameter_changes: ptr::null_mut(),
                 input_events: ptr::null_mut(),
                 output_events: ptr::null_mut(),
@@ -1142,6 +1443,45 @@ impl PluginInstance for Vst3Instance {
 
     fn is_active(&self) -> bool {
         self.is_active
+    }
+
+    fn set_parameter(&mut self, index: u32, value: f64) -> Result<(), PluginError> {
+        if !self.is_active {
+            return Err(PluginError::InvalidState(
+                "Cannot set parameter: plugin is not active".to_string(),
+            ));
+        }
+        let normalized = value.clamp(0.0, 1.0);
+
+        if let Some(set_parameter) = self.set_parameter_fn {
+            let status = unsafe { set_parameter(index, normalized) };
+            if status == 0 {
+                return Ok(());
+            }
+            return Err(PluginError::ProcessError(format!(
+                "Native parameter bridge returned non-zero status: {status}"
+            )));
+        }
+
+        if self.com_initialized && self.processor_ptr != 0 {
+            if let Some((_, existing)) = self
+                .pending_param_changes
+                .iter_mut()
+                .find(|(param_id, _)| *param_id == index)
+            {
+                *existing = normalized;
+            } else {
+                if self.pending_param_changes.len() >= MAX_HOST_PARAM_CHANGES {
+                    let _ = self.pending_param_changes.remove(0);
+                }
+                self.pending_param_changes.push((index, normalized));
+            }
+            return Ok(());
+        }
+
+        Err(PluginError::InvalidState(
+            "Parameters are unavailable for this plugin instance".to_string(),
+        ))
     }
 
     fn open_editor(&mut self) -> Result<(), PluginError> {
@@ -1259,6 +1599,35 @@ impl PluginHost {
         let id = instance.id();
         info!("[PluginHost] Registered instance: {}", id);
 
+        self.instances.push(Box::new(instance));
+        Ok(id)
+    }
+
+    /// Registers an out-of-process sandboxed plugin instance.
+    ///
+    /// The external daemon is expected to own the actual plugin runtime;
+    /// this instance provides a shared-memory bridge under the same
+    /// `PluginInstance` trait contract.
+    pub fn load_vst3_sandboxed(
+        &mut self,
+        instance_id: Uuid,
+        descriptor: PluginDescriptor,
+        shared_region_path: std::path::PathBuf,
+        num_inputs: u16,
+        num_outputs: u16,
+        max_frames: u32,
+    ) -> Result<Uuid, PluginError> {
+        let mut instance = SandboxedPluginInstance::create(
+            instance_id,
+            descriptor,
+            shared_region_path,
+            num_inputs,
+            num_outputs,
+            max_frames,
+        )?;
+        instance.activate(self.sample_rate, self.buffer_size)?;
+        let id = instance.id();
+        info!("[PluginHost] Registered sandboxed instance: {}", id);
         self.instances.push(Box::new(instance));
         Ok(id)
     }

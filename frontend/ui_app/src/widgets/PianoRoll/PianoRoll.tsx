@@ -244,11 +244,6 @@ export const PianoRoll = memo(function PianoRoll({
     const clipBeats = Math.max(0.25, clipLengthBeats ?? (totalBars * beatsPerBar));
     const maxFadeFrames = Math.max(0, Math.round((clipDurationSamples ?? 0) * 0.5));
 
-    useEffect(() => setDraftFadeIn(fadeInFrames), [clipId, fadeInFrames]);
-    useEffect(() => setDraftFadeOut(fadeOutFrames), [clipId, fadeOutFrames]);
-    useEffect(() => setDraftFadeInCurve(fadeInCurve), [clipId, fadeInCurve]);
-    useEffect(() => setDraftFadeOutCurve(fadeOutCurve), [clipId, fadeOutCurve]);
-
     // Auto-fit horizontal: scale so the entire clip fills the available width.
     // Only apply MIN_PPB/MAX_PPB clamping to user-driven zoom overrides,
     // so auto-fit always shows the clip's exact natural length.
@@ -428,7 +423,7 @@ export const PianoRoll = memo(function PianoRoll({
                 commitNotesChange([...notes, newNote]);
             }
         },
-        [tool, yToPitch, pixelsPerBeat, snapBeat, beatsPerBar, notes, onNotesChange, totalBeats, currentGridInterval],
+        [tool, yToPitch, pixelsPerBeat, snapBeat, beatsPerBar, notes, commitNotesChange, totalBeats, currentGridInterval],
     );
 
     const handleNoteClick = useCallback(
@@ -453,7 +448,7 @@ export const PianoRoll = memo(function PianoRoll({
                 });
             }
         },
-        [tool, notes, onNotesChange],
+        [tool, notes, commitNotesChange],
     );
 
     const handleGridSelectionStart = useCallback((e: React.MouseEvent) => {
@@ -648,7 +643,7 @@ export const PianoRoll = memo(function PianoRoll({
             };
         });
         commitNotesChange(next);
-    }, [notes, onNotesChange, currentGridInterval, snapBeat, beatsPerBar, totalBeats, selectedNotes]);
+    }, [notes, commitNotesChange, currentGridInterval, snapBeat, beatsPerBar, totalBeats, selectedNotes]);
 
     const duplicateSelection = useCallback(() => {
         const targets = selectedNotes.size > 0 ? notes.filter((n) => selectedNotes.has(n.id)) : notes;
@@ -664,7 +659,7 @@ export const PianoRoll = memo(function PianoRoll({
         }));
         commitNotesChange([...notes, ...clones]);
         setSelectedNotes(new Set(clones.map((n) => n.id)));
-    }, [selectedNotes, notes, currentGridInterval, totalBeats, onNotesChange]);
+    }, [selectedNotes, notes, currentGridInterval, totalBeats, commitNotesChange]);
 
     const humanizeSelection = useCallback(() => {
         const targets = selectedNotes.size > 0 ? selectedNotes : new Set(notes.map((n) => n.id));
@@ -707,7 +702,7 @@ export const PianoRoll = memo(function PianoRoll({
                 ? { ...n, durationBeats: Math.max(0.125, Math.min(clipBeats - n.startBeat, durationById.get(n.id) ?? n.durationBeats)) }
                 : n
         )));
-    }, [selectedNotes, notes, clipBeats, onNotesChange]);
+    }, [selectedNotes, notes, clipBeats, commitNotesChange]);
 
     // Canvas note renderer
     useEffect(() => {

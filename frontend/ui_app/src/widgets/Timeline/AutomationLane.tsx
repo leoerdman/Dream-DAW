@@ -140,6 +140,7 @@ export const AutomationLane = memo(function AutomationLane({
                 x: beatToX(bp.beat),
                 y: valueToPxY(bp.value),
                 curve: bp.curve,
+                tension: bp.tension,
             }));
 
             let d = `M ${points[0].x} ${points[0].y}`;

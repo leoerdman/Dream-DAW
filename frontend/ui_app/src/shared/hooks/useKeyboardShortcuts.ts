@@ -14,7 +14,8 @@
 
 import { useEffect, useCallback } from 'react';
 import * as engine from '@/shared/api/engine';
-import type { ProjectTrack, TimelineClip } from '@/shared/stores/useEngineStore';
+import type { ProjectTrack } from '@/shared/stores/useEngineStore';
+import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -123,10 +124,38 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                     : null;
 
             // ── Space: Toggle Playback ─────────────────────────────
+            // Play-from-selection: before starting playback, determine
+            // the seek anchor (leftmost selected clip or edit cursor).
+            // On stop, the position is preserved (no seek needed).
             if (e.code === 'Space' && !e.repeat) {
                 if (inPianoRoll || inDeviceRack) return;
                 e.preventDefault();
                 e.stopPropagation();
+
+                const store = useEngineStore.getState();
+                const isCurrentlyPlaying = store.transport.is_playing;
+
+                // When STARTING playback, resolve the seek anchor:
+                if (!isCurrentlyPlaying) {
+                    if (selectedClipIds.length > 0) {
+                        // ── Selected clips → start from leftmost clip ──
+                        const selectedSet = new Set(selectedClipIds);
+                        let minStartBeat = Infinity;
+                        for (const clip of timelineClips) {
+                            if (selectedSet.has(clip.id) && clip.startBeat < minStartBeat) {
+                                minStartBeat = clip.startBeat;
+                            }
+                        }
+                        if (Number.isFinite(minStartBeat)) {
+                            engine.seekToBeat(Math.max(0, minStartBeat));
+                        }
+                    }
+                    // If edit cursor is active (≥ 0), the existing
+                    // DawShell effect handles seeking via queuedStartBeatRef.
+                    // If nothing is selected and no cursor, playback resumes
+                    // from the current position (default DAW behavior).
+                }
+
                 onTogglePlayback();
                 return;
             }

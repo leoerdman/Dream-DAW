@@ -67,6 +67,7 @@ impl LiveGraph {
         let empty_plan = ExecutionPlan {
             processing_order: Vec::new(),
             delay_compensation: Vec::new(),
+            edge_delay_compensation: Vec::new(),
             parallel_stages: Vec::new(),
         };
         Self {
@@ -113,12 +114,42 @@ impl LiveGraph {
     /// Computes an execution plan from a validated DAG.
     fn compute_plan(dag: &AudioDag) -> Result<ExecutionPlan, GraphError> {
         let processing_order = dag.topological_order()?;
-        let delay_compensation = pdc::compute_delay_compensation(dag, &processing_order);
+        // Runtime alignment uses edge-level compensation in the renderer.
+        // Keep node-level array zeroed for compatibility with legacy plans/tests.
+        let delay_compensation = vec![0u32; dag.graph().node_count()];
+        let edge_delay_compensation = pdc::compute_edge_delay_compensation(dag, &processing_order);
         let parallel_stages = dag.parallel_stages_from_order(&processing_order);
+
+        debug_assert_eq!(
+            parallel_stages.iter().map(|s| s.len()).sum::<usize>(),
+            processing_order.len(),
+            "parallel stages must cover every node exactly once",
+        );
+        debug_assert!(
+            {
+                let mut stage_of = std::collections::HashMap::new();
+                for (stage_idx, stage) in parallel_stages.iter().enumerate() {
+                    for &node in stage {
+                        stage_of.insert(node, stage_idx);
+                    }
+                }
+
+                dag.graph().edge_references().all(|e| {
+                    let from = petgraph::visit::EdgeRef::source(&e);
+                    let to = petgraph::visit::EdgeRef::target(&e);
+                    match (stage_of.get(&from), stage_of.get(&to)) {
+                        (Some(&a), Some(&b)) => a < b,
+                        _ => false,
+                    }
+                })
+            },
+            "stage partition must preserve DAG dependency direction",
+        );
 
         Ok(ExecutionPlan {
             processing_order,
             delay_compensation,
+            edge_delay_compensation,
             parallel_stages,
         })
     }

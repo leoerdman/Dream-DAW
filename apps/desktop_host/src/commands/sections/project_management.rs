@@ -1561,26 +1561,27 @@ fn collect_devices_in_container<'a, 'input>(
             .descendants()
             .filter(|n| n.is_element() && n.has_tag_name("DeviceChain"))
         {
-            // First try direct <Devices> child (simple case)
-            if let Some(nested_devices) = nested_chain
-                .children()
-                .find(|n| n.is_element() && n.has_tag_name("Devices"))
-            {
+            if let Some(nested_devices) = find_first_devices_container(nested_chain) {
                 collect_devices_in_container(nested_devices, out);
-            } else {
-                // Ableton may wrap in AudioToAudioDeviceChain, MidiToAudioDeviceChain, etc.
-                // Search one level deeper for a <Devices> node.
-                for wrapper in nested_chain.children().filter(|n| n.is_element()) {
-                    if let Some(nested_devices) = wrapper
-                        .children()
-                        .find(|n| n.is_element() && n.has_tag_name("Devices"))
-                    {
-                        collect_devices_in_container(nested_devices, out);
-                    }
-                }
             }
         }
     }
+}
+
+fn find_first_devices_container<'a, 'input>(
+    node: roxmltree::Node<'a, 'input>,
+) -> Option<roxmltree::Node<'a, 'input>> {
+    for child in node.children().filter(|n| n.is_element()) {
+        if child.has_tag_name("Devices") {
+            return Some(child);
+        }
+    }
+    for child in node.children().filter(|n| n.is_element()) {
+        if let Some(found) = find_first_devices_container(child) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 fn collect_track_devices<'a, 'input>(
@@ -1591,23 +1592,10 @@ fn collect_track_devices<'a, 'input>(
         .children()
         .filter(|n| n.is_element() && n.has_tag_name("DeviceChain"))
     {
-        // Ableton may store root devices either directly:
-        //   DeviceChain > Devices
-        // or under wrappers:
-        //   DeviceChain > AudioToAudioDeviceChain > Devices
-        //   DeviceChain > MidiToAudioDeviceChain > Devices
-        let root_devices = chain
-            .children()
-            .find(|n| n.is_element() && n.has_tag_name("Devices"))
-            .or_else(|| {
-                chain.children().filter(|n| n.is_element()).find_map(|wrapper| {
-                    wrapper
-                        .children()
-                        .find(|n| n.is_element() && n.has_tag_name("Devices"))
-                })
-            });
-
-        if let Some(root_devices) = root_devices {
+        // Ableton can wrap the actual devices container in multiple nested
+        // `*DeviceChain` nodes, so we search recursively for the first
+        // reachable <Devices> container under this root chain.
+        if let Some(root_devices) = find_first_devices_container(chain) {
             collect_devices_in_container(root_devices, &mut devices);
         }
     }
@@ -1763,6 +1751,38 @@ mod als_import_tests {
     }
 
     #[test]
+    fn collect_track_devices_reads_deeply_nested_root_chain_devices() {
+        let xml = r#"
+        <Track>
+          <DeviceChain>
+            <MainSequencer />
+            <DeviceChain>
+              <AudioToAudioDeviceChain>
+                <Devices>
+                  <PluginDevice Id="21"/>
+                  <Eq8 Id="22"/>
+                </Devices>
+              </AudioToAudioDeviceChain>
+            </DeviceChain>
+          </DeviceChain>
+        </Track>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let track = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Track"))
+            .expect("track");
+
+        let names: Vec<String> = collect_track_devices(track)
+            .into_iter()
+            .map(|n| n.tag_name().name().to_string())
+            .collect();
+
+        assert!(names.iter().any(|n| n == "PluginDevice"));
+        assert!(names.iter().any(|n| n == "Eq8"));
+    }
+
+    #[test]
     fn import_track_devices_keeps_full_chain_from_wrapper_root() {
         let xml = r#"
         <AudioTrack>
@@ -1799,6 +1819,45 @@ mod als_import_tests {
         );
 
         assert_eq!(track.effects.len(), 3);
+    }
+
+    #[test]
+    fn parse_als_rack_supports_deep_branch_device_chain_wrappers() {
+        let xml = r#"
+        <AudioEffectGroupDevice Id="1">
+          <Branches>
+            <AudioEffectBranch Id="0">
+              <Name Value="Chain A" />
+              <DeviceChain>
+                <DeviceChain>
+                  <AudioToAudioDeviceChain>
+                    <Devices>
+                      <Eq8 Id="2"/>
+                      <PluginDevice Id="3">
+                        <UserName Value="Third Party Rack FX" />
+                      </PluginDevice>
+                    </Devices>
+                  </AudioToAudioDeviceChain>
+                </DeviceChain>
+              </DeviceChain>
+            </AudioEffectBranch>
+          </Branches>
+        </AudioEffectGroupDevice>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let rack_node = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("AudioEffectGroupDevice"))
+            .expect("rack");
+        let external_plugins = ExternalPluginIndex {
+            by_name: std::collections::HashMap::new(),
+            by_stem: std::collections::HashMap::new(),
+            by_file_name: std::collections::HashMap::new(),
+            by_normalized: std::collections::HashMap::new(),
+        };
+        let rack = parse_als_rack(rack_node, &external_plugins, Path::new("/tmp/Test.als"));
+        assert_eq!(rack.chains.len(), 1);
+        assert_eq!(rack.chains[0].devices.len(), 2);
     }
 
     #[test]
@@ -3930,23 +3989,9 @@ fn parse_als_rack_chains(
             .find(|n| n.is_element() && n.has_tag_name("DeviceChain"));
 
         if let Some(dc) = device_chain {
-            // Ableton nests devices in:
-            //   DeviceChain > AudioToAudioDeviceChain > Devices
-            //   DeviceChain > MidiToAudioDeviceChain > Devices
-            //   DeviceChain > Devices (direct)
-            let devices_node = dc
-                .children()
-                .find(|n| n.is_element() && n.has_tag_name("Devices"))
-                .or_else(|| {
-                    // Check wrapper: AudioToAudioDeviceChain, MidiToAudioDeviceChain, etc.
-                    dc.children()
-                        .filter(|n| n.is_element())
-                        .find_map(|wrapper| {
-                            wrapper
-                                .children()
-                                .find(|n| n.is_element() && n.has_tag_name("Devices"))
-                        })
-                });
+            // Ableton may nest the branch chain under multiple wrapper levels
+            // before the actual <Devices> node appears.
+            let devices_node = find_first_devices_container(dc);
 
             if let Some(devs) = devices_node {
                 for child_device in devs.children().filter(|n| n.is_element()) {

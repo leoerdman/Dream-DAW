@@ -63,6 +63,32 @@ async fn import_audio_file(
     let num_channels = decoded.channels.len();
     let duration_seconds = num_frames as f64 / sample_rate as f64;
 
+    // Build waveform peak sidecar in background (non-blocking for import UX).
+    {
+        let mono_for_peaks: Vec<f32> = if decoded.channels.len() <= 1 {
+            decoded
+                .channels
+                .first()
+                .cloned()
+                .unwrap_or_default()
+        } else {
+            decoded.channels[0]
+                .iter()
+                .zip(decoded.channels[1].iter())
+                .map(|(l, r)| (l + r) * 0.5)
+                .collect()
+        };
+        let peaks_source = file_path.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(e) = PeakCache::generate_to_sidecar(&mono_for_peaks, &peaks_source, sample_rate) {
+                log::warn!(
+                    "[Waveform] failed to write peak cache sidecar for '{}': {e}",
+                    peaks_source.display()
+                );
+            }
+        });
+    }
+
     // Convert AudioBuffer → ClipAudio for the pool
     let clip_audio = ClipAudio {
         source_path: path.clone(),
@@ -133,4 +159,3 @@ async fn import_audio_file(
         frames: num_frames,
     })
 }
-

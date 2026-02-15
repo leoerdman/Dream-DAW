@@ -277,8 +277,9 @@ impl GraphRenderer {
 
         // Log the plan for diagnostics
         log::info!(
-            "[GraphRenderer] Plan updated: {} nodes, {} with PDC",
+            "[GraphRenderer] Plan updated: {} nodes, {} stages, {} with PDC",
             self.active_node_count,
+            plan.parallel_stages.len(),
             plan.delay_compensation.iter().filter(|&&d| d > 0).count(),
         );
 
@@ -505,9 +506,11 @@ mod tests {
     fn make_plan(dag: &AudioDag) -> ExecutionPlan {
         let order = dag.topological_order().unwrap();
         let compensation = pdc::compute_delay_compensation(dag, &order);
+        let stages = dag.parallel_stages_from_order(&order);
         ExecutionPlan {
             processing_order: order,
             delay_compensation: compensation,
+            parallel_stages: stages,
         }
     }
 

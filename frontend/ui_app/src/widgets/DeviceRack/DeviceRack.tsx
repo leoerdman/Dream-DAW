@@ -165,6 +165,12 @@ const DEVICE_PARAM_PRESETS: Record<
         { name: 'Sustain', value: 1.0, min: 0, max: 1, suffix: '', step: 0.01 },
         { name: 'Release', value: 0.05, min: 0.001, max: 8.0, suffix: 's', step: 0.001 },
         { name: 'Root', value: 60, min: 0, max: 127, suffix: '', step: 1 },
+        { name: 'Cutoff', value: 20000, min: 20, max: 20000, suffix: 'Hz', step: 1 },
+        { name: 'Res', value: 0, min: 0, max: 0.99, suffix: '', step: 0.01 },
+        { name: 'FiltType', value: 0, min: 0, max: 3, suffix: '', step: 1 },
+        { name: 'LfoRate', value: 1, min: 0.01, max: 20, suffix: 'Hz', step: 0.01 },
+        { name: 'LfoDepth', value: 0, min: 0, max: 1, suffix: '', step: 0.01 },
+        { name: 'LfoTarget', value: 0, min: 0, max: 2, suffix: '', step: 1 },
     ],
     waveSynth: [
         { name: 'Osc1Wave', value: 0, min: 0, max: 3, suffix: '', step: 1 },
@@ -1303,20 +1309,20 @@ const DeviceNode = ({
                 ? 860
                 : 720
         : device.effectType === 'sampler'
-            ? 360
+            ? 520
             : device.effectType === 'waveSynth'
-                ? 460
+                ? 560
                 : device.effectType === 'instrument'
-                    ? 320
+                    ? 420
                     : device.effectType === 'eq'
-                        ? 280
+                        ? 420
                         : device.effectType === 'autoFilter' || device.effectType === 'autoPan' || device.effectType === 'phaser' || device.effectType === 'flanger'
-                            ? 300
+                            ? 360
                             : device.effectType === 'midiPitch' || device.effectType === 'midiScale' || device.effectType === 'midiVelocity' || device.effectType === 'midiRandom'
-                                ? 280
+                                ? 320
                                 : device.effectType === 'gate'
-                                    ? 280
-                                    : 240;
+                                    ? 340
+                                    : 320;
 
     return (
         <div
@@ -1787,7 +1793,7 @@ const PluginGuiSurface = ({
         return (
             <div style={{
                 display: 'grid',
-                gridTemplateRows: '78px auto',
+                gridTemplateRows: '102px auto',
                 height: '100%',
                 gap: 4,
                 border: pluginPanelCardBaseStyle.border,
@@ -1818,7 +1824,7 @@ const PluginGuiSurface = ({
                     <svg
                         viewBox="0 0 1000 90"
                         preserveAspectRatio="none"
-                        style={{ position: 'absolute', left: 8, right: 8, top: 20, height: 40, width: 'calc(100% - 16px)' }}
+                        style={{ position: 'absolute', left: 8, right: 8, top: 18, height: 58, width: 'calc(100% - 16px)' }}
                     >
                         <rect x="0" y="0" width="1000" height="90" fill="color-mix(in srgb, var(--surface-1) 88%, #14213a)" />
                         {Array.from({ length: 18 }).map((_, i) => (
@@ -1906,25 +1912,28 @@ const PluginGuiSurface = ({
                 </div>
                 <div style={{
                     display: 'grid',
-                    gridTemplateColumns: '1fr auto',
-                    gap: 10,
+                    gridTemplateColumns: '1fr',
+                    gap: 8,
                     alignItems: 'center',
-                    padding: '2px 8px 6px 8px',
+                    padding: '4px 8px 8px 8px',
                     background: 'rgba(16, 20, 28, 0.55)',
                 }}>
                     <div style={{
                         display: 'grid',
-                        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                        gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
                         gap: 6,
                         fontSize: 9,
                         color: '#9fb2cf',
                     }}>
                         <div><div>Attack</div><div style={{ color: '#5ab2ff', fontFamily: 'var(--font-mono)' }}>{getParam('Attack', '0.01s')}</div></div>
                         <div><div>Decay</div><div style={{ color: '#5ab2ff', fontFamily: 'var(--font-mono)' }}>{getParam('Decay', '0.10s')}</div></div>
+                        <div><div>Sustain</div><div style={{ color: '#5ab2ff', fontFamily: 'var(--font-mono)' }}>{getParam('Sustain', '1.00')}</div></div>
                         <div><div>Release</div><div style={{ color: '#5ab2ff', fontFamily: 'var(--font-mono)' }}>{getParam('Release', '0.05s')}</div></div>
+                        <div><div>Cutoff</div><div style={{ color: '#5ab2ff', fontFamily: 'var(--font-mono)' }}>{getParam('Cutoff', '20kHz')}</div></div>
+                        <div><div>Res</div><div style={{ color: '#5ab2ff', fontFamily: 'var(--font-mono)' }}>{getParam('Res', '0.00')}</div></div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {device.params.slice(0, 6).map((p) => (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', alignItems: 'center', gap: 8 }}>
+                        {device.params.slice(0, 12).map((p) => (
                             <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
                         ))}
                     </div>

@@ -188,6 +188,12 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     }, []);
 
     // ── Keyboard Shortcuts ────────────────────────────────────────────
+    // NOTE: Cmd+N and Cmd+O are handled exclusively by the native macOS
+    // menu (useNativeMenu) via Tauri accelerators. Registering them here
+    // too would cause duplicate handlers: both would call pickProjectFile,
+    // openProject, and fetchProject concurrently, creating a race where
+    // the stale-response guard discards the first result, leaving the UI
+    // stuck on stale tracks.
 
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
@@ -207,25 +213,11 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 handleSaveAs();
                 return;
             }
-
-            // Cmd+N — New Project
-            if (mod && key === 'n') {
-                e.preventDefault();
-                handleNew();
-                return;
-            }
-
-            // Cmd+O — Open Project
-            if (mod && key === 'o') {
-                e.preventDefault();
-                handleOpen();
-                return;
-            }
         };
 
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [handleSave, handleSaveAs, handleNew, handleOpen]);
+    }, [handleSave, handleSaveAs]);
 
     // ── Auto-Backup Timer ─────────────────────────────────────────────
 

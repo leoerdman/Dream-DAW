@@ -1279,10 +1279,17 @@ pub fn start_audio_thread_on_device(
                                 let fx = &midi_track.fx;
 
                                 // Schedule active notes for this buffer
-                                let events = MidiScheduler::find_active(
+                                // ▸ Loop-aware: splits the buffer at the loop
+                                //   boundary so MIDI notes at beat 1 of the
+                                //   loop are correctly triggered after wrap.
+                                let midi_loop_region = render_ctx.loop_region.as_ref().map(|r| {
+                                    dream_clip_engine::LoopRegion::new(r.start, r.end)
+                                });
+                                let events = MidiScheduler::find_active_looped(
                                     &midi_track.clips,
                                     midi_playhead_pos,
                                     frame_count,
+                                    midi_loop_region.as_ref(),
                                 );
 
                                 // Process note-on/off events

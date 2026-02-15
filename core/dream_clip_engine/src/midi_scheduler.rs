@@ -16,6 +16,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use dream_models::midi::MidiClip;
+use crate::scheduler::LoopRegion;
 
 /// A MIDI note event scheduled for the current buffer.
 ///
@@ -140,6 +141,70 @@ impl MidiScheduler {
         events.sort_by_key(|e| e.buffer_onset);
         events
     }
+
+    /// Loop-aware MIDI note scheduling.
+    ///
+    /// When the buffer window crosses the loop end boundary, the buffer is
+    /// split into two segments:
+    ///   1. **Pre-wrap**: from `playhead_pos` to `loop_region.end`
+    ///   2. **Post-wrap**: from `loop_region.start` for the remaining frames
+    ///
+    /// Notes in both segments are scheduled with correct buffer offsets.
+    /// This mirrors `ClipScheduler::fill_active_looped_with_tmp()` for audio.
+    ///
+    /// Without this, MIDI notes exactly at the first beat of the loop
+    /// would be missed after the loop restarts.
+    pub fn find_active_looped(
+        clips: &[MidiClip],
+        playhead_pos: i64,
+        frame_count: usize,
+        loop_region: Option<&LoopRegion>,
+    ) -> Vec<ScheduledNote> {
+        // If no valid loop region, fall back to standard linear scheduling.
+        let lr = match loop_region {
+            Some(lr) if lr.is_valid() => lr,
+            _ => return Self::find_active(clips, playhead_pos, frame_count),
+        };
+
+        let buffer_end = playhead_pos + frame_count as i64;
+
+        // If the buffer doesn't cross the loop end, standard scheduling is fine.
+        if buffer_end <= lr.end {
+            return Self::find_active(clips, playhead_pos, frame_count);
+        }
+
+        // ── Buffer crosses loop boundary — split into two segments ──
+
+        // Pre-wrap: frames from playhead to loop end
+        let pre_wrap_frames = (lr.end - playhead_pos).max(0) as usize;
+        // Post-wrap: remaining frames from loop start
+        let post_wrap_frames = frame_count.saturating_sub(pre_wrap_frames);
+
+        let mut events = Vec::new();
+
+        // Schedule notes in the pre-wrap segment
+        if pre_wrap_frames > 0 {
+            events = Self::find_active(clips, playhead_pos, pre_wrap_frames);
+        }
+
+        // Schedule notes in the post-wrap segment (from loop start)
+        if post_wrap_frames > 0 {
+            let post_events = Self::find_active(clips, lr.start, post_wrap_frames);
+            for mut note in post_events {
+                // Shift buffer offsets to account for pre-wrap frames
+                note.buffer_onset += pre_wrap_frames;
+                note.buffer_offset_end += pre_wrap_frames;
+                // Clamp to total buffer size
+                note.buffer_onset = note.buffer_onset.min(frame_count);
+                note.buffer_offset_end = note.buffer_offset_end.min(frame_count);
+                events.push(note);
+            }
+        }
+
+        // Re-sort by onset time after merging both segments
+        events.sort_by_key(|e| e.buffer_onset);
+        events
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -243,5 +308,97 @@ mod tests {
         let clip = make_midi_clip(0, 44100, vec![]);
         let events = MidiScheduler::find_active(&[clip], 0, 1024);
         assert!(events.is_empty());
+    }
+
+    // ── Loop-Aware Scheduling Tests ────────────────────────────────────
+
+    #[test]
+    fn looped_no_wrap_same_as_standard() {
+        let clip = make_midi_clip(0, 44100, vec![
+            MidiNote::new(60, 100, 100, 500),
+        ]);
+        let lr = LoopRegion::new(0, 44100);
+
+        let standard = MidiScheduler::find_active(&[clip.clone()], 0, 1024);
+        let looped = MidiScheduler::find_active_looped(&[clip], 0, 1024, Some(&lr));
+
+        assert_eq!(standard.len(), looped.len());
+        assert_eq!(standard[0].pitch, looped[0].pitch);
+        assert_eq!(standard[0].buffer_onset, looped[0].buffer_onset);
+    }
+
+    #[test]
+    fn looped_note_at_loop_start_after_wrap() {
+        // This is the exact bug scenario:
+        // Loop region: 0..4000, Clip: 0..4000
+        // Kick note at frame 0 (first beat of the loop)
+        // Playhead at 3800, buffer size 512 → crosses loop end at 4000
+        // Pre-wrap: 3800..4000 (200 frames)
+        // Post-wrap: 0..312 (from loop start)
+        // The kick at frame 0 MUST be scheduled in the post-wrap segment.
+        let clip = make_midi_clip(0, 4000, vec![
+            MidiNote::new(36, 100, 0, 200), // Kick at frame 0, 200 frames long
+        ]);
+        let lr = LoopRegion::new(0, 4000);
+
+        let events = MidiScheduler::find_active_looped(&[clip], 3800, 512, Some(&lr));
+
+        // Should find the note in the post-wrap segment
+        assert_eq!(events.len(), 1, "Kick at loop start must be scheduled");
+        assert_eq!(events[0].pitch, 36);
+        assert!(events[0].is_note_on, "Must trigger note-on");
+        // Buffer onset should be at pre_wrap_frames (200) + note offset (0) = 200
+        assert_eq!(events[0].buffer_onset, 200);
+    }
+
+    #[test]
+    fn looped_notes_both_segments() {
+        // Note near loop end AND note at loop start
+        let clip = make_midi_clip(0, 4000, vec![
+            MidiNote::new(36, 100, 0, 200),    // At frame 0 (loop start)
+            MidiNote::new(42, 100, 3900, 50),  // Near loop end
+        ]);
+        let lr = LoopRegion::new(0, 4000);
+
+        // Playhead at 3800, buffer 512: pre-wrap 200 frames, post-wrap 312 frames
+        let events = MidiScheduler::find_active_looped(&[clip], 3800, 512, Some(&lr));
+
+        assert_eq!(events.len(), 2, "Should schedule notes from both segments");
+        // First should be the hi-hat near loop end (onset = 3900 - 3800 = 100)
+        assert_eq!(events[0].pitch, 42);
+        assert_eq!(events[0].buffer_onset, 100);
+        // Second should be the kick at loop start (onset = 200 + 0 = 200)
+        assert_eq!(events[1].pitch, 36);
+        assert_eq!(events[1].buffer_onset, 200);
+    }
+
+    #[test]
+    fn looped_no_region_falls_back() {
+        let clip = make_midi_clip(0, 44100, vec![
+            MidiNote::new(60, 100, 100, 500),
+        ]);
+        let events = MidiScheduler::find_active_looped(&[clip], 0, 1024, None);
+        assert_eq!(events.len(), 1);
+    }
+
+    #[test]
+    fn looped_with_offset_loop_region() {
+        // Loop region doesn't start at 0
+        // Loop: 10000..14000, clip: 10000..14000
+        // Note at frame 0 inside clip (absolute frame 10000 = loop start)
+        let clip = make_midi_clip(10000, 4000, vec![
+            MidiNote::new(60, 100, 0, 200), // absolute: 10000..10200
+        ]);
+        let lr = LoopRegion::new(10000, 14000);
+
+        // Playhead at 13800, buffer 512 → crosses 14000
+        // Pre-wrap: 200 frames (13800..14000)
+        // Post-wrap: 312 frames (10000..10312)
+        let events = MidiScheduler::find_active_looped(&[clip], 13800, 512, Some(&lr));
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].pitch, 60);
+        assert!(events[0].is_note_on);
+        assert_eq!(events[0].buffer_onset, 200);
     }
 }

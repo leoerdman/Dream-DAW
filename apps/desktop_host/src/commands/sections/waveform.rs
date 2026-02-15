@@ -1,5 +1,56 @@
 // ═══════════════════════════════════════════════════════════════════════
 
+fn mono_from_channels(channels: &[Vec<f32>]) -> Vec<f32> {
+    let left = channels.first().map(|c| c.as_slice()).unwrap_or(&[]);
+    let right = channels.get(1).map(|c| c.as_slice()).unwrap_or(left);
+    if left.is_empty() {
+        return Vec::new();
+    }
+    if std::ptr::eq(left, right) {
+        return left.to_vec();
+    }
+    left.iter()
+        .zip(right.iter())
+        .map(|(l, r)| (l + r) * 0.5)
+        .collect()
+}
+
+fn load_or_generate_peaks_from_cache_or_source(
+    file_path: &str,
+    clip_pool_state: &ClipPoolState,
+) -> Result<WaveformPeaks, String> {
+    let source_path = PathBuf::from(file_path);
+
+    if let Ok(peaks) = PeakCache::load_from_sidecar(&source_path) {
+        return Ok(peaks);
+    }
+
+    let pool_audio = {
+        let pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+        pool.get(file_path)
+    };
+    if let Some(audio) = pool_audio {
+        let mono = if audio.channels.len() <= 1 {
+            audio.left().to_vec()
+        } else {
+            audio.left()
+                .iter()
+                .zip(audio.right().iter())
+                .map(|(l, r)| (l + r) * 0.5)
+                .collect()
+        };
+        return PeakCache::generate_to_sidecar(&mono, &source_path, audio.sample_rate)
+            .map_err(|e| format!("failed to generate peak cache for '{}': {e}", source_path.display()));
+    }
+
+    // Last-resort fallback for first-open cases: decode directly from source.
+    let decoded = AudioReader::read(&source_path)
+        .map_err(|e| format!("failed to decode audio for peaks '{}': {e}", source_path.display()))?;
+    let mono = mono_from_channels(&decoded.channels);
+    PeakCache::generate_to_sidecar(&mono, &source_path, decoded.sample_rate)
+        .map_err(|e| format!("failed to generate peak cache for '{}': {e}", source_path.display()))
+}
+
 /// Returns multi-resolution waveform peak data for a given audio file.
 ///
 /// Peak data is generated from the decoded audio in the ClipPool.
@@ -11,30 +62,13 @@ async fn get_waveform_peaks(
     file_path: String,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
 ) -> Result<WaveformPeaks, String> {
-    let pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
-
-    let audio = pool
-        .get(&file_path)
-        .ok_or_else(|| format!("Audio not loaded: {file_path}"))?;
-
-    // Convert stereo to mono for peak generation (average L+R)
-    let left = audio.left();
-    let right = audio.right();
-    let mono: Vec<f32> = if right.is_empty() {
-        left.to_vec()
-    } else {
-        left.iter()
-            .zip(right.iter())
-            .map(|(l, r)| (l + r) * 0.5)
-            .collect()
-    };
-
-    let peaks = PeakCache::generate(&mono, &file_path, audio.sample_rate);
+    let peaks = load_or_generate_peaks_from_cache_or_source(&file_path, &clip_pool_state)?;
 
     log::info!(
-        "[IPC] get_waveform_peaks: '{}' → {} samples, 4 mip levels",
+        "[IPC] get_waveform_peaks: '{}' → {} samples, {} mip levels",
         file_path,
-        mono.len(),
+        peaks.total_samples,
+        peaks.mip_levels.len(),
     );
 
     Ok(peaks)
@@ -88,25 +122,7 @@ async fn get_waveform_peaks_binary(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
 ) -> Result<WaveformPeaksBinaryResponse, String> {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
-
-    let pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
-
-    let audio = pool
-        .get(&file_path)
-        .ok_or_else(|| format!("Audio not loaded: {file_path}"))?;
-
-    let left = audio.left();
-    let right = audio.right();
-    let mono: Vec<f32> = if right.is_empty() {
-        left.to_vec()
-    } else {
-        left.iter()
-            .zip(right.iter())
-            .map(|(l, r)| (l + r) * 0.5)
-            .collect()
-    };
-
-    let peaks = PeakCache::generate(&mono, &file_path, audio.sample_rate);
+    let peaks = load_or_generate_peaks_from_cache_or_source(&file_path, &clip_pool_state)?;
 
     // Flatten all mip levels into a single f32 buffer: [min, max, min, max, ...]
     let mut flat_floats: Vec<f32> = Vec::new();
@@ -138,7 +154,7 @@ async fn get_waveform_peaks_binary(
     log::info!(
         "[IPC] get_waveform_peaks_binary: '{}' → {} samples, {} floats, {} bytes base64",
         file_path,
-        mono.len(),
+        peaks.total_samples,
         flat_floats.len(),
         encoded.len(),
     );
@@ -152,3 +168,25 @@ async fn get_waveform_peaks_binary(
     })
 }
 
+/// Returns one waveform LOD level as raw bytes (`Vec<u8>`) containing
+/// contiguous `WaveformPeakPair` items (`min`, `max` as `f32`).
+///
+/// This is the zero-copy IPC payload for heavy timeline waveform drawing:
+/// frontend can consume it directly as `Float32Array`/`DataView`.
+#[tauri::command]
+async fn get_waveform_peaks_lod_binary(
+    file_path: String,
+    lod_level: usize,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<Vec<u8>, String> {
+    let peaks = load_or_generate_peaks_from_cache_or_source(&file_path, &clip_pool_state)?;
+
+    let bytes = PeakCache::lod_level_bytes(&peaks, lod_level);
+    log::info!(
+        "[IPC] get_waveform_peaks_lod_binary: '{}' lod={} -> {} bytes",
+        file_path,
+        lod_level,
+        bytes.len(),
+    );
+    Ok(bytes)
+}

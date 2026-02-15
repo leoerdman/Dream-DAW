@@ -15,6 +15,11 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+
+use bytemuck::{Pod, Zeroable};
 use serde::{Deserialize, Serialize};
 
 /// Samples-per-peak at each mip level.
@@ -22,6 +27,8 @@ const MIP_FACTORS: [usize; 4] = [256, 1024, 4096, 16384];
 
 /// Number of mip levels.
 const NUM_MIP_LEVELS: usize = MIP_FACTORS.len();
+const PEAK_CACHE_MAGIC: [u8; 4] = *b"DPK1";
+const PEAK_CACHE_VERSION: u32 = 1;
 
 /// A single min/max peak pair.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -69,6 +76,30 @@ pub struct WaveformPeaks {
 
 /// Generates and caches waveform peaks.
 pub struct PeakCache;
+
+/// Binary waveform peak pair (`min`, `max`) for zero-copy IPC / cache IO.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+pub struct WaveformPeakPair {
+    pub min: f32,
+    pub max: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PeakCacheHeader {
+    magic: [u8; 4],
+    version: u32,
+    sample_rate: u32,
+    level_count: u32,
+    total_samples: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PeakCacheLevelIndex {
+    samples_per_peak: u32,
+    peak_count: u64,
+    peak_offset_pairs: u64,
+}
 
 impl PeakCache {
     /// Generates multi-resolution peak data from raw audio samples.
@@ -159,6 +190,206 @@ impl PeakCache {
         let level = &peaks.mip_levels[mip_level.min(peaks.mip_levels.len() - 1)];
         level.peaks.iter().map(|p| p.amplitude()).collect()
     }
+
+    /// Returns sidecar `.peaks` path for a source audio file.
+    ///
+    /// Example:
+    /// - `/path/kick.wav` -> `/path/kick.wav.peaks`
+    pub fn sidecar_path_for(source_path: &Path) -> PathBuf {
+        let mut out = source_path.to_path_buf();
+        let ext = source_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .filter(|e| !e.is_empty())
+            .map(|e| format!("{e}.peaks"))
+            .unwrap_or_else(|| "peaks".to_string());
+        out.set_extension(ext);
+        out
+    }
+
+    /// Generates peaks and persists sidecar cache next to source file.
+    pub fn generate_to_sidecar(
+        samples: &[f32],
+        source_path: &Path,
+        sample_rate: u32,
+    ) -> io::Result<WaveformPeaks> {
+        let source_id = source_path.to_string_lossy().to_string();
+        let peaks = Self::generate(samples, &source_id, sample_rate);
+        let _ = Self::save_to_sidecar(&peaks, source_path)?;
+        Ok(peaks)
+    }
+
+    /// Saves a `.peaks` binary cache sidecar.
+    pub fn save_to_sidecar(peaks: &WaveformPeaks, source_path: &Path) -> io::Result<PathBuf> {
+        let sidecar = Self::sidecar_path_for(source_path);
+        let mut indices = Vec::<PeakCacheLevelIndex>::with_capacity(peaks.mip_levels.len());
+        let mut flat_pairs = Vec::<WaveformPeakPair>::new();
+
+        for level in &peaks.mip_levels {
+            let offset_pairs = flat_pairs.len() as u64;
+            let peak_count = level.peaks.len() as u64;
+            indices.push(PeakCacheLevelIndex {
+                samples_per_peak: level.samples_per_peak as u32,
+                peak_count,
+                peak_offset_pairs: offset_pairs,
+            });
+            flat_pairs.extend(level.peaks.iter().map(|p| WaveformPeakPair {
+                min: p.min,
+                max: p.max,
+            }));
+        }
+
+        let header = PeakCacheHeader {
+            magic: PEAK_CACHE_MAGIC,
+            version: PEAK_CACHE_VERSION,
+            sample_rate: peaks.sample_rate,
+            level_count: indices.len() as u32,
+            total_samples: peaks.total_samples as u64,
+        };
+
+        let mut bytes = Vec::<u8>::with_capacity(
+            24
+                + indices.len() * 20
+                + flat_pairs.len() * std::mem::size_of::<WaveformPeakPair>(),
+        );
+        bytes.extend_from_slice(&header.magic);
+        bytes.extend_from_slice(&header.version.to_le_bytes());
+        bytes.extend_from_slice(&header.sample_rate.to_le_bytes());
+        bytes.extend_from_slice(&header.level_count.to_le_bytes());
+        bytes.extend_from_slice(&header.total_samples.to_le_bytes());
+        for idx in &indices {
+            bytes.extend_from_slice(&idx.samples_per_peak.to_le_bytes());
+            bytes.extend_from_slice(&idx.peak_count.to_le_bytes());
+            bytes.extend_from_slice(&idx.peak_offset_pairs.to_le_bytes());
+        }
+        bytes.extend_from_slice(bytemuck::cast_slice(flat_pairs.as_slice()));
+
+        fs::write(&sidecar, bytes)?;
+        Ok(sidecar)
+    }
+
+    /// Loads peaks from `.peaks` sidecar.
+    pub fn load_from_sidecar(source_path: &Path) -> io::Result<WaveformPeaks> {
+        let sidecar = Self::sidecar_path_for(source_path);
+        let bytes = fs::read(&sidecar)?;
+
+        let header_size = 24;
+        if bytes.len() < header_size {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "peak cache header too small",
+            ));
+        }
+
+        let header = PeakCacheHeader {
+            magic: [bytes[0], bytes[1], bytes[2], bytes[3]],
+            version: u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+            sample_rate: u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]),
+            level_count: u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]),
+            total_samples: u64::from_le_bytes([
+                bytes[16], bytes[17], bytes[18], bytes[19], bytes[20], bytes[21], bytes[22],
+                bytes[23],
+            ]),
+        };
+        if header.magic != PEAK_CACHE_MAGIC || header.version != PEAK_CACHE_VERSION {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "peak cache header mismatch",
+            ));
+        }
+
+        let levels = header.level_count as usize;
+        let idx_size = 20;
+        let idx_bytes_len = levels
+            .checked_mul(idx_size)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "peak index overflow"))?;
+        let idx_start = header_size;
+        let idx_end = idx_start + idx_bytes_len;
+        if bytes.len() < idx_end {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "peak cache index truncated",
+            ));
+        }
+
+        let mut indices = Vec::<PeakCacheLevelIndex>::with_capacity(levels);
+        for chunk in bytes[idx_start..idx_end].chunks_exact(idx_size) {
+            indices.push(PeakCacheLevelIndex {
+                samples_per_peak: u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]),
+                peak_count: u64::from_le_bytes([
+                    chunk[4], chunk[5], chunk[6], chunk[7], chunk[8], chunk[9], chunk[10],
+                    chunk[11],
+                ]),
+                peak_offset_pairs: u64::from_le_bytes([
+                    chunk[12], chunk[13], chunk[14], chunk[15], chunk[16], chunk[17],
+                    chunk[18], chunk[19],
+                ]),
+            });
+        }
+
+        let pair_size = std::mem::size_of::<WaveformPeakPair>();
+        let data = &bytes[idx_end..];
+        if data.len() % pair_size != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "peak cache data alignment invalid",
+            ));
+        }
+        let total_pairs = data.len() / pair_size;
+
+        let mut mip_levels = Vec::<PeakMipLevel>::with_capacity(indices.len());
+        for idx in indices {
+            let start = idx.peak_offset_pairs as usize;
+            let count = idx.peak_count as usize;
+            let end = start.saturating_add(count);
+            if end > total_pairs {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "peak cache pair range out of bounds",
+                ));
+            }
+
+            let mut peaks = Vec::<PeakPair>::with_capacity(count);
+            for pair_idx in start..end {
+                let off = pair_idx * pair_size;
+                let pair: WaveformPeakPair = bytemuck::pod_read_unaligned(&data[off..off + pair_size]);
+                peaks.push(PeakPair {
+                    min: pair.min,
+                    max: pair.max,
+                });
+            }
+
+            mip_levels.push(PeakMipLevel {
+                samples_per_peak: idx.samples_per_peak as usize,
+                peaks,
+            });
+        }
+
+        Ok(WaveformPeaks {
+            source_id: source_path.to_string_lossy().to_string(),
+            sample_rate: header.sample_rate,
+            total_samples: header.total_samples as usize,
+            mip_levels,
+        })
+    }
+
+    /// Returns raw little-endian bytes for a single LOD level as
+    /// contiguous `WaveformPeakPair` array.
+    pub fn lod_level_bytes(peaks: &WaveformPeaks, lod_level: usize) -> Vec<u8> {
+        if peaks.mip_levels.is_empty() {
+            return Vec::new();
+        }
+        let level = &peaks.mip_levels[lod_level.min(peaks.mip_levels.len() - 1)];
+        let pairs: Vec<WaveformPeakPair> = level
+            .peaks
+            .iter()
+            .map(|p| WaveformPeakPair {
+                min: p.min,
+                max: p.max,
+            })
+            .collect();
+        bytemuck::cast_slice(pairs.as_slice()).to_vec()
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -168,6 +399,7 @@ impl PeakCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_sine(length: usize) -> Vec<f32> {
         (0..length)
@@ -264,5 +496,29 @@ mod tests {
             restored.mip_levels[0].peaks.len(),
             peaks.mip_levels[0].peaks.len()
         );
+    }
+
+    #[test]
+    fn sidecar_roundtrip_and_lod_bytes() {
+        let samples = test_sine(8192);
+        let peaks = PeakCache::generate(&samples, "roundtrip", 44100);
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("dream_peak_cache_test_{ts}.wav"));
+
+        let sidecar = PeakCache::save_to_sidecar(&peaks, &path).unwrap();
+        let loaded = PeakCache::load_from_sidecar(&path).unwrap();
+
+        assert_eq!(loaded.sample_rate, peaks.sample_rate);
+        assert_eq!(loaded.total_samples, peaks.total_samples);
+        assert_eq!(loaded.mip_levels.len(), peaks.mip_levels.len());
+
+        let lod_bytes = PeakCache::lod_level_bytes(&loaded, 0);
+        assert!(!lod_bytes.is_empty());
+        assert_eq!(lod_bytes.len() % std::mem::size_of::<WaveformPeakPair>(), 0);
+
+        let _ = std::fs::remove_file(sidecar);
     }
 }

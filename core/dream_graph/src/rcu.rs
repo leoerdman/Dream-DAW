@@ -67,6 +67,7 @@ impl LiveGraph {
         let empty_plan = ExecutionPlan {
             processing_order: Vec::new(),
             delay_compensation: Vec::new(),
+            parallel_stages: Vec::new(),
         };
         Self {
             current_plan: ArcSwap::from_pointee(empty_plan),
@@ -113,10 +114,12 @@ impl LiveGraph {
     fn compute_plan(dag: &AudioDag) -> Result<ExecutionPlan, GraphError> {
         let processing_order = dag.topological_order()?;
         let delay_compensation = pdc::compute_delay_compensation(dag, &processing_order);
+        let parallel_stages = dag.parallel_stages_from_order(&processing_order);
 
         Ok(ExecutionPlan {
             processing_order,
             delay_compensation,
+            parallel_stages,
         })
     }
 }

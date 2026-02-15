@@ -60,6 +60,12 @@ interface MarqueeSelection {
     endTrack: number;
 }
 
+interface TrimPreviewState {
+    clipId: string;
+    startBeat: number;
+    durationBeats: number;
+}
+
 /** Edge detection threshold in screen pixels. */
 const EDGE_GRIP_PX = 6;
 /** Must match clip header visual height from CanvasClipRenderer. */
@@ -123,6 +129,7 @@ export class TimelineEngine {
     private _ghost: GhostClipData | null = null;
     private _dropTarget: { track: number; beat: number } | null = null;
     private _marquee: MarqueeSelection | null = null;
+    private _trimPreview: TrimPreviewState | null = null;
 
     // ── Config ────────────────────────────────────────────────────────
     private _beatsPerBar: number;
@@ -372,10 +379,11 @@ export class TimelineEngine {
         const ctx = this._ctx;
         if (!ctx) return;
 
+        const clipsForDraw = this._composeDrawClips();
         this._renderer.drawFrame(
             ctx,
             this._viewport,
-            this._clips,
+            clipsForDraw,
             this._playheadBeat,
             this._editCursorBeat,
             this._editCursorTrack,
@@ -389,6 +397,31 @@ export class TimelineEngine {
             this._bpm,
         );
     };
+
+    private _composeDrawClips(): TimelineClipData[] {
+        const preview = this._trimPreview;
+        if (!preview) return this._clips;
+        return this._clips.map((clip) =>
+            clip.id === preview.clipId
+                ? {
+                    ...clip,
+                    startBeat: preview.startBeat,
+                    durationBeats: preview.durationBeats,
+                }
+                : clip,
+        );
+    }
+
+    private _clientToWorld(clientX: number, clientY: number): { beat: number; trackIndex: number } {
+        const canvas = this._canvas;
+        if (!canvas) return { beat: 0, trackIndex: 0 };
+        const rect = canvas.getBoundingClientRect();
+        // Uses viewport inverse mapping from screen-space back to world-space.
+        return {
+            beat: this._viewport.screenToBeats(clientX, rect),
+            trackIndex: this._viewport.screenToTrack(clientY, rect),
+        };
+    }
 
     // ═══════════════════════════════════════════════════════════════════
     // CANVAS SIZE MANAGEMENT
@@ -474,8 +507,9 @@ export class TimelineEngine {
             return { type: 'ruler', beat, trackIndex: -1 };
         }
 
-        const beat = this._viewport.screenToBeats(clientX, rect);
-        const trackIndex = this._viewport.screenToTrack(clientY, rect);
+        const world = this._clientToWorld(clientX, clientY);
+        const beat = world.beat;
+        const trackIndex = world.trackIndex;
 
         // Check clips (reverse order — topmost first, since selected are sorted last)
         for (let i = this._clips.length - 1; i >= 0; i--) {
@@ -592,6 +626,11 @@ export class TimelineEngine {
                         clipOriginalTrack: clip.trackIndex,
                         clipOriginalDuration: clip.durationBeats,
                     };
+                    this._trimPreview = {
+                        clipId: hit.clipId,
+                        startBeat: clip.startBeat,
+                        durationBeats: clip.durationBeats,
+                    };
                 } else if (hit.edge === 'right') {
                     // Start right-edge resize
                     this.onTrackSelect?.(hit.trackIndex);
@@ -605,6 +644,11 @@ export class TimelineEngine {
                         clipOriginalBeat: clip.startBeat,
                         clipOriginalTrack: clip.trackIndex,
                         clipOriginalDuration: clip.durationBeats,
+                    };
+                    this._trimPreview = {
+                        clipId: hit.clipId,
+                        startBeat: clip.startBeat,
+                        durationBeats: clip.durationBeats,
                     };
                 } else {
                     // Standard clip move
@@ -661,22 +705,22 @@ export class TimelineEngine {
         if (this._drag.mode === DragMode.None) {
             const hit = this.hitTest(e.clientX, e.clientY);
             if (hit.type === 'clip' && hit.edge) {
-                canvas.style.cursor = 'col-resize';
+                canvas.style.cursor = 'ew-resize';
             } else if (hit.type === 'clip' && hit.region === 'header') {
                 canvas.style.cursor = 'grab';
             } else if (hit.type === 'clip' && hit.region === 'body') {
                 canvas.style.cursor = 'crosshair';
             } else if (hit.type === 'ruler' && hit.loopHandle) {
-                canvas.style.cursor = 'col-resize';
+                canvas.style.cursor = 'ew-resize';
             } else {
                 canvas.style.cursor = 'crosshair';
             }
             return;
         }
 
-        const rect = canvas.getBoundingClientRect();
-        const beat = this._viewport.screenToBeats(e.clientX, rect);
-        const track = this._viewport.screenToTrack(e.clientY, rect);
+        const world = this._clientToWorld(e.clientX, e.clientY);
+        const beat = world.beat;
+        const track = world.trackIndex;
 
         this._drag.currentBeat = beat;
         this._drag.currentTrack = track;
@@ -713,9 +757,8 @@ export class TimelineEngine {
             }
 
             case DragMode.ClipResizeLeft: {
-                canvas.style.cursor = 'col-resize';
-                const clip = this._clips.find(c => c.id === this._drag.clipId);
-                if (!clip) break;
+                canvas.style.cursor = 'ew-resize';
+                if (!this._drag.clipId) break;
 
                 const deltaBeat = beat - this._drag.startBeat;
                 const rawNewStart = this._drag.clipOriginalBeat + deltaBeat;
@@ -724,28 +767,34 @@ export class TimelineEngine {
                 const clipEnd = this._drag.clipOriginalBeat + this._drag.clipOriginalDuration;
                 const newDuration = Math.max(0.25, clipEnd - newStart);
 
-                clip.startBeat = newStart;
-                clip.durationBeats = newDuration;
+                this._trimPreview = {
+                    clipId: this._drag.clipId,
+                    startBeat: newStart,
+                    durationBeats: newDuration,
+                };
                 this._requestRedraw();
                 break;
             }
 
             case DragMode.ClipResizeRight: {
-                canvas.style.cursor = 'col-resize';
-                const clip = this._clips.find(c => c.id === this._drag.clipId);
-                if (!clip) break;
+                canvas.style.cursor = 'ew-resize';
+                if (!this._drag.clipId) break;
 
                 const rawNewEnd = beat;
                 const snappedEnd = this._snapBeat(Math.max(this._drag.clipOriginalBeat + 0.25, rawNewEnd));
                 const newDuration = Math.max(0.25, snappedEnd - this._drag.clipOriginalBeat);
 
-                clip.durationBeats = newDuration;
+                this._trimPreview = {
+                    clipId: this._drag.clipId,
+                    startBeat: this._drag.clipOriginalBeat,
+                    durationBeats: newDuration,
+                };
                 this._requestRedraw();
                 break;
             }
 
             case DragMode.LoopStartMove: {
-                canvas.style.cursor = 'col-resize';
+                canvas.style.cursor = 'ew-resize';
                 const clampedBeat = Math.max(0, Math.min(1000000, beat));
                 const snapped = this._snapBeat(clampedBeat);
                 if (this._loop) {
@@ -760,7 +809,7 @@ export class TimelineEngine {
             }
 
             case DragMode.LoopEndMove: {
-                canvas.style.cursor = 'col-resize';
+                canvas.style.cursor = 'ew-resize';
                 const clampedBeat = Math.max(0, Math.min(1000000, beat));
                 const snapped = this._snapBeat(clampedBeat);
                 if (this._loop) {
@@ -831,17 +880,19 @@ export class TimelineEngine {
             case DragMode.ClipResizeLeft:
             case DragMode.ClipResizeRight: {
                 if (this._drag.clipId) {
-                    const clip = this._clips.find(c => c.id === this._drag.clipId);
-                    if (clip) {
-                        // Only fire if something actually changed
+                    const preview = this._trimPreview;
+                    if (preview && preview.clipId === this._drag.clipId) {
+                        // Commit trim to Rust only on pointerup.
                         if (
-                            clip.startBeat !== this._drag.clipOriginalBeat ||
-                            clip.durationBeats !== this._drag.clipOriginalDuration
+                            preview.startBeat !== this._drag.clipOriginalBeat ||
+                            preview.durationBeats !== this._drag.clipOriginalDuration
                         ) {
-                            this.onClipResize?.(this._drag.clipId, clip.startBeat, clip.durationBeats);
+                            this.onClipResize?.(this._drag.clipId, preview.startBeat, preview.durationBeats);
                         }
                     }
                 }
+                this._trimPreview = null;
+                this._requestRedraw();
                 break;
             }
 
@@ -861,11 +912,20 @@ export class TimelineEngine {
                     // Empty-space click clears current clip selection.
                     this.onClipBoxSelection?.([]);
                 } else {
+                    const visible = this._viewport.getVisibleRange();
                     const selectedIds = this._clips
                         .filter((clip) => {
-                            if (clip.trackIndex < minTrack || clip.trackIndex > maxTrack) return false;
                             const clipStart = clip.startBeat;
                             const clipEnd = clip.startBeat + clip.durationBeats;
+                            if (
+                                clip.trackIndex < visible.startTrack ||
+                                clip.trackIndex > visible.endTrack ||
+                                clipEnd < visible.startBeat ||
+                                clipStart > visible.endBeat
+                            ) {
+                                return false;
+                            }
+                            if (clip.trackIndex < minTrack || clip.trackIndex > maxTrack) return false;
                             return clipEnd >= minBeat && clipStart <= maxBeat;
                         })
                         .map((clip) => clip.id);
@@ -878,6 +938,7 @@ export class TimelineEngine {
         }
 
         this._marquee = null;
+        this._trimPreview = null;
         this._drag = {
             mode: DragMode.None,
             clipId: null,

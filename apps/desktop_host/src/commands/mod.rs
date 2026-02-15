@@ -87,6 +87,7 @@ pub(crate) fn invoke_handler()
         // Waveform
         get_waveform_peaks,
         get_waveform_peaks_binary,
+        get_waveform_peaks_lod_binary,
         // Track Management
         add_track_cmd,
         delete_track_cmd,

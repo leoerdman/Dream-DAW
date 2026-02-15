@@ -792,14 +792,11 @@ fn rebuild_automation_snapshot_from_project(
     automation_runtime: &AutomationRuntime,
 ) {
     fn normalize_pan_value(raw: f32) -> f32 {
-        // Accept both conventions:
-        // - normalized UI domain [0..1]
-        // - bipolar mixer/import domain [-1..1]
-        if (0.0..=1.0).contains(&raw) {
-            (raw * 2.0 - 1.0).clamp(-1.0, 1.0)
-        } else {
-            raw.clamp(-1.0, 1.0)
-        }
+        // Track pan in the project/import model is bipolar [-1..1].
+        // Treating [0..1] as a separate domain is ambiguous and maps 0.0
+        // (center in many projects) to -1.0 (hard-left), which collapses
+        // stereo image after ALS import.
+        raw.clamp(-1.0, 1.0)
     }
 
     fn is_track_pan_param(key: &str) -> bool {

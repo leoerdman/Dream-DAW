@@ -195,7 +195,22 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 if (targets.length === 0) return;
 
                 try {
-                    await Promise.all(targets.map((id) => engine.splitClip(id, playheadFrames)));
+                    const store = useEngineStore.getState();
+                    const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
+                    const sampleRate = store.projectSampleRate || store.transport.sample_rate || 44100;
+                    const playheadBeat = playheadFrames / ((60 / bpm) * sampleRate);
+
+                    const targetSet = new Set(targets);
+                    const clipsAtPlayhead = timelineClips
+                        .filter((clip) => targetSet.has(clip.id))
+                        .filter((clip) => {
+                            const start = clip.startBeat;
+                            const end = clip.startBeat + clip.durationBeats;
+                            return playheadBeat > start && playheadBeat < end;
+                        });
+
+                    if (clipsAtPlayhead.length === 0) return;
+                    await Promise.all(clipsAtPlayhead.map((clip) => engine.splitClip(clip.id, playheadFrames)));
                     onProjectMutated();
                 } catch (err) {
                     console.error('[Shortcuts] Split clip failed:', err);
@@ -386,6 +401,42 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 } catch (err) {
                     console.error('[Shortcuts] Toggle clip mute failed:', err);
                 }
+                return;
+            }
+
+            // ── S: Toggle Track Solo ─────────────────────────────────
+            // Solos/unsolos the currently selected track.
+            if (e.key.toLowerCase() === 's' && !isModKey(e) && !e.shiftKey && !e.altKey) {
+                if (inPianoRoll || inDeviceRack) return;
+                e.preventDefault();
+                e.stopPropagation();
+
+                if (!selectedTrackId || selectedTrackId === 'master') return;
+                if (selectedTrackIndex < 0) return;
+
+                const track = projectTracks[selectedTrackIndex];
+                if (!track) return;
+
+                const newSoloed = !track.is_solo;
+                engine.setTrackSolo(selectedTrackIndex, newSoloed);
+                return;
+            }
+
+            // ── M: Toggle Track Mute ────────────────────────────────
+            // Mutes/unmutes the currently selected track.
+            if (e.key.toLowerCase() === 'm' && !isModKey(e) && !e.shiftKey && !e.altKey) {
+                if (inPianoRoll || inDeviceRack) return;
+                e.preventDefault();
+                e.stopPropagation();
+
+                if (!selectedTrackId || selectedTrackId === 'master') return;
+                if (selectedTrackIndex < 0) return;
+
+                const track = projectTracks[selectedTrackIndex];
+                if (!track) return;
+
+                const newMuted = !track.is_mute;
+                engine.setTrackMute(selectedTrackIndex, newMuted);
                 return;
             }
 

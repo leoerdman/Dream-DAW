@@ -103,7 +103,11 @@ export const DawShell = () => {
     useProjectManager(fetchProject);
 
     // ── Native macOS Menu Bar (File, Edit, Window) ──
-    useNativeMenu(fetchProject);
+    // NOTE: Do NOT pass fetchProject as onProjectChange here.
+    // useNativeMenu already calls fetchProject internally (via useEngineStore.getState()).
+    // Passing fetchProject again caused a redundant second fetchProject call after
+    // each project action, racing with the first via the stale-response guard.
+    useNativeMenu();
 
     // ── Global Keyboard Shortcuts (Space, Cmd+E, Delete) ──
     useKeyboardShortcuts({

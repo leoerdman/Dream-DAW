@@ -18,7 +18,7 @@
 
 use petgraph::algo;
 use petgraph::graph::{DiGraph, NodeIndex};
-use petgraph::visit::EdgeRef;
+use petgraph::visit::{EdgeRef, NodeIndexable};
 
 use std::fmt;
 
@@ -165,6 +165,12 @@ pub struct ExecutionPlan {
     /// Per-node delay compensation in samples (indexed by NodeIndex).
     /// A value of 0 means no compensation needed.
     pub delay_compensation: Vec<u32>,
+
+    /// Topology layers for parallel scheduling.
+    ///
+    /// Nodes within one stage are dependency-independent and can be
+    /// processed concurrently. Stages themselves must execute in order.
+    pub parallel_stages: Vec<Vec<NodeIndex>>,
 }
 
 // ── Graph Builder ───────────────────────────────────────────────────────
@@ -303,6 +309,41 @@ impl AudioDag {
     /// This is the order the audio callback must process nodes in.
     pub fn topological_order(&self) -> Result<Vec<NodeIndex>, GraphError> {
         algo::toposort(&self.graph, None).map_err(|_| GraphError::CycleDetected)
+    }
+
+    /// Computes deterministic parallel stages from an existing topological order.
+    ///
+    /// Stage index equals the longest dependency depth from source nodes.
+    pub fn parallel_stages_from_order(&self, topo_order: &[NodeIndex]) -> Vec<Vec<NodeIndex>> {
+        if topo_order.is_empty() {
+            return Vec::new();
+        }
+
+        let mut depth = vec![0usize; self.graph.node_bound()];
+        let mut max_depth = 0usize;
+
+        for &node_idx in topo_order {
+            let node_depth = self
+                .inputs(node_idx)
+                .into_iter()
+                .map(|src| depth[src.index()] + 1)
+                .max()
+                .unwrap_or(0);
+            depth[node_idx.index()] = node_depth;
+            max_depth = max_depth.max(node_depth);
+        }
+
+        let mut stages = vec![Vec::new(); max_depth + 1];
+        for &node_idx in topo_order {
+            stages[depth[node_idx.index()]].push(node_idx);
+        }
+        stages
+    }
+
+    /// Computes deterministic parallel stages directly from the graph.
+    pub fn parallel_stages(&self) -> Result<Vec<Vec<NodeIndex>>, GraphError> {
+        let order = self.topological_order()?;
+        Ok(self.parallel_stages_from_order(&order))
     }
 
     /// Returns the list of immediate input nodes for a given node.
@@ -486,5 +527,36 @@ mod tests {
             .add_edge(NodeId(999), NodeId(0));
 
         assert!(matches!(result, Err(GraphError::NodeNotFound(NodeId(999)))));
+    }
+
+    #[test]
+    fn parallel_stages_for_diamond_topology() {
+        // Track -> FX1 -> Bus -> Master
+        //      \-> FX2 -/
+        let dag = GraphBuilder::new()
+            .add_node(make_master())
+            .add_node(make_track(1, "Track"))
+            .add_node(make_effect(2, "FX1", 0))
+            .add_node(make_effect(3, "FX2", 0))
+            .add_node(make_bus(4, "Bus"))
+            .add_edge(NodeId(1), NodeId(2))
+            .unwrap()
+            .add_edge(NodeId(1), NodeId(3))
+            .unwrap()
+            .add_edge(NodeId(2), NodeId(4))
+            .unwrap()
+            .add_edge(NodeId(3), NodeId(4))
+            .unwrap()
+            .add_edge(NodeId(4), NodeId(0))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let stages = dag.parallel_stages().unwrap();
+        assert_eq!(stages.len(), 4);
+        assert_eq!(stages[0].len(), 1); // Track
+        assert_eq!(stages[1].len(), 2); // FX1 + FX2
+        assert_eq!(stages[2].len(), 1); // Bus
+        assert_eq!(stages[3].len(), 1); // Master
     }
 }

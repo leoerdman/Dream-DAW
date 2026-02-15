@@ -77,15 +77,22 @@ async function buildNativeMenu(onProjectChange?: () => void) {
         accelerator: 'CmdOrCtrl+O',
         action: async () => {
             try {
+                console.warn('[NativeMenu:Open] file picker opening...');
                 const path = await engineApi.pickProjectFile();
-                if (!path) return;
+                if (!path) { console.warn('[NativeMenu:Open] picker cancelled'); return; }
+                console.warn('[NativeMenu:Open] path=', path);
                 const isAbleton = path.toLowerCase().endsWith('.als');
                 if (isAbleton) {
+                    console.warn('[NativeMenu:Open] importing ALS...');
                     await engineApi.importAbletonProject(path);
+                    console.warn('[NativeMenu:Open] ALS import done, calling fetchProject...');
                 } else {
+                    console.warn('[NativeMenu:Open] opening project...');
                     await engineApi.openProject(path);
+                    console.warn('[NativeMenu:Open] open done, calling fetchProject...');
                 }
                 await fetchProject('native-menu:open');
+                console.warn('[NativeMenu:Open] fetchProject completed');
                 onProjectChange?.();
                 console.log('[NativeMenu] Opened project:', path);
             } catch (err) {
@@ -233,13 +240,19 @@ async function buildRecentSubmenu(
                         text: label,
                         action: async () => {
                             try {
+                                console.warn('[NativeMenu:OpenRecent] path=', rp.path);
                                 const isAbleton = rp.path.toLowerCase().endsWith('.als');
                                 if (isAbleton) {
+                                    console.warn('[NativeMenu:OpenRecent] importing ALS...');
                                     await engineApi.importAbletonProject(rp.path);
+                                    console.warn('[NativeMenu:OpenRecent] ALS import done');
                                 } else {
+                                    console.warn('[NativeMenu:OpenRecent] opening...');
                                     await engineApi.openProject(rp.path);
+                                    console.warn('[NativeMenu:OpenRecent] open done');
                                 }
                                 await fetchProject('native-menu:open-recent');
+                                console.warn('[NativeMenu:OpenRecent] fetchProject completed');
                                 onProjectChange?.();
                                 console.log('[NativeMenu] Opened recent:', rp.path);
                             } catch (err) {

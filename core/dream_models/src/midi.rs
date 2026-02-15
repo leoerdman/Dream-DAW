@@ -127,6 +127,34 @@ pub struct MidiClip {
     #[serde(default)]
     pub fade_out_frames: i64,
 
+    /// ALS take identifier (`TakeId`).
+    #[serde(default)]
+    pub take_id: Option<i32>,
+
+    /// Clip legato flag (`Legato`).
+    #[serde(default)]
+    pub legato: bool,
+
+    /// RAM preload flag (`Ram`).
+    #[serde(default)]
+    pub ram: bool,
+
+    /// Velocity amount from ALS (`VelocityAmount`).
+    #[serde(default)]
+    pub velocity_amount: f64,
+
+    /// Optional bank select coarse value.
+    #[serde(default)]
+    pub bank_select_coarse: Option<i32>,
+
+    /// Optional bank select fine value.
+    #[serde(default)]
+    pub bank_select_fine: Option<i32>,
+
+    /// Optional program change value.
+    #[serde(default)]
+    pub program_change: Option<i32>,
+
     /// Session launch mode code (`LaunchMode` in ALS).
     #[serde(default)]
     pub launch_mode: i32,
@@ -170,6 +198,14 @@ pub struct MidiClip {
     /// ALS scale name/id when present.
     #[serde(default)]
     pub scale_name: Option<String>,
+
+    /// Clip-local time signature numerator (`TimeSignature/TimeSignatures`).
+    #[serde(default)]
+    pub time_signature_numerator: Option<u8>,
+
+    /// Clip-local time signature denominator (`TimeSignature/TimeSignatures`).
+    #[serde(default)]
+    pub time_signature_denominator: Option<u8>,
 
     /// Clip loop start in beats when present in ALS `<Loop>`.
     #[serde(default)]
@@ -217,6 +253,13 @@ impl MidiClip {
             is_muted: false,
             fade_in_frames: 0,
             fade_out_frames: 0,
+            take_id: None,
+            legato: false,
+            ram: false,
+            velocity_amount: 0.0,
+            bank_select_coarse: None,
+            bank_select_fine: None,
+            program_change: None,
             launch_mode: 0,
             launch_quantization: 0,
             follow_action_enabled: false,
@@ -228,6 +271,8 @@ impl MidiClip {
             is_in_key: false,
             scale_root: None,
             scale_name: None,
+            time_signature_numerator: None,
+            time_signature_denominator: None,
             loop_start_beats: None,
             loop_end_beats: None,
             loop_on: false,

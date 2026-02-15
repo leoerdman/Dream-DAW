@@ -66,6 +66,17 @@ height: number,
  */
 output_destination_id: string | null, 
 /**
+ * Input routing source identifier (`AudioInputRouting` / `MidiInputRouting` target value).
+ *
+ * Kept as raw routing token (e.g. `AudioIn/Ext.1`, `MidiIn/Track.42`) because
+ * ALS uses multiple non-UUID addressing modes.
+ */
+input_source_id: string | null, 
+/**
+ * Track monitoring mode (`MonitoringEnum`): 0=In, 1=Auto, 2=Off.
+ */
+monitoring_mode: number | null, 
+/**
  * Insert device nodes (processed in order). Each can be a single
  * plugin or a nested device rack.
  */

@@ -1,29 +1,16 @@
-# ALS Virtual Tests (1000)
+# Virtual Tests 1000 (Fast)
 
-- Iterations: **1000**
-- Selected latest ALS files: **184**
-- Passed: **3000**
+- Requested iterations: **1000**
+- Total checks executed: **1184**
+- Passed: **1184**
 - Failed: **0**
 - Failure rate: **0.00%**
-- Elapsed: **419.67s**
 
-## Feature Coverage
+## Snapshot
 
-- LiveSet: 1000
-- Tracks: 1000
-- AudioTrack: 964
-- MidiTrack: 1000
-- GroupTrack: 1000
-- ReturnTrack: 262
-- PluginDevice: 944
-- AutomationEnvelope: 1000
-- FloatEvent: 1000
-- AudioClip: 957
-- MidiClip: 1000
-
-## Top Unknown Native
-
-- none
+- native_mapped/unmapped: **18968/0**
+- external_resolved/missing: **8967/11**
+- overall_compat_rate: **0.999606**
 
 ## Top Missing External
 

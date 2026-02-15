@@ -48,6 +48,34 @@ fade_in_frames: bigint,
  */
 fade_out_frames: bigint, 
 /**
+ * ALS take identifier (`TakeId`).
+ */
+take_id: number | null, 
+/**
+ * Clip legato flag (`Legato`).
+ */
+legato: boolean, 
+/**
+ * RAM preload flag (`Ram`).
+ */
+ram: boolean, 
+/**
+ * Velocity amount from ALS (`VelocityAmount`).
+ */
+velocity_amount: number, 
+/**
+ * Optional bank select coarse value.
+ */
+bank_select_coarse: number | null, 
+/**
+ * Optional bank select fine value.
+ */
+bank_select_fine: number | null, 
+/**
+ * Optional program change value.
+ */
+program_change: number | null, 
+/**
  * Session launch mode code (`LaunchMode` in ALS).
  */
 launch_mode: number, 
@@ -91,6 +119,14 @@ scale_root: number | null,
  * ALS scale name/id when present.
  */
 scale_name: string | null, 
+/**
+ * Clip-local time signature numerator (`TimeSignature/TimeSignatures`).
+ */
+time_signature_numerator: number | null, 
+/**
+ * Clip-local time signature denominator (`TimeSignature/TimeSignatures`).
+ */
+time_signature_denominator: number | null, 
 /**
  * Clip loop start in beats when present in ALS `<Loop>`.
  */

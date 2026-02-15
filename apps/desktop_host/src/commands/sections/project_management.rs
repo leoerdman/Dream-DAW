@@ -315,6 +315,41 @@ fn parse_view_states_bool(live_set: roxmltree::Node<'_, '_>, tag: &str) -> Optio
         .and_then(|view_states| first_child_bool(view_states, tag))
 }
 
+fn parse_root_midi_editor_lanes(
+    live_set: roxmltree::Node<'_, '_>,
+    root_tag: &str,
+) -> Vec<dream_models::project::MidiEditorLaneState> {
+    let Some(root) = live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name(root_tag))
+    else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for lane in root
+        .children()
+        .filter(|n| n.is_element() && n.has_tag_name("MidiEditorLaneModel"))
+    {
+        let id = lane
+            .attribute("Id")
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+            .unwrap_or(0);
+        let lane_type = first_child_i32(lane, "Type").unwrap_or(0);
+        let size = first_child_f64(lane, "Size").unwrap_or(0.0);
+        let is_minimized = first_child_bool(lane, "IsMinimized").unwrap_or(false);
+        out.push(dream_models::project::MidiEditorLaneState {
+            id,
+            lane_type,
+            size,
+            is_minimized,
+        });
+    }
+    out.sort_by_key(|lane| lane.id);
+    out
+}
+
 fn semitone_to_tonic(root: u8) -> &'static str {
     match root % 12 {
         0 => "C",
@@ -453,6 +488,29 @@ fn parse_audio_clip_warp(
         }
     }
     (is_warped, warp_mode, markers)
+}
+
+fn parse_clip_time_signature(clip_node: roxmltree::Node<'_, '_>) -> (Option<u8>, Option<u8>) {
+    let ts = clip_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("TimeSignature"));
+    let numerator = ts
+        .and_then(|n| {
+            n.descendants()
+                .find(|d| d.is_element() && d.has_tag_name("Numerator"))
+        })
+        .and_then(|n| n.attribute("Value"))
+        .and_then(parse_i64_value)
+        .map(|v| v.clamp(1, 32) as u8);
+    let denominator = ts
+        .and_then(|n| {
+            n.descendants()
+                .find(|d| d.is_element() && d.has_tag_name("Denominator"))
+        })
+        .and_then(|n| n.attribute("Value"))
+        .and_then(parse_i64_value)
+        .map(|v| v.clamp(1, 32) as u8);
+    (numerator, denominator)
 }
 
 fn parse_clip_envelopes(
@@ -764,6 +822,19 @@ fn parse_output_target(
         .filter(|s| !s.is_empty())
 }
 
+fn normalize_input_routing_target(raw: &str) -> Option<String> {
+    let v = raw.trim();
+    if v.is_empty() {
+        return None;
+    }
+    // Common Ableton "no input" sentinel variants.
+    let low = v.to_ascii_lowercase();
+    if low.contains("noinput") || low.contains("no_input") || low.ends_with("/none") {
+        return None;
+    }
+    Some(v.to_string())
+}
+
 fn parse_target_track_xml_id(target: &str) -> Option<String> {
     for segment in target.split('/') {
         let segment = segment.trim();
@@ -1002,6 +1073,101 @@ fn normalize_plugin_key(raw: &str) -> String {
         .filter(|c| c.is_ascii_alphanumeric())
         .map(|c| c.to_ascii_lowercase())
         .collect()
+}
+
+#[derive(Default)]
+struct ExternalPluginMeta {
+    format: Option<String>,
+    uid: Option<String>,
+    preset_name: Option<String>,
+    program_number: Option<i32>,
+    parameter_count: Option<i32>,
+    stored_all_parameters: Option<bool>,
+    plugin_version: Option<String>,
+}
+
+fn parse_external_plugin_meta(device: roxmltree::Node<'_, '_>) -> ExternalPluginMeta {
+    fn node_value(node: roxmltree::Node<'_, '_>, tag: &str) -> Option<String> {
+        node.descendants()
+            .find(|n| n.is_element() && n.has_tag_name(tag))
+            .and_then(|n| n.attribute("Value"))
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+    fn parse_uid(info: roxmltree::Node<'_, '_>) -> Option<String> {
+        if let Some(uid) = info
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("UniqueId"))
+            .and_then(|n| n.attribute("Value"))
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+        {
+            return Some(uid);
+        }
+        // VST3 UID is often split into Fields.0..3 under <Uid>.
+        let mut parts = Vec::new();
+        for field in info.descendants().filter(|n| {
+            n.is_element()
+                && n.tag_name().name().starts_with("Fields.")
+                && n.attribute("Value").is_some()
+        }) {
+            if let Some(v) = field.attribute("Value") {
+                parts.push(v.trim().to_string());
+            }
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join(":"))
+        }
+    }
+
+    let mut meta = ExternalPluginMeta::default();
+    let vst3_info = device
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("Vst3PluginInfo"));
+    let vst2_info = device
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("VstPluginInfo"));
+
+    if let Some(info) = vst3_info {
+        meta.format = Some("vst3".to_string());
+        meta.uid = parse_uid(info);
+    } else if let Some(info) = vst2_info {
+        meta.format = Some("vst2".to_string());
+        meta.uid = parse_uid(info);
+    }
+
+    let preset_node = device
+        .descendants()
+        .find(|n| n.is_element() && n.has_tag_name("Vst3Preset"))
+        .or_else(|| device.descendants().find(|n| n.is_element() && n.has_tag_name("VstPreset")));
+    if let Some(preset) = preset_node {
+        meta.preset_name = node_value(preset, "Name");
+        meta.program_number = node_value(preset, "ProgramNumber").as_deref().and_then(parse_i64_value).map(|v| v as i32);
+        meta.parameter_count = node_value(preset, "ParameterCount").as_deref().and_then(parse_i64_value).map(|v| v as i32);
+        meta.stored_all_parameters = node_value(preset, "StoredAllParameters")
+            .as_deref()
+            .and_then(parse_bool_value);
+        meta.plugin_version = node_value(preset, "PluginVersion");
+    } else {
+        meta.parameter_count = node_value(device, "NumberOfParameters")
+            .as_deref()
+            .and_then(parse_i64_value)
+            .map(|v| v as i32);
+    }
+
+    meta
+}
+
+fn apply_external_plugin_meta(slot: &mut PluginSlot, meta: &ExternalPluginMeta) {
+    slot.external_format = meta.format.clone();
+    slot.external_uid = meta.uid.clone();
+    slot.external_preset_name = meta.preset_name.clone();
+    slot.external_program_number = meta.program_number;
+    slot.external_parameter_count = meta.parameter_count;
+    slot.external_stored_all_parameters = meta.stored_all_parameters;
+    slot.external_plugin_version = meta.plugin_version.clone();
 }
 
 struct ExternalPluginIndex {
@@ -1264,6 +1430,43 @@ mod als_import_tests {
     }
 
     #[test]
+    fn parse_als_rack_reads_extended_macro_metadata() {
+        let xml = r#"
+        <AudioEffectGroupDevice Id="1">
+          <NumVisibleMacroControls Value="16" />
+          <MacroControls.0>
+            <Manual Value="12.5" />
+          </MacroControls.0>
+          <MacroControls.15>
+            <Manual Value="88" />
+          </MacroControls.15>
+          <MacroDisplayNames.15 Value="Drive" />
+          <MacroDefaults.15 Value="64" />
+        </AudioEffectGroupDevice>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let rack_node = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("AudioEffectGroupDevice"))
+            .expect("rack");
+
+        let external_plugins = ExternalPluginIndex {
+            by_name: std::collections::HashMap::new(),
+            by_stem: std::collections::HashMap::new(),
+            by_file_name: std::collections::HashMap::new(),
+            by_normalized: std::collections::HashMap::new(),
+        };
+        let rack = parse_als_rack(rack_node, &external_plugins, Path::new("/tmp/Test.als"));
+
+        assert_eq!(rack.macro_controls.len(), 16);
+        assert!((rack.macro_controls[0].value - 12.5).abs() < 1e-9);
+        assert!((rack.macro_controls[0].default_value - 12.5).abs() < 1e-9);
+        assert!((rack.macro_controls[15].value - 88.0).abs() < 1e-9);
+        assert!((rack.macro_controls[15].default_value - 64.0).abs() < 1e-9);
+        assert_eq!(rack.macro_controls[15].name, "Drive");
+    }
+
+    #[test]
     fn audio_clip_source_path_prefers_sample_ref() {
         let xml = r#"
         <AudioClip>
@@ -1352,6 +1555,21 @@ mod als_import_tests {
     }
 
     #[test]
+    fn normalize_input_routing_target_handles_no_input_variants() {
+        assert_eq!(normalize_input_routing_target(""), None);
+        assert_eq!(normalize_input_routing_target("AudioIn/NoInput"), None);
+        assert_eq!(normalize_input_routing_target("AudioIn/no_input"), None);
+        assert_eq!(
+            normalize_input_routing_target("AudioIn/Ext.1"),
+            Some("AudioIn/Ext.1".to_string())
+        );
+        assert_eq!(
+            normalize_input_routing_target("MidiIn/Track.42"),
+            Some("MidiIn/Track.42".to_string())
+        );
+    }
+
+    #[test]
     fn build_pointee_map_captures_extended_mixer_targets() {
         let xml = r#"
         <Track>
@@ -1419,6 +1637,205 @@ mod als_import_tests {
     }
 
     #[test]
+    fn collect_external_plugin_static_lanes_reads_parameter_manual_values() {
+        let xml = r#"
+        <PluginDevice Id="18">
+          <UserName Value="FabFilter Pro-Q 3"/>
+          <ParameterList>
+            <PluginFloatParameter Id="0">
+              <ParameterName Value="Band 8 Gain"/>
+              <ParameterId Value="-1"/>
+              <ParameterValue>
+                <Manual Value="0.5265370011"/>
+              </ParameterValue>
+            </PluginFloatParameter>
+            <PluginFloatParameter Id="1">
+              <ParameterName Value="Band 8 Frequency"/>
+              <ParameterId Value="-1"/>
+              <ParameterValue>
+                <Manual Value="0.6985535026"/>
+              </ParameterValue>
+            </PluginFloatParameter>
+          </ParameterList>
+        </PluginDevice>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let device = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("PluginDevice"))
+            .expect("plugin device");
+        let lanes = collect_external_plugin_static_lanes(device, 4, "fabfilterproq3");
+        assert_eq!(lanes.len(), 2);
+        assert_eq!(lanes[0].0, "plugin:4:fabfilterproq3:band8gain");
+        assert!((lanes[0].1 - 0.5265370011).abs() < 1e-9);
+        assert_eq!(lanes[1].0, "plugin:4:fabfilterproq3:band8frequency");
+        assert!((lanes[1].1 - 0.6985535026).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_external_plugin_meta_reads_vst_preset_info() {
+        let xml = r#"
+        <PluginDevice Id="18">
+          <Vst3PluginInfo Id="0">
+            <Name Value="SPAN" />
+            <Uid>
+              <Fields.0 Value="1" />
+              <Fields.1 Value="2" />
+              <Fields.2 Value="3" />
+              <Fields.3 Value="4" />
+            </Uid>
+            <NumberOfParameters Value="345" />
+          </Vst3PluginInfo>
+          <Preset>
+            <Vst3Preset Id="195">
+              <StoredAllParameters Value="true" />
+              <PluginVersion Value="1.2.3" />
+              <Name Value="Mastering A" />
+              <ProgramNumber Value="7" />
+              <ParameterCount Value="382" />
+            </Vst3Preset>
+          </Preset>
+        </PluginDevice>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let device = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("PluginDevice"))
+            .expect("plugin device");
+        let meta = parse_external_plugin_meta(device);
+        assert_eq!(meta.format.as_deref(), Some("vst3"));
+        assert_eq!(meta.uid.as_deref(), Some("1:2:3:4"));
+        assert_eq!(meta.preset_name.as_deref(), Some("Mastering A"));
+        assert_eq!(meta.program_number, Some(7));
+        assert_eq!(meta.parameter_count, Some(382));
+        assert_eq!(meta.stored_all_parameters, Some(true));
+        assert_eq!(meta.plugin_version.as_deref(), Some("1.2.3"));
+    }
+
+    #[test]
+    fn import_internal_sampler_params_populates_sampler_config() {
+        let xml = r#"
+        <OriginalSimpler>
+          <Volume><Manual Value="0.8"/></Volume>
+          <Attack><Manual Value="0.02"/></Attack>
+          <Decay><Manual Value="0.25"/></Decay>
+          <Sustain><Manual Value="75"/></Sustain>
+          <Release><Manual Value="0.4"/></Release>
+          <Root><Manual Value="62"/></Root>
+          <Filter_Frequency><Manual Value="1200"/></Filter_Frequency>
+          <Filter_Resonance><Manual Value="0.33"/></Filter_Resonance>
+          <Filter_Type><Manual Value="2"/></Filter_Type>
+        </OriginalSimpler>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let device = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("OriginalSimpler"))
+            .expect("device");
+        let mut track = Track::with_type("MIDI", TrackType::Midi, 0);
+        import_internal_device_static_params(&mut track, "internal://instrument/sampler", device);
+        let cfg = track.sampler.expect("sampler cfg");
+        assert!((cfg.volume - 0.8).abs() < 1e-9);
+        assert!((cfg.attack - 0.02).abs() < 1e-9);
+        assert!((cfg.decay - 0.25).abs() < 1e-9);
+        assert!((cfg.sustain - 0.75).abs() < 1e-9);
+        assert!((cfg.release - 0.4).abs() < 1e-9);
+        assert_eq!(cfg.root_note, 62);
+        assert!((cfg.filter_cutoff - 1200.0).abs() < 1e-9);
+        assert!((cfg.filter_resonance - 0.33).abs() < 1e-9);
+        assert_eq!(cfg.filter_type, 2);
+    }
+
+    #[test]
+    fn import_track_automation_adds_static_plugin_param_lane_when_no_envelope() {
+        let xml = r#"
+        <Track>
+          <DeviceChain>
+            <Devices>
+              <PluginDevice>
+                <UserName Value="My VST"/>
+                <PluginFloatParameter>
+                  <ParameterName Value="Cutoff"/>
+                  <ParameterId Value="12"/>
+                  <Manual Value="0.66"/>
+                </PluginFloatParameter>
+              </PluginDevice>
+            </Devices>
+          </DeviceChain>
+        </Track>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let track_node = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Track"))
+            .expect("track");
+        let mut track = Track::new("Test");
+
+        import_track_automation(track_node, &mut track);
+
+        let lane = track
+            .automation_lanes
+            .iter()
+            .find(|l| l.param_id == "plugin:0:myvst:cutoff")
+            .expect("static plugin lane");
+        assert_eq!(lane.points.len(), 1);
+        assert!((lane.points[0].value - 0.66).abs() < 1e-9);
+    }
+
+    #[test]
+    fn import_track_automation_keeps_envelope_for_plugin_param() {
+        let xml = r#"
+        <Track>
+          <DeviceChain>
+            <Devices>
+              <PluginDevice>
+                <UserName Value="My VST"/>
+                <PluginFloatParameter>
+                  <ParameterName Value="Cutoff"/>
+                  <ParameterId Value="12"/>
+                  <Manual Value="0.80"/>
+                  <AutomationTarget Id="777"/>
+                </PluginFloatParameter>
+              </PluginDevice>
+            </Devices>
+          </DeviceChain>
+          <AutomationEnvelopes>
+            <Envelopes>
+              <AutomationEnvelope>
+                <EnvelopeTarget>
+                  <PointeeId Value="777"/>
+                </EnvelopeTarget>
+                <Automation>
+                  <Events>
+                    <FloatEvent Time="0" Value="0.25"/>
+                    <FloatEvent Time="1" Value="0.50"/>
+                  </Events>
+                </Automation>
+              </AutomationEnvelope>
+            </Envelopes>
+          </AutomationEnvelopes>
+        </Track>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let track_node = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Track"))
+            .expect("track");
+        let mut track = Track::new("Test");
+
+        import_track_automation(track_node, &mut track);
+
+        let lane = track
+            .automation_lanes
+            .iter()
+            .find(|l| l.param_id == "plugin:0:myvst:cutoff")
+            .expect("plugin lane");
+        assert_eq!(lane.points.len(), 2);
+        assert!((lane.points[0].value - 0.25).abs() < 1e-9);
+        assert!((lane.points[1].value - 0.50).abs() < 1e-9);
+    }
+
+    #[test]
     fn parse_live_set_global_modes() {
         let xml = r#"
         <LiveSet>
@@ -1457,6 +1874,32 @@ mod als_import_tests {
           <PreferFlatRootNote Value="false"/>
           <ViewStateMainWindowHiddenOtherDocViewTypeClipDetailOpen Value="false"/>
           <ViewStateMainWindowHiddenOtherDocViewTypeDeviceDetailOpen Value="true"/>
+          <Annotation Value="Project note"/>
+          <SmpteFormat Value="0"/>
+          <AutoColorPickerForPlayerAndGroupTracks>
+            <NextColorIndex Value="6"/>
+          </AutoColorPickerForPlayerAndGroupTracks>
+          <AutoColorPickerForReturnAndMainTracks>
+            <NextColorIndex Value="16"/>
+          </AutoColorPickerForReturnAndMainTracks>
+          <GroovePool>
+            <DefaultGrooveId Value="3"/>
+            <Grooves>
+              <Groove Id="0" />
+              <Groove Id="1" />
+            </Grooves>
+          </GroovePool>
+          <LinkedTrackGroups>
+            <LinkedTrackGroup Id="1" />
+          </LinkedTrackGroups>
+          <TuningSystems>
+            <TuningSystem Id="0" />
+          </TuningSystems>
+          <NoteAlgorithms>
+            <QuantizeAlgorithm Id="0" />
+            <RandomizeAlgorithm Id="1" />
+          </NoteAlgorithms>
+          <VideoWindowRect Top="-10" Left="-20" Bottom="1080" Right="1920" />
           <ViewStates>
             <MixerInArrangement Value="0"/>
             <ArrangerMixerIO Value="1"/>
@@ -1563,6 +2006,65 @@ mod als_import_tests {
             parse_live_set_bool(live_set, "ViewStateMainWindowHiddenOtherDocViewTypeDeviceDetailOpen"),
             Some(true)
         );
+        assert_eq!(first_child_value(live_set, "Annotation"), Some("Project note".to_string()));
+        assert_eq!(parse_live_set_i32(live_set, "SmpteFormat"), Some(0));
+        assert_eq!(
+            live_set
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name("AutoColorPickerForPlayerAndGroupTracks"))
+                .and_then(|n| first_child_i32(n, "NextColorIndex")),
+            Some(6)
+        );
+        assert_eq!(
+            live_set
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name("AutoColorPickerForReturnAndMainTracks"))
+                .and_then(|n| first_child_i32(n, "NextColorIndex")),
+            Some(16)
+        );
+        assert_eq!(
+            live_set
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name("GroovePool"))
+                .and_then(|n| first_child_i32(n, "DefaultGrooveId")),
+            Some(3)
+        );
+        assert_eq!(
+            live_set
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name("GroovePool"))
+                .map(|n| n.descendants().filter(|d| d.is_element() && d.has_tag_name("Groove")).count()),
+            Some(2)
+        );
+        assert_eq!(
+            live_set
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name("LinkedTrackGroups"))
+                .map(|n| n.children().filter(|c| c.is_element()).count()),
+            Some(1)
+        );
+        assert_eq!(
+            live_set
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name("TuningSystems"))
+                .map(|n| n.children().filter(|c| c.is_element()).count()),
+            Some(1)
+        );
+        assert_eq!(
+            live_set
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name("NoteAlgorithms"))
+                .map(|n| n.children().filter(|c| c.is_element()).count()),
+            Some(2)
+        );
+        let video_rect = live_set
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("VideoWindowRect"))
+            .expect("video rect");
+        assert_eq!(video_rect.attribute("Top").and_then(parse_i64_value), Some(-10));
+        assert_eq!(video_rect.attribute("Left").and_then(parse_i64_value), Some(-20));
+        assert_eq!(video_rect.attribute("Bottom").and_then(parse_i64_value), Some(1080));
+        assert_eq!(video_rect.attribute("Right").and_then(parse_i64_value), Some(1920));
         assert_eq!(parse_view_states_bool(live_set, "MixerInArrangement"), Some(false));
         assert_eq!(parse_view_states_bool(live_set, "ArrangerMixerIO"), Some(true));
         assert_eq!(parse_view_states_bool(live_set, "SessionIO"), Some(true));
@@ -1592,6 +2094,31 @@ mod als_import_tests {
             .expect("grid");
         let parsed = parse_clip_grid(grid).expect("parsed");
         assert_eq!(parsed, (8, 1, 2, true, false));
+    }
+
+    #[test]
+    fn parse_clip_time_signature_reads_remoteable_signature() {
+        let xml = r#"
+        <MidiClip>
+          <TimeSignature>
+            <TimeSignatures>
+              <RemoteableTimeSignature Id="0">
+                <Numerator Value="7" />
+                <Denominator Value="8" />
+                <Time Value="0" />
+              </RemoteableTimeSignature>
+            </TimeSignatures>
+          </TimeSignature>
+        </MidiClip>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let clip = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("MidiClip"))
+            .expect("clip");
+        let (num, den) = parse_clip_time_signature(clip);
+        assert_eq!(num, Some(7));
+        assert_eq!(den, Some(8));
     }
 
     #[test]
@@ -1639,6 +2166,39 @@ mod als_import_tests {
         <LiveSet>
           <SessionScrollPos X="-5582" Y="17" />
           <SelectedBreakpointValue Value="1308.18286" />
+          <TimeSelection>
+            <AnchorTime Value="120" />
+            <OtherTime Value="124" />
+          </TimeSelection>
+          <SequencerNavigator>
+            <BeatTimeHelper>
+              <CurrentZoom Value="0.250933532486930566" />
+            </BeatTimeHelper>
+            <ScrollerPos X="-41" Y="-896" />
+            <ClientSize X="908" Y="598" />
+          </SequencerNavigator>
+          <IsContentSplitterOpen Value="true" />
+          <IsExpressionSplitterOpen Value="false" />
+          <ExpressionLanes>
+            <MidiEditorLaneModel Id="4">
+              <Type Value="5" />
+              <Size Value="41" />
+              <IsMinimized Value="true" />
+            </MidiEditorLaneModel>
+            <MidiEditorLaneModel Id="0">
+              <Type Value="0" />
+              <Size Value="41" />
+              <IsMinimized Value="false" />
+            </MidiEditorLaneModel>
+          </ExpressionLanes>
+          <ContentLanes>
+            <MidiEditorLaneModel Id="2">
+              <Type Value="3" />
+              <Size Value="25" />
+              <IsMinimized Value="true" />
+            </MidiEditorLaneModel>
+          </ContentLanes>
+          <ViewData Value="{&quot;layout&quot;:&quot;arrangement&quot;}" />
         </LiveSet>
         "#;
         let doc = roxmltree::Document::parse(xml).expect("valid xml");
@@ -1661,6 +2221,49 @@ mod als_import_tests {
         assert_eq!(
             first_child_f64(live_set, "SelectedBreakpointValue"),
             Some(1308.18286)
+        );
+        let time_selection = live_set
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("TimeSelection"))
+            .expect("time selection");
+        assert_eq!(first_child_f64(time_selection, "AnchorTime"), Some(120.0));
+        assert_eq!(first_child_f64(time_selection, "OtherTime"), Some(124.0));
+        let seq = live_set
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("SequencerNavigator"))
+            .expect("sequencer navigator");
+        let zoom = seq
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("CurrentZoom"))
+            .and_then(|n| n.attribute("Value"))
+            .and_then(parse_f64_value);
+        assert_eq!(zoom, Some(0.250933532486930566));
+        let scroller_pos = seq
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("ScrollerPos"))
+            .expect("scroller pos");
+        assert_eq!(scroller_pos.attribute("X").and_then(parse_i64_value), Some(-41));
+        assert_eq!(scroller_pos.attribute("Y").and_then(parse_i64_value), Some(-896));
+        let client_size = seq
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("ClientSize"))
+            .expect("client size");
+        assert_eq!(client_size.attribute("X").and_then(parse_i64_value), Some(908));
+        assert_eq!(client_size.attribute("Y").and_then(parse_i64_value), Some(598));
+        assert_eq!(parse_live_set_bool(live_set, "IsContentSplitterOpen"), Some(true));
+        assert_eq!(parse_live_set_bool(live_set, "IsExpressionSplitterOpen"), Some(false));
+        let expression_lanes = parse_root_midi_editor_lanes(live_set, "ExpressionLanes");
+        assert_eq!(expression_lanes.len(), 2);
+        assert_eq!(expression_lanes[0].id, 0);
+        assert_eq!(expression_lanes[1].id, 4);
+        assert_eq!(expression_lanes[1].lane_type, 5);
+        let content_lanes = parse_root_midi_editor_lanes(live_set, "ContentLanes");
+        assert_eq!(content_lanes.len(), 1);
+        assert_eq!(content_lanes[0].id, 2);
+        assert_eq!(content_lanes[0].size, 25.0);
+        assert_eq!(
+            first_child_value(live_set, "ViewData"),
+            Some("{\"layout\":\"arrangement\"}".to_string())
         );
     }
 
@@ -1909,6 +2512,21 @@ fn import_track_clips(
         clip.is_warped = is_warped;
         clip.warp_mode = warp_mode;
         clip.warp_markers = warp_markers;
+        clip.take_id = node_child_value(clip_node, "TakeId")
+            .as_deref()
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+        clip.legato = node_child_value(clip_node, "Legato")
+            .as_deref()
+            .and_then(parse_bool_value)
+            .unwrap_or(false);
+        clip.ram = node_child_value(clip_node, "Ram")
+            .as_deref()
+            .and_then(parse_bool_value)
+            .unwrap_or(false);
+        let (ts_num, ts_den) = parse_clip_time_signature(clip_node);
+        clip.time_signature_numerator = ts_num;
+        clip.time_signature_denominator = ts_den;
         let (groove_name, groove_amount) = parse_clip_groove(clip_node);
         clip.groove_name = groove_name;
         clip.groove_amount = groove_amount;
@@ -1967,6 +2585,37 @@ fn import_track_clips(
         clip.loop_start_beats = loop_start_beats;
         clip.loop_end_beats = loop_end_beats;
         clip.loop_on = loop_on;
+        clip.take_id = node_child_value(clip_node, "TakeId")
+            .as_deref()
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+        clip.legato = node_child_value(clip_node, "Legato")
+            .as_deref()
+            .and_then(parse_bool_value)
+            .unwrap_or(false);
+        clip.ram = node_child_value(clip_node, "Ram")
+            .as_deref()
+            .and_then(parse_bool_value)
+            .unwrap_or(false);
+        clip.velocity_amount = node_child_value(clip_node, "VelocityAmount")
+            .as_deref()
+            .and_then(parse_f64_value)
+            .unwrap_or(0.0);
+        clip.bank_select_coarse = node_child_value(clip_node, "BankSelectCoarse")
+            .as_deref()
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+        clip.bank_select_fine = node_child_value(clip_node, "BankSelectFine")
+            .as_deref()
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+        clip.program_change = node_child_value(clip_node, "ProgramChange")
+            .as_deref()
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+        let (ts_num, ts_den) = parse_clip_time_signature(clip_node);
+        clip.time_signature_numerator = ts_num;
+        clip.time_signature_denominator = ts_den;
         let (groove_name, groove_amount) = parse_clip_groove(clip_node);
         clip.groove_name = groove_name;
         clip.groove_amount = groove_amount;
@@ -2048,6 +2697,21 @@ fn parse_als_rack(
     external_plugins: &ExternalPluginIndex,
     als_path: &Path,
 ) -> DeviceRack {
+    fn parse_macro_index(tag_name: &str, prefix: &str) -> Option<usize> {
+        tag_name
+            .strip_prefix(prefix)
+            .and_then(|idx| idx.parse::<usize>().ok())
+    }
+
+    fn ensure_rack_macro_capacity(rack: &mut DeviceRack, desired_count: usize) {
+        let clamped = desired_count.clamp(8, 16);
+        while rack.macro_controls.len() < clamped {
+            let idx = rack.macro_controls.len() as u8;
+            rack.macro_controls
+                .push(dream_models::project::MacroControl::new(idx));
+        }
+    }
+
     let tag = group_device.tag_name().name();
     let rack_name = infer_device_display_name(group_device, tag);
 
@@ -2068,6 +2732,25 @@ fn parse_als_rack(
         rack.chains.push(RackChain::new("Chain A"));
     }
 
+    // ALS racks can expose up to 16 macros. Expand capacity to cover the highest
+    // encountered macro index and declared visible count.
+    let mut max_macro_index = 7usize;
+    if let Some(visible) = node_child_value(group_device, "NumVisibleMacroControls")
+        .and_then(|v| v.parse::<usize>().ok())
+    {
+        max_macro_index = max_macro_index.max(visible.saturating_sub(1));
+    }
+    for child in group_device.children().filter(|n| n.is_element()) {
+        let name = child.tag_name().name();
+        if let Some(idx) = parse_macro_index(name, "MacroControls.")
+            .or_else(|| parse_macro_index(name, "MacroDisplayNames."))
+            .or_else(|| parse_macro_index(name, "MacroDefaults."))
+        {
+            max_macro_index = max_macro_index.max(idx);
+        }
+    }
+    ensure_rack_macro_capacity(&mut rack, max_macro_index + 1);
+
     // ── Parse MacroControls (up to 16) ──────────────────────────────
     for macro_node in group_device.children().filter(|n| {
         n.is_element()
@@ -2077,29 +2760,64 @@ fn parse_als_rack(
     }) {
         let tag_name = macro_node.tag_name().name();
         // Extract index from "MacroControls.0", "MacroControls.1", etc.
-        if let Some(idx_str) = tag_name.strip_prefix("MacroControls.") {
-            if let Ok(idx) = idx_str.parse::<u8>() {
-                if (idx as usize) < rack.macro_controls.len() {
-                    let display_name = macro_node
-                        .children()
-                        .find(|n| n.is_element() && n.has_tag_name("CustomName"))
-                        .and_then(|n| n.attribute("Value"))
-                        .unwrap_or("")
-                        .to_string();
+        if let Some(idx) = parse_macro_index(tag_name, "MacroControls.") {
+            if idx < rack.macro_controls.len() {
+                let display_name = macro_node
+                    .children()
+                    .find(|n| n.is_element() && n.has_tag_name("CustomName"))
+                    .and_then(|n| n.attribute("Value"))
+                    .unwrap_or("")
+                    .to_string();
 
-                    let value = macro_node
-                        .children()
-                        .find(|n| n.is_element() && n.has_tag_name("Manual"))
-                        .and_then(|n| n.attribute("Value"))
-                        .and_then(parse_f64_value)
-                        .unwrap_or(0.0);
+                let value = macro_node
+                    .children()
+                    .find(|n| n.is_element() && n.has_tag_name("Manual"))
+                    .and_then(|n| n.attribute("Value"))
+                    .and_then(parse_f64_value)
+                    .unwrap_or(0.0);
 
-                    let mc = &mut rack.macro_controls[idx as usize];
+                let mc = &mut rack.macro_controls[idx];
+                if !display_name.is_empty() {
+                    mc.name = display_name;
+                }
+                mc.value = value;
+                mc.default_value = value;
+            }
+        }
+    }
+
+    for name_node in group_device.children().filter(|n| {
+        n.is_element()
+            && n.tag_name()
+                .name()
+                .starts_with("MacroDisplayNames.")
+    }) {
+        let tag_name = name_node.tag_name().name();
+        if let Some(idx) = parse_macro_index(tag_name, "MacroDisplayNames.") {
+            if idx < rack.macro_controls.len() {
+                if let Some(display_name) = name_node.attribute("Value") {
                     if !display_name.is_empty() {
-                        mc.name = display_name;
+                        rack.macro_controls[idx].name = display_name.to_string();
                     }
-                    mc.value = value;
-                    mc.default_value = value;
+                }
+            }
+        }
+    }
+
+    for default_node in group_device.children().filter(|n| {
+        n.is_element()
+            && n.tag_name()
+                .name()
+                .starts_with("MacroDefaults.")
+    }) {
+        let tag_name = default_node.tag_name().name();
+        if let Some(idx) = parse_macro_index(tag_name, "MacroDefaults.") {
+            if idx < rack.macro_controls.len() {
+                if let Some(value) = default_node
+                    .attribute("Value")
+                    .and_then(parse_f64_value)
+                {
+                    rack.macro_controls[idx].default_value = value;
                 }
             }
         }
@@ -2231,6 +2949,7 @@ fn parse_als_rack_chains(
 
                     // PluginDevice → external VST/VST3.
                     if child_tag == "PluginDevice" {
+                        let meta = parse_external_plugin_meta(child_device);
                         let display = infer_device_display_name(child_device, child_tag);
                         let user_name = node_child_value(child_device, "UserName").unwrap_or_default();
                         let vst3_name = child_device
@@ -2293,10 +3012,9 @@ fn parse_als_rack_chains(
                         };
 
                         if let Some(plugin_id) = resolved_plugin_id {
-                            chain.devices.push(DeviceNode::Single(PluginSlot::new(
-                                preferred_name,
-                                plugin_id,
-                            )));
+                            let mut slot = PluginSlot::new(preferred_name, plugin_id);
+                            apply_external_plugin_meta(&mut slot, &meta);
+                            chain.devices.push(DeviceNode::Single(slot));
                         } else if let Some((pid, pname, _)) =
                             canonical_internal_plugin_for_import("PluginDevice", &preferred_name)
                         {
@@ -2663,7 +3381,122 @@ fn import_internal_device_static_params(
         if let Some(v) = first_param_value(&params, &["Voice_Modulators_AmpEnvelope_Times_Release", "Release"]) {
             upsert_static_import_lane(track, "sampler.release", v.clamp(0.001, 20.0));
         }
+        return;
     }
+
+    if key == "internal://instrument/sampler" {
+        let mut lane_updates = Vec::<(String, f64)>::new();
+        let cfg = track.sampler.get_or_insert_with(SamplerConfig::default);
+
+        if let Some(v) = first_param_value(&params, &["Volume", "Vol", "SampleVolume", "Gain"]) {
+            cfg.volume = v.clamp(0.0, 2.0);
+            lane_updates.push(("sampler.volume".to_string(), cfg.volume));
+        }
+        if let Some(v) = first_param_value(&params, &["Attack", "AttackTime", "EnvAttack"]) {
+            cfg.attack = v.clamp(0.0, 20.0);
+            lane_updates.push(("sampler.attack".to_string(), cfg.attack));
+        }
+        if let Some(v) = first_param_value(&params, &["Decay", "DecayTime", "EnvDecay"]) {
+            cfg.decay = v.clamp(0.0, 20.0);
+            lane_updates.push(("sampler.decay".to_string(), cfg.decay));
+        }
+        if let Some(v) = first_param_value(&params, &["Sustain", "EnvSustain"]) {
+            let sustain = if v > 1.0 { (v / 100.0).clamp(0.0, 1.0) } else { v.clamp(0.0, 1.0) };
+            cfg.sustain = sustain;
+            lane_updates.push(("sampler.sustain".to_string(), cfg.sustain));
+        }
+        if let Some(v) = first_param_value(&params, &["Release", "ReleaseTime", "EnvRelease"]) {
+            cfg.release = v.clamp(0.0, 20.0);
+            lane_updates.push(("sampler.release".to_string(), cfg.release));
+        }
+        if let Some(v) = first_param_value(&params, &["Root", "RootKey", "Base", "Transpose"]) {
+            // `Transpose` in some presets is centered around 0 semitones.
+            let root = if v.abs() <= 24.0 && v.fract().abs() < 1e-9 {
+                (60.0 + v).round()
+            } else {
+                v.round()
+            };
+            cfg.root_note = root.clamp(0.0, 127.0) as u8;
+            lane_updates.push(("sampler.root_note".to_string(), cfg.root_note as f64));
+        }
+        if let Some(v) = first_param_value(&params, &["Filter_Frequency", "Cutoff"]) {
+            cfg.filter_cutoff = v.clamp(20.0, 20_000.0);
+            lane_updates.push(("sampler.filter_cutoff".to_string(), cfg.filter_cutoff));
+        }
+        if let Some(v) = first_param_value(&params, &["Filter_Resonance", "Resonance"]) {
+            cfg.filter_resonance = v.clamp(0.0, 0.99);
+            lane_updates.push(("sampler.filter_resonance".to_string(), cfg.filter_resonance));
+        }
+        if let Some(v) = first_param_value(&params, &["Filter_Type", "FilterType"]) {
+            cfg.filter_type = v.round().clamp(0.0, 3.0) as u8;
+            lane_updates.push(("sampler.filter_type".to_string(), cfg.filter_type as f64));
+        }
+
+        for (param_id, value) in lane_updates {
+            upsert_static_import_lane(track, &param_id, value);
+        }
+    }
+}
+
+fn collect_external_plugin_static_lanes(
+    device: roxmltree::Node<'_, '_>,
+    dev_idx: usize,
+    plugin_key: &str,
+) -> Vec<(String, f64)> {
+    let mut out = Vec::<(String, f64)>::new();
+
+    for (param_idx, param_node) in device
+        .descendants()
+        .filter(|n| {
+            if !n.is_element() {
+                return false;
+            }
+            let tag = n.tag_name().name();
+            tag == "PluginFloatParameter" || tag == "PluginIntParameter" || tag == "PluginBoolParameter"
+        })
+        .enumerate()
+    {
+        let manual = param_node
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("ParameterValue"))
+            .and_then(|pv| {
+                pv.children()
+                    .find(|n| n.is_element() && n.has_tag_name("Manual"))
+                    .and_then(|m| m.attribute("Value"))
+                    .and_then(parse_f64_value)
+            });
+        let Some(value) = manual else { continue };
+
+        let raw_name = param_node
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("ParameterName"))
+            .and_then(|n| n.attribute("Value"))
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let raw_id = param_node
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("ParameterId"))
+            .and_then(|n| n.attribute("Value"))
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+
+        let mut param_key = normalize_plugin_key(&raw_name);
+        if param_key.is_empty() {
+            param_key = normalize_plugin_key(&raw_id);
+        }
+        if param_key.is_empty() {
+            param_key = format!("param{param_idx}");
+        }
+
+        out.push((
+            format!("plugin:{dev_idx}:{plugin_key}:{param_key}"),
+            value,
+        ));
+    }
+
+    out
 }
 
 fn import_track_devices(
@@ -2693,6 +3526,20 @@ fn import_track_devices(
         "DrumGroupDevice",
         "MidiEffectGroupDevice",
     ];
+
+    let mut plugin_xml_id_to_idx = std::collections::HashMap::<String, usize>::new();
+    for (idx, plugin_node) in track_node
+        .descendants()
+        .filter(|n| n.is_element() && n.has_tag_name("PluginDevice"))
+        .enumerate()
+    {
+        if let Some(xml_id) = plugin_node.attribute("Id")
+            && !xml_id.trim().is_empty()
+        {
+            plugin_xml_id_to_idx.insert(xml_id.trim().to_string(), idx);
+        }
+    }
+    let mut plugin_fallback_idx = 0usize;
 
     for device in collect_track_devices(track_node) {
         let tag = device.tag_name().name();
@@ -2724,6 +3571,7 @@ fn import_track_devices(
         }
 
         if tag == "PluginDevice" {
+            let meta = parse_external_plugin_meta(device);
             let user_name = node_child_value(device, "UserName").unwrap_or_default();
             let vst3_name = device
                 .descendants()
@@ -2794,6 +3642,22 @@ fn import_track_devices(
                 infer_device_display_name(device, "Unknown Plugin")
             };
 
+            let dev_idx = device
+                .attribute("Id")
+                .map(|s| s.trim().to_string())
+                .and_then(|id| plugin_xml_id_to_idx.get(&id).copied())
+                .unwrap_or_else(|| {
+                    let cur = plugin_fallback_idx;
+                    plugin_fallback_idx += 1;
+                    cur
+                });
+            let plugin_key = normalize_plugin_key(&preferred_name);
+            if !plugin_key.is_empty() {
+                for (lane_key, value) in collect_external_plugin_static_lanes(device, dev_idx, &plugin_key) {
+                    upsert_static_import_lane_if_missing(track, &lane_key, value);
+                }
+            }
+
             let resolved_plugin_id = if !vst2_path.trim().is_empty() {
                 Some(vst2_path.trim().to_string())
             } else if !vst3_path.trim().is_empty() {
@@ -2808,7 +3672,9 @@ fn import_track_devices(
 
             let is_instrument_slot = track.track_type == TrackType::Midi && track.instrument.is_none();
             let slot = if let Some(plugin_id) = resolved_plugin_id {
-                DeviceNode::Single(PluginSlot::new(preferred_name, plugin_id))
+                let mut slot = PluginSlot::new(preferred_name, plugin_id);
+                apply_external_plugin_meta(&mut slot, &meta);
+                DeviceNode::Single(slot)
             } else if let Some((pid, pname, slot_kind)) =
                 canonical_internal_plugin_for_import("PluginDevice", &preferred_name)
             {
@@ -3036,7 +3902,6 @@ fn build_pointee_map(track_node: roxmltree::Node<'_, '_>) -> std::collections::H
         }
 
         let plugin_name_raw = infer_device_display_name(*device, "plugin");
-        let plugin_key = normalize_plugin_key(&plugin_name_raw);
 
         for float_param in device
             .descendants()
@@ -3062,16 +3927,7 @@ fn build_pointee_map(track_node: roxmltree::Node<'_, '_>) -> std::collections::H
                 .trim()
                 .to_string();
 
-            let mut param_key = normalize_plugin_key(&param_name);
-            if param_key.is_empty() {
-                let maybe_numeric = param_id.parse::<i64>().ok();
-                param_key = match maybe_numeric {
-                    Some(v) if v >= 0 => format!("id{v}"),
-                    _ => "unnamed".to_string(),
-                };
-            }
-
-            let lane_key = format!("plugin:{dev_idx}:{plugin_key}:{param_key}");
+            let lane_key = plugin_param_lane_key(dev_idx, &plugin_name_raw, &param_name, &param_id);
             map.insert(target_id, lane_key);
         }
     }
@@ -3098,6 +3954,79 @@ fn build_pointee_map(track_node: roxmltree::Node<'_, '_>) -> std::collections::H
     map
 }
 
+fn plugin_param_lane_key(
+    dev_idx: usize,
+    plugin_name: &str,
+    param_name: &str,
+    param_id: &str,
+) -> String {
+    let plugin_key = normalize_plugin_key(plugin_name);
+    let mut param_key = normalize_plugin_key(param_name);
+    if param_key.is_empty() {
+        let maybe_numeric = param_id.trim().parse::<i64>().ok();
+        param_key = match maybe_numeric {
+            Some(v) if v >= 0 => format!("id{v}"),
+            _ => "unnamed".to_string(),
+        };
+    }
+    format!("plugin:{dev_idx}:{plugin_key}:{param_key}")
+}
+
+fn plugin_param_manual_value(param_node: roxmltree::Node<'_, '_>) -> Option<f64> {
+    if let Some(v) = param_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("Manual"))
+        .and_then(|n| n.attribute("Value"))
+        .and_then(parse_f64_value)
+        .filter(|v| v.is_finite())
+    {
+        return Some(v);
+    }
+    if let Some(v) = param_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("Manual"))
+        .and_then(|n| n.attribute("Value"))
+        .and_then(parse_bool_value)
+    {
+        return Some(if v { 1.0 } else { 0.0 });
+    }
+    // Some devices expose last/manual values on the parameter node itself.
+    param_node
+        .attribute("Value")
+        .and_then(parse_f64_value)
+        .filter(|v| v.is_finite())
+}
+
+fn import_plugin_device_static_automation_fallback(
+    track_node: roxmltree::Node<'_, '_>,
+    track: &mut Track,
+) {
+    // Preserve as much external plugin state as possible even when no envelope
+    // exists or plugin binary is missing: write beat-0 static lanes from ALS
+    // parameter manual values.
+    for (dev_idx, device) in collect_track_devices(track_node).iter().enumerate() {
+        if !device.is_element() || !device.has_tag_name("PluginDevice") {
+            continue;
+        }
+        let plugin_name_raw = infer_device_display_name(*device, "plugin");
+
+        for param_node in device.descendants().filter(|n| {
+            n.is_element()
+                && (n.has_tag_name("PluginFloatParameter")
+                    || n.has_tag_name("PluginIntParameter")
+                    || n.has_tag_name("PluginBoolParameter"))
+        }) {
+            let param_name = node_child_value(param_node, "ParameterName").unwrap_or_default();
+            let param_id = node_child_value(param_node, "ParameterId").unwrap_or_default();
+            let lane_key = plugin_param_lane_key(dev_idx, &plugin_name_raw, &param_name, &param_id);
+            let Some(value) = plugin_param_manual_value(param_node) else {
+                continue;
+            };
+            upsert_static_import_lane_if_missing(track, &lane_key, value);
+        }
+    }
+}
+
 fn import_track_automation(
     track_node: roxmltree::Node<'_, '_>,
     track: &mut Track,
@@ -3110,92 +4039,92 @@ fn import_track_automation(
         .find(|n| n.is_element() && n.has_tag_name("AutomationEnvelopes"))
         .and_then(|ae| ae.children().find(|n| n.is_element() && n.has_tag_name("Envelopes")));
 
-    let Some(envelopes) = envelopes_container else {
-        return;
-    };
-
-    for envelope in envelopes
-        .children()
-        .filter(|n| n.is_element() && n.has_tag_name("AutomationEnvelope"))
-    {
-        // Resolve param_id from PointeeId
-        let pointee_id = envelope
-            .descendants()
-            .find(|n| n.is_element() && n.has_tag_name("PointeeId"))
-            .and_then(|n| n.attribute("Value"))
-            .unwrap_or_default()
-            .to_string();
-
-        let param_id = pointee_map
-            .get(&pointee_id)
-            .cloned()
-            .unwrap_or_else(|| format!("unknown:{pointee_id}"));
-
-        // Parse FloatEvent entries
-        let mut points = Vec::new();
-        for event in envelope
-            .descendants()
-            .filter(|n| n.is_element() && n.has_tag_name("FloatEvent"))
+    if let Some(envelopes) = envelopes_container {
+        for envelope in envelopes
+            .children()
+            .filter(|n| n.is_element() && n.has_tag_name("AutomationEnvelope"))
         {
-            let time_beats = event
-                .attribute("Time")
-                .and_then(parse_f64_value)
-                .unwrap_or(0.0);
+            // Resolve param_id from PointeeId
+            let pointee_id = envelope
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name("PointeeId"))
+                .and_then(|n| n.attribute("Value"))
+                .unwrap_or_default()
+                .to_string();
 
-            // Skip the Ableton sentinel value (negative infinity placeholder)
-            if time_beats < -1_000_000.0 {
+            let param_id = pointee_map
+                .get(&pointee_id)
+                .cloned()
+                .unwrap_or_else(|| format!("unknown:{pointee_id}"));
+
+            // Parse FloatEvent entries
+            let mut points = Vec::new();
+            for event in envelope
+                .descendants()
+                .filter(|n| n.is_element() && n.has_tag_name("FloatEvent"))
+            {
+                let time_beats = event
+                    .attribute("Time")
+                    .and_then(parse_f64_value)
+                    .unwrap_or(0.0);
+
+                // Skip the Ableton sentinel value (negative infinity placeholder)
+                if time_beats < -1_000_000.0 {
+                    continue;
+                }
+
+                let value = event
+                    .attribute("Value")
+                    .and_then(parse_f64_value)
+                    .unwrap_or(0.0);
+
+                // Detect bezier curve controls
+                let has_curve = event.attribute("CurveControl1X").is_some();
+                let curve_type = if has_curve {
+                    "bezier".to_string()
+                } else {
+                    "linear".to_string()
+                };
+
+                // Extract tension from bezier control points if present
+                let tension = if has_curve {
+                    let c1y = event
+                        .attribute("CurveControl1Y")
+                        .and_then(parse_f64_value)
+                        .unwrap_or(0.5);
+                    let c2y = event
+                        .attribute("CurveControl2Y")
+                        .and_then(parse_f64_value)
+                        .unwrap_or(0.5);
+                    // Approximate tension from control points: 0 = linear, ±1 = extreme curve
+                    Some((c2y - c1y).clamp(-1.0, 1.0))
+                } else {
+                    None
+                };
+
+                points.push(dream_models::project::AutomationPoint {
+                    beat: time_beats,
+                    value,
+                    curve_type,
+                    tension,
+                });
+            }
+
+            if points.is_empty() {
                 continue;
             }
 
-            let value = event
-                .attribute("Value")
-                .and_then(parse_f64_value)
-                .unwrap_or(0.0);
+            // Sort by beat position
+            points.sort_by(|a, b| a.beat.partial_cmp(&b.beat).unwrap_or(std::cmp::Ordering::Equal));
 
-            // Detect bezier curve controls
-            let has_curve = event.attribute("CurveControl1X").is_some();
-            let curve_type = if has_curve {
-                "bezier".to_string()
-            } else {
-                "linear".to_string()
-            };
-
-            // Extract tension from bezier control points if present
-            let tension = if has_curve {
-                let c1y = event
-                    .attribute("CurveControl1Y")
-                    .and_then(parse_f64_value)
-                    .unwrap_or(0.5);
-                let c2y = event
-                    .attribute("CurveControl2Y")
-                    .and_then(parse_f64_value)
-                    .unwrap_or(0.5);
-                // Approximate tension from control points: 0 = linear, ±1 = extreme curve
-                Some((c2y - c1y).clamp(-1.0, 1.0))
-            } else {
-                None
-            };
-
-            points.push(dream_models::project::AutomationPoint {
-                beat: time_beats,
-                value,
-                curve_type,
-                tension,
+            track.automation_lanes.push(dream_models::project::AutomationLane {
+                param_id,
+                points,
             });
         }
-
-        if points.is_empty() {
-            continue;
-        }
-
-        // Sort by beat position
-        points.sort_by(|a, b| a.beat.partial_cmp(&b.beat).unwrap_or(std::cmp::Ordering::Equal));
-
-        track.automation_lanes.push(dream_models::project::AutomationLane {
-            param_id,
-            points,
-        });
     }
+
+    import_plugin_device_static_automation_fallback(track_node, track);
 }
 
 fn consolidate_automation_lanes(track: &mut Track) {
@@ -3313,6 +4242,162 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
         .filter(|v| v.is_finite())
     {
         project.selected_breakpoint_value = v;
+    }
+    if let Some(time_selection) = live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("TimeSelection"))
+    {
+        if let Some(v) = first_child_f64(time_selection, "AnchorTime")
+            .filter(|v| v.is_finite() && *v >= 0.0)
+        {
+            project.time_selection_anchor_beats = Some(v);
+        }
+        if let Some(v) = first_child_f64(time_selection, "OtherTime")
+            .filter(|v| v.is_finite() && *v >= 0.0)
+        {
+            project.time_selection_other_beats = Some(v);
+        }
+    }
+    if let Some(sequencer_navigator) = live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("SequencerNavigator"))
+    {
+        if let Some(v) = sequencer_navigator
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("CurrentZoom"))
+            .and_then(|n| n.attribute("Value"))
+            .and_then(parse_f64_value)
+            .filter(|v| v.is_finite() && *v > 0.0)
+        {
+            project.sequencer_navigator_zoom = Some(v);
+            // Also map to legacy persisted view zoom for compatibility.
+            project.view_zoom_scale = Some(v);
+        }
+        if let Some(scroller_pos) = sequencer_navigator
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("ScrollerPos"))
+        {
+            if let Some(v) = scroller_pos.attribute("X").and_then(parse_i64_value) {
+                let x = v.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                project.sequencer_navigator_scroll_x = Some(x);
+                // Preserve previous single-axis field as well.
+                project.view_scroll_position = Some(x as f64);
+            }
+            if let Some(v) = scroller_pos.attribute("Y").and_then(parse_i64_value) {
+                project.sequencer_navigator_scroll_y =
+                    Some(v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+            }
+        }
+        if let Some(client_size) = sequencer_navigator
+            .children()
+            .find(|n| n.is_element() && n.has_tag_name("ClientSize"))
+        {
+            if let Some(v) = client_size.attribute("X").and_then(parse_i64_value) {
+                project.sequencer_navigator_client_width =
+                    Some(v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+            }
+            if let Some(v) = client_size.attribute("Y").and_then(parse_i64_value) {
+                project.sequencer_navigator_client_height =
+                    Some(v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+            }
+        }
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "IsContentSplitterOpen") {
+        project.is_content_splitter_open = v;
+    }
+    if let Some(v) = parse_live_set_bool(live_set, "IsExpressionSplitterOpen") {
+        project.is_expression_splitter_open = v;
+    }
+    project.expression_lanes = parse_root_midi_editor_lanes(live_set, "ExpressionLanes");
+    project.content_lanes = parse_root_midi_editor_lanes(live_set, "ContentLanes");
+    project.view_data_json = first_child_value(live_set, "ViewData");
+    if let Some(v) = first_child_value(live_set, "Annotation") {
+        project.annotation = v;
+    }
+    if let Some(v) = parse_live_set_i32(live_set, "SmpteFormat") {
+        project.smpte_format = v;
+    }
+    if let Some(v) = live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("AutoColorPickerForPlayerAndGroupTracks"))
+        .and_then(|n| first_child_i32(n, "NextColorIndex"))
+    {
+        project.auto_color_picker_player_group_next_color_index = v;
+    }
+    if let Some(v) = live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("AutoColorPickerForReturnAndMainTracks"))
+        .and_then(|n| first_child_i32(n, "NextColorIndex"))
+    {
+        project.auto_color_picker_return_main_next_color_index = v;
+    }
+    if let Some(v) = live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("GroovePool"))
+        .and_then(|n| first_child_i32(n, "DefaultGrooveId"))
+    {
+        project.groove_pool_default_groove_id = Some(v);
+    }
+    if let Some(groove_pool) = live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("GroovePool"))
+    {
+        let count = groove_pool
+            .descendants()
+            .filter(|n| n.is_element() && n.has_tag_name("Groove"))
+            .count();
+        project.groove_pool_groove_count = count.clamp(0, i32::MAX as usize) as i32;
+    }
+    if let Some(linked_groups) = live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("LinkedTrackGroups"))
+    {
+        let count = linked_groups
+            .children()
+            .filter(|n| n.is_element())
+            .count();
+        project.linked_track_group_count = count.clamp(0, i32::MAX as usize) as i32;
+    }
+    if let Some(tuning_systems) = live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("TuningSystems"))
+    {
+        let count = tuning_systems
+            .children()
+            .filter(|n| n.is_element())
+            .count();
+        project.tuning_system_count = count.clamp(0, i32::MAX as usize) as i32;
+    }
+    if let Some(note_algorithms) = live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("NoteAlgorithms"))
+    {
+        let count = note_algorithms
+            .children()
+            .filter(|n| n.is_element())
+            .count();
+        project.note_algorithm_count = count.clamp(0, i32::MAX as usize) as i32;
+    }
+    if let Some(video_rect) = live_set
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("VideoWindowRect"))
+    {
+        project.video_window_rect_top = video_rect
+            .attribute("Top")
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+        project.video_window_rect_left = video_rect
+            .attribute("Left")
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+        project.video_window_rect_bottom = video_rect
+            .attribute("Bottom")
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+        project.video_window_rect_right = video_rect
+            .attribute("Right")
+            .and_then(parse_i64_value)
+            .map(|v| v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
     }
     if let Some(v) = parse_live_set_i32(live_set, "SelectedDocumentViewInMainWindow") {
         project.selected_document_view = v;
@@ -3735,10 +4820,22 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
         if let Some(monitoring_mode) = node_child_value(track_node, "MonitoringEnum")
             .as_deref()
             .and_then(parse_i64_value)
-            .map(|v| v.clamp(0, 2) as f64)
+            .map(|v| v.clamp(0, 2) as u8)
         {
-            static_mixer_values.push(("mixer.monitoring_mode".to_string(), monitoring_mode));
+            track.monitoring_mode = Some(monitoring_mode);
+            static_mixer_values.push(("mixer.monitoring_mode".to_string(), monitoring_mode as f64));
         }
+
+        let preferred_input_target = if track_type == TrackType::Midi {
+            parse_output_target(track_node, "MidiInputRouting")
+                .or_else(|| parse_output_target(track_node, "AudioInputRouting"))
+        } else {
+            parse_output_target(track_node, "AudioInputRouting")
+                .or_else(|| parse_output_target(track_node, "MidiInputRouting"))
+        };
+        track.input_source_id = preferred_input_target
+            .as_deref()
+            .and_then(normalize_input_routing_target);
 
         import_track_devices(track_node, &mut track, &external_plugins, file_path);
         import_track_clips(track_node, &mut track, file_path, tempo, sample_rate);

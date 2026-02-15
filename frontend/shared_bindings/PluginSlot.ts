@@ -25,4 +25,32 @@ is_bypassed: boolean,
 /**
  * Plugin-reported latency in sample frames (for PDC).
  */
-latency_frames: number, };
+latency_frames: number, 
+/**
+ * External plugin format hint (`vst2`, `vst3`, `au`, ...).
+ */
+external_format: string | null, 
+/**
+ * External plugin unique identifier (if available from host/project metadata).
+ */
+external_uid: string | null, 
+/**
+ * External plugin preset/program display name.
+ */
+external_preset_name: string | null, 
+/**
+ * External plugin active program number.
+ */
+external_program_number: number | null, 
+/**
+ * External plugin declared parameter count.
+ */
+external_parameter_count: number | null, 
+/**
+ * Whether ALS indicates that all plugin parameters were serialized.
+ */
+external_stored_all_parameters: boolean | null, 
+/**
+ * External plugin version from ALS metadata.
+ */
+external_plugin_version: string | null, };

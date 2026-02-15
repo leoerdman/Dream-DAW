@@ -120,6 +120,26 @@ warp_mode: number | null,
  */
 warp_markers: Array<WarpMarkerPoint>, 
 /**
+ * ALS take identifier (`TakeId`).
+ */
+take_id: number | null, 
+/**
+ * Clip legato flag (`Legato`).
+ */
+legato: boolean, 
+/**
+ * RAM preload flag (`Ram`).
+ */
+ram: boolean, 
+/**
+ * Clip-local time signature numerator (`TimeSignature/TimeSignatures`).
+ */
+time_signature_numerator: number | null, 
+/**
+ * Clip-local time signature denominator (`TimeSignature/TimeSignatures`).
+ */
+time_signature_denominator: number | null, 
+/**
  * Clip loop start in beats when present in ALS `<Loop>`.
  */
 loop_start_beats: number | null, 

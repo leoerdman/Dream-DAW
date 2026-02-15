@@ -538,6 +538,13 @@ mod tests {
             plugin_id: "internal://effect/eq".into(),
             is_bypassed: false,
             latency_frames: 32,
+            external_format: None,
+            external_uid: None,
+            external_preset_name: None,
+            external_program_number: None,
+            external_parameter_count: None,
+            external_stored_all_parameters: None,
+            external_plugin_version: None,
         }));
         midi_track.effects.push(DeviceNode::Single(PluginSlot {
             id: uuid::Uuid::new_v4(),
@@ -545,6 +552,13 @@ mod tests {
             plugin_id: "internal://effect/reverb".into(),
             is_bypassed: true,
             latency_frames: 64,
+            external_format: None,
+            external_uid: None,
+            external_preset_name: None,
+            external_program_number: None,
+            external_parameter_count: None,
+            external_stored_all_parameters: None,
+            external_plugin_version: None,
         }));
         project.add_track(midi_track);
 

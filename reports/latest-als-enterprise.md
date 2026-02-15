@@ -6,7 +6,7 @@
 - User folder: `/Users/leoerdman/ABLETON - Main Folder/ABLETON - User Folder`
 - ALS files: **184**
 - Parse errors: **0**
-- Scan time: **157.74s**
+- Scan time: **142.21s**
 - Indexed installed plugins: **207**
 - User folder scanned files: **0**
 - Tracks: audio **3299**, midi **2765**, group **1075**, main **184**

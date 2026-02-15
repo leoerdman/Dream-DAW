@@ -120,6 +120,20 @@ pub struct ProjectScene {
     pub follow_chance_b: Option<f64>,
 }
 
+/// UI state for a MIDI editor lane model from ALS.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct MidiEditorLaneState {
+    /// ALS lane id (`MidiEditorLaneModel Id`).
+    pub id: i32,
+    /// ALS lane type (`Type`).
+    pub lane_type: i32,
+    /// Lane size (`Size`).
+    pub size: f64,
+    /// Minimized state (`IsMinimized`).
+    pub is_minimized: bool,
+}
+
 /// A single automation envelope attached to a clip parameter.
 ///
 /// Represents intra-clip automation (e.g., volume fade within a clip).
@@ -296,6 +310,34 @@ pub struct PluginSlot {
 
     /// Plugin-reported latency in sample frames (for PDC).
     pub latency_frames: u32,
+
+    /// External plugin format hint (`vst2`, `vst3`, `au`, ...).
+    #[serde(default)]
+    pub external_format: Option<String>,
+
+    /// External plugin unique identifier (if available from host/project metadata).
+    #[serde(default)]
+    pub external_uid: Option<String>,
+
+    /// External plugin preset/program display name.
+    #[serde(default)]
+    pub external_preset_name: Option<String>,
+
+    /// External plugin active program number.
+    #[serde(default)]
+    pub external_program_number: Option<i32>,
+
+    /// External plugin declared parameter count.
+    #[serde(default)]
+    pub external_parameter_count: Option<i32>,
+
+    /// Whether ALS indicates that all plugin parameters were serialized.
+    #[serde(default)]
+    pub external_stored_all_parameters: Option<bool>,
+
+    /// External plugin version from ALS metadata.
+    #[serde(default)]
+    pub external_plugin_version: Option<String>,
 }
 
 impl PluginSlot {
@@ -307,6 +349,13 @@ impl PluginSlot {
             plugin_id: plugin_id.into(),
             is_bypassed: false,
             latency_frames: 0,
+            external_format: None,
+            external_uid: None,
+            external_preset_name: None,
+            external_program_number: None,
+            external_parameter_count: None,
+            external_stored_all_parameters: None,
+            external_plugin_version: None,
         }
     }
 }
@@ -762,6 +811,26 @@ pub struct AudioClip {
     #[serde(default)]
     pub warp_markers: Vec<WarpMarkerPoint>,
 
+    /// ALS take identifier (`TakeId`).
+    #[serde(default)]
+    pub take_id: Option<i32>,
+
+    /// Clip legato flag (`Legato`).
+    #[serde(default)]
+    pub legato: bool,
+
+    /// RAM preload flag (`Ram`).
+    #[serde(default)]
+    pub ram: bool,
+
+    /// Clip-local time signature numerator (`TimeSignature/TimeSignatures`).
+    #[serde(default)]
+    pub time_signature_numerator: Option<u8>,
+
+    /// Clip-local time signature denominator (`TimeSignature/TimeSignatures`).
+    #[serde(default)]
+    pub time_signature_denominator: Option<u8>,
+
     /// Clip loop start in beats when present in ALS `<Loop>`.
     #[serde(default)]
     pub loop_start_beats: Option<f64>,
@@ -823,6 +892,11 @@ impl AudioClip {
             is_warped: false,
             warp_mode: None,
             warp_markers: Vec::new(),
+            take_id: None,
+            legato: false,
+            ram: false,
+            time_signature_numerator: None,
+            time_signature_denominator: None,
             loop_start_beats: None,
             loop_end_beats: None,
             loop_on: false,
@@ -1184,6 +1258,103 @@ pub struct Project {
     #[serde(default)]
     pub selected_breakpoint_value: f64,
 
+    /// Root `TimeSelection/AnchorTime` in beats.
+    #[serde(default)]
+    pub time_selection_anchor_beats: Option<f64>,
+
+    /// Root `TimeSelection/OtherTime` in beats.
+    #[serde(default)]
+    pub time_selection_other_beats: Option<f64>,
+
+    /// `SequencerNavigator/BeatTimeHelper/CurrentZoom`.
+    #[serde(default)]
+    pub sequencer_navigator_zoom: Option<f64>,
+
+    /// `SequencerNavigator/ScrollerPos@X`.
+    #[serde(default)]
+    pub sequencer_navigator_scroll_x: Option<i32>,
+
+    /// `SequencerNavigator/ScrollerPos@Y`.
+    #[serde(default)]
+    pub sequencer_navigator_scroll_y: Option<i32>,
+
+    /// `SequencerNavigator/ClientSize@X`.
+    #[serde(default)]
+    pub sequencer_navigator_client_width: Option<i32>,
+
+    /// `SequencerNavigator/ClientSize@Y`.
+    #[serde(default)]
+    pub sequencer_navigator_client_height: Option<i32>,
+
+    /// Root `IsContentSplitterOpen`.
+    #[serde(default)]
+    pub is_content_splitter_open: bool,
+
+    /// Root `IsExpressionSplitterOpen`.
+    #[serde(default)]
+    pub is_expression_splitter_open: bool,
+
+    /// Project annotation (`Annotation`).
+    #[serde(default)]
+    pub annotation: String,
+
+    /// SMPTE format (`SmpteFormat`).
+    #[serde(default)]
+    pub smpte_format: i32,
+
+    /// Root `ExpressionLanes/MidiEditorLaneModel`.
+    #[serde(default)]
+    pub expression_lanes: Vec<MidiEditorLaneState>,
+
+    /// Root `ContentLanes/MidiEditorLaneModel`.
+    #[serde(default)]
+    pub content_lanes: Vec<MidiEditorLaneState>,
+
+    /// Raw LiveSet `ViewData` JSON string when present.
+    #[serde(default)]
+    pub view_data_json: Option<String>,
+
+    /// `AutoColorPickerForPlayerAndGroupTracks/NextColorIndex`.
+    #[serde(default)]
+    pub auto_color_picker_player_group_next_color_index: i32,
+
+    /// `AutoColorPickerForReturnAndMainTracks/NextColorIndex`.
+    #[serde(default)]
+    pub auto_color_picker_return_main_next_color_index: i32,
+
+    /// `GroovePool/DefaultGrooveId`.
+    #[serde(default)]
+    pub groove_pool_default_groove_id: Option<i32>,
+
+    /// Number of grooves in `GroovePool/Grooves`.
+    #[serde(default)]
+    pub groove_pool_groove_count: i32,
+
+    /// Number of groups in `LinkedTrackGroups`.
+    #[serde(default)]
+    pub linked_track_group_count: i32,
+
+    /// Number of tuning systems in `TuningSystems`.
+    #[serde(default)]
+    pub tuning_system_count: i32,
+
+    /// Number of algorithms in `NoteAlgorithms`.
+    #[serde(default)]
+    pub note_algorithm_count: i32,
+
+    /// `VideoWindowRect@Top`.
+    #[serde(default)]
+    pub video_window_rect_top: Option<i32>,
+    /// `VideoWindowRect@Left`.
+    #[serde(default)]
+    pub video_window_rect_left: Option<i32>,
+    /// `VideoWindowRect@Bottom`.
+    #[serde(default)]
+    pub video_window_rect_bottom: Option<i32>,
+    /// `VideoWindowRect@Right`.
+    #[serde(default)]
+    pub video_window_rect_right: Option<i32>,
+
     /// Global launch quantisation (`GlobalQuantisation`).
     #[serde(default)]
     pub global_quantisation: i32,
@@ -1470,6 +1641,31 @@ impl Project {
             session_scroll_x: 0,
             session_scroll_y: 0,
             selected_breakpoint_value: 0.0,
+            time_selection_anchor_beats: None,
+            time_selection_other_beats: None,
+            sequencer_navigator_zoom: None,
+            sequencer_navigator_scroll_x: None,
+            sequencer_navigator_scroll_y: None,
+            sequencer_navigator_client_width: None,
+            sequencer_navigator_client_height: None,
+            is_content_splitter_open: false,
+            is_expression_splitter_open: false,
+            annotation: String::new(),
+            smpte_format: 0,
+            expression_lanes: Vec::new(),
+            content_lanes: Vec::new(),
+            view_data_json: None,
+            auto_color_picker_player_group_next_color_index: 0,
+            auto_color_picker_return_main_next_color_index: 0,
+            groove_pool_default_groove_id: None,
+            groove_pool_groove_count: 0,
+            linked_track_group_count: 0,
+            tuning_system_count: 0,
+            note_algorithm_count: 0,
+            video_window_rect_top: None,
+            video_window_rect_left: None,
+            video_window_rect_bottom: None,
+            video_window_rect_right: None,
             global_quantisation: 0,
             auto_quantisation: 0,
             selected_document_view: 0,
@@ -1758,6 +1954,13 @@ mod tests {
             plugin_id: "com.xfer.serum".into(),
             is_bypassed: false,
             latency_frames: 64,
+            external_format: None,
+            external_uid: None,
+            external_preset_name: None,
+            external_program_number: None,
+            external_parameter_count: None,
+            external_stored_all_parameters: None,
+            external_plugin_version: None,
         }));
 
         track.effects.push(DeviceNode::Single(PluginSlot {
@@ -1766,6 +1969,13 @@ mod tests {
             plugin_id: "com.fabfilter.pro-l-2".into(),
             is_bypassed: false,
             latency_frames: 128,
+            external_format: None,
+            external_uid: None,
+            external_preset_name: None,
+            external_program_number: None,
+            external_parameter_count: None,
+            external_stored_all_parameters: None,
+            external_plugin_version: None,
         }));
 
         track.effects.push(DeviceNode::Single(PluginSlot {
@@ -1774,6 +1984,13 @@ mod tests {
             plugin_id: "com.fabfilter.pro-q-3".into(),
             is_bypassed: true, // Bypassed — should NOT count
             latency_frames: 32,
+            external_format: None,
+            external_uid: None,
+            external_preset_name: None,
+            external_program_number: None,
+            external_parameter_count: None,
+            external_stored_all_parameters: None,
+            external_plugin_version: None,
         }));
 
         assert_eq!(track.total_latency_frames(), 64 + 128); // Instrument + active effect

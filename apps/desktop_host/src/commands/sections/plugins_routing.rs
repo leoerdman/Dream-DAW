@@ -240,9 +240,13 @@ fn set_track_input_cmd(
         Some(normalized.to_string())
     };
 
+    let effective_input = track.input_source_id.clone();
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
-    log::info!("[IPC] set_track_input_cmd({track_id} <- {})", track.input_source_id.as_deref().unwrap_or("none"));
+    log::info!(
+        "[IPC] set_track_input_cmd({track_id} <- {})",
+        effective_input.as_deref().unwrap_or("none")
+    );
     Ok(())
 }
 

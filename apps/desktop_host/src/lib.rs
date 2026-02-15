@@ -2175,6 +2175,10 @@ impl PluginHostState {
             .lock()
             .map_err(|e| e.to_string())?
             .insert(plugin_key.to_string(), instance_id);
+        {
+            let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+            let _ = supervisor.send_open_editor(instance_id);
+        }
         Ok(instance_id)
     }
 

@@ -32,6 +32,8 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
     const [midiInputs, setMidiInputs] = useState<engine.MidiInputPort[]>([]);
     const [midiLoading, setMidiLoading] = useState(false);
     const [midiConnecting, setMidiConnecting] = useState<string | null>(null);
+    const [sandboxLoading, setSandboxLoading] = useState(false);
+    const [sandboxSnapshot, setSandboxSnapshot] = useState<engine.PluginSandboxSnapshot | null>(null);
 
     // Fetch real devices when Audio tab is opened
     useEffect(() => {
@@ -41,6 +43,11 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
             .then(devices => setAudioDevices(devices))
             .catch(err => console.error('[SettingsPanel] Failed to enumerate devices:', err))
             .finally(() => setDevicesLoading(false));
+        setSandboxLoading(true);
+        engine.getPluginSandboxRuntime()
+            .then((snap) => setSandboxSnapshot(snap))
+            .catch((err) => console.error('[SettingsPanel] Failed to read plugin sandbox runtime:', err))
+            .finally(() => setSandboxLoading(false));
     }, [tab]);
 
     useEffect(() => {
@@ -267,6 +274,64 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                             <SettingRow label="High Quality SR/Pitch Conversion">
                                 <Toggle value={settings.srPitchConversion} onChange={v => updateSetting('srPitchConversion', v)} />
                             </SettingRow>
+
+                            <div style={dividerStyle} />
+
+                            <SettingRow label="Plugin Sandbox (Out-of-Process)">
+                                <Toggle
+                                    value={sandboxSnapshot?.enabled ?? false}
+                                    onChange={async (v) => {
+                                        setSandboxLoading(true);
+                                        try {
+                                            const snap = await engine.setPluginSandboxEnabled(v);
+                                            setSandboxSnapshot(snap);
+                                        } catch (err) {
+                                            console.error('[SettingsPanel] setPluginSandboxEnabled failed:', err);
+                                        } finally {
+                                            setSandboxLoading(false);
+                                        }
+                                    }}
+                                />
+                                {sandboxLoading && <span style={{ ...valueStyle, marginLeft: 6 }}>⏳</span>}
+                            </SettingRow>
+                            <SettingRow label="Sandbox Instances">
+                                <span style={valueStyle}>
+                                    {sandboxSnapshot?.instances.length ?? 0}
+                                </span>
+                            </SettingRow>
+                            {!!sandboxSnapshot?.instances.length && (
+                                <div
+                                    style={{
+                                        marginTop: 8,
+                                        border: '1px solid var(--color-divider)',
+                                        borderRadius: 6,
+                                        padding: 8,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: 6,
+                                        maxHeight: 140,
+                                        overflowY: 'auto',
+                                    }}
+                                >
+                                    {sandboxSnapshot.instances.map((inst) => (
+                                        <div
+                                            key={inst.plugin_instance_id}
+                                            style={{
+                                                fontSize: 11,
+                                                color: 'var(--color-text-secondary)',
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                gap: 8,
+                                            }}
+                                        >
+                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {inst.plugin_name}
+                                            </span>
+                                            <span>{inst.status}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
 

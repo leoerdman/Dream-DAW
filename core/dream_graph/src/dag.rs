@@ -178,6 +178,36 @@ pub struct ExecutionPlan {
     /// Nodes within one stage are dependency-independent and can be
     /// processed concurrently. Stages themselves must execute in order.
     pub parallel_stages: Vec<Vec<NodeIndex>>,
+
+    /// Summary statistics for stage-level parallel scheduling.
+    pub parallelism_metrics: ParallelismMetrics,
+}
+
+/// Aggregate metrics describing stage-level graph parallelism.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ParallelismMetrics {
+    /// Number of topology stages.
+    pub stage_count: usize,
+    /// Total number of nodes covered by all stages.
+    pub total_nodes: usize,
+    /// Maximum number of independent nodes in a single stage.
+    pub max_stage_width: usize,
+    /// Average nodes per stage.
+    pub avg_stage_width: f32,
+    /// Recommended worker count based on current graph width.
+    pub recommended_workers: usize,
+}
+
+impl Default for ParallelismMetrics {
+    fn default() -> Self {
+        Self {
+            stage_count: 0,
+            total_nodes: 0,
+            max_stage_width: 0,
+            avg_stage_width: 0.0,
+            recommended_workers: 1,
+        }
+    }
 }
 
 /// Delay compensation to apply on a specific graph edge.
@@ -359,6 +389,39 @@ impl AudioDag {
     pub fn parallel_stages(&self) -> Result<Vec<Vec<NodeIndex>>, GraphError> {
         let order = self.topological_order()?;
         Ok(self.parallel_stages_from_order(&order))
+    }
+
+    /// Computes scheduling metrics for a concrete set of parallel stages.
+    pub fn parallelism_metrics_from_stages(stages: &[Vec<NodeIndex>]) -> ParallelismMetrics {
+        if stages.is_empty() {
+            return ParallelismMetrics::default();
+        }
+
+        let stage_count = stages.len();
+        let total_nodes = stages.iter().map(Vec::len).sum::<usize>();
+        let max_stage_width = stages.iter().map(Vec::len).max().unwrap_or(0);
+        let avg_stage_width = total_nodes as f32 / stage_count as f32;
+        let recommended_workers = max_stage_width.max(1);
+
+        ParallelismMetrics {
+            stage_count,
+            total_nodes,
+            max_stage_width,
+            avg_stage_width,
+            recommended_workers,
+        }
+    }
+
+    /// Computes scheduling metrics from an existing topological order.
+    pub fn parallelism_metrics_from_order(&self, topo_order: &[NodeIndex]) -> ParallelismMetrics {
+        let stages = self.parallel_stages_from_order(topo_order);
+        Self::parallelism_metrics_from_stages(&stages)
+    }
+
+    /// Computes scheduling metrics directly from the graph.
+    pub fn parallelism_metrics(&self) -> Result<ParallelismMetrics, GraphError> {
+        let order = self.topological_order()?;
+        Ok(self.parallelism_metrics_from_order(&order))
     }
 
     /// Returns the list of immediate input nodes for a given node.
@@ -573,5 +636,36 @@ mod tests {
         assert_eq!(stages[1].len(), 2); // FX1 + FX2
         assert_eq!(stages[2].len(), 1); // Bus
         assert_eq!(stages[3].len(), 1); // Master
+    }
+
+    #[test]
+    fn parallelism_metrics_for_diamond_topology() {
+        // Track -> FX1 -> Bus -> Master
+        //      \-> FX2 -/
+        let dag = GraphBuilder::new()
+            .add_node(make_master())
+            .add_node(make_track(1, "Track"))
+            .add_node(make_effect(2, "FX1", 0))
+            .add_node(make_effect(3, "FX2", 0))
+            .add_node(make_bus(4, "Bus"))
+            .add_edge(NodeId(1), NodeId(2))
+            .unwrap()
+            .add_edge(NodeId(1), NodeId(3))
+            .unwrap()
+            .add_edge(NodeId(2), NodeId(4))
+            .unwrap()
+            .add_edge(NodeId(3), NodeId(4))
+            .unwrap()
+            .add_edge(NodeId(4), NodeId(0))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let metrics = dag.parallelism_metrics().unwrap();
+        assert_eq!(metrics.stage_count, 4);
+        assert_eq!(metrics.total_nodes, 5);
+        assert_eq!(metrics.max_stage_width, 2);
+        assert!((metrics.avg_stage_width - 1.25).abs() < 1e-6);
+        assert_eq!(metrics.recommended_workers, 2);
     }
 }

@@ -69,6 +69,7 @@ impl LiveGraph {
             delay_compensation: Vec::new(),
             edge_delay_compensation: Vec::new(),
             parallel_stages: Vec::new(),
+            parallelism_metrics: crate::dag::ParallelismMetrics::default(),
         };
         Self {
             current_plan: ArcSwap::from_pointee(empty_plan),
@@ -119,6 +120,7 @@ impl LiveGraph {
         let delay_compensation = vec![0u32; dag.graph().node_count()];
         let edge_delay_compensation = pdc::compute_edge_delay_compensation(dag, &processing_order);
         let parallel_stages = dag.parallel_stages_from_order(&processing_order);
+        let parallelism_metrics = AudioDag::parallelism_metrics_from_stages(&parallel_stages);
 
         debug_assert_eq!(
             parallel_stages.iter().map(|s| s.len()).sum::<usize>(),
@@ -151,6 +153,7 @@ impl LiveGraph {
             delay_compensation,
             edge_delay_compensation,
             parallel_stages,
+            parallelism_metrics,
         })
     }
 }

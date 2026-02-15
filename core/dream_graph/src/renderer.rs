@@ -47,21 +47,44 @@ fn mix_in_place(dst: &mut [f32], src: &[f32], n: usize) {
     let count = n.min(dst.len()).min(src.len());
     #[cfg(target_arch = "x86_64")]
     {
-        // SSE is guaranteed on x86_64.
-        unsafe { mix_in_place_sse(dst, src, count) };
-        return;
+        if std::arch::is_x86_feature_detected!("avx2") {
+            unsafe { mix_in_place_avx2(dst, src, count) };
+        } else {
+            // SSE is guaranteed on x86_64.
+            unsafe { mix_in_place_sse(dst, src, count) };
+        }
     }
     #[cfg(target_arch = "aarch64")]
     {
         // NEON is guaranteed on AArch64 (Apple Silicon M1–M4).
         unsafe { mix_in_place_neon(dst, src, count) };
-        return;
     }
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     {
         for i in 0..count {
             dst[i] += src[i];
         }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[inline]
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn mix_in_place_avx2(dst: &mut [f32], src: &[f32], count: usize) {
+    use std::arch::x86_64::*;
+
+    let mut i = 0usize;
+    while i + 8 <= count {
+        let a = _mm256_loadu_ps(dst.as_ptr().add(i));
+        let b = _mm256_loadu_ps(src.as_ptr().add(i));
+        let c = _mm256_add_ps(a, b);
+        _mm256_storeu_ps(dst.as_mut_ptr().add(i), c);
+        i += 8;
+    }
+    // Tail fallback (up to 7 samples).
+    while i < count {
+        dst[i] += src[i];
+        i += 1;
     }
 }
 
@@ -736,11 +759,13 @@ mod tests {
         let compensation = pdc::compute_delay_compensation(dag, &order);
         let edge_compensation = pdc::compute_edge_delay_compensation(dag, &order);
         let stages = dag.parallel_stages_from_order(&order);
+        let metrics = AudioDag::parallelism_metrics_from_stages(&stages);
         ExecutionPlan {
             processing_order: order,
             delay_compensation: compensation,
             edge_delay_compensation: edge_compensation,
             parallel_stages: stages,
+            parallelism_metrics: metrics,
         }
     }
 
@@ -795,6 +820,7 @@ mod tests {
             delay_compensation: compensation,
             edge_delay_compensation: Vec::new(),
             parallel_stages: dag.parallel_stages_from_order(&order),
+            parallelism_metrics: dag.parallelism_metrics_from_order(&order),
         };
 
         let mut renderer = GraphRenderer::new(16, 16);
@@ -1104,7 +1130,8 @@ mod tests {
                     delay_samples: 2,
                 },
             ],
-            parallel_stages: stages,
+            parallel_stages: stages.clone(),
+            parallelism_metrics: AudioDag::parallelism_metrics_from_stages(&stages),
         };
 
         let mut renderer = GraphRenderer::new(16, 16);

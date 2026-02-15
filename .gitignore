@@ -15,8 +15,12 @@ SWIFT UI Archive/
 # ── Local logs/artifacts ──────────────────────────────────────
 .logs/
 
+# ── Generated reports & test artifacts ────────────────────────
+reports/
+
 # ── Rust ─────────────────────────────────────────────────────
 /target/
+**/target/
 **/*.rs.bk
 
 # ── IDE ──────────────────────────────────────────────────────
@@ -39,3 +43,16 @@ src-tauri/target/
 *.dmg
 *.deb
 *.AppImage
+
+# ── Project save artifacts ───────────────────────────────────
+*.dream.bak
+*.dream.tmp
+
+# ── Plugin sandbox temp files ────────────────────────────────
+/tmp/dream_sandbox_*
+*.heartbeat
+
+# ── Misc ─────────────────────────────────────────────────────
+*.log
+.env
+.env.local

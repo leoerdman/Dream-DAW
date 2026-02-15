@@ -113,12 +113,32 @@ const pendingVolumeValues = new Map<number, number>();
 const pendingPanValues = new Map<number, number>();
 let pendingMasterVolume: number | null = null;
 let projectFetchSeq = 0;
+const PROJECT_HISTORY_WINDOW = 256;
+const PROJECT_HISTORY_SYNC_EVERY_TICKS = 15; // telemetry is ~30fps
 const DEBUG_PROJECT_FETCH =
     (typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV))
     || (typeof window !== 'undefined' && (window as Window & { __dreamDebugProjectFetch?: boolean }).__dreamDebugProjectFetch === true);
 const throttledMasterVolumeSend = throttle((volume: number) => {
     void engine.setMasterVolume(volume);
 }, 16);
+
+function mergeProjectHistory(
+    current: ProjectHistoryEvent[],
+    currentCursor: number,
+    delta: ProjectHistoryEvent[],
+): { history: ProjectHistoryEvent[]; cursor: number } {
+    if (delta.length === 0) {
+        return { history: current, cursor: currentCursor };
+    }
+    const firstSeq = delta[0].seq;
+    const shouldReplace = current.length === 0 || firstSeq <= currentCursor;
+    const merged = shouldReplace ? delta : [...current, ...delta];
+    const history = merged.length > PROJECT_HISTORY_WINDOW
+        ? merged.slice(-PROJECT_HISTORY_WINDOW)
+        : merged;
+    const cursor = delta[delta.length - 1].seq;
+    return { history, cursor };
+}
 
 // ── Store Types ──────────────────────────────────────────────────────────
 
@@ -218,6 +238,8 @@ interface EngineStore {
 
     /** Fetch project state from Rust and convert to timeline format. */
     fetchProject: (reason?: string) => Promise<void>;
+    /** Incrementally sync project history journal without full project fetch. */
+    syncProjectHistory: () => Promise<void>;
 
     /** Expand window from splash to full DAW mode. */
     expandWindow: () => Promise<void>;
@@ -601,7 +623,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 arrangement_grid_fixed?: boolean;
                 }>,
                 engine.getProjectHistory({
-                    limit: 256,
+                    limit: PROJECT_HISTORY_WINDOW,
                     sinceSeq: historyCursor > 0 ? historyCursor : undefined,
                 }),
             ]);
@@ -738,21 +760,17 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     // Append incremental delta from backend history journal.
                     // Backend falls back to full slice when cursor becomes stale
                     // (e.g. after new/open project reset).
-                    projectHistory: (() => {
-                        if (projectHistoryDelta.length === 0) {
-                            return s.projectHistory;
-                        }
-                        const firstSeq = projectHistoryDelta[0].seq;
-                        const shouldReplace = s.projectHistory.length === 0
-                            || firstSeq <= s.projectHistoryCursor;
-                        const merged = shouldReplace
-                            ? projectHistoryDelta
-                            : [...s.projectHistory, ...projectHistoryDelta];
-                        return merged.length > 256 ? merged.slice(-256) : merged;
+                    ...(() => {
+                        const merged = mergeProjectHistory(
+                            s.projectHistory,
+                            s.projectHistoryCursor,
+                            projectHistoryDelta,
+                        );
+                        return {
+                            projectHistory: merged.history,
+                            projectHistoryCursor: merged.cursor,
+                        };
                     })(),
-                    projectHistoryCursor: projectHistoryDelta.length > 0
-                        ? projectHistoryDelta[projectHistoryDelta.length - 1].seq
-                        : s.projectHistoryCursor,
                     timelineClips,
                     projectTracks,
                     projectSampleRate: sr,
@@ -776,6 +794,31 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         }
     },
 
+    syncProjectHistory: async () => {
+        try {
+            const cursor = get().projectHistoryCursor;
+            const delta = await engine.getProjectHistory({
+                limit: PROJECT_HISTORY_WINDOW,
+                sinceSeq: cursor > 0 ? cursor : undefined,
+            });
+            if (delta.length === 0) return;
+            set((s) => {
+                const merged = mergeProjectHistory(
+                    s.projectHistory,
+                    s.projectHistoryCursor,
+                    delta,
+                );
+                return {
+                    projectHistory: merged.history,
+                    projectHistoryCursor: merged.cursor,
+                };
+            });
+        } catch (e) {
+            // Non-critical. Keep timeline responsive even if history sync hiccups.
+            console.warn('[Engine] syncProjectHistory failed:', e);
+        }
+    },
+
     // ── Window ─────────────────────────────────────────────────────────
 
     expandWindow: async () => {
@@ -791,6 +834,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     startTelemetryLoop: () => {
         if (get().telemetryRunning) return;
         set({ telemetryRunning: true });
+        let tickCounter = 0;
 
         // Fetch project once at startup
         get().fetchProject('telemetry-startup');
@@ -801,6 +845,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     transport: TransportState;
                     meters: MeteringSnapshot;
                 }>('telemetry_tick', (event) => {
+                    tickCounter++;
+                    if (tickCounter % PROJECT_HISTORY_SYNC_EVERY_TICKS === 0) {
+                        void get().syncProjectHistory();
+                    }
                     const nextTransport = event.payload.transport;
                     const nextMeters = event.payload.meters;
                     const prev = get().transport;

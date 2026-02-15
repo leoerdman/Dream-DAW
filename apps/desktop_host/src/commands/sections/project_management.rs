@@ -3174,6 +3174,196 @@ mod als_import_tests {
     }
 
     #[test]
+    fn audit_rainbow_latest_v14_import_deep() {
+        use std::fs;
+        use std::path::{Path, PathBuf};
+
+        fn count_device_tree(
+            node: &DeviceNode,
+            total_nodes: &mut usize,
+            total_single: &mut usize,
+            missing_single: &mut usize,
+            internal_single: &mut usize,
+            external_single: &mut usize,
+        ) {
+            *total_nodes += 1;
+            match node {
+                DeviceNode::Single(slot) => {
+                    *total_single += 1;
+                    let pid = slot.plugin_id.to_ascii_lowercase();
+                    if pid.starts_with("missing://") {
+                        *missing_single += 1;
+                    } else if pid.starts_with("internal://") {
+                        *internal_single += 1;
+                    } else {
+                        *external_single += 1;
+                    }
+                }
+                DeviceNode::Rack(rack) => {
+                    for chain in &rack.chains {
+                        for child in &chain.devices {
+                            count_device_tree(
+                                child,
+                                total_nodes,
+                                total_single,
+                                missing_single,
+                                internal_single,
+                                external_single,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        fn parse_rainbow_version(path: &Path) -> Option<u32> {
+            let name = path.file_name()?.to_str()?;
+            let rest = name.strip_prefix("Rainbow V")?;
+            let num = rest.strip_suffix(".als")?;
+            num.parse::<u32>().ok()
+        }
+
+        if std::env::var("DREAM_DAW_RAINBOW_AUDIT")
+            .ok()
+            .as_deref()
+            != Some("1")
+        {
+            eprintln!("skip: set DREAM_DAW_RAINBOW_AUDIT=1 to run deep Rainbow audit");
+            return;
+        }
+
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let demo_dir = workspace_root.join("Demo/51. Rainbow");
+        assert!(
+            demo_dir.exists(),
+            "demo folder missing: {}",
+            demo_dir.display()
+        );
+
+        let mut latest: Option<(u32, PathBuf)> = None;
+        for entry in fs::read_dir(&demo_dir).expect("read demo dir") {
+            let path = match entry {
+                Ok(e) => e.path(),
+                Err(_) => continue,
+            };
+            if let Some(ver) = parse_rainbow_version(&path) {
+                match &latest {
+                    Some((cur, _)) if *cur >= ver => {}
+                    _ => latest = Some((ver, path)),
+                }
+            }
+        }
+
+        let (version, als_path) = latest.expect("Rainbow V*.als not found");
+        let project = import_als_project(&als_path).unwrap_or_else(|e| {
+            panic!("import failed for {}: {e}", als_path.display());
+        });
+
+        let mut tracks_with_any_device = 0usize;
+        let mut tracks_with_multi_device = 0usize;
+        let mut max_nodes_on_track = 0usize;
+        let mut total_nodes = 0usize;
+        let mut total_single = 0usize;
+        let mut missing_single = 0usize;
+        let mut internal_single = 0usize;
+        let mut external_single = 0usize;
+        let mut pan_out_of_range = 0usize;
+        let mut audio_clip_count = 0usize;
+        let mut midi_clip_count = 0usize;
+
+        for track in &project.tracks {
+            if !(-1.0..=1.0).contains(&track.pan) {
+                pan_out_of_range += 1;
+            }
+            audio_clip_count += track.clips.len();
+            midi_clip_count += track.midi_clips.len();
+
+            let mut nodes_on_track = 0usize;
+            if let Some(inst) = &track.instrument {
+                count_device_tree(
+                    inst,
+                    &mut total_nodes,
+                    &mut total_single,
+                    &mut missing_single,
+                    &mut internal_single,
+                    &mut external_single,
+                );
+                nodes_on_track += 1;
+                if let DeviceNode::Rack(r) = inst {
+                    for chain in &r.chains {
+                        nodes_on_track += chain.devices.len();
+                    }
+                }
+            }
+            for fx in &track.effects {
+                count_device_tree(
+                    fx,
+                    &mut total_nodes,
+                    &mut total_single,
+                    &mut missing_single,
+                    &mut internal_single,
+                    &mut external_single,
+                );
+                nodes_on_track += 1;
+                if let DeviceNode::Rack(r) = fx {
+                    for chain in &r.chains {
+                        nodes_on_track += chain.devices.len();
+                    }
+                }
+            }
+
+            if nodes_on_track > 0 {
+                tracks_with_any_device += 1;
+            }
+            if nodes_on_track >= 2 {
+                tracks_with_multi_device += 1;
+            }
+            max_nodes_on_track = max_nodes_on_track.max(nodes_on_track);
+        }
+
+        eprintln!(
+            "[RainbowAudit] file='{}' version={} tracks={} audio_clips={} midi_clips={} tracks_with_devices={} tracks_with_multi_device={} max_nodes_track={} total_nodes={} total_single={} missing_single={} internal_single={} external_single={} pan_out_of_range={}",
+            als_path.display(),
+            version,
+            project.tracks.len(),
+            audio_clip_count,
+            midi_clip_count,
+            tracks_with_any_device,
+            tracks_with_multi_device,
+            max_nodes_on_track,
+            total_nodes,
+            total_single,
+            missing_single,
+            internal_single,
+            external_single,
+            pan_out_of_range
+        );
+
+        assert!(!project.tracks.is_empty(), "no tracks imported");
+        assert!(
+            audio_clip_count + midi_clip_count > 0,
+            "no clips imported from Rainbow"
+        );
+        assert!(
+            tracks_with_any_device > 0,
+            "no devices imported from Rainbow"
+        );
+        assert!(
+            tracks_with_multi_device > 0,
+            "all tracks collapsed to <=1 device"
+        );
+        assert_eq!(pan_out_of_range, 0, "imported pan outside [-1..1]");
+        assert!(
+            total_single > 0,
+            "no single plugin nodes imported"
+        );
+        assert!(
+            internal_single + external_single > 0,
+            "all imported plugins are missing placeholders"
+        );
+    }
+
+    #[test]
     fn parse_live_set_session_scroll_and_breakpoint() {
         let xml = r#"
         <LiveSet>

@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
@@ -10,7 +11,7 @@ use uuid::Uuid;
 
 use crate::descriptor::PluginDescriptor;
 use crate::instance::PluginError;
-use crate::sandbox_ipc::{PluginHostControlMessage, SharedAudioRegion};
+use crate::sandbox_ipc::{PluginHostControlMessage, PluginHostEventMessage, SharedAudioRegion};
 use crate::shared_memory::{SharedAudioBufferLayout, SharedAudioBufferRegion};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -97,6 +98,8 @@ struct PluginSandboxInstance {
     shared_region: SharedAudioRegion,
     _shared_region_owner: SharedAudioBufferRegion,
     control_stdin: Option<ChildStdin>,
+    event_rx: Option<Receiver<PluginHostEventMessage>>,
+    heartbeat_seq: u64,
 }
 
 /// Out-of-process plugin sandbox supervisor.
@@ -111,6 +114,36 @@ pub struct PluginSandboxSupervisor {
 }
 
 impl PluginSandboxSupervisor {
+    fn spawn_event_reader(stdout: ChildStdout, stderr: ChildStderr) -> Receiver<PluginHostEventMessage> {
+        let (tx, rx) = mpsc::channel::<PluginHostEventMessage>();
+
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                let Ok(line) = line else { break };
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if let Ok(event) = serde_json::from_str::<PluginHostEventMessage>(trimmed) {
+                    if tx.send(event).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                let Ok(line) = line else { break };
+                log::warn!("[PluginSandbox][daemon-stderr] {}", line);
+            }
+        });
+
+        rx
+    }
+
     fn send_control_message(
         control_stdin: &mut ChildStdin,
         msg: &PluginHostControlMessage,
@@ -257,6 +290,11 @@ impl PluginSandboxSupervisor {
         )?;
         let mut child = child;
         let control_stdin = child.stdin.take();
+        let event_rx = if let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) {
+            Some(Self::spawn_event_reader(stdout, stderr))
+        } else {
+            None
+        };
 
         self.instances.insert(
             instance_id,
@@ -272,6 +310,8 @@ impl PluginSandboxSupervisor {
                 shared_region,
                 _shared_region_owner: shared_region_owner,
                 control_stdin,
+                event_rx,
+                heartbeat_seq: 0,
             },
         );
         if let Some(inst) = self.instances.get_mut(&instance_id) {
@@ -304,6 +344,43 @@ impl PluginSandboxSupervisor {
         let max_auto_restarts: u32 = 1;
 
         for (id, instance) in &mut self.instances {
+            if let Some(stdin) = instance.control_stdin.as_mut() {
+                instance.heartbeat_seq = instance.heartbeat_seq.wrapping_add(1);
+                let _ = Self::send_control_message(
+                    stdin,
+                    &PluginHostControlMessage::Heartbeat {
+                        seq: instance.heartbeat_seq,
+                    },
+                );
+            }
+            if let Some(rx) = instance.event_rx.as_ref() {
+                loop {
+                    match rx.try_recv() {
+                        Ok(evt) => match evt {
+                            PluginHostEventMessage::Ready { .. } => {
+                                instance.status = PluginSandboxStatus::Running;
+                                instance.bypass_requested = false;
+                            }
+                            PluginHostEventMessage::HeartbeatAck { .. } => {
+                                let _ = fs::write(&instance.heartbeat_file, b"ack");
+                            }
+                            PluginHostEventMessage::Crashed { reason, .. } => {
+                                instance.status = PluginSandboxStatus::Crashed;
+                                instance.bypass_requested = true;
+                                instance.last_error = Some(reason);
+                            }
+                            PluginHostEventMessage::Error { message, .. } => {
+                                instance.last_error = Some(message);
+                            }
+                            PluginHostEventMessage::Loaded { .. }
+                            | PluginHostEventMessage::EditorOpened { .. }
+                            | PluginHostEventMessage::EditorClosed { .. } => {}
+                        },
+                        Err(TryRecvError::Empty) => break,
+                        Err(TryRecvError::Disconnected) => break,
+                    }
+                }
+            }
             if let Some(child) = instance.process.as_mut() {
                 match child.try_wait() {
                     Ok(Some(status)) => {
@@ -325,6 +402,14 @@ impl PluginSandboxSupervisor {
                                 ) {
                                 Ok(mut new_child) => {
                                     instance.control_stdin = new_child.stdin.take();
+                                    instance.event_rx = if let (Some(stdout), Some(stderr)) =
+                                        (new_child.stdout.take(), new_child.stderr.take())
+                                    {
+                                        Some(Self::spawn_event_reader(stdout, stderr))
+                                    } else {
+                                        None
+                                    };
+                                    instance.heartbeat_seq = 0;
                                     instance.process = Some(new_child);
                                     instance.status = PluginSandboxStatus::Spawning;
                                     instance.restart_count = instance.restart_count.saturating_add(1);
@@ -366,6 +451,14 @@ impl PluginSandboxSupervisor {
                                         ) {
                                         Ok(mut new_child) => {
                                             instance.control_stdin = new_child.stdin.take();
+                                            instance.event_rx = if let (Some(stdout), Some(stderr)) =
+                                                (new_child.stdout.take(), new_child.stderr.take())
+                                            {
+                                                Some(Self::spawn_event_reader(stdout, stderr))
+                                            } else {
+                                                None
+                                            };
+                                            instance.heartbeat_seq = 0;
                                             instance.process = Some(new_child);
                                             instance.status = PluginSandboxStatus::Spawning;
                                             instance.restart_count = instance.restart_count.saturating_add(1);
@@ -563,6 +656,8 @@ mod tests {
                 )
                 .unwrap(),
                 control_stdin: None,
+                event_rx: None,
+                heartbeat_seq: 0,
             },
         );
         sup.mark_heartbeat(id);

@@ -17,6 +17,9 @@ import {
     X,
 } from 'lucide-react';
 
+const PDC_PANEL_POS_KEY = 'dream_daw.pdc_panel_pos.v1';
+const DEFAULT_PDC_PANEL_POS = { right: 10, top: 44 };
+
 const KEY_TONICS = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'] as const;
 const KEY_MODES = ['Major', 'Minor', 'Dorian', 'Mixolydian', 'Phrygian', 'Lydian'] as const;
 const TIME_SIGNATURES: ReadonlyArray<[number, number]> = [
@@ -85,6 +88,14 @@ export const TransportBar = ({
     const [pdcError, setPdcError] = useState<string | null>(null);
     const [pdcSnapshot, setPdcSnapshot] = useState<engineApi.PdcDebugSnapshot | null>(null);
     const pdcPanelRef = useRef<HTMLDivElement | null>(null);
+    const [pdcPanelPos, setPdcPanelPos] = useState(DEFAULT_PDC_PANEL_POS);
+    const dragRef = useRef<{ dragging: boolean; startX: number; startY: number; baseRight: number; baseTop: number }>({
+        dragging: false,
+        startX: 0,
+        startY: 0,
+        baseRight: DEFAULT_PDC_PANEL_POS.right,
+        baseTop: DEFAULT_PDC_PANEL_POS.top,
+    });
 
     const handleTapTempo = useCallback(() => {
         const now = Date.now();
@@ -194,6 +205,30 @@ export const TransportBar = ({
     }, []);
 
     useEffect(() => {
+        try {
+            const raw = window.localStorage.getItem(PDC_PANEL_POS_KEY);
+            if (!raw) return;
+            const parsed = JSON.parse(raw) as { right?: number; top?: number };
+            if (typeof parsed.right === 'number' && typeof parsed.top === 'number') {
+                setPdcPanelPos({
+                    right: Math.max(8, Math.min(parsed.right, window.innerWidth - 220)),
+                    top: Math.max(40, Math.min(parsed.top, window.innerHeight - 220)),
+                });
+            }
+        } catch {
+            // Ignore corrupted localStorage payload.
+        }
+    }, []);
+
+    useEffect(() => {
+        try {
+            window.localStorage.setItem(PDC_PANEL_POS_KEY, JSON.stringify(pdcPanelPos));
+        } catch {
+            // Ignore storage write failures (private mode/full storage).
+        }
+    }, [pdcPanelPos]);
+
+    useEffect(() => {
         if (!pdcOpen) return;
         void loadPdcSnapshot();
         const id = window.setInterval(() => {
@@ -218,6 +253,38 @@ export const TransportBar = ({
         return () => {
             document.removeEventListener('mousedown', onDown);
             document.removeEventListener('keydown', onEsc);
+        };
+    }, [pdcOpen]);
+
+    const handlePdcDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
+        dragRef.current = {
+            dragging: true,
+            startX: e.clientX,
+            startY: e.clientY,
+            baseRight: pdcPanelPos.right,
+            baseTop: pdcPanelPos.top,
+        };
+        e.preventDefault();
+    };
+
+    useEffect(() => {
+        if (!pdcOpen) return;
+        const onMove = (e: MouseEvent) => {
+            if (!dragRef.current.dragging) return;
+            const dx = e.clientX - dragRef.current.startX;
+            const dy = e.clientY - dragRef.current.startY;
+            const nextRight = Math.max(8, Math.min(dragRef.current.baseRight - dx, window.innerWidth - 220));
+            const nextTop = Math.max(40, Math.min(dragRef.current.baseTop + dy, window.innerHeight - 220));
+            setPdcPanelPos({ right: nextRight, top: nextTop });
+        };
+        const onUp = () => {
+            dragRef.current.dragging = false;
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        return () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
         };
     }, [pdcOpen]);
 
@@ -415,9 +482,9 @@ export const TransportBar = ({
                     <div
                         ref={pdcPanelRef}
                         style={{
-                            position: 'absolute',
-                            right: 10,
-                            top: 'calc(100% + 8px)',
+                            position: 'fixed',
+                            right: pdcPanelPos.right,
+                            top: pdcPanelPos.top,
                             width: 440,
                             maxHeight: 'min(58vh, 540px)',
                             display: 'flex',
@@ -432,12 +499,15 @@ export const TransportBar = ({
                         }}
                     >
                         <div
+                            onMouseDown={handlePdcDragStart}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'space-between',
                                 padding: '8px 10px',
                                 borderBottom: '1px solid var(--color-divider)',
+                                cursor: 'move',
+                                userSelect: 'none',
                             }}
                         >
                             <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>

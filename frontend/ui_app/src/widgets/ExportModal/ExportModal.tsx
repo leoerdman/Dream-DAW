@@ -7,14 +7,12 @@
 // Architecture:
 //   1. User configures format (WAV/MP3), sample rate, bit depth, range
 //   2. "Bounce" opens native OS save dialog (Tauri dialog plugin)
-//   3. Glass overlay locks UI at z-index: 9999
-//   4. Rust runs export_mix at max CPU speed (no cpal timer)
-//   5. Frontend listens to 'bounce_progress' event for real-time progress
+//   3. Rust starts background export job immediately
+//   4. Global BlockingJobPopup locks UI and shows progress/cancel
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { useState, useEffect, useCallback } from 'react';
 import * as engineApi from '@/shared/api/engine';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -28,19 +26,6 @@ interface ExportModalProps {
     isOpen: boolean;
     onClose: () => void;
     projectName?: string;
-}
-
-// ── Bounce Progress Event Payload ────────────────────────────────────────
-
-interface BounceProgressPayload {
-    /** Optional job id for filtering multiple concurrent jobs. */
-    jobId?: string;
-    /** 0..100 percentage complete. */
-    progress: number;
-    /** Current phase label from Rust (e.g. "Rendering tracks...", "Normalizing..."). */
-    phase?: string;
-    /** Optional terminal status from backend job manager. */
-    status?: 'running' | 'completed' | 'failed' | 'cancelled' | string;
 }
 
 // ── Options ──────────────────────────────────────────────────────────────
@@ -80,47 +65,24 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
     const [normalize, setNormalize] = useState(false);
     const [tailMs, setTailMs] = useState(500);
 
-    // ── Bounce State ─────────────────────────────────────────────────
-    const [isBouncing, setIsBouncing] = useState(false);
-    const [progress, setProgress] = useState(0);
-    const [phase, setPhase] = useState('');
+    // ── Submit State ─────────────────────────────────────────────────
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const [bounceError, setBounceError] = useState<string | null>(null);
-
-    // ── Event Listener Ref ───────────────────────────────────────────
-    const unlistenRef = useRef<UnlistenFn | null>(null);
-    const activeJobIdRef = useRef<string | null>(null);
-
-    // ── Cleanup event listener on unmount ─────────────────────────────
-    useEffect(() => {
-        return () => {
-            if (unlistenRef.current) {
-                unlistenRef.current();
-                unlistenRef.current = null;
-            }
-        };
-    }, []);
 
     // ── Reset state when modal opens ─────────────────────────────────
     useEffect(() => {
         if (isOpen) {
-            setIsBouncing(false);
-            setProgress(0);
-            setPhase('');
+            setIsSubmitting(false);
             setBounceError(null);
-            activeJobIdRef.current = null;
         }
     }, [isOpen]);
 
     // ── Bounce Handler ───────────────────────────────────────────────
     const handleBounce = useCallback(async () => {
         setBounceError(null);
+        setIsSubmitting(true);
 
         try {
-            if (unlistenRef.current) {
-                unlistenRef.current();
-                unlistenRef.current = null;
-            }
-
             // 1. Open native OS save dialog via Tauri dialog plugin
             const { save } = await import('@tauri-apps/plugin-dialog');
             const ext = format === 'mp3' ? 'mp3' : 'wav';
@@ -132,65 +94,12 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
 
             if (!outputPath) {
                 // User cancelled the dialog
+                setIsSubmitting(false);
                 return;
             }
 
-            // 2. Lock UI — enter bouncing state
-            setIsBouncing(true);
-            setProgress(0);
-            setPhase('Initializing offline render...');
-
-            // 3. Subscribe to bounce_progress events from Rust
-            unlistenRef.current = await listen<BounceProgressPayload>('bounce_progress', (event) => {
-                if (event.payload.jobId) {
-                    if (activeJobIdRef.current === null) {
-                        activeJobIdRef.current = event.payload.jobId;
-                    }
-                    if (event.payload.jobId !== activeJobIdRef.current) {
-                        return;
-                    }
-                }
-                setProgress(event.payload.progress);
-                if (event.payload.phase) {
-                    setPhase(event.payload.phase);
-                }
-
-                if (event.payload.status === 'failed') {
-                    setBounceError('Export failed');
-                    setIsBouncing(false);
-                    if (unlistenRef.current) {
-                        unlistenRef.current();
-                        unlistenRef.current = null;
-                    }
-                    return;
-                }
-
-                if (event.payload.status === 'cancelled') {
-                    setPhase('Export cancelled');
-                    setIsBouncing(false);
-                    if (unlistenRef.current) {
-                        unlistenRef.current();
-                        unlistenRef.current = null;
-                    }
-                    return;
-                }
-
-                // Auto-complete on 100%
-                if (event.payload.progress >= 100) {
-                    setPhase('Export complete!');
-                    if (unlistenRef.current) {
-                        unlistenRef.current();
-                        unlistenRef.current = null;
-                    }
-                    setTimeout(() => {
-                        setIsBouncing(false);
-                        onClose();
-                    }, 1200);
-                }
-            });
-
-            // 4. Fire the export IPC command
-            const jobId = await engineApi.exportMix({
+            // 2. Fire export as background job (blocking popup is global).
+            await engineApi.exportMix({
                 outputPath,
                 sampleRate,
                 bitDepth,
@@ -199,19 +108,14 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                 tailMs,
                 format,
             });
-            activeJobIdRef.current = jobId;
+            onClose();
 
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             console.error('[ExportModal] Bounce failed:', msg);
             setBounceError(msg);
-            setIsBouncing(false);
-
-            // Cleanup listener
-            if (unlistenRef.current) {
-                unlistenRef.current();
-                unlistenRef.current = null;
-            }
+        } finally {
+            setIsSubmitting(false);
         }
     }, [sampleRate, bitDepth, exportRange, normalize, tailMs, format, projectName, onClose]);
 
@@ -219,95 +123,9 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
 
     return (
         <>
-            {/* ── Glass Overlay (locks entire UI during bounce) ── */}
-            {isBouncing && (
-                <div style={{
-                    position: 'fixed',
-                    inset: 0,
-                    zIndex: 'var(--z-drag-overlay)' as unknown as number,
-                    background: 'var(--color-overlay-modal)',
-                    backdropFilter: 'blur(8px)',
-                    WebkitBackdropFilter: 'blur(8px)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 20,
-                }}>
-                    {/* Progress Ring + Percentage */}
-                    <div style={{ position: 'relative', width: 120, height: 120 }}>
-                        <svg width="120" height="120" viewBox="0 0 120 120">
-                            {/* Background ring */}
-                            <circle
-                                cx="60" cy="60" r="52"
-                                fill="none"
-                                stroke="color-mix(in srgb, var(--color-text-primary) 8%, transparent)"
-                                strokeWidth="6"
-                            />
-                            {/* Progress ring */}
-                            <circle
-                                cx="60" cy="60" r="52"
-                                fill="none"
-                                stroke="var(--color-accent-primary)"
-                                strokeWidth="6"
-                                strokeLinecap="round"
-                                strokeDasharray={`${2 * Math.PI * 52}`}
-                                strokeDashoffset={`${2 * Math.PI * 52 * (1 - progress / 100)}`}
-                                transform="rotate(-90 60 60)"
-                                style={{ transition: 'stroke-dashoffset 0.2s ease' }}
-                            />
-                        </svg>
-                        <div style={{
-                            position: 'absolute',
-                            inset: 0,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                        }}>
-                            <span style={{
-                                fontSize: 28,
-                                fontWeight: 700,
-                                color: 'var(--color-text-primary)',
-                                fontFamily: 'var(--font-mono)',
-                            }}>
-                                {Math.round(progress)}%
-                            </span>
-                        </div>
-                    </div>
-
-                    {/* Phase label */}
-                    <span style={{
-                        fontSize: 'var(--font-size-sm)',
-                        color: 'var(--color-text-secondary)',
-                        fontWeight: 500,
-                        textAlign: 'center',
-                    }}>
-                        {phase}
-                    </span>
-
-                    {/* Linear progress bar */}
-                    <div style={{
-                        width: 280,
-                        height: 4,
-                        borderRadius: 'var(--radius-xs)',
-                        background: 'color-mix(in srgb, var(--color-text-primary) 8%, transparent)',
-                        overflow: 'hidden',
-                    }}>
-                        <div style={{
-                            width: `${progress}%`,
-                            height: '100%',
-                            background: 'var(--color-accent-primary)',
-                            borderRadius: 'var(--radius-xs)',
-                            transition: 'width 0.15s ease',
-                        }} />
-                    </div>
-                </div>
-            )}
-
             {/* ── Modal Backdrop ── */}
             <div
-                onClick={isBouncing ? undefined : onClose}
+                onClick={isSubmitting ? undefined : onClose}
                 style={{
                     position: 'fixed',
                     inset: 0,
@@ -463,19 +281,8 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                     paddingTop: 4,
                 }}>
                     <button
-                        onClick={() => {
-                            if (isBouncing) {
-                                const currentJobId = activeJobIdRef.current;
-                                if (currentJobId) {
-                                    void engineApi.cancelBackgroundJob(currentJobId)
-                                        .catch(() => engineApi.cancelExport());
-                                } else {
-                                    void engineApi.cancelExport();
-                                }
-                                return;
-                            }
-                            onClose();
-                        }}
+                        onClick={onClose}
+                        disabled={isSubmitting}
                         style={{
                             padding: '8px 16px',
                             borderRadius: 'var(--radius-md)',
@@ -484,15 +291,15 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                             color: 'var(--color-text-secondary)',
                             fontSize: 'var(--font-size-xs)',
                             fontWeight: 500,
-                            cursor: 'pointer',
-                            opacity: 1,
+                            cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                            opacity: isSubmitting ? 0.5 : 1,
                         }}
                     >
-                        {isBouncing ? 'Stop' : 'Cancel'}
+                        Cancel
                     </button>
                     <button
                         onClick={handleBounce}
-                        disabled={isBouncing}
+                        disabled={isSubmitting}
                         style={{
                             padding: '8px 20px',
                             borderRadius: 'var(--radius-md)',
@@ -501,12 +308,12 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                             color: 'var(--color-text-on-accent)',
                             fontSize: 'var(--font-size-xs)',
                             fontWeight: 600,
-                            cursor: isBouncing ? 'not-allowed' : 'pointer',
-                            opacity: isBouncing ? 0.5 : 1,
-                            transition: 'all 0.15s ease',
+                            cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                            opacity: isSubmitting ? 0.5 : 1,
+                            transition: `all var(--transition-fast)`,
                         }}
                     >
-                        Bounce
+                        {isSubmitting ? 'Starting...' : 'Bounce'}
                     </button>
                 </div>
             </div>
@@ -569,7 +376,7 @@ function ChipGroup<T extends string | number>({
                             fontSize: 'var(--font-size-xs)',
                             fontWeight: 600,
                             cursor: 'pointer',
-                            transition: 'all 0.12s ease',
+                            transition: `all var(--transition-linear)`,
                         }}
                     >
                         {opt.label}
@@ -593,14 +400,14 @@ const ToggleSwitch = ({
         style={{
             width: 36,
             height: 20,
-            borderRadius: 10,
+            borderRadius: 'var(--radius-xl)',
             border: 'none',
             background: checked
                 ? 'var(--color-accent-primary)'
                 : 'var(--color-control-bg)',
             position: 'relative',
             cursor: 'pointer',
-            transition: 'background 0.15s ease',
+            transition: `background var(--transition-fast)`,
         }}
     >
         <div style={{
@@ -611,7 +418,7 @@ const ToggleSwitch = ({
             position: 'absolute',
             top: 3,
             left: checked ? 19 : 3,
-            transition: 'left 0.15s ease',
+            transition: `left var(--transition-fast)`,
             boxShadow: '0 1px 3px var(--color-overlay-dark)',
         }} />
     </button>

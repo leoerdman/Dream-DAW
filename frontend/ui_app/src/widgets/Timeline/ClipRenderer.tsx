@@ -190,8 +190,8 @@ export const ClipRenderer = memo(function ClipRenderer({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: 'rgba(255, 100, 100, 0.6)',
-                    fontSize: 10,
+                    color: 'color-mix(in srgb, var(--color-status-error) 60%, transparent)',
+                    fontSize: 'var(--font-size-xs)',
                 }}
             >
                 ⚠ Peaks unavailable

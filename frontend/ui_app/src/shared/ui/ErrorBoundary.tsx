@@ -101,7 +101,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
                             (e.target as HTMLButtonElement).style.color = '#fff';
                         }}
                         onMouseLeave={e => {
-                            (e.target as HTMLButtonElement).style.background = 'rgba(255,255,255,0.08)';
+                            (e.target as HTMLButtonElement).style.background = 'var(--color-border-subtle)';
                             (e.target as HTMLButtonElement).style.color = 'var(--color-text-secondary)';
                         }}
                     >
@@ -125,9 +125,9 @@ const containerStyle: React.CSSProperties = {
     width: '100%',
     height: '100%',
     minHeight: 120,
-    background: 'rgba(220, 38, 38, 0.04)',
-    borderRadius: 8,
-    border: '1px solid rgba(220, 38, 38, 0.15)',
+    background: 'color-mix(in srgb, var(--color-status-error) 4%, transparent)',
+    borderRadius: 'var(--radius-xl)',
+    border: '1px solid color-mix(in srgb, var(--color-status-error) 15%, transparent)',
     padding: '24px 16px',
     gap: 8,
     position: 'relative',
@@ -142,33 +142,33 @@ const glowRingStyle: React.CSSProperties = {
     width: 160,
     height: 160,
     borderRadius: '50%',
-    background: 'radial-gradient(circle, rgba(220, 38, 38, 0.08) 0%, transparent 70%)',
+    background: 'radial-gradient(circle, color-mix(in srgb, var(--color-status-error) 8%, transparent) 0%, transparent 70%)',
     pointerEvents: 'none',
 };
 
 const iconStyle: React.CSSProperties = {
-    fontSize: 28,
+    fontSize: 'var(--font-size-3xl)',
     lineHeight: 1,
     opacity: 0.7,
-    filter: 'drop-shadow(0 0 8px rgba(220, 38, 38, 0.3))',
+    filter: 'drop-shadow(0 0 8px color-mix(in srgb, var(--color-status-error) 30%, transparent))',
 };
 
 const titleStyle: React.CSSProperties = {
-    fontSize: 13,
+    fontSize: 'var(--font-size-md)',
     fontWeight: 700,
     color: '#e53e3e',
     letterSpacing: '0.03em',
 };
 
 const moduleNameStyle: React.CSSProperties = {
-    fontSize: 11,
+    fontSize: 'var(--font-size-sm)',
     fontWeight: 600,
     color: 'var(--color-text-tertiary)',
     opacity: 0.7,
 };
 
 const errorMsgStyle: React.CSSProperties = {
-    fontSize: 10,
+    fontSize: 'var(--font-size-xs)',
     fontFamily: 'var(--font-mono)',
     color: 'var(--color-text-tertiary)',
     maxWidth: 280,
@@ -181,13 +181,13 @@ const errorMsgStyle: React.CSSProperties = {
 const retryBtnStyle: React.CSSProperties = {
     marginTop: 8,
     padding: '6px 16px',
-    borderRadius: 6,
-    border: '1px solid rgba(255,255,255,0.1)',
-    background: 'rgba(255,255,255,0.08)',
+    borderRadius: 'var(--radius-lg)',
+    border: '1px solid var(--color-border-subtle)',
+    background: 'var(--color-border-subtle)',
     color: 'var(--color-text-secondary)',
-    fontSize: 11,
+    fontSize: 'var(--font-size-sm)',
     fontWeight: 600,
     cursor: 'pointer',
-    transition: 'all 0.2s ease',
+    transition: `all var(--transition-normal)`,
     backdropFilter: 'blur(4px)',
 };

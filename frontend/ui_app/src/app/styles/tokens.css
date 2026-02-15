@@ -212,6 +212,28 @@
     --plugin-bg-distortion: linear-gradient(180deg, #261a12 0%, #15100c 100%);
     --plugin-bg-noise: linear-gradient(180deg, #17261a 0%, #0e150f 100%);
     --plugin-bg-midi: linear-gradient(180deg, #1b1f2a 0%, #121521 100%);
+
+    /* ─────────────────────────────────────────────────────────────
+     TEXT SHADOWS
+     ───────────────────────────────────────────────────────────── */
+    --text-shadow-dark: 0 1px 2px rgba(0, 0, 0, 0.6);
+    --text-shadow-subtle: 0 1px 1px rgba(0, 0, 0, 0.55);
+
+    /* ─────────────────────────────────────────────────────────────
+     ADDITIONAL TRANSITIONS
+     ───────────────────────────────────────────────────────────── */
+    --transition-micro: 0.1s ease;
+    --transition-linear: 0.12s linear;
+
+    /* ─────────────────────────────────────────────────────────────
+     METER GRADIENT COLORS (Track Inspector VU)
+     ───────────────────────────────────────────────────────────── */
+    --color-meter-low-audio: #36c95a;
+    --color-meter-low-midi: #3fcb6d;
+    --color-meter-mid-audio: #f2d33e;
+    --color-meter-mid-midi: #ffd34d;
+    --color-meter-green-start: #2fa64a;
+    --color-meter-green-end: #46d165;
 }
 
 

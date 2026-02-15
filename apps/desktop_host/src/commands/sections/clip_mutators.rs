@@ -116,6 +116,15 @@ fn set_job_progress(
         job.snapshot.progress = progress.clamp(0.0, 100.0);
         job.snapshot.phase = phase.to_string();
         emit_job_update(app, &job.snapshot);
+        let _ = app.emit(
+            "bounce_progress",
+            serde_json::json!({
+                "jobId": &job.snapshot.id,
+                "progress": job.snapshot.progress,
+                "phase": job.snapshot.phase,
+                "status": job.snapshot.status,
+            }),
+        );
     }
     Ok(())
 }

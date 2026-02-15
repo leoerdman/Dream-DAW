@@ -241,7 +241,7 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
                     cursor: 'ew-resize',
                     pointerEvents: 'all',
                     opacity: showHandles ? 1 : 0,
-                    transition: 'opacity 0.15s ease',
+                    transition: `opacity var(--transition-fast)`,
                 }}
             >
                 <svg width={HANDLE_SIZE} height={HANDLE_SIZE} viewBox="0 0 8 8">
@@ -290,9 +290,9 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
                     height,
                     cursor: 'ew-resize',
                     pointerEvents: showHandles ? 'all' : 'none',
-                    background: hoveredHandle === 'resizeL' ? 'rgba(255,255,255,0.2)' : 'transparent',
+                    background: hoveredHandle === 'resizeL' ? 'color-mix(in srgb, var(--color-text-bright) 20%, transparent)' : 'transparent',
                     borderLeft: hoveredHandle === 'resizeL' ? `2px solid ${color}` : 'none',
-                    transition: 'all 0.1s ease',
+                    transition: `all var(--transition-micro)`,
                 }}
             />
 
@@ -309,9 +309,9 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
                     height,
                     cursor: 'ew-resize',
                     pointerEvents: showHandles ? 'all' : 'none',
-                    background: hoveredHandle === 'resizeR' ? 'rgba(255,255,255,0.2)' : 'transparent',
+                    background: hoveredHandle === 'resizeR' ? 'color-mix(in srgb, var(--color-text-bright) 20%, transparent)' : 'transparent',
                     borderRight: hoveredHandle === 'resizeR' ? `2px solid ${color}` : 'none',
-                    transition: 'all 0.1s ease',
+                    transition: `all var(--transition-micro)`,
                 }}
             />
 
@@ -328,13 +328,13 @@ export const ClipFadeHandles = memo(function ClipFadeHandles({
                         transform: 'translateX(-50%)',
                         width: Math.min(40, width * 0.4),
                         height: 4,
-                        borderRadius: 2,
+                        borderRadius: 'var(--radius-xs)',
                         background: hoveredHandle === 'slip'
-                            ? 'rgba(255,255,255,0.5)'
-                            : 'rgba(255,255,255,0.25)',
+                            ? 'color-mix(in srgb, var(--color-text-bright) 50%, transparent)'
+                            : 'color-mix(in srgb, var(--color-text-bright) 25%, transparent)',
                         cursor: 'grab',
                         pointerEvents: 'all',
-                        transition: 'background 0.1s ease',
+                        transition: `background var(--transition-micro)`,
                     }}
                     title="Slip Edit — drag to shift source audio"
                 />

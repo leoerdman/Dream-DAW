@@ -47,8 +47,8 @@ const SettingsPanel = lazy(async () => ({
 const ExportModal = lazy(async () => ({
     default: (await import('@/widgets/ExportModal/ExportModal')).ExportModal,
 }));
-const JobCenter = lazy(async () => ({
-    default: (await import('@/widgets/JobCenter/JobCenter')).JobCenter,
+const BlockingJobPopup = lazy(async () => ({
+    default: (await import('@/widgets/BlockingJobPopup/BlockingJobPopup')).BlockingJobPopup,
 }));
 
 /**
@@ -1068,7 +1068,7 @@ export const DawShell = () => {
                                 right: 0,
                                 height: 8,
                                 cursor: 'ns-resize',
-                                zIndex: 60,
+                                zIndex: 'var(--z-modal)' as unknown as number,
                                 background: 'transparent',
                             }}
                         >
@@ -1076,7 +1076,7 @@ export const DawShell = () => {
                                 style={{
                                     width: 56,
                                     height: 2,
-                                    borderRadius: 2,
+                                    borderRadius: 'var(--radius-xs)',
                                     background: 'color-mix(in srgb, var(--color-text-secondary) 45%, transparent)',
                                     margin: '2px auto 0',
                                 }}
@@ -1245,7 +1245,7 @@ export const DawShell = () => {
             </Suspense>
 
             <Suspense fallback={null}>
-                <JobCenter />
+                <BlockingJobPopup />
             </Suspense>
 
             <DragOverlay />
@@ -1298,118 +1298,118 @@ const SessionWorkspace = ({
                             const isSelectedTrack = selectedTrackId === track.id;
                             return (
                                 <div key={track.id} style={{ width: SESSION_TRACK_WIDTH, borderRight: '1px solid #2b2b2b', display: 'flex', flexDirection: 'column' }}>
-                                <button
-                                    onClick={() => onSelectTrack(track.id)}
-                                    style={{
-                                        height: 28,
-                                        border: 'none',
-                                        borderBottom: '1px solid rgba(0,0,0,0.45)',
-                                        background: track.color,
-                                        color: contrast,
-                                        fontSize: 11,
-                                        fontWeight: 700,
-                                        textAlign: 'left',
-                                        padding: '0 8px',
-                                        boxShadow: isSelectedTrack ? 'inset 0 0 0 2px color-mix(in srgb, var(--color-accent-primary) 64%, transparent)' : 'none',
-                                        cursor: 'pointer',
-                                    }}
-                                >
-                                    {track.name}
-                                </button>
-                                {scenes.map((sceneIndex) => {
-                                    const clip = sessionClips[slotKey(sceneIndex)] ?? null;
-                                    const isSelected = clip ? selectedSessionClipId === clip.id : false;
-                                    const clipText = clip ? (getContrastColor(clip.color) === 'black' ? '#1a1a1a' : '#f3f5f8') : 'var(--color-text-tertiary)';
-                                    const isPlayingClip = clip ? playingSessionClipId === clip.id && isPlaying : false;
-                                    return (
-                                        <div
-                                            key={`${track.id}:${sceneIndex}`}
-                                            onClick={() => onSelectTrack(track.id)}
-                                            onDoubleClick={() => {
-                                                if (clip) return;
-                                                const id = `sess_${track.id}_${sceneIndex}_${Date.now()}`;
-                                                setSessionClips((prev) => ({
-                                                    ...prev,
-                                                    [slotKey(sceneIndex)]: {
-                                                        id,
-                                                        name: 'MIDI Loop',
-                                                        color: track.color,
-                                                        looped: true,
-                                                    },
-                                                }));
-                                                setSelectedSessionClipId(id);
-                                            }}
-                                            style={{
-                                                height: 26,
-                                                border: 'none',
-                                                borderBottom: '1px solid #2a2a2a',
-                                                borderRight: '1px solid #262626',
-                                                background: clip
-                                                    ? clip.color
-                                                    : 'color-mix(in srgb, var(--color-bg-panel) 90%, #131313)',
-                                                color: clipText,
-                                                fontSize: 10,
-                                                fontWeight: clip ? 600 : 500,
-                                                textAlign: 'left',
-                                                padding: clip ? '0 6px' : '0 8px',
-                                                cursor: 'pointer',
-                                                boxShadow: isSelected ? 'inset 0 0 0 2px color-mix(in srgb, var(--color-accent-primary) 70%, transparent)' : 'none',
-                                                opacity: clip ? 1 : 0.72,
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'space-between',
-                                            }}
-                                        >
-                                            {clip ? (
-                                                <>
-                                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 70 }}>
-                                                        {clip.name}
-                                                    </span>
-                                                    <div style={{ display: 'flex', gap: 4 }}>
-                                                        <button
-                                                            type="button"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setSelectedSessionClipId(clip.id);
-                                                                setPlayingSessionClipId(clip.id);
-                                                                if (!isPlaying) togglePlay();
-                                                            }}
-                                                            style={sessionClipTransportBtnStyle(isPlayingClip)}
-                                                            title="Play Clip"
-                                                        >
-                                                            ▶
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setSelectedSessionClipId(clip.id);
-                                                                setPlayingSessionClipId(null);
-                                                                if (isPlaying) togglePlay();
-                                                            }}
-                                                            style={sessionClipTransportBtnStyle(false)}
-                                                            title="Stop Clip"
-                                                        >
-                                                            ■
-                                                        </button>
-                                                    </div>
-                                                </>
-                                            ) : null}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        );
-                    })}
+                                    <button
+                                        onClick={() => onSelectTrack(track.id)}
+                                        style={{
+                                            height: 28,
+                                            border: 'none',
+                                            borderBottom: '1px solid var(--color-overlay-medium)',
+                                            background: track.color,
+                                            color: contrast,
+                                            fontSize: 'var(--font-size-sm)',
+                                            fontWeight: 700,
+                                            textAlign: 'left',
+                                            padding: '0 8px',
+                                            boxShadow: isSelectedTrack ? 'inset 0 0 0 2px color-mix(in srgb, var(--color-accent-primary) 64%, transparent)' : 'none',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        {track.name}
+                                    </button>
+                                    {scenes.map((sceneIndex) => {
+                                        const clip = sessionClips[slotKey(sceneIndex)] ?? null;
+                                        const isSelected = clip ? selectedSessionClipId === clip.id : false;
+                                        const clipText = clip ? (getContrastColor(clip.color) === 'black' ? '#1a1a1a' : '#f3f5f8') : 'var(--color-text-tertiary)';
+                                        const isPlayingClip = clip ? playingSessionClipId === clip.id && isPlaying : false;
+                                        return (
+                                            <div
+                                                key={`${track.id}:${sceneIndex}`}
+                                                onClick={() => onSelectTrack(track.id)}
+                                                onDoubleClick={() => {
+                                                    if (clip) return;
+                                                    const id = `sess_${track.id}_${sceneIndex}_${Date.now()}`;
+                                                    setSessionClips((prev) => ({
+                                                        ...prev,
+                                                        [slotKey(sceneIndex)]: {
+                                                            id,
+                                                            name: 'MIDI Loop',
+                                                            color: track.color,
+                                                            looped: true,
+                                                        },
+                                                    }));
+                                                    setSelectedSessionClipId(id);
+                                                }}
+                                                style={{
+                                                    height: 26,
+                                                    border: 'none',
+                                                    borderBottom: '1px solid #2a2a2a',
+                                                    borderRight: '1px solid #262626',
+                                                    background: clip
+                                                        ? clip.color
+                                                        : 'color-mix(in srgb, var(--color-bg-panel) 90%, #131313)',
+                                                    color: clipText,
+                                                    fontSize: 'var(--font-size-xs)',
+                                                    fontWeight: clip ? 600 : 500,
+                                                    textAlign: 'left',
+                                                    padding: clip ? '0 6px' : '0 8px',
+                                                    cursor: 'pointer',
+                                                    boxShadow: isSelected ? 'inset 0 0 0 2px color-mix(in srgb, var(--color-accent-primary) 70%, transparent)' : 'none',
+                                                    opacity: clip ? 1 : 0.72,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'space-between',
+                                                }}
+                                            >
+                                                {clip ? (
+                                                    <>
+                                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 70 }}>
+                                                            {clip.name}
+                                                        </span>
+                                                        <div style={{ display: 'flex', gap: 4 }}>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setSelectedSessionClipId(clip.id);
+                                                                    setPlayingSessionClipId(clip.id);
+                                                                    if (!isPlaying) togglePlay();
+                                                                }}
+                                                                style={sessionClipTransportBtnStyle(isPlayingClip)}
+                                                                title="Play Clip"
+                                                            >
+                                                                ▶
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setSelectedSessionClipId(clip.id);
+                                                                    setPlayingSessionClipId(null);
+                                                                    if (isPlaying) togglePlay();
+                                                                }}
+                                                                style={sessionClipTransportBtnStyle(false)}
+                                                                title="Stop Clip"
+                                                            >
+                                                                ■
+                                                            </button>
+                                                        </div>
+                                                    </>
+                                                ) : null}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
                 <div style={{ width: SESSION_MASTER_WIDTH, borderLeft: '1px solid #3a3a3a', background: 'color-mix(in srgb, var(--color-bg-panel) 80%, #111)' }}>
                     <div style={{
                         height: 28,
-                        borderBottom: '1px solid rgba(0,0,0,0.45)',
+                        borderBottom: '1px solid var(--color-overlay-medium)',
                         background: '#f2f2f2',
                         color: '#111111',
-                        fontSize: 11,
+                        fontSize: 'var(--font-size-sm)',
                         fontWeight: 800,
                         display: 'flex',
                         alignItems: 'center',
@@ -1430,69 +1430,70 @@ const SessionWorkspace = ({
                         const trackMeterLevel = Math.max(0, Math.min(1, (peakDb + 60) / 60));
                         const peakLabel = `${peakDb >= 0 ? '+' : ''}${peakDb.toFixed(1)} dB`;
                         return (
-                        <div key={`mix-${track.id}`} style={{ width: SESSION_TRACK_WIDTH, borderRight: '1px solid #2d2d2d', padding: '8px 8px 6px', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6 }}>
-                            <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>
-                                {track.track_type}
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'stretch', gap: 6 }}>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
-                                <button
-                                    style={sessionMixerBtnStyle(track.is_mute)}
-                                    onClick={() => { void setTrackMute(trackIndex, !track.is_mute); }}
-                                    title={track.is_mute ? 'Unmute track' : 'Mute track'}
-                                >
-                                    <span style={{ width: 8, height: 1, background: 'currentColor', display: 'block' }} />
-                                </button>
-                                <button
-                                    style={sessionMixerBtnStyle(track.is_solo)}
-                                    onClick={() => { void setTrackSolo(trackIndex, !track.is_solo); }}
-                                    title="Solo"
-                                >S</button>
-                                <button style={sessionMixerBtnStyle(track.is_armed)}>R</button>
+                            <div key={`mix-${track.id}`} style={{ width: SESSION_TRACK_WIDTH, borderRight: '1px solid #2d2d2d', padding: '8px 8px 6px', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6 }}>
+                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>
+                                    {track.track_type}
                                 </div>
-                                <div style={{
-                                    flex: 1,
-                                    minHeight: 82,
-                                    borderRadius: 2,
-                                    border: '1px solid #3d3d3d',
-                                    background: '#171717',
-                                    position: 'relative',
-                                    overflow: 'hidden',
-                                }}>
+                                <div style={{ display: 'flex', alignItems: 'stretch', gap: 6 }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
+                                        <button
+                                            style={sessionMixerBtnStyle(track.is_mute)}
+                                            onClick={() => { void setTrackMute(trackIndex, !track.is_mute); }}
+                                            title={track.is_mute ? 'Unmute track' : 'Mute track'}
+                                        >
+                                            <span style={{ width: 8, height: 1, background: 'currentColor', display: 'block' }} />
+                                        </button>
+                                        <button
+                                            style={sessionMixerBtnStyle(track.is_solo)}
+                                            onClick={() => { void setTrackSolo(trackIndex, !track.is_solo); }}
+                                            title="Solo"
+                                        >S</button>
+                                        <button style={sessionMixerBtnStyle(track.is_armed)}>R</button>
+                                    </div>
                                     <div style={{
-                                        position: 'absolute',
-                                        left: '50%',
-                                        transform: 'translateX(-50%)',
-                                        top: 4,
-                                        bottom: 4,
-                                        width: 18,
-                                        background: 'rgba(0,0,0,0.28)',
-                                    }} />
-                                    <div style={{
-                                        position: 'absolute',
-                                        left: '50%',
-                                        transform: 'translateX(-50%)',
-                                        bottom: 4,
-                                        width: 18,
-                                        height: `${Math.max(2, trackMeterLevel * 100)}%`,
-                                        background: 'linear-gradient(180deg, #8cff73 0%, #5ee162 45%, #30c451 100%)',
-                                        boxShadow: '0 0 10px rgba(90, 225, 98, 0.4)',
-                                        transition: 'height 45ms linear',
-                                    }} />
+                                        flex: 1,
+                                        minHeight: 82,
+                                        borderRadius: 'var(--radius-xs)',
+                                        border: '1px solid #3d3d3d',
+                                        background: '#171717',
+                                        position: 'relative',
+                                        overflow: 'hidden',
+                                    }}>
+                                        <div style={{
+                                            position: 'absolute',
+                                            left: '50%',
+                                            transform: 'translateX(-50%)',
+                                            top: 4,
+                                            bottom: 4,
+                                            width: 18,
+                                            background: 'var(--color-overlay-dark)',
+                                        }} />
+                                        <div style={{
+                                            position: 'absolute',
+                                            left: '50%',
+                                            transform: 'translateX(-50%)',
+                                            bottom: 4,
+                                            width: 18,
+                                            height: `${Math.max(2, trackMeterLevel * 100)}%`,
+                                            background: 'linear-gradient(180deg, #8cff73 0%, #5ee162 45%, #30c451 100%)',
+                                            boxShadow: '0 0 10px color-mix(in srgb, var(--color-status-success) 40%, transparent)',
+                                            transition: `height var(--transition-linear)`,
+                                        }} />
+                                    </div>
+                                </div>
+                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                                    {peakLabel}
                                 </div>
                             </div>
-                            <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
-                                {peakLabel}
-                            </div>
-                        </div>
-                    );})}
+                        );
+                    })}
                 </div>
                 <div style={{ width: SESSION_MASTER_WIDTH, padding: '8px 8px 6px', borderLeft: '1px solid #3b3b3b', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6 }}>
-                    <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', fontWeight: 700 }}>MASTER</div>
-                    <div style={{ position: 'relative', border: '1px solid #3d3d3d', borderRadius: 4, background: '#1a1a1a' }}>
+                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 700 }}>MASTER</div>
+                    <div style={{ position: 'relative', border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-base)' }}>
                         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${Math.max(4, Math.min(100, masterLevel * 100))}%`, background: 'linear-gradient(180deg, #92ff73 0%, #3ac95b 80%, #ffe35e 100%)' }} />
                     </div>
-                    <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>Out</div>
+                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>Out</div>
                 </div>
             </div>
         </div>
@@ -1502,11 +1503,11 @@ const SessionWorkspace = ({
 const sessionMixerBtnStyle = (active: boolean): CSSProperties => ({
     minWidth: 24,
     height: 18,
-    borderRadius: 3,
+    borderRadius: 'var(--radius-sm)',
     border: active ? '1px solid color-mix(in srgb, var(--color-accent-primary) 55%, transparent)' : '1px solid #4b4b4b',
     background: active ? 'var(--color-accent-primary-dim)' : 'var(--color-bg-header)',
     color: active ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-    fontSize: 10,
+    fontSize: 'var(--font-size-xs)',
     fontWeight: 700,
     cursor: 'default',
 });
@@ -1514,11 +1515,11 @@ const sessionMixerBtnStyle = (active: boolean): CSSProperties => ({
 const sessionClipTransportBtnStyle = (active: boolean): CSSProperties => ({
     minWidth: 16,
     height: 14,
-    borderRadius: 3,
-    border: active ? '1px solid color-mix(in srgb, var(--color-accent-primary) 50%, transparent)' : '1px solid rgba(0,0,0,0.35)',
-    background: active ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.26)',
-    color: active ? '#ffffff' : 'rgba(255,255,255,0.9)',
-    fontSize: 9,
+    borderRadius: 'var(--radius-sm)',
+    border: active ? '1px solid color-mix(in srgb, var(--color-accent-primary) 50%, transparent)' : '1px solid var(--color-overlay-medium)',
+    background: active ? 'color-mix(in srgb, var(--color-text-bright) 25%, transparent)' : 'var(--color-overlay-dark)',
+    color: active ? 'var(--color-text-bright)' : 'color-mix(in srgb, var(--color-text-bright) 90%, transparent)',
+    fontSize: 'var(--font-size-2xs)',
     fontWeight: 700,
     lineHeight: 1,
     padding: 0,
@@ -1539,14 +1540,14 @@ const EmptyClipEditor = () => (
             textAlign: 'center',
             padding: '18px 26px',
             border: '1px solid color-mix(in srgb, var(--color-accent-primary) 24%, var(--color-divider))',
-            borderRadius: 10,
+            borderRadius: 'var(--radius-xl)',
             background: 'color-mix(in srgb, var(--color-bg-header) 86%, #0a111f)',
-            boxShadow: '0 10px 24px rgba(0,0,0,0.28)',
+            boxShadow: '0 10px 24px var(--color-overlay-dark)',
             maxWidth: 520,
         }}>
             <div style={{
                 color: 'var(--color-text-primary)',
-                fontSize: 18,
+                fontSize: 'var(--font-size-2xl)',
                 fontWeight: 700,
                 letterSpacing: '0.03em',
                 marginBottom: 6,
@@ -1555,14 +1556,14 @@ const EmptyClipEditor = () => (
             </div>
             <div style={{
                 color: 'var(--color-text-secondary)',
-                fontSize: 12,
+                fontSize: 'var(--font-size-base)',
                 lineHeight: 1.5,
             }}>
                 Select a MIDI or audio clip on the timeline to open the editor.
             </div>
             <div style={{
                 marginTop: 8,
-                fontSize: 10,
+                fontSize: 'var(--font-size-xs)',
                 color: 'var(--color-text-tertiary)',
                 fontFamily: 'var(--font-mono)',
             }}>
@@ -1676,7 +1677,7 @@ const SampleClipEditor = ({
                 padding: '0 10px',
                 borderBottom: '1px solid var(--color-divider)',
                 color: 'var(--color-text-secondary)',
-                fontSize: 10,
+                fontSize: 'var(--font-size-xs)',
                 fontWeight: 700,
                 letterSpacing: '0.05em',
                 textTransform: 'uppercase',
@@ -1820,7 +1821,7 @@ const SampleClipEditor = ({
                         height: '100%',
                         minHeight: 80,
                         border: '1px solid var(--color-divider)',
-                        borderRadius: 4,
+                        borderRadius: 'var(--radius-md)',
                         overflow: 'hidden',
                         background: 'color-mix(in srgb, var(--color-bg-panel) 82%, transparent)',
                         position: 'relative',
@@ -1843,7 +1844,7 @@ const SampleClipEditor = ({
                                         return (
                                             <div key={`audio-ruler-${i}`} style={{ position: 'absolute', left: x, top: 0, bottom: 0, width: 1, background: isBar ? 'color-mix(in srgb, var(--color-accent-primary) 58%, transparent)' : 'color-mix(in srgb, var(--color-text-primary) 15%, transparent)' }}>
                                                 {isBar && (
-                                                    <span style={{ position: 'absolute', top: 2, left: 3, fontSize: 9, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                                                    <span style={{ position: 'absolute', top: 2, left: 3, fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
                                                         {Math.floor(beat / beatsPerBar) + 1}
                                                     </span>
                                                 )}
@@ -1919,9 +1920,9 @@ const SampleClipEditor = ({
                         alignItems: 'center',
                         justifyContent: 'center',
                         color: 'var(--color-text-tertiary)',
-                        fontSize: 12,
+                        fontSize: 'var(--font-size-base)',
                         border: '1px dashed var(--color-divider)',
-                        borderRadius: 6,
+                        borderRadius: 'var(--radius-lg)',
                     }}>
                         {clip.isOffline ? 'Media offline — resolve file in timeline (double-click clip).' : 'Audio source unavailable'}
                     </div>
@@ -1933,10 +1934,10 @@ const SampleClipEditor = ({
 
 const editorButtonStyle = {
     border: '1px solid var(--color-divider)',
-    borderRadius: 4,
+    borderRadius: 'var(--radius-md)',
     background: 'var(--color-bg-header)',
     color: 'var(--color-text-secondary)',
-    fontSize: 10,
+    fontSize: 'var(--font-size-xs)',
     fontWeight: 600,
     padding: '4px 8px',
     cursor: 'pointer',
@@ -1949,7 +1950,7 @@ const editorLabeledControlStyle: CSSProperties = {
 };
 
 const editorMetaTextStyle: CSSProperties = {
-    fontSize: 10,
+    fontSize: 'var(--font-size-xs)',
     color: 'var(--color-text-tertiary)',
     textTransform: 'uppercase',
     letterSpacing: '0.04em',
@@ -1957,7 +1958,7 @@ const editorMetaTextStyle: CSSProperties = {
 };
 
 const editorValueTextStyle: CSSProperties = {
-    fontSize: 10,
+    fontSize: 'var(--font-size-xs)',
     color: 'var(--color-text-secondary)',
     fontFamily: 'var(--font-mono)',
 };

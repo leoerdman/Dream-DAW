@@ -441,7 +441,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                                     width: 64, height: 64, borderRadius: 'var(--radius-xl)',
                                     background: 'var(--gradient-primary)',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    fontSize: 28, color: 'var(--color-text-on-accent)', fontWeight: 800,
+                                    fontSize: 'var(--font-size-3xl)', color: 'var(--color-text-on-accent)', fontWeight: 800,
                                 }}>
                                     D
                                 </div>
@@ -546,14 +546,14 @@ const Toggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
         style={{
             width: 36, height: 20, borderRadius: 'var(--radius-full)', border: 'none', cursor: 'pointer',
             background: value ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
-            position: 'relative', transition: 'background 0.2s',
+            position: 'relative', transition: `background var(--transition-normal)`,
         }}
     >
         <div style={{
             width: 16, height: 16, borderRadius: '50%', background: 'var(--color-text-on-accent)',
             position: 'absolute', top: 2,
             left: value ? 18 : 2,
-            transition: 'left 0.2s',
+            transition: `left var(--transition-normal)`,
             boxShadow: '0 1px 3px var(--color-overlay-medium)',
         }} />
     </button>
@@ -589,7 +589,7 @@ const tabBtnStyle: React.CSSProperties = {
     padding: '8px 12px', margin: '0 8px',
     borderRadius: 'var(--radius-lg)', border: 'none', cursor: 'pointer',
     fontSize: 'var(--font-size-base)', fontWeight: 500, textAlign: 'left',
-    transition: 'background 0.15s',
+    transition: `background var(--transition-fast)`,
 };
 
 const contentStyle: React.CSSProperties = {
@@ -636,7 +636,7 @@ const chipStyle: React.CSSProperties = {
     padding: '5px 12px', borderRadius: 'var(--radius-lg)',
     border: 'none', cursor: 'pointer',
     fontSize: 'var(--font-size-sm)', fontWeight: 600,
-    transition: 'all 0.15s',
+    transition: `all var(--transition-fast)`,
 };
 
 const actionBtnStyle: React.CSSProperties = {

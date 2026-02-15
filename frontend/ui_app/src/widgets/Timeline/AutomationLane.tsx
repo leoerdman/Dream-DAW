@@ -383,11 +383,11 @@ export const AutomationLane = memo(function AutomationLane({
                         cy={y}
                         r={r}
                         fill={isSelected ? '#fff' : lane.color}
-                        stroke={isSelected ? lane.color : 'rgba(0,0,0,0.4)'}
+                        stroke={isSelected ? lane.color : 'var(--color-overlay-medium)'}
                         strokeWidth={isSelected ? 2 : 1}
                         style={{
                             cursor: 'grab',
-                            transition: 'r 0.1s ease',
+                            transition: `r var(--transition-micro)`,
                             filter: isHover
                                 ? `drop-shadow(0 0 4px ${lane.color})`
                                 : undefined,

@@ -1480,40 +1480,64 @@ pub fn start_audio_thread_on_device(
                                                     &mut left[..c],
                                                     &mut right[..c],
                                                 );
-                                                if let Some(runtime_slots) = external_fx_map.get(track_idx) {
+                                                if let Some(runtime_slots) =
+                                                    external_fx_map.get(track_idx)
+                                                {
                                                     for runtime_slot in runtime_slots {
-                                                        let source_slot = runtime_slot.sidechain_track_index.and_then(|src_idx| {
-                                                            if src_idx < track_idx {
-                                                                left_tracks.get(src_idx)
-                                                            } else if src_idx == track_idx {
-                                                                None
-                                                            } else {
-                                                                right_tracks_rest.get(src_idx - track_idx - 1)
-                                                            }
-                                                        });
+                                                        let source_slot = runtime_slot
+                                                            .sidechain_track_index
+                                                            .and_then(|src_idx| {
+                                                                if src_idx < track_idx {
+                                                                    left_tracks.get(src_idx)
+                                                                } else if src_idx == track_idx {
+                                                                    None
+                                                                } else {
+                                                                    right_tracks_rest.get(
+                                                                        src_idx - track_idx - 1,
+                                                                    )
+                                                                }
+                                                            });
                                                         let (sc_l, sc_r) = source_slot
-                                                            .map(|src_slot| (Some(&src_slot.buf_left[..c]), Some(&src_slot.buf_right[..c])))
+                                                            .map(|src_slot| {
+                                                                (
+                                                                    Some(&src_slot.buf_left[..c]),
+                                                                    Some(&src_slot.buf_right[..c]),
+                                                                )
+                                                            })
                                                             .unwrap_or((None, None));
 
-                                                        if let Some(internal_idx) = runtime_slot.internal_slot_index {
-                                                            slot.device_chain.process_slot_with_sidechain(
-                                                                internal_idx,
-                                                                &mut left[..c],
-                                                                &mut right[..c],
-                                                                sc_l,
-                                                                sc_r,
-                                                                sample_rate_f64 as f32,
-                                                            );
+                                                        if let Some(internal_idx) =
+                                                            runtime_slot.internal_slot_index
+                                                        {
+                                                            slot.device_chain
+                                                                .process_slot_with_sidechain(
+                                                                    internal_idx,
+                                                                    &mut left[..c],
+                                                                    &mut right[..c],
+                                                                    sc_l,
+                                                                    sc_r,
+                                                                    sample_rate_f64 as f32,
+                                                                );
                                                             continue;
                                                         }
 
-                                                        if let Some(instance_id) = runtime_slot.instance_id
-                                                            && let Some(host) = plugin_host_guard.as_deref_mut()
+                                                        if let Some(instance_id) =
+                                                            runtime_slot.instance_id
+                                                            && let Some(host) =
+                                                                plugin_host_guard.as_deref_mut()
                                                         {
-                                                            external_left[..c].copy_from_slice(&left[..c]);
-                                                            external_right[..c].copy_from_slice(&right[..c]);
-                                                            let main_inputs: [&[f32]; 2] = [&left[..c], &right[..c]];
-                                                            let sc_pair = source_slot.map(|src| [&src.buf_left[..c], &src.buf_right[..c]]);
+                                                            external_left[..c]
+                                                                .copy_from_slice(&left[..c]);
+                                                            external_right[..c]
+                                                                .copy_from_slice(&right[..c]);
+                                                            let main_inputs: [&[f32]; 2] =
+                                                                [&left[..c], &right[..c]];
+                                                            let sc_pair = source_slot.map(|src| {
+                                                                [
+                                                                    &src.buf_left[..c],
+                                                                    &src.buf_right[..c],
+                                                                ]
+                                                            });
                                                             let transport = TransportContext {
                                                                 sample_rate: sample_rate_f64,
                                                                 position_samples: playhead_pos,
@@ -1521,7 +1545,10 @@ pub fn start_audio_thread_on_device(
                                                                 is_playing,
                                                                 is_recording: false,
                                                             };
-                                                            let _ = host.set_transport_context(instance_id, transport);
+                                                            let _ = host.set_transport_context(
+                                                                instance_id,
+                                                                transport,
+                                                            );
                                                             let mut out_slices: [&mut [f32]; 2] = [
                                                                 &mut external_left[..c],
                                                                 &mut external_right[..c],
@@ -1529,12 +1556,18 @@ pub fn start_audio_thread_on_device(
                                                             let _ = host.process_with_sidechain(
                                                                 instance_id,
                                                                 &main_inputs,
-                                                                sc_pair.as_ref().map(|pair| pair.as_slice()),
+                                                                sc_pair
+                                                                    .as_ref()
+                                                                    .map(|pair| pair.as_slice()),
                                                                 &mut out_slices,
                                                                 c,
                                                             );
-                                                            left[..c].copy_from_slice(&external_left[..c]);
-                                                            right[..c].copy_from_slice(&external_right[..c]);
+                                                            left[..c].copy_from_slice(
+                                                                &external_left[..c],
+                                                            );
+                                                            right[..c].copy_from_slice(
+                                                                &external_right[..c],
+                                                            );
                                                         }
                                                     }
                                                 } else if !slot.device_chain.is_empty() {
@@ -1543,28 +1576,39 @@ pub fn start_audio_thread_on_device(
                                                     for device_slot_idx in 0..slot_count {
                                                         let source_track_idx = sidechain_map
                                                             .get(track_idx)
-                                                            .and_then(|slots| slots.get(device_slot_idx))
+                                                            .and_then(|slots| {
+                                                                slots.get(device_slot_idx)
+                                                            })
                                                             .and_then(|v| *v);
-                                                        let source_slot = source_track_idx.and_then(|src_idx| {
-                                                            if src_idx < track_idx {
-                                                                left_tracks.get(src_idx)
-                                                            } else if src_idx == track_idx {
-                                                                None
-                                                            } else {
-                                                                right_tracks_rest.get(src_idx - track_idx - 1)
-                                                            }
-                                                        });
+                                                        let source_slot = source_track_idx
+                                                            .and_then(|src_idx| {
+                                                                if src_idx < track_idx {
+                                                                    left_tracks.get(src_idx)
+                                                                } else if src_idx == track_idx {
+                                                                    None
+                                                                } else {
+                                                                    right_tracks_rest.get(
+                                                                        src_idx - track_idx - 1,
+                                                                    )
+                                                                }
+                                                            });
                                                         let (sc_l, sc_r) = source_slot
-                                                            .map(|src_slot| (Some(&src_slot.buf_left[..c]), Some(&src_slot.buf_right[..c])))
+                                                            .map(|src_slot| {
+                                                                (
+                                                                    Some(&src_slot.buf_left[..c]),
+                                                                    Some(&src_slot.buf_right[..c]),
+                                                                )
+                                                            })
                                                             .unwrap_or((None, None));
-                                                        slot.device_chain.process_slot_with_sidechain(
-                                                            device_slot_idx,
-                                                            &mut left[..c],
-                                                            &mut right[..c],
-                                                            sc_l,
-                                                            sc_r,
-                                                            sample_rate_f64 as f32,
-                                                        );
+                                                        slot.device_chain
+                                                            .process_slot_with_sidechain(
+                                                                device_slot_idx,
+                                                                &mut left[..c],
+                                                                &mut right[..c],
+                                                                sc_l,
+                                                                sc_r,
+                                                                sample_rate_f64 as f32,
+                                                            );
                                                     }
                                                 }
                                             }
@@ -1850,7 +1894,82 @@ pub fn start_audio_thread_on_device(
                                         &mut sampler_right[..fc],
                                     );
 
-                                    if !slot.device_chain.is_empty() {
+                                    if let Some(runtime_slots) = external_fx_map.get(track_idx) {
+                                        for runtime_slot in runtime_slots {
+                                            let source_slot = runtime_slot
+                                                .sidechain_track_index
+                                                .and_then(|src_idx| {
+                                                    if src_idx < track_idx {
+                                                        left_tracks.get(src_idx)
+                                                    } else if src_idx == track_idx {
+                                                        None
+                                                    } else {
+                                                        right_tracks_rest
+                                                            .get(src_idx - track_idx - 1)
+                                                    }
+                                                });
+                                            let (sc_l, sc_r) = source_slot
+                                                .map(|src_slot| {
+                                                    (
+                                                        Some(&src_slot.buf_left[..fc]),
+                                                        Some(&src_slot.buf_right[..fc]),
+                                                    )
+                                                })
+                                                .unwrap_or((None, None));
+
+                                            if let Some(internal_idx) =
+                                                runtime_slot.internal_slot_index
+                                            {
+                                                slot.device_chain.process_slot_with_sidechain(
+                                                    internal_idx,
+                                                    &mut sampler_left[..fc],
+                                                    &mut sampler_right[..fc],
+                                                    sc_l,
+                                                    sc_r,
+                                                    sample_rate_f64 as f32,
+                                                );
+                                                continue;
+                                            }
+
+                                            if let Some(instance_id) = runtime_slot.instance_id
+                                                && let Some(host) = plugin_host_guard.as_deref_mut()
+                                            {
+                                                external_left[..fc]
+                                                    .copy_from_slice(&sampler_left[..fc]);
+                                                external_right[..fc]
+                                                    .copy_from_slice(&sampler_right[..fc]);
+                                                let main_inputs: [&[f32]; 2] =
+                                                    [&sampler_left[..fc], &sampler_right[..fc]];
+                                                let sc_pair = source_slot.map(|src| {
+                                                    [&src.buf_left[..fc], &src.buf_right[..fc]]
+                                                });
+                                                let transport = TransportContext {
+                                                    sample_rate: sample_rate_f64,
+                                                    position_samples: playhead_pos,
+                                                    tempo: _bpm,
+                                                    is_playing,
+                                                    is_recording: false,
+                                                };
+                                                let _ = host
+                                                    .set_transport_context(instance_id, transport);
+                                                let mut out_slices: [&mut [f32]; 2] = [
+                                                    &mut external_left[..fc],
+                                                    &mut external_right[..fc],
+                                                ];
+                                                let _ = host.process_with_sidechain(
+                                                    instance_id,
+                                                    &main_inputs,
+                                                    sc_pair.as_ref().map(|pair| pair.as_slice()),
+                                                    &mut out_slices,
+                                                    fc,
+                                                );
+                                                sampler_left[..fc]
+                                                    .copy_from_slice(&external_left[..fc]);
+                                                sampler_right[..fc]
+                                                    .copy_from_slice(&external_right[..fc]);
+                                            }
+                                        }
+                                    } else if !slot.device_chain.is_empty() {
                                         let slot_count = slot.device_chain.slot_count();
                                         for device_slot_idx in 0..slot_count {
                                             let source_track_idx = sidechain_map
@@ -1884,62 +2003,6 @@ pub fn start_audio_thread_on_device(
                                                 sc_r,
                                                 sample_rate_f64 as f32,
                                             );
-                                        }
-                                    }
-
-                                    if let Some(host) = plugin_host_guard.as_deref_mut()
-                                        && let Some(ext_slots) = external_fx_map.get(track_idx)
-                                    {
-                                        for ext in ext_slots {
-                                            external_left[..fc]
-                                                .copy_from_slice(&sampler_left[..fc]);
-                                            external_right[..fc]
-                                                .copy_from_slice(&sampler_right[..fc]);
-
-                                            let main_inputs: [&[f32]; 2] =
-                                                [&sampler_left[..fc], &sampler_right[..fc]];
-
-                                            let source_slot =
-                                                ext.sidechain_track_index.and_then(|src_idx| {
-                                                    if src_idx < track_idx {
-                                                        left_tracks.get(src_idx)
-                                                    } else if src_idx == track_idx {
-                                                        None
-                                                    } else {
-                                                        right_tracks_rest
-                                                            .get(src_idx - track_idx - 1)
-                                                    }
-                                                });
-                                            let sc_pair = source_slot.map(|src| {
-                                                [&src.buf_left[..fc], &src.buf_right[..fc]]
-                                            });
-
-                                            let transport = TransportContext {
-                                                sample_rate: sample_rate_f64,
-                                                position_samples: playhead_pos,
-                                                tempo: _bpm,
-                                                is_playing,
-                                                is_recording: false,
-                                            };
-                                            let _ = host
-                                                .set_transport_context(ext.instance_id, transport);
-
-                                            let mut out_slices: [&mut [f32]; 2] = [
-                                                &mut external_left[..fc],
-                                                &mut external_right[..fc],
-                                            ];
-                                            let _ = host.process_with_sidechain(
-                                                ext.instance_id,
-                                                &main_inputs,
-                                                sc_pair.as_ref().map(|pair| pair.as_slice()),
-                                                &mut out_slices,
-                                                fc,
-                                            );
-
-                                            sampler_left[..fc]
-                                                .copy_from_slice(&external_left[..fc]);
-                                            sampler_right[..fc]
-                                                .copy_from_slice(&external_right[..fc]);
                                         }
                                     }
 

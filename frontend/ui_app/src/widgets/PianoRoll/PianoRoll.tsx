@@ -1479,7 +1479,7 @@ export const PianoRoll = memo(function PianoRoll({
                 <button onClick={selectSamePitch} style={actionBtnStyle} title="Select same pitch (Shift+P)">
                     Same Pitch
                 </button>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--color-text-tertiary)', fontSize: 10 }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)' }}>
                     <span>Amt</span>
                     <select
                         value={quantizeAmount}
@@ -1547,7 +1547,7 @@ export const PianoRoll = memo(function PianoRoll({
                 </button>
 
                 <div style={{ width: 1, height: 16, background: 'var(--color-divider-light)', margin: '0 var(--space-1)' }} />
-                <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>Step</span>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Step</span>
                 <button
                     onClick={() => setStepInputOctave((prev) => Math.max(0, prev - 1))}
                     style={{ ...actionBtnStyle, padding: '2px 6px' }}
@@ -1555,7 +1555,7 @@ export const PianoRoll = memo(function PianoRoll({
                 >
                     <ChevronDown size={12} />
                 </button>
-                <span style={{ fontSize: 10, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', minWidth: 30, textAlign: 'center' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', minWidth: 30, textAlign: 'center' }}>
                     C{stepInputOctave}
                 </span>
                 <button
@@ -1565,12 +1565,12 @@ export const PianoRoll = memo(function PianoRoll({
                 >
                     <ChevronUp size={12} />
                 </button>
-                <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>
                     @{stepInputCursorBeat.toFixed(2)}
                 </span>
 
                 <div style={{ width: 1, height: 16, background: 'var(--color-divider-light)', margin: '0 var(--space-1)' }} />
-                <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>Lane</span>
+                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Lane</span>
                 <select
                     value={activeLane}
                     onChange={(e) => setActiveLane(e.target.value as PianoLaneType)}
@@ -1601,7 +1601,7 @@ export const PianoRoll = memo(function PianoRoll({
                         display: 'flex',
                         alignItems: 'center',
                         gap: 6,
-                        boxShadow: aiVariationBusy ? 'none' : '0 2px 8px rgba(74, 158, 255, 0.3)',
+                        boxShadow: aiVariationBusy ? 'none' : '0 2px 8px color-mix(in srgb, var(--color-accent-primary) 30%, transparent)',
                     }}
                     title="Generate AI variation for this MIDI clip"
                 >
@@ -1673,17 +1673,17 @@ export const PianoRoll = memo(function PianoRoll({
                         padding: 8,
                         minHeight: 124,
                     }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                             Clip Setup
                         </div>
-                        <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginBottom: 6 }}>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginBottom: 6 }}>
                             Length: <span style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>{clipDurationLabel}</span>
                         </div>
-                        <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginBottom: 6 }}>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginBottom: 6 }}>
                             Grid: <span style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>{gridDivision}{gridTriplet ? 'T' : ''}</span>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                            <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>Transpose</span>
+                            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Transpose</span>
                             <button
                                 onClick={() => transposeNotes(-1)}
                                 style={miniBtnStyle}
@@ -1696,7 +1696,7 @@ export const PianoRoll = memo(function PianoRoll({
                             >
                                 +1
                             </button>
-                            <span style={{ fontSize: 10, color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)', marginLeft: 'auto' }}>
+                            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)', marginLeft: 'auto' }}>
                                 {clipTranspose >= 0 ? `+${clipTranspose}` : clipTranspose}
                             </span>
                         </div>
@@ -1709,7 +1709,7 @@ export const PianoRoll = memo(function PianoRoll({
                         padding: 8,
                         minHeight: 124,
                     }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                             Performance
                         </div>
                         <button onClick={() => quantizeAllNotesToGrid()} style={{ ...miniBtnStyle, width: '100%', marginBottom: 6 }}>
@@ -1765,10 +1765,10 @@ export const PianoRoll = memo(function PianoRoll({
                                 let bg: string;
                                 if (highlightScale && k.inScale) {
                                     // In-scale keys get a subtle accent tint
-                                    bg = k.isBlack ? '#3a3a3a' : '#4a4a4a';
+                                    bg = k.isBlack ? 'var(--color-bg-hover)' : 'var(--color-meter-silent)';
                                 } else if (highlightScale && !k.inScale) {
                                     // Out-of-scale keys are dimmed
-                                    bg = k.isBlack ? '#1a1a1a' : '#2a2a2a';
+                                    bg = k.isBlack ? 'var(--color-bg-base)' : 'var(--color-bg-tertiary)';
                                 } else {
                                     // Default: use design tokens
                                     bg = k.isBlack ? 'var(--color-piano-black)' : 'var(--color-piano-white)';
@@ -1793,7 +1793,7 @@ export const PianoRoll = memo(function PianoRoll({
                                             justifyContent: 'flex-end',
                                             paddingRight: 4,
                                             zIndex: k.isBlack ? 2 : 1,
-                                            transition: 'background 0.15s ease',
+                                            transition: `background var(--transition-fast)`,
                                             cursor: 'pointer',
                                         }}
                                     >
@@ -1833,7 +1833,7 @@ export const PianoRoll = memo(function PianoRoll({
                             left: 0,
                             width: canvasWidth,
                             height: RULER_HEIGHT,
-                            zIndex: 30,
+                            zIndex: 'var(--z-sticky)' as unknown as number,
                             background: 'var(--color-bg-tertiary)',
                             borderBottom: '1px solid var(--color-divider)',
                             overflow: 'hidden',
@@ -2038,11 +2038,11 @@ export const PianoRoll = memo(function PianoRoll({
                                         top: Math.min(selectionRect.y1, selectionRect.y2),
                                         width: Math.abs(selectionRect.x2 - selectionRect.x1),
                                         height: Math.abs(selectionRect.y2 - selectionRect.y1),
-                                        background: 'rgba(74, 158, 255, 0.15)',
-                                        border: '1px solid rgba(74, 158, 255, 0.85)',
-                                        borderRadius: 2,
+                                        background: 'var(--color-accent-primary-dim)',
+                                        border: '1px solid color-mix(in srgb, var(--color-accent-primary) 85%, transparent)',
+                                        borderRadius: 'var(--radius-xs)',
                                         pointerEvents: 'none',
-                                        zIndex: 9,
+                                        zIndex: 'var(--z-local-raised)' as unknown as number,
                                     }}
                                 />
                             )}
@@ -2053,18 +2053,18 @@ export const PianoRoll = memo(function PianoRoll({
                                     top: '50%',
                                     transform: 'translate(-50%, -50%)',
                                     pointerEvents: 'none',
-                                    zIndex: 8,
+                                    zIndex: 'var(--z-local-raised)' as unknown as number,
                                     textAlign: 'center',
                                     padding: '10px 14px',
-                                    borderRadius: 8,
+                                    borderRadius: 'var(--radius-xl)',
                                     border: '1px solid color-mix(in srgb, var(--color-accent-primary) 35%, var(--color-divider))',
                                     background: 'color-mix(in srgb, var(--color-bg-header) 85%, #0b1525)',
-                                    boxShadow: '0 8px 18px rgba(0,0,0,0.25)',
+                                    boxShadow: 'var(--shadow-lg)',
                                 }}>
-                                    <div style={{ fontSize: 11, color: 'var(--color-text-primary)', fontWeight: 700, marginBottom: 2 }}>
+                                    <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)', fontWeight: 700, marginBottom: 2 }}>
                                         Draw notes to start
                                     </div>
-                                    <div style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>
+                                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
                                         Draw tool click adds notes. `Q` quantize, `H` humanize, `L` legato.
                                     </div>
                                 </div>
@@ -2080,7 +2080,7 @@ export const PianoRoll = memo(function PianoRoll({
                                 width: 'var(--daw-playhead-width)',
                                 height: canvasHeight,
                                 background: 'var(--color-playhead)',
-                                zIndex: 20,
+                                zIndex: 'var(--z-header)' as unknown as number,
                                 pointerEvents: 'none',
                                 boxShadow: '0 0 4px var(--color-accent-primary-glow)',
                             }} />
@@ -2092,8 +2092,8 @@ export const PianoRoll = memo(function PianoRoll({
                             top: RULER_HEIGHT,
                             width: 1,
                             height: canvasHeight,
-                            background: 'rgba(102, 196, 255, 0.9)',
-                            zIndex: 18,
+                            background: 'color-mix(in srgb, var(--color-accent-primary) 90%, transparent)',
+                            zIndex: 'var(--z-ui-overlay)' as unknown as number,
                             pointerEvents: 'none',
                         }} />
 
@@ -2150,7 +2150,7 @@ export const PianoRoll = memo(function PianoRoll({
                                             opacity: isSelected ? 0.9 : 0.6,
                                             borderRadius: '1px 1px 0 0',
                                             cursor: 'ns-resize',
-                                            transition: 'opacity 0.1s ease',
+                                            transition: `opacity var(--transition-micro)`,
                                         }}
                                     />
                                 );
@@ -2182,7 +2182,7 @@ const miniBtnStyle: React.CSSProperties = {
     borderRadius: 'var(--radius-xs)',
     background: 'var(--color-bg-input)',
     color: 'var(--color-text-secondary)',
-    fontSize: 10,
+    fontSize: 'var(--font-size-xs)',
     fontFamily: 'var(--font-family)',
     padding: '4px 6px',
     cursor: 'pointer',

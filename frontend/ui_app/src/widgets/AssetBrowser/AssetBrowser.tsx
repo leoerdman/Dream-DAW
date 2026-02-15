@@ -1190,7 +1190,7 @@ export const AssetBrowser = () => {
                                         background: 'none',
                                         border: 'none',
                                         color: 'var(--color-text-primary)',
-                                        fontSize: 11,
+                                        fontSize: 'var(--font-size-sm)',
                                         fontWeight: 700,
                                         textTransform: 'uppercase',
                                         letterSpacing: '0.04em',
@@ -1252,7 +1252,7 @@ export const AssetBrowser = () => {
                                         background: 'transparent',
                                         border: 'none',
                                         color: 'var(--color-accent-primary)',
-                                        fontSize: 12,
+                                        fontSize: 'var(--font-size-base)',
                                         fontWeight: 600,
                                         textAlign: 'left',
                                         cursor: 'pointer',
@@ -1291,7 +1291,7 @@ export const AssetBrowser = () => {
                                     background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
                                     border: 'none',
                                     color: isSelected ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                                    fontSize: 12,
+                                    fontSize: 'var(--font-size-base)',
                                     fontWeight: isSelected ? 600 : 500,
                                     textAlign: 'left',
                                     cursor: 'pointer',
@@ -1348,7 +1348,7 @@ export const AssetBrowser = () => {
                                     border: 'none',
                                     borderRadius: 'var(--radius-xs)',
                                     padding: '2px 6px',
-                                    fontSize: 9,
+                                    fontSize: 'var(--font-size-2xs)',
                                     cursor: 'pointer',
                                     fontWeight: 600,
                                 }}
@@ -1440,7 +1440,7 @@ export const AssetBrowser = () => {
                             padding: '2px 8px',
                             borderBottom: '1px solid var(--color-divider-light)',
                             background: 'var(--color-bg-header)',
-                            fontSize: 9,
+                            fontSize: 'var(--font-size-2xs)',
                             color: 'var(--color-text-tertiary)',
                             fontFamily: 'var(--font-mono)',
                         }}>
@@ -1472,7 +1472,7 @@ export const AssetBrowser = () => {
                                     style={{
                                         minWidth: 18,
                                         height: 16,
-                                        borderRadius: 4,
+                                        borderRadius: 'var(--radius-md)',
                                         border: '1px solid var(--color-divider)',
                                         background: selectedPluginLetter === letter
                                             ? 'var(--color-control-bg-active)'
@@ -1480,7 +1480,7 @@ export const AssetBrowser = () => {
                                         color: selectedPluginLetter === letter
                                             ? 'var(--color-text-primary)'
                                             : 'var(--color-text-secondary)',
-                                        fontSize: 9,
+                                        fontSize: 'var(--font-size-2xs)',
                                         fontWeight: 700,
                                         fontFamily: 'var(--font-mono)',
                                         cursor: 'pointer',
@@ -1499,7 +1499,7 @@ export const AssetBrowser = () => {
                     {folderStack.length > 0 && (
                         <div style={{
                             padding: '2px 6px',
-                            fontSize: 9,
+                            fontSize: 'var(--font-size-2xs)',
                             color: 'var(--color-text-tertiary)',
                             borderBottom: '1px solid var(--color-divider-light)',
                             fontFamily: 'var(--font-mono)',
@@ -1540,13 +1540,13 @@ export const AssetBrowser = () => {
                                 borderBottom: '1px solid var(--color-divider-light)',
                                 background: 'var(--color-bg-header)',
                                 color: 'var(--color-text-tertiary)',
-                                fontSize: 10,
+                                fontSize: 'var(--font-size-xs)',
                                 fontWeight: 700,
                                 textTransform: 'uppercase',
                                 letterSpacing: '0.04em',
                                 position: 'sticky',
                                 top: 0,
-                                zIndex: 5,
+                                zIndex: 'var(--z-local-raised)' as unknown as number,
                             }}>
                             <button
                                 onClick={(e) => {
@@ -1563,7 +1563,7 @@ export const AssetBrowser = () => {
                                     border: 'none',
                                     borderRadius: 'var(--radius-xs)',
                                     padding: 0,
-                                    fontSize: 10,
+                                    fontSize: 'var(--font-size-xs)',
                                     cursor: 'pointer',
                                     display: 'inline-flex',
                                     alignItems: 'center',
@@ -1588,7 +1588,7 @@ export const AssetBrowser = () => {
                                 padding: '12px 10px',
                                 textAlign: 'center',
                                 color: 'var(--color-text-tertiary)',
-                                fontSize: 10,
+                                fontSize: 'var(--font-size-xs)',
                                 animation: 'pulse 1.5s ease-in-out infinite',
                             }}>
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -1601,7 +1601,7 @@ export const AssetBrowser = () => {
                             <div style={{
                                 padding: '8px 10px',
                                 color: 'var(--color-status-error)',
-                                fontSize: 10,
+                                fontSize: 'var(--font-size-xs)',
                                 lineHeight: 1.4,
                             }}>
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
@@ -1609,7 +1609,7 @@ export const AssetBrowser = () => {
                                     {selectedCategoryId === 'plugins' ? 'Could not scan plug-ins' : 'Could not scan folder'}
                                 </span>
                                 <br />
-                                <span style={{ opacity: 0.7, fontFamily: 'var(--font-mono)', fontSize: 9 }}>{scanError}</span>
+                                <span style={{ opacity: 0.7, fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-2xs)' }}>{scanError}</span>
                             </div>
                         )}
                         {/* Virtual scroll container */}
@@ -1731,7 +1731,7 @@ export const AssetBrowser = () => {
                                             )}
                                             <span style={{
                                                 color: 'var(--color-text-primary)',
-                                                fontSize: 12,
+                                                fontSize: 'var(--font-size-base)',
                                                 fontWeight: 500,
                                                 overflow: 'hidden',
                                                 textOverflow: 'ellipsis',
@@ -1748,7 +1748,7 @@ export const AssetBrowser = () => {
                                                     minWidth: 52,
                                                     maxWidth: 74,
                                                     color: 'var(--color-text-secondary)',
-                                                    fontSize: 10,
+                                                    fontSize: 'var(--font-size-xs)',
                                                     textAlign: 'left',
                                                     whiteSpace: 'nowrap',
                                                     overflow: 'hidden',
@@ -1763,7 +1763,7 @@ export const AssetBrowser = () => {
                                                     minWidth: 44,
                                                     maxWidth: 56,
                                                     color: 'var(--color-text-secondary)',
-                                                    fontSize: 10,
+                                                    fontSize: 'var(--font-size-xs)',
                                                     textAlign: 'right',
                                                     whiteSpace: 'nowrap',
                                                     flexShrink: 0,
@@ -1774,7 +1774,7 @@ export const AssetBrowser = () => {
                                             {item.isDirectory && (
                                                 <span style={{
                                                     color: 'var(--color-text-tertiary)',
-                                                    fontSize: 9,
+                                                    fontSize: 'var(--font-size-2xs)',
                                                     display: 'inline-flex',
                                                     alignItems: 'center',
                                                     marginLeft: 2,
@@ -1805,12 +1805,12 @@ export const AssetBrowser = () => {
                                                     borderTop: '1px solid var(--color-divider-light)',
                                                     position: 'sticky',
                                                     top: 24,
-                                                    zIndex: 3,
+                                                    zIndex: 'var(--z-local)' as unknown as number,
                                                 }}
                                             >
                                                 <span style={{
                                                     color: 'var(--color-text-primary)',
-                                                    fontSize: 10,
+                                                    fontSize: 'var(--font-size-xs)',
                                                     fontWeight: 700,
                                                     textTransform: 'uppercase',
                                                     letterSpacing: '0.04em',
@@ -1819,7 +1819,7 @@ export const AssetBrowser = () => {
                                                 </span>
                                                 <span style={{
                                                     color: 'var(--color-text-tertiary)',
-                                                    fontSize: 9,
+                                                    fontSize: 'var(--font-size-2xs)',
                                                     fontFamily: 'var(--font-mono)',
                                                 }}>
                                                     {row.count}
@@ -1909,7 +1909,7 @@ export const AssetBrowser = () => {
                                             <TypeIcon type={item.type} item={item} />
                                             <span style={{
                                                 color: 'var(--color-text-primary)',
-                                                fontSize: 12,
+                                                fontSize: 'var(--font-size-base)',
                                                 fontWeight: 500,
                                                 overflow: 'hidden',
                                                 textOverflow: 'ellipsis',
@@ -1924,7 +1924,7 @@ export const AssetBrowser = () => {
                                                     minWidth: 52,
                                                     maxWidth: 74,
                                                     color: 'var(--color-text-secondary)',
-                                                    fontSize: 10,
+                                                    fontSize: 'var(--font-size-xs)',
                                                     textAlign: 'left',
                                                     whiteSpace: 'nowrap',
                                                     overflow: 'hidden',
@@ -1939,7 +1939,7 @@ export const AssetBrowser = () => {
                                                     minWidth: 44,
                                                     maxWidth: 56,
                                                     color: 'var(--color-text-secondary)',
-                                                    fontSize: 10,
+                                                    fontSize: 'var(--font-size-xs)',
                                                     textAlign: 'right',
                                                     whiteSpace: 'nowrap',
                                                     flexShrink: 0,
@@ -1957,7 +1957,7 @@ export const AssetBrowser = () => {
                                 padding: '20px 12px',
                                 textAlign: 'center',
                                 color: 'var(--color-text-tertiary)',
-                                fontSize: 10,
+                                fontSize: 'var(--font-size-xs)',
                             }}>
                                 No items found
                             </div>
@@ -1976,7 +1976,7 @@ export const AssetBrowser = () => {
                         width: 150,
                         background: 'var(--surface-2)',
                         border: '1px solid var(--color-border-subtle)',
-                        borderRadius: 8,
+                        borderRadius: 'var(--radius-xl)',
                         boxShadow: 'var(--shadow-panel)',
                         padding: 6,
                         zIndex: 'var(--z-drag-overlay)' as unknown as number,
@@ -2017,7 +2017,7 @@ export const AssetBrowser = () => {
                         flex: 1,
                         minWidth: 0,
                         height: 16,
-                        borderRadius: 4,
+                        borderRadius: 'var(--radius-md)',
                         border: '1px solid var(--color-border-subtle)',
                         background: 'color-mix(in srgb, #000 18%, transparent)',
                         overflow: 'hidden',
@@ -2031,7 +2031,7 @@ export const AssetBrowser = () => {
                             <div style={{
                                 width: '100%',
                                 height: 8,
-                                borderRadius: 2,
+                                borderRadius: 'var(--radius-xs)',
                                 background: 'color-mix(in srgb, var(--color-text-primary) 4%, transparent)',
                             }} />
                         )}
@@ -2063,7 +2063,7 @@ export const AssetBrowser = () => {
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            fontSize: 9,
+                            fontSize: 'var(--font-size-2xs)',
                         }}
                         aria-pressed={previewEnabled}
                     >
@@ -2122,11 +2122,11 @@ const TypeIcon = ({ type, item }: { type: BrowserItem['type']; item?: BrowserIte
                     bottom: -5,
                     minWidth: 9,
                     height: 9,
-                    borderRadius: 999,
+                    borderRadius: 'var(--radius-full)',
                     background: 'var(--color-bg-header)',
                     border: '1px solid var(--color-divider)',
                     color: 'var(--color-text-secondary)',
-                    fontSize: 7,
+                    fontSize: 'var(--font-size-micro)',
                     fontWeight: 700,
                     lineHeight: '9px',
                     textAlign: 'center',
@@ -2224,11 +2224,11 @@ const columnMenuItemStyle: React.CSSProperties = {
     border: 'none',
     color: 'var(--color-text-primary)',
     padding: '5px 6px',
-    borderRadius: 4,
+    borderRadius: 'var(--radius-md)',
     display: 'flex',
     alignItems: 'center',
     gap: 6,
-    fontSize: 11,
+    fontSize: 'var(--font-size-sm)',
     textAlign: 'left',
     cursor: 'pointer',
 };
@@ -2246,7 +2246,7 @@ const pluginActionButtonStyle: React.CSSProperties = {
     border: '1px solid var(--color-divider)',
     borderRadius: 'var(--radius-xs)',
     padding: '3px 7px',
-    fontSize: 10,
+    fontSize: 'var(--font-size-xs)',
     cursor: 'pointer',
     fontWeight: 600,
     whiteSpace: 'nowrap',
@@ -2267,7 +2267,7 @@ const FilterPill = ({
             border: 'none',
             borderRadius: 'var(--radius-xs)',
             padding: '3px 6px',
-            fontSize: 10,
+            fontSize: 'var(--font-size-xs)',
             cursor: 'pointer',
             fontWeight: 600,
             whiteSpace: 'nowrap',
@@ -2346,7 +2346,7 @@ const PreviewWaveform = ({ peaks, height = 48 }: { peaks: PeakPair[]; height?: n
     }, [peaks, height]);
 
     return (
-        <div ref={containerRef} style={{ width: '100%', overflow: 'hidden', borderRadius: 4 }}>
+        <div ref={containerRef} style={{ width: '100%', overflow: 'hidden', borderRadius: 'var(--radius-md)' }}>
             <canvas
                 ref={canvasRef}
                 style={{

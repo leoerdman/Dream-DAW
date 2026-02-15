@@ -2318,6 +2318,35 @@ impl PluginHostState {
         Ok(instance_id)
     }
 
+    fn ensure_loaded_instance_for_slot(&self, slot_id: Uuid, plugin_id: &str) -> Result<Uuid, String> {
+        if let Some(instance_id) = self.slot_instance_map.load().get(&slot_id).copied() {
+            return Ok(instance_id);
+        }
+
+        let descriptor = self.resolve_descriptor(plugin_id)?;
+        if descriptor.format != PluginFormat::VST3 {
+            return Err(format!(
+                "External runtime currently supports only VST3 (got {})",
+                descriptor.format
+            ));
+        }
+
+        let mut host = self.host.lock().map_err(|e| e.to_string())?;
+        let instance_id = host
+            .load_vst3(descriptor.clone())
+            .map_err(|e| format!("Failed to load plugin '{}': {e}", descriptor.name))?;
+        drop(host);
+
+        self.bind_slot_instance(slot_id, instance_id);
+        self.loaded_by_key
+            .lock()
+            .map_err(|e| e.to_string())?
+            .entry(plugin_id.to_string())
+            .or_insert(instance_id);
+
+        Ok(instance_id)
+    }
+
     fn resolve_descriptor(&self, plugin_id: &str) -> Result<PluginDescriptor, String> {
         let path = PathBuf::from(plugin_id);
         if path.exists() {

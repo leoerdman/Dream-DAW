@@ -193,7 +193,7 @@ export const ExportDialog = memo(function ExportDialog({
                                         ...chipStyle,
                                         background: settings.range === r
                                             ? 'var(--color-accent-primary)'
-                                            : 'rgba(255,255,255,0.06)',
+                                            : 'var(--color-border-subtle)',
                                         color: settings.range === r ? '#fff' : 'var(--color-text-secondary)',
                                         fontWeight: settings.range === r ? 700 : 400,
                                     }}
@@ -260,7 +260,7 @@ export const ExportDialog = memo(function ExportDialog({
                                 height: '100%',
                                 background: 'var(--color-accent-primary)',
                                 borderRadius: 'var(--radius-xs)',
-                                transition: 'width 0.3s linear',
+                                transition: `width var(--transition-slow)`,
                             }} />
                         </div>
                         <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-tertiary)', textAlign: 'center', marginTop: 4 }}>
@@ -383,7 +383,7 @@ const chipStyle: React.CSSProperties = {
     border: '1px solid var(--color-border-subtle)',
     fontSize: 'var(--font-size-xs)',
     cursor: 'pointer',
-    transition: 'all 0.15s ease',
+    transition: `all var(--transition-fast)`,
 };
 
 const inputStyle: React.CSSProperties = {

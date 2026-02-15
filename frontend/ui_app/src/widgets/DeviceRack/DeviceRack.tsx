@@ -950,7 +950,7 @@ export const DeviceRack = ({
                     background: 'var(--color-bg-panel)',
                     position: 'relative',
                     outline: isDropActive ? '2px solid var(--color-accent-primary)' : 'none',
-                    boxShadow: isDropActive ? 'inset 0 0 0 1px rgba(74, 144, 217, 0.35)' : 'none',
+                    boxShadow: isDropActive ? 'inset 0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 35%, transparent)' : 'none',
                 }}>
 
                 <div style={{
@@ -1114,11 +1114,11 @@ export const DeviceRack = ({
                             color: 'var(--color-text-tertiary)',
                         }}>
                             <span style={{
-                                fontSize: 20,
+                                fontSize: 'var(--font-size-2xl)',
                                 opacity: 0.3,
                             }}>♪</span>
                             <span style={{
-                                fontSize: 10,
+                                fontSize: 'var(--font-size-xs)',
                                 fontWeight: 500,
                                 letterSpacing: '0.03em',
                             }}>
@@ -1150,7 +1150,7 @@ export const DeviceRack = ({
                             borderRadius: 'var(--radius-sm)',
                             cursor: 'pointer',
                             color: 'var(--color-text-tertiary)',
-                            fontSize: 9,
+                            fontSize: 'var(--font-size-2xs)',
                             fontWeight: 500,
                             flexShrink: 0,
                             transition: 'all var(--transition-fast)',
@@ -1164,7 +1164,7 @@ export const DeviceRack = ({
                             e.currentTarget.style.color = 'var(--color-text-tertiary)';
                         }}
                     >
-                        <span style={{ fontSize: 18, lineHeight: 1 }}>+</span>
+                        <span style={{ fontSize: 'var(--font-size-2xl)', lineHeight: 1 }}>+</span>
                         Add Device
                     </button>
                 </div>
@@ -1175,13 +1175,13 @@ export const DeviceRack = ({
                             position: 'absolute',
                             right: 10,
                             top: 10,
-                            zIndex: 20,
+                            zIndex: 'var(--z-header)' as unknown as number,
                             border: '1px solid color-mix(in srgb, var(--color-accent-primary) 65%, #ffffff22)',
-                            borderRadius: 6,
+                            borderRadius: 'var(--radius-lg)',
                             padding: '5px 8px',
                             background: 'color-mix(in srgb, var(--color-bg-panel) 72%, var(--color-accent-primary) 28%)',
                             color: 'var(--color-text-primary)',
-                            fontSize: 10,
+                            fontSize: 'var(--font-size-xs)',
                             fontWeight: 700,
                             letterSpacing: '0.03em',
                             pointerEvents: 'none',
@@ -1279,7 +1279,7 @@ export const DeviceRack = ({
             >
                 <div
                     style={{
-                        fontSize: 10,
+                        fontSize: 'var(--font-size-xs)',
                         color: 'var(--color-text-tertiary)',
                         padding: '4px 8px',
                         fontWeight: 600,
@@ -1351,11 +1351,11 @@ const autoCtxMenuItemStyle: React.CSSProperties = {
     border: 'none',
     background: 'transparent',
     color: 'var(--color-text-primary)',
-    fontSize: 11,
+    fontSize: 'var(--font-size-sm)',
     fontWeight: 500,
     textAlign: 'left',
     cursor: 'pointer',
-    borderRadius: 3,
+    borderRadius: 'var(--radius-sm)',
     transition: 'background var(--transition-fast)',
 };
 
@@ -1519,7 +1519,7 @@ const DeviceNode = ({
                     {device.name}
                 </span>
                 <span style={{
-                    fontSize: 9,
+                    fontSize: 'var(--font-size-2xs)',
                     color: 'var(--color-text-tertiary)',
                     fontFamily: 'var(--font-mono)',
                     marginRight: 4,
@@ -1558,7 +1558,7 @@ const DeviceNode = ({
                     <span style={{ width: 24, display: 'inline-block' }} />
                 )}
                 <span style={{
-                    fontSize: 8,
+                    fontSize: 'var(--font-size-micro)',
                     color: device.source === 'vst' ? '#2ecc71' : 'var(--color-text-tertiary)',
                     fontWeight: 700,
                     minWidth: 28,
@@ -1600,10 +1600,10 @@ const DeviceNode = ({
                     overflow: 'hidden',
                 }}>
                     <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>
+                        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
                             {device.source === 'vst' ? 'Native GUI' : 'Internal GUI'}
                         </span>
-                        <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)' }}>
+                        <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-tertiary)' }}>
                             {device.params.length} params
                         </span>
                     </div>
@@ -1619,7 +1619,7 @@ const headerIconBtnStyle = (disabled: boolean, active = false) =>
         minWidth: 24,
         height: 18,
         padding: '0 6px',
-        borderRadius: 4,
+        borderRadius: 'var(--radius-md)',
         border: active ? '1px solid var(--color-accent-primary)' : '1px solid var(--color-divider)',
         background: disabled
             ? 'color-mix(in srgb, var(--color-text-tertiary) 25%, transparent)'
@@ -1631,7 +1631,7 @@ const headerIconBtnStyle = (disabled: boolean, active = false) =>
             : active
                 ? 'var(--color-accent-primary)'
                 : 'var(--color-text-secondary)',
-        fontSize: 9,
+        fontSize: 'var(--font-size-2xs)',
         fontWeight: 700,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.65 : 1,
@@ -1657,7 +1657,7 @@ const pluginPanelCardBaseStyle: React.CSSProperties = {
 };
 
 const pluginPanelTitleStyle: React.CSSProperties = {
-    fontSize: 10,
+    fontSize: 'var(--font-size-xs)',
     color: 'var(--plugin-title-color)',
     letterSpacing: '0.05em',
     textTransform: 'uppercase',
@@ -1948,10 +1948,10 @@ const PluginGuiSurface = ({
                                 onClick={randomizePatch}
                                 style={{
                                     border: '1px solid #4d7b69',
-                                    borderRadius: 4,
+                                    borderRadius: 'var(--radius-md)',
                                     background: 'rgba(24, 44, 37, 0.72)',
                                     color: '#c9f7df',
-                                    fontSize: 9,
+                                    fontSize: 'var(--font-size-2xs)',
                                     fontWeight: 700,
                                     letterSpacing: '0.03em',
                                     cursor: 'pointer',
@@ -1976,7 +1976,7 @@ const PluginGuiSurface = ({
                                 onClick={() => applyMacroPreset(preset.id as 'init' | 'bass' | 'lead' | 'pad' | 'pluck')}
                                 style={{
                                     border: '1px solid #446b5d',
-                                    borderRadius: 4,
+                                    borderRadius: 'var(--radius-md)',
                                     background: 'linear-gradient(180deg, rgba(30, 52, 45, 0.85) 0%, rgba(20, 35, 31, 0.9) 100%)',
                                     color: '#c9f7df',
                                     fontSize: 9,

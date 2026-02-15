@@ -119,7 +119,7 @@ export const StatusBar = ({
                             alignItems: 'center',
                             gap: 4,
                             border: '1px solid var(--color-control-border)',
-                            borderRadius: 6,
+                            borderRadius: 'var(--radius-lg)',
                             padding: 2,
                             background: 'var(--color-bg-header)',
                             marginRight: 2,
@@ -192,9 +192,9 @@ export const StatusBar = ({
                                         overflowY: 'auto',
                                         background: 'var(--color-bg-elevated)',
                                         border: '1px solid var(--color-divider)',
-                                        borderRadius: 4,
-                                        boxShadow: '0 8px 18px rgba(0,0,0,0.35)',
-                                        zIndex: 1200,
+                                        borderRadius: 'var(--radius-md)',
+                                        boxShadow: '0 8px 18px var(--color-overlay-dark)',
+                                        zIndex: 'var(--z-tooltip)' as unknown as number,
                                         padding: '6px 8px',
                                     }}
                                 >
@@ -202,10 +202,10 @@ export const StatusBar = ({
                                         const dt = new Date(item.timestampMs);
                                         return (
                                             <div key={item.seq} style={{ marginBottom: 6 }}>
-                                                <div style={{ color: 'var(--color-text-primary)', fontSize: 10 }}>
+                                                <div style={{ color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}>
                                                     #{item.seq} {item.kind}
                                                 </div>
-                                                <div style={{ color: 'var(--color-text-secondary)', fontSize: 10 }}>
+                                                <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)' }}>
                                                     {dt.toLocaleTimeString()} • {item.detail}
                                                 </div>
                                             </div>
@@ -234,7 +234,7 @@ export const StatusBar = ({
                     />
                     <span style={{
                         color: isPlaying ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
-                        fontSize: 10,
+                        fontSize: 'var(--font-size-xs)',
                     }}>
                         {isPlaying ? '▶' : '■'}
                     </span>
@@ -266,10 +266,10 @@ export const StatusBar = ({
                             onClick={() => setGridOpen((v) => !v)}
                             style={{
                                 border: '1px solid var(--color-control-border)',
-                                borderRadius: 4,
+                                borderRadius: 'var(--radius-md)',
                                 background: 'var(--color-control-bg)',
                                 color: 'var(--color-text-primary)',
-                                fontSize: 10,
+                                fontSize: 'var(--font-size-xs)',
                                 fontFamily: 'var(--font-mono)',
                                 fontWeight: 600,
                                 padding: '2px 6px',
@@ -288,7 +288,7 @@ export const StatusBar = ({
                                     minWidth: 100,
                                     background: 'var(--color-bg-elevated)',
                                     border: '1px solid var(--color-divider)',
-                                    borderRadius: 4,
+                                    borderRadius: 'var(--radius-md)',
                                     boxShadow: '0 8px 18px var(--color-overlay-dark)',
                                     zIndex: 'var(--z-tooltip)' as unknown as number,
                                     padding: '4px 0',
@@ -310,7 +310,7 @@ export const StatusBar = ({
                                                 border: 'none',
                                                 background: active ? 'var(--color-accent-primary-dim)' : 'transparent',
                                                 color: active ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                                                fontSize: 10,
+                                                fontSize: 'var(--font-size-xs)',
                                                 fontFamily: 'var(--font-mono)',
                                                 padding: '4px 8px',
                                                 cursor: 'pointer',
@@ -356,7 +356,7 @@ export const StatusBar = ({
                             border: 'none',
                             color: 'inherit',
                             cursor: 'pointer',
-                            fontSize: 12,
+                            fontSize: 'var(--font-size-base)',
                             opacity: 0.6,
                             padding: '0 4px',
                         }}
@@ -418,10 +418,10 @@ const StatusGroup = ({ children }: { children: React.ReactNode }) => (
 
 const panelModeBtnStyle = (active: boolean): React.CSSProperties => ({
     border: active ? '1px solid color-mix(in srgb, var(--color-accent-primary) 52%, transparent)' : '1px solid transparent',
-    borderRadius: 4,
+    borderRadius: 'var(--radius-md)',
     background: active ? 'var(--color-accent-primary-dim)' : 'transparent',
     color: active ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
-    fontSize: 10,
+    fontSize: 'var(--font-size-xs)',
     fontWeight: 700,
     letterSpacing: '0.02em',
     padding: '3px 8px',

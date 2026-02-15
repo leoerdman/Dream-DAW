@@ -12,7 +12,7 @@ import { getContrastColor } from '@/shared/lib/colorUtils';
  *   Row 1:  [icon] [Name]         [#] [M/S] [●] |VU|
  *   Row 2:        [→ Master ◊]  [← No Inp ◊]
  *
- *   • Color stripe (4px) on the left edge
+ *   • Color stripe (8px min) on the left edge
  *   • Vibrant color-mixed backgrounds (30-50% saturation)
  *   • M (Mute) and S (Solo) stacked vertically
  *   • Right-click → context menu: Rename / Change Color / Paint Clips / Delete
@@ -154,7 +154,7 @@ export const TrackInspector = ({
     const masterTrack = useMemo((): TrackData => {
         const masterVu = Math.max(meters.master_left.peak, meters.master_right.peak);
         return {
-            id: 'master', name: 'Master', type: 'master', color: '#666',
+            id: 'master', name: 'Master', type: 'master', color: 'var(--text-muted)',
             volume: masterVolume, pan: 0, isMuted: false, isSoloed: false, isArmed: false,
             vuLevel: masterVu, routing: '', sends: [], input: '', output: 'Main',
         };
@@ -795,13 +795,13 @@ export const TrackInspector = ({
                 {mixerFocusMode && (
                     <span style={{
                         marginLeft: 6,
-                        fontSize: 8,
+                        fontSize: 'var(--font-size-micro)',
                         fontWeight: 700,
                         fontFamily: 'var(--font-mono)',
                         color: 'var(--color-accent-primary)',
                         background: 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)',
                         border: '1px solid color-mix(in srgb, var(--color-accent-primary) 36%, transparent)',
-                        borderRadius: 3,
+                        borderRadius: 'var(--radius-sm)',
                         padding: '1px 4px',
                     }}>
                         TAB
@@ -953,8 +953,8 @@ export const TrackInspector = ({
                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
                         background: 'transparent', border: 'none',
                         borderTop: '1px solid var(--color-divider)',
-                        color: 'var(--color-text-tertiary)', fontSize: 10, fontWeight: 500,
-                        cursor: 'pointer', transition: 'all 0.15s ease',
+                        color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)', fontWeight: 500,
+                        cursor: 'pointer', transition: `all var(--transition-fast)`,
                     }}
                     onMouseEnter={e => {
                         e.currentTarget.style.background = 'color-mix(in srgb, var(--color-accent-primary) 10%, transparent)';
@@ -1313,7 +1313,7 @@ const VolumeFader = ({
                     minWidth: trackWidth,
                     background: 'color-mix(in srgb, var(--surface-elevated) 84%, #000)',
                     border: '1px solid color-mix(in srgb, var(--text-primary) 14%, transparent)',
-                    borderRadius: 2,
+                    borderRadius: 'var(--radius-xs)',
                     cursor: 'ew-resize',
                     overflow: 'hidden',
                     touchAction: 'none',
@@ -1331,9 +1331,9 @@ const VolumeFader = ({
                     position: 'absolute', left: 0, top: 0, bottom: 0,
                     width: `${faderPos * 100}%`,
                     background: faderPos > zeroTickPos
-                        ? 'linear-gradient(to right, #44c0ff, #38d6d0)'
-                        : '#44c0ff',
-                    borderRadius: 1,
+                        ? 'linear-gradient(to right, var(--color-status-info), var(--color-port-audio))'
+                        : 'var(--color-status-info)',
+                    borderRadius: 'var(--radius-xs)',
                     transition: isDragging ? 'none' : 'width 60ms linear',
                 }} />
                 <span style={{
@@ -1342,11 +1342,11 @@ const VolumeFader = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: compact ? 9 : 10,
+                    fontSize: compact ? 'var(--font-size-2xs)' : 'var(--font-size-xs)',
                     fontFamily: 'var(--font-mono)',
                     fontWeight: 700,
                     color: 'var(--color-text-primary)',
-                    textShadow: '0 1px 1px rgba(0,0,0,0.55)',
+                    textShadow: 'var(--text-shadow-subtle)',
                     pointerEvents: 'none',
                     letterSpacing: '0.01em',
                 }}>
@@ -1455,7 +1455,7 @@ const PanFader = ({
                     height: trackHeight,
                     background: 'color-mix(in srgb, var(--surface-elevated) 84%, #000)',
                     border: '1px solid color-mix(in srgb, var(--text-primary) 14%, transparent)',
-                    borderRadius: 2,
+                    borderRadius: 'var(--radius-xs)',
                     cursor: 'ew-resize',
                     overflow: 'hidden',
                     touchAction: 'none',
@@ -1467,7 +1467,7 @@ const PanFader = ({
                     left: panNorm <= 0.5 ? `${panNorm * 100}%` : '50%',
                     width: `${Math.abs(panNorm - 0.5) * 100}%`,
                     height: '100%',
-                    background: 'rgba(76, 201, 240, 0.35)',
+                    background: 'color-mix(in srgb, var(--color-status-info) 35%, transparent)',
                 }} />
                 <span style={{
                     position: 'absolute',
@@ -1475,11 +1475,11 @@ const PanFader = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: compact ? 9 : 10,
+                    fontSize: compact ? 'var(--font-size-2xs)' : 'var(--font-size-xs)',
                     fontFamily: 'var(--font-mono)',
                     fontWeight: 700,
                     color: 'var(--color-text-primary)',
-                    textShadow: '0 1px 1px rgba(0,0,0,0.55)',
+                    textShadow: 'var(--text-shadow-subtle)',
                     pointerEvents: 'none',
                     letterSpacing: '0.01em',
                 }}>
@@ -1510,15 +1510,15 @@ const TriColorVU = ({
     const minus2Norm = vuNorm(-2);
     const zeroNorm = vuNorm(0);
 
-    const lowColor = isMidi ? '#3fcb6d' : '#36c95a';
-    const midColor = isMidi ? '#ffd34d' : '#f2d33e';
+    const lowColor = isMidi ? 'var(--color-meter-low-midi)' : 'var(--color-meter-low-audio)';
+    const midColor = isMidi ? 'var(--color-meter-mid-midi)' : 'var(--color-meter-mid-audio)';
 
     return (
         <div style={{
             width: compact ? 10 : 10,
             height: meterHeight,
             background: 'color-mix(in srgb, var(--surface-elevated) 84%, #000)',
-            borderRadius: 2,
+            borderRadius: 'var(--radius-xs)',
             overflow: 'hidden',
             flexShrink: 0,
             position: 'relative',
@@ -1526,7 +1526,7 @@ const TriColorVU = ({
             marginLeft: 0,
             filter: isEnabled ? 'none' : 'grayscale(1)',
             opacity: isEnabled ? 1 : 0.5,
-            transition: 'filter 0.15s ease, opacity 0.15s ease',
+            transition: `filter var(--transition-fast), opacity var(--transition-fast)`,
         }}>
             <div style={{
                 position: 'absolute',
@@ -1534,7 +1534,7 @@ const TriColorVU = ({
                 right: 0,
                 bottom: `${zeroNorm * 100}%`,
                 height: 1,
-                background: 'rgba(0,0,0,0.75)',
+                background: 'var(--color-overlay-dark)',
                 pointerEvents: 'none',
                 zIndex: 2,
             }} />
@@ -1544,7 +1544,7 @@ const TriColorVU = ({
                 right: 0,
                 bottom: 0,
                 height: `${normalizedLevel * 100}%`,
-                background: `linear-gradient(to top, ${lowColor} 0%, ${lowColor} ${minus2Norm * 100}%, ${midColor} ${zeroNorm * 100}%, #ff3b30 100%)`,
+                background: `linear-gradient(to top, ${lowColor} 0%, ${lowColor} ${minus2Norm * 100}%, ${midColor} ${zeroNorm * 100}%, var(--color-status-record) 100%)`,
                 transition: 'height 70ms linear',
             }} />
         </div>
@@ -1671,7 +1671,7 @@ const VerticalMixerStrip = ({
                     position: 'relative',
                     width: 16,
                     height: 62,
-                    borderRadius: 4,
+                    borderRadius: 'var(--radius-md)',
                     background: 'var(--surface-elevated)',
                     border: '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
                     overflow: 'hidden',
@@ -1685,7 +1685,7 @@ const VerticalMixerStrip = ({
                     right: 0,
                     bottom: 0,
                     height: `${meterNorm * 100}%`,
-                    background: isMidi ? 'rgba(255,149,0,0.5)' : 'rgba(64,204,90,0.5)',
+                    background: isMidi ? 'color-mix(in srgb, var(--color-btn-mute) 50%, transparent)' : 'color-mix(in srgb, var(--color-meter-normal) 50%, transparent)',
                     pointerEvents: 'none',
                     filter: 'inherit',
                 }} />
@@ -1695,8 +1695,8 @@ const VerticalMixerStrip = ({
                     right: 0,
                     bottom: `${peakHoldNorm * 100}%`,
                     height: 1,
-                    background: 'rgba(255,255,255,0.95)',
-                    boxShadow: '0 0 2px rgba(255,255,255,0.7)',
+                    background: 'color-mix(in srgb, var(--color-text-bright) 95%, transparent)',
+                    boxShadow: '0 0 2px color-mix(in srgb, var(--color-text-bright) 70%, transparent)',
                     pointerEvents: 'none',
                 }} />
                 <div style={{
@@ -1705,7 +1705,7 @@ const VerticalMixerStrip = ({
                     right: 0,
                     bottom: 0,
                     height: `${volNorm * 100}%`,
-                    background: 'linear-gradient(to top, #2fa64a 0%, #46d165 100%)',
+                    background: 'linear-gradient(to top, var(--color-meter-green-start) 0%, var(--color-meter-green-end) 100%)',
                     opacity: 0.9,
                     pointerEvents: 'none',
                 }} />
@@ -1715,8 +1715,8 @@ const VerticalMixerStrip = ({
                     right: 0,
                     bottom: `calc(${volNorm * 100}% - 1px)`,
                     height: 2,
-                    background: 'rgba(255,255,255,0.9)',
-                    boxShadow: '0 0 4px rgba(255,255,255,0.45)',
+                    background: 'color-mix(in srgb, var(--color-text-bright) 90%, transparent)',
+                    boxShadow: '0 0 4px color-mix(in srgb, var(--color-text-bright) 45%, transparent)',
                     transition: isDragging ? 'none' : 'bottom 60ms linear',
                     pointerEvents: 'none',
                 }} />
@@ -1729,8 +1729,8 @@ const VerticalMixerStrip = ({
                         height: 4,
                         marginLeft: -2,
                         borderRadius: '50%',
-                        background: '#ff3b30',
-                        boxShadow: '0 0 4px rgba(255,59,48,0.85)',
+                        background: 'var(--color-status-record)',
+                        boxShadow: '0 0 4px color-mix(in srgb, var(--color-status-record) 85%, transparent)',
                         pointerEvents: 'none',
                     }} />
                 )}
@@ -1738,7 +1738,7 @@ const VerticalMixerStrip = ({
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 54 }}>
                 <span style={{
-                    fontSize: 8,
+                    fontSize: 'var(--font-size-micro)',
                     fontFamily: 'var(--font-mono)',
                     color: 'var(--color-text-secondary)',
                     textAlign: 'right',
@@ -1759,7 +1759,7 @@ const VerticalMixerStrip = ({
                         position: 'relative',
                         width: 54,
                         height: 8,
-                        borderRadius: 3,
+                        borderRadius: 'var(--radius-sm)',
                         background: 'var(--surface-elevated)',
                         border: '1px solid color-mix(in srgb, var(--text-primary) 10%, transparent)',
                     }}
@@ -1778,7 +1778,7 @@ const VerticalMixerStrip = ({
                         left: `calc(${panNorm * 100}% - 3px)`,
                         width: 6,
                         height: '100%',
-                        borderRadius: 2,
+                        borderRadius: 'var(--radius-xs)',
                         background: 'var(--text-primary)',
                     }} />
                     <input
@@ -1803,7 +1803,7 @@ const VerticalMixerStrip = ({
                     />
                 </div>
                 <span style={{
-                    fontSize: 8,
+                    fontSize: 'var(--font-size-micro)',
                     fontFamily: 'var(--font-mono)',
                     color: 'var(--color-text-secondary)',
                     textAlign: 'right',
@@ -1887,9 +1887,9 @@ const TrackRow = ({
     // Subdue track visually when disabled (muted)
     const isEnabled = !track.isMuted;
     const compactControlHeight = 16;
-    const headerBgColor = isMasterFixed ? '#f2f2f2' : track.color;
-    const headerContrast = getContrastColor(headerBgColor);
-    const headerTextColor = headerContrast === 'black' ? 'rgba(18, 18, 18, 0.92)' : 'rgba(255, 255, 255, 0.94)';
+    const headerBgColor = isMasterFixed ? 'var(--color-bg-app)' : track.color;
+    const headerContrast = getContrastColor(isMasterFixed ? '#f2f2f2' : track.color);
+    const headerTextColor = headerContrast === 'black' ? 'var(--glass-bg)' : 'color-mix(in srgb, var(--color-text-primary) 94%, transparent)';
 
     return (
         <div
@@ -1906,7 +1906,7 @@ const TrackRow = ({
                         : 'var(--surface-1)',
                 cursor: 'default',
                 opacity: isEnabled ? 1 : 0.45,
-                transition: 'background 0.12s ease, opacity 0.12s ease',
+                transition: `background var(--transition-linear), opacity var(--transition-linear)`,
                 position: 'relative', paddingLeft: 0, flexShrink: 0,
                 outline: isGroupDropTarget ? '2px solid color-mix(in srgb, var(--color-accent-primary) 82%, white)' : 'none',
                 outlineOffset: isGroupDropTarget ? '-2px' : 0,
@@ -1921,11 +1921,11 @@ const TrackRow = ({
                     left: 0,
                     top: -1,
                     bottom: -1,
-                    width: 2,
+                    width: 8,
                     background: groupRailColor,
                     opacity: 1,
                     pointerEvents: 'none',
-                    zIndex: 3,
+                    zIndex: 'var(--z-local)' as unknown as number,
                 }} />
             )}
             {depth > 0 && isFirstInParentGroup && (
@@ -1961,7 +1961,7 @@ const TrackRow = ({
                     maxWidth: mixerFocusMode ? 118 : 108,
                     padding: mixerFocusMode ? '2px 8px 2px 5px' : '2px 6px 2px 4px',
                     background: headerBgColor,
-                    borderRight: isMasterFixed ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                    borderRight: isMasterFixed ? 'none' : '1px solid var(--color-border-subtle)',
                     gap: 1,
                     position: 'relative',
                     cursor: !isMaster ? 'grab' : 'default',
@@ -1974,7 +1974,7 @@ const TrackRow = ({
                             style={{
                                 width: 12, display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 background: 'none', border: 'none', color: headerTextColor,
-                                fontSize: 8, cursor: 'pointer', flexShrink: 0, padding: 0,
+                                fontSize: 'var(--font-size-micro)', cursor: 'pointer', flexShrink: 0, padding: 0,
                             }}
                         >
                             {isCollapsed ? '▶' : '▼'}
@@ -1995,12 +1995,12 @@ const TrackRow = ({
                             onBlur={onRenameCommit}
                             onClick={e => e.stopPropagation()}
                             style={{
-                                fontSize: 10, fontWeight: 600,
+                                fontSize: 'var(--font-size-xs)', fontWeight: 600,
                                 background: headerContrast === 'black'
                                     ? 'rgba(255, 255, 255, 0.42)'
                                     : 'rgba(0, 0, 0, 0.34)',
                                 border: `1px solid ${track.color}`,
-                                borderRadius: 2, color: headerTextColor,
+                                borderRadius: 'var(--radius-xs)', color: headerTextColor,
                                 padding: '1px 3px', outline: 'none', minWidth: 0,
                             }}
                         />
@@ -2049,7 +2049,7 @@ const TrackRow = ({
                 <div style={{
                     display: 'flex', flexDirection: 'column', justifyContent: 'center',
                     gap: 4, padding: 4,
-                    borderRight: '1px solid rgba(255,255,255,0.06)',
+                    borderRight: '1px solid var(--color-border-subtle)',
                     minWidth: mixerFocusMode ? 102 : 92,
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -2059,7 +2059,7 @@ const TrackRow = ({
                                 left: 6,
                                 top: '50%',
                                 transform: 'translateY(-50%)',
-                                fontSize: 8,
+                                fontSize: 'var(--font-size-micro)',
                                 color: 'var(--color-text-tertiary)',
                                 pointerEvents: 'none',
                                 zIndex: 1,
@@ -2073,11 +2073,11 @@ const TrackRow = ({
                                 }}
                                 title="Audio From"
                                 style={{
-                                    fontSize: 9, fontWeight: 500,
+                                    fontSize: 'var(--font-size-2xs)', fontWeight: 500,
                                     color: 'var(--color-text-primary)',
                                     background: 'var(--color-control-bg)',
                                     border: '1px solid var(--color-control-border)',
-                                    borderRadius: 4, padding: '0 16px 0 14px', cursor: 'pointer',
+                                    borderRadius: 'var(--radius-md)', padding: '0 16px 0 14px', cursor: 'pointer',
                                     minWidth: 0, flexShrink: 1, flex: 1,
                                     appearance: 'auto' as React.CSSProperties['appearance'],
                                     lineHeight: '15px', height: 15,
@@ -2099,7 +2099,7 @@ const TrackRow = ({
                                 left: 6,
                                 top: '50%',
                                 transform: 'translateY(-50%)',
-                                fontSize: 8,
+                                fontSize: 'var(--font-size-micro)',
                                 color: 'var(--color-text-tertiary)',
                                 pointerEvents: 'none',
                                 zIndex: 1,
@@ -2113,11 +2113,11 @@ const TrackRow = ({
                                 }}
                                 title="Audio To"
                                 style={{
-                                    fontSize: 9, fontWeight: 500,
+                                    fontSize: 'var(--font-size-2xs)', fontWeight: 500,
                                     color: 'var(--color-text-primary)',
                                     background: 'var(--color-control-bg)',
                                     border: '1px solid var(--color-control-border)',
-                                    borderRadius: 4, padding: '0 16px 0 14px', cursor: 'pointer',
+                                    borderRadius: 'var(--radius-md)', padding: '0 16px 0 14px', cursor: 'pointer',
                                     minWidth: 0, flexShrink: 1, flex: 1,
                                     appearance: 'auto' as React.CSSProperties['appearance'],
                                     lineHeight: '15px', height: 15,
@@ -2142,7 +2142,7 @@ const TrackRow = ({
                     maxWidth: 76,
                     borderRight: '1px solid color-mix(in srgb, var(--surface-elevated) 72%, #000)',
                     color: 'var(--text-muted)',
-                    fontSize: 9,
+                    fontSize: 'var(--font-size-2xs)',
                     fontFamily: 'var(--font-mono)',
                 }}>
                     {outputValue === 'master' ? '→M' : '→T'} · {inputValue === 'none' ? '←∅' : '←IN'}
@@ -2172,11 +2172,11 @@ const TrackRow = ({
                                 width: mixerFocusMode ? 34 : 36, height: compactControlHeight,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 background: isEnabled ? 'var(--color-status-success)' : 'var(--surface-elevated)',
-                                color: isEnabled ? '#1b2b11' : 'var(--text-muted)',
-                                border: 'none', borderRadius: 2,
-                                fontSize: 8, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                                color: isEnabled ? 'var(--color-text-on-color)' : 'var(--text-muted)',
+                                border: 'none', borderRadius: 'var(--radius-xs)',
+                                fontSize: 'var(--font-size-micro)', fontWeight: 700, fontFamily: 'var(--font-mono)',
                                 cursor: 'pointer',
-                                padding: 0, transition: 'background 0.1s ease',
+                                padding: 0, transition: `background var(--transition-micro)`,
                             }}
                         >{displayNum ?? '●'}</button>
                         {/* Solo button */}
@@ -2187,9 +2187,9 @@ const TrackRow = ({
                                 width: mixerFocusMode ? 34 : 36, height: compactControlHeight,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 background: track.isSoloed ? 'var(--color-accent-primary)' : 'var(--surface-elevated)',
-                                color: track.isSoloed ? '#f4f8ff' : 'var(--text-muted)',
-                                border: 'none', borderRadius: 2,
-                                fontSize: 8, fontWeight: 700, cursor: 'pointer',
+                                color: track.isSoloed ? 'var(--color-text-on-accent)' : 'var(--text-muted)',
+                                border: 'none', borderRadius: 'var(--radius-xs)',
+                                fontSize: 'var(--font-size-micro)', fontWeight: 700, cursor: 'pointer',
                                 padding: 0, transition: 'background 0.1s ease',
                             }}
                         >S</button>
@@ -2242,10 +2242,10 @@ const TrackRow = ({
                                     style={{
                                         width: compactControlHeight,
                                         height: compactControlHeight,
-                                        borderRadius: 2,
+                                        borderRadius: 'var(--radius-xs)',
                                         border: '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
                                         background: track.isArmed
-                                            ? 'rgba(110, 24, 24, 0.55)'
+                                            ? 'color-mix(in srgb, var(--color-status-record) 55%, transparent)'
                                             : 'var(--surface-elevated)',
                                         display: 'flex',
                                         alignItems: 'center',
@@ -2258,15 +2258,15 @@ const TrackRow = ({
                                         width: 8,
                                         height: 8,
                                         borderRadius: '50%',
-                                        background: track.isArmed ? '#ff3b30' : 'rgba(160,160,160,0.38)',
-                                        boxShadow: track.isArmed ? '0 0 6px rgba(255,59,48,0.8)' : 'none',
+                                        background: track.isArmed ? 'var(--color-status-record)' : 'color-mix(in srgb, var(--color-control-tint) 38%, transparent)',
+                                        boxShadow: track.isArmed ? '0 0 6px color-mix(in srgb, var(--color-status-record) 80%, transparent)' : 'none',
                                     }} />
                                 </button>
                                 <div
                                     style={{
                                         width: compactControlHeight,
                                         height: compactControlHeight,
-                                        borderRadius: 2,
+                                        borderRadius: 'var(--radius-xs)',
                                         border: '1px solid color-mix(in srgb, var(--text-primary) 10%, transparent)',
                                         background: 'var(--surface-elevated)',
                                     }}
@@ -2308,8 +2308,8 @@ const TrackRow = ({
                     position: 'absolute',
                     inset: 0,
                     pointerEvents: 'none',
-                    zIndex: 4,
-                    boxShadow: 'inset 0 0 0 2px rgba(255,255,255,0.78), inset 0 0 16px rgba(255,255,255,0.22)',
+                    zIndex: 'var(--z-local-raised)' as unknown as number,
+                    boxShadow: 'inset 0 0 0 2px color-mix(in srgb, var(--color-text-bright) 78%, transparent), inset 0 0 16px color-mix(in srgb, var(--color-text-bright) 22%, transparent)',
                 }} />
             )}
         </div>
@@ -2354,7 +2354,7 @@ const ColorPickerPopup = ({
             boxShadow: '0 8px 32px var(--color-overlay-dark)',
         }}>
             <div style={{
-                fontSize: 9, fontWeight: 600,
+                fontSize: 'var(--font-size-2xs)', fontWeight: 600,
                 color: 'var(--color-text-secondary)',
                 textTransform: 'uppercase', letterSpacing: '0.05em',
                 marginBottom: 6, textAlign: 'center',
@@ -2371,11 +2371,11 @@ const ColorPickerPopup = ({
                             title={c.name}
                             onClick={() => onSelect(c.hex)}
                             style={{
-                                width: 28, height: 28, borderRadius: 6,
+                                width: 28, height: 28, borderRadius: 'var(--radius-lg)',
                                 background: c.hex,
-                                border: isActive ? '2px solid #fff' : '2px solid transparent',
+                                border: isActive ? '2px solid var(--color-text-bright)' : '2px solid transparent',
                                 cursor: 'pointer',
-                                transition: 'transform 0.1s ease, border-color 0.15s ease',
+                                transition: `transform var(--transition-micro), border-color var(--transition-fast)`,
                                 boxShadow: isActive ? `0 0 6px ${c.hex}80` : 'none',
                             }}
                             onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.1)'; }}

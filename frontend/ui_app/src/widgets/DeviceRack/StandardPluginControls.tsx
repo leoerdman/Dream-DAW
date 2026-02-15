@@ -185,7 +185,7 @@ const sliderLabelStyle: CSSProperties = {
 };
 
 const sliderTextStyle: CSSProperties = {
-    fontSize: 10,
+    fontSize: 'var(--font-size-xs)',
     color: 'var(--color-text-secondary)',
     display: 'flex',
     justifyContent: 'space-between',
@@ -203,7 +203,7 @@ const sliderInputStyle: CSSProperties = {
     accentColor: 'var(--color-accent-primary)',
     cursor: 'ew-resize',
     height: 14,
-    borderRadius: 999,
+    borderRadius: 'var(--radius-full)',
     background: 'transparent',
 };
 
@@ -217,7 +217,7 @@ const knobLabelStyle = (compact: boolean): CSSProperties => ({
 });
 
 const knobParamNameStyle: CSSProperties = {
-    fontSize: 9,
+    fontSize: 'var(--font-size-2xs)',
     color: 'var(--color-text-secondary)',
     textAlign: 'center',
     lineHeight: 1.1,
@@ -266,12 +266,12 @@ const knobDragValueBadgeStyle: CSSProperties = {
     left: '50%',
     top: -16,
     transform: 'translateX(-50%)',
-    fontSize: 9,
+    fontSize: 'var(--font-size-2xs)',
     fontFamily: 'var(--font-mono)',
     color: '#eaf4ff',
     background: 'rgba(8, 12, 18, 0.82)',
     border: '1px solid rgba(120, 168, 220, 0.35)',
-    borderRadius: 4,
+    borderRadius: 'var(--radius-md)',
     padding: '1px 4px',
     whiteSpace: 'nowrap',
     pointerEvents: 'none',

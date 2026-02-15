@@ -244,13 +244,14 @@ impl Default for SharedSidechainSnapshot {
 
 #[derive(Debug, Clone, Copy)]
 pub struct ExternalFxRuntimeSlot {
-    pub instance_id: Uuid,
+    pub internal_slot_index: Option<usize>,
+    pub instance_id: Option<Uuid>,
     pub sidechain_track_index: Option<usize>,
 }
 
 /// Atomic snapshot of per-track external effect runtime instances.
 ///
-/// Shape: `[track_index] -> Vec<external_slots_in_track_order>`.
+/// Shape: `[track_index] -> Vec<fx_steps_in_project_order>`.
 pub struct SharedExternalFxSnapshot {
     inner: ArcSwap<Vec<Vec<ExternalFxRuntimeSlot>>>,
     generation: std::sync::atomic::AtomicU64,
@@ -1479,111 +1480,91 @@ pub fn start_audio_thread_on_device(
                                                     &mut left[..c],
                                                     &mut right[..c],
                                                 );
-                                                if !slot.device_chain.is_empty() {
-                                                    let slot_count = slot.device_chain.slot_count();
-                                                    for device_slot_idx in 0..slot_count {
-                                                        let source_track_idx = sidechain_map
-                                                            .get(track_idx)
-                                                            .and_then(|slots| {
-                                                                slots.get(device_slot_idx)
-                                                            })
-                                                            .and_then(|v| *v);
-                                                        let source_slot = source_track_idx
-                                                            .and_then(|src_idx| {
-                                                                if src_idx < track_idx {
-                                                                    left_tracks.get(src_idx)
-                                                                } else if src_idx == track_idx {
-                                                                    None
-                                                                } else {
-                                                                    right_tracks_rest.get(
-                                                                        src_idx - track_idx - 1,
-                                                                    )
-                                                                }
-                                                            });
+                                                if let Some(runtime_slots) = external_fx_map.get(track_idx) {
+                                                    for runtime_slot in runtime_slots {
+                                                        let source_slot = runtime_slot.sidechain_track_index.and_then(|src_idx| {
+                                                            if src_idx < track_idx {
+                                                                left_tracks.get(src_idx)
+                                                            } else if src_idx == track_idx {
+                                                                None
+                                                            } else {
+                                                                right_tracks_rest.get(src_idx - track_idx - 1)
+                                                            }
+                                                        });
                                                         let (sc_l, sc_r) = source_slot
-                                                            .map(|src_slot| {
-                                                                (
-                                                                    Some(&src_slot.buf_left[..c]),
-                                                                    Some(&src_slot.buf_right[..c]),
-                                                                )
-                                                            })
+                                                            .map(|src_slot| (Some(&src_slot.buf_left[..c]), Some(&src_slot.buf_right[..c])))
                                                             .unwrap_or((None, None));
 
-                                                        slot.device_chain
-                                                            .process_slot_with_sidechain(
-                                                                device_slot_idx,
+                                                        if let Some(internal_idx) = runtime_slot.internal_slot_index {
+                                                            slot.device_chain.process_slot_with_sidechain(
+                                                                internal_idx,
                                                                 &mut left[..c],
                                                                 &mut right[..c],
                                                                 sc_l,
                                                                 sc_r,
                                                                 sample_rate_f64 as f32,
                                                             );
+                                                            continue;
+                                                        }
+
+                                                        if let Some(instance_id) = runtime_slot.instance_id
+                                                            && let Some(host) = plugin_host_guard.as_deref_mut()
+                                                        {
+                                                            external_left[..c].copy_from_slice(&left[..c]);
+                                                            external_right[..c].copy_from_slice(&right[..c]);
+                                                            let main_inputs: [&[f32]; 2] = [&left[..c], &right[..c]];
+                                                            let sc_pair = source_slot.map(|src| [&src.buf_left[..c], &src.buf_right[..c]]);
+                                                            let transport = TransportContext {
+                                                                sample_rate: sample_rate_f64,
+                                                                position_samples: playhead_pos,
+                                                                tempo: _bpm,
+                                                                is_playing,
+                                                                is_recording: false,
+                                                            };
+                                                            let _ = host.set_transport_context(instance_id, transport);
+                                                            let mut out_slices: [&mut [f32]; 2] = [
+                                                                &mut external_left[..c],
+                                                                &mut external_right[..c],
+                                                            ];
+                                                            let _ = host.process_with_sidechain(
+                                                                instance_id,
+                                                                &main_inputs,
+                                                                sc_pair.as_ref().map(|pair| pair.as_slice()),
+                                                                &mut out_slices,
+                                                                c,
+                                                            );
+                                                            left[..c].copy_from_slice(&external_left[..c]);
+                                                            right[..c].copy_from_slice(&external_right[..c]);
+                                                        }
                                                     }
-                                                }
-
-                                                if let Some(host) = plugin_host_guard.as_deref_mut()
-                                                    && let Some(ext_slots) =
-                                                        external_fx_map.get(track_idx)
-                                                {
-                                                    for ext in ext_slots {
-                                                        external_left[..c]
-                                                            .copy_from_slice(&left[..c]);
-                                                        external_right[..c]
-                                                            .copy_from_slice(&right[..c]);
-
-                                                        let main_inputs: [&[f32]; 2] =
-                                                            [&left[..c], &right[..c]];
-
-                                                        let sidechain_ref = ext
-                                                            .sidechain_track_index
-                                                            .and_then(|src_idx| {
-                                                                if src_idx < track_idx {
-                                                                    left_tracks.get(src_idx)
-                                                                } else if src_idx == track_idx {
-                                                                    None
-                                                                } else {
-                                                                    right_tracks_rest.get(
-                                                                        src_idx - track_idx - 1,
-                                                                    )
-                                                                }
-                                                            });
-                                                        let sc_pair = sidechain_ref.map(|src| {
-                                                            [
-                                                                &src.buf_left[..c],
-                                                                &src.buf_right[..c],
-                                                            ]
+                                                } else if !slot.device_chain.is_empty() {
+                                                    // Fallback for snapshots not yet initialized.
+                                                    let slot_count = slot.device_chain.slot_count();
+                                                    for device_slot_idx in 0..slot_count {
+                                                        let source_track_idx = sidechain_map
+                                                            .get(track_idx)
+                                                            .and_then(|slots| slots.get(device_slot_idx))
+                                                            .and_then(|v| *v);
+                                                        let source_slot = source_track_idx.and_then(|src_idx| {
+                                                            if src_idx < track_idx {
+                                                                left_tracks.get(src_idx)
+                                                            } else if src_idx == track_idx {
+                                                                None
+                                                            } else {
+                                                                right_tracks_rest.get(src_idx - track_idx - 1)
+                                                            }
                                                         });
-
-                                                        let transport = TransportContext {
-                                                            sample_rate: sample_rate_f64,
-                                                            position_samples: playhead_pos,
-                                                            tempo: _bpm,
-                                                            is_playing,
-                                                            is_recording: false,
-                                                        };
-                                                        let _ = host.set_transport_context(
-                                                            ext.instance_id,
-                                                            transport,
+                                                        let (sc_l, sc_r) = source_slot
+                                                            .map(|src_slot| (Some(&src_slot.buf_left[..c]), Some(&src_slot.buf_right[..c])))
+                                                            .unwrap_or((None, None));
+                                                        slot.device_chain.process_slot_with_sidechain(
+                                                            device_slot_idx,
+                                                            &mut left[..c],
+                                                            &mut right[..c],
+                                                            sc_l,
+                                                            sc_r,
+                                                            sample_rate_f64 as f32,
                                                         );
-
-                                                        let mut out_slices: [&mut [f32]; 2] = [
-                                                            &mut external_left[..c],
-                                                            &mut external_right[..c],
-                                                        ];
-                                                        let _ = host.process_with_sidechain(
-                                                            ext.instance_id,
-                                                            &main_inputs,
-                                                            sc_pair
-                                                                .as_ref()
-                                                                .map(|pair| pair.as_slice()),
-                                                            &mut out_slices,
-                                                            c,
-                                                        );
-
-                                                        left[..c]
-                                                            .copy_from_slice(&external_left[..c]);
-                                                        right[..c]
-                                                            .copy_from_slice(&external_right[..c]);
                                                     }
                                                 }
                                             }

@@ -179,10 +179,10 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
                         background: 'var(--color-bg-elevated)',
                         border: '1px solid var(--color-border-subtle)',
                         borderRadius: 'var(--radius-md)',
-                        boxShadow: '0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)',
+                        boxShadow: '0 8px 32px var(--color-overlay-dark)',
                         backdropFilter: 'blur(20px)',
                         padding: '4px 0',
-                        zIndex: 9999,
+                        zIndex: 'var(--z-menu)' as unknown as number,
                         overflow: 'visible',
                     }}
                 >
@@ -222,10 +222,10 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
                                     background: 'var(--color-bg-elevated)',
                                     border: '1px solid var(--color-border-subtle)',
                                     borderRadius: 'var(--radius-md)',
-                                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                                    boxShadow: '0 8px 32px var(--color-overlay-dark)',
                                     backdropFilter: 'blur(20px)',
                                     padding: '4px 0',
-                                    zIndex: 10000,
+                                    zIndex: 'var(--z-drag-overlay)' as unknown as number,
                                 }}
                             >
                                 {recentProjects.map((rp, idx) => (
@@ -249,10 +249,10 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
                                     background: 'var(--color-bg-elevated)',
                                     border: '1px solid var(--color-border-subtle)',
                                     borderRadius: 'var(--radius-md)',
-                                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                                    boxShadow: '0 8px 32px var(--color-overlay-dark)',
                                     backdropFilter: 'blur(20px)',
                                     padding: '8px 12px',
-                                    zIndex: 10000,
+                                    zIndex: 'var(--z-drag-overlay)' as unknown as number,
                                 }}
                             >
                                 <span style={{

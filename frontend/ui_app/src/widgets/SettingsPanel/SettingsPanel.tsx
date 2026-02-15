@@ -97,7 +97,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
             <div style={modalStyle} onClick={e => e.stopPropagation()}>
                 {/* ── Sidebar ── */}
                 <div style={sidebarStyle}>
-                    <div style={{ padding: '16px 12px 8px', fontSize: 11, fontWeight: 700, opacity: 0.5, letterSpacing: '0.05em' }}>
+                    <div style={{ padding: '16px 12px 8px', fontSize: 'var(--font-size-sm)', fontWeight: 700, opacity: 0.5, letterSpacing: '0.05em' }}>
                         SETTINGS
                     </div>
                     {TABS.map(t => (
@@ -107,10 +107,10 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                             style={{
                                 ...tabBtnStyle,
                                 background: tab === t.key ? 'var(--color-accent-primary)' : 'transparent',
-                                color: tab === t.key ? '#fff' : 'var(--color-text-secondary)',
+                                color: tab === t.key ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
                             }}
                         >
-                            <span style={{ fontSize: 14, width: 20, textAlign: 'center' }}>{t.icon}</span>
+                            <span style={{ fontSize: 'var(--font-size-lg)', width: 20, textAlign: 'center' }}>{t.icon}</span>
                             {t.label}
                         </button>
                     ))}
@@ -153,7 +153,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                                             style={{
                                                 ...chipStyle,
                                                 background: settings.waveformStyle === s ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
-                                                color: settings.waveformStyle === s ? '#fff' : 'var(--color-text-secondary)',
+                                                color: settings.waveformStyle === s ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
                                             }}
                                         >
                                             {s === 'colored' ? 'Colored' : 'Classic Black'}
@@ -304,7 +304,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                                     style={{
                                         marginTop: 8,
                                         border: '1px solid var(--color-divider)',
-                                        borderRadius: 6,
+                                        borderRadius: 'var(--radius-lg)',
                                         padding: 8,
                                         display: 'flex',
                                         flexDirection: 'column',
@@ -317,7 +317,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                                         <div
                                             key={inst.plugin_instance_id}
                                             style={{
-                                                fontSize: 11,
+                                                fontSize: 'var(--font-size-sm)',
                                                 color: 'var(--color-text-secondary)',
                                                 display: 'flex',
                                                 justifyContent: 'space-between',
@@ -393,7 +393,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                                                         ...chipStyle,
                                                         minWidth: 88,
                                                         background: port.connected ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
-                                                        color: port.connected ? '#fff' : 'var(--color-text-secondary)',
+                                                        color: port.connected ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
                                                     }}
                                                     disabled={midiConnecting === port.name}
                                                 >
@@ -438,21 +438,21 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                             <h2 style={titleStyle}>About Dream DAW</h2>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
                                 <div style={{
-                                    width: 64, height: 64, borderRadius: 14,
-                                    background: 'linear-gradient(135deg, #667eea, #764ba2)',
+                                    width: 64, height: 64, borderRadius: 'var(--radius-xl)',
+                                    background: 'var(--gradient-primary)',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    fontSize: 28, color: '#fff', fontWeight: 800,
+                                    fontSize: 28, color: 'var(--color-text-on-accent)', fontWeight: 800,
                                 }}>
                                     D
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>Dream DAW</div>
-                                    <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>Version {__APP_VERSION__}</div>
-                                    <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>© 2025-2026 Dream DAW Team</div>
+                                    <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 700 }}>Dream DAW</div>
+                                    <div style={{ fontSize: 'var(--font-size-base)', color: 'var(--color-text-tertiary)' }}>Version {__APP_VERSION__}</div>
+                                    <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)' }}>© 2025-2026 Dream DAW Team</div>
                                 </div>
                             </div>
 
-                            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-tertiary)', marginBottom: 8, letterSpacing: '0.04em' }}>
+                            <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-text-tertiary)', marginBottom: 8, letterSpacing: '0.04em' }}>
                                 VERSION HISTORY
                             </div>
 
@@ -485,10 +485,10 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                             ].map(entry => (
                                 <div key={entry.version} style={{ marginBottom: 16 }}>
                                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
-                                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-accent-primary)' }}>{entry.version}</span>
-                                        <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>— {entry.date}</span>
+                                        <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-accent-primary)' }}>{entry.version}</span>
+                                        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>— {entry.date}</span>
                                     </div>
-                                    <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11, lineHeight: 1.7, color: 'var(--color-text-secondary)' }}>
+                                    <ul style={{ margin: 0, paddingLeft: 16, fontSize: 'var(--font-size-sm)', lineHeight: 1.7, color: 'var(--color-text-secondary)' }}>
                                         {entry.changes.map((c, i) => <li key={i}>{c}</li>)}
                                     </ul>
                                 </div>
@@ -508,7 +508,7 @@ const SettingRow = ({ label, children }: { label: string; children: React.ReactN
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '8px 0', borderBottom: '1px solid var(--color-divider-light)',
     }}>
-        <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontWeight: 500 }}>{label}</label>
+        <label style={{ fontSize: 'var(--font-size-base)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>{label}</label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{children}</div>
     </div>
 );
@@ -519,9 +519,9 @@ const FolderRow = ({ label, path, onBrowse }: { label: string; path: string; onB
         padding: '10px 0', borderBottom: '1px solid var(--color-divider-light)',
     }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-primary)' }}>{label}</div>
+            <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 500, color: 'var(--color-text-primary)' }}>{label}</div>
             <div style={{
-                fontSize: 10, color: 'var(--color-text-tertiary)', marginTop: 2,
+                fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginTop: 2,
                 fontFamily: 'var(--font-mono)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>{path}</div>
@@ -544,17 +544,17 @@ const Toggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
     <button
         onClick={() => onChange(!value)}
         style={{
-            width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
+            width: 36, height: 20, borderRadius: 'var(--radius-full)', border: 'none', cursor: 'pointer',
             background: value ? 'var(--color-accent-primary)' : 'var(--color-bg-elevated)',
             position: 'relative', transition: 'background 0.2s',
         }}
     >
         <div style={{
-            width: 16, height: 16, borderRadius: '50%', background: '#fff',
+            width: 16, height: 16, borderRadius: '50%', background: 'var(--color-text-on-accent)',
             position: 'absolute', top: 2,
             left: value ? 18 : 2,
             transition: 'left 0.2s',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+            boxShadow: '0 1px 3px var(--color-overlay-medium)',
         }} />
     </button>
 );
@@ -562,8 +562,8 @@ const Toggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 // ── Styles ──
 
 const overlayStyle: React.CSSProperties = {
-    position: 'fixed', inset: 0, zIndex: 1000,
-    background: 'rgba(0,0,0,0.6)',
+    position: 'fixed', inset: 0, zIndex: 'var(--z-modal)' as unknown as number,
+    background: 'var(--color-overlay-modal)',
     backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
@@ -571,9 +571,9 @@ const overlayStyle: React.CSSProperties = {
 const modalStyle: React.CSSProperties = {
     width: 680, height: 720,
     background: 'var(--color-bg-surface)',
-    borderRadius: 12, border: '1px solid var(--color-divider)',
+    borderRadius: 'var(--radius-2xl)', border: '1px solid var(--color-divider)',
     display: 'flex', overflow: 'hidden',
-    boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
+    boxShadow: 'var(--shadow-panel)',
 };
 
 const sidebarStyle: React.CSSProperties = {
@@ -587,8 +587,8 @@ const sidebarStyle: React.CSSProperties = {
 const tabBtnStyle: React.CSSProperties = {
     display: 'flex', alignItems: 'center', gap: 8,
     padding: '8px 12px', margin: '0 8px',
-    borderRadius: 6, border: 'none', cursor: 'pointer',
-    fontSize: 12, fontWeight: 500, textAlign: 'left',
+    borderRadius: 'var(--radius-lg)', border: 'none', cursor: 'pointer',
+    fontSize: 'var(--font-size-base)', fontWeight: 500, textAlign: 'left',
     transition: 'background 0.15s',
 };
 
@@ -603,55 +603,55 @@ const closeBtnStyle: React.CSSProperties = {
     border: 'none', cursor: 'pointer',
     background: 'var(--color-bg-elevated)',
     color: 'var(--color-text-tertiary)',
-    fontSize: 12, fontWeight: 600,
+    fontSize: 'var(--font-size-base)', fontWeight: 600,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
 
 const titleStyle: React.CSSProperties = {
-    fontSize: 16, fontWeight: 700, marginBottom: 16,
+    fontSize: 'var(--font-size-xl)', fontWeight: 700, marginBottom: 16,
     color: 'var(--color-text-primary)',
 };
 
 const selectStyle: React.CSSProperties = {
-    padding: '4px 8px', borderRadius: 4,
+    padding: '4px 8px', borderRadius: 'var(--radius-md)',
     background: 'var(--color-bg-elevated)',
     border: '1px solid var(--color-divider)',
     color: 'var(--color-text-primary)',
-    fontSize: 11, outline: 'none', cursor: 'pointer',
+    fontSize: 'var(--font-size-sm)', outline: 'none', cursor: 'pointer',
 };
 
 const inputStyle: React.CSSProperties = {
-    width: 60, padding: '3px 6px', borderRadius: 4, textAlign: 'right',
+    width: 60, padding: '3px 6px', borderRadius: 'var(--radius-md)', textAlign: 'right',
     background: 'var(--color-bg-elevated)',
     border: '1px solid var(--color-divider)',
     color: 'var(--color-text-primary)',
-    fontSize: 11, outline: 'none',
+    fontSize: 'var(--font-size-sm)', outline: 'none',
 };
 
 const valueStyle: React.CSSProperties = {
-    fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)',
+    fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)',
 };
 
 const chipStyle: React.CSSProperties = {
-    padding: '5px 12px', borderRadius: 6,
+    padding: '5px 12px', borderRadius: 'var(--radius-lg)',
     border: 'none', cursor: 'pointer',
-    fontSize: 11, fontWeight: 600,
+    fontSize: 'var(--font-size-sm)', fontWeight: 600,
     transition: 'all 0.15s',
 };
 
 const actionBtnStyle: React.CSSProperties = {
-    padding: '8px 16px', borderRadius: 6,
+    padding: '8px 16px', borderRadius: 'var(--radius-lg)',
     background: 'var(--color-accent-primary)',
-    color: '#fff', border: 'none', cursor: 'pointer',
-    fontSize: 11, fontWeight: 600,
+    color: 'var(--color-text-on-accent)', border: 'none', cursor: 'pointer',
+    fontSize: 'var(--font-size-sm)', fontWeight: 600,
 };
 
 const actionBtnSmStyle: React.CSSProperties = {
-    padding: '4px 10px', borderRadius: 4,
+    padding: '4px 10px', borderRadius: 'var(--radius-md)',
     background: 'var(--color-bg-elevated)',
     color: 'var(--color-text-secondary)',
     border: '1px solid var(--color-divider)',
-    cursor: 'pointer', fontSize: 10, fontWeight: 500,
+    cursor: 'pointer', fontSize: 'var(--font-size-xs)', fontWeight: 500,
 };
 
 const dividerStyle: React.CSSProperties = {

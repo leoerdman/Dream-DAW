@@ -224,8 +224,8 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                 <div style={{
                     position: 'fixed',
                     inset: 0,
-                    zIndex: 9999,
-                    background: 'rgba(0, 0, 0, 0.65)',
+                    zIndex: 'var(--z-drag-overlay)' as unknown as number,
+                    background: 'var(--color-overlay-modal)',
                     backdropFilter: 'blur(8px)',
                     WebkitBackdropFilter: 'blur(8px)',
                     display: 'flex',
@@ -241,14 +241,14 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                             <circle
                                 cx="60" cy="60" r="52"
                                 fill="none"
-                                stroke="rgba(255,255,255,0.08)"
+                                stroke="color-mix(in srgb, var(--color-text-primary) 8%, transparent)"
                                 strokeWidth="6"
                             />
                             {/* Progress ring */}
                             <circle
                                 cx="60" cy="60" r="52"
                                 fill="none"
-                                stroke="var(--color-accent-primary, #58a6ff)"
+                                stroke="var(--color-accent-primary)"
                                 strokeWidth="6"
                                 strokeLinecap="round"
                                 strokeDasharray={`${2 * Math.PI * 52}`}
@@ -268,7 +268,7 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                             <span style={{
                                 fontSize: 28,
                                 fontWeight: 700,
-                                color: '#fff',
+                                color: 'var(--color-text-primary)',
                                 fontFamily: 'var(--font-mono)',
                             }}>
                                 {Math.round(progress)}%
@@ -278,8 +278,8 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
 
                     {/* Phase label */}
                     <span style={{
-                        fontSize: 13,
-                        color: 'rgba(255,255,255,0.7)',
+                        fontSize: 'var(--font-size-sm)',
+                        color: 'var(--color-text-secondary)',
                         fontWeight: 500,
                         textAlign: 'center',
                     }}>
@@ -290,15 +290,15 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                     <div style={{
                         width: 280,
                         height: 4,
-                        borderRadius: 2,
-                        background: 'rgba(255,255,255,0.08)',
+                        borderRadius: 'var(--radius-xs)',
+                        background: 'color-mix(in srgb, var(--color-text-primary) 8%, transparent)',
                         overflow: 'hidden',
                     }}>
                         <div style={{
                             width: `${progress}%`,
                             height: '100%',
-                            background: 'var(--color-accent-primary, #58a6ff)',
-                            borderRadius: 2,
+                            background: 'var(--color-accent-primary)',
+                            borderRadius: 'var(--radius-xs)',
                             transition: 'width 0.15s ease',
                         }} />
                     </div>
@@ -311,8 +311,8 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                 style={{
                     position: 'fixed',
                     inset: 0,
-                    zIndex: 9000,
-                    background: 'rgba(0, 0, 0, 0.5)',
+                    zIndex: 'var(--z-modal)' as unknown as number,
+                    background: 'var(--color-overlay-modal)',
                     backdropFilter: 'blur(4px)',
                     WebkitBackdropFilter: 'blur(4px)',
                 }}
@@ -324,13 +324,13 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                 top: '50%',
                 left: '50%',
                 transform: 'translate(-50%, -50%)',
-                zIndex: 9001,
+                zIndex: 'var(--z-modal-content)' as unknown as number,
                 width: 420,
-                background: 'var(--color-bg-panel, #1a1a1a)',
-                border: '1px solid var(--color-border-subtle, #333)',
-                borderRadius: 12,
+                background: 'var(--color-bg-panel)',
+                border: '1px solid var(--color-border-subtle)',
+                borderRadius: 'var(--radius-2xl)',
                 padding: 24,
-                boxShadow: '0 16px 64px rgba(0,0,0,0.6)',
+                boxShadow: '0 16px 64px var(--color-overlay-dark)',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 16,
@@ -343,9 +343,9 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                 }}>
                     <h2 style={{
                         margin: 0,
-                        fontSize: 16,
+                        fontSize: 'var(--font-size-xl)',
                         fontWeight: 700,
-                        color: 'var(--color-text-primary, #fff)',
+                        color: 'var(--color-text-primary)',
                     }}>
                         Export Audio
                     </h2>
@@ -354,8 +354,8 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                         style={{
                             background: 'none',
                             border: 'none',
-                            color: 'var(--color-text-secondary, #888)',
-                            fontSize: 18,
+                            color: 'var(--color-text-secondary)',
+                            fontSize: 'var(--font-size-lg)',
                             cursor: 'pointer',
                             padding: '2px 6px',
                         }}
@@ -366,10 +366,10 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
 
                 {/* Project name */}
                 <div style={{
-                    fontSize: 12,
-                    color: 'var(--color-text-secondary, #aaa)',
+                    fontSize: 'var(--font-size-xs)',
+                    color: 'var(--color-text-secondary)',
                 }}>
-                    Project: <strong style={{ color: 'var(--color-text-primary, #fff)' }}>{projectName}</strong>
+                    Project: <strong style={{ color: 'var(--color-text-primary)' }}>{projectName}</strong>
                 </div>
 
                 {/* ── Format ── */}
@@ -428,11 +428,11 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                             step={100}
                             value={tailMs}
                             onChange={e => setTailMs(Number(e.target.value))}
-                            style={{ width: 120, accentColor: 'var(--color-accent-primary, #58a6ff)' }}
+                            style={{ width: 120, accentColor: 'var(--color-accent-primary)' }}
                         />
                         <span style={{
-                            fontSize: 11,
-                            color: 'var(--color-text-primary, #fff)',
+                            fontSize: 'var(--font-size-sm)',
+                            color: 'var(--color-text-primary)',
                             fontFamily: 'var(--font-mono)',
                             minWidth: 40,
                         }}>
@@ -445,11 +445,11 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                 {bounceError && (
                     <div style={{
                         padding: '8px 12px',
-                        background: 'rgba(255, 60, 60, 0.1)',
-                        border: '1px solid rgba(255, 60, 60, 0.3)',
-                        borderRadius: 6,
-                        fontSize: 11,
-                        color: '#ff5c5c',
+                        background: 'color-mix(in srgb, var(--color-status-error) 10%, transparent)',
+                        border: '1px solid color-mix(in srgb, var(--color-status-error) 30%, transparent)',
+                        borderRadius: 'var(--radius-md)',
+                        fontSize: 'var(--font-size-sm)',
+                        color: 'var(--color-status-error)',
                     }}>
                         {bounceError}
                     </div>
@@ -478,11 +478,11 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                         }}
                         style={{
                             padding: '8px 16px',
-                            borderRadius: 6,
-                            border: '1px solid var(--color-control-border, #444)',
+                            borderRadius: 'var(--radius-md)',
+                            border: '1px solid var(--color-control-border)',
                             background: 'transparent',
-                            color: 'var(--color-text-secondary, #aaa)',
-                            fontSize: 12,
+                            color: 'var(--color-text-secondary)',
+                            fontSize: 'var(--font-size-xs)',
                             fontWeight: 500,
                             cursor: 'pointer',
                             opacity: 1,
@@ -495,11 +495,11 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                         disabled={isBouncing}
                         style={{
                             padding: '8px 20px',
-                            borderRadius: 6,
+                            borderRadius: 'var(--radius-md)',
                             border: 'none',
-                            background: 'var(--color-accent-primary, #58a6ff)',
-                            color: '#fff',
-                            fontSize: 12,
+                            background: 'var(--color-accent-primary)',
+                            color: 'var(--color-text-on-accent)',
+                            fontSize: 'var(--font-size-xs)',
                             fontWeight: 600,
                             cursor: isBouncing ? 'not-allowed' : 'pointer',
                             opacity: isBouncing ? 0.5 : 1,
@@ -526,9 +526,9 @@ const SettingRow = ({ label, children }: { label: string; children: React.ReactN
         alignItems: 'center',
     }}>
         <span style={{
-            fontSize: 12,
+            fontSize: 'var(--font-size-xs)',
             fontWeight: 500,
-            color: 'var(--color-text-secondary, #aaa)',
+            color: 'var(--color-text-secondary)',
         }}>
             {label}
         </span>
@@ -556,17 +556,17 @@ function ChipGroup<T extends string | number>({
                         onClick={() => onChange(opt.value)}
                         style={{
                             padding: '4px 10px',
-                            borderRadius: 4,
+                            borderRadius: 'var(--radius-md)',
                             border: isActive
-                                ? '1px solid var(--color-accent-primary, #58a6ff)'
-                                : '1px solid var(--color-control-border, #444)',
+                                ? '1px solid var(--color-accent-primary)'
+                                : '1px solid var(--color-control-border)',
                             background: isActive
-                                ? 'color-mix(in srgb, var(--color-accent-primary, #58a6ff) 15%, transparent)'
+                                ? 'color-mix(in srgb, var(--color-accent-primary) 15%, transparent)'
                                 : 'transparent',
                             color: isActive
-                                ? 'var(--color-accent-primary, #58a6ff)'
-                                : 'var(--color-text-tertiary, #777)',
-                            fontSize: 10,
+                                ? 'var(--color-accent-primary)'
+                                : 'var(--color-text-tertiary)',
+                            fontSize: 'var(--font-size-xs)',
                             fontWeight: 600,
                             cursor: 'pointer',
                             transition: 'all 0.12s ease',
@@ -596,8 +596,8 @@ const ToggleSwitch = ({
             borderRadius: 10,
             border: 'none',
             background: checked
-                ? 'var(--color-accent-primary, #58a6ff)'
-                : 'var(--color-control-bg, #333)',
+                ? 'var(--color-accent-primary)'
+                : 'var(--color-control-bg)',
             position: 'relative',
             cursor: 'pointer',
             transition: 'background 0.15s ease',
@@ -607,12 +607,12 @@ const ToggleSwitch = ({
             width: 14,
             height: 14,
             borderRadius: '50%',
-            background: '#fff',
+            background: 'var(--color-text-on-accent)',
             position: 'absolute',
             top: 3,
             left: checked ? 19 : 3,
             transition: 'left 0.15s ease',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+            boxShadow: '0 1px 3px var(--color-overlay-dark)',
         }} />
     </button>
 );

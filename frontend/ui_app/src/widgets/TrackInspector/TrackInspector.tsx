@@ -1090,7 +1090,7 @@ const ContextMenuPopup = ({
         <div ref={ref} style={{
             position: 'fixed', left: clampedX, top: clampedY, width: 160,
             background: 'var(--surface-2)', border: '1px solid var(--color-border-subtle)',
-            borderRadius: 8, padding: 4, zIndex: 9999,
+            borderRadius: 8, padding: 4, zIndex: 'var(--z-menu)' as unknown as number,
             boxShadow: 'var(--shadow-panel)',
         }}>
             <button style={itemStyle} onClick={onRename}
@@ -1138,7 +1138,7 @@ const ContextMenuPopup = ({
                 </button>
             )}
             <div style={{ height: 1, background: 'var(--color-divider)', margin: '2px 8px' }} />
-            <button style={{ ...itemStyle, color: '#ff6b6b' }} onClick={onDelete}
+            <button style={{ ...itemStyle, color: 'var(--color-status-error)' }} onClick={onDelete}
                 onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--color-status-error) 18%, transparent)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
                 <span style={{ width: 14, fontSize: 12 }}>🗑</span> Delete Track
@@ -1902,8 +1902,8 @@ const TrackRow = ({
                 background: isGroupDropTarget
                     ? 'color-mix(in srgb, var(--color-accent-primary) 20%, var(--surface-1))'
                     : isSelected
-                    ? 'color-mix(in srgb, var(--color-accent-primary) 14%, var(--surface-1))'
-                    : 'var(--surface-1)',
+                        ? 'color-mix(in srgb, var(--color-accent-primary) 14%, var(--surface-1))'
+                        : 'var(--surface-1)',
                 cursor: 'default',
                 opacity: isEnabled ? 1 : 0.45,
                 transition: 'background 0.12s ease, opacity 0.12s ease',
@@ -1965,7 +1965,7 @@ const TrackRow = ({
                     gap: 1,
                     position: 'relative',
                     cursor: !isMaster ? 'grab' : 'default',
-                }}> 
+                }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                     {/* Collapse / Group icon */}
                     {isGroup && onToggleCollapse ? (
@@ -2064,32 +2064,32 @@ const TrackRow = ({
                                 pointerEvents: 'none',
                                 zIndex: 1,
                             }}>←</span>
-                        <select
-                            onClick={e => e.stopPropagation()}
-                            value={inputValue}
-                            onChange={(e) => {
-                                e.stopPropagation();
-                                onInputChange?.(e.target.value);
-                            }}
-                            title="Audio From"
-                            style={{
-                                fontSize: 9, fontWeight: 500,
-                                color: 'var(--color-text-primary)',
-                                background: 'var(--color-control-bg)',
-                                border: '1px solid var(--color-control-border)',
-                                borderRadius: 4, padding: '0 16px 0 14px', cursor: 'pointer',
-                                minWidth: 0, flexShrink: 1, flex: 1,
-                                appearance: 'auto' as React.CSSProperties['appearance'],
-                                lineHeight: '15px', height: 15,
-                            }}
-                        >
-                            <option value="none">No Input</option>
-                            <option value="ext-1">Ext. In 1</option>
-                            <option value="ext-2">Ext. In 2</option>
-                            {availableRoutingTargets.map(t => (
-                                <option key={t.id} value={t.id}>{t.name}</option>
-                            ))}
-                        </select>
+                            <select
+                                onClick={e => e.stopPropagation()}
+                                value={inputValue}
+                                onChange={(e) => {
+                                    e.stopPropagation();
+                                    onInputChange?.(e.target.value);
+                                }}
+                                title="Audio From"
+                                style={{
+                                    fontSize: 9, fontWeight: 500,
+                                    color: 'var(--color-text-primary)',
+                                    background: 'var(--color-control-bg)',
+                                    border: '1px solid var(--color-control-border)',
+                                    borderRadius: 4, padding: '0 16px 0 14px', cursor: 'pointer',
+                                    minWidth: 0, flexShrink: 1, flex: 1,
+                                    appearance: 'auto' as React.CSSProperties['appearance'],
+                                    lineHeight: '15px', height: 15,
+                                }}
+                            >
+                                <option value="none">No Input</option>
+                                <option value="ext-1">Ext. In 1</option>
+                                <option value="ext-2">Ext. In 2</option>
+                                {availableRoutingTargets.map(t => (
+                                    <option key={t.id} value={t.id}>{t.name}</option>
+                                ))}
+                            </select>
                         </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -2104,30 +2104,30 @@ const TrackRow = ({
                                 pointerEvents: 'none',
                                 zIndex: 1,
                             }}>→</span>
-                        <select
-                            onClick={e => e.stopPropagation()}
-                            value={outputValue}
-                            onChange={(e) => {
-                                e.stopPropagation();
-                                onOutputChange?.(e.target.value);
-                            }}
-                            title="Audio To"
-                            style={{
-                                fontSize: 9, fontWeight: 500,
-                                color: 'var(--color-text-primary)',
-                                background: 'var(--color-control-bg)',
-                                border: '1px solid var(--color-control-border)',
-                                borderRadius: 4, padding: '0 16px 0 14px', cursor: 'pointer',
-                                minWidth: 0, flexShrink: 1, flex: 1,
-                                appearance: 'auto' as React.CSSProperties['appearance'],
-                                lineHeight: '15px', height: 15,
-                            }}
-                        >
-                            <option value="master">Master</option>
-                            {availableRoutingTargets.map(t => (
-                                <option key={t.id} value={t.id}>{t.name}</option>
-                            ))}
-                        </select>
+                            <select
+                                onClick={e => e.stopPropagation()}
+                                value={outputValue}
+                                onChange={(e) => {
+                                    e.stopPropagation();
+                                    onOutputChange?.(e.target.value);
+                                }}
+                                title="Audio To"
+                                style={{
+                                    fontSize: 9, fontWeight: 500,
+                                    color: 'var(--color-text-primary)',
+                                    background: 'var(--color-control-bg)',
+                                    border: '1px solid var(--color-control-border)',
+                                    borderRadius: 4, padding: '0 16px 0 14px', cursor: 'pointer',
+                                    minWidth: 0, flexShrink: 1, flex: 1,
+                                    appearance: 'auto' as React.CSSProperties['appearance'],
+                                    lineHeight: '15px', height: 15,
+                                }}
+                            >
+                                <option value="master">Master</option>
+                                {availableRoutingTargets.map(t => (
+                                    <option key={t.id} value={t.id}>{t.name}</option>
+                                ))}
+                            </select>
                         </div>
                     </div>
                 </div>
@@ -2349,9 +2349,9 @@ const ColorPickerPopup = ({
     return (
         <div ref={ref} style={{
             position: 'fixed', left: clampedX, top: clampedY, width: popupWidth,
-            background: '#1e1e1e', border: '1px solid var(--color-border-subtle)',
-            borderRadius: 8, padding: 8, zIndex: 9999,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+            background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border-subtle)',
+            borderRadius: 8, padding: 8, zIndex: 'var(--z-menu)' as unknown as number,
+            boxShadow: '0 8px 32px var(--color-overlay-dark)',
         }}>
             <div style={{
                 fontSize: 9, fontWeight: 600,

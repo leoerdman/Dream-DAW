@@ -118,13 +118,13 @@ export const PluginWindow = memo(function PluginWindow({
                 top: position.y,
                 width: Math.max(MIN_WIDTH, width),
                 height: Math.max(MIN_HEIGHT, height),
-                zIndex: 9000,
+                zIndex: 'var(--z-modal)' as unknown as number,
                 display: 'flex',
                 flexDirection: 'column',
-                background: '#111111',
-                borderRadius: 8,
-                border: '1px solid rgba(255,255,255,0.08)',
-                boxShadow: '0 16px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05)',
+                background: 'var(--color-bg-elevated)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid color-mix(in srgb, var(--color-text-primary) 8%, transparent)',
+                boxShadow: '0 16px 64px var(--color-overlay-dark), 0 0 0 1px color-mix(in srgb, var(--color-text-primary) 5%, transparent)',
                 overflow: 'hidden',
             }}
         >
@@ -149,17 +149,17 @@ export const PluginWindow = memo(function PluginWindow({
                     width: 8,
                     height: 8,
                     borderRadius: '50%',
-                    background: isBypassed ? '#666' : accentColor,
+                    background: isBypassed ? 'var(--color-text-tertiary)' : accentColor,
                     boxShadow: isBypassed ? 'none' : `0 0 6px ${accentColor}`,
-                    transition: 'all 0.2s ease',
+                    transition: 'all var(--transition-fast)',
                 }} />
 
                 {/* Plugin name */}
                 <span style={{
                     flex: 1,
-                    fontSize: 11,
+                    fontSize: 'var(--font-size-sm)',
                     fontWeight: 600,
-                    color: isBypassed ? '#666' : '#fff',
+                    color: isBypassed ? 'var(--color-text-tertiary)' : 'var(--color-text-primary)',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -204,11 +204,11 @@ export const PluginWindow = memo(function PluginWindow({
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        background: isBypassed ? '#e74c3c33' : 'transparent',
-                        color: isBypassed ? '#e74c3c' : 'var(--color-text-tertiary)',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: 3,
-                        fontSize: 10,
+                        background: isBypassed ? 'color-mix(in srgb, var(--color-status-error) 20%, transparent)' : 'transparent',
+                        color: isBypassed ? 'var(--color-status-error)' : 'var(--color-text-tertiary)',
+                        border: '1px solid color-mix(in srgb, var(--color-text-primary) 10%, transparent)',
+                        borderRadius: 'var(--radius-xs)',
+                        fontSize: 'var(--font-size-2xs)',
                         cursor: 'pointer',
                     }}
                 >
@@ -228,11 +228,11 @@ export const PluginWindow = memo(function PluginWindow({
                         background: 'transparent',
                         color: 'var(--color-text-tertiary)',
                         border: 'none',
-                        borderRadius: 3,
-                        fontSize: 12,
+                        borderRadius: 'var(--radius-xs)',
+                        fontSize: 'var(--font-size-xs)',
                         cursor: 'pointer',
                     }}
-                    onMouseEnter={e => { e.currentTarget.style.background = '#e74c3c'; e.currentTarget.style.color = '#fff'; }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-status-error)'; e.currentTarget.style.color = 'var(--color-text-on-accent)'; }}
                     onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--color-text-tertiary)'; }}
                 >
                     ✕
@@ -245,7 +245,7 @@ export const PluginWindow = memo(function PluginWindow({
                 display: 'flex',
                 flexDirection: 'column',
                 opacity: isBypassed ? 0.4 : 1,
-                transition: 'opacity 0.2s ease',
+                transition: 'opacity var(--transition-fast)',
                 overflow: 'auto',
             }}>
                 {children ? (
@@ -270,7 +270,7 @@ export const PluginWindow = memo(function PluginWindow({
                                     height: 48,
                                     borderRadius: '50%',
                                     background: `conic-gradient(${accentColor} 0deg, ${accentColor} 200deg, #2a2a2a 200deg, #2a2a2a 360deg)`,
-                                    border: '2px solid rgba(255,255,255,0.08)',
+                                    border: '2px solid color-mix(in srgb, var(--color-text-primary) 8%, transparent)',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
@@ -279,11 +279,11 @@ export const PluginWindow = memo(function PluginWindow({
                                         width: 40,
                                         height: 40,
                                         borderRadius: '50%',
-                                        background: '#1a1a1a',
+                                        background: 'var(--color-bg-panel)',
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
-                                        fontSize: 10,
+                                        fontSize: 'var(--font-size-2xs)',
                                         fontWeight: 600,
                                         color: 'var(--color-text-secondary)',
                                     }}>

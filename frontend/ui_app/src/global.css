@@ -148,23 +148,12 @@
 
 
 /* ═══════════════════════════════════════════════════════════════
-   BASE RULES
+   BASE RULES (extends reset.css — only unique additions here)
    ═══════════════════════════════════════════════════════════════ */
 html,
-body,
-#root {
-   width: 100%;
-   height: 100%;
-   margin: 0;
-   padding: 0;
-   overflow: hidden;
+body {
    background-color: var(--color-bg-base);
    color: var(--color-text-primary);
-   font-family: var(--font-family);
-   -webkit-font-smoothing: antialiased;
-   -moz-osx-font-smoothing: grayscale;
-   user-select: none;
-   overscroll-behavior: none;
 }
 
 #root {
@@ -199,6 +188,7 @@ body,
 }
 
 @keyframes track-drop-line-pulse {
+
    0%,
    100% {
       opacity: 0.92;

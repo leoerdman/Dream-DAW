@@ -2072,16 +2072,12 @@ impl ClipPoolState {
             .tracks
             .iter()
             .map(|track| {
+                let mut internal_slot_index: usize = 0;
                 track
                     .effects
                     .iter()
                     .filter_map(|node| node.as_single())
-                    .filter(|slot| !slot.plugin_id.starts_with("internal://"))
                     .filter_map(|slot| {
-                        if slot.is_bypassed {
-                            return None;
-                        }
-                        let instance_id = slot_instance_map.get(&slot.id).copied()?;
                         let sidechain_track_index =
                             slot.sidechain_source_track_id
                                 .as_ref()
@@ -2090,10 +2086,26 @@ impl ClipPoolState {
                                         candidate.id.to_string() == *source_id
                                     })
                                 });
-                        Some(dream_engine::driver::ExternalFxRuntimeSlot {
-                            instance_id,
-                            sidechain_track_index,
-                        })
+
+                        if slot.plugin_id.starts_with("internal://effect/") {
+                            let idx = internal_slot_index;
+                            internal_slot_index = internal_slot_index.saturating_add(1);
+                            Some(dream_engine::driver::ExternalFxRuntimeSlot {
+                                internal_slot_index: Some(idx),
+                                instance_id: None,
+                                sidechain_track_index,
+                            })
+                        } else {
+                            if slot.is_bypassed {
+                                return None;
+                            }
+                            let instance_id = slot_instance_map.get(&slot.id).copied()?;
+                            Some(dream_engine::driver::ExternalFxRuntimeSlot {
+                                internal_slot_index: None,
+                                instance_id: Some(instance_id),
+                                sidechain_track_index,
+                            })
+                        }
                     })
                     .collect()
             })
@@ -2268,6 +2280,42 @@ impl PluginHostState {
 
     fn slot_instance_snapshot(&self) -> Arc<HashMap<Uuid, Uuid>> {
         self.slot_instance_map.load_full()
+    }
+
+    fn clear_slot_instance_bindings(&self) {
+        self.slot_instance_map.store(Arc::new(HashMap::new()));
+    }
+
+    fn ensure_loaded_instance_for_plugin_id(&self, plugin_id: &str) -> Result<Uuid, String> {
+        if let Some(instance_id) = self
+            .loaded_by_key
+            .lock()
+            .map_err(|e| e.to_string())?
+            .get(plugin_id)
+            .copied()
+        {
+            return Ok(instance_id);
+        }
+
+        let descriptor = self.resolve_descriptor(plugin_id)?;
+        if descriptor.format != PluginFormat::VST3 {
+            return Err(format!(
+                "External runtime currently supports only VST3 (got {})",
+                descriptor.format
+            ));
+        }
+
+        let mut host = self.host.lock().map_err(|e| e.to_string())?;
+        let instance_id = host
+            .load_vst3(descriptor.clone())
+            .map_err(|e| format!("Failed to load plugin '{}': {e}", descriptor.name))?;
+        drop(host);
+
+        self.loaded_by_key
+            .lock()
+            .map_err(|e| e.to_string())?
+            .insert(plugin_id.to_string(), instance_id);
+        Ok(instance_id)
     }
 
     fn resolve_descriptor(&self, plugin_id: &str) -> Result<PluginDescriptor, String> {

@@ -95,7 +95,7 @@ export const ExportDialog = memo(function ExportDialog({
             <div style={dialogStyle}>
                 {/* ── Header ── */}
                 <div style={headerStyle}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>
+                    <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-bright)' }}>
                         Export Audio
                     </span>
                     <button onClick={onClose} style={closeBtnStyle}>✕</button>
@@ -125,8 +125,8 @@ export const ExportDialog = memo(function ExportDialog({
                                         ...chipStyle,
                                         background: settings.format === f.value
                                             ? 'var(--color-accent-primary)'
-                                            : 'rgba(255,255,255,0.06)',
-                                        color: settings.format === f.value ? '#fff' : 'var(--color-text-secondary)',
+                                            : 'var(--color-clip-highlight)',
+                                        color: settings.format === f.value ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
                                         fontWeight: settings.format === f.value ? 700 : 400,
                                     }}
                                 >
@@ -148,8 +148,8 @@ export const ExportDialog = memo(function ExportDialog({
                                             ...chipStyle,
                                             background: settings.bitDepth === b
                                                 ? 'var(--color-accent-primary)'
-                                                : 'rgba(255,255,255,0.06)',
-                                            color: settings.bitDepth === b ? '#fff' : 'var(--color-text-secondary)',
+                                                : 'var(--color-clip-highlight)',
+                                            color: settings.bitDepth === b ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
                                             fontWeight: settings.bitDepth === b ? 700 : 400,
                                         }}
                                     >
@@ -171,8 +171,8 @@ export const ExportDialog = memo(function ExportDialog({
                                         ...chipStyle,
                                         background: settings.sampleRate === sr
                                             ? 'var(--color-accent-primary)'
-                                            : 'rgba(255,255,255,0.06)',
-                                        color: settings.sampleRate === sr ? '#fff' : 'var(--color-text-secondary)',
+                                            : 'var(--color-clip-highlight)',
+                                        color: settings.sampleRate === sr ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
                                         fontWeight: settings.sampleRate === sr ? 700 : 400,
                                     }}
                                 >
@@ -238,7 +238,7 @@ export const ExportDialog = memo(function ExportDialog({
                                 onChange={(e) => updateSetting('tailMs', Number(e.target.value))}
                                 style={{ width: 120 }}
                             />
-                            <span style={{ fontSize: 10, color: 'var(--color-text-secondary)', minWidth: 40 }}>
+                            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', minWidth: 40 }}>
                                 {settings.tailMs}ms
                             </span>
                         </div>
@@ -251,19 +251,19 @@ export const ExportDialog = memo(function ExportDialog({
                         <div style={{
                             width: '100%',
                             height: 4,
-                            background: 'rgba(255,255,255,0.08)',
-                            borderRadius: 2,
+                            background: 'var(--color-clip-highlight)',
+                            borderRadius: 'var(--radius-xs)',
                             overflow: 'hidden',
                         }}>
                             <div style={{
                                 width: `${progress}%`,
                                 height: '100%',
                                 background: 'var(--color-accent-primary)',
-                                borderRadius: 2,
+                                borderRadius: 'var(--radius-xs)',
                                 transition: 'width 0.3s linear',
                             }} />
                         </div>
-                        <div style={{ fontSize: 9, color: 'var(--color-text-tertiary)', textAlign: 'center', marginTop: 4 }}>
+                        <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-tertiary)', textAlign: 'center', marginTop: 4 }}>
                             Exporting... {Math.round(progress)}%
                         </div>
                     </div>
@@ -298,7 +298,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 32 }}>
             <span style={{
                 width: 80,
-                fontSize: 10,
+                fontSize: 'var(--font-size-xs)',
                 fontWeight: 600,
                 color: 'var(--color-text-secondary)',
                 textAlign: 'right',
@@ -318,21 +318,21 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 const overlayStyle: React.CSSProperties = {
     position: 'fixed',
     inset: 0,
-    background: 'rgba(0,0,0,0.5)',
+    background: 'var(--color-overlay-modal)',
     backdropFilter: 'blur(4px)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 10000,
+    zIndex: 'var(--z-drag-overlay)' as unknown as number,
 };
 
 const dialogStyle: React.CSSProperties = {
     width: 440,
     maxHeight: '80vh',
-    background: '#1a1a1a',
-    borderRadius: 12,
-    border: '1px solid rgba(255,255,255,0.08)',
-    boxShadow: '0 24px 80px rgba(0,0,0,0.6)',
+    background: 'var(--color-bg-base)',
+    borderRadius: 'var(--radius-2xl)',
+    border: '1px solid var(--color-border-subtle)',
+    boxShadow: 'var(--shadow-panel)',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
@@ -372,16 +372,16 @@ const closeBtnStyle: React.CSSProperties = {
     background: 'transparent',
     color: 'var(--color-text-tertiary)',
     border: 'none',
-    borderRadius: 4,
-    fontSize: 12,
+    borderRadius: 'var(--radius-md)',
+    fontSize: 'var(--font-size-base)',
     cursor: 'pointer',
 };
 
 const chipStyle: React.CSSProperties = {
     padding: '4px 10px',
-    borderRadius: 4,
-    border: '1px solid rgba(255,255,255,0.08)',
-    fontSize: 10,
+    borderRadius: 'var(--radius-md)',
+    border: '1px solid var(--color-border-subtle)',
+    fontSize: 'var(--font-size-xs)',
     cursor: 'pointer',
     transition: 'all 0.15s ease',
 };
@@ -389,11 +389,11 @@ const chipStyle: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
     width: '100%',
     padding: '4px 8px',
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: 4,
-    color: '#fff',
-    fontSize: 11,
+    background: 'var(--color-clip-highlight)',
+    border: '1px solid var(--color-border-subtle)',
+    borderRadius: 'var(--radius-md)',
+    color: 'var(--color-text-bright)',
+    fontSize: 'var(--font-size-sm)',
     outline: 'none',
 };
 
@@ -401,7 +401,7 @@ const checkboxLabelStyle: React.CSSProperties = {
     display: 'flex',
     alignItems: 'center',
     gap: 4,
-    fontSize: 10,
+    fontSize: 'var(--font-size-xs)',
     color: 'var(--color-text-secondary)',
     cursor: 'pointer',
 };
@@ -411,18 +411,18 @@ const cancelBtnStyle: React.CSSProperties = {
     background: 'transparent',
     color: 'var(--color-text-secondary)',
     border: '1px solid var(--color-control-border)',
-    borderRadius: 6,
-    fontSize: 11,
+    borderRadius: 'var(--radius-lg)',
+    fontSize: 'var(--font-size-sm)',
     cursor: 'pointer',
 };
 
 const exportBtnStyle: React.CSSProperties = {
     padding: '6px 24px',
     background: 'var(--color-accent-primary)',
-    color: '#fff',
+    color: 'var(--color-text-on-accent)',
     border: 'none',
-    borderRadius: 6,
-    fontSize: 11,
+    borderRadius: 'var(--radius-lg)',
+    fontSize: 'var(--font-size-sm)',
     fontWeight: 700,
     cursor: 'pointer',
 };

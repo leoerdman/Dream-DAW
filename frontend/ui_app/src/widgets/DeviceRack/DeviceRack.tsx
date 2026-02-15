@@ -1268,13 +1268,13 @@ export const DeviceRack = ({
                     position: 'fixed',
                     left: autoCtxMenu.x,
                     top: autoCtxMenu.y,
-                    zIndex: 9999,
+                    zIndex: 'var(--z-menu)' as unknown as number,
                     background: 'var(--color-bg-elevated)',
                     border: '1px solid var(--color-divider)',
                     borderRadius: 'var(--radius-sm)',
                     padding: 4,
                     minWidth: 200,
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                    boxShadow: '0 8px 24px var(--color-overlay-dark)',
                 }}
             >
                 <div
@@ -1459,7 +1459,7 @@ const DeviceNode = ({
                 flexDirection: 'column',
                 background: 'var(--color-bg-node)',
                 borderRadius: 'var(--radius-sm)',
-                border: isSelected ? '1px solid rgba(255, 255, 255, 0.9)' : '1px solid #4a4a4a',
+                border: isSelected ? '1px solid color-mix(in srgb, var(--color-text-primary) 90%, transparent)' : '1px solid var(--color-border-subtle)',
                 overflow: 'hidden',
                 opacity: device.isEnabled ? 1 : 0.5,
                 transition: 'opacity var(--transition-fast)',
@@ -1622,7 +1622,7 @@ const headerIconBtnStyle = (disabled: boolean, active = false) =>
         borderRadius: 4,
         border: active ? '1px solid var(--color-accent-primary)' : '1px solid var(--color-divider)',
         background: disabled
-            ? 'rgba(120, 120, 120, 0.25)'
+            ? 'color-mix(in srgb, var(--color-text-tertiary) 25%, transparent)'
             : active
                 ? 'color-mix(in srgb, var(--color-accent-primary) 20%, var(--color-bg-elevated))'
                 : 'var(--color-bg-elevated)',
@@ -1936,9 +1936,9 @@ const PluginGuiSurface = ({
                     gap: 8,
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                            <span style={{ ...pluginPanelTitleStyle, fontSize: 10, color: '#d3efe3' }}>
+                        <span style={{ ...pluginPanelTitleStyle, fontSize: 10, color: '#d3efe3' }}>
                             Essense
-                            </span>
+                        </span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <span style={{ fontSize: 10, color: '#80d7b0', fontFamily: 'var(--font-mono)' }}>
                                 OSC Blend {(mix * 100).toFixed(0)}%
@@ -2621,12 +2621,12 @@ const PluginGuiSurface = ({
         const title = isVocoder
             ? 'Vocoder'
             : device.effectType === 'autoFilter'
-            ? 'Auto Filter'
-            : device.effectType === 'autoPan'
-                ? 'Auto Pan'
-                : device.effectType === 'phaser'
-                    ? 'Phaser'
-                    : 'Flanger';
+                ? 'Auto Filter'
+                : device.effectType === 'autoPan'
+                    ? 'Auto Pan'
+                    : device.effectType === 'phaser'
+                        ? 'Phaser'
+                        : 'Flanger';
         const hue = device.effectType === 'autoFilter'
             ? '#4cc9d8'
             : device.effectType === 'autoPan'

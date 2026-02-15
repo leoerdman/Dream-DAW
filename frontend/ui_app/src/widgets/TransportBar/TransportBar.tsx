@@ -444,9 +444,9 @@ export const TransportBar = ({
                                 width: 8,
                                 height: 8,
                                 borderRadius: '50%',
-                                background: '#33d17a',
+                                background: 'var(--color-status-success)',
                                 opacity: 0.35,
-                                boxShadow: '0 0 8px rgba(51, 209, 122, 0.75)',
+                                boxShadow: '0 0 8px color-mix(in srgb, var(--color-status-success) 75%, transparent)',
                                 transition: 'opacity 40ms linear',
                             }}
                         />
@@ -505,10 +505,10 @@ export const TransportBar = ({
                             flexDirection: 'column',
                             background: 'color-mix(in srgb, var(--color-bg-panel) 96%, #000 4%)',
                             border: '1px solid var(--color-divider)',
-                            borderRadius: 10,
-                            boxShadow: '0 16px 42px rgba(0,0,0,0.35)',
+                            borderRadius: 'var(--radius-xl)',
+                            boxShadow: '0 16px 42px var(--color-overlay-dark)',
                             backdropFilter: 'blur(8px)',
-                            zIndex: 1400,
+                            zIndex: 'var(--z-tooltip)' as unknown as number,
                             overflow: 'hidden',
                         }}
                     >
@@ -548,7 +548,7 @@ export const TransportBar = ({
                             style={{
                                 padding: '8px 10px',
                                 fontFamily: 'var(--font-mono)',
-                                fontSize: 10,
+                                fontSize: 'var(--font-size-xs)',
                                 color: 'var(--color-text-secondary)',
                                 borderBottom: '1px solid var(--color-divider)',
                                 display: 'grid',
@@ -583,7 +583,7 @@ export const TransportBar = ({
                                 ))}
                             </div>
                         </div>
-                        <div style={{ padding: '6px 10px', borderTop: '1px solid var(--color-divider)', fontSize: 10, color: 'var(--color-text-secondary)' }}>
+                        <div style={{ padding: '6px 10px', borderTop: '1px solid var(--color-divider)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
                             {pdcLoading ? 'Updating…' : pdcError ? `Error: ${pdcError}` : pdcSnapshot?.edge_summary || 'No PDC diagnostics'}
                         </div>
                     </div>
@@ -597,7 +597,7 @@ const miniButtonStyle: React.CSSProperties = {
     width: 22,
     height: 22,
     border: 'none',
-    borderRadius: 5,
+    borderRadius: 'var(--radius-md)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -611,7 +611,7 @@ const sectionHeaderStyle: React.CSSProperties = {
     top: 0,
     zIndex: 1,
     padding: '6px 8px',
-    fontSize: 10,
+    fontSize: 'var(--font-size-xs)',
     fontWeight: 700,
     color: 'var(--color-text-primary)',
     background: 'color-mix(in srgb, var(--color-bg-panel) 92%, #000 8%)',
@@ -622,7 +622,7 @@ const rowStyle: React.CSSProperties = {
     padding: '6px 8px',
     borderBottom: '1px solid color-mix(in srgb, var(--color-divider) 55%, transparent)',
     fontFamily: 'var(--font-mono)',
-    fontSize: 10,
+    fontSize: 'var(--font-size-xs)',
     color: 'var(--color-text-secondary)',
     lineHeight: 1.35,
 };

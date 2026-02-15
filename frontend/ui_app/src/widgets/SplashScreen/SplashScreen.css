@@ -99,7 +99,7 @@
   font-family: var(--font-mono, 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace);
   font-size: 14px;
   font-weight: 600;
-  color: var(--color-accent-primary, #6366f1);
+  color: var(--color-accent-primary, #4a9eff);
   letter-spacing: 1px;
   margin-bottom: 0;
 }
@@ -119,7 +119,7 @@
   width: 14px;
   height: 14px;
   border: 2px solid rgba(255, 255, 255, 0.15);
-  border-top-color: var(--color-accent-primary, #6366f1);
+  border-top-color: var(--color-accent-primary, #4a9eff);
   border-radius: 50%;
   animation: splash-spin 800ms linear infinite;
 }

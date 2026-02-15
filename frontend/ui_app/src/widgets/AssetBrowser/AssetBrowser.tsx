@@ -223,6 +223,49 @@ function fuzzyScore(text: string, query: string): number | null {
     return 40 + gaps * 1.8 + first * 0.3 + (t.length - q.length) * 0.04;
 }
 
+function renderHighlightedMatch(name: string, query: string) {
+    const q = query.trim();
+    if (!q) return name;
+
+    const lowerName = name.toLowerCase();
+    const lowerQuery = q.toLowerCase();
+
+    const contiguousIdx = lowerName.indexOf(lowerQuery);
+    if (contiguousIdx >= 0) {
+        const before = name.slice(0, contiguousIdx);
+        const match = name.slice(contiguousIdx, contiguousIdx + q.length);
+        const after = name.slice(contiguousIdx + q.length);
+        return (
+            <>
+                {before}
+                <span style={{ color: 'var(--color-accent-primary)', fontWeight: 700 }}>{match}</span>
+                {after}
+            </>
+        );
+    }
+
+    // Fallback for fuzzy-subsequence matches.
+    const hitPositions = new Set<number>();
+    let ni = 0;
+    for (let qi = 0; qi < lowerQuery.length; qi += 1) {
+        const ch = lowerQuery[qi];
+        const pos = lowerName.indexOf(ch, ni);
+        if (pos < 0) return name;
+        hitPositions.add(pos);
+        ni = pos + 1;
+    }
+
+    return (
+        <>
+            {name.split('').map((ch, idx) => (
+                hitPositions.has(idx)
+                    ? <span key={`${ch}-${idx}`} style={{ color: 'var(--color-accent-primary)', fontWeight: 700 }}>{ch}</span>
+                    : <span key={`${ch}-${idx}`}>{ch}</span>
+            ))}
+        </>
+    );
+}
+
 // ── Component ──────────────────────────────────────────
 
 export const AssetBrowser = () => {
@@ -1557,7 +1600,7 @@ export const AssetBrowser = () => {
                         {scanError && !scanLoading && (
                             <div style={{
                                 padding: '8px 10px',
-                                color: 'var(--color-error, #ff6b6b)',
+                                color: 'var(--color-status-error)',
                                 fontSize: 10,
                                 lineHeight: 1.4,
                             }}>
@@ -1630,8 +1673,8 @@ export const AssetBrowser = () => {
                                                         dragStarted = true;
                                                         const knownDuration = isAudio
                                                             ? item.durationSeconds
-                                                                ?? audioDurationSecRef.current[item.path!]
-                                                                ?? undefined
+                                                            ?? audioDurationSecRef.current[item.path!]
+                                                            ?? undefined
                                                             : undefined;
                                                         useDragStore.getState().startDrag({
                                                             id: item.id,
@@ -1696,7 +1739,9 @@ export const AssetBrowser = () => {
                                                 flex: 1,
                                                 minWidth: 0,
                                             }}>
-                                                {item.name}
+                                                {searchQuery.trim()
+                                                    ? renderHighlightedMatch(item.name, searchQuery)
+                                                    : item.name}
                                             </span>
                                             {showTypeColumn && (
                                                 <span style={{
@@ -1934,7 +1979,7 @@ export const AssetBrowser = () => {
                         borderRadius: 8,
                         boxShadow: 'var(--shadow-panel)',
                         padding: 6,
-                        zIndex: 10000,
+                        zIndex: 'var(--z-drag-overlay)' as unknown as number,
                     }}
                 >
                     <button
@@ -1974,7 +2019,7 @@ export const AssetBrowser = () => {
                         height: 16,
                         borderRadius: 4,
                         border: '1px solid var(--color-border-subtle)',
-                        background: 'rgba(0,0,0,0.18)',
+                        background: 'color-mix(in srgb, #000 18%, transparent)',
                         overflow: 'hidden',
                         display: 'flex',
                         alignItems: 'center',
@@ -1987,7 +2032,7 @@ export const AssetBrowser = () => {
                                 width: '100%',
                                 height: 8,
                                 borderRadius: 2,
-                                background: 'rgba(255,255,255,0.04)',
+                                background: 'color-mix(in srgb, var(--color-text-primary) 4%, transparent)',
                             }} />
                         )}
                     </div>

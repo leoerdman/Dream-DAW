@@ -289,8 +289,8 @@ export const StatusBar = ({
                                     background: 'var(--color-bg-elevated)',
                                     border: '1px solid var(--color-divider)',
                                     borderRadius: 4,
-                                    boxShadow: '0 8px 18px rgba(0,0,0,0.35)',
-                                    zIndex: 1200,
+                                    boxShadow: '0 8px 18px var(--color-overlay-dark)',
+                                    zIndex: 'var(--z-tooltip)' as unknown as number,
                                     padding: '4px 0',
                                 }}
                             >

@@ -7082,6 +7082,7 @@ fn new_project(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
 ) -> Result<Project, String> {
     let mut new = Project::default();
@@ -7093,7 +7094,9 @@ fn new_project(
     *project_state.undo.lock().map_err(|e| e.to_string())? = UndoState::new();
     *project_state.history.lock().map_err(|e| e.to_string())? = ProjectHistory::new();
     project_state.record_history("new_project", format!("created '{}'", new.name))?;
+    plugin_host_state.clear_slot_instance_bindings();
     clip_pool_state.rebuild_snapshot(&new);
+    clip_pool_state.rebuild_external_fx_snapshot(&new, plugin_host_state.slot_instance_snapshot().as_ref());
     rebuild_automation_snapshot_from_project(&new, &automation_runtime);
     rebuild_midi_snapshot_from_project(&new, &handle);
     rebuild_sampler_snapshot_from_project(&new, &clip_pool_state, &handle);
@@ -7228,6 +7231,7 @@ fn open_project(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
 ) -> Result<Project, String> {
     let file_path = PathBuf::from(&path);
@@ -7268,7 +7272,45 @@ fn open_project(
     *project_state.history.lock().map_err(|e| e.to_string())? = ProjectHistory::new();
     let source_kind = if importing_als { "als_import" } else { "project_open" };
     project_state.record_history(source_kind, format!("loaded '{}'", loaded.name))?;
+
+    plugin_host_state.clear_slot_instance_bindings();
+
+    fn bind_external_slots(
+        node: &DeviceNode,
+        plugin_host_state: &tauri::State<'_, PluginHostState>,
+    ) {
+        match node {
+            DeviceNode::Single(slot) => {
+                if !slot.plugin_id.starts_with("internal://")
+                    && let Ok(instance_id) = plugin_host_state.ensure_loaded_instance_for_plugin_id(&slot.plugin_id)
+                {
+                    plugin_host_state.bind_slot_instance(slot.id, instance_id);
+                }
+            }
+            DeviceNode::Rack(rack) => {
+                for chain in &rack.chains {
+                    for child in &chain.devices {
+                        bind_external_slots(child, plugin_host_state);
+                    }
+                }
+            }
+        }
+    }
+
+    for track in &loaded.tracks {
+        if let Some(inst) = &track.instrument {
+            bind_external_slots(inst, &plugin_host_state);
+        }
+        for fx in &track.effects {
+            bind_external_slots(fx, &plugin_host_state);
+        }
+    }
+    for fx in &loaded.master_track.effects {
+        bind_external_slots(fx, &plugin_host_state);
+    }
+
     clip_pool_state.rebuild_snapshot(&loaded);
+    clip_pool_state.rebuild_external_fx_snapshot(&loaded, plugin_host_state.slot_instance_snapshot().as_ref());
     clip_pool_state.load_project_clips(&loaded);
     rebuild_automation_snapshot_from_project(&loaded, &automation_runtime);
     rebuild_midi_snapshot_from_project(&loaded, &handle);

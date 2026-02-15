@@ -429,10 +429,42 @@ fn open_plugin_window_for_slot(
     let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)?;
     plugin_host_state.bind_slot_instance(slot.id, instance_id);
 
+    let mut first_open_err: Option<String> = None;
     {
         let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-        host.open_editor(instance_id)
-            .map_err(|e| format!("Failed to open plugin editor: {e}"))?;
+        if let Err(err) = host.open_editor(instance_id) {
+            first_open_err = Some(err.to_string());
+        }
+    }
+
+    if let Some(first_err) = first_open_err {
+        log::warn!(
+            "[IPC] open_plugin_window_for_slot first open failed (track={}, slot={}, instance={}): {}",
+            track_id,
+            slot_id,
+            instance_id,
+            first_err
+        );
+
+        // Hard recovery path: drop stale instance, reload fresh, retry once.
+        {
+            let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+            let _ = host.remove(instance_id);
+        }
+        plugin_host_state.unbind_slot_instance(slot.id);
+
+        let recovered_instance = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)?;
+        plugin_host_state.bind_slot_instance(slot.id, recovered_instance);
+        {
+            let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+            host.open_editor(recovered_instance).map_err(|e| {
+                format!(
+                    "Failed to open plugin editor (retry after reload). First error: {}. Retry error: {}",
+                    first_err,
+                    e
+                )
+            })?;
+        }
     }
 
     clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
@@ -529,25 +561,125 @@ fn can_open_plugin_editor_for_slot(
         });
     }
 
-    let instance_id = plugin_host_state
-        .slot_instance_snapshot()
-        .get(&slot.id)
-        .copied();
-    if let Some(instance_id) = instance_id {
-        let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-        let supported = host
-            .supports_editor(instance_id)
-            .map_err(|e| format!("Failed to check editor capability: {e}"))?;
-        return Ok(PluginEditorCapability {
-            supported,
-            reason: if supported { None } else { Some("Native GUI is unavailable for this instance.".to_string()) },
+    let instance_id = match plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id) {
+        Ok(id) => id,
+        Err(err) => {
+            return Ok(PluginEditorCapability {
+                supported: false,
+                reason: Some(format!("Plugin runtime load failed: {err}")),
+            });
+        }
+    };
+
+    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+    let supported = host.supports_editor(instance_id).unwrap_or(true);
+    Ok(PluginEditorCapability {
+        // Keep optimistic behavior here; definitive result is open_plugin_window_for_slot.
+        supported: true,
+        reason: if supported {
+            None
+        } else {
+            Some("Host reports editor bridge uncertainty; opening will attempt recovery automatically.".to_string())
+        },
+    })
+}
+
+#[tauri::command]
+fn get_plugin_slot_runtime_status_cmd(
+    track_id: String,
+    slot_id: String,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<PluginSlotRuntimeStatus, String> {
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
+        .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
+
+    if slot.plugin_id.starts_with("internal://") {
+        return Ok(PluginSlotRuntimeStatus {
+            loaded: true,
+            editor_supported: false,
+            runtime: "internal".to_string(),
+            sidechain_ready: slot.supports_sidechain_input.unwrap_or(false) || slot.plugin_id.contains("compressor") || slot.plugin_id.contains("gate"),
+            message: None,
         });
     }
 
-    Ok(PluginEditorCapability {
-        supported: true,
-        reason: None,
+    let slot_map = plugin_host_state.slot_instance_snapshot();
+    let runtime_instance = slot_map.get(&slot.id).copied();
+    let sandbox_loaded = plugin_host_state
+        .loaded_sandbox_by_key
+        .lock()
+        .map_err(|e| e.to_string())?
+        .contains_key(&slot.plugin_id);
+
+    if let Some(instance_id) = runtime_instance {
+        let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+        let loaded = host.get_mut(instance_id).is_some();
+        let editor_supported = if loaded {
+            host.supports_editor(instance_id).unwrap_or(false)
+        } else {
+            false
+        };
+        return Ok(PluginSlotRuntimeStatus {
+            loaded,
+            editor_supported,
+            runtime: "in-process".to_string(),
+            sidechain_ready: slot.supports_sidechain_input.unwrap_or(false),
+            message: if loaded {
+                None
+            } else {
+                Some("Plugin instance missing in host runtime".to_string())
+            },
+        });
+    }
+
+    Ok(PluginSlotRuntimeStatus {
+        loaded: sandbox_loaded,
+        editor_supported: true,
+        runtime: if sandbox_loaded {
+            "sandbox".to_string()
+        } else {
+            "unloaded".to_string()
+        },
+        sidechain_ready: slot.supports_sidechain_input.unwrap_or(false),
+        message: if sandbox_loaded {
+            None
+        } else {
+            Some("Plugin not activated yet".to_string())
+        },
     })
+}
+
+#[tauri::command]
+fn ensure_plugin_slot_active_cmd(
+    track_id: String,
+    slot_id: String,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
+    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+    let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
+        .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
+    if slot.plugin_id.starts_with("internal://") {
+        return Ok(());
+    }
+
+    let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)?;
+    plugin_host_state.bind_slot_instance(slot.id, instance_id);
+    clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
+    log::info!(
+        "[IPC] ensure_plugin_slot_active_cmd(track={}, slot={}) -> instance {}",
+        track_id,
+        slot_id,
+        instance_id
+    );
+    Ok(())
 }
 
 /// Close plugin native GUI window.
@@ -1094,10 +1226,19 @@ fn add_plugin_to_track_cmd(
         }
 
         // Effects
-        if merged.contains("eq eight") || merged.contains("eq eight") || merged.contains("eq3") || merged.contains("eq three") || merged.contains("channel eq") {
+        if merged.contains("eq eight") || merged.contains("eq8") {
             return Some(("internal://effect/eq-eight", "EQ", "effect"));
         }
-        if merged.contains("glue compressor") || merged.contains("multiband dynamics") {
+        if merged.contains("eq three") || merged.contains("band eq") || merged.contains("eq3") {
+            return Some(("internal://effect/eq-three", "Band EQ", "effect"));
+        }
+        if merged.contains("channel eq") {
+            return Some(("internal://effect/channel-eq", "Channel EQ", "effect"));
+        }
+        if merged.contains("multiband dynamics") {
+            return Some(("internal://effect/multiband-dynamics", "Multiband Dynamics", "effect"));
+        }
+        if merged.contains("glue compressor") {
             return Some(("internal://effect/compressor", "Compressor", "effect"));
         }
         if merged.contains("simple delay") || merged.contains("ping pong delay") || merged.contains("echo") {
@@ -1115,9 +1256,6 @@ fn add_plugin_to_track_cmd(
         if merged.contains("chorus-ensemble") || merged.contains("chorus ensemble") {
             return Some(("internal://effect/chorus", "Chorus", "effect"));
         }
-        if merged.contains("eq three") || merged.contains("band eq") || merged.contains("channel eq") {
-            return Some(("internal://effect/eq-eight", "EQ", "effect"));
-        }
         if merged.contains("drum buss") || merged.contains("dynamic tube") {
             return Some(("internal://effect/saturator", "Saturator", "effect"));
         }
@@ -1125,7 +1263,7 @@ fn add_plugin_to_track_cmd(
             return Some(("internal://effect/compressor", "Compressor", "effect"));
         }
         if merged.contains("vocoder") {
-            return Some(("internal://effect/auto-filter", "Auto Filter", "effect"));
+            return Some(("internal://effect/vocoder", "Vocoder", "effect"));
         }
         if merged.contains("spectral time") {
             return Some(("internal://effect/delay", "Delay", "effect"));
@@ -1152,31 +1290,40 @@ fn add_plugin_to_track_cmd(
             return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
         }
         if compact.contains("midichord") {
-            return Some(("internal://midi-fx/scale", "MIDI Scale", "effect"));
+            return Some(("internal://midi-fx/chord", "Chord", "effect"));
         }
         if merged.contains("mxdevicerandom") || merged.contains("midi random") {
             return Some(("internal://midi-fx/random", "MIDI Random", "effect"));
         }
         if merged.contains("arpeggiator") {
-            return Some(("internal://midi-fx/random", "MIDI Random", "effect"));
+            return Some(("internal://midi-fx/arpeggiator", "Arpeggiator", "effect"));
         }
         if merged.contains("cc control") || merged.contains("expression control") {
             return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
         }
         if compact.contains("midiarpeggiator") {
-            return Some(("internal://midi-fx/random", "MIDI Random", "effect"));
+            return Some(("internal://midi-fx/arpeggiator", "Arpeggiator", "effect"));
         }
         if merged.contains("midi note length") || compact.contains("midinotelength") {
-            return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
+            return Some(("internal://midi-fx/note-length", "Note Length", "effect"));
         }
         if merged.contains("spectrum") || compact.contains("spectrumanalyzer") {
             return Some(("internal://effect/spectrum", "Spectrum", "effect"));
         }
-        if merged.contains("tuner") || compact.contains("mxdeviceaudioeffect") || compact.contains("mxdevicemidieffect") || compact.contains("autoshift") {
+        if merged.contains("tuner") {
+            return Some(("internal://effect/tuner", "Tuner", "effect"));
+        }
+        if compact.contains("mxdeviceaudioeffect") {
+            return Some(("internal://effect/external-audio-effect", "External Audio Effect", "effect"));
+        }
+        if compact.contains("mxdevicemidieffect") {
             return Some(("internal://effect/utility", "Utility", "effect"));
         }
+        if compact.contains("autoshift") {
+            return Some(("internal://effect/auto-shift", "Auto Shift", "effect"));
+        }
         if compact.contains("shifter") || compact.contains("frequencyshifter") {
-            return Some(("internal://effect/utility", "Utility", "effect"));
+            return Some(("internal://effect/shifter", "Shifter", "effect"));
         }
         if merged.contains("phaser-flanger") || merged.contains("phaser flanger") {
             return Some(("internal://effect/phaser", "Phaser", "effect"));
@@ -1403,14 +1550,13 @@ fn add_plugin_to_track_cmd(
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     clip_pool_state.rebuild_snapshot(&project);
     if !effective_plugin_id.starts_with("internal://") {
-        if let Some(instance_id) = plugin_host_state
-            .loaded_by_key
-            .lock()
-            .map_err(|e| e.to_string())?
-            .get(&effective_plugin_id)
-            .copied()
-        {
-            plugin_host_state.bind_slot_instance(new_slot_id, instance_id);
+        if let Err(err) = plugin_host_state.ensure_loaded_instance_for_slot(new_slot_id, &effective_plugin_id) {
+            log::warn!(
+                "[IPC] add_plugin_to_track_cmd slot runtime init failed (slot={}, plugin={}): {}",
+                new_slot_id,
+                effective_plugin_id,
+                err
+            );
         }
     }
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
@@ -1497,7 +1643,7 @@ fn remove_plugin_from_track_cmd(
     }
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
-    plugin_host_state.unbind_slot_instance(slot_uuid);
+    let _ = plugin_host_state.unload_slot_instance(slot_uuid);
     clip_pool_state.rebuild_snapshot(&project);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
@@ -1571,7 +1717,23 @@ fn set_internal_plugin_param_cmd(
         push_undo(&project_state)?;
     }
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let key = payload.param_id.to_lowercase();
+    let raw_key = payload.param_id.to_lowercase();
+    let key = if raw_key.starts_with("slot:") {
+        raw_key
+            .splitn(3, ':')
+            .nth(2)
+            .unwrap_or(raw_key.as_str())
+            .to_string()
+    } else {
+        raw_key.clone()
+    };
+    let lane_param_id = |fallback: &str| -> String {
+        if raw_key.starts_with("slot:") {
+            payload.param_id.clone()
+        } else {
+            fallback.to_string()
+        }
+    };
     let mut sampler_command_needed = false;
     let mut sampler_waveform: Option<u8> = None;
     let mut sampler_waveform2: Option<u8> = None;
@@ -1597,7 +1759,7 @@ fn set_internal_plugin_param_cmd(
             // Utility gain in dB => plugin.gain in linear 0..2
             "gain" | "utility.gain" | "plugin.gain" => {
                 let linear = 10.0_f64.powf(payload.value.clamp(-60.0, 12.0) / 20.0).clamp(0.0, 2.0);
-                upsert_static_automation_lane(track, "plugin.gain", linear);
+                upsert_static_automation_lane(track, &lane_param_id("plugin.gain"), linear);
             }
             // Utility pan in -100..100 or -1..1 => plugin.pan in -1..1
             "pan" | "utility.pan" | "plugin.pan" => {
@@ -1606,13 +1768,17 @@ fn set_internal_plugin_param_cmd(
                 } else {
                     payload.value.clamp(-1.0, 1.0)
                 };
-                upsert_static_automation_lane(track, "plugin.pan", pan);
+                upsert_static_automation_lane(track, &lane_param_id("plugin.pan"), pan);
             }
             "width" | "utility.width" | "plugin.width" => {
-                upsert_static_automation_lane(track, "plugin.width", payload.value.clamp(0.0, 200.0));
+                upsert_static_automation_lane(track, &lane_param_id("plugin.width"), payload.value.clamp(0.0, 200.0));
             }
             "mono" | "utility.mono" | "plugin.mono" => {
-                upsert_static_automation_lane(track, "plugin.mono", if payload.value >= 0.5 { 1.0 } else { 0.0 });
+                upsert_static_automation_lane(
+                    track,
+                    &lane_param_id("plugin.mono"),
+                    if payload.value >= 0.5 { 1.0 } else { 0.0 },
+                );
             }
             // Sampler parameters
             "sampler.volume" | "volume" => {
@@ -1985,32 +2151,50 @@ fn eager_activate_external_plugins(
 ) -> Result<serde_json::Value, String> {
     let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
 
-    let mut external_ids: Vec<String> = Vec::new();
+    fn collect_external_slots_from_node(node: &DeviceNode, out: &mut Vec<(Uuid, String)>) {
+        match node {
+            DeviceNode::Single(slot) => {
+                if !slot.plugin_id.starts_with("internal://") && !slot.plugin_id.is_empty() {
+                    out.push((slot.id, slot.plugin_id.clone()));
+                }
+            }
+            DeviceNode::Rack(rack) => {
+                for chain in &rack.chains {
+                    for child in &chain.devices {
+                        collect_external_slots_from_node(child, out);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut external_slots: Vec<(Uuid, String)> = Vec::new();
     for track in &project.tracks {
         if let Some(inst) = &track.instrument {
-            collect_external_plugin_ids_from_devices(std::slice::from_ref(inst), &mut external_ids);
+            collect_external_slots_from_node(inst, &mut external_slots);
         }
-        collect_external_plugin_ids_from_devices(&track.effects, &mut external_ids);
+        for fx in &track.effects {
+            collect_external_slots_from_node(fx, &mut external_slots);
+        }
     }
-    // Also check master track
-    collect_external_plugin_ids_from_devices(&project.master_track.effects, &mut external_ids);
+    for fx in &project.master_track.effects {
+        collect_external_slots_from_node(fx, &mut external_slots);
+    }
 
-    // Deduplicate (same plugin_id can appear on multiple tracks)
-    external_ids.sort();
-    external_ids.dedup();
-
-    let total = external_ids.len();
+    let total = external_slots.len();
     let mut loaded = 0u32;
     let mut failed = 0u32;
     let skipped = 0u32;
 
-    for plugin_id in &external_ids {
-        match ensure_loaded_external_instance(plugin_id, &plugin_host_state, &project_state) {
-            Ok(_) => {
+    for (slot_id, plugin_id) in &external_slots {
+        match plugin_host_state.ensure_loaded_instance_for_slot(*slot_id, plugin_id) {
+            Ok(instance_id) => {
                 loaded += 1;
                 log::info!(
-                    "[EagerActivate] Plugin '{}' loaded and state restored ({}/{})",
+                    "[EagerActivate] Slot {} plugin '{}' active as instance {} ({}/{})",
+                    slot_id,
                     plugin_id,
+                    instance_id,
                     loaded,
                     total
                 );
@@ -2027,9 +2211,8 @@ fn eager_activate_external_plugins(
         }
     }
 
-    // Already-loaded plugins are counted as loaded (ensure_ is idempotent)
     log::info!(
-        "[EagerActivate] Done: {} external plugins found, {} loaded, {} failed",
+        "[EagerActivate] Done: {} external plugin slots found, {} loaded, {} failed",
         total,
         loaded,
         failed

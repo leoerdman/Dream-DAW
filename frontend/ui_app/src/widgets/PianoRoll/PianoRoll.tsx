@@ -242,11 +242,17 @@ export const PianoRoll = memo(function PianoRoll({
             return out;
         };
 
-        setLaneValuesByNote((prev) => ({
-            ...prev,
-            modWheel: buildLane('cc1.modWheel'),
-            expression: buildLane('cc11.expression'),
-        }));
+        const raf = window.requestAnimationFrame(() => {
+            setLaneValuesByNote((prev) => ({
+                ...prev,
+                modWheel: buildLane('cc1.modWheel'),
+                expression: buildLane('cc11.expression'),
+            }));
+        });
+
+        return () => {
+            window.cancelAnimationFrame(raf);
+        };
     }, [midiEnvelopes, notes, sampleEnvelopeAtBeat]);
 
     useEffect(() => {

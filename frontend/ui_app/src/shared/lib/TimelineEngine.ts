@@ -737,7 +737,10 @@ export class TimelineEngine {
             ? this._clampFadeCurve(clip.fadeInCurve ?? 0.5)
             : this._clampFadeCurve(clip.fadeOutCurve ?? 0.5);
         const body = this._getFadeBodyBounds(clipTopPx);
-        const handleY = body.bottom - (body.bottom - body.top) * curve;
+        const bodyH = body.bottom - body.top;
+        const handleY = side === 'in'
+            ? body.bottom - bodyH * curve
+            : body.top + bodyH * curve;
         const handleX = side === 'in'
             ? clipLeftPx + fadeWidth * curve
             : clipRightPx - fadeWidth * curve;
@@ -1120,19 +1123,20 @@ export class TimelineEngine {
                     this._viewport.rulerHeight + clip.trackIndex * this._viewport.trackHeight - this._viewport.scrollY;
                 const body = this._getFadeBodyBounds(clipTopPx);
                 const bodyHeight = Math.max(6, body.bottom - body.top);
-                const yCurve = this._clampFadeCurve((body.bottom - localY) / bodyHeight);
+                const yCurveIn = this._clampFadeCurve((body.bottom - localY) / bodyHeight);
+                const yCurveOut = this._clampFadeCurve((localY - body.top) / bodyHeight);
 
                 if (this._drag.mode === DragMode.ClipFadeInCurve) {
                     const fadeWidth = Math.max(8, (clipRightPx - clipLeftPx) * this._clampFadeFraction(clip.fadeIn ?? 0));
                     const xCurve = this._clampFadeCurve((localX - clipLeftPx) / Math.max(1, fadeWidth));
-                    const target = this._clampFadeCurve((xCurve * 0.7) + (yCurve * 0.3));
+                    const target = this._clampFadeCurve((xCurve * 0.7) + (yCurveIn * 0.3));
                     const origin = this._drag.clipOriginalFadeInCurve ?? 0.5;
                     const fineFactor = e.altKey && e.shiftKey ? 0.08 : e.altKey ? 0.12 : e.shiftKey ? 0.22 : 1;
                     clip.fadeInCurve = this._clampFadeCurve(origin + (target - origin) * fineFactor);
                 } else {
                     const fadeWidth = Math.max(8, (clipRightPx - clipLeftPx) * this._clampFadeFraction(clip.fadeOut ?? 0));
                     const xCurve = this._clampFadeCurve((clipRightPx - localX) / Math.max(1, fadeWidth));
-                    const target = this._clampFadeCurve((xCurve * 0.7) + (yCurve * 0.3));
+                    const target = this._clampFadeCurve((xCurve * 0.7) + (yCurveOut * 0.3));
                     const origin = this._drag.clipOriginalFadeOutCurve ?? 0.5;
                     const fineFactor = e.altKey && e.shiftKey ? 0.08 : e.altKey ? 0.12 : e.shiftKey ? 0.22 : 1;
                     clip.fadeOutCurve = this._clampFadeCurve(origin + (target - origin) * fineFactor);

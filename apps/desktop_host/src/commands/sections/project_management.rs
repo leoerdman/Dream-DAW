@@ -7096,7 +7096,7 @@ fn new_project(
     *project_state.undo.lock().map_err(|e| e.to_string())? = UndoState::new();
     *project_state.history.lock().map_err(|e| e.to_string())? = ProjectHistory::new();
     project_state.record_history("new_project", format!("created '{}'", new.name))?;
-    plugin_host_state.clear_slot_instance_bindings();
+    let _ = plugin_host_state.unload_all_instances();
     clip_pool_state.rebuild_snapshot(&new);
     clip_pool_state.rebuild_external_fx_snapshot(&new, plugin_host_state.slot_instance_snapshot().as_ref());
     rebuild_automation_snapshot_from_project(&new, &automation_runtime);
@@ -7275,7 +7275,7 @@ fn open_project(
     let source_kind = if importing_als { "als_import" } else { "project_open" };
     project_state.record_history(source_kind, format!("loaded '{}'", loaded.name))?;
 
-    plugin_host_state.clear_slot_instance_bindings();
+    let _ = plugin_host_state.unload_all_instances();
 
     fn bind_external_slots(
         node: &DeviceNode,

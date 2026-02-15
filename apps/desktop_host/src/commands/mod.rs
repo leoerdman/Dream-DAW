@@ -23,8 +23,8 @@ include!("sections/device_rack.rs");
 
 // ═══════════════════════════════════════════════════════════════════════
 
-pub(crate) fn invoke_handler(
-) -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
+pub(crate) fn invoke_handler()
+-> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         // Transport
         play,
@@ -150,6 +150,8 @@ pub(crate) fn invoke_handler(
         open_plugin_window_for_slot,
         can_open_plugin_editor,
         can_open_plugin_editor_for_slot,
+        get_plugin_slot_runtime_status_cmd,
+        ensure_plugin_slot_active_cmd,
         close_plugin_window,
         get_external_plugin_params,
         get_external_plugin_params_for_slot,

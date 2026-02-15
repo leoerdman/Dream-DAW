@@ -630,7 +630,7 @@ export class CanvasClipRenderer {
 
             if (clip.showFadeOutCurvePoint && fadeOutWidth > 0) {
                 const pX = x + w - fadeOutWidth * curveOut;
-                const pY = bodyBottom - (bodyH * curveOut);
+                const pY = bodyY + bodyH * curveOut;
                 ctx.beginPath();
                 ctx.arc(pX, pY, 3.2, 0, Math.PI * 2);
                 ctx.fillStyle = 'rgba(255, 196, 96, 0.98)';
@@ -1066,7 +1066,7 @@ export class CanvasClipRenderer {
         ctx.restore();
     }
 
-    /** Draw fade overlay (linear gradient). */
+    /** Draw one-sided fade envelope overlay. */
     private _drawFade(
         ctx: CanvasRenderingContext2D,
         x: number, y: number, w: number, h: number,
@@ -1090,16 +1090,19 @@ export class CanvasClipRenderer {
         ctx.fillStyle = gradient;
         ctx.fillRect(x, y, w, h);
 
+        const startX = x;
+        const endX = x + w;
+        const startY = direction === 'in' ? y + h : y;
+        const endY = direction === 'in' ? y : y + h;
         const cpX = direction === 'in' ? x + w * t : x + w * (1 - t);
-        const startX = direction === 'in' ? x : x + w;
-        const endX = direction === 'in' ? x + w : x;
+        const cpY = direction === 'in' ? y + h * (1 - t) : y + h * t;
         ctx.strokeStyle = 'rgba(255, 193, 92, 0.96)';
         ctx.shadowColor = 'rgba(255, 190, 85, 0.32)';
         ctx.shadowBlur = 3;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(startX, y + h);
-        ctx.quadraticCurveTo(cpX, y, endX, y + h);
+        ctx.moveTo(startX, startY);
+        ctx.quadraticCurveTo(cpX, cpY, endX, endY);
         ctx.stroke();
 
         ctx.restore();

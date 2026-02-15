@@ -856,12 +856,28 @@ export interface PluginEditorCapability {
     reason?: string | null;
 }
 
+export interface PluginSlotRuntimeStatus {
+    loaded: boolean;
+    editorSupported: boolean;
+    runtime: string;
+    sidechainReady: boolean;
+    message?: string | null;
+}
+
 export const canOpenPluginEditor = (pluginId: string) =>
     invoke<PluginEditorCapability>('can_open_plugin_editor', { pluginId });
 
 /** Probe editor capability for exact track/slot instance. */
 export const canOpenPluginEditorForSlot = (trackId: string, slotId: string) =>
     invoke<PluginEditorCapability>('can_open_plugin_editor_for_slot', { trackId, slotId });
+
+/** Get runtime health/status for a specific plugin slot. */
+export const getPluginSlotRuntimeStatus = (trackId: string, slotId: string) =>
+    invoke<PluginSlotRuntimeStatus>('get_plugin_slot_runtime_status_cmd', { trackId, slotId });
+
+/** Ensure plugin slot is loaded and attached to runtime. */
+export const ensurePluginSlotActive = (trackId: string, slotId: string) =>
+    invoke<void>('ensure_plugin_slot_active_cmd', { trackId, slotId });
 
 /** Close an open plugin window. */
 export const closePluginWindow = (pluginId: string) =>

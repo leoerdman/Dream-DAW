@@ -5,7 +5,6 @@ import { useDragStore } from '@/shared/stores/useDragStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import * as engineApi from '@/shared/api/engine';
-import { PluginWindow } from '@/widgets/PluginWindow/PluginWindow';
 import {
     PluginKnob,
     type PluginParam,
@@ -386,6 +385,27 @@ function errorMessage(err: unknown): string {
     return 'Unknown error';
 }
 
+function internalParamIdForControl(effectType: DeviceSlot['effectType'], controlName: string): string {
+    const normalizedName = controlName.toLowerCase();
+    if (effectType === 'utility') {
+        if (normalizedName === 'gain') return 'plugin.gain';
+        if (normalizedName === 'pan') return 'plugin.pan';
+        if (normalizedName === 'width') return 'plugin.width';
+        if (normalizedName === 'mono') return 'plugin.mono';
+        return `utility.${normalizedName}`;
+    }
+    if (effectType === 'sampler' || effectType === 'instrument' || effectType === 'waveSynth') {
+        if (normalizedName === 'vol') return 'sampler.volume';
+        if (normalizedName === 'attack') return 'sampler.attack';
+        if (normalizedName === 'decay') return 'sampler.decay';
+        if (normalizedName === 'sustain') return 'sampler.sustain';
+        if (normalizedName === 'release') return 'sampler.release';
+        if (normalizedName === 'root') return 'sampler.rootNote';
+        return `sampler.${normalizedName}`;
+    }
+    return `${effectType}.${normalizedName}`;
+}
+
 // ── Component ──────────────────────────────────────────
 
 interface DeviceRackProps {
@@ -402,15 +422,21 @@ export const DeviceRack = ({
     const [pluginCapability, setPluginCapability] = useState<
         Record<string, { supported: boolean; reason?: string }>
     >({});
+    const [pluginRuntimeBySlot, setPluginRuntimeBySlot] = useState<Record<string, engineApi.PluginSlotRuntimeStatus>>({});
     const [externalParamsBySlotId, setExternalParamsBySlotId] = useState<Record<string, PluginParam[]>>({});
-    const [openGuiDevice, setOpenGuiDevice] = useState<DeviceSlot | null>(null);
     const [inlineSettingsOpen, setInlineSettingsOpen] = useState<Record<string, boolean>>({});
     const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
+    const [deviceSearch, setDeviceSearch] = useState('');
+    const [deviceFilter, setDeviceFilter] = useState<'all' | 'instrument' | 'effect' | 'vst'>('all');
+    const [paramSnapshotsByDevice, setParamSnapshotsByDevice] = useState<
+        Record<string, { A?: Record<string, number>; B?: Record<string, number>; active?: 'A' | 'B' }>
+    >({});
     const statusError = useStatusStore((s) => s.setError);
     const statusClear = useStatusStore((s) => s.clear);
     const throttledParamSendsRef = useRef<Map<string, (value: number, pushUndoStep: boolean) => void>>(new Map());
     const activeParamGesturesRef = useRef<Set<string>>(new Set());
     const pushedUndoForGestureRef = useRef<Set<string>>(new Set());
+    const gestureGroupByParamKeyRef = useRef<Map<string, string>>(new Map());
     const projectTracks = useEngineStore((s) => s.projectTracks);
     const meters = useEngineStore((s) => s.meters);
     const fetchProject = useEngineStore((s) => s.fetchProject);
@@ -491,6 +517,20 @@ export const DeviceRack = ({
             .map((t) => ({ id: t.id, name: t.name })),
         [projectTracks, selectedTrack?.id],
     );
+    const staticLaneValueByParamId = useMemo(() => {
+        const map = new Map<string, number>();
+        const lanes = ((selectedTrack as unknown as { automation_lanes?: unknown[] } | null)?.automation_lanes) ?? [];
+        for (const lane of lanes) {
+            const paramId = String((lane as { param_id?: unknown }).param_id ?? '').trim();
+            if (!paramId) continue;
+            const points = ((lane as { points?: Array<{ value?: number }> }).points ?? []);
+            if (points.length === 0) continue;
+            const last = points[points.length - 1];
+            const value = Number(last?.value ?? 0);
+            if (Number.isFinite(value)) map.set(paramId.toLowerCase(), value);
+        }
+        return map;
+    }, [selectedTrack]);
 
     useEffect(() => {
         dropTargetTrackRef.current = dropTargetTrack;
@@ -641,6 +681,13 @@ export const DeviceRack = ({
                     else if (n === 'release') backendValue = selectedTrack.sampler.release;
                     else if (n === 'root') backendValue = selectedTrack.sampler.root_note;
                 }
+                if (!(effectType === 'sampler' || effectType === 'instrument' || effectType === 'waveSynth')) {
+                    const baseParamId = internalParamIdForControl(effectType, template.name);
+                    const scoped = `slot:${id}:${baseParamId}`.toLowerCase();
+                    const unscoped = baseParamId.toLowerCase();
+                    const fromLane = staticLaneValueByParamId.get(scoped) ?? staticLaneValueByParamId.get(unscoped);
+                    if (fromLane != null) backendValue = fromLane;
+                }
                 return {
                     ...template,
                     value: localParams[key] ?? backendValue,
@@ -692,7 +739,7 @@ export const DeviceRack = ({
         };
 
         return nodes.map(nodeToSlot).filter((s): s is DeviceSlot => s !== null);
-    }, [selectedTrack, localBypass, localParams, outLevel, externalParamsBySlotId]);
+    }, [selectedTrack, localBypass, localParams, outLevel, externalParamsBySlotId, staticLaneValueByParamId]);
 
     const setPluginSidechainSource = useCallback(async (slotId: string, sourceTrackId: string) => {
         if (!selectedTrack) return;
@@ -775,61 +822,19 @@ export const DeviceRack = ({
                 }
             }
 
-            const normalizedName = paramName.toLowerCase();
-            let paramId = `${device.effectType}.${normalizedName}`;
-            if (device.effectType === 'utility') {
-                if (normalizedName === 'gain') paramId = 'plugin.gain';
-                else if (normalizedName === 'pan') paramId = 'plugin.pan';
-            } else if (device.effectType === 'sampler' || device.effectType === 'instrument' || device.effectType === 'waveSynth') {
-                if (normalizedName === 'vol') paramId = 'sampler.volume';
-                else if (normalizedName === 'attack') paramId = 'sampler.attack';
-                else if (normalizedName === 'decay') paramId = 'sampler.decay';
-                else if (normalizedName === 'sustain') paramId = 'sampler.sustain';
-                else if (normalizedName === 'release') paramId = 'sampler.release';
-                else if (normalizedName === 'root') paramId = 'sampler.rootNote';
-                else if (normalizedName === 'wave' || normalizedName === 'osc1wave') paramId = 'synth.osc1.waveform';
-                else if (normalizedName === 'osc2wave') paramId = 'synth.osc2.waveform';
-                else if (normalizedName === 'mix') paramId = 'synth.osc.mix';
-                else if (normalizedName === 'detune') paramId = 'synth.detune';
-                else if (normalizedName === 'sub') paramId = 'synth.sub';
-                else if (normalizedName === 'cutoff') paramId = 'synth.filter.cutoff';
-                else if (normalizedName === 'res') paramId = 'synth.filter.resonance';
-                else if (normalizedName === 'filttype') paramId = 'synth.filter.type';
-                else if (normalizedName === 'lforate') paramId = 'synth.lfo.rate';
-                else if (normalizedName === 'lfodepth') paramId = 'synth.lfo.depth';
-                else if (normalizedName === 'lfotarget') paramId = 'synth.lfo.target';
-                else if (normalizedName === 'pulsewidth') paramId = 'synth.pulse_width';
-            } else if (device.effectType === 'eq') {
-                if (normalizedName === 'low') paramId = 'eq.low';
-                else if (normalizedName === 'lowfreq') paramId = 'eq.lowFreq';
-                else if (normalizedName === 'lowq') paramId = 'eq.lowQ';
-                else if (normalizedName === 'mid') paramId = 'eq.mid';
-                else if (normalizedName === 'midfreq') paramId = 'eq.midFreq';
-                else if (normalizedName === 'midq') paramId = 'eq.midQ';
-                else if (normalizedName === 'high') paramId = 'eq.high';
-                else if (normalizedName === 'highfreq') paramId = 'eq.highFreq';
-                else if (normalizedName === 'highq') paramId = 'eq.highQ';
-                else if (normalizedName === 'out') paramId = 'eq.out';
-            } else if (device.effectType === 'midiPitch') {
-                if (normalizedName === 'semitones') paramId = 'midi.pitch.semitones';
-            } else if (device.effectType === 'midiScale') {
-                if (normalizedName === 'root') paramId = 'midi.scale.root';
-                else if (normalizedName === 'mask') paramId = 'midi.scale.mask';
-            } else if (device.effectType === 'midiVelocity') {
-                if (normalizedName === 'gain') paramId = 'midi.velocity.gain';
-                else if (normalizedName === 'offset') paramId = 'midi.velocity.offset';
-            } else if (device.effectType === 'midiRandom') {
-                if (normalizedName === 'semitones') paramId = 'midi.random.semitones';
-                else if (normalizedName === 'chance') paramId = 'midi.random.chance';
-            }
+            const paramId = internalParamIdForControl(device.effectType, paramName);
 
-            const key = `${selectedTrack.id}:${device.id}:${paramId}`;
+            const scopedParamId = `slot:${device.id}:${paramId}`;
+            const key = `${selectedTrack.id}:${device.id}:${scopedParamId}`;
+            const effectiveGestureKey = options?.gestureKey
+                ? (gestureGroupByParamKeyRef.current.get(options.gestureKey) ?? options.gestureKey)
+                : undefined;
             let pushUndoStep = options?.forcePushUndo ?? false;
             if (!options?.forcePushUndo) {
-                if (!options?.gestureKey) {
+                if (!effectiveGestureKey) {
                     pushUndoStep = true;
-                } else if (!pushedUndoForGestureRef.current.has(options.gestureKey)) {
-                    pushedUndoForGestureRef.current.add(options.gestureKey);
+                } else if (!pushedUndoForGestureRef.current.has(effectiveGestureKey)) {
+                    pushedUndoForGestureRef.current.add(effectiveGestureKey);
                     pushUndoStep = true;
                 }
             }
@@ -840,7 +845,7 @@ export const DeviceRack = ({
                     void engineApi.setInternalPluginParam(
                         selectedTrack.id,
                         device.id,
-                        paramId,
+                        scopedParamId,
                         v,
                         { pushUndoStep: pushUndo },
                     ).catch((err) => {
@@ -854,27 +859,127 @@ export const DeviceRack = ({
         [selectedTrack, projectTracks, statusError],
     );
 
-    const beginParamGesture = useCallback((deviceId: string, paramName: string) => {
+    const beginParamGesture = useCallback((deviceId: string, paramName: string, gestureGroupId?: string) => {
         if (!selectedTrack) return;
         const gestureKey = `${selectedTrack.id}:${deviceId}:${paramName.toLowerCase()}`;
         activeParamGesturesRef.current.add(gestureKey);
         pushedUndoForGestureRef.current.delete(gestureKey);
+        if (gestureGroupId) {
+            gestureGroupByParamKeyRef.current.set(gestureKey, gestureGroupId);
+            pushedUndoForGestureRef.current.delete(gestureGroupId);
+        }
     }, [selectedTrack]);
 
     const endParamGesture = useCallback((deviceId: string, paramName: string) => {
         if (!selectedTrack) return;
         const gestureKey = `${selectedTrack.id}:${deviceId}:${paramName.toLowerCase()}`;
+        const gestureGroupId = gestureGroupByParamKeyRef.current.get(gestureKey);
         activeParamGesturesRef.current.delete(gestureKey);
         pushedUndoForGestureRef.current.delete(gestureKey);
+        if (gestureGroupId) {
+            pushedUndoForGestureRef.current.delete(gestureGroupId);
+            gestureGroupByParamKeyRef.current.delete(gestureKey);
+        }
     }, [selectedTrack]);
+
+    const applyParamBatch = useCallback((
+        device: DeviceSlot,
+        entries: Array<{ paramName: string; value: number }>,
+    ) => {
+        if (!selectedTrack || entries.length === 0) return;
+        const byName = new Map(device.params.map((p) => [p.name.toLowerCase(), p]));
+        const normalizedEntries = entries.map((entry) => {
+            const def = byName.get(entry.paramName.toLowerCase());
+            return {
+                paramName: def?.name ?? entry.paramName,
+                value: def ? clampAndSnapParamValue(def, entry.value) : entry.value,
+            };
+        });
+        setLocalParams((prev) => {
+            const next = { ...prev };
+            for (const entry of normalizedEntries) {
+                next[`${device.id}:${entry.paramName}`] = entry.value;
+            }
+            return next;
+        });
+        normalizedEntries.forEach((entry, idx) => {
+            sendInternalParam(device, entry.paramName, entry.value, { forcePushUndo: idx === 0 });
+        });
+    }, [selectedTrack, sendInternalParam]);
+
+    const storeParamSnapshot = useCallback((device: DeviceSlot, slot: 'A' | 'B') => {
+        const snapshot: Record<string, number> = {};
+        for (const p of device.params) snapshot[p.name] = p.value;
+        setParamSnapshotsByDevice((prev) => ({
+            ...prev,
+            [device.id]: {
+                ...(prev[device.id] ?? {}),
+                [slot]: snapshot,
+                active: slot,
+            },
+        }));
+    }, []);
+
+    const recallParamSnapshot = useCallback((device: DeviceSlot, slot: 'A' | 'B') => {
+        const snapshot = paramSnapshotsByDevice[device.id]?.[slot];
+        if (!snapshot) return;
+        const entries = Object.entries(snapshot).map(([paramName, value]) => ({ paramName, value }));
+        applyParamBatch(device, entries);
+        setParamSnapshotsByDevice((prev) => ({
+            ...prev,
+            [device.id]: {
+                ...(prev[device.id] ?? {}),
+                active: slot,
+            },
+        }));
+    }, [applyParamBatch, paramSnapshotsByDevice]);
+
+    const toggleParamSnapshot = useCallback((device: DeviceSlot) => {
+        const state = paramSnapshotsByDevice[device.id];
+        if (!state?.A || !state?.B) return;
+        const next: 'A' | 'B' = state.active === 'A' ? 'B' : 'A';
+        recallParamSnapshot(device, next);
+    }, [paramSnapshotsByDevice, recallParamSnapshot]);
+
+    const applyQuickPreset = useCallback((device: DeviceSlot, preset: QuickPreset) => {
+        const entries = resolveQuickPresetParams(device, preset);
+        applyParamBatch(device, entries);
+    }, [applyParamBatch]);
+
+    const randomizeInternalPluginParams = useCallback((device: DeviceSlot) => {
+        const entries = device.params.map((param) => ({ paramName: param.name, value: randomParamValue(param) }));
+        applyParamBatch(device, entries);
+    }, [applyParamBatch]);
+
+    const resetInternalPluginParams = useCallback((device: DeviceSlot) => {
+        const entries = device.params.map((param) => ({ paramName: param.name, value: defaultParamForReset(param) }));
+        applyParamBatch(device, entries);
+    }, [applyParamBatch]);
+
+    const applyQuickUtilityScene = useCallback((device: DeviceSlot, scene: 'center' | 'mono' | 'wide') => {
+        if (device.effectType !== 'utility') return;
+        const values = scene === 'mono'
+            ? [
+                { paramName: 'Pan', value: 0 },
+                { paramName: 'Width', value: 0 },
+                { paramName: 'Mono', value: 1 },
+            ]
+            : scene === 'wide'
+                ? [
+                    { paramName: 'Pan', value: 0 },
+                    { paramName: 'Width', value: 150 },
+                    { paramName: 'Mono', value: 0 },
+                ]
+                : [
+                    { paramName: 'Pan', value: 0 },
+                    { paramName: 'Width', value: 100 },
+                    { paramName: 'Mono', value: 0 },
+                ];
+        applyParamBatch(device, values);
+    }, [applyParamBatch]);
 
     useEffect(() => {
         setSelectedDeviceIds((prev) => prev.filter((id) => chain.some((d) => d.id === id)));
-        if (openGuiDevice) {
-            const next = chain.find((d) => d.id === openGuiDevice.id);
-            if (!next) setOpenGuiDevice(null);
-            else setOpenGuiDevice(next);
-        }
         setInlineSettingsOpen((prev) => {
             const next: Record<string, boolean> = {};
             const ids = new Set(chain.map((d) => d.id));
@@ -883,11 +988,12 @@ export const DeviceRack = ({
             }
             return next;
         });
-    }, [chain, openGuiDevice]);
+    }, [chain]);
 
     useEffect(() => {
         activeParamGesturesRef.current.clear();
         pushedUndoForGestureRef.current.clear();
+        gestureGroupByParamKeyRef.current.clear();
     }, [selectedTrackId]);
 
     useEffect(() => {
@@ -905,7 +1011,6 @@ export const DeviceRack = ({
                 for (const deviceId of selectedDeviceIds) {
                     await engineApi.removePluginFromTrack(selectedTrack.id, deviceId);
                 }
-                if (openGuiDevice && selectedDeviceIds.includes(openGuiDevice.id)) setOpenGuiDevice(null);
                 setInlineSettingsOpen((prev) => {
                     const next = { ...prev };
                     for (const deviceId of selectedDeviceIds) {
@@ -923,7 +1028,7 @@ export const DeviceRack = ({
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [selectedDeviceIds, selectedTrack, openGuiDevice, fetchProject, statusClear, statusError]);
+    }, [selectedDeviceIds, selectedTrack, fetchProject, statusClear, statusError]);
 
     useEffect(() => {
         let cancelled = false;
@@ -970,6 +1075,47 @@ export const DeviceRack = ({
         let cancelled = false;
         if (!selectedTrack) return;
 
+        const targets = chain.filter((d) => d.isVst);
+        if (targets.length === 0) return;
+
+        (async () => {
+            const entries = await Promise.all(
+                targets.map(async (device) => {
+                    try {
+                        const status = await engineApi.getPluginSlotRuntimeStatus(selectedTrack.id, device.id);
+                        return [device.id, status] as const;
+                    } catch (err) {
+                        console.error('[DeviceRack] getPluginSlotRuntimeStatus failed:', err);
+                        return [device.id, {
+                            loaded: false,
+                            editorSupported: true,
+                            runtime: 'unknown',
+                            sidechainReady: false,
+                            message: 'Runtime status unavailable',
+                        } as engineApi.PluginSlotRuntimeStatus] as const;
+                    }
+                }),
+            );
+
+            if (cancelled) return;
+            setPluginRuntimeBySlot((prev) => {
+                const next = { ...prev };
+                for (const [slotId, status] of entries) {
+                    next[slotId] = status;
+                }
+                return next;
+            });
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [chain, selectedTrack]);
+
+    useEffect(() => {
+        let cancelled = false;
+        if (!selectedTrack) return;
+
         const vstDevices = chain.filter((d) => d.isVst);
         const missing = vstDevices.filter((d) => !externalParamsBySlotId[d.id]);
         if (missing.length === 0) return;
@@ -1009,6 +1155,19 @@ export const DeviceRack = ({
             cancelled = true;
         };
     }, [chain, selectedTrack, externalParamsBySlotId]);
+
+    useEffect(() => {
+        const aliveVstSlotIds = new Set(chain.filter((d) => d.isVst).map((d) => d.id));
+        setExternalParamsBySlotId((prev) => {
+            const next: Record<string, PluginParam[]> = {};
+            let changed = false;
+            for (const [slotId, params] of Object.entries(prev)) {
+                if (aliveVstSlotIds.has(slotId)) next[slotId] = params;
+                else changed = true;
+            }
+            return changed ? next : prev;
+        });
+    }, [chain]);
 
     useEffect(() => {
         const onMouseMove = (e: MouseEvent) => {
@@ -1093,6 +1252,33 @@ export const DeviceRack = ({
         });
     }, []);
 
+    const visibleChain = useMemo(() => {
+        const query = deviceSearch.trim().toLowerCase();
+        return chain.filter((d) => {
+            const isInstrument = d.effectType === 'instrument' || d.effectType === 'sampler' || d.effectType === 'waveSynth';
+            if (deviceFilter === 'vst' && !d.isVst) return false;
+            if (deviceFilter === 'instrument' && !isInstrument) return false;
+            if (deviceFilter === 'effect' && isInstrument) return false;
+            if (!query) return true;
+            return (
+                d.name.toLowerCase().includes(query)
+                || d.effectType.toLowerCase().includes(query)
+                || d.pluginId.toLowerCase().includes(query)
+            );
+        });
+    }, [chain, deviceSearch, deviceFilter]);
+
+    const setBypassSelected = useCallback((enabled: boolean) => {
+        const selectedSet = new Set(selectedDeviceIds);
+        chain
+            .filter((d) => selectedSet.has(d.id))
+            .forEach((d) => {
+                if (d.isEnabled !== enabled) {
+                    toggleDevice(d);
+                }
+            });
+    }, [chain, selectedDeviceIds, toggleDevice]);
+
     const rackContent = (
         <>
             <div
@@ -1113,23 +1299,58 @@ export const DeviceRack = ({
 
                 <div style={{
                     display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '4px 10px',
+                    flexDirection: 'column',
+                    gap: 6,
+                    padding: '6px 10px',
                     borderBottom: '1px solid var(--color-divider)',
                     background: 'var(--color-bg-header)',
-                    height: 24,
                     flexShrink: 0,
                 }}>
-                    <span style={{
-                        fontSize: 'var(--font-size-2xs)',
-                        fontWeight: 600,
-                        color: 'var(--color-text-secondary)',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                    }}>
-                        {trackName} - Instrument & Effects Chain - {chain.length} devices
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                        <span style={{
+                            fontSize: 'var(--font-size-2xs)',
+                            fontWeight: 600,
+                            color: 'var(--color-text-secondary)',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                        }}>
+                            {trackName} - Instrument & Effects Chain - {visibleChain.length}/{chain.length}
+                        </span>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                            <button onClick={() => setBypassSelected(true)} style={headerIconBtnStyle(selectedDeviceIds.length === 0)} disabled={selectedDeviceIds.length === 0}>On</button>
+                            <button onClick={() => setBypassSelected(false)} style={headerIconBtnStyle(selectedDeviceIds.length === 0)} disabled={selectedDeviceIds.length === 0}>Byp</button>
+                            <button onClick={() => setInlineSettingsOpen({})} style={headerIconBtnStyle(false)}>Fold</button>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
+                        <input
+                            value={deviceSearch}
+                            onChange={(e) => setDeviceSearch(e.target.value)}
+                            placeholder="Search plugins..."
+                            style={{
+                                flex: 1,
+                                minWidth: 120,
+                                height: 22,
+                                borderRadius: 'var(--radius-md)',
+                                border: '1px solid var(--color-divider)',
+                                background: 'var(--color-bg-panel)',
+                                color: 'var(--color-text-primary)',
+                                fontSize: 'var(--font-size-2xs)',
+                                padding: '0 8px',
+                                outline: 'none',
+                            }}
+                        />
+                        {(['all', 'instrument', 'effect', 'vst'] as const).map((f) => (
+                            <button
+                                key={f}
+                                onClick={() => setDeviceFilter(f)}
+                                style={headerIconBtnStyle(false, deviceFilter === f)}
+                            >
+                                {f === 'all' ? 'All' : f === 'instrument' ? 'Inst' : f === 'effect' ? 'FX' : 'VST'}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 {/* ── Device Chain (horizontal scroll) ── */}
@@ -1148,8 +1369,8 @@ export const DeviceRack = ({
                     <MeterBar level={inLevel} isInput />
 
                     {/* Device slots */}
-                    {chain.length > 0 ? (
-                        chain.map((device, idx) => (
+                    {visibleChain.length > 0 ? (
+                        visibleChain.map((device, idx) => (
                             <Fragment key={device.id}>
                                 <DeviceNode
                                     order={idx + 1}
@@ -1157,6 +1378,7 @@ export const DeviceRack = ({
                                     isSelected={selectedDeviceIds.includes(device.id)}
                                     editorSupported={pluginCapability[device.id]?.supported ?? true}
                                     editorReason={pluginCapability[device.id]?.reason}
+                                    runtimeStatus={pluginRuntimeBySlot[device.id]}
                                     onToggle={() => toggleDevice(device)}
                                     onSelect={(e) => {
                                         selectDevice(device.id, e.shiftKey);
@@ -1189,12 +1411,32 @@ export const DeviceRack = ({
                                     }}
                                     onParamGestureStart={(paramName) => beginParamGesture(device.id, paramName)}
                                     onParamGestureEnd={(paramName) => endParamGesture(device.id, paramName)}
+                                    onApplyQuickPreset={(preset) => applyQuickPreset(device, preset)}
+                                    onRandomize={() => randomizeInternalPluginParams(device)}
+                                    onReset={() => resetInternalPluginParams(device)}
+                                    onStoreSnapshot={(slot) => storeParamSnapshot(device, slot)}
+                                    onRecallSnapshot={(slot) => recallParamSnapshot(device, slot)}
+                                    onToggleSnapshot={() => toggleParamSnapshot(device)}
+                                    snapshotState={paramSnapshotsByDevice[device.id]}
+                                    onApplyUtilityScene={(scene) => applyQuickUtilityScene(device, scene)}
                                     onParamContextMenu={(e, paramName) => handleParamContextMenu(e, paramName, device.id)}
                                     showSettings={device.effectType === 'utility' ? false : !!inlineSettingsOpen[device.id]}
                                     sidechainSourceTrackId={device.sidechainSourceTrackId ?? 'none'}
                                     sidechainOptions={sidechainOptions}
                                     onSidechainSourceChange={(sourceTrackId) => {
                                         void setPluginSidechainSource(device.id, sourceTrackId);
+                                    }}
+                                    onEnsureActive={async () => {
+                                        if (!selectedTrack) return;
+                                        try {
+                                            await engineApi.ensurePluginSlotActive(selectedTrack.id, device.id);
+                                            const status = await engineApi.getPluginSlotRuntimeStatus(selectedTrack.id, device.id);
+                                            setPluginRuntimeBySlot((prev) => ({ ...prev, [device.id]: status }));
+                                            statusClear();
+                                        } catch (err) {
+                                            console.error('[DeviceRack] ensurePluginSlotActive failed:', err);
+                                            statusError(`Failed to activate plugin: ${errorMessage(err)}`);
+                                        }
                                     }}
                                     onDropSample={async (samplePath) => {
                                         if (!selectedTrack) return;
@@ -1236,33 +1478,26 @@ export const DeviceRack = ({
                                     onOpenGUI={async () => {
                                         selectDevice(device.id, false);
                                         if (device.source === 'internal') {
+                                            setInlineSettingsOpen((prev) => ({
+                                                ...prev,
+                                                [device.id]: !prev[device.id],
+                                            }));
                                             statusClear();
                                             return;
                                         }
                                         if (!selectedTrack) return;
                                         try {
-                                            const capability = await engineApi.canOpenPluginEditorForSlot(selectedTrack.id, device.id);
-                                            setPluginCapability((prev) => ({
+                                            await engineApi.ensurePluginSlotActive(selectedTrack.id, device.id);
+                                            const status = await engineApi.getPluginSlotRuntimeStatus(selectedTrack.id, device.id);
+                                            setPluginRuntimeBySlot((prev) => ({ ...prev, [device.id]: status }));
+                                            setInlineSettingsOpen((prev) => ({
                                                 ...prev,
-                                                [device.id]: {
-                                                    supported: capability.supported,
-                                                    reason: capability.reason ?? undefined,
-                                                },
+                                                [device.id]: !prev[device.id],
                                             }));
-                                            if (!capability.supported) {
-                                                const reason = capability.reason ?? 'Plugin editor is not supported.';
-                                                console.warn('[DeviceRack] Plugin editor unavailable:', reason);
-                                                statusError(reason);
-                                                return;
-                                            }
-                                            // Try native plugin editor bridge first (host-managed).
-                                            // Keep DAW-owned UI fallback available for consistency.
-                                            await engineApi.openPluginWindowForSlot(selectedTrack.id, device.id);
-                                            setOpenGuiDevice(device);
                                             statusClear();
                                         } catch (err) {
-                                            console.error('[DeviceRack] Failed to open plugin window:', err);
-                                            statusError('Failed to open plugin window.');
+                                            console.error('[DeviceRack] Failed to activate inline plugin view:', err);
+                                            statusError(`Plugin activation failed: ${errorMessage(err)}`);
                                         }
                                     }}
                                 />
@@ -1290,7 +1525,7 @@ export const DeviceRack = ({
                                 fontWeight: 500,
                                 letterSpacing: '0.03em',
                             }}>
-                                Drop Files and Devices Here
+                                {chain.length > 0 ? 'No plugins match current filter' : 'Drop Files and Devices Here'}
                             </span>
                         </div>
                     )}
@@ -1361,71 +1596,6 @@ export const DeviceRack = ({
                 )}
 
             </div>
-            {openGuiDevice && openGuiDevice.isVst && (
-                <PluginWindow
-                    pluginId={openGuiDevice.pluginId}
-                    pluginName={openGuiDevice.name}
-                    pluginType={openGuiDevice.effectType === 'sampler' || openGuiDevice.effectType === 'instrument' || openGuiDevice.effectType === 'waveSynth' ? 'instrument' : 'effect'}
-                    isBypassed={!openGuiDevice.isEnabled}
-                    onToggleBypass={() => toggleDevice(openGuiDevice)}
-                    onClose={() => setOpenGuiDevice(null)}
-                    width={openGuiDevice.isVst ? 960 : openGuiDevice.effectType === 'eq' ? 760 : openGuiDevice.effectType === 'sampler' ? 820 : openGuiDevice.effectType === 'waveSynth' ? 780 : 640}
-                    height={openGuiDevice.effectType === 'eq' ? 420 : openGuiDevice.effectType === 'sampler' ? 460 : openGuiDevice.effectType === 'waveSynth' ? 420 : 380}
-                >
-                    <PluginGuiSurface
-                        device={openGuiDevice}
-                        onParamChange={(name, value) => {
-                            setPluginParam(openGuiDevice.id, name, value);
-                            const gestureKey = selectedTrack
-                                ? `${selectedTrack.id}:${openGuiDevice.id}:${name.toLowerCase()}`
-                                : null;
-                            sendInternalParam(openGuiDevice, name, value, {
-                                gestureKey: gestureKey && activeParamGesturesRef.current.has(gestureKey)
-                                    ? gestureKey
-                                    : undefined,
-                            });
-                        }}
-                        onParamGestureStart={(paramName) => beginParamGesture(openGuiDevice.id, paramName)}
-                        onParamGestureEnd={(paramName) => endParamGesture(openGuiDevice.id, paramName)}
-                        onDropSample={async (samplePath) => {
-                            if (!selectedTrack) return;
-                            try {
-                                const normalizedPath = normalizePickedPath(samplePath);
-                                if (!normalizedPath) {
-                                    statusError('Failed to load sampler sample: invalid file path.');
-                                    return;
-                                }
-                                await engineApi.setSamplerSample(selectedTrack.id, normalizedPath);
-                                statusClear();
-                                await fetchProject();
-                            } catch (err) {
-                                console.error('[DeviceRack] sampler drop failed:', err);
-                                statusError(`Failed to load sampler sample: ${errorMessage(err)}`);
-                            }
-                        }}
-                        onLoadSample={async () => {
-                            if (!selectedTrack) return;
-                            try {
-                                const { open } = await import('@tauri-apps/plugin-dialog');
-                                const picked = await open({
-                                    multiple: false,
-                                    title: 'Load Sampler Sample',
-                                    filters: [{ name: 'Audio', extensions: ['wav', 'aif', 'aiff', 'flac', 'mp3', 'ogg', 'm4a', 'aac'] }],
-                                });
-                                const normalizedPath = normalizePickedPath(picked);
-                                if (normalizedPath) {
-                                    await engineApi.setSamplerSample(selectedTrack.id, normalizedPath);
-                                    statusClear();
-                                    await fetchProject();
-                                }
-                            } catch (err) {
-                                console.error('[DeviceRack] setSamplerSample failed:', err);
-                                statusError(`Failed to load sampler sample: ${errorMessage(err)}`);
-                            }
-                        }}
-                    />
-                </PluginWindow>
-            )}
         </>
     );
 
@@ -1546,13 +1716,23 @@ const DeviceNode = ({
     onParamChange,
     onParamGestureStart,
     onParamGestureEnd,
+    onApplyQuickPreset,
+    onRandomize,
+    onReset,
+    onStoreSnapshot,
+    onRecallSnapshot,
+    onToggleSnapshot,
+    snapshotState,
+    onApplyUtilityScene,
     onDropSample,
     onLoadSample,
     editorSupported, editorReason,
+    runtimeStatus,
     onParamContextMenu,
     sidechainSourceTrackId,
     sidechainOptions,
     onSidechainSourceChange,
+    onEnsureActive,
 }: {
     order: number;
     device: DeviceSlot;
@@ -1562,17 +1742,27 @@ const DeviceNode = ({
     onSelect: (e: React.MouseEvent<HTMLDivElement>) => void;
     onOpenSettings: () => void;
     onParamChange: (paramName: string, value: number) => void;
-    onParamGestureStart?: (paramName: string) => void;
+    onParamGestureStart?: (paramName: string, gestureGroupId?: string) => void;
     onParamGestureEnd?: (paramName: string) => void;
+    onApplyQuickPreset?: (preset: QuickPreset) => void;
+    onRandomize?: () => void;
+    onReset?: () => void;
+    onStoreSnapshot?: (slot: 'A' | 'B') => void;
+    onRecallSnapshot?: (slot: 'A' | 'B') => void;
+    onToggleSnapshot?: () => void;
+    snapshotState?: { A?: Record<string, number>; B?: Record<string, number>; active?: 'A' | 'B' };
+    onApplyUtilityScene?: (scene: 'center' | 'mono' | 'wide') => void;
     onDropSample?: (samplePath: string) => void;
     onLoadSample?: () => void;
     onOpenGUI?: () => void;
     editorSupported?: boolean;
     editorReason?: string;
+    runtimeStatus?: engineApi.PluginSlotRuntimeStatus;
     onParamContextMenu?: (e: React.MouseEvent, paramName: string) => void;
     sidechainSourceTrackId?: string;
     sidechainOptions?: Array<{ id: string; name: string }>;
     onSidechainSourceChange?: (sourceTrackId: string) => void;
+    onEnsureActive?: () => void;
 }) => {
     // Color per device type (matching Ableton's device categories)
     const typeColorMap: Record<string, string> = {
@@ -1709,14 +1899,43 @@ const DeviceNode = ({
                 </span>
                 {device.source === 'vst' ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        {runtimeStatus && (
+                            <span
+                                title={runtimeStatus.message ?? `Runtime: ${runtimeStatus.runtime}`}
+                                style={{
+                                    fontSize: 9,
+                                    lineHeight: 1,
+                                    padding: '2px 4px',
+                                    borderRadius: 4,
+                                    border: '1px solid var(--color-divider)',
+                                    color: runtimeStatus.loaded ? 'var(--color-text-secondary)' : '#ff9b9b',
+                                    background: runtimeStatus.loaded
+                                        ? 'color-mix(in srgb, var(--color-bg-header) 80%, #6fd38b33)'
+                                        : 'color-mix(in srgb, var(--color-bg-header) 75%, #ff5a5a33)',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.03em',
+                                }}
+                            >
+                                {runtimeStatus.loaded ? runtimeStatus.runtime : 'offline'}
+                            </span>
+                        )}
+                        {runtimeStatus && !runtimeStatus.loaded && (
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onEnsureActive?.(); }}
+                                title="Recover plugin runtime"
+                                style={headerIconBtnStyle(false)}
+                            >
+                                Fix
+                            </button>
+                        )}
                         <button
                             onClick={(e) => { e.stopPropagation(); onOpenGUI?.(); }}
                             title={editorSupported === false
                                 ? (editorReason ?? 'Plugin editor is unavailable')
-                                : 'Open Plugin GUI'}
-                            style={headerIconBtnStyle(false)}
+                                : 'Open Inline Plugin View'}
+                            style={headerIconBtnStyle(false, showSettings)}
                         >
-                            UI
+                            View
                         </button>
                         <button
                             onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
@@ -1748,29 +1967,85 @@ const DeviceNode = ({
                 </span>
             </div>
 
-            {showSettings && supportsSettingsToggle ? (
+            {device.source === 'internal' ? (
+                <div
+                    style={{
+                        padding: 6,
+                        flex: 1,
+                        minHeight: 0,
+                        display: 'grid',
+                        gridTemplateRows: showSettings && supportsSettingsToggle ? 'minmax(170px, 1fr) auto' : 'minmax(170px, 1fr)',
+                        gap: 6,
+                        overflow: 'hidden',
+                    }}
+                >
+                    <div style={{ minHeight: 0 }}>
+                        <PluginGuiSurface
+                            device={device}
+                            onParamChange={onParamChange}
+                            onParamGestureStart={onParamGestureStart}
+                            onParamGestureEnd={onParamGestureEnd}
+                            onApplyUtilityScene={onApplyUtilityScene}
+                            onDropSample={onDropSample}
+                            onLoadSample={onLoadSample}
+                            onParamContextMenu={onParamContextMenu}
+                        />
+                    </div>
+                    {showSettings && supportsSettingsToggle && (
+                        <div
+                            style={{
+                                maxHeight: 230,
+                                overflow: 'auto',
+                                border: '1px solid var(--color-divider)',
+                                borderRadius: 'var(--radius-sm)',
+                                background: 'var(--color-bg-elevated)',
+                                padding: 6,
+                            }}
+                        >
+                            <PluginSettingsPanel
+                                device={device}
+                                onParamChange={onParamChange}
+                                onParamGestureStart={onParamGestureStart}
+                                onParamGestureEnd={onParamGestureEnd}
+                                onApplyQuickPreset={onApplyQuickPreset}
+                                onRandomize={onRandomize}
+                                onReset={onReset}
+                                onStoreSnapshot={onStoreSnapshot}
+                                onRecallSnapshot={onRecallSnapshot}
+                                onToggleSnapshot={onToggleSnapshot}
+                                snapshotState={snapshotState}
+                                onLoadSample={onLoadSample}
+                                sidechainSourceTrackId={sidechainSourceTrackId}
+                                sidechainOptions={sidechainOptions}
+                                onSidechainSourceChange={onSidechainSourceChange}
+                                runtimeStatus={runtimeStatus}
+                                editorSupported={editorSupported}
+                                editorReason={editorReason}
+                            />
+                        </div>
+                    )}
+                </div>
+            ) : showSettings && supportsSettingsToggle ? (
                 <div style={{ padding: 6, flex: 1, minHeight: 0, overflow: 'auto' }}>
                     <PluginSettingsPanel
                         device={device}
                         onParamChange={onParamChange}
                         onParamGestureStart={onParamGestureStart}
                         onParamGestureEnd={onParamGestureEnd}
+                        onApplyQuickPreset={onApplyQuickPreset}
+                        onRandomize={onRandomize}
+                        onReset={onReset}
+                        onStoreSnapshot={onStoreSnapshot}
+                        onRecallSnapshot={onRecallSnapshot}
+                        onToggleSnapshot={onToggleSnapshot}
+                        snapshotState={snapshotState}
                         onLoadSample={onLoadSample}
                         sidechainSourceTrackId={sidechainSourceTrackId}
                         sidechainOptions={sidechainOptions}
                         onSidechainSourceChange={onSidechainSourceChange}
-                    />
-                </div>
-            ) : device.source === 'internal' ? (
-                <div style={{ padding: 6, flex: 1, minHeight: 0 }}>
-                    <PluginGuiSurface
-                        device={device}
-                        onParamChange={onParamChange}
-                        onParamGestureStart={onParamGestureStart}
-                        onParamGestureEnd={onParamGestureEnd}
-                        onDropSample={onDropSample}
-                        onLoadSample={onLoadSample}
-                        onParamContextMenu={onParamContextMenu}
+                        runtimeStatus={runtimeStatus}
+                        editorSupported={editorSupported}
+                        editorReason={editorReason}
                     />
                 </div>
             ) : (
@@ -1920,9 +2195,9 @@ const QUICK_PRESETS_BY_EFFECT: Partial<Record<DeviceSlot['effectType'], QuickPre
         { label: 'Subtle', values: { cutoff: 4200, res: 0.2, rate: 0.3, depth: 0.22, mix: 0.68 } },
     ],
     autoPan: [
-        { label: 'Slow', values: { rate: 0.35, depth: 0.45, phase: 180, mix: 0.85 } },
-        { label: 'Wide', values: { rate: 0.9, depth: 0.8, phase: 180, mix: 1 } },
-        { label: 'Chop', values: { rate: 5.8, depth: 1, phase: 0, mix: 1 } },
+        { label: 'Slow', values: { rate: 0.35, depth: 45, phase: 180, mix: 85 } },
+        { label: 'Wide', values: { rate: 0.9, depth: 80, phase: 180, mix: 100 } },
+        { label: 'Chop', values: { rate: 5.8, depth: 100, phase: 0, mix: 100 } },
     ],
     phaser: [
         { label: 'Classic', values: { rate: 0.7, depth: 0.65, fb: 0.2, mix: 0.6 } },
@@ -1935,19 +2210,19 @@ const QUICK_PRESETS_BY_EFFECT: Partial<Record<DeviceSlot['effectType'], QuickPre
         { label: 'Subtle', values: { rate: 0.16, depth: 0.24, fb: 0.1, mix: 0.28 } },
     ],
     distortion: [
-        { label: 'Edge', values: { drive: 4.5, tone: 8, mix: 70 } },
-        { label: 'Crunch', values: { drive: 8, tone: 0, mix: 86 } },
-        { label: 'Destroy', values: { drive: 16, tone: 20, mix: 100 } },
+        { label: 'Edge', values: { drive: 22, tone: 0.58, mix: 0.7 } },
+        { label: 'Crunch', values: { drive: 38, tone: 0.5, mix: 0.86 } },
+        { label: 'Destroy', values: { drive: 64, tone: 0.68, mix: 1 } },
     ],
     bitcrusher: [
-        { label: 'Soft', values: { bits: 10, down: 1.4, mix: 42 } },
-        { label: 'Retro', values: { bits: 7, down: 3.2, mix: 64 } },
-        { label: 'Crush', values: { bits: 4, down: 8, mix: 90 } },
+        { label: 'Soft', values: { bits: 10, down: 1.4, mix: 0.42 } },
+        { label: 'Retro', values: { bits: 7, down: 3.2, mix: 0.64 } },
+        { label: 'Crush', values: { bits: 4, down: 8, mix: 0.9 } },
     ],
     noiseMachine: [
-        { label: 'Vinyl', values: { type: 0, level: 0.12, stereo: 0.2 } },
-        { label: 'Air', values: { type: 1, level: 0.08, stereo: 0.65 } },
-        { label: 'Storm', values: { type: 2, level: 0.28, stereo: 0.75 } },
+        { label: 'Vinyl', values: { type: 0, level: -30, stereo: 0.2 } },
+        { label: 'Air', values: { type: 1, level: -34, stereo: 0.65 } },
+        { label: 'Storm', values: { type: 2, level: -20, stereo: 0.75 } },
     ],
     midiPitch: [
         { label: '-12', values: { semitones: -12 } },
@@ -1971,12 +2246,12 @@ const QUICK_PRESETS_BY_EFFECT: Partial<Record<DeviceSlot['effectType'], QuickPre
     ],
 };
 
-function applyQuickPresetToDevice(
+function resolveQuickPresetParams(
     device: DeviceSlot,
     preset: QuickPreset,
-    onParamChange: (paramName: string, value: number) => void,
-) {
+): Array<{ paramName: string; value: number }> {
     const byName = new Map(device.params.map((p) => [p.name.toLowerCase(), p.name]));
+    const resolved: Array<{ paramName: string; value: number }> = [];
     for (const [rawName, value] of Object.entries(preset.values)) {
         const key = rawName.toLowerCase();
         const canonical =
@@ -1984,8 +2259,39 @@ function applyQuickPresetToDevice(
             ?? byName.get(key.replace(/\s+/g, ''))
             ?? byName.get(key.replace(/\s*\/\s*/g, '/'));
         if (!canonical) continue;
-        onParamChange(canonical, value);
+        resolved.push({ paramName: canonical, value });
     }
+    return resolved;
+}
+
+function defaultParamForReset(param: PluginParam): number {
+    const name = param.name.toLowerCase();
+    if (param.min <= 0 && param.max >= 0) return 0;
+    if (name.includes('mix') || name.includes('width') || name.includes('amount') || name.includes('depth')) {
+        return (param.min + param.max) * 0.5;
+    }
+    if (name.includes('gain') || name.includes('volume') || name === 'vol') {
+        return Math.min(param.max, Math.max(param.min, 0));
+    }
+    return (param.min + param.max) * 0.5;
+}
+
+function clampAndSnapParamValue(param: PluginParam, value: number): number {
+    const clamped = Math.max(param.min, Math.min(param.max, value));
+    const step = param.step ?? 0;
+    if (!Number.isFinite(step) || step <= 0) return clamped;
+    const steps = Math.round((clamped - param.min) / step);
+    const snapped = param.min + steps * step;
+    return Math.max(param.min, Math.min(param.max, snapped));
+}
+
+function randomParamValue(param: PluginParam): number {
+    const range = param.max - param.min;
+    if (!Number.isFinite(range) || range <= 0) return param.value;
+    const step = param.step && param.step > 0 ? param.step : range / 120;
+    const base = param.min + Math.random() * range;
+    const snapped = Math.round((base - param.min) / step) * step + param.min;
+    return clampAndSnapParamValue(param, snapped);
 }
 
 const PluginGuiSurface = ({
@@ -1993,14 +2299,16 @@ const PluginGuiSurface = ({
     onParamChange,
     onParamGestureStart,
     onParamGestureEnd,
+    onApplyUtilityScene,
     onDropSample,
     onLoadSample,
     onParamContextMenu,
 }: {
     device: DeviceSlot;
     onParamChange: (paramName: string, value: number) => void;
-    onParamGestureStart?: (paramName: string) => void;
+    onParamGestureStart?: (paramName: string, gestureGroupId?: string) => void;
     onParamGestureEnd?: (paramName: string) => void;
+    onApplyUtilityScene?: (scene: 'center' | 'mono' | 'wide') => void;
     onDropSample?: (samplePath: string) => void;
     onLoadSample?: () => void;
     onParamContextMenu?: (e: React.MouseEvent, paramName: string) => void;
@@ -2081,6 +2389,33 @@ const PluginGuiSurface = ({
         return `M ${top.join(' L ')} L ${bottom.join(' L ')} Z`;
     }, [waveformPeaks]);
 
+    const beginEqBandGesture = useCallback((band: 'low' | 'mid' | 'high') => {
+        const gestureGroupId = `${device.id}:eq-band:${band}:${Date.now()}`;
+        if (band === 'low') {
+            onParamGestureStart?.('Low', gestureGroupId);
+            onParamGestureStart?.('LowFreq', gestureGroupId);
+        } else if (band === 'mid') {
+            onParamGestureStart?.('Mid', gestureGroupId);
+            onParamGestureStart?.('MidFreq', gestureGroupId);
+        } else {
+            onParamGestureStart?.('High', gestureGroupId);
+            onParamGestureStart?.('HighFreq', gestureGroupId);
+        }
+    }, [device.id, onParamGestureStart]);
+
+    const endEqBandGesture = useCallback((band: 'low' | 'mid' | 'high') => {
+        if (band === 'low') {
+            onParamGestureEnd?.('Low');
+            onParamGestureEnd?.('LowFreq');
+        } else if (band === 'mid') {
+            onParamGestureEnd?.('Mid');
+            onParamGestureEnd?.('MidFreq');
+        } else {
+            onParamGestureEnd?.('High');
+            onParamGestureEnd?.('HighFreq');
+        }
+    }, [onParamGestureEnd]);
+
     useEffect(() => {
         if (!dragEqBand) return;
         const onMove = (e: MouseEvent) => {
@@ -2107,14 +2442,17 @@ const PluginGuiSurface = ({
                 onParamChange('HighFreq', Math.round(highFreq));
             }
         };
-        const onUp = () => setDragEqBand(null);
+        const onUp = () => {
+            if (dragEqBand) endEqBandGesture(dragEqBand);
+            setDragEqBand(null);
+        };
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
         return () => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
         };
-    }, [dragEqBand, onParamChange]);
+    }, [dragEqBand, onParamChange, endEqBandGesture]);
 
     if (device.effectType === 'waveSynth') {
         const osc1 = Math.round(device.params.find((x) => x.name.toLowerCase() === 'osc1wave')?.value ?? 0);
@@ -2575,7 +2913,11 @@ const PluginGuiSurface = ({
                             <g
                                 key={band.key}
                                 style={{ cursor: 'ns-resize' }}
-                                onMouseDown={() => setDragEqBand(band.key as 'low' | 'mid' | 'high')}
+                                onMouseDown={() => {
+                                    const eqBand = band.key as 'low' | 'mid' | 'high';
+                                    beginEqBandGesture(eqBand);
+                                    setDragEqBand(eqBand);
+                                }}
                             >
                                 <circle cx={band.x} cy={band.y} r="9" fill="rgba(0,0,0,0.55)" stroke={band.color} strokeWidth="1.5" />
                                 <circle cx={band.x} cy={band.y} r="3.2" fill={band.color} />
@@ -2619,12 +2961,20 @@ const PluginGuiSurface = ({
                     : guiMode.includes('shifter')
                         ? 'Shifter'
                         : 'Utility';
+        const isTuner = guiMode.includes('tuner');
+        const isExternalFx = guiMode.includes('external-audio-effect');
+        const isAutoShift = guiMode.includes('auto-shift');
+        const isShifter = guiMode.includes('shifter');
         const gain = device.params.find((p) => p.name.toLowerCase() === 'gain')?.value ?? 0;
         const pan = device.params.find((p) => p.name.toLowerCase() === 'pan')?.value ?? 0;
         const width = device.params.find((p) => p.name.toLowerCase() === 'width')?.value ?? 100;
         const mono = (device.params.find((p) => p.name.toLowerCase() === 'mono')?.value ?? 0) > 0.5;
         const panPct = Math.max(-1, Math.min(1, pan / 100));
         const widthPct = Math.max(0, Math.min(1, width / 200));
+        const shiftAmount = device.params.find((p) => p.name.toLowerCase().includes('shift'))?.value
+            ?? device.params.find((p) => p.name.toLowerCase().includes('semitone'))?.value
+            ?? 0;
+        const hasUtilityCoreParams = device.params.some((p) => ['gain', 'pan', 'width', 'mono'].includes(p.name.toLowerCase()));
         return (
             <div style={pluginPanelLayoutStyle}>
                 <div style={{
@@ -2635,38 +2985,82 @@ const PluginGuiSurface = ({
                     gap: 10,
                     alignItems: 'center',
                 }}>
-                    <div>
-                        <div style={{ fontSize: 9, color: '#9fa7b5', marginBottom: 4 }}>Pan</div>
-                        <div style={{ position: 'relative', height: 8, borderRadius: 999, background: '#2a2a2a' }}>
-                            <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'rgba(255,255,255,0.2)' }} />
-                            <div style={{
-                                position: 'absolute',
-                                top: -3,
-                                left: `calc(${(panPct * 50 + 50).toFixed(3)}% - 5px)`,
-                                width: 10,
-                                height: 14,
-                                borderRadius: 4,
-                                background: '#56a7ff',
-                                boxShadow: '0 0 6px rgba(86,167,255,0.45)',
-                            }} />
-                        </div>
-                    </div>
-                    <div>
-                        <div style={{ fontSize: 9, color: '#9fa7b5', marginBottom: 4 }}>Stereo Width</div>
-                        <div style={{ height: 8, borderRadius: 999, background: '#2a2a2a', overflow: 'hidden' }}>
-                            <div style={{
-                                width: `${(widthPct * 100).toFixed(2)}%`,
-                                height: '100%',
-                                background: mono ? '#9b9b9b' : 'linear-gradient(90deg, #2aa6ff 0%, #7dd1ff 100%)',
-                            }} />
-                        </div>
-                    </div>
-                    <div style={{ ...pluginPanelTitleStyle, color: 'var(--color-text-secondary)' }}>
-                        {utilityTitle}: <span style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>{gain.toFixed(1)} dB</span>
-                    </div>
-                    <div style={{ ...pluginPanelTitleStyle, color: mono ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }}>
-                        {mono ? 'Mono Enabled' : 'Stereo'}
-                    </div>
+                    {hasUtilityCoreParams ? (
+                        <>
+                            <div>
+                                <div style={{ fontSize: 9, color: '#9fa7b5', marginBottom: 4 }}>Pan</div>
+                                <div style={{ position: 'relative', height: 8, borderRadius: 999, background: '#2a2a2a' }}>
+                                    <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'rgba(255,255,255,0.2)' }} />
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: -3,
+                                        left: `calc(${(panPct * 50 + 50).toFixed(3)}% - 5px)`,
+                                        width: 10,
+                                        height: 14,
+                                        borderRadius: 4,
+                                        background: '#56a7ff',
+                                        boxShadow: '0 0 6px rgba(86,167,255,0.45)',
+                                    }} />
+                                </div>
+                            </div>
+                            <div>
+                                <div style={{ fontSize: 9, color: '#9fa7b5', marginBottom: 4 }}>Stereo Width</div>
+                                <div style={{ height: 8, borderRadius: 999, background: '#2a2a2a', overflow: 'hidden' }}>
+                                    <div style={{
+                                        width: `${(widthPct * 100).toFixed(2)}%`,
+                                        height: '100%',
+                                        background: mono ? '#9b9b9b' : 'linear-gradient(90deg, #2aa6ff 0%, #7dd1ff 100%)',
+                                    }} />
+                                </div>
+                            </div>
+                            <div style={{ ...pluginPanelTitleStyle, color: 'var(--color-text-secondary)' }}>
+                                {utilityTitle}: <span style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>{gain.toFixed(1)} dB</span>
+                            </div>
+                            <div style={{ ...pluginPanelTitleStyle, color: mono ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }}>
+                                {mono ? 'Mono Enabled' : 'Stereo'}
+                            </div>
+                            <div style={{ gridColumn: '1 / span 2', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => onApplyUtilityScene?.('center')}
+                                    style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '3px 8px', cursor: 'pointer' }}
+                                >Center</button>
+                                <button
+                                    type="button"
+                                    onClick={() => onApplyUtilityScene?.('mono')}
+                                    style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '3px 8px', cursor: 'pointer' }}
+                                >Mono</button>
+                                <button
+                                    type="button"
+                                    onClick={() => onApplyUtilityScene?.('wide')}
+                                    style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '3px 8px', cursor: 'pointer' }}
+                                >Wide</button>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div style={{ gridColumn: '1 / span 2', ...pluginPanelTitleStyle, color: '#d9e3f2' }}>{utilityTitle}</div>
+                            {isTuner && (
+                                <div style={{ gridColumn: '1 / span 2', display: 'grid', gap: 4 }}>
+                                    <div style={{ fontSize: 24, color: '#a9d2ff', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>A</div>
+                                    <div style={{ height: 8, borderRadius: 999, background: '#1f2a36', position: 'relative' }}>
+                                        <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: '#7ab6ff' }} />
+                                    </div>
+                                </div>
+                            )}
+                            {(isAutoShift || isShifter) && (
+                                <div style={{ gridColumn: '1 / span 2', display: 'grid', gap: 4 }}>
+                                    <div style={{ fontSize: 10, color: '#a5bed8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Shift</div>
+                                    <div style={{ fontSize: 20, color: '#dce9ff', fontFamily: 'var(--font-mono)' }}>{shiftAmount.toFixed(1)} st</div>
+                                </div>
+                            )}
+                            {isExternalFx && (
+                                <div style={{ gridColumn: '1 / span 2', fontSize: 10, color: '#c2cfdb', lineHeight: 1.4 }}>
+                                    External routing host. Use device params below for send/return balance and compensation.
+                                </div>
+                            )}
+                        </>
+                    )}
                 </div>
                 <div style={pluginPanelKnobGrid('repeat(4, minmax(0, 1fr))')}>
                     {device.params.slice(0, 4).map((p) => (
@@ -2691,10 +3085,14 @@ const PluginGuiSurface = ({
         const thr = device.params.find((p) => p.name.toLowerCase() === 'thr')?.value ?? -18;
         const ratio = device.params.find((p) => p.name.toLowerCase() === 'ratio')?.value ?? 4;
         const pseudoGr = Math.max(0, Math.min(24, ((-thr) / 60) * ratio * 2.4));
-        const attackAmt = device.params.find((p) => p.name.toLowerCase().includes('attack'))?.value ?? 0;
-        const sustainAmt = device.params.find((p) => p.name.toLowerCase().includes('sustain'))?.value ?? 0;
-        const attackNorm = Math.max(0, Math.min(1, (attackAmt + 24) / 48));
-        const sustainNorm = Math.max(0, Math.min(1, (sustainAmt + 24) / 48));
+        const atkMs = device.params.find((p) => p.name.toLowerCase() === 'atk')?.value
+            ?? device.params.find((p) => p.name.toLowerCase().includes('attack'))?.value
+            ?? 10;
+        const relMs = device.params.find((p) => p.name.toLowerCase() === 'rel')?.value
+            ?? device.params.find((p) => p.name.toLowerCase().includes('release'))?.value
+            ?? 80;
+        const attackNorm = Math.max(0, Math.min(1, Math.log10(Math.max(0.1, atkMs)) / Math.log10(200)));
+        const releaseNorm = Math.max(0, Math.min(1, Math.log10(Math.max(1, relMs)) / Math.log10(1000)));
         return (
             <div style={pluginPanelLayoutStyle}>
                 <div style={{
@@ -2712,11 +3110,11 @@ const PluginGuiSurface = ({
                                 <div style={{ width: `${(attackNorm * 100).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #53b0ff 0%, #8ecfff 100%)' }} />
                             </div>
                             <div style={{ height: 8, borderRadius: 999, background: 'rgba(18,26,34,0.9)', overflow: 'hidden' }}>
-                                <div style={{ width: `${(sustainNorm * 100).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #78d6ad 0%, #b5f0d5 100%)' }} />
+                                <div style={{ width: `${(releaseNorm * 100).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #78d6ad 0%, #b5f0d5 100%)' }} />
                             </div>
                             <div style={pluginPanelMetaStyle}>
-                                <span>Attack {attackAmt.toFixed(1)} dB</span>
-                                <span>Sustain {sustainAmt.toFixed(1)} dB</span>
+                                <span>Attack {atkMs.toFixed(1)} ms</span>
+                                <span>Release {relMs.toFixed(1)} ms</span>
                             </div>
                         </div>
                     ) : (
@@ -3215,26 +3613,104 @@ const PluginSettingsPanel = ({
     onParamChange,
     onParamGestureStart,
     onParamGestureEnd,
+    onApplyQuickPreset,
+    onRandomize,
+    onReset,
+    onStoreSnapshot,
+    onRecallSnapshot,
+    onToggleSnapshot,
+    snapshotState,
     onLoadSample,
     sidechainSourceTrackId = 'none',
     sidechainOptions = [],
     onSidechainSourceChange,
+    runtimeStatus,
+    editorSupported,
+    editorReason,
 }: {
     device: DeviceSlot;
     onParamChange: (paramName: string, value: number) => void;
-    onParamGestureStart?: (paramName: string) => void;
+    onParamGestureStart?: (paramName: string, gestureGroupId?: string) => void;
     onParamGestureEnd?: (paramName: string) => void;
+    onApplyQuickPreset?: (preset: QuickPreset) => void;
+    onRandomize?: () => void;
+    onReset?: () => void;
+    onStoreSnapshot?: (slot: 'A' | 'B') => void;
+    onRecallSnapshot?: (slot: 'A' | 'B') => void;
+    onToggleSnapshot?: () => void;
+    snapshotState?: { A?: Record<string, number>; B?: Record<string, number>; active?: 'A' | 'B' };
+    onApplyUtilityScene?: (scene: 'center' | 'mono' | 'wide') => void;
     onLoadSample?: () => void;
     sidechainSourceTrackId?: string;
     sidechainOptions?: Array<{ id: string; name: string }>;
     onSidechainSourceChange?: (sourceTrackId: string) => void;
+    runtimeStatus?: engineApi.PluginSlotRuntimeStatus;
+    editorSupported?: boolean;
+    editorReason?: string;
 }) => {
     const quickPresets = device.source === 'internal'
         ? (QUICK_PRESETS_BY_EFFECT[device.effectType] ?? [])
         : [];
+    const [paramSearch, setParamSearch] = useState('');
+    const filteredParams = useMemo(() => {
+        const q = paramSearch.trim().toLowerCase();
+        if (!q) return device.params;
+        return device.params.filter((p) => p.name.toLowerCase().includes(q));
+    }, [device.params, paramSearch]);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {device.source === 'vst' && (
+            <div style={{
+                border: '1px solid var(--color-divider)',
+                borderRadius: 'var(--radius-sm)',
+                background: 'color-mix(in srgb, var(--color-bg-header) 88%, #0e1117)',
+                padding: 8,
+                display: 'grid',
+                gap: 6,
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-secondary)' }}>
+                        External Plugin
+                    </span>
+                    <span style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        borderRadius: 999,
+                        border: '1px solid var(--color-divider)',
+                        padding: '2px 7px',
+                        color: runtimeStatus?.loaded ? '#7edb90' : '#ff9b9b',
+                        background: runtimeStatus?.loaded
+                            ? 'color-mix(in srgb, #7edb90 16%, transparent)'
+                            : 'color-mix(in srgb, #ff7070 16%, transparent)',
+                    }}>
+                        {runtimeStatus?.loaded ? (runtimeStatus.runtime || 'loaded') : 'offline'}
+                    </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--color-text-tertiary)' }}>
+                    <span>{device.params.length} mapped params</span>
+                    <span>{editorSupported === false ? 'Native editor unavailable' : 'Inline editor'}</span>
+                </div>
+                {editorReason && (
+                    <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>{editorReason}</div>
+                )}
+                <input
+                    value={paramSearch}
+                    onChange={(e) => setParamSearch(e.target.value)}
+                    placeholder="Find parameter..."
+                    style={{
+                        height: 24,
+                        borderRadius: 5,
+                        border: '1px solid var(--color-divider)',
+                        background: 'var(--color-bg-panel)',
+                        color: 'var(--color-text-primary)',
+                        fontSize: 11,
+                        padding: '0 8px',
+                        outline: 'none',
+                    }}
+                />
+            </div>
+        )}
         {device.supportsSidechain && (
             <div
                 style={{
@@ -3291,7 +3767,7 @@ const PluginSettingsPanel = ({
                         <button
                             key={preset.label}
                             type="button"
-                            onClick={() => applyQuickPresetToDevice(device, preset, onParamChange)}
+                            onClick={() => onApplyQuickPreset?.(preset)}
                             style={{
                                 border: '1px solid var(--color-divider)',
                                 borderRadius: 4,
@@ -3305,6 +3781,59 @@ const PluginSettingsPanel = ({
                             {preset.label}
                         </button>
                     ))}
+                </div>
+            </div>
+        )}
+        {device.source === 'internal' && (
+            <div style={{ display: 'grid', gap: 5 }}>
+                <span style={{
+                    fontSize: 10,
+                    color: 'var(--color-text-tertiary)',
+                    fontWeight: 700,
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                }}>
+                    Performance
+                </span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button
+                        type="button"
+                        onClick={() => onRandomize?.()}
+                        style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '4px 8px', cursor: 'pointer' }}
+                    >Random</button>
+                    <button
+                        type="button"
+                        onClick={() => onReset?.()}
+                        style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '4px 8px', cursor: 'pointer' }}
+                    >Reset</button>
+                    <button
+                        type="button"
+                        onClick={() => onStoreSnapshot?.('A')}
+                        style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: snapshotState?.active === 'A' ? 'color-mix(in srgb, var(--color-accent-primary) 25%, var(--color-bg-header))' : 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '4px 8px', cursor: 'pointer' }}
+                    >Store A</button>
+                    <button
+                        type="button"
+                        onClick={() => onStoreSnapshot?.('B')}
+                        style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: snapshotState?.active === 'B' ? 'color-mix(in srgb, var(--color-accent-primary) 25%, var(--color-bg-header))' : 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '4px 8px', cursor: 'pointer' }}
+                    >Store B</button>
+                    <button
+                        type="button"
+                        onClick={() => onRecallSnapshot?.('A')}
+                        disabled={!snapshotState?.A}
+                        style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '4px 8px', cursor: snapshotState?.A ? 'pointer' : 'not-allowed', opacity: snapshotState?.A ? 1 : 0.55 }}
+                    >A</button>
+                    <button
+                        type="button"
+                        onClick={() => onRecallSnapshot?.('B')}
+                        disabled={!snapshotState?.B}
+                        style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '4px 8px', cursor: snapshotState?.B ? 'pointer' : 'not-allowed', opacity: snapshotState?.B ? 1 : 0.55 }}
+                    >B</button>
+                    <button
+                        type="button"
+                        onClick={() => onToggleSnapshot?.()}
+                        disabled={!snapshotState?.A || !snapshotState?.B}
+                        style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '4px 8px', cursor: snapshotState?.A && snapshotState?.B ? 'pointer' : 'not-allowed', opacity: snapshotState?.A && snapshotState?.B ? 1 : 0.55 }}
+                    >A/B</button>
                 </div>
             </div>
         )}
@@ -3326,9 +3855,9 @@ const PluginSettingsPanel = ({
                 Load Sample
             </button>
         )}
-        {device.params.length > 0 ? (
-            <div style={pluginPanelKnobGrid(`repeat(${Math.min(10, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
-                {device.params.map((p) => (
+        {filteredParams.length > 0 ? (
+            <div style={pluginPanelKnobGrid(`repeat(${Math.min(10, Math.max(3, filteredParams.length))}, minmax(0, 1fr))`)}>
+                {filteredParams.map((p) => (
                     <PluginKnob
                         key={p.name}
                         param={p}
@@ -3350,8 +3879,10 @@ const PluginSettingsPanel = ({
                 color: 'var(--color-text-secondary)',
                 fontSize: 10,
             }}>
-                <span>No exported params</span>
-                <span style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>0 params</span>
+                <span>{device.params.length > 0 ? 'No parameters match filter' : 'No exported params'}</span>
+                <span style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+                    {filteredParams.length} params
+                </span>
             </div>
         )}
         </div>

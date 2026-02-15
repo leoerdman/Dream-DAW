@@ -112,6 +112,7 @@ export const StatusBar = ({
                     display: 'flex',
                     alignItems: 'center',
                     gap: 12,
+                    flexShrink: 0,
                 }}>
                     {panelMode && onPanelModeChange && (
                         <div style={{
@@ -142,86 +143,133 @@ export const StatusBar = ({
                             </button>
                         </div>
                     )}
-                    {panelInfo && (
+                    {!statusMessage && panelInfo && (
                         <StatusText>{panelInfo}</StatusText>
                     )}
-                    <StatusText>Arrangement</StatusText>
+                    {!statusMessage && (
+                        <>
+                            <StatusText>Arrangement</StatusText>
 
-                    <StatusGroup>
-                        <StatusLabel>Position:</StatusLabel>
-                        <StatusValue>{position}</StatusValue>
-                    </StatusGroup>
-
-                    <StatusGroup>
-                        <StatusLabel>End:</StatusLabel>
-                        <StatusValue>{projectEnd}</StatusValue>
-                    </StatusGroup>
-
-                    <StatusGroup>
-                        <StatusLabel>Length:</StatusLabel>
-                        <StatusValue>{duration}</StatusValue>
-                    </StatusGroup>
-                    {latestHistory && (
-                        <div ref={historyRef} style={{ position: 'relative' }}>
                             <StatusGroup>
-                                <StatusLabel>Event:</StatusLabel>
-                                <button
-                                    onClick={() => setHistoryOpen((v) => !v)}
-                                    style={{
-                                        border: 'none',
-                                        background: 'transparent',
-                                        color: 'var(--color-text-primary)',
-                                        fontFamily: 'var(--font-mono)',
-                                        fontSize: 'var(--font-size-2xs)',
-                                        cursor: 'pointer',
-                                        padding: 0,
-                                    }}
-                                    title={latestHistory.detail}
-                                >
-                                    {latestHistory.kind}
-                                </button>
+                                <StatusLabel>Position:</StatusLabel>
+                                <StatusValue>{position}</StatusValue>
                             </StatusGroup>
-                            {historyOpen && (
-                                <div
-                                    style={{
-                                        position: 'absolute',
-                                        left: 0,
-                                        bottom: 22,
-                                        width: 360,
-                                        maxHeight: 240,
-                                        overflowY: 'auto',
-                                        background: 'var(--color-bg-elevated)',
-                                        border: '1px solid var(--color-divider)',
-                                        borderRadius: 'var(--radius-md)',
-                                        boxShadow: '0 8px 18px var(--color-overlay-dark)',
-                                        zIndex: 'var(--z-tooltip)' as unknown as number,
-                                        padding: '6px 8px',
-                                    }}
-                                >
-                                    {historyItems.map((item) => {
-                                        const dt = new Date(item.timestampMs);
-                                        return (
-                                            <div key={item.seq} style={{ marginBottom: 6 }}>
-                                                <div style={{ color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}>
-                                                    #{item.seq} {item.kind}
-                                                </div>
-                                                <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)' }}>
-                                                    {dt.toLocaleTimeString()} • {item.detail}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
+
+                            <StatusGroup>
+                                <StatusLabel>End:</StatusLabel>
+                                <StatusValue>{projectEnd}</StatusValue>
+                            </StatusGroup>
+
+                            <StatusGroup>
+                                <StatusLabel>Length:</StatusLabel>
+                                <StatusValue>{duration}</StatusValue>
+                            </StatusGroup>
+                            {latestHistory && (
+                                <div ref={historyRef} style={{ position: 'relative' }}>
+                                    <StatusGroup>
+                                        <StatusLabel>Event:</StatusLabel>
+                                        <button
+                                            onClick={() => setHistoryOpen((v) => !v)}
+                                            style={{
+                                                border: 'none',
+                                                background: 'transparent',
+                                                color: 'var(--color-text-primary)',
+                                                fontFamily: 'var(--font-mono)',
+                                                fontSize: 'var(--font-size-2xs)',
+                                                cursor: 'pointer',
+                                                padding: 0,
+                                            }}
+                                            title={latestHistory.detail}
+                                        >
+                                            {latestHistory.kind}
+                                        </button>
+                                    </StatusGroup>
+                                    {historyOpen && (
+                                        <div
+                                            style={{
+                                                position: 'absolute',
+                                                left: 0,
+                                                bottom: 22,
+                                                width: 360,
+                                                maxHeight: 240,
+                                                overflowY: 'auto',
+                                                background: 'var(--color-bg-elevated)',
+                                                border: '1px solid var(--color-divider)',
+                                                borderRadius: 'var(--radius-md)',
+                                                boxShadow: '0 8px 18px var(--color-overlay-dark)',
+                                                zIndex: 'var(--z-tooltip)' as unknown as number,
+                                                padding: '6px 8px',
+                                            }}
+                                        >
+                                            {historyItems.map((item) => {
+                                                const dt = new Date(item.timestampMs);
+                                                return (
+                                                    <div key={item.seq} style={{ marginBottom: 6 }}>
+                                                        <div style={{ color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}>
+                                                            #{item.seq} {item.kind}
+                                                        </div>
+                                                        <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)' }}>
+                                                            {dt.toLocaleTimeString()} • {item.detail}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
                                 </div>
                             )}
-                        </div>
+                        </>
                     )}
                 </div>
+
+                {/* ── Inline Error/Notice (replaces center info when active) ── */}
+                {statusMessage && (
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        flex: 1,
+                        minWidth: 0,
+                        justifyContent: 'center',
+                    }}>
+                        <span style={{
+                            color: statusSeverity === 'error'
+                                ? 'var(--color-status-error)'
+                                : 'var(--color-accent-primary)',
+                            fontWeight: 600,
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                        }}>
+                            {statusSeverity === 'error' ? '⚠ ' : 'ℹ '}{statusMessage}
+                        </span>
+                        <button
+                            onClick={() => statusClear()}
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                color: statusSeverity === 'error'
+                                    ? 'var(--color-status-error)'
+                                    : 'var(--color-accent-primary)',
+                                cursor: 'pointer',
+                                fontSize: 'var(--font-size-xs)',
+                                opacity: 0.7,
+                                padding: '0 4px',
+                                flexShrink: 0,
+                            }}
+                            title="Dismiss"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                )}
 
                 {/* Right section */}
                 <div style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: 12,
+                    flexShrink: 0,
                 }}>
                     <span
                         title={connected ? 'Engine connected' : 'Engine disconnected'}
@@ -325,47 +373,6 @@ export const StatusBar = ({
                     </div>
                 </div>
             </div>
-
-            {/* ── Error/Notice Row (appears below status when active) ── */}
-            {statusMessage && (
-                <div
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        height: 22,
-                        padding: '0 10px',
-                        fontSize: 'var(--font-size-2xs)',
-                        fontWeight: 500,
-                        background: statusSeverity === 'error'
-                            ? 'color-mix(in srgb, var(--color-status-error) 14%, transparent)'
-                            : 'color-mix(in srgb, var(--color-accent-primary) 10%, transparent)',
-                        color: statusSeverity === 'error'
-                            ? 'var(--color-status-error)'
-                            : 'var(--color-accent-primary)',
-                        borderTop: `1px solid ${statusSeverity === 'error'
-                            ? 'color-mix(in srgb, var(--color-status-error) 30%, transparent)'
-                            : 'color-mix(in srgb, var(--color-accent-primary) 20%, transparent)'}`,
-                    }}
-                >
-                    <span>{statusSeverity === 'error' ? '⚠ ' : 'ℹ '}{statusMessage}</span>
-                    <button
-                        onClick={() => statusClear()}
-                        style={{
-                            background: 'none',
-                            border: 'none',
-                            color: 'inherit',
-                            cursor: 'pointer',
-                            fontSize: 'var(--font-size-base)',
-                            opacity: 0.6,
-                            padding: '0 4px',
-                        }}
-                        title="Dismiss"
-                    >
-                        ✕
-                    </button>
-                </div>
-            )}
         </div>
     );
 };

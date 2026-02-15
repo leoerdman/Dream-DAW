@@ -32,7 +32,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -2278,12 +2278,88 @@ impl PluginHostState {
         self.slot_instance_map.store(Arc::new(map));
     }
 
+    fn take_slot_instance(&self, slot_id: Uuid) -> Option<Uuid> {
+        let mut map = self.slot_instance_map.load_full().as_ref().clone();
+        let removed = map.remove(&slot_id);
+        self.slot_instance_map.store(Arc::new(map));
+        removed
+    }
+
     fn slot_instance_snapshot(&self) -> Arc<HashMap<Uuid, Uuid>> {
         self.slot_instance_map.load_full()
     }
 
     fn clear_slot_instance_bindings(&self) {
         self.slot_instance_map.store(Arc::new(HashMap::new()));
+    }
+
+    fn unload_instance(&self, instance_id: Uuid) -> Result<(), String> {
+        {
+            let mut host = self.host.lock().map_err(|e| e.to_string())?;
+            let _ = host.remove(instance_id);
+        }
+
+        {
+            let mut map = self.loaded_by_key.lock().map_err(|e| e.to_string())?;
+            map.retain(|_, id| *id != instance_id);
+        }
+
+        {
+            let mut sandbox_map = self
+                .loaded_sandbox_by_key
+                .lock()
+                .map_err(|e| e.to_string())?;
+            let had_sandbox_entry = sandbox_map.values().any(|id| *id == instance_id);
+            if had_sandbox_entry {
+                sandbox_map.retain(|_, id| *id != instance_id);
+                let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+                let _ = supervisor.send_close_editor(instance_id);
+                supervisor.remove_instance(instance_id);
+            }
+        }
+
+        let mut slot_map = self.slot_instance_map.load_full().as_ref().clone();
+        slot_map.retain(|_, id| *id != instance_id);
+        self.slot_instance_map.store(Arc::new(slot_map));
+        Ok(())
+    }
+
+    fn unload_slot_instance(&self, slot_id: Uuid) -> Result<(), String> {
+        if let Some(instance_id) = self.take_slot_instance(slot_id) {
+            self.unload_instance(instance_id)?;
+        }
+        Ok(())
+    }
+
+    fn unload_all_instances(&self) -> Result<(), String> {
+        let mut ids = HashSet::<Uuid>::new();
+        {
+            let map = self.loaded_by_key.lock().map_err(|e| e.to_string())?;
+            ids.extend(map.values().copied());
+        }
+        {
+            let map = self
+                .loaded_sandbox_by_key
+                .lock()
+                .map_err(|e| e.to_string())?;
+            ids.extend(map.values().copied());
+        }
+        ids.extend(self.slot_instance_map.load_full().values().copied());
+
+        for id in ids {
+            let _ = self.unload_instance(id);
+        }
+
+        self.loaded_by_key
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clear();
+        self.loaded_sandbox_by_key
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clear();
+        self.clear_slot_instance_bindings();
+        Ok(())
     }
 
     fn ensure_loaded_instance_for_plugin_id(&self, plugin_id: &str) -> Result<Uuid, String> {
@@ -2318,7 +2394,11 @@ impl PluginHostState {
         Ok(instance_id)
     }
 
-    fn ensure_loaded_instance_for_slot(&self, slot_id: Uuid, plugin_id: &str) -> Result<Uuid, String> {
+    fn ensure_loaded_instance_for_slot(
+        &self,
+        slot_id: Uuid,
+        plugin_id: &str,
+    ) -> Result<Uuid, String> {
         if let Some(instance_id) = self.slot_instance_map.load().get(&slot_id).copied() {
             return Ok(instance_id);
         }
@@ -2350,15 +2430,32 @@ impl PluginHostState {
     fn resolve_descriptor(&self, plugin_id: &str) -> Result<PluginDescriptor, String> {
         let path = PathBuf::from(plugin_id);
         if path.exists() {
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if ext == "vst" {
+                return Err(
+                    "VST2 runtime is not supported in this build yet. Use VST3 plugins."
+                        .to_string(),
+                );
+            }
             let name = path
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("Unknown VST")
                 .to_string();
+            let format = match ext.as_str() {
+                "vst3" => PluginFormat::VST3,
+                "component" | "au" => PluginFormat::AudioUnit,
+                "clap" => PluginFormat::CLAP,
+                _ => PluginFormat::VST3,
+            };
             return Ok(PluginDescriptor::new(
                 name,
                 "Unknown Vendor",
-                PluginFormat::VST3,
+                format,
                 PluginCategory::Effect,
                 path,
             ));
@@ -3002,6 +3099,16 @@ struct RoutingTarget {
 struct PluginEditorCapability {
     supported: bool,
     reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginSlotRuntimeStatus {
+    loaded: bool,
+    editor_supported: bool,
+    runtime: String,
+    sidechain_ready: bool,
+    message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

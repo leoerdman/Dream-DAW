@@ -179,6 +179,7 @@ export const TrackInspector = ({
     } | null>(null);
     const dragPointerYRef = useRef<number | null>(null);
     const autoScrollRafRef = useRef<number | null>(null);
+    const trackMoveInFlightRef = useRef(false);
     const suppressNextClickRef = useRef(false);
     const trackRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -557,15 +558,20 @@ export const TrackInspector = ({
     const commitTrackReorder = useCallback((trackId: string, visibleInsertIndex: number) => {
         const fullIndex = tracks.findIndex((t) => t.id === trackId);
         if (fullIndex < 0) return;
+        const currentParentGroupId = tracks[fullIndex]?.groupId ?? null;
         const rawInsertIndex = computeRawInsertIndex(visibleInsertIndex);
         const adjustedInsert = rawInsertIndex > fullIndex ? rawInsertIndex - 1 : rawInsertIndex;
         const clamped = Math.max(0, Math.min(tracks.length - 1, adjustedInsert));
         if (clamped === fullIndex) return;
+        if (trackMoveInFlightRef.current) return;
+        trackMoveInFlightRef.current = true;
 
-        void engineApi.moveTrackToIndex(trackId, clamped).then(() => {
+        void engineApi.moveTrackWithParent(trackId, clamped, currentParentGroupId).then(() => {
             void useEngineStore.getState().fetchProject();
         }).catch((err) => {
-            console.error('[TrackInspector] moveTrackToIndex failed:', err);
+            console.error('[TrackInspector] moveTrackWithParent(reorder) failed:', err);
+        }).finally(() => {
+            trackMoveInFlightRef.current = false;
         });
     }, [tracks, computeRawInsertIndex]);
 
@@ -627,6 +633,36 @@ export const TrackInspector = ({
         return tail;
     }, [tracks, isDescendantOf]);
 
+    const canDropTrackIntoGroup = useCallback((trackId: string, groupId: string): boolean => {
+        const draggingTrack = tracks.find((t) => t.id === trackId);
+        const targetGroup = tracks.find((t) => t.id === groupId);
+        if (!draggingTrack || !targetGroup) return false;
+        if (targetGroup.type !== 'group') return false;
+        if (trackId === groupId) return false;
+        if (isDescendantOf(groupId, trackId)) return false;
+        return true;
+    }, [tracks, isDescendantOf]);
+
+    const commitTrackToGroup = useCallback((trackId: string, groupId: string) => {
+        if (!canDropTrackIntoGroup(trackId, groupId)) return;
+        if (trackMoveInFlightRef.current) return;
+        const draggingTrack = tracks.find((t) => t.id === trackId);
+        const targetIndex = findGroupTailInsertIndex(groupId);
+        const dragIndex = tracks.findIndex((t) => t.id === trackId);
+        if (draggingTrack?.groupId === groupId && dragIndex >= 0) {
+            const expectedIndexWithinGroup = targetIndex - 1;
+            if (dragIndex === expectedIndexWithinGroup) return;
+        }
+        trackMoveInFlightRef.current = true;
+        void engineApi.moveTrackWithParent(trackId, targetIndex, groupId).then(() => {
+            void useEngineStore.getState().fetchProject();
+        }).catch((err) => {
+            console.error('[TrackInspector] moveTrackWithParent(group drop) failed:', err);
+        }).finally(() => {
+            trackMoveInFlightRef.current = false;
+        });
+    }, [canDropTrackIntoGroup, findGroupTailInsertIndex, tracks]);
+
     const resolveDropTargetFromClientY = useCallback((clientY: number, dragId: string) => {
         const draggingTrack = tracks.find((t) => t.id === dragId);
         for (let i = 0; i < visibleTracks.length; i += 1) {
@@ -638,14 +674,14 @@ export const TrackInspector = ({
 
             const canNestIntoGroup = Boolean(
                 draggingTrack
-                && draggingTrack.type !== 'group'
                 && track.type === 'group'
                 && dragId !== track.id
                 && !isDescendantOf(track.id, dragId),
             );
             if (canNestIntoGroup) {
-                const topZone = rect.top + rect.height * 0.18;
-                const bottomZone = rect.bottom - rect.height * 0.18;
+                const edgeZone = Math.max(4, rect.height * 0.12);
+                const topZone = rect.top + edgeZone;
+                const bottomZone = rect.bottom - edgeZone;
                 if (clientY >= topZone && clientY <= bottomZone) {
                     return { groupId: track.id, insertIndex: null as number | null };
                 }
@@ -731,14 +767,16 @@ export const TrackInspector = ({
         const onPointerUp = (e: PointerEvent) => {
             const activeDragId = draggingTrackIdRef.current ?? draggingTrackId;
             if (pointerDrag.active && activeDragId) {
+                if (groupDropTargetId && canDropTrackIntoGroup(activeDragId, groupDropTargetId)) {
+                    commitTrackToGroup(activeDragId, groupDropTargetId);
+                    suppressNextClickRef.current = true;
+                    setPointerDrag(null);
+                    resetTrackDragState();
+                    return;
+                }
                 const target = resolveDropTargetFromClientY(e.clientY, activeDragId);
-                if (target.groupId) {
-                    const targetIndex = findGroupTailInsertIndex(target.groupId);
-                    void engineApi.moveTrackWithParent(activeDragId, targetIndex, target.groupId).then(() => {
-                        void useEngineStore.getState().fetchProject();
-                    }).catch((err) => {
-                        console.error('[TrackInspector] moveTrackWithParent(group drop) failed:', err);
-                    });
+                if (target.groupId && canDropTrackIntoGroup(activeDragId, target.groupId)) {
+                    commitTrackToGroup(activeDragId, target.groupId);
                 } else {
                     const idx = target.insertIndex ?? computeVisibleInsertIndexFromClientY(e.clientY);
                     commitDraggedTrackToVisibleIndex(activeDragId, idx);
@@ -766,8 +804,10 @@ export const TrackInspector = ({
         draggingTrackId,
         computeVisibleInsertIndexFromClientY,
         commitDraggedTrackToVisibleIndex,
+        commitTrackToGroup,
+        canDropTrackIntoGroup,
         resolveDropTargetFromClientY,
-        findGroupTailInsertIndex,
+        groupDropTargetId,
         resetTrackDragState,
     ]);
 
@@ -829,13 +869,9 @@ export const TrackInspector = ({
                         resetTrackDragState();
                         return;
                     }
-                    if (groupDropTargetId) {
-                        const targetIndex = findGroupTailInsertIndex(groupDropTargetId);
-                        void engineApi.moveTrackWithParent(dragId, targetIndex, groupDropTargetId).then(() => {
-                            void useEngineStore.getState().fetchProject();
-                        }).catch((err) => {
-                            console.error('[TrackInspector] moveTrackWithParent(scroll drop) failed:', err);
-                        }).finally(() => {
+                    if (groupDropTargetId && canDropTrackIntoGroup(dragId, groupDropTargetId)) {
+                        commitTrackToGroup(dragId, groupDropTargetId);
+                        Promise.resolve().finally(() => {
                             resetTrackDragState();
                         });
                         return;
@@ -1890,6 +1926,7 @@ const TrackRow = ({
     const headerBgColor = isMasterFixed ? 'var(--color-bg-app)' : track.color;
     const headerContrast = getContrastColor(isMasterFixed ? '#f2f2f2' : track.color);
     const headerTextColor = headerContrast === 'black' ? 'var(--glass-bg)' : 'color-mix(in srgb, var(--color-text-primary) 94%, transparent)';
+    const childIndentPx = !isMaster && depth > 0 ? Math.min(48, depth * 12) : 0;
 
     return (
         <div
@@ -1907,7 +1944,7 @@ const TrackRow = ({
                 cursor: 'default',
                 opacity: isEnabled ? 1 : 0.45,
                 transition: `background var(--transition-linear), opacity var(--transition-linear)`,
-                position: 'relative', paddingLeft: 0, flexShrink: 0,
+                position: 'relative', paddingLeft: childIndentPx, flexShrink: 0,
                 outline: isGroupDropTarget ? '2px solid color-mix(in srgb, var(--color-accent-primary) 82%, white)' : 'none',
                 outlineOffset: isGroupDropTarget ? '-2px' : 0,
                 boxShadow: isGroupDropTarget

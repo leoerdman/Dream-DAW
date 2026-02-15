@@ -1893,7 +1893,7 @@ const SampleClipEditor = ({
                                         >
                                             {fadeInPx > 0 && (
                                                 <path
-                                                    d={`M 0 ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)} Q ${fadeInPx * draftFadeInCurve} 0 ${fadeInPx} ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)}`}
+                                                    d={`M 0 ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)} Q ${fadeInPx * draftFadeInCurve} ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20) * (1 - draftFadeInCurve)} ${fadeInPx} 0`}
                                                     fill="none"
                                                     stroke="color-mix(in srgb, var(--color-accent-primary) 95%, transparent)"
                                                     strokeWidth={1.5}
@@ -1901,7 +1901,7 @@ const SampleClipEditor = ({
                                             )}
                                             {fadeOutPx > 0 && (
                                                 <path
-                                                    d={`M ${waveformWidth} ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)} Q ${waveformWidth - fadeOutPx * draftFadeOutCurve} 0 ${waveformWidth - fadeOutPx} ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)}`}
+                                                    d={`M ${waveformWidth - fadeOutPx} 0 Q ${waveformWidth - fadeOutPx * (1 - draftFadeOutCurve)} ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20) * draftFadeOutCurve} ${waveformWidth} ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)}`}
                                                     fill="none"
                                                     stroke="color-mix(in srgb, var(--color-accent-primary) 95%, transparent)"
                                                     strokeWidth={1.5}

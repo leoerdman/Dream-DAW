@@ -69,7 +69,7 @@ export const PluginKnob = ({
     compact?: boolean;
     onChange: (paramName: string, value: number) => void;
     onContextMenu?: (e: React.MouseEvent, paramName: string) => void;
-    onGestureStart?: (paramName: string) => void;
+    onGestureStart?: (paramName: string, gestureGroupId?: string) => void;
     onGestureEnd?: (paramName: string) => void;
 }) => {
     const pct = Math.max(0, Math.min(1, (param.value - param.min) / Math.max(1e-9, param.max - param.min)));

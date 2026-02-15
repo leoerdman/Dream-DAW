@@ -24,6 +24,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
     const updateSetting = useSettingsStore(s => s.updateSetting);
     const pickAndSetFolder = useSettingsStore(s => s.pickAndSetFolder);
     const [rescanningPlugins, setRescanningPlugins] = useState(false);
+    const [rescanResult, setRescanResult] = useState<string | null>(null);
 
     // ── Audio Device Enumeration (real hardware from cpal) ──
     const [audioDevices, setAudioDevices] = useState<engine.AudioDevices>({ outputs: [], inputs: [] });
@@ -74,9 +75,19 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
         return () => window.removeEventListener('keydown', handler);
     }, [isOpen, onClose]);
 
-    const handleRescan = useCallback(() => {
+    const handleRescan = useCallback(async () => {
         setRescanningPlugins(true);
-        setTimeout(() => setRescanningPlugins(false), 2500);
+        setRescanResult(null);
+        try {
+            const entries = await engine.scanPluginFolders();
+            const pluginCount = entries.filter((e) => e.kind === 'plugin').length;
+            setRescanResult(`Found ${pluginCount} plugins`);
+        } catch (err) {
+            console.error('[SettingsPanel] plugin rescan failed:', err);
+            setRescanResult('Plugin rescan failed');
+        } finally {
+            setRescanningPlugins(false);
+        }
     }, []);
 
     if (!isOpen) return null;
@@ -350,6 +361,11 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                                     {rescanningPlugins ? '⏳ Scanning…' : '🔄 Rescan Plugins'}
                                 </button>
                             </div>
+                            {rescanResult && (
+                                <div style={{ marginTop: 8, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                                    {rescanResult}
+                                </div>
+                            )}
                         </div>
                     )}
 

@@ -516,8 +516,18 @@ async fn move_track_with_parent_cmd(
     moving_track.parent_track_id = target_parent;
     moving_track.output_destination_id = target_parent;
 
+    if let Some(parent_id) = target_parent
+        && let Some(parent_track) = project.tracks.iter_mut().find(|t| t.id == parent_id)
+    {
+        // Group output follows its own parent (None => Master).
+        parent_track.output_destination_id = parent_track.parent_track_id;
+    }
+
     let max_insert = project.tracks.len();
-    let insert_index = target_index.min(max_insert);
+    let mut insert_index = target_index.min(max_insert);
+    if from_index < insert_index {
+        insert_index = insert_index.saturating_sub(1);
+    }
     project.tracks.insert(insert_index, moving_track);
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
@@ -571,6 +581,13 @@ async fn set_track_group_cmd(
         .ok_or_else(|| format!("Track not found: {track_id}"))?;
     track.parent_track_id = target_group;
     track.output_destination_id = target_group;
+
+    if let Some(group_uuid) = target_group
+        && let Some(group_track) = project.tracks.iter_mut().find(|t| t.id == group_uuid)
+    {
+        // Group output follows its own parent (None => Master).
+        group_track.output_destination_id = group_track.parent_track_id;
+    }
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &handle)?;

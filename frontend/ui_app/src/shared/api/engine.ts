@@ -956,9 +956,16 @@ export const setInternalPluginParam = (
     slotId: string,
     paramId: string,
     value: number,
+    options?: { pushUndoStep?: boolean },
 ) =>
     invoke<void>('set_internal_plugin_param_cmd', {
-        payload: { trackId, slotId, paramId, value },
+        payload: {
+            trackId,
+            slotId,
+            paramId,
+            value,
+            pushUndoStep: options?.pushUndoStep,
+        },
     });
 
 /** Set normalized parameter [0..1] on an external VST plugin instance. */

@@ -402,13 +402,15 @@ export const DeviceRack = ({
     const [pluginCapability, setPluginCapability] = useState<
         Record<string, { supported: boolean; reason?: string }>
     >({});
-    const externalParamsBySlotId = useMemo<Record<string, PluginParam[]>>(() => ({}), []);
+    const [externalParamsBySlotId, setExternalParamsBySlotId] = useState<Record<string, PluginParam[]>>({});
     const [openGuiDevice, setOpenGuiDevice] = useState<DeviceSlot | null>(null);
     const [inlineSettingsOpen, setInlineSettingsOpen] = useState<Record<string, boolean>>({});
     const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
     const statusError = useStatusStore((s) => s.setError);
     const statusClear = useStatusStore((s) => s.clear);
-    const throttledParamSendsRef = useRef<Map<string, (value: number) => void>>(new Map());
+    const throttledParamSendsRef = useRef<Map<string, (value: number, pushUndoStep: boolean) => void>>(new Map());
+    const activeParamGesturesRef = useRef<Set<string>>(new Set());
+    const pushedUndoForGestureRef = useRef<Set<string>>(new Set());
     const projectTracks = useEngineStore((s) => s.projectTracks);
     const meters = useEngineStore((s) => s.meters);
     const fetchProject = useEngineStore((s) => s.fetchProject);
@@ -724,7 +726,12 @@ export const DeviceRack = ({
     }, []);
 
     const sendInternalParam = useCallback(
-        (device: DeviceSlot, paramName: string, value: number) => {
+        (
+            device: DeviceSlot,
+            paramName: string,
+            value: number,
+            options?: { gestureKey?: string; forcePushUndo?: boolean },
+        ) => {
             if (!selectedTrack) return;
             if (device.source === 'vst') {
                 const idxFromList = device.params.findIndex((p) => p.name === paramName);
@@ -817,19 +824,49 @@ export const DeviceRack = ({
             }
 
             const key = `${selectedTrack.id}:${device.id}:${paramId}`;
+            let pushUndoStep = options?.forcePushUndo ?? false;
+            if (!options?.forcePushUndo) {
+                if (!options?.gestureKey) {
+                    pushUndoStep = true;
+                } else if (!pushedUndoForGestureRef.current.has(options.gestureKey)) {
+                    pushedUndoForGestureRef.current.add(options.gestureKey);
+                    pushUndoStep = true;
+                }
+            }
+
             let sender = throttledParamSendsRef.current.get(key);
             if (!sender) {
-                sender = throttle((v: number) => {
-                    void engineApi.setInternalPluginParam(selectedTrack.id, device.id, paramId, v).catch((err) => {
+                sender = throttle((v: number, pushUndo: boolean) => {
+                    void engineApi.setInternalPluginParam(
+                        selectedTrack.id,
+                        device.id,
+                        paramId,
+                        v,
+                        { pushUndoStep: pushUndo },
+                    ).catch((err) => {
                         console.error('[DeviceRack] setInternalPluginParam failed:', err);
                     });
                 }, 32);
                 throttledParamSendsRef.current.set(key, sender);
             }
-            sender(value);
+            sender(value, pushUndoStep);
         },
         [selectedTrack, projectTracks, statusError],
     );
+
+    const beginParamGesture = useCallback((deviceId: string, paramName: string) => {
+        if (!selectedTrack) return;
+        const gestureKey = `${selectedTrack.id}:${deviceId}:${paramName.toLowerCase()}`;
+        activeParamGesturesRef.current.add(gestureKey);
+        pushedUndoForGestureRef.current.delete(gestureKey);
+    }, [selectedTrack]);
+
+    const endParamGesture = useCallback((deviceId: string, paramName: string) => {
+        if (!selectedTrack) return;
+        const gestureKey = `${selectedTrack.id}:${deviceId}:${paramName.toLowerCase()}`;
+        activeParamGesturesRef.current.delete(gestureKey);
+        pushedUndoForGestureRef.current.delete(gestureKey);
+    }, [selectedTrack]);
 
     useEffect(() => {
         setSelectedDeviceIds((prev) => prev.filter((id) => chain.some((d) => d.id === id)));
@@ -847,6 +884,11 @@ export const DeviceRack = ({
             return next;
         });
     }, [chain, openGuiDevice]);
+
+    useEffect(() => {
+        activeParamGesturesRef.current.clear();
+        pushedUndoForGestureRef.current.clear();
+    }, [selectedTrackId]);
 
     useEffect(() => {
         setSelectedDeviceIds([]);
@@ -923,6 +965,50 @@ export const DeviceRack = ({
             cancelled = true;
         };
     }, [chain, pluginCapability, selectedTrack]);
+
+    useEffect(() => {
+        let cancelled = false;
+        if (!selectedTrack) return;
+
+        const vstDevices = chain.filter((d) => d.isVst);
+        const missing = vstDevices.filter((d) => !externalParamsBySlotId[d.id]);
+        if (missing.length === 0) return;
+
+        (async () => {
+            const results = await Promise.all(
+                missing.map(async (device) => {
+                    try {
+                        const params = await engineApi.getExternalPluginParamsForSlot(selectedTrack.id, device.id);
+                        const mapped: PluginParam[] = params.map((p) => ({
+                            name: p.name,
+                            min: p.min,
+                            max: p.max,
+                            step: p.step,
+                            suffix: '',
+                            value: p.value,
+                        }));
+                        return [device.id, mapped] as const;
+                    } catch (err) {
+                        console.error('[DeviceRack] getExternalPluginParamsForSlot failed:', err);
+                        return [device.id, [] as PluginParam[]] as const;
+                    }
+                }),
+            );
+
+            if (cancelled) return;
+            setExternalParamsBySlotId((prev) => {
+                const next = { ...prev };
+                for (const [slotId, params] of results) {
+                    next[slotId] = params;
+                }
+                return next;
+            });
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [chain, selectedTrack, externalParamsBySlotId]);
 
     useEffect(() => {
         const onMouseMove = (e: MouseEvent) => {
@@ -1092,8 +1178,17 @@ export const DeviceRack = ({
                                     }}
                                     onParamChange={(name, value) => {
                                         setPluginParam(device.id, name, value);
-                                        sendInternalParam(device, name, value);
+                                        const gestureKey = selectedTrack
+                                            ? `${selectedTrack.id}:${device.id}:${name.toLowerCase()}`
+                                            : null;
+                                        sendInternalParam(device, name, value, {
+                                            gestureKey: gestureKey && activeParamGesturesRef.current.has(gestureKey)
+                                                ? gestureKey
+                                                : undefined,
+                                        });
                                     }}
+                                    onParamGestureStart={(paramName) => beginParamGesture(device.id, paramName)}
+                                    onParamGestureEnd={(paramName) => endParamGesture(device.id, paramName)}
                                     onParamContextMenu={(e, paramName) => handleParamContextMenu(e, paramName, device.id)}
                                     showSettings={device.effectType === 'utility' ? false : !!inlineSettingsOpen[device.id]}
                                     sidechainSourceTrackId={device.sidechainSourceTrackId ?? 'none'}
@@ -1281,8 +1376,17 @@ export const DeviceRack = ({
                         device={openGuiDevice}
                         onParamChange={(name, value) => {
                             setPluginParam(openGuiDevice.id, name, value);
-                            sendInternalParam(openGuiDevice, name, value);
+                            const gestureKey = selectedTrack
+                                ? `${selectedTrack.id}:${openGuiDevice.id}:${name.toLowerCase()}`
+                                : null;
+                            sendInternalParam(openGuiDevice, name, value, {
+                                gestureKey: gestureKey && activeParamGesturesRef.current.has(gestureKey)
+                                    ? gestureKey
+                                    : undefined,
+                            });
                         }}
+                        onParamGestureStart={(paramName) => beginParamGesture(openGuiDevice.id, paramName)}
+                        onParamGestureEnd={(paramName) => endParamGesture(openGuiDevice.id, paramName)}
                         onDropSample={async (samplePath) => {
                             if (!selectedTrack) return;
                             try {
@@ -1440,6 +1544,8 @@ const DeviceNode = ({
     onSelect,
     onOpenSettings,
     onParamChange,
+    onParamGestureStart,
+    onParamGestureEnd,
     onDropSample,
     onLoadSample,
     editorSupported, editorReason,
@@ -1456,6 +1562,8 @@ const DeviceNode = ({
     onSelect: (e: React.MouseEvent<HTMLDivElement>) => void;
     onOpenSettings: () => void;
     onParamChange: (paramName: string, value: number) => void;
+    onParamGestureStart?: (paramName: string) => void;
+    onParamGestureEnd?: (paramName: string) => void;
     onDropSample?: (samplePath: string) => void;
     onLoadSample?: () => void;
     onOpenGUI?: () => void;
@@ -1606,8 +1714,7 @@ const DeviceNode = ({
                             title={editorSupported === false
                                 ? (editorReason ?? 'Plugin editor is unavailable')
                                 : 'Open Plugin GUI'}
-                            disabled={editorSupported === false}
-                            style={headerIconBtnStyle(editorSupported === false)}
+                            style={headerIconBtnStyle(false)}
                         >
                             UI
                         </button>
@@ -1646,6 +1753,8 @@ const DeviceNode = ({
                     <PluginSettingsPanel
                         device={device}
                         onParamChange={onParamChange}
+                        onParamGestureStart={onParamGestureStart}
+                        onParamGestureEnd={onParamGestureEnd}
                         onLoadSample={onLoadSample}
                         sidechainSourceTrackId={sidechainSourceTrackId}
                         sidechainOptions={sidechainOptions}
@@ -1657,6 +1766,8 @@ const DeviceNode = ({
                     <PluginGuiSurface
                         device={device}
                         onParamChange={onParamChange}
+                        onParamGestureStart={onParamGestureStart}
+                        onParamGestureEnd={onParamGestureEnd}
                         onDropSample={onDropSample}
                         onLoadSample={onLoadSample}
                         onParamContextMenu={onParamContextMenu}
@@ -1880,12 +1991,16 @@ function applyQuickPresetToDevice(
 const PluginGuiSurface = ({
     device,
     onParamChange,
+    onParamGestureStart,
+    onParamGestureEnd,
     onDropSample,
     onLoadSample,
     onParamContextMenu,
 }: {
     device: DeviceSlot;
     onParamChange: (paramName: string, value: number) => void;
+    onParamGestureStart?: (paramName: string) => void;
+    onParamGestureEnd?: (paramName: string) => void;
     onDropSample?: (samplePath: string) => void;
     onLoadSample?: () => void;
     onParamContextMenu?: (e: React.MouseEvent, paramName: string) => void;
@@ -2252,7 +2367,14 @@ const PluginGuiSurface = ({
                 </div>
                 <div style={pluginPanelKnobGrid('repeat(10, minmax(0, 1fr))')}>
                     {device.params.map((p) => (
-                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        <PluginKnob
+                            key={p.name}
+                            param={p}
+                            onChange={onParamChange}
+                            onGestureStart={onParamGestureStart}
+                            onGestureEnd={onParamGestureEnd}
+                            compact
+                        />
                     ))}
                 </div>
             </div>
@@ -2386,7 +2508,14 @@ const PluginGuiSurface = ({
                     background: 'rgba(16, 20, 28, 0.55)',
                 }}>
                     {otherSamplerParams.map((p) => (
-                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        <PluginKnob
+                            key={p.name}
+                            param={p}
+                            onChange={onParamChange}
+                            onGestureStart={onParamGestureStart}
+                            onGestureEnd={onParamGestureEnd}
+                            compact
+                        />
                     ))}
                 </div>
             </div>
@@ -2457,7 +2586,16 @@ const PluginGuiSurface = ({
                 <div style={pluginPanelKnobGrid('repeat(10, minmax(0, 1fr))')}>
                     {['LowFreq', 'Low', 'LowQ', 'MidFreq', 'Mid', 'MidQ', 'HighFreq', 'High', 'HighQ', 'Out'].map((name) => {
                         const p = device.params.find((x) => x.name.toLowerCase() === name.toLowerCase());
-                        return p ? <PluginKnob key={p.name} param={p} onChange={onParamChange} compact /> : null;
+                        return p ? (
+                            <PluginKnob
+                                key={p.name}
+                                param={p}
+                                onChange={onParamChange}
+                                onGestureStart={onParamGestureStart}
+                                onGestureEnd={onParamGestureEnd}
+                                compact
+                            />
+                        ) : null;
                     })}
                 </div>
                 <div style={{ ...pluginPanelMetaStyle, alignItems: 'center' }}>
@@ -2532,7 +2670,14 @@ const PluginGuiSurface = ({
                 </div>
                 <div style={pluginPanelKnobGrid('repeat(4, minmax(0, 1fr))')}>
                     {device.params.slice(0, 4).map((p) => (
-                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        <PluginKnob
+                            key={p.name}
+                            param={p}
+                            onChange={onParamChange}
+                            onGestureStart={onParamGestureStart}
+                            onGestureEnd={onParamGestureEnd}
+                            compact
+                        />
                     ))}
                 </div>
             </div>
@@ -2588,7 +2733,14 @@ const PluginGuiSurface = ({
                 </div>
                 <div style={pluginPanelKnobGrid(`repeat(${Math.max(1, Math.min(4, device.params.length))}, minmax(0, 1fr))`)}>
                     {device.params.slice(0, 4).map((p) => (
-                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        <PluginKnob
+                            key={p.name}
+                            param={p}
+                            onChange={onParamChange}
+                            onGestureStart={onParamGestureStart}
+                            onGestureEnd={onParamGestureEnd}
+                            compact
+                        />
                     ))}
                 </div>
             </div>
@@ -2650,7 +2802,14 @@ const PluginGuiSurface = ({
                 </div>
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(6, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
                     {device.params.slice(0, 6).map((p) => (
-                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        <PluginKnob
+                            key={p.name}
+                            param={p}
+                            onChange={onParamChange}
+                            onGestureStart={onParamGestureStart}
+                            onGestureEnd={onParamGestureEnd}
+                            compact
+                        />
                     ))}
                 </div>
             </div>
@@ -2700,7 +2859,14 @@ const PluginGuiSurface = ({
                 </div>
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(6, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
                     {device.params.slice(0, 6).map((p) => (
-                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        <PluginKnob
+                            key={p.name}
+                            param={p}
+                            onChange={onParamChange}
+                            onGestureStart={onParamGestureStart}
+                            onGestureEnd={onParamGestureEnd}
+                            compact
+                        />
                     ))}
                 </div>
             </div>
@@ -2728,7 +2894,14 @@ const PluginGuiSurface = ({
                 </div>
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(5, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
                     {device.params.slice(0, 5).map((p) => (
-                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        <PluginKnob
+                            key={p.name}
+                            param={p}
+                            onChange={onParamChange}
+                            onGestureStart={onParamGestureStart}
+                            onGestureEnd={onParamGestureEnd}
+                            compact
+                        />
                     ))}
                 </div>
             </div>
@@ -2756,7 +2929,14 @@ const PluginGuiSurface = ({
                 </div>
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(4, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
                     {device.params.slice(0, 4).map((p) => (
-                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        <PluginKnob
+                            key={p.name}
+                            param={p}
+                            onChange={onParamChange}
+                            onGestureStart={onParamGestureStart}
+                            onGestureEnd={onParamGestureEnd}
+                            compact
+                        />
                     ))}
                 </div>
             </div>
@@ -2781,7 +2961,14 @@ const PluginGuiSurface = ({
                 </div>
                 <div style={pluginPanelKnobGrid('repeat(3, minmax(0, 1fr))')}>
                     {device.params.slice(0, 3).map((p) => (
-                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        <PluginKnob
+                            key={p.name}
+                            param={p}
+                            onChange={onParamChange}
+                            onGestureStart={onParamGestureStart}
+                            onGestureEnd={onParamGestureEnd}
+                            compact
+                        />
                     ))}
                 </div>
             </div>
@@ -2806,7 +2993,14 @@ const PluginGuiSurface = ({
                 </div>
                 <div style={pluginPanelKnobGrid('repeat(5, minmax(0, 1fr))')}>
                     {device.params.slice(0, 5).map((p) => (
-                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        <PluginKnob
+                            key={p.name}
+                            param={p}
+                            onChange={onParamChange}
+                            onGestureStart={onParamGestureStart}
+                            onGestureEnd={onParamGestureEnd}
+                            compact
+                        />
                     ))}
                 </div>
             </div>
@@ -2856,7 +3050,14 @@ const PluginGuiSurface = ({
                 </div>
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(6, Math.max(3, params.length))}, minmax(0, 1fr))`)}>
                     {params.slice(0, 6).map((p) => (
-                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        <PluginKnob
+                            key={p.name}
+                            param={p}
+                            onChange={onParamChange}
+                            onGestureStart={onParamGestureStart}
+                            onGestureEnd={onParamGestureEnd}
+                            compact
+                        />
                     ))}
                 </div>
             </div>
@@ -2892,7 +3093,14 @@ const PluginGuiSurface = ({
                 </div>
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(4, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
                     {device.params.slice(0, 4).map((p) => (
-                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        <PluginKnob
+                            key={p.name}
+                            param={p}
+                            onChange={onParamChange}
+                            onGestureStart={onParamGestureStart}
+                            onGestureEnd={onParamGestureEnd}
+                            compact
+                        />
                     ))}
                 </div>
             </div>
@@ -2914,7 +3122,14 @@ const PluginGuiSurface = ({
                 </div>
                 <div style={pluginPanelKnobGrid(`repeat(${Math.min(6, device.params.length)}, minmax(0, 1fr))`)}>
                     {device.params.slice(0, 6).map((p) => (
-                        <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                        <PluginKnob
+                            key={p.name}
+                            param={p}
+                            onChange={onParamChange}
+                            onGestureStart={onParamGestureStart}
+                            onGestureEnd={onParamGestureEnd}
+                            compact
+                        />
                     ))}
                 </div>
             </div>
@@ -2963,7 +3178,14 @@ const PluginGuiSurface = ({
                 {device.params.length > 0 && (
                     <div style={pluginPanelKnobGrid(`repeat(${Math.min(4, Math.max(2, device.params.length))}, minmax(0, 1fr))`)}>
                         {device.params.map((p) => (
-                            <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                            <PluginKnob
+                                key={p.name}
+                                param={p}
+                                onChange={onParamChange}
+                                onGestureStart={onParamGestureStart}
+                                onGestureEnd={onParamGestureEnd}
+                                compact
+                            />
                         ))}
                     </div>
                 )}
@@ -2975,7 +3197,14 @@ const PluginGuiSurface = ({
     return (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
             {device.params.map((p) => (
-                <PluginKnob key={p.name} param={p} onChange={onParamChange} onContextMenu={onParamContextMenu} />
+                <PluginKnob
+                    key={p.name}
+                    param={p}
+                    onChange={onParamChange}
+                    onGestureStart={onParamGestureStart}
+                    onGestureEnd={onParamGestureEnd}
+                    onContextMenu={onParamContextMenu}
+                />
             ))}
         </div>
     );
@@ -2984,6 +3213,8 @@ const PluginGuiSurface = ({
 const PluginSettingsPanel = ({
     device,
     onParamChange,
+    onParamGestureStart,
+    onParamGestureEnd,
     onLoadSample,
     sidechainSourceTrackId = 'none',
     sidechainOptions = [],
@@ -2991,6 +3222,8 @@ const PluginSettingsPanel = ({
 }: {
     device: DeviceSlot;
     onParamChange: (paramName: string, value: number) => void;
+    onParamGestureStart?: (paramName: string) => void;
+    onParamGestureEnd?: (paramName: string) => void;
     onLoadSample?: () => void;
     sidechainSourceTrackId?: string;
     sidechainOptions?: Array<{ id: string; name: string }>;
@@ -3096,7 +3329,14 @@ const PluginSettingsPanel = ({
         {device.params.length > 0 ? (
             <div style={pluginPanelKnobGrid(`repeat(${Math.min(10, Math.max(3, device.params.length))}, minmax(0, 1fr))`)}>
                 {device.params.map((p) => (
-                    <PluginKnob key={p.name} param={p} onChange={onParamChange} compact />
+                    <PluginKnob
+                        key={p.name}
+                        param={p}
+                        onChange={onParamChange}
+                        onGestureStart={onParamGestureStart}
+                        onGestureEnd={onParamGestureEnd}
+                        compact
+                    />
                 ))}
             </div>
         ) : (

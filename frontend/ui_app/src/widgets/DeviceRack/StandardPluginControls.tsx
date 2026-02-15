@@ -62,11 +62,15 @@ export const PluginKnob = ({
     compact = false,
     onChange,
     onContextMenu,
+    onGestureStart,
+    onGestureEnd,
 }: {
     param: PluginParam;
     compact?: boolean;
     onChange: (paramName: string, value: number) => void;
     onContextMenu?: (e: React.MouseEvent, paramName: string) => void;
+    onGestureStart?: (paramName: string) => void;
+    onGestureEnd?: (paramName: string) => void;
 }) => {
     const pct = Math.max(0, Math.min(1, (param.value - param.min) / Math.max(1e-9, param.max - param.min)));
     const angle = -135 + pct * 270;
@@ -96,7 +100,8 @@ export const PluginKnob = ({
         dragStartValueRef.current = param.value;
         dialRef.current?.setPointerCapture(e.pointerId);
         setIsDragging(true);
-    }, [param.value]);
+        onGestureStart?.(param.name);
+    }, [onGestureStart, param.name, param.value]);
 
     const onKnobPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
         if (dragPointerIdRef.current !== e.pointerId) return;
@@ -129,7 +134,8 @@ export const PluginKnob = ({
         dragPointerIdRef.current = null;
         dialRef.current?.releasePointerCapture(e.pointerId);
         setIsDragging(false);
-    }, []);
+        onGestureEnd?.(param.name);
+    }, [onGestureEnd, param.name]);
 
     return (
         <label

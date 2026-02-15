@@ -2950,6 +2950,8 @@ struct InternalPluginParamPayload {
     slot_id: String,
     param_id: String,
     value: f64,
+    #[serde(default)]
+    push_undo_step: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

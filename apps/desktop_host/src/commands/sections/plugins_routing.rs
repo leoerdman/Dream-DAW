@@ -1567,7 +1567,9 @@ fn set_internal_plugin_param_cmd(
 
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
-    push_undo(&project_state)?;
+    if payload.push_undo_step.unwrap_or(true) {
+        push_undo(&project_state)?;
+    }
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let key = payload.param_id.to_lowercase();
     let mut sampler_command_needed = false;

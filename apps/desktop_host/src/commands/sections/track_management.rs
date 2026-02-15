@@ -112,6 +112,68 @@ async fn delete_track_cmd(
     Ok(())
 }
 
+#[tauri::command]
+async fn delete_tracks_cmd(
+    track_ids: Vec<String>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    if track_ids.is_empty() {
+        return Ok(());
+    }
+
+    let parsed_ids: Vec<Uuid> = track_ids
+        .iter()
+        .map(|id| Uuid::parse_str(id).map_err(|_| format!("Invalid track id: {id}")))
+        .collect::<Result<_, _>>()?;
+
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    let mut selected_indices: Vec<usize> = project
+        .tracks
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, t)| {
+            if parsed_ids.contains(&t.id) && t.track_type != TrackType::Master {
+                Some(idx)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if selected_indices.is_empty() {
+        return Ok(());
+    }
+
+    selected_indices.sort_unstable_by(|a, b| b.cmp(a));
+
+    for idx in selected_indices {
+        if idx >= project.tracks.len() {
+            continue;
+        }
+        let removed_track = project.tracks.remove(idx);
+        let removed_id = removed_track.id;
+
+        for track in &mut project.tracks {
+            if track.parent_track_id == Some(removed_id) {
+                track.parent_track_id = None;
+            }
+            if track.output_destination_id == Some(removed_id) {
+                track.output_destination_id = track.parent_track_id;
+            }
+            track.child_track_ids.retain(|child_id| *child_id != removed_id);
+        }
+    }
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &handle)?;
+    log::info!("[IPC] delete_tracks_cmd(count={})", track_ids.len());
+    Ok(())
+}
+
 /// Renames a track by index.
 #[tauri::command]
 async fn rename_track_cmd(
@@ -127,6 +189,71 @@ async fn rename_track_cmd(
     project.tracks[index].name = name.clone();
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     log::info!("[IPC] rename_track_cmd: index={} '{}' → '{}'", index, old_name, name);
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_track_height_cmd(
+    track_id: String,
+    height: f64,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let parsed_id = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
+    let clamped_height = height.clamp(24.0, 200.0);
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let track = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.id == parsed_id)
+        .ok_or_else(|| format!("Track not found: {track_id}"))?;
+
+    if (track.height - clamped_height).abs() < f64::EPSILON {
+        return Ok(());
+    }
+
+    track.height = clamped_height;
+    let project_name = project.name.clone();
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_track_color_cmd(
+    track_id: String,
+    color_hex: String,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let parsed_id = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
+    let mut normalized = color_hex.trim().to_string();
+    if normalized.is_empty() {
+        return Err("Color cannot be empty".to_string());
+    }
+    if !normalized.starts_with('#') {
+        normalized = format!("#{normalized}");
+    }
+    if normalized.len() != 7 {
+        return Err(format!("Invalid color format: {color_hex}"));
+    }
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let track = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.id == parsed_id)
+        .ok_or_else(|| format!("Track not found: {track_id}"))?;
+
+    if track.color_hex.as_deref() == Some(normalized.as_str()) {
+        return Ok(());
+    }
+
+    track.color_hex = Some(normalized.to_ascii_uppercase());
+    let project_name = project.name.clone();
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
 }
 
@@ -239,6 +366,11 @@ async fn create_group_cmd(
     selected.sort_by_key(|(idx, _)| *idx);
     let first_index = selected[0].0;
 
+    let (group_color, group_color_hex) = selected
+        .first()
+        .and_then(|(_, id)| project.tracks.iter().find(|t| t.id == *id).map(|t| (t.color, t.color_hex.clone())))
+        .unwrap_or_else(|| (TrackColor::for_index(first_index), None));
+
     let group_num = project
         .tracks
         .iter()
@@ -254,6 +386,8 @@ async fn create_group_cmd(
     group_track.output_destination_id = None;
     group_track.is_expanded = true;
     group_track.child_track_ids.clear();
+    group_track.color = group_color;
+    group_track.color_hex = group_color_hex;
     let group_id = group_track.id;
 
     project.tracks.insert(first_index, group_track);

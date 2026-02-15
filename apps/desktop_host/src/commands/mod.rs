@@ -79,6 +79,7 @@ pub(crate) fn invoke_handler(
         save_project_dialog,
         // Splash
         expand_window,
+        maximize_window,
         // Legacy
         set_frequency,
         // Audio Import
@@ -93,7 +94,10 @@ pub(crate) fn invoke_handler(
         // Track Management
         add_track_cmd,
         delete_track_cmd,
+        delete_tracks_cmd,
         rename_track_cmd,
+        set_track_height_cmd,
+        set_track_color_cmd,
         create_group_cmd,
         set_group_expanded_cmd,
         move_track_to_index_cmd,
@@ -143,6 +147,7 @@ pub(crate) fn invoke_handler(
         get_routing_targets,
         set_track_routing_cmd,
         set_track_input_cmd,
+        set_plugin_sidechain_source_cmd,
         add_plugin_to_track_cmd,
         remove_plugin_from_track_cmd,
         set_internal_plugin_param_cmd,

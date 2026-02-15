@@ -663,6 +663,82 @@ fn set_track_input_cmd(
     Ok(())
 }
 
+/// Set sidechain source track for a specific plugin slot on a track.
+#[tauri::command]
+fn set_plugin_sidechain_source_cmd(
+    track_id: String,
+    slot_id: String,
+    source_track_id: String,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
+
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    let source_normalized = source_track_id.trim();
+    let source_value = if source_normalized.is_empty() || source_normalized.eq_ignore_ascii_case("none") {
+        None
+    } else {
+        Some(source_normalized.to_string())
+    };
+
+    if let Some(source_id) = &source_value {
+        let source_exists = project
+            .tracks
+            .iter()
+            .any(|t| t.id.to_string() == *source_id);
+        if !source_exists {
+            return Err(format!("Source track not found: {source_id}"));
+        }
+        if source_id == &track_id {
+            return Err("Sidechain source cannot be the same track".to_string());
+        }
+    }
+
+    let track = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.id == track_uuid)
+        .ok_or_else(|| format!("Track not found: {track_id}"))?;
+
+    let mut updated = false;
+    if let Some(inst) = track.instrument.as_mut()
+        && let Some(slot) = inst.as_single_mut()
+        && slot.id == slot_uuid
+    {
+        slot.sidechain_source_track_id = source_value.clone();
+        updated = true;
+    }
+    if !updated {
+        for node in &mut track.effects {
+            if let Some(slot) = node.as_single_mut()
+                && slot.id == slot_uuid
+            {
+                slot.sidechain_source_track_id = source_value.clone();
+                updated = true;
+                break;
+            }
+        }
+    }
+
+    if !updated {
+        return Err(format!("Plugin slot not found on track {}: {}", track_id, slot_id));
+    }
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    log::info!(
+        "[IPC] set_plugin_sidechain_source_cmd(track={} slot={} source={})",
+        track_id,
+        slot_id,
+        source_value.as_deref().unwrap_or("none")
+    );
+    Ok(())
+}
+
 /// Add a plugin slot to a track (instrument/effect) from frontend DnD.
 #[tauri::command]
 fn add_plugin_to_track_cmd(

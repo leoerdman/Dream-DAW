@@ -41,6 +41,9 @@ export interface GridState {
 
     /** Persisted fixed-grid denominator (1,2,4,8,16,32...). */
     fixedDenominator: number;
+
+    /** Piano Roll pencil mode: single-click draw when enabled. */
+    pianoPencilMode: boolean;
 }
 
 export interface GridActions {
@@ -83,6 +86,12 @@ export interface GridActions {
      * @returns Interval in beats (0 if OFF)
      */
     gridInterval: (beatsPerBar?: number, ppb?: number) => number;
+
+    /** Toggle/set Piano Roll pencil mode. */
+    setPianoPencilMode: (enabled: boolean) => void;
+
+    /** Convenience toggle for Transport button. */
+    togglePianoPencilMode: () => void;
 }
 
 export type GridStore = GridState & GridActions;
@@ -101,6 +110,7 @@ export const useGridStore = create<GridStore>((set, get) => ({
     fixedMode: true,
     fixedNumerator: 1,
     fixedDenominator: 1,
+    pianoPencilMode: true,
 
     // ── Actions ────────────────────────────────────────────────────────
 
@@ -219,5 +229,14 @@ export const useGridStore = create<GridStore>((set, get) => ({
     gridInterval: (beatsPerBar: number = 4, ppb?: number) => {
         const { division, triplet } = get();
         return divisionToInterval(division, beatsPerBar, triplet, ppb);
+    },
+
+    setPianoPencilMode: (enabled: boolean) => {
+        set({ pianoPencilMode: enabled });
+    },
+
+    togglePianoPencilMode: () => {
+        const now = get().pianoPencilMode;
+        set({ pianoPencilMode: !now });
     },
 }));

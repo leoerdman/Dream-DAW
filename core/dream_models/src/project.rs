@@ -326,6 +326,10 @@ pub struct PluginSlot {
     /// Plugin-reported latency in sample frames (for PDC).
     pub latency_frames: u32,
 
+    /// Optional sidechain source track UUID (as string) for plugins that expose sidechain input.
+    #[serde(default)]
+    pub sidechain_source_track_id: Option<String>,
+
     /// External plugin format hint (`vst2`, `vst3`, `au`, ...).
     #[serde(default)]
     pub external_format: Option<String>,
@@ -380,6 +384,7 @@ impl PluginSlot {
             plugin_id: plugin_id.into(),
             is_bypassed: false,
             latency_frames: 0,
+            sidechain_source_track_id: None,
             external_format: None,
             external_uid: None,
             external_preset_name: None,
@@ -1121,7 +1126,7 @@ impl Track {
             is_armed: false,
             color: TrackColor::default(),
             color_hex: None,
-            height: 80.0,
+            height: 48.0,
             output_destination_id: None,
             input_source_id: None,
             monitoring_mode: None,
@@ -1978,7 +1983,7 @@ mod tests {
         assert!(!track.is_mute);
         assert!(!track.is_armed);
         assert_eq!(track.track_type, TrackType::Audio);
-        assert!((track.height - 80.0).abs() < f64::EPSILON);
+        assert!((track.height - 48.0).abs() < f64::EPSILON);
         assert!(track.effects.is_empty());
         assert!(track.instrument.is_none());
         assert!(track.parent_track_id.is_none());
@@ -2098,6 +2103,7 @@ mod tests {
             plugin_id: "com.xfer.serum".into(),
             is_bypassed: false,
             latency_frames: 64,
+            sidechain_source_track_id: None,
             external_format: None,
             external_uid: None,
             external_preset_name: None,
@@ -2117,6 +2123,7 @@ mod tests {
             plugin_id: "com.fabfilter.pro-l-2".into(),
             is_bypassed: false,
             latency_frames: 128,
+            sidechain_source_track_id: None,
             external_format: None,
             external_uid: None,
             external_preset_name: None,
@@ -2136,6 +2143,7 @@ mod tests {
             plugin_id: "com.fabfilter.pro-q-3".into(),
             is_bypassed: true, // Bypassed — should NOT count
             latency_frames: 32,
+            sidechain_source_track_id: None,
             external_format: None,
             external_uid: None,
             external_preset_name: None,

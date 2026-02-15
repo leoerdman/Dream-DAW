@@ -45,6 +45,8 @@ export interface TimelineClipData {
     fadeOut?: number;
     fadeInCurve?: number;
     fadeOutCurve?: number;
+    showFadeInCurvePoint?: boolean;
+    showFadeOutCurvePoint?: boolean;
     isOffline?: boolean;
     muted?: boolean;
     midiNotes?: Array<{
@@ -75,6 +77,7 @@ const HEADER_HEIGHT = 22;
 const CLIP_RADIUS = 5;
 const CLIP_BODY_ALPHA = 0.65;
 const CLIP_HEADER_ALPHA = 1.0;
+const FADE_GRAB_RADIUS = 3;
 const SELECTION_BORDER_WIDTH = 2;
 const SELECTION_GLOW_COLOR = 'rgba(255, 255, 255, 0.9)';
 const DROP_TARGET_COLOR = 'rgba(255, 255, 255, 0.2)';
@@ -498,10 +501,11 @@ export class CanvasClipRenderer {
             this._drawOfflineStripes(ctx, x, y + 1, w, h);
         }
 
+        const bodyY = y + 1 + headerH;
+        const bodyH = Math.max(0, h - headerH);
+
         // ── 7. Waveform or MIDI notes ─────────────────────────────────
-        if (h > headerH + 8) {
-            const bodyY = y + 1 + headerH;
-            const bodyH = h - headerH;
+        if (bodyH > 8) {
 
             if (clip.type === 'audio' && clip.filePath && clip.durationSamples) {
                 this._drawWaveform(ctx, vp, clip, bodyY, bodyH, sampleRate);
@@ -580,6 +584,57 @@ export class CanvasClipRenderer {
             ctx.lineWidth = 1;
             this._roundRect(ctx, x, y + 1, w, h, r);
             ctx.stroke();
+            ctx.restore();
+        }
+
+        // ── 13. Fade grab points (on clip body) ───────────────────────
+        if (w >= 14 && bodyH >= 10) {
+            const handleY = bodyY + 6;
+            const leftX = x + 4;
+            const rightX = x + w - 4;
+
+            ctx.save();
+            ctx.fillStyle = clip.selected ? 'rgba(255,255,255,0.98)' : 'rgba(238,245,255,0.9)';
+            ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+            ctx.lineWidth = 1;
+
+            ctx.beginPath();
+            ctx.arc(leftX, handleY, FADE_GRAB_RADIUS, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(rightX, handleY, FADE_GRAB_RADIUS, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            const curveIn = Math.max(0.05, Math.min(0.95, clip.fadeInCurve ?? 0.5));
+            const curveOut = Math.max(0.05, Math.min(0.95, clip.fadeOutCurve ?? 0.5));
+            const fadeInWidth = w * Math.max(0, Math.min(0.5, clip.fadeIn ?? 0));
+            const fadeOutWidth = w * Math.max(0, Math.min(0.5, clip.fadeOut ?? 0));
+            const bodyBottom = bodyY + bodyH - 2;
+
+            if (clip.showFadeInCurvePoint && fadeInWidth > 0) {
+                const pX = x + fadeInWidth * curveIn;
+                const pY = bodyBottom - (bodyH * curveIn);
+                ctx.beginPath();
+                ctx.arc(pX, pY, 3.2, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 196, 96, 0.98)';
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+                ctx.stroke();
+            }
+
+            if (clip.showFadeOutCurvePoint && fadeOutWidth > 0) {
+                const pX = x + w - fadeOutWidth * curveOut;
+                const pY = bodyBottom - (bodyH * curveOut);
+                ctx.beginPath();
+                ctx.arc(pX, pY, 3.2, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 196, 96, 0.98)';
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+                ctx.stroke();
+            }
             ctx.restore();
         }
     }

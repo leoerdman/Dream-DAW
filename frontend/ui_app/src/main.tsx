@@ -1,10 +1,13 @@
 /* eslint-disable react-refresh/only-export-components */
-import { StrictMode, useState, Component } from 'react'
+import { StrictMode, useState, useEffect, Component } from 'react'
 import type { ReactNode, ErrorInfo } from 'react'
 import { createRoot } from 'react-dom/client'
 import './global.css'
 import { Workspace } from '@/pages/Workspace'
 import { SplashScreen } from '@/widgets/SplashScreen'
+
+const img = new Image()
+img.src = '/appicon.png'
 
 // ── Error Boundary: catch runtime crashes and show them visually ──
 class ErrorBoundary extends Component<
@@ -47,18 +50,33 @@ class ErrorBoundary extends Component<
 
 function App() {
   const [splashDone, setSplashDone] = useState(false)
+  const [windowExpanded, setWindowExpanded] = useState(false)
+
+  useEffect(() => {
+    import('@/shared/api/engine').then(async (engineApi) => {
+      await engineApi.expandWindow()
+      setWindowExpanded(true)
+    }).catch(() => {
+      setWindowExpanded(true)
+    })
+  }, [])
+
+  const handleSplashComplete = () => {
+    setSplashDone(true)
+    setTimeout(() => {
+      import('@/shared/api/engine').then(engineApi => {
+        engineApi.maximizeWindow().catch(() => {})
+      })
+    }, 400)
+  }
 
   return (
     <>
-      {/* Splash overlay: shows in the small 500×500 borderless window.
-          When complete, the Rust expand_window has ALREADY run (hide → maximize → show)
-          and telemetry + fetchProject are ready. onComplete unmounts splash and mounts workspace.
-          The workspace is already the content when the maximized window becomes visible. */}
-      {!splashDone && <SplashScreen onComplete={() => setSplashDone(true)} />}
+      {/* Show splash in expanded window */}
+      {!splashDone && <SplashScreen onComplete={handleSplashComplete} />}
 
-      {/* Workspace mounts ONLY after splash is done.
-          By this point the window is already maximized and the store has data. */}
-      {splashDone && (
+      {/* Workspace mounts ONLY after splash is done, window is already maximized */}
+      {splashDone && windowExpanded && (
         <ErrorBoundary>
           <Workspace />
         </ErrorBoundary>

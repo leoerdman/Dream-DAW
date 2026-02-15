@@ -68,6 +68,8 @@ interface DeviceSlot {
     isVst: boolean;
     source: 'internal' | 'vst' | 'unknown';
     samplePath?: string;
+    supportsSidechain?: boolean;
+    sidechainSourceTrackId?: string | null;
 }
 
 const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<
@@ -344,6 +346,7 @@ export const DeviceRack = ({
     const fetchProject = useEngineStore((s) => s.fetchProject);
     const rackRef = useRef<HTMLDivElement>(null);
     const [isDropActive, setIsDropActive] = useState(false);
+    const draggingItem = useDragStore((s) => s.draggingItem);
 
     // ── Automation context menu state ──
     const [autoCtxMenu, setAutoCtxMenu] = useState<{
@@ -393,14 +396,26 @@ export const DeviceRack = ({
             ? vuNorm(meters.tracks[trackIndex][1].peak)
             : 0;
 
-    // Track display name
     const trackName = isMaster
         ? 'Master'
         : trackIndex >= 0
             ? projectTracks[trackIndex].name
             : 'No Track';
 
-    const selectedTrack = trackIndex >= 0 ? projectTracks[trackIndex] : null;
+    const masterProjectTrack = useMemo(
+        () => projectTracks.find((t) => t.track_type === 'Master') ?? null,
+        [projectTracks],
+    );
+    const selectedTrack = isMaster
+        ? masterProjectTrack
+        : (trackIndex >= 0 ? projectTracks[trackIndex] : null);
+    const dropTargetTrack = selectedTrack;
+    const sidechainOptions = useMemo(
+        () => projectTracks
+            .filter((t) => t.id !== (selectedTrack?.id ?? ''))
+            .map((t) => ({ id: t.id, name: t.name })),
+        [projectTracks, selectedTrack?.id],
+    );
     const mapExternalParams = useCallback((params: engineApi.ExternalPluginParamInfo[]): PluginParam[] =>
         params.map((p) => ({
             name: p.name,
@@ -438,7 +453,7 @@ export const DeviceRack = ({
     }, [mapExternalParams]);
 
     const chain = useMemo((): DeviceSlot[] => {
-        if (!selectedTrack || isMaster) return [];
+        if (!selectedTrack) return [];
 
         const nodes = [
             ...(selectedTrack.instrument ? [selectedTrack.instrument] : []),
@@ -451,6 +466,7 @@ export const DeviceRack = ({
             plugin_id?: string;
             is_bypassed?: boolean;
             external_parameter_count?: number;
+            sidechain_source_track_id?: string | null;
             type?: string;
             rack_type?: string;
         };
@@ -580,6 +596,8 @@ export const DeviceRack = ({
                 pluginId,
                 isVst,
                 source: isInternal ? 'internal' : isVst ? 'vst' : 'unknown',
+                supportsSidechain: isVst && effectType === 'vst',
+                sidechainSourceTrackId: slot.sidechain_source_track_id ?? null,
                 samplePath: effectType === 'sampler' || effectType === 'instrument' || effectType === 'waveSynth'
                     ? (selectedTrack.sampler?.sample_path ?? undefined)
                     : undefined,
@@ -587,7 +605,7 @@ export const DeviceRack = ({
         };
 
         return nodes.map(nodeToSlot).filter((s): s is DeviceSlot => s !== null);
-    }, [selectedTrack, localBypass, localParams, isMaster, outLevel, externalParamsByPluginId]);
+    }, [selectedTrack, localBypass, localParams, outLevel, externalParamsByPluginId]);
 
     useEffect(() => {
         const openVstPluginIds = Array.from(
@@ -621,20 +639,32 @@ export const DeviceRack = ({
         };
     }, [chain, inlineSettingsOpen, refreshExternalPluginParams]);
 
+    const setPluginSidechainSource = useCallback(async (slotId: string, sourceTrackId: string) => {
+        if (!selectedTrack) return;
+        try {
+            await engineApi.setPluginSidechainSource(selectedTrack.id, slotId, sourceTrackId || 'none');
+            await fetchProject();
+            statusClear();
+        } catch (err) {
+            console.error('[DeviceRack] setPluginSidechainSource failed:', err);
+            statusError('Failed to set plugin sidechain source.');
+        }
+    }, [selectedTrack, fetchProject, statusClear, statusError]);
+
     const toggleDevice = useCallback((device: DeviceSlot) => {
         const currentBypassed = localBypass[device.id] ?? !device.isEnabled;
         const nextBypassed = !currentBypassed;
         setLocalBypass((prev) => ({ ...prev, [device.id]: nextBypassed }));
 
         // Internal effects are processed by runtime device chain -> keep bypass in sync.
-        if (!selectedTrack || selectedTrackId === 'master' || device.source !== 'internal') return;
+        if (!selectedTrack || device.source !== 'internal') return;
         const trackIdx = projectTracks.findIndex((t) => t.id === selectedTrack.id);
         const slotIdx = selectedTrack.effects.findIndex((fx) => fx.id === device.id);
         if (trackIdx < 0 || slotIdx < 0) return;
         void engineApi.bypassDevice(trackIdx, slotIdx, nextBypassed).catch((err) => {
             console.error('[DeviceRack] bypassDevice failed:', err);
         });
-    }, [localBypass, selectedTrack, selectedTrackId, projectTracks]);
+    }, [localBypass, selectedTrack, projectTracks]);
 
     const setPluginParam = useCallback((deviceId: string, paramName: string, value: number) => {
         setLocalParams((prev) => ({ ...prev, [`${deviceId}:${paramName}`]: value }));
@@ -642,7 +672,7 @@ export const DeviceRack = ({
 
     const sendInternalParam = useCallback(
         (device: DeviceSlot, paramName: string, value: number) => {
-            if (!selectedTrack || selectedTrackId === 'master') return;
+            if (!selectedTrack) return;
             if (device.source === 'vst') {
                 const idxFromList = device.params.findIndex((p) => p.name === paramName);
                 const idxFromName = (() => {
@@ -745,7 +775,7 @@ export const DeviceRack = ({
             }
             sender(value);
         },
-        [selectedTrack, selectedTrackId, projectTracks, statusError],
+        [selectedTrack, projectTracks, statusError],
     );
 
     useEffect(() => {
@@ -774,7 +804,7 @@ export const DeviceRack = ({
             if ((e.key !== 'Delete' && e.key !== 'Backspace') || selectedDeviceIds.length === 0) return;
             const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
             if (tag === 'input' || tag === 'textarea' || (e.target as HTMLElement | null)?.isContentEditable) return;
-            if (!selectedTrack || selectedTrackId === 'master') return;
+            if (!selectedTrack) return;
             e.preventDefault();
             try {
                 for (const deviceId of selectedDeviceIds) {
@@ -798,7 +828,7 @@ export const DeviceRack = ({
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [selectedDeviceIds, selectedTrack, selectedTrackId, openGuiDevice, fetchProject, statusClear, statusError]);
+    }, [selectedDeviceIds, selectedTrack, openGuiDevice, fetchProject, statusClear, statusError]);
 
     useEffect(() => {
         let cancelled = false;
@@ -841,7 +871,7 @@ export const DeviceRack = ({
     useEffect(() => {
         const onMouseMove = (e: MouseEvent) => {
             const dragging = useDragStore.getState().draggingItem;
-            if (!dragging || isMaster || !canDropInZone(dragging, 'device-rack').allowed) {
+            if (!dragging || !dropTargetTrack || !canDropInZone(dragging, 'device-rack').allowed) {
                 if (isDropActive) {
                     setIsDropActive(false);
                 }
@@ -861,7 +891,7 @@ export const DeviceRack = ({
 
         const onMouseUp = async (e: MouseEvent) => {
             const dragging = useDragStore.getState().draggingItem;
-            if (!dragging || isMaster || !canDropInZone(dragging, 'device-rack').allowed) return;
+            if (!dragging || !dropTargetTrack || !canDropInZone(dragging, 'device-rack').allowed) return;
             const rect = rackRef.current?.getBoundingClientRect();
             if (!rect) return;
             const inside =
@@ -874,7 +904,7 @@ export const DeviceRack = ({
                 return;
             }
 
-            const targetTrack = selectedTrack ?? projectTracks[0] ?? null;
+            const targetTrack = dropTargetTrack;
             if (!targetTrack) {
                 statusError('No target track selected.');
                 useDragStore.getState().endDrag();
@@ -919,7 +949,7 @@ export const DeviceRack = ({
             window.removeEventListener('mousemove', onMouseMove);
             window.removeEventListener('mouseup', onMouseUp, true);
         };
-    }, [isDropActive, isMaster, selectedTrack, projectTracks, fetchProject, statusClear, statusError, onDropPluginToTrack]);
+    }, [isDropActive, dropTargetTrack, fetchProject, statusClear, statusError, onDropPluginToTrack]);
 
     const selectDevice = useCallback((deviceId: string, additive: boolean) => {
         setSelectedDeviceIds((prev) => {
@@ -943,12 +973,11 @@ export const DeviceRack = ({
                     flexDirection: 'column',
                     height: '100%',
                     background: 'var(--color-bg-panel)',
+                    position: 'relative',
                     outline: isDropActive ? '2px solid var(--color-accent-primary)' : 'none',
                     boxShadow: isDropActive ? 'inset 0 0 0 1px rgba(74, 144, 217, 0.35)' : 'none',
                 }}>
 
-
-                {/* ── Header Bar ── */}
                 <div style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -966,13 +995,7 @@ export const DeviceRack = ({
                         textTransform: 'uppercase',
                         letterSpacing: '0.05em',
                     }}>
-                        ⛓ {trackName} — Instrument & Effects Chain · {chain.length} devices
-                    </span>
-                    <span style={{
-                        fontSize: 'var(--font-size-2xs)',
-                        color: 'var(--color-text-tertiary)',
-                    }}>
-                        {trackName}
+                        {trackName} - Instrument & Effects Chain - {chain.length} devices
                     </span>
                 </div>
 
@@ -1029,8 +1052,13 @@ export const DeviceRack = ({
                                     }}
                                     onParamContextMenu={(e, paramName) => handleParamContextMenu(e, paramName, device.id)}
                                     showSettings={device.effectType === 'utility' ? false : !!inlineSettingsOpen[device.id]}
+                                    sidechainSourceTrackId={device.sidechainSourceTrackId ?? 'none'}
+                                    sidechainOptions={sidechainOptions}
+                                    onSidechainSourceChange={(sourceTrackId) => {
+                                        void setPluginSidechainSource(device.id, sourceTrackId);
+                                    }}
                                     onDropSample={async (samplePath) => {
-                                        if (!selectedTrack || selectedTrackId === 'master') return;
+                                        if (!selectedTrack) return;
                                         try {
                                             const normalizedPath = normalizePickedPath(samplePath);
                                             if (!normalizedPath) {
@@ -1047,7 +1075,7 @@ export const DeviceRack = ({
                                         }
                                     }}
                                     onLoadSample={async () => {
-                                        if (!selectedTrack || selectedTrackId === 'master') return;
+                                        if (!selectedTrack) return;
                                         try {
                                             const { open } = await import('@tauri-apps/plugin-dialog');
                                             const picked = await open({
@@ -1169,6 +1197,29 @@ export const DeviceRack = ({
                     </button>
                 </div>
 
+                {isDropActive && draggingItem?.type === 'plugin' && (
+                    <div
+                        style={{
+                            position: 'absolute',
+                            right: 10,
+                            top: 10,
+                            zIndex: 20,
+                            border: '1px solid color-mix(in srgb, var(--color-accent-primary) 65%, #ffffff22)',
+                            borderRadius: 6,
+                            padding: '5px 8px',
+                            background: 'color-mix(in srgb, var(--color-bg-panel) 72%, var(--color-accent-primary) 28%)',
+                            color: 'var(--color-text-primary)',
+                            fontSize: 10,
+                            fontWeight: 700,
+                            letterSpacing: '0.03em',
+                            pointerEvents: 'none',
+                            textTransform: 'uppercase',
+                        }}
+                    >
+                        Drop Plugin: {draggingItem.name}
+                    </div>
+                )}
+
             </div>
             {openGuiDevice && openGuiDevice.isVst && (
                 <PluginWindow
@@ -1188,7 +1239,7 @@ export const DeviceRack = ({
                             sendInternalParam(openGuiDevice, name, value);
                         }}
                         onDropSample={async (samplePath) => {
-                            if (!selectedTrack || selectedTrackId === 'master') return;
+                            if (!selectedTrack) return;
                             try {
                                 const normalizedPath = normalizePickedPath(samplePath);
                                 if (!normalizedPath) {
@@ -1204,7 +1255,7 @@ export const DeviceRack = ({
                             }
                         }}
                         onLoadSample={async () => {
-                            if (!selectedTrack || selectedTrackId === 'master') return;
+                            if (!selectedTrack) return;
                             try {
                                 const { open } = await import('@tauri-apps/plugin-dialog');
                                 const picked = await open({
@@ -1348,6 +1399,9 @@ const DeviceNode = ({
     onLoadSample,
     editorSupported, editorReason,
     onParamContextMenu,
+    sidechainSourceTrackId,
+    sidechainOptions,
+    onSidechainSourceChange,
 }: {
     order: number;
     device: DeviceSlot;
@@ -1363,6 +1417,9 @@ const DeviceNode = ({
     editorSupported?: boolean;
     editorReason?: string;
     onParamContextMenu?: (e: React.MouseEvent, paramName: string) => void;
+    sidechainSourceTrackId?: string;
+    sidechainOptions?: Array<{ id: string; name: string }>;
+    onSidechainSourceChange?: (sourceTrackId: string) => void;
 }) => {
     // Color per device type (matching Ableton's device categories)
     const typeColorMap: Record<string, string> = {
@@ -1545,6 +1602,9 @@ const DeviceNode = ({
                         device={device}
                         onParamChange={onParamChange}
                         onLoadSample={onLoadSample}
+                        sidechainSourceTrackId={sidechainSourceTrackId}
+                        sidechainOptions={sidechainOptions}
+                        onSidechainSourceChange={onSidechainSourceChange}
                     />
                 </div>
             ) : device.source === 'internal' ? (
@@ -1609,23 +1669,25 @@ const headerIconBtnStyle = (disabled: boolean, active = false) =>
 const pluginPanelLayoutStyle: React.CSSProperties = {
     display: 'grid',
     gridTemplateRows: '90px auto',
-    gap: 8,
+    gap: 10,
     height: '100%',
 };
 
 const pluginPanelCardBaseStyle: React.CSSProperties = {
-    border: '1px solid color-mix(in srgb, var(--surface-3) 82%, #4d4d4d)',
-    borderRadius: 6,
-    padding: '8px 10px',
+    border: '1px solid color-mix(in srgb, var(--surface-3) 74%, #5f6f86)',
+    borderRadius: 8,
+    padding: '10px 12px',
     display: 'grid',
     gridTemplateRows: '1fr auto',
-    gap: 6,
+    gap: 8,
+    background: 'linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 88%, #172033) 0%, color-mix(in srgb, var(--surface-1) 92%, #0e1523) 100%)',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 6px 18px rgba(0,0,0,0.24)',
 };
 
 const pluginPanelTitleStyle: React.CSSProperties = {
-    fontSize: 9,
-    color: 'var(--color-text-secondary)',
-    letterSpacing: '0.03em',
+    fontSize: 10,
+    color: '#d2e2ff',
+    letterSpacing: '0.05em',
     textTransform: 'uppercase',
     fontWeight: 700,
 };
@@ -1633,8 +1695,8 @@ const pluginPanelTitleStyle: React.CSSProperties = {
 const pluginPanelMetaStyle: React.CSSProperties = {
     display: 'flex',
     justifyContent: 'space-between',
-    fontSize: 9,
-    color: 'var(--color-text-secondary)',
+    fontSize: 10,
+    color: 'color-mix(in srgb, var(--color-text-secondary) 82%, #8ab7ff)',
     fontFamily: 'var(--font-mono)',
 };
 
@@ -1642,7 +1704,7 @@ const pluginPanelKnobGrid = (columns: string): React.CSSProperties => ({
     display: 'grid',
     gridTemplateColumns: columns,
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
 });
 
 const PluginGuiSurface = ({
@@ -2517,12 +2579,58 @@ const PluginSettingsPanel = ({
     device,
     onParamChange,
     onLoadSample,
+    sidechainSourceTrackId = 'none',
+    sidechainOptions = [],
+    onSidechainSourceChange,
 }: {
     device: DeviceSlot;
     onParamChange: (paramName: string, value: number) => void;
     onLoadSample?: () => void;
+    sidechainSourceTrackId?: string;
+    sidechainOptions?: Array<{ id: string; name: string }>;
+    onSidechainSourceChange?: (sourceTrackId: string) => void;
 }) => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {device.supportsSidechain && (
+            <div
+                style={{
+                    display: 'grid',
+                    gap: 4,
+                    width: 240,
+                    maxWidth: '100%',
+                }}
+            >
+                <span
+                    style={{
+                        fontSize: 10,
+                        color: 'var(--color-text-tertiary)',
+                        fontWeight: 700,
+                        letterSpacing: '0.04em',
+                        textTransform: 'uppercase',
+                    }}
+                >
+                    Side Chain
+                </span>
+                <select
+                    value={sidechainSourceTrackId || 'none'}
+                    onChange={(e) => onSidechainSourceChange?.(e.target.value)}
+                    style={{
+                        border: '1px solid var(--color-divider)',
+                        borderRadius: 4,
+                        background: 'var(--color-bg-header)',
+                        color: 'var(--color-text-primary)',
+                        fontSize: 11,
+                        padding: '5px 7px',
+                        outline: 'none',
+                    }}
+                >
+                    <option value="none">None</option>
+                    {sidechainOptions.map((track) => (
+                        <option key={track.id} value={track.id}>{track.name}</option>
+                    ))}
+                </select>
+            </div>
+        )}
         {device.effectType === 'sampler' && (
             <button
                 type="button"

@@ -133,6 +133,9 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 e.preventDefault();
                 e.stopPropagation();
 
+                // Space always stops browser preview first.
+                void engine.stopPreview().catch(() => { });
+
                 onTogglePlayback();
                 return;
             }
@@ -505,6 +508,23 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 const transport = store.transport;
                 const bpm = store.projectBpm || transport.bpm || 120;
                 const sr = store.projectSampleRate || transport.sample_rate || 44100;
+
+                const marqueeStartBeat = marqueeSelection
+                    ? Math.min(marqueeSelection.startBeat, marqueeSelection.endBeat)
+                    : 0;
+                const marqueeEndBeat = marqueeSelection
+                    ? Math.max(marqueeSelection.startBeat, marqueeSelection.endBeat)
+                    : 0;
+                const hasMarqueeRange = Boolean(marqueeSelection) && marqueeEndBeat - marqueeStartBeat > 1e-6;
+
+                if (hasMarqueeRange) {
+                    const beatsToFrames = (beat: number) =>
+                        Math.round((beat * 60 * sr) / bpm);
+                    const startFrames = beatsToFrames(Math.max(0, marqueeStartBeat));
+                    const endFrames = beatsToFrames(Math.max(marqueeStartBeat + 0.25, marqueeEndBeat));
+                    store.setLoop(true, startFrames, endFrames);
+                    return;
+                }
 
                 // If loop is already on, toggle OFF
                 if (transport.loop_enabled) {

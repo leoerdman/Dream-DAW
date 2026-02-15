@@ -545,6 +545,7 @@ async fn paint_track_clips_with_track_color_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track ID: {e}"))?;
     push_undo(&project_state)?;
@@ -557,27 +558,37 @@ async fn paint_track_clips_with_track_color_cmd(
         .ok_or_else(|| format!("Track not found: {track_id}"))?;
 
     let mut changed = false;
+    let target_color = track.color.clone();
+    let target_color_hex = track.color_hex.clone();
 
     for clip in &mut track.clips {
-        if clip.color_override.is_some() || clip.color_hex.is_some() {
+        if clip.color_override.as_ref() != Some(&target_color)
+            || clip.color_hex != target_color_hex
+        {
             changed = true;
         }
-        clip.color_override = None;
-        clip.color_hex = None;
+        clip.color_override = Some(target_color.clone());
+        clip.color_hex = target_color_hex.clone();
     }
 
     for clip in &mut track.midi_clips {
-        if clip.color_override.is_some() || clip.color_hex.is_some() {
+        if clip.color_override.as_ref() != Some(&target_color)
+            || clip.color_hex != target_color_hex
+        {
             changed = true;
         }
-        clip.color_override = None;
-        clip.color_hex = None;
+        clip.color_override = Some(target_color.clone());
+        clip.color_hex = target_color_hex.clone();
     }
 
     if changed {
-        *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
         clip_pool_state.rebuild_snapshot(&project);
         rebuild_midi_snapshot_from_project(&project, &handle);
+        let project_name = project.name.clone();
+        drop(project);
+        project_state.mark_dirty(&project_name, Some(&app))?;
+    } else {
+        drop(project);
     }
 
     Ok(())

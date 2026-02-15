@@ -1,53 +1,55 @@
 // ═══════════════════════════════════════════════════════════════════════
 
-/// Expands the main window from splash mode (500×500) to full DAW mode.
+/// Configures the main window for DAW mode by adding decorations and enabling resizing.
 ///
-/// Called from the React splash screen after the loading animation completes.
-/// This provides the native "small window → big window" UX identical to
-/// the original Swift implementation.
+/// Called from React at app startup.
+/// Window already starts at 1400×900, this just adds the title bar and makes it resizable.
 ///
 /// Transitions:
-///   500×500 borderless → maximized with decorations + resizable + fullscreen button
+///   1400×900 borderless → 1400×900 with decorations + resizable + fullscreen button
 #[tauri::command]
 fn expand_window(app: tauri::AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
         .ok_or("Main window not found")?;
 
-    // ── Phase 1: Hide the splash window (avoids visual glitch during reconfigure) ──
-    window.hide()
-        .map_err(|e| format!("Failed to hide window: {e}"))?;
-
-    // ── Phase 2: Reconfigure window for DAW mode ──
+    // ── Phase 1: Reconfigure window for DAW mode ──
     // Enable decorations (title bar with traffic lights: red/yellow/GREEN fullscreen)
-    window.set_decorations(true)
+    window
+        .set_decorations(true)
         .map_err(|e| format!("Failed to set decorations: {e}"))?;
 
     // Enable resizing (required for green fullscreen button to work on macOS)
-    window.set_resizable(true)
+    window
+        .set_resizable(true)
         .map_err(|e| format!("Failed to set resizable: {e}"))?;
 
     // Minimum size so the DAW doesn't get too small
     let min_size = tauri::LogicalSize::new(900.0_f64, 600.0_f64);
-    window.set_min_size(Some(min_size))
+    window
+        .set_min_size(Some(min_size))
         .map_err(|e| format!("Failed to set min size: {e}"))?;
 
-    // ── Phase 3: Maximize to fill screen (minus Dock & menu bar) ──
-    window.maximize()
-        .map_err(|e| format!("Failed to maximize: {e}"))?;
-
-    // Brief delay to let macOS window manager finish compositing
-    std::thread::sleep(std::time::Duration::from_millis(80));
-
-    // ── Phase 4: Show the fully-configured DAW window ──
-    window.show()
-        .map_err(|e| format!("Failed to show window: {e}"))?;
-
     // Focus the window so it's the frontmost app
-    window.set_focus()
+    window
+        .set_focus()
         .map_err(|e| format!("Failed to focus window: {e}"))?;
 
-    log::info!("[Splash] Window expanded to maximized DAW mode");
+    log::info!("[Splash] Window configured for DAW mode");
     Ok(())
 }
 
+/// Maximizes the main window to fill the screen.
+#[tauri::command]
+fn maximize_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or("Main window not found")?;
+
+    window
+        .maximize()
+        .map_err(|e| format!("Failed to maximize: {e}"))?;
+
+    log::info!("[Splash] Window maximized");
+    Ok(())
+}

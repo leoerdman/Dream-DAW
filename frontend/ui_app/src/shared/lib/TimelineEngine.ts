@@ -49,6 +49,12 @@ export interface HitTestResult {
     region?: 'header' | 'body';
     /** If the cursor is near a clip edge, indicates which edge. */
     edge?: 'left' | 'right';
+    /** If the cursor is on a clip fade handle hotspot. */
+    fadeHandle?: 'in' | 'out';
+    /** If the cursor is on a fade curve control point. */
+    fadeCurveHandle?: 'in' | 'out';
+    /** If cursor is inside fade region body. */
+    fadeZone?: 'in' | 'out';
     /** If the cursor is near a loop marker handle on the ruler. */
     loopHandle?: 'start' | 'end';
 }
@@ -72,9 +78,12 @@ const EDGE_GRIP_PX = 8;
 const CLIP_HEADER_HEIGHT_PX = 22;
 /** Minimum loop region length in beats (1 bar in 4/4 time). */
 const MIN_LOOP_BEATS = 4;
+/** Fade handle hotspot width inside clip (in screen pixels). */
+const FADE_HANDLE_HOTSPOT_PX = 12;
+const FADE_CURVE_HANDLE_RADIUS_PX = 6;
 
 /** Drag state machine. */
-type DragMode = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+type DragMode = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
 const DragMode = {
     None: 0 as const,
     ClipMove: 1 as const,
@@ -84,6 +93,10 @@ const DragMode = {
     ClipResizeRight: 5 as const,
     LoopStartMove: 6 as const,
     LoopEndMove: 7 as const,
+    ClipFadeIn: 8 as const,
+    ClipFadeOut: 9 as const,
+    ClipFadeInCurve: 10 as const,
+    ClipFadeOutCurve: 11 as const,
 };
 
 interface DragState {
@@ -104,6 +117,14 @@ interface DragState {
     clipOriginalTrack: number;
     /** Original clip durationBeats (for resize operations). */
     clipOriginalDuration: number;
+    /** Original clip fade-in amount (fraction 0..1). */
+    clipOriginalFadeIn?: number;
+    /** Original clip fade-out amount (fraction 0..1). */
+    clipOriginalFadeOut?: number;
+    /** Original clip fade-in curve (0.05..0.95). */
+    clipOriginalFadeInCurve?: number;
+    /** Original clip fade-out curve (0.05..0.95). */
+    clipOriginalFadeOutCurve?: number;
 }
 
 // ── Engine Class ──────────────────────────────────────────────────────────
@@ -131,6 +152,7 @@ export class TimelineEngine {
     private _dropTarget: { track: number; beat: number } | null = null;
     private _marquee: MarqueeSelection | null = null;
     private _trimPreview: TrimPreviewState | null = null;
+    private _fadeCurvePoints: Record<string, { in: boolean; out: boolean }> = {};
 
     // ── Config ────────────────────────────────────────────────────────
     private _beatsPerBar: number;
@@ -167,6 +189,8 @@ export class TimelineEngine {
     onClipClick?: (clipId: string, addToSelection: boolean) => void;
     onClipMove?: (clipId: string, newBeat: number, newTrack: number) => void;
     onClipResize?: (clipId: string, newStartBeat: number, newDuration: number) => void;
+    onClipFades?: (clipId: string, fadeInFrames: number, fadeOutFrames: number) => void;
+    onClipFadeCurves?: (clipId: string, fadeInCurve: number, fadeOutCurve: number) => void;
     onPlayheadSeek?: (beat: number) => void;
     onEditCursorChange?: (beat: number, trackIndex: number) => void;
     onDoubleClickTrack?: (trackIndex: number, beat: number) => void;
@@ -292,7 +316,14 @@ export class TimelineEngine {
     // ═══════════════════════════════════════════════════════════════════
 
     setClips(clips: TimelineClipData[]): void {
-        this._clips = clips;
+        this._clips = clips.map((clip) => {
+            const flags = this._fadeCurvePoints[clip.id];
+            return {
+                ...clip,
+                showFadeInCurvePoint: Boolean(flags?.in),
+                showFadeOutCurvePoint: Boolean(flags?.out),
+            };
+        });
         this._viewport.clearDirty(); // Force redraw
         this._prefetchVisibleWaveforms();
         this._requestRedraw();
@@ -564,10 +595,50 @@ export class TimelineEngine {
                 const clipTopPx =
                     this._viewport.rulerHeight + clip.trackIndex * this._viewport.trackHeight - this._viewport.scrollY;
                 const localYInClip = Math.max(0, clientY - rect.top - clipTopPx);
+                const localYPx = clientY - rect.top;
                 const region: 'header' | 'body' =
                     localYInClip <= Math.min(CLIP_HEADER_HEIGHT_PX, this._viewport.trackHeight - 2)
                         ? 'header'
                         : 'body';
+
+                const fadeBody = this._getFadeBodyBounds(clipTopPx);
+                const inFadeBody = localYPx >= fadeBody.top && localYPx <= fadeBody.bottom;
+
+                let fadeZone: 'in' | 'out' | undefined;
+                const clipWidthPx = Math.max(1, clipRightPx - clipLeftPx);
+                const fadeInWidthPx = clipWidthPx * this._clampFadeFraction(clip.fadeIn ?? 0);
+                const fadeOutWidthPx = clipWidthPx * this._clampFadeFraction(clip.fadeOut ?? 0);
+                if (inFadeBody) {
+                    if (fadeInWidthPx > 0 && localX >= clipLeftPx && localX <= clipLeftPx + fadeInWidthPx) {
+                        fadeZone = 'in';
+                    } else if (fadeOutWidthPx > 0 && localX <= clipRightPx && localX >= clipRightPx - fadeOutWidthPx) {
+                        fadeZone = 'out';
+                    }
+                }
+
+                let fadeHandle: 'in' | 'out' | undefined;
+                if (inFadeBody) {
+                    if (localX >= clipLeftPx && localX <= clipLeftPx + FADE_HANDLE_HOTSPOT_PX) {
+                        fadeHandle = 'in';
+                    } else if (localX <= clipRightPx && localX >= clipRightPx - FADE_HANDLE_HOTSPOT_PX) {
+                        fadeHandle = 'out';
+                    }
+                }
+
+                let fadeCurveHandle: 'in' | 'out' | undefined;
+                const showCurveFlags = this._fadeCurvePoints[clip.id];
+                if (showCurveFlags?.in) {
+                    const p = this._getFadeCurveHandlePosition(clipLeftPx, clipRightPx, clipTopPx, clip, 'in');
+                    if (p && Math.hypot(localX - p.x, localYPx - p.y) <= FADE_CURVE_HANDLE_RADIUS_PX) {
+                        fadeCurveHandle = 'in';
+                    }
+                }
+                if (!fadeCurveHandle && showCurveFlags?.out) {
+                    const p = this._getFadeCurveHandlePosition(clipLeftPx, clipRightPx, clipTopPx, clip, 'out');
+                    if (p && Math.hypot(localX - p.x, localYPx - p.y) <= FADE_CURVE_HANDLE_RADIUS_PX) {
+                        fadeCurveHandle = 'out';
+                    }
+                }
 
                 let edge: 'left' | 'right' | undefined;
                 if (Math.abs(localX - clipLeftPx) <= EDGE_GRIP_PX) {
@@ -576,16 +647,90 @@ export class TimelineEngine {
                     edge = 'right';
                 }
 
+                if (fadeHandle || fadeCurveHandle) {
+                    edge = undefined;
+                }
+
                 // If we are NOT near an edge, but outside the actual clip bounds, ignore this clip
                 if (!edge && (localX < clipLeftPx || localX > clipRightPx)) {
                     continue;
                 }
 
-                return { type: 'clip', clipId: clip.id, beat, trackIndex, region, edge };
+                return { type: 'clip', clipId: clip.id, beat, trackIndex, region, edge, fadeHandle, fadeCurveHandle, fadeZone };
             }
         }
 
         return { type: 'track', beat, trackIndex };
+    }
+
+    private _selectClipsWithinMarquee(
+        startBeat: number,
+        endBeat: number,
+        startTrack: number,
+        endTrack: number,
+    ): void {
+        const minBeat = Math.min(startBeat, endBeat);
+        const maxBeat = Math.max(startBeat, endBeat);
+        const minTrack = Math.min(startTrack, endTrack);
+        const maxTrack = Math.max(startTrack, endTrack);
+        const visible = this._viewport.getVisibleRange();
+        const selectedIds = this._clips
+            .filter((clip) => {
+                const clipStart = clip.startBeat;
+                const clipEnd = clip.startBeat + clip.durationBeats;
+                if (
+                    clip.trackIndex < visible.startTrack ||
+                    clip.trackIndex > visible.endTrack ||
+                    clipEnd < visible.startBeat ||
+                    clipStart > visible.endBeat
+                ) {
+                    return false;
+                }
+                if (clip.trackIndex < minTrack || clip.trackIndex > maxTrack) return false;
+                return clipStart >= minBeat && clipEnd <= maxBeat;
+            })
+            .map((clip) => clip.id);
+
+        this.onClipBoxSelection?.(selectedIds);
+        this._setMarquee({
+            startBeat: minBeat,
+            endBeat: maxBeat,
+            startTrack: minTrack,
+            endTrack: maxTrack,
+        });
+    }
+
+    private _clampFadeCurve(value: number): number {
+        return Math.max(0.05, Math.min(0.95, value));
+    }
+
+    private _getFadeBodyBounds(clipTopPx: number): { top: number; bottom: number } {
+        const headerH = Math.min(CLIP_HEADER_HEIGHT_PX, this._viewport.trackHeight - 2);
+        const bodyTop = clipTopPx + headerH + 2;
+        const bodyBottom = clipTopPx + this._viewport.trackHeight - 2;
+        return { top: bodyTop, bottom: Math.max(bodyTop + 6, bodyBottom) };
+    }
+
+    private _getFadeCurveHandlePosition(
+        clipLeftPx: number,
+        clipRightPx: number,
+        clipTopPx: number,
+        clip: TimelineClipData,
+        side: 'in' | 'out',
+    ): { x: number; y: number } | null {
+        const clipWidth = Math.max(1, clipRightPx - clipLeftPx);
+        const fadeAmount = side === 'in' ? (clip.fadeIn ?? 0) : (clip.fadeOut ?? 0);
+        if (fadeAmount <= 0) return null;
+        const fadeWidth = Math.max(8, clipWidth * this._clampFadeFraction(fadeAmount));
+        const curve = side === 'in'
+            ? this._clampFadeCurve(clip.fadeInCurve ?? 0.5)
+            : this._clampFadeCurve(clip.fadeOutCurve ?? 0.5);
+        const body = this._getFadeBodyBounds(clipTopPx);
+        const handleY = body.bottom - (body.bottom - body.top) * curve;
+        const handleX = side === 'in'
+            ? clipLeftPx + fadeWidth * curve
+            : clipRightPx - fadeWidth * curve;
+        return { x: handleX, y: handleY };
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -653,15 +798,52 @@ export class TimelineEngine {
                 if (!clip) break;
 
                 // Body click behavior: place edit cursor only, do not alter clip selection.
-                if (hit.region === 'body' && !hit.edge) {
+                if (hit.region === 'body' && !hit.edge && !hit.fadeHandle && !hit.fadeCurveHandle) {
                     const snappedBeat = this._snapBeat(hit.beat);
                     this.onEditCursorChange?.(snappedBeat, hit.trackIndex);
                     this.onTrackSelect?.(hit.trackIndex);
                     break;
                 }
 
-                // Determine drag mode based on edge detection
-                if (hit.edge === 'left') {
+                if (hit.fadeCurveHandle === 'in' || hit.fadeCurveHandle === 'out') {
+                    this.onClipClick?.(hit.clipId, false);
+                    this.onTrackSelect?.(hit.trackIndex);
+                    this._drag = {
+                        mode: hit.fadeCurveHandle === 'in' ? DragMode.ClipFadeInCurve : DragMode.ClipFadeOutCurve,
+                        clipId: hit.clipId,
+                        startBeat: hit.beat,
+                        startTrack: hit.trackIndex,
+                        currentBeat: hit.beat,
+                        currentTrack: hit.trackIndex,
+                        clipOriginalBeat: clip.startBeat,
+                        clipOriginalTrack: clip.trackIndex,
+                        clipOriginalDuration: clip.durationBeats,
+                        clipOriginalFadeIn: this._clampFadeFraction(clip.fadeIn ?? 0),
+                        clipOriginalFadeOut: this._clampFadeFraction(clip.fadeOut ?? 0),
+                        clipOriginalFadeInCurve: this._clampFadeCurve(clip.fadeInCurve ?? 0.5),
+                        clipOriginalFadeOutCurve: this._clampFadeCurve(clip.fadeOutCurve ?? 0.5),
+                    };
+                    break;
+                }
+
+                if (hit.fadeHandle === 'in' || hit.fadeHandle === 'out') {
+                    this.onClipClick?.(hit.clipId, false);
+                    this.onTrackSelect?.(hit.trackIndex);
+                    this._drag = {
+                        mode: hit.fadeHandle === 'in' ? DragMode.ClipFadeIn : DragMode.ClipFadeOut,
+                        clipId: hit.clipId,
+                        startBeat: hit.beat,
+                        startTrack: hit.trackIndex,
+                        currentBeat: hit.beat,
+                        currentTrack: hit.trackIndex,
+                        clipOriginalBeat: clip.startBeat,
+                        clipOriginalTrack: clip.trackIndex,
+                        clipOriginalDuration: clip.durationBeats,
+                        clipOriginalFadeIn: this._clampFadeFraction(clip.fadeIn ?? 0),
+                        clipOriginalFadeOut: this._clampFadeFraction(clip.fadeOut ?? 0),
+                    };
+                } else if (hit.edge === 'left') {
+                    // Determine drag mode based on edge detection
                     // Start left-edge resize
                     this.onTrackSelect?.(hit.trackIndex);
                     this._drag = {
@@ -722,6 +904,13 @@ export class TimelineEngine {
             case 'track': {
                 // Empty area -> potential marquee box selection (grid-snapped).
                 const snappedBeat = this._snapBeat(hit.beat);
+                if (e.shiftKey && this._editCursorBeat >= 0) {
+                    const anchorBeat = this._snapBeat(Math.max(0, this._editCursorBeat));
+                    const anchorTrack = Math.max(0, Math.min(this._viewport.trackCount - 1, this._editCursorTrack));
+                    this.onMarqueeSelectionStart?.();
+                    this._selectClipsWithinMarquee(anchorBeat, snappedBeat, anchorTrack, hit.trackIndex);
+                    break;
+                }
                 this.onMarqueeSelectionStart?.();
                 this._drag = {
                     mode: DragMode.MarqueeSelect,
@@ -753,7 +942,11 @@ export class TimelineEngine {
         // ── Cursor management (when NOT dragging) ──
         if (this._drag.mode === DragMode.None) {
             const hit = this.hitTest(e.clientX, e.clientY);
-            if (hit.type === 'clip' && hit.edge) {
+            if (hit.type === 'clip' && hit.fadeCurveHandle) {
+                canvas.style.cursor = 'pointer';
+            } else if (hit.type === 'clip' && hit.fadeHandle) {
+                canvas.style.cursor = 'ew-resize';
+            } else if (hit.type === 'clip' && hit.edge) {
                 canvas.style.cursor = 'ew-resize';
             } else if (hit.type === 'clip' && hit.region === 'header') {
                 canvas.style.cursor = 'grab';
@@ -838,6 +1031,60 @@ export class TimelineEngine {
                     startBeat: this._drag.clipOriginalBeat,
                     durationBeats: newDuration,
                 };
+                this._requestRedraw();
+                break;
+            }
+
+            case DragMode.ClipFadeIn: {
+                canvas.style.cursor = 'ew-resize';
+                if (!this._drag.clipId) break;
+                const clip = this._clips.find((c) => c.id === this._drag.clipId);
+                if (!clip || clip.durationBeats <= 0) break;
+                const deltaBeats = beat - this._drag.startBeat;
+                const deltaFraction = deltaBeats / clip.durationBeats;
+                clip.fadeIn = this._clampFadeFraction((this._drag.clipOriginalFadeIn ?? 0) + deltaFraction);
+                this._requestRedraw();
+                break;
+            }
+
+            case DragMode.ClipFadeOut: {
+                canvas.style.cursor = 'ew-resize';
+                if (!this._drag.clipId) break;
+                const clip = this._clips.find((c) => c.id === this._drag.clipId);
+                if (!clip || clip.durationBeats <= 0) break;
+                const deltaBeats = beat - this._drag.startBeat;
+                const deltaFraction = deltaBeats / clip.durationBeats;
+                clip.fadeOut = this._clampFadeFraction((this._drag.clipOriginalFadeOut ?? 0) - deltaFraction);
+                this._requestRedraw();
+                break;
+            }
+
+            case DragMode.ClipFadeInCurve:
+            case DragMode.ClipFadeOutCurve: {
+                canvas.style.cursor = 'pointer';
+                if (!this._drag.clipId || !canvas) break;
+                const clip = this._clips.find((c) => c.id === this._drag.clipId);
+                if (!clip) break;
+                const rect = canvas.getBoundingClientRect();
+                const localX = e.clientX - rect.left;
+                const localY = e.clientY - rect.top;
+                const clipLeftPx = this._viewport.beatsToScreenX(clip.startBeat);
+                const clipRightPx = this._viewport.beatsToScreenX(clip.startBeat + clip.durationBeats);
+                const clipTopPx =
+                    this._viewport.rulerHeight + clip.trackIndex * this._viewport.trackHeight - this._viewport.scrollY;
+                const body = this._getFadeBodyBounds(clipTopPx);
+                const bodyHeight = Math.max(6, body.bottom - body.top);
+                const yCurve = this._clampFadeCurve((body.bottom - localY) / bodyHeight);
+
+                if (this._drag.mode === DragMode.ClipFadeInCurve) {
+                    const fadeWidth = Math.max(8, (clipRightPx - clipLeftPx) * this._clampFadeFraction(clip.fadeIn ?? 0));
+                    const xCurve = this._clampFadeCurve((localX - clipLeftPx) / Math.max(1, fadeWidth));
+                    clip.fadeInCurve = this._clampFadeCurve((xCurve * 0.7) + (yCurve * 0.3));
+                } else {
+                    const fadeWidth = Math.max(8, (clipRightPx - clipLeftPx) * this._clampFadeFraction(clip.fadeOut ?? 0));
+                    const xCurve = this._clampFadeCurve((clipRightPx - localX) / Math.max(1, fadeWidth));
+                    clip.fadeOutCurve = this._clampFadeCurve((xCurve * 0.7) + (yCurve * 0.3));
+                }
                 this._requestRedraw();
                 break;
             }
@@ -946,6 +1193,42 @@ export class TimelineEngine {
                 break;
             }
 
+            case DragMode.ClipFadeIn:
+            case DragMode.ClipFadeOut: {
+                if (this._drag.clipId) {
+                    const clip = this._clips.find((c) => c.id === this._drag.clipId);
+                    if (!clip) break;
+                    const durationFrames = Math.max(1, this._clipDurationFrames(clip));
+                    const maxFadeFrames = Math.round(durationFrames * 0.5);
+                    const fadeInFrames = Math.max(0, Math.min(maxFadeFrames, Math.round((clip.fadeIn ?? 0) * durationFrames)));
+                    const fadeOutFrames = Math.max(0, Math.min(maxFadeFrames, Math.round((clip.fadeOut ?? 0) * durationFrames)));
+                    const prevFadeInFrames = Math.max(0, Math.min(maxFadeFrames, Math.round((this._drag.clipOriginalFadeIn ?? 0) * durationFrames)));
+                    const prevFadeOutFrames = Math.max(0, Math.min(maxFadeFrames, Math.round((this._drag.clipOriginalFadeOut ?? 0) * durationFrames)));
+                    if (fadeInFrames !== prevFadeInFrames || fadeOutFrames !== prevFadeOutFrames) {
+                        this.onClipFades?.(this._drag.clipId, fadeInFrames, fadeOutFrames);
+                    }
+                }
+                this._requestRedraw();
+                break;
+            }
+
+            case DragMode.ClipFadeInCurve:
+            case DragMode.ClipFadeOutCurve: {
+                if (this._drag.clipId) {
+                    const clip = this._clips.find((c) => c.id === this._drag.clipId);
+                    if (clip) {
+                        const nextIn = this._clampFadeCurve(clip.fadeInCurve ?? 0.5);
+                        const nextOut = this._clampFadeCurve(clip.fadeOutCurve ?? 0.5);
+                        const prevIn = this._clampFadeCurve(this._drag.clipOriginalFadeInCurve ?? 0.5);
+                        const prevOut = this._clampFadeCurve(this._drag.clipOriginalFadeOutCurve ?? 0.5);
+                        if (Math.abs(nextIn - prevIn) > 0.0001 || Math.abs(nextOut - prevOut) > 0.0001) {
+                            this.onClipFadeCurves?.(clip.id, nextIn, nextOut);
+                        }
+                    }
+                }
+                break;
+            }
+
             case DragMode.MarqueeSelect: {
                 const minBeat = Math.min(this._drag.startBeat, this._drag.currentBeat);
                 const maxBeat = Math.max(this._drag.startBeat, this._drag.currentBeat);
@@ -963,31 +1246,7 @@ export class TimelineEngine {
                     this.onClipBoxSelection?.([]);
                     this._setMarquee(null);
                 } else {
-                    const visible = this._viewport.getVisibleRange();
-                    const selectedIds = this._clips
-                        .filter((clip) => {
-                            const clipStart = clip.startBeat;
-                            const clipEnd = clip.startBeat + clip.durationBeats;
-                            if (
-                                clip.trackIndex < visible.startTrack ||
-                                clip.trackIndex > visible.endTrack ||
-                                clipEnd < visible.startBeat ||
-                                clipStart > visible.endBeat
-                            ) {
-                                return false;
-                            }
-                            if (clip.trackIndex < minTrack || clip.trackIndex > maxTrack) return false;
-                            // Select only clips fully enclosed by marquee bounds.
-                            return clipStart >= minBeat && clipEnd <= maxBeat;
-                        })
-                        .map((clip) => clip.id);
-                    this.onClipBoxSelection?.(selectedIds);
-                    this._setMarquee({
-                        startBeat: minBeat,
-                        endBeat: maxBeat,
-                        startTrack: minTrack,
-                        endTrack: maxTrack,
-                    });
+                    this._selectClipsWithinMarquee(minBeat, maxBeat, minTrack, maxTrack);
                 }
                 break;
             }
@@ -1013,6 +1272,19 @@ export class TimelineEngine {
         switch (hit.type) {
             case 'clip':
                 if (hit.clipId) {
+                    if (hit.fadeZone === 'in' || hit.fadeZone === 'out') {
+                        const clip = this._clips.find((c) => c.id === hit.clipId);
+                        if (clip) {
+                            const flags = this._fadeCurvePoints[clip.id] ?? { in: false, out: false };
+                            if (hit.fadeZone === 'in') flags.in = true;
+                            if (hit.fadeZone === 'out') flags.out = true;
+                            this._fadeCurvePoints[clip.id] = flags;
+                            clip.showFadeInCurvePoint = flags.in;
+                            clip.showFadeOutCurvePoint = flags.out;
+                            this._requestRedraw();
+                            break;
+                        }
+                    }
                     this.onDoubleClickClip?.(hit.clipId, hit.trackIndex);
                 }
                 break;
@@ -1022,6 +1294,19 @@ export class TimelineEngine {
                 break;
             }
         }
+    }
+
+    private _clampFadeFraction(value: number): number {
+        return Math.max(0, Math.min(0.5, value));
+    }
+
+    private _clipDurationFrames(clip: TimelineClipData): number {
+        if (clip.durationSamples && clip.durationSamples > 0) {
+            return clip.durationSamples;
+        }
+        const beatsPerSecond = this._bpm / 60;
+        if (beatsPerSecond <= 0 || this._sampleRate <= 0) return 1;
+        return Math.max(1, Math.round((clip.durationBeats / beatsPerSecond) * this._sampleRate));
     }
 
     // ═══════════════════════════════════════════════════════════════════

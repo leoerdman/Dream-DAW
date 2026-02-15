@@ -65,22 +65,11 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
             console.warn('[Splash] fetchProject failed:', e)
         }
 
-        // 4. Fade out the splash overlay
+        // 4. Now fade out the splash overlay
         setPhase('fading')
 
-        // 5. After fade completes:
-        //    - FIRST expand the native window
-        //    - THEN mount Workspace
-        // This avoids rendering DAW layout at splash size (top-left squish).
-        setTimeout(async () => {
-            try {
-                await engineApi.expandWindow()
-            } catch (e) {
-                console.warn('[Splash] expand_window unavailable (browser dev?):', e)
-            }
-
-            // Give layout observers one frame in expanded geometry, then mount DAW.
-            await new Promise(r => setTimeout(r, 120))
+        // 5. After fade completes - mount Workspace
+        setTimeout(() => {
             onComplete?.()
             setPhase('done')
         }, 400) // fade animation is 400ms

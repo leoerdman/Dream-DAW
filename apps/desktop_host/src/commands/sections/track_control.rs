@@ -1,16 +1,33 @@
-
 /// Sets a track's volume (linear gain 0.0–2.0).
 #[tauri::command]
 fn set_track_volume(
     track_index: u16,
     volume: f32,
     handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let clamped = volume.clamp(0.0, 2.0);
-    push_command(&handle, EngineCommand::SetTrackVolume {
-        track_index,
-        volume: clamped,
-    })?;
+    push_command(
+        &handle,
+        EngineCommand::SetTrackVolume {
+            track_index,
+            volume: clamped,
+        },
+    )?;
+
+    let project_name = {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let idx = track_index as usize;
+        let track = project
+            .tracks
+            .get_mut(idx)
+            .ok_or_else(|| format!("Track index out of range: {track_index}"))?;
+        track.volume = clamped as f64;
+        project.name.clone()
+    };
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
     log::debug!("[IPC] set_track_volume(track={track_index}, vol={clamped})");
     Ok(())
 }
@@ -21,12 +38,30 @@ fn set_track_pan(
     track_index: u16,
     pan: f32,
     handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let clamped = pan.clamp(-1.0, 1.0);
-    push_command(&handle, EngineCommand::SetTrackPan {
-        track_index,
-        pan: clamped,
-    })?;
+    push_command(
+        &handle,
+        EngineCommand::SetTrackPan {
+            track_index,
+            pan: clamped,
+        },
+    )?;
+
+    let project_name = {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let idx = track_index as usize;
+        let track = project
+            .tracks
+            .get_mut(idx)
+            .ok_or_else(|| format!("Track index out of range: {track_index}"))?;
+        track.pan = clamped as f64;
+        project.name.clone()
+    };
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
     log::debug!("[IPC] set_track_pan(track={track_index}, pan={clamped})");
     Ok(())
 }
@@ -36,9 +71,19 @@ fn set_track_pan(
 fn set_master_volume(
     volume: f32,
     handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let clamped = volume.clamp(0.0, 2.0);
     push_command(&handle, EngineCommand::SetMasterVolume { volume: clamped })?;
+
+    let project_name = {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project.master_track.volume = clamped as f64;
+        project.name.clone()
+    };
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
     log::debug!("[IPC] set_master_volume(vol={clamped})");
     Ok(())
 }
@@ -49,11 +94,23 @@ fn set_track_mute(
     track_index: u16,
     muted: bool,
     handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
-    push_command(&handle, EngineCommand::SetTrackMute {
-        track_index,
-        muted,
-    })?;
+    push_command(&handle, EngineCommand::SetTrackMute { track_index, muted })?;
+
+    let project_name = {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let idx = track_index as usize;
+        let track = project
+            .tracks
+            .get_mut(idx)
+            .ok_or_else(|| format!("Track index out of range: {track_index}"))?;
+        track.is_mute = muted;
+        project.name.clone()
+    };
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
     log::info!("[IPC] set_track_mute(track={track_index}, muted={muted})");
     Ok(())
 }
@@ -64,12 +121,29 @@ fn set_track_solo(
     track_index: u16,
     soloed: bool,
     handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
-    push_command(&handle, EngineCommand::SetTrackSolo {
-        track_index,
-        soloed,
-    })?;
+    push_command(
+        &handle,
+        EngineCommand::SetTrackSolo {
+            track_index,
+            soloed,
+        },
+    )?;
+
+    let project_name = {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let idx = track_index as usize;
+        let track = project
+            .tracks
+            .get_mut(idx)
+            .ok_or_else(|| format!("Track index out of range: {track_index}"))?;
+        track.is_solo = soloed;
+        project.name.clone()
+    };
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
     log::info!("[IPC] set_track_solo(track={track_index}, soloed={soloed})");
     Ok(())
 }
-

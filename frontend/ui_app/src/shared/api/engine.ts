@@ -287,6 +287,14 @@ export const deleteTrack = (index: number) =>
 export const renameTrack = (index: number, name: string) =>
     invoke<void>('rename_track_cmd', { index, name });
 
+/** Persist a track's arrangement row height (pixels). */
+export const setTrackHeight = (trackId: string, height: number) =>
+    invoke<void>('set_track_height_cmd', { trackId, height });
+
+/** Persist a track header color override (hex). */
+export const setTrackColor = (trackId: string, colorHex: string) =>
+    invoke<void>('set_track_color_cmd', { trackId, colorHex });
+
 /** Create a group track and move selected tracks into it. Returns new group track ID. */
 export const createGroup = (trackIds: string[], groupName?: string) =>
     invoke<string>('create_group_cmd', {
@@ -484,8 +492,11 @@ export const getAudioFileDuration = (path: string) =>
 
 // ── Splash / Window ──────────────────────────────────────────────────────
 
-/** Expand window from splash mode (450×450) to full DAW mode (1400×900). */
+/** Expand window from splash mode to full DAW mode (1400×900). */
 export const expandWindow = () => invoke<void>('expand_window');
+
+/** Maximize window to fill the screen. */
+export const maximizeWindow = () => invoke<void>('maximize_window');
 
 // ── Project Management ───────────────────────────────────────────────────
 
@@ -860,6 +871,14 @@ export const setTrackRouting = (trackId: string, targetId: string) =>
 /** Set the audio input source for a track (for sidechain / recording input). */
 export const setTrackInput = (trackId: string, inputId: string) =>
     invoke<void>('set_track_input_cmd', { trackId, inputId });
+
+/** Set sidechain source track for a specific plugin slot. */
+export const setPluginSidechainSource = (
+    trackId: string,
+    slotId: string,
+    sourceTrackId: string,
+) =>
+    invoke<void>('set_plugin_sidechain_source_cmd', { trackId, slotId, sourceTrackId });
 
 /** Add plugin to track chain (instrument/effect). */
 export const addPluginToTrack = (

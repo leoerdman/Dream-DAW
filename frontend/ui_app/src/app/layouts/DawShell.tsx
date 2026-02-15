@@ -10,6 +10,7 @@ import { AssetBrowser } from '@/widgets/AssetBrowser/AssetBrowser';
 import { StatusBar } from '@/widgets/StatusBar/StatusBar';
 import { Timeline } from '@/widgets/Timeline/Timeline';
 import { ClipRenderer } from '@/widgets/Timeline/ClipRenderer';
+import { DragOverlay } from '@/widgets/DragOverlay/DragOverlay';
 import type { BrowserDragItem } from '@/shared/lib/arrangementTypes';
 import type { MidiNote } from '@/widgets/PianoRoll/PianoRoll';
 import { useEngineStore, type ProjectTrack } from '@/shared/stores/useEngineStore';
@@ -360,6 +361,19 @@ export const DawShell = () => {
         };
     }, [selectedTrackId]);
 
+    const panelInfo = useMemo(() => {
+        const selected = selectedTrackId === 'master'
+            ? null
+            : (projectTracks.find((t) => t.id === selectedTrackId) ?? null);
+        const name = selectedTrackId === 'master'
+            ? 'Master'
+            : (selected?.name || 'No Track');
+        const deviceCount = selected
+            ? ((selected.instrument ? 1 : 0) + (selected.effects?.length ?? 0))
+            : 0;
+        return `${name} · ${deviceCount} devices`;
+    }, [projectTracks, selectedTrackId]);
+
     // Use position_beats directly from engine (single-source, no float round-trip)
     const playheadBeat = transport.position_beats ?? 0;
 
@@ -481,10 +495,60 @@ export const DawShell = () => {
     }, [flushTrackControlFinals, selectedTimelineClip, projectBpm, transport.bpm]);
 
     // ── Shared layout constants (SSOT for height sync) ──────────────
-    const TRACK_HEIGHT_MIN = 20;
+    const TRACK_HEIGHT_MIN = 24;
     const TRACK_HEIGHT_MAX = 200;
     const TRACK_HEIGHT_STEP = 8;
     const TRACK_HEIGHT = trackHeightPx;
+    const trackHeightReadyRef = useRef(false);
+    const trackHeightSourceTrackRef = useRef<string | null>(null);
+
+    // Restore track row height from project data (persisted per track in .ddpj).
+    useEffect(() => {
+        if (projectTracksSnapshot.length === 0) {
+            trackHeightReadyRef.current = false;
+            trackHeightSourceTrackRef.current = null;
+            return;
+        }
+
+        const sourceTrackId = projectTracksSnapshot[0]?.id ?? null;
+        const projectChanged = sourceTrackId !== trackHeightSourceTrackRef.current;
+        if (projectChanged) {
+            trackHeightReadyRef.current = false;
+            trackHeightSourceTrackRef.current = sourceTrackId;
+        }
+
+        const persisted = Number(projectTracksSnapshot[0]?.height ?? NaN);
+        const baseline = Number.isFinite(persisted) ? persisted : 48;
+        const snapped = Math.round(baseline / TRACK_HEIGHT_STEP) * TRACK_HEIGHT_STEP;
+        const clamped = Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, snapped));
+        setTrackHeightPx((prev) => (Math.abs(prev - clamped) < 0.001 ? prev : clamped));
+
+        const readyId = window.setTimeout(() => {
+            trackHeightReadyRef.current = true;
+        }, 0);
+        return () => window.clearTimeout(readyId);
+    }, [projectTracksSnapshot]);
+
+    const persistTrackHeightThrottledRef = useRef(
+        throttle((trackIds: string[], heightPx: number) => {
+            void Promise.all(trackIds.map((id) => engineApi.setTrackHeight(id, heightPx))).catch((err) => {
+                console.warn('[DawShell] persist track height failed:', err);
+            });
+        }, 220, { leading: false, trailing: true }),
+    );
+
+    useEffect(() => {
+        if (!trackHeightReadyRef.current) return;
+        const trackIds = projectTracksSnapshot.map((t) => t.id);
+        if (trackIds.length === 0) return;
+        persistTrackHeightThrottledRef.current(trackIds, TRACK_HEIGHT);
+    }, [projectTracksSnapshot, TRACK_HEIGHT]);
+
+    useEffect(() => {
+        return () => {
+            persistTrackHeightThrottledRef.current.cancel();
+        };
+    }, []);
     const RULER_HEIGHT = 28;
 
     // Option(Alt)+Wheel: vertical track height zoom in 8px steps.
@@ -708,6 +772,18 @@ export const DawShell = () => {
             .catch(err => console.error('[DawShell] resizeClip failed:', err));
     }, [projectBpm, transport.bpm, fetchProject]);
 
+    const handleClipFades = useCallback((clipId: string, fadeInFrames: number, fadeOutFrames: number) => {
+        engineApi.setClipFades(
+            clipId,
+            Math.max(0, Math.round(fadeInFrames)),
+            Math.max(0, Math.round(fadeOutFrames)),
+        )
+            .then(() => {
+                fetchProject();
+            })
+            .catch((err) => console.error('[DawShell] setClipFades failed:', err));
+    }, [fetchProject]);
+
     const handleOpenMidiClip = useCallback((clipId: string) => {
         setSelectedClipId(clipId);
         setBottomPanelMode('clip');
@@ -843,6 +919,7 @@ export const DawShell = () => {
                                         }}
                                         onClipMove={handleClipMove}
                                         onClipResize={handleClipResize}
+                                        onClipFades={handleClipFades}
                                         onDropBrowserItem={handleBrowserDrop}
                                         onDoubleClickTrack={handleDoubleClickTrack}
                                         onOpenMidiClip={handleOpenMidiClip}
@@ -1008,6 +1085,7 @@ export const DawShell = () => {
                     <StatusBar
                         panelMode={bottomPanelMode}
                         onPanelModeChange={setBottomPanelMode}
+                        panelInfo={panelInfo}
                     />
                 </div>
 
@@ -1051,6 +1129,8 @@ export const DawShell = () => {
                 />
             </Suspense>
 
+            <DragOverlay />
+
         </div>
     );
 };
@@ -1065,8 +1145,12 @@ const SessionWorkspace = ({
     onSelectTrack: (trackId: string) => void;
 }) => {
     const meters = useEngineStore((s) => s.meters);
+    const setTrackMute = useEngineStore((s) => s.setTrackMute);
+    const setTrackSolo = useEngineStore((s) => s.setTrackSolo);
     const togglePlay = useEngineStore((s) => s.togglePlay);
     const isPlaying = useEngineStore((s) => s.transport.is_playing);
+    const SESSION_TRACK_WIDTH = 116;
+    const SESSION_MASTER_WIDTH = 104;
     const SESSION_SCENE_ROWS = 3;
     const scenes = useMemo(() => Array.from({ length: SESSION_SCENE_ROWS }, (_, i) => i), []);
     const [sessionClips, setSessionClips] = useState<Record<string, { id: string; name: string; color: string; looped: boolean }>>({});
@@ -1086,7 +1170,7 @@ const SessionWorkspace = ({
             background: 'var(--color-bg-canvas)',
             borderLeft: '1px solid var(--color-divider)',
         }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 118px', minHeight: 0, overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: `1fr ${SESSION_MASTER_WIDTH}px`, minHeight: 0, overflow: 'hidden' }}>
                 <div style={{ overflow: 'auto', minHeight: 0 }}>
                     <div style={{ display: 'flex', minWidth: 'max-content', minHeight: '100%' }}>
                         {tracks.map((track) => {
@@ -1094,7 +1178,7 @@ const SessionWorkspace = ({
                             const contrast = getContrastColor(track.color) === 'black' ? '#151515' : '#f4f6f8';
                             const isSelectedTrack = selectedTrackId === track.id;
                             return (
-                                <div key={track.id} style={{ width: 132, borderRight: '1px solid #2b2b2b', display: 'flex', flexDirection: 'column' }}>
+                                <div key={track.id} style={{ width: SESSION_TRACK_WIDTH, borderRight: '1px solid #2b2b2b', display: 'flex', flexDirection: 'column' }}>
                                 <button
                                     onClick={() => onSelectTrack(track.id)}
                                     style={{
@@ -1200,12 +1284,12 @@ const SessionWorkspace = ({
                     })}
                     </div>
                 </div>
-                <div style={{ width: 118, borderLeft: '1px solid #3a3a3a', background: 'color-mix(in srgb, var(--color-bg-panel) 80%, #111)' }}>
+                <div style={{ width: SESSION_MASTER_WIDTH, borderLeft: '1px solid #3a3a3a', background: 'color-mix(in srgb, var(--color-bg-panel) 80%, #111)' }}>
                     <div style={{
                         height: 28,
                         borderBottom: '1px solid rgba(0,0,0,0.45)',
-                        background: '#36cfd1',
-                        color: '#0d1b1c',
+                        background: '#f2f2f2',
+                        color: '#111111',
                         fontSize: 11,
                         fontWeight: 800,
                         display: 'flex',
@@ -1219,40 +1303,72 @@ const SessionWorkspace = ({
                     ))}
                 </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 118px', minHeight: 0, overflow: 'hidden', borderTop: '1px solid var(--color-divider)', background: 'color-mix(in srgb, var(--color-bg-panel) 92%, #0e0e0e)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: `1fr ${SESSION_MASTER_WIDTH}px`, minHeight: 0, overflow: 'hidden', borderTop: '1px solid var(--color-divider)', background: 'color-mix(in srgb, var(--color-bg-panel) 92%, #0e0e0e)' }}>
                 <div style={{ display: 'flex', minHeight: 0, overflowX: 'auto' }}>
-                    {tracks.map((track) => (
-                        <div key={`mix-${track.id}`} style={{ width: 132, borderRight: '1px solid #2d2d2d', padding: '8px 8px 6px', display: 'grid', gridTemplateRows: 'auto auto 1fr auto', gap: 6 }}>
+                    {tracks.map((track, trackIndex) => {
+                        const meterPair = meters.tracks[trackIndex];
+                        const peakDb = meterPair ? Math.max(meterPair[0].peak, meterPair[1].peak) : -60;
+                        const trackMeterLevel = Math.max(0, Math.min(1, (peakDb + 60) / 60));
+                        const peakLabel = `${peakDb >= 0 ? '+' : ''}${peakDb.toFixed(1)} dB`;
+                        return (
+                        <div key={`mix-${track.id}`} style={{ width: SESSION_TRACK_WIDTH, borderRight: '1px solid #2d2d2d', padding: '8px 8px 6px', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6 }}>
                             <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>
                                 {track.track_type}
                             </div>
-                            <div style={{ display: 'flex', gap: 4 }}>
-                                <button style={sessionMixerBtnStyle(track.is_mute)}>M</button>
-                                <button style={sessionMixerBtnStyle(track.is_solo)}>S</button>
+                            <div style={{ display: 'flex', alignItems: 'stretch', gap: 6 }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
+                                <button
+                                    style={sessionMixerBtnStyle(track.is_mute)}
+                                    onClick={() => { void setTrackMute(trackIndex, !track.is_mute); }}
+                                    title={track.is_mute ? 'Unmute track' : 'Mute track'}
+                                >
+                                    <span style={{ width: 8, height: 1, background: 'currentColor', display: 'block' }} />
+                                </button>
+                                <button
+                                    style={sessionMixerBtnStyle(track.is_solo)}
+                                    onClick={() => { void setTrackSolo(trackIndex, !track.is_solo); }}
+                                    title="Solo"
+                                >S</button>
                                 <button style={sessionMixerBtnStyle(track.is_armed)}>R</button>
-                            </div>
-                            <div style={{
-                                position: 'relative',
-                                border: '1px solid #3d3d3d',
-                                borderRadius: 4,
-                                background: '#1a1a1a',
-                            }}>
+                                </div>
                                 <div style={{
-                                    position: 'absolute',
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    height: `${Math.max(4, Math.min(100, track.volume * 100))}%`,
-                                    background: 'linear-gradient(180deg, #7ce66a 0%, #2fbf50 100%)',
-                                }} />
+                                    flex: 1,
+                                    minHeight: 82,
+                                    borderRadius: 2,
+                                    border: '1px solid #3d3d3d',
+                                    background: '#171717',
+                                    position: 'relative',
+                                    overflow: 'hidden',
+                                }}>
+                                    <div style={{
+                                        position: 'absolute',
+                                        left: '50%',
+                                        transform: 'translateX(-50%)',
+                                        top: 4,
+                                        bottom: 4,
+                                        width: 18,
+                                        background: 'rgba(0,0,0,0.28)',
+                                    }} />
+                                    <div style={{
+                                        position: 'absolute',
+                                        left: '50%',
+                                        transform: 'translateX(-50%)',
+                                        bottom: 4,
+                                        width: 18,
+                                        height: `${Math.max(2, trackMeterLevel * 100)}%`,
+                                        background: 'linear-gradient(180deg, #8cff73 0%, #5ee162 45%, #30c451 100%)',
+                                        boxShadow: '0 0 10px rgba(90, 225, 98, 0.4)',
+                                        transition: 'height 45ms linear',
+                                    }} />
+                                </div>
                             </div>
                             <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
-                                Vol {track.volume.toFixed(2)}
+                                {peakLabel}
                             </div>
                         </div>
-                    ))}
+                    );})}
                 </div>
-                <div style={{ width: 118, padding: '8px 8px 6px', borderLeft: '1px solid #3b3b3b', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6 }}>
+                <div style={{ width: SESSION_MASTER_WIDTH, padding: '8px 8px 6px', borderLeft: '1px solid #3b3b3b', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6 }}>
                     <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', fontWeight: 700 }}>MASTER</div>
                     <div style={{ position: 'relative', border: '1px solid #3d3d3d', borderRadius: 4, background: '#1a1a1a' }}>
                         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${Math.max(4, Math.min(100, masterLevel * 100))}%`, background: 'linear-gradient(180deg, #92ff73 0%, #3ac95b 80%, #ffe35e 100%)' }} />

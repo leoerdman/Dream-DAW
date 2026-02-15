@@ -37,6 +37,8 @@ export interface ProjectTrack {
     is_mute: boolean;
     is_solo: boolean;
     is_armed: boolean;
+    /** Persisted arrangement row height in px. */
+    height: number;
     /** Output routing target track ID (or 'master'). */
     output: string;
     /** Input routing source ID (or 'none'/'ext-1'/'ext-2'). */
@@ -674,6 +676,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     is_mute: track.is_mute,
                     is_solo: track.is_solo,
                     is_armed: (track as Record<string, unknown>).is_armed as boolean ?? false,
+                    height: Number((track as Record<string, unknown>).height ?? 80),
                     output:
                         (track.output_destination_id && track.output_destination_id.length > 0
                             ? track.output_destination_id

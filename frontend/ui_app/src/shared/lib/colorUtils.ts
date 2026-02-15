@@ -52,11 +52,33 @@ export function getLuminance(color: string): number {
 
 /**
  * Returns either black or white depending on which has better contrast against the background.
+ * Dark colors (dark blue, dark purple, dark red, etc.) get white text.
+ * All other colors get black text.
  * @param hexColor - Background hex color
  * @returns 'black' | 'white'
  */
 export function getContrastColor(hexColor: string): 'black' | 'white' {
-    const luminance = getLuminance(hexColor);
-    // threshold of 128 is middle point, but 140-150 often looks better for readability
-    return luminance > 145 ? 'black' : 'white';
+    const rgb = parseColorToRgb(hexColor);
+    if (!rgb) return 'black';
+
+    const { r, g, b } = rgb;
+    const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+
+    if (luminance > 145) {
+        return 'black';
+    }
+
+    if (luminance < 80) {
+        return 'white';
+    }
+
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const saturation = max === 0 ? 0 : (max - min) / max;
+
+    if (luminance < 120 && saturation > 0.5) {
+        return 'white';
+    }
+
+    return 'black';
 }

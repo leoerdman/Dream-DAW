@@ -201,6 +201,7 @@ export const PianoRoll = memo(function PianoRoll({
     const keyboardScrollRef = useRef<HTMLDivElement>(null);
     const editorRootRef = useRef<HTMLDivElement>(null);
     const snapBeat = useGridStore((s) => s.snapBeat);
+    const pianoPencilMode = useGridStore((s) => s.pianoPencilMode);
     const gridDivision = useGridStore((s) => s.division);
     const gridTriplet = useGridStore((s) => s.triplet);
     const setGridDivision = useGridStore((s) => s.setDivision);
@@ -368,32 +369,42 @@ export const PianoRoll = memo(function PianoRoll({
     }, [pitchToY, scaleSet]);
 
     // ── Note Actions ──
+    const insertNoteFromPointer = useCallback((clientX: number, clientY: number, target: HTMLElement) => {
+        const rect = target.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+        const pitch = yToPitch(y);
+        const rawBeat = x / pixelsPerBeat;
+        const beat = snapBeat(rawBeat, beatsPerBar, pixelsPerBeat);
+        if (beat >= totalBeats) return;
+
+        const gridStep = currentGridInterval > 0 ? currentGridInterval : 0.25;
+        const duration = Math.max(0.125, Math.min(gridStep, totalBeats - beat));
+        const newNote: MidiNote = {
+            id: genNoteId(),
+            pitch,
+            startBeat: beat,
+            durationBeats: duration,
+            velocity: 100,
+        };
+        onNotesChange([...notes, newNote]);
+    }, [yToPitch, pixelsPerBeat, snapBeat, beatsPerBar, totalBeats, currentGridInterval, onNotesChange, notes]);
+
     const handleGridClick = useCallback(
         (e: React.MouseEvent) => {
             editorRootRef.current?.focus();
-            const rect = e.currentTarget.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            const pitch = yToPitch(y);
-            const rawBeat = x / pixelsPerBeat;
-            const beat = snapBeat(rawBeat, beatsPerBar);
-            if (beat >= totalBeats) return;
-
-            if (tool === 'draw') {
-                const gridStep = currentGridInterval > 0 ? currentGridInterval : 0.25;
-                const duration = Math.max(0.125, Math.min(gridStep, totalBeats - beat));
-                const newNote: MidiNote = {
-                    id: genNoteId(),
-                    pitch,
-                    startBeat: beat,
-                    durationBeats: duration,
-                    velocity: 100,
-                };
-                onNotesChange([...notes, newNote]);
+            if (tool === 'draw' && pianoPencilMode) {
+                insertNoteFromPointer(e.clientX, e.clientY, e.currentTarget as HTMLElement);
             }
         },
-        [tool, yToPitch, pixelsPerBeat, snapBeat, beatsPerBar, notes, onNotesChange, totalBeats, currentGridInterval],
+        [tool, pianoPencilMode, insertNoteFromPointer],
     );
+
+    const handleGridDoubleClick = useCallback((e: React.MouseEvent) => {
+        editorRootRef.current?.focus();
+        if (tool !== 'draw' || pianoPencilMode) return;
+        insertNoteFromPointer(e.clientX, e.clientY, e.currentTarget as HTMLElement);
+    }, [tool, pianoPencilMode, insertNoteFromPointer]);
 
     const handleNoteClick = useCallback(
         (e: React.MouseEvent, noteId: string) => {
@@ -480,7 +491,7 @@ export const PianoRoll = memo(function PianoRoll({
     // Note drag
     const handleNoteDrag = useCallback(
         (e: React.MouseEvent, noteId: string) => {
-            if (tool !== 'select' && tool !== 'draw') return;
+            if (tool !== 'select') return;
             e.stopPropagation();
             e.preventDefault();
             editorRootRef.current?.focus();
@@ -529,7 +540,7 @@ export const PianoRoll = memo(function PianoRoll({
                         if (n.id !== noteId) return n;
                         const maxDur = Math.max(0.125, totalBeats - original.startBeat);
                         const rawDur = original.durationBeats + beatDelta;
-                        const finalDur = shouldSnap ? snapBeat(rawDur, beatsPerBar) : rawDur;
+                        const finalDur = shouldSnap ? snapBeat(rawDur, beatsPerBar, pixelsPerBeat) : rawDur;
                         return {
                             ...n,
                             durationBeats: Math.min(maxDur, Math.max(0.125, finalDur)),
@@ -538,7 +549,7 @@ export const PianoRoll = memo(function PianoRoll({
                     if (mode === 'resize-left') {
                         if (n.id !== noteId) return n;
                         const rawStart = original.startBeat + beatDelta;
-                        const snappedBeat = Math.max(0, Math.min(totalBeats - 0.125, shouldSnap ? snapBeat(rawStart, beatsPerBar) : rawStart));
+                        const snappedBeat = Math.max(0, Math.min(totalBeats - 0.125, shouldSnap ? snapBeat(rawStart, beatsPerBar, pixelsPerBeat) : rawStart));
                         return {
                             ...n,
                             startBeat: snappedBeat,
@@ -547,7 +558,7 @@ export const PianoRoll = memo(function PianoRoll({
                     }
 
                     const rawStart = original.startBeat + beatDelta;
-                    const newBeat = Math.max(0, Math.min(totalBeats - 0.125, shouldSnap ? snapBeat(rawStart, beatsPerBar) : rawStart));
+                    const newBeat = Math.max(0, Math.min(totalBeats - 0.125, shouldSnap ? snapBeat(rawStart, beatsPerBar, pixelsPerBeat) : rawStart));
                     const newPitch = Math.max(LOWEST_PITCH, Math.min(LOWEST_PITCH + TOTAL_KEYS - 1, original.pitch + pitchDelta));
                     return { ...n, startBeat: newBeat, pitch: newPitch };
                 });
@@ -601,7 +612,7 @@ export const PianoRoll = memo(function PianoRoll({
         const targetIds = selectedNotes.size > 0 ? selectedNotes : null;
         const next = notes.map((n) => {
             if (targetIds && !targetIds.has(n.id)) return n;
-            const snappedStart = snapBeat(n.startBeat, beatsPerBar);
+            const snappedStart = snapBeat(n.startBeat, beatsPerBar, pixelsPerBeat);
             const snappedDur = Math.max(step, Math.round(n.durationBeats / step) * step);
             return {
                 ...n,
@@ -610,7 +621,7 @@ export const PianoRoll = memo(function PianoRoll({
             };
         });
         onNotesChange(next);
-    }, [notes, onNotesChange, currentGridInterval, snapBeat, beatsPerBar, totalBeats, selectedNotes]);
+    }, [notes, onNotesChange, currentGridInterval, snapBeat, beatsPerBar, pixelsPerBeat, totalBeats, selectedNotes]);
 
     const duplicateSelection = useCallback(() => {
         const targets = selectedNotes.size > 0 ? notes.filter((n) => selectedNotes.has(n.id)) : notes;
@@ -1500,6 +1511,7 @@ export const PianoRoll = memo(function PianoRoll({
                         {/* ── Clickable grid ── */}
                         <div
                             onClick={handleGridClick}
+                            onDoubleClick={handleGridDoubleClick}
                             onMouseDown={handleGridSelectionStart}
                             style={{
                                 position: 'absolute',
@@ -1535,12 +1547,6 @@ export const PianoRoll = memo(function PianoRoll({
                                         onMouseDown={(e) => handleNoteDrag(e, note.id)}
                                         onMouseMove={(e) => handleNoteMouseMove(e, note.id)}
                                         onMouseLeave={() => setHoveredNoteEdge(null)}
-                                        onDoubleClick={(e) => {
-                                            e.stopPropagation();
-                                            if (tool === 'draw' || tool === 'erase') {
-                                                onNotesChange(notes.filter((n) => n.id !== note.id));
-                                            }
-                                        }}
                                         style={{
                                             position: 'absolute',
                                             left: x,
@@ -1551,6 +1557,7 @@ export const PianoRoll = memo(function PianoRoll({
                                             borderRadius: 'var(--radius-xs)',
                                             cursor: tool === 'erase' ? 'not-allowed' : (hoveredNoteEdge === note.id ? 'col-resize' : 'grab'),
                                             zIndex: isSelected ? 5 : 2,
+                                            pointerEvents: tool === 'draw' ? 'none' : 'auto',
                                         }}
                                     />
                                 );

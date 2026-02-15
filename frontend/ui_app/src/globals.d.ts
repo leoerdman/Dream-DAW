@@ -16,8 +16,13 @@ declare module 'lodash.throttle' {
         cancel: () => void;
         flush: () => ReturnType<T> | undefined;
     };
+    export interface ThrottleOptions {
+        leading?: boolean;
+        trailing?: boolean;
+    }
     export default function throttle<A extends unknown[], R>(
         func: (...args: A) => R,
         wait?: number,
+        options?: ThrottleOptions,
     ): ThrottledFunc<(...args: A) => R>;
 }

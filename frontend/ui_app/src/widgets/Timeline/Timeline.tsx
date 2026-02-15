@@ -39,6 +39,7 @@ interface TimelineProps {
     onClipSelectionChange?: (clipIds: string[]) => void;
     onClipMove?: (clipId: string, newStartBeat: number, newTrackIndex: number) => void;
     onClipResize?: (clipId: string, newStartBeat: number, newDuration: number) => void;
+    onClipFades?: (clipId: string, fadeInFrames: number, fadeOutFrames: number) => void;
     onDropBrowserItem?: (item: BrowserDragItem, trackIndex: number, beat: number) => void;
     onDoubleClickTrack?: (trackIndex: number, beat: number) => void;
     onOpenMidiClip?: (clipId: string, trackIndex: number) => void;
@@ -80,6 +81,7 @@ export const Timeline = (props: TimelineProps) => {
         onClipSelect,
         onClipSelectionChange,
         onClipMove,
+        onClipFades,
         onDropBrowserItem,
         onDoubleClickTrack,
         onOpenMidiClip,
@@ -131,6 +133,7 @@ export const Timeline = (props: TimelineProps) => {
         onClipSelectionChange,
         onClipMove,
         onClipResize,
+        onClipFades,
         onDropBrowserItem,
         onDoubleClickTrack,
         onOpenMidiClip,
@@ -146,6 +149,7 @@ export const Timeline = (props: TimelineProps) => {
         onClipSelectionChange,
         onClipMove,
         onClipResize,
+        onClipFades,
         onDropBrowserItem,
         onDoubleClickTrack,
         onOpenMidiClip,
@@ -233,6 +237,10 @@ export const Timeline = (props: TimelineProps) => {
 
         engine.onClipMove = (clipId, newBeat, newTrack) => {
             commandBusRef.current.emit({ type: 'clip-move', clipId, beat: newBeat, trackIndex: newTrack });
+        };
+
+        engine.onClipFades = (clipId, fadeInFrames, fadeOutFrames) => {
+            callbacksRef.current.onClipFades?.(clipId, fadeInFrames, fadeOutFrames);
         };
 
         engine.onClipBoxSelection = (clipIds) => {
@@ -576,8 +584,8 @@ export const Timeline = (props: TimelineProps) => {
                 style={{
                     height: trackHeight,
                     flexShrink: 0,
-                    borderTop: '1px solid var(--color-divider)',
-                    background: 'transparent',
+                    borderTop: 'none',
+                    background: 'var(--surface-1)',
                 }}
             />
         </div>

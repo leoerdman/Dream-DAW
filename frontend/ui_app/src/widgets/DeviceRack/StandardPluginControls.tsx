@@ -22,6 +22,18 @@ const formatPluginParamName = (raw: string): string => {
     return withSpaces.length > 0 ? withSpaces.toUpperCase() : raw.toUpperCase();
 };
 
+const defaultParamValue = (param: PluginParam): number => {
+    const name = param.name.toLowerCase();
+    if (param.min <= 0 && param.max >= 0) return 0;
+    if (name.includes('mix') || name.includes('width') || name.includes('amount') || name.includes('depth')) {
+        return (param.min + param.max) * 0.5;
+    }
+    if (name.includes('gain') || name.includes('volume') || name === 'vol') {
+        return Math.min(param.max, Math.max(param.min, 0));
+    }
+    return Math.min(param.max, Math.max(param.min, (param.min + param.max) * 0.5));
+};
+
 export const PluginSlider = ({
     param,
     onChange,
@@ -58,7 +70,7 @@ export const PluginKnob = ({
 }) => {
     const pct = Math.max(0, Math.min(1, (param.value - param.min) / Math.max(1e-9, param.max - param.min)));
     const angle = -135 + pct * 270;
-    const size = compact ? 34 : 42;
+    const size = compact ? 36 : 46;
     const markerHeight = compact ? 11 : 14;
     const markerTopOffset = compact ? '-84%' : '-88%';
     const [isDragging, setIsDragging] = useState(false);
@@ -90,11 +102,27 @@ export const PluginKnob = ({
         if (dragPointerIdRef.current !== e.pointerId) return;
         e.preventDefault();
         const valueRange = Math.max(1e-9, param.max - param.min);
+        const dx = e.clientX - ((dialRef.current?.getBoundingClientRect().left ?? 0) + size / 2);
         const dy = e.clientY - dragStartYRef.current;
-        const dragScalePx = e.shiftKey ? 420 : 240;
-        const nextRaw = dragStartValueRef.current + ((-dy / dragScalePx) * valueRange);
+        const dragScalePx = e.shiftKey ? 520 : 260;
+        const nextRaw = dragStartValueRef.current + (((-dy + dx * 0.35) / dragScalePx) * valueRange);
         onChange(param.name, quantizeValue(nextRaw));
-    }, [onChange, param.max, param.min, param.name, quantizeValue]);
+    }, [onChange, param.max, param.min, param.name, quantizeValue, size]);
+
+    const onKnobWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const valueRange = Math.max(1e-9, param.max - param.min);
+        const step = param.step && param.step > 0 ? param.step : valueRange / 160;
+        const delta = (e.deltaY < 0 ? 1 : -1) * (e.shiftKey ? step * 0.2 : step * 1.0);
+        onChange(param.name, quantizeValue(param.value + delta));
+    }, [onChange, param.max, param.min, param.name, param.step, param.value, quantizeValue]);
+
+    const onKnobDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onChange(param.name, quantizeValue(defaultParamValue(param)));
+    }, [onChange, param, quantizeValue]);
 
     const endKnobDrag = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
         if (dragPointerIdRef.current !== e.pointerId) return;
@@ -110,12 +138,24 @@ export const PluginKnob = ({
         >
             <div style={{ position: 'relative', width: size, height: size }}>
                 <div
+                    style={{
+                        position: 'absolute',
+                        inset: -2,
+                        borderRadius: '50%',
+                        background: `conic-gradient(from -135deg, color-mix(in srgb, var(--color-accent-primary) 88%, #8fd5ff) ${Math.max(2, pct * 270)}deg, rgba(255,255,255,0.08) ${Math.max(2, pct * 270)}deg 270deg, transparent 270deg 360deg)`,
+                        opacity: 0.95,
+                        pointerEvents: 'none',
+                    }}
+                />
+                <div
                     ref={dialRef}
                     style={knobDialStyle(isDragging)}
                     onPointerDown={onKnobPointerDown}
                     onPointerMove={onKnobPointerMove}
                     onPointerUp={endKnobDrag}
                     onPointerCancel={endKnobDrag}
+                    onWheel={onKnobWheel}
+                    onDoubleClick={onKnobDoubleClick}
                 >
                     <div
                         style={{
@@ -125,6 +165,11 @@ export const PluginKnob = ({
                         }}
                     />
                 </div>
+                {isDragging && (
+                    <span style={knobDragValueBadgeStyle}>
+                        {formatPluginParamValue(param)}
+                    </span>
+                )}
             </div>
             <span style={knobParamNameStyle}>{formatPluginParamName(param.name)}</span>
             <span style={knobValueStyle(compact)}>{formatPluginParamValue(param)}</span>
@@ -168,7 +213,7 @@ const knobLabelStyle = (compact: boolean): CSSProperties => ({
     alignItems: 'center',
     justifyContent: 'flex-start',
     gap: compact ? 2 : 4,
-    minWidth: compact ? 56 : 86,
+    minWidth: compact ? 58 : 92,
 });
 
 const knobParamNameStyle: CSSProperties = {
@@ -188,11 +233,11 @@ const knobDialStyle = (dragging: boolean): CSSProperties => ({
     width: '100%',
     height: '100%',
     borderRadius: '50%',
-    background: 'radial-gradient(circle at 35% 28%, #3a3f47 0%, #232831 54%, #13171d 100%)',
+    background: 'radial-gradient(circle at 34% 24%, #4b5563 0%, #2b3440 42%, #141a24 100%)',
     border: '1px solid color-mix(in srgb, var(--color-accent-primary) 24%, rgba(255,255,255,0.2))',
     boxShadow: dragging
-        ? 'inset 0 1px 2px rgba(255,255,255,0.11), inset 0 -2px 6px rgba(0,0,0,0.64), 0 0 0 1px rgba(10,14,18,0.72), 0 0 0 2px color-mix(in srgb, var(--color-accent-primary) 40%, transparent)'
-        : 'inset 0 1px 2px rgba(255,255,255,0.09), inset 0 -2px 5px rgba(0,0,0,0.58), 0 0 0 1px rgba(10,14,18,0.6)',
+        ? 'inset 0 1px 2px rgba(255,255,255,0.16), inset 0 -3px 7px rgba(0,0,0,0.68), 0 0 0 1px rgba(10,14,18,0.72), 0 0 0 2px color-mix(in srgb, var(--color-accent-primary) 45%, transparent), 0 6px 12px rgba(0,0,0,0.35)'
+        : 'inset 0 1px 2px rgba(255,255,255,0.12), inset 0 -2px 6px rgba(0,0,0,0.58), 0 0 0 1px rgba(10,14,18,0.6), 0 4px 10px rgba(0,0,0,0.22)',
     position: 'relative',
     cursor: 'ns-resize',
     touchAction: 'none',
@@ -215,3 +260,19 @@ const knobValueStyle = (compact: boolean): CSSProperties => ({
     fontFamily: 'var(--font-mono)',
     opacity: 0.92,
 });
+
+const knobDragValueBadgeStyle: CSSProperties = {
+    position: 'absolute',
+    left: '50%',
+    top: -16,
+    transform: 'translateX(-50%)',
+    fontSize: 9,
+    fontFamily: 'var(--font-mono)',
+    color: '#eaf4ff',
+    background: 'rgba(8, 12, 18, 0.82)',
+    border: '1px solid rgba(120, 168, 220, 0.35)',
+    borderRadius: 4,
+    padding: '1px 4px',
+    whiteSpace: 'nowrap',
+    pointerEvents: 'none',
+};

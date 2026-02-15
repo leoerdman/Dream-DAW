@@ -167,8 +167,29 @@ export const TrackInspector = ({
         () => new Set(selectedTrackId && selectedTrackId !== 'master' ? [selectedTrackId] : []),
     );
     const [draggingTrackId, setDraggingTrackId] = useState<string | null>(null);
+    const draggingTrackIdRef = useRef<string | null>(null);
     const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
-    const [dropTargetGroupId, setDropTargetGroupId] = useState<string | null>(null);
+    const [groupDropTargetId, setGroupDropTargetId] = useState<string | null>(null);
+    const [lastClickedTrackId, setLastClickedTrackId] = useState<string | null>(null);
+    const [pointerDrag, setPointerDrag] = useState<{
+        trackId: string;
+        startX: number;
+        startY: number;
+        active: boolean;
+    } | null>(null);
+    const suppressNextClickRef = useRef(false);
+    const trackRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+    useEffect(() => {
+        if (!draggingTrackId) return;
+        const clearInAppDrag = () => { window.__dreamInAppDrag = false; };
+        window.addEventListener('dragend', clearInAppDrag);
+        window.addEventListener('drop', clearInAppDrag);
+        return () => {
+            window.removeEventListener('dragend', clearInAppDrag);
+            window.removeEventListener('drop', clearInAppDrag);
+        };
+    }, [draggingTrackId]);
 
     // Context menu
     const [contextMenu, setContextMenu] = useState<{
@@ -209,14 +230,42 @@ export const TrackInspector = ({
     }, [tracks, getTrackIndex, engineSetTrackMute]);
 
     const toggleSolo = useCallback((id: string) => {
-        const track = tracks.find(t => t.id === id);
-        if (track) {
-            const idx = getTrackIndex(id);
-            const newSoloed = !track.isSoloed;
-            if (idx >= 0) engineSetTrackSolo(idx, newSoloed);
-            setLocalOverrides(prev => ({ ...prev, [id]: { ...prev[id], isSoloed: newSoloed } }));
+        const selected = selectedTrackIds.has(id)
+            ? Array.from(selectedTrackIds).filter((trackId) => trackId !== 'master')
+            : [id];
+        const targetIds = selected.length > 0 ? selected : [id];
+        const targetSet = new Set(targetIds);
+
+        const targetTracks = tracks.filter((t) => targetSet.has(t.id));
+        if (targetTracks.length === 0) return;
+
+        const allTargetsAlreadySolo = targetTracks.every((t) => t.isSoloed);
+        const shouldSoloTargets = !allTargetsAlreadySolo;
+
+        const nextSoloById = new Map<string, boolean>();
+        for (const track of tracks) {
+            if (track.type === 'master') continue;
+            const nextSolo = shouldSoloTargets ? targetSet.has(track.id) : false;
+            if (track.isSoloed !== nextSolo) {
+                nextSoloById.set(track.id, nextSolo);
+            }
         }
-    }, [tracks, getTrackIndex, engineSetTrackSolo]);
+
+        if (nextSoloById.size === 0) return;
+
+        for (const [trackId, soloed] of nextSoloById) {
+            const idx = getTrackIndex(trackId);
+            if (idx >= 0) engineSetTrackSolo(idx, soloed);
+        }
+
+        setLocalOverrides((prev) => {
+            const next = { ...prev };
+            for (const [trackId, soloed] of nextSoloById) {
+                next[trackId] = { ...next[trackId], isSoloed: soloed };
+            }
+            return next;
+        });
+    }, [tracks, selectedTrackIds, getTrackIndex, engineSetTrackSolo]);
 
     const toggleArm = useCallback((id: string) => {
         const track = tracks.find(t => t.id === id);
@@ -388,6 +437,11 @@ export const TrackInspector = ({
 
     const handleColorSelect = useCallback((trackId: string, color: string) => {
         setLocalOverrides(prev => ({ ...prev, [trackId]: { ...prev[trackId], color } }));
+        void engineApi.setTrackColor(trackId, color)
+            .then(() => useEngineStore.getState().fetchProject('track-color-change'))
+            .catch((err) => {
+                console.error('[TrackInspector] setTrackColor failed:', err);
+            });
         setColorPickerState(null);
     }, []);
 
@@ -403,6 +457,14 @@ export const TrackInspector = ({
     // ── Cmd+R keyboard shortcut for rename ──
     useEffect(() => {
         const handleKey = (e: KeyboardEvent) => {
+            const target = e.target as HTMLElement | null;
+            const tag = target?.tagName?.toLowerCase();
+            const isTextInput =
+                tag === 'input' ||
+                tag === 'textarea' ||
+                target?.isContentEditable;
+            if (isTextInput || renamingTrackId !== null) return;
+
             if ((e.metaKey || e.ctrlKey) && e.key === 'r' && selectedTrackId && selectedTrackId !== 'master') {
                 e.preventDefault();
                 handleRenameStart(selectedTrackId);
@@ -443,7 +505,7 @@ export const TrackInspector = ({
         };
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
-    }, [selectedTrackId, selectedTrackIds, tracks, handleRenameStart, handleGroupTrack, handleDeleteSelectedTracks, handleDuplicateSelectedTracks]);
+    }, [selectedTrackId, selectedTrackIds, tracks, renamingTrackId, handleRenameStart, handleGroupTrack, handleDeleteSelectedTracks, handleDuplicateSelectedTracks]);
 
     const computeRawInsertIndex = useCallback((visibleInsertIndex: number): number => {
         if (visibleTracks.length === 0) return 0;
@@ -469,50 +531,174 @@ export const TrackInspector = ({
         const rawInsertIndex = computeRawInsertIndex(visibleInsertIndex);
         const adjustedInsert = rawInsertIndex > fullIndex ? rawInsertIndex - 1 : rawInsertIndex;
         const clamped = Math.max(0, Math.min(tracks.length - 1, adjustedInsert));
-        const prev = visibleInsertIndex > 0 ? visibleTracks[visibleInsertIndex - 1] : undefined;
-        const next = visibleInsertIndex < visibleTracks.length ? visibleTracks[visibleInsertIndex] : undefined;
-        let inferredParentGroupId: string | null = null;
-        if (prev?.groupId && next?.groupId && prev.groupId === next.groupId) {
-            inferredParentGroupId = prev.groupId;
-        } else if (prev?.groupId && !next) {
-            inferredParentGroupId = prev.groupId;
-        } else if (next?.groupId && !prev) {
-            inferredParentGroupId = next.groupId;
-        } else if (prev?.groupId && !next?.groupId) {
-            inferredParentGroupId = null;
-        } else if (!prev?.groupId && next?.groupId) {
-            inferredParentGroupId = null;
-        }
+        if (clamped === fullIndex) return;
 
-        void engineApi.moveTrackWithParent(trackId, clamped, inferredParentGroupId).then(() => {
+        void engineApi.moveTrackToIndex(trackId, clamped).then(() => {
             void useEngineStore.getState().fetchProject();
         }).catch((err) => {
-            console.error('[TrackInspector] moveTrackWithParent failed:', err);
+            console.error('[TrackInspector] moveTrackToIndex failed:', err);
         });
-    }, [tracks, computeRawInsertIndex, visibleTracks]);
+    }, [tracks, computeRawInsertIndex]);
 
-    const isDescendantOfGroup = useCallback((track: TrackData, groupId: string): boolean => {
-        let current: TrackData | undefined = track;
+    const resetTrackDragState = useCallback(() => {
+        draggingTrackIdRef.current = null;
+        setDropInsertIndex(null);
+        setGroupDropTargetId(null);
+        setDraggingTrackId(null);
+        window.__dreamInAppDrag = false;
+    }, []);
+
+    const commitDraggedTrackToVisibleIndex = useCallback((dragId: string, visibleIndex: number) => {
+        const draggingTrack = tracks.find((t) => t.id === dragId);
+        if (!draggingTrack) return;
+        if (draggingTrack.type === 'group') {
+            const rawInsertIndex = computeRawInsertIndex(visibleIndex);
+            void engineApi.moveTrackBlockToIndex(dragId, rawInsertIndex).then(() => {
+                void useEngineStore.getState().fetchProject();
+            }).catch((err) => {
+                console.error('[TrackInspector] moveTrackBlockToIndex failed:', err);
+            });
+            return;
+        }
+        commitTrackReorder(dragId, visibleIndex);
+    }, [tracks, computeRawInsertIndex, commitTrackReorder]);
+
+    const computeVisibleInsertIndexFromClientY = useCallback((clientY: number) => {
+        if (visibleTracks.length === 0) return 0;
+        for (let i = 0; i < visibleTracks.length; i += 1) {
+            const track = visibleTracks[i];
+            const row = trackRowRefs.current[track.id];
+            if (!row) continue;
+            const rect = row.getBoundingClientRect();
+            if (clientY < rect.top + rect.height / 2) {
+                return i;
+            }
+        }
+        return visibleTracks.length;
+    }, [visibleTracks]);
+
+    const isDescendantOf = useCallback((candidateId: string, ancestorId: string): boolean => {
+        let current = tracks.find((t) => t.id === candidateId);
         while (current?.groupId) {
-            if (current.groupId === groupId) return true;
+            if (current.groupId === ancestorId) return true;
             current = tracks.find((t) => t.id === current?.groupId);
         }
         return false;
     }, [tracks]);
 
-    const findGroupTailRawIndex = useCallback((groupId: string): number => {
-        const fullIds = tracks.map((t) => t.id);
-        const groupIndex = fullIds.indexOf(groupId);
+    const findGroupTailInsertIndex = useCallback((groupId: string): number => {
+        const groupIndex = tracks.findIndex((t) => t.id === groupId);
         if (groupIndex < 0) return tracks.length;
-        let tail = groupIndex;
-        for (let i = 0; i < tracks.length; i++) {
-            const t = tracks[i];
-            if (t.id !== groupId && isDescendantOfGroup(t, groupId)) {
-                tail = Math.max(tail, i);
-            }
+        let tail = groupIndex + 1;
+        while (tail < tracks.length) {
+            const candidate = tracks[tail];
+            if (!isDescendantOf(candidate.id, groupId)) break;
+            tail += 1;
         }
-        return Math.min(tracks.length, tail + 1);
-    }, [tracks, isDescendantOfGroup]);
+        return tail;
+    }, [tracks, isDescendantOf]);
+
+    const resolveDropTargetFromClientY = useCallback((clientY: number, dragId: string) => {
+        const draggingTrack = tracks.find((t) => t.id === dragId);
+        for (let i = 0; i < visibleTracks.length; i += 1) {
+            const track = visibleTracks[i];
+            const row = trackRowRefs.current[track.id];
+            if (!row) continue;
+            const rect = row.getBoundingClientRect();
+            if (clientY < rect.top || clientY > rect.bottom) continue;
+
+            const canNestIntoGroup = Boolean(
+                draggingTrack
+                && draggingTrack.type !== 'group'
+                && track.type === 'group'
+                && dragId !== track.id
+                && !isDescendantOf(track.id, dragId),
+            );
+            if (canNestIntoGroup) {
+                const topZone = rect.top + rect.height * 0.28;
+                const bottomZone = rect.bottom - rect.height * 0.28;
+                if (clientY >= topZone && clientY <= bottomZone) {
+                    return { groupId: track.id, insertIndex: null as number | null };
+                }
+            }
+
+            const insertBefore = clientY < rect.top + rect.height / 2;
+            return { groupId: null as string | null, insertIndex: insertBefore ? i : i + 1 };
+        }
+        return { groupId: null as string | null, insertIndex: visibleTracks.length };
+    }, [tracks, visibleTracks, isDescendantOf]);
+
+    const beginHeaderPointerDrag = useCallback((e: React.PointerEvent<HTMLDivElement>, trackId: string) => {
+        if (e.button !== 0) return;
+        const target = e.target as HTMLElement;
+        if (target.closest('button,input,select,textarea,[contenteditable="true"]')) return;
+        setPointerDrag({
+            trackId,
+            startX: e.clientX,
+            startY: e.clientY,
+            active: false,
+        });
+    }, []);
+
+    useEffect(() => {
+        if (!pointerDrag) return;
+
+        const onPointerMove = (e: PointerEvent) => {
+            const dx = e.clientX - pointerDrag.startX;
+            const dy = e.clientY - pointerDrag.startY;
+            const distance = Math.hypot(dx, dy);
+
+            if (!pointerDrag.active && distance < 4) return;
+
+            if (!pointerDrag.active) {
+                draggingTrackIdRef.current = pointerDrag.trackId;
+                setDraggingTrackId(pointerDrag.trackId);
+                setPointerDrag((prev) => (prev ? { ...prev, active: true } : prev));
+                window.__dreamInAppDrag = true;
+            }
+
+            const target = resolveDropTargetFromClientY(e.clientY, pointerDrag.trackId);
+            setGroupDropTargetId(target.groupId);
+            setDropInsertIndex(target.insertIndex);
+            e.preventDefault();
+        };
+
+        const onPointerUp = (e: PointerEvent) => {
+            const activeDragId = draggingTrackIdRef.current ?? draggingTrackId;
+            if (pointerDrag.active && activeDragId) {
+                const target = resolveDropTargetFromClientY(e.clientY, activeDragId);
+                if (target.groupId) {
+                    const targetIndex = findGroupTailInsertIndex(target.groupId);
+                    void engineApi.moveTrackWithParent(activeDragId, targetIndex, target.groupId).then(() => {
+                        void useEngineStore.getState().fetchProject();
+                    }).catch((err) => {
+                        console.error('[TrackInspector] moveTrackWithParent(group drop) failed:', err);
+                    });
+                } else {
+                    const idx = target.insertIndex ?? computeVisibleInsertIndexFromClientY(e.clientY);
+                    commitDraggedTrackToVisibleIndex(activeDragId, idx);
+                }
+                suppressNextClickRef.current = true;
+            }
+            setPointerDrag(null);
+            resetTrackDragState();
+        };
+
+        window.addEventListener('pointermove', onPointerMove, { passive: false });
+        window.addEventListener('pointerup', onPointerUp);
+        return () => {
+            window.removeEventListener('pointermove', onPointerMove);
+            window.removeEventListener('pointerup', onPointerUp);
+        };
+    }, [
+        pointerDrag,
+        draggingTrackId,
+        computeVisibleInsertIndexFromClientY,
+        commitDraggedTrackToVisibleIndex,
+        resolveDropTargetFromClientY,
+        findGroupTailInsertIndex,
+        resetTrackDragState,
+    ]);
 
     let trackNum = 0;
 
@@ -553,14 +739,32 @@ export const TrackInspector = ({
             </div>
 
             {/* Track List */}
-            <div ref={scrollRef} className="scrollbar-hide"
-                style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+            <div
+                ref={scrollRef}
+                className="scrollbar-hide"
+                style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}
+                onDragOver={(e) => {
+                    const activeDragId = draggingTrackIdRef.current ?? draggingTrackId;
+                    if (!activeDragId) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                }}
+                onDrop={(e) => {
+                    const activeDragId = draggingTrackIdRef.current ?? draggingTrackId;
+                    if (!activeDragId) return;
+                    e.preventDefault();
+                    const dragId = activeDragId || e.dataTransfer.getData('text/plain');
+                    if (!dragId) {
+                        resetTrackDragState();
+                        return;
+                    }
+                    const targetVisibleIndex = dropInsertIndex ?? visibleTracks.length;
+                    commitDraggedTrackToVisibleIndex(dragId, targetVisibleIndex);
+                    resetTrackDragState();
+                }}
+            >
                 {dropInsertIndex === 0 && (
-                    <div style={{
-                        height: 2,
-                        background: 'var(--color-accent-primary)',
-                        boxShadow: '0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 50%, transparent)',
-                    }} />
+                    <div className="track-drop-insert-line" />
                 )}
                 {visibleTracks.map((track) => {
                     const isGroup = track.type === 'group';
@@ -571,8 +775,13 @@ export const TrackInspector = ({
                     const trackIndex = getTrackIndex(track.id);
 
                     const visibleIndex = visibleTracks.findIndex((t) => t.id === track.id);
+                    const nextVisible = visibleTracks[visibleIndex + 1];
+                    const isLastInParentGroup = Boolean(track.groupId) && (!nextVisible || nextVisible.groupId !== track.groupId);
                     return (
-                        <div key={track.id}>
+                        <div
+                            key={track.id}
+                            ref={(el) => { trackRowRefs.current[track.id] = el; }}
+                        >
                             <TrackRow
                                 track={track}
                                 allTracks={tracks}
@@ -587,7 +796,24 @@ export const TrackInspector = ({
                                 onRenameCommit={handleRenameCommit}
                                 onRenameCancel={handleRenameCancel}
                                 onClick={(e) => {
+                                    if (suppressNextClickRef.current) {
+                                        suppressNextClickRef.current = false;
+                                        e.preventDefault();
+                                        return;
+                                    }
                                     if (e.shiftKey) {
+                                        const anchorId = lastClickedTrackId ?? selectedTrackId;
+                                        const anchorIndex = visibleTracks.findIndex((t) => t.id === anchorId);
+                                        const currentIndex = visibleTracks.findIndex((t) => t.id === track.id);
+                                        if (anchorIndex >= 0 && currentIndex >= 0) {
+                                            const start = Math.min(anchorIndex, currentIndex);
+                                            const end = Math.max(anchorIndex, currentIndex);
+                                            const rangeIds = visibleTracks.slice(start, end + 1).map((t) => t.id);
+                                            setSelectedTrackIds(new Set(rangeIds));
+                                        } else {
+                                            setSelectedTrackIds(new Set([track.id]));
+                                        }
+                                    } else if (e.metaKey || e.ctrlKey) {
                                         setSelectedTrackIds((prev) => {
                                             const next = new Set(prev);
                                             if (next.has(track.id)) next.delete(track.id);
@@ -597,6 +823,7 @@ export const TrackInspector = ({
                                     } else {
                                         setSelectedTrackIds(new Set([track.id]));
                                     }
+                                    setLastClickedTrackId(track.id);
                                     onSelectTrack(track.id);
                                 }}
                                 onToggleMute={() => toggleMute(track.id)}
@@ -620,85 +847,14 @@ export const TrackInspector = ({
                                 onOutputChange={(targetId) => { void setTrackOutput(track.id, targetId); }}
                                 onInputChange={(inputId) => { void setTrackInput(track.id, inputId); }}
                                 onContextMenu={(e) => handleContextMenu(e, track.id, trackIndex)}
-                                onDragStartTrack={(e) => {
-                                    setDraggingTrackId(track.id);
-                                    e.dataTransfer.effectAllowed = 'move';
-                                    e.dataTransfer.setData('text/plain', track.id);
-                                }}
-                                onDragOverTrack={(e) => {
-                                    if (!draggingTrackId || draggingTrackId === track.id) return;
-                                    e.preventDefault();
-                                    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-                                    const topZone = rect.top + rect.height * 0.25;
-                                    const bottomZone = rect.bottom - rect.height * 0.25;
-                                    const isGroupRowMiddle =
-                                        track.type === 'group' &&
-                                        e.clientY >= topZone &&
-                                        e.clientY <= bottomZone;
-                                    if (isGroupRowMiddle) {
-                                        setDropTargetGroupId(track.id);
-                                        setDropInsertIndex(null);
-                                        return;
-                                    }
-                                    setDropTargetGroupId(null);
-                                    const insertBefore = e.clientY < rect.top + rect.height / 2;
-                                    const idx = insertBefore ? visibleIndex : visibleIndex + 1;
-                                    setDropInsertIndex(idx);
-                                }}
-                                onDropTrack={(e) => {
-                                    e.preventDefault();
-                                    const dragId = draggingTrackId ?? e.dataTransfer.getData('text/plain');
-                                    if (!dragId || dragId === track.id) return;
-                                    const draggingTrack = tracks.find((t) => t.id === dragId);
-                                    if (track.type === 'group' && dropTargetGroupId === track.id) {
-                                        const groupTail = findGroupTailRawIndex(track.id);
-                                        if (draggingTrack?.type === 'group') {
-                                            void engineApi.moveTrackBlockToIndex(dragId, groupTail).then(() => {
-                                                void useEngineStore.getState().fetchProject();
-                                            }).catch((err) => {
-                                                console.error('[TrackInspector] moveTrackBlockToIndex(group drag) failed:', err);
-                                            });
-                                        } else {
-                                            void engineApi.moveTrackWithParent(dragId, groupTail, track.id).then(() => {
-                                                void useEngineStore.getState().fetchProject();
-                                            }).catch((err) => {
-                                                console.error('[TrackInspector] moveTrackWithParent(group drop) failed:', err);
-                                            });
-                                        }
-                                    } else if (draggingTrack?.type === 'group') {
-                                        const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-                                        const insertBefore = e.clientY < rect.top + rect.height / 2;
-                                        const idx = insertBefore ? visibleIndex : visibleIndex + 1;
-                                        const rawInsertIndex = computeRawInsertIndex(idx);
-                                        void engineApi.moveTrackBlockToIndex(dragId, rawInsertIndex).then(() => {
-                                            void useEngineStore.getState().fetchProject();
-                                        }).catch((err) => {
-                                            console.error('[TrackInspector] moveTrackBlockToIndex failed:', err);
-                                        });
-                                    } else {
-                                        const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-                                        const insertBefore = e.clientY < rect.top + rect.height / 2;
-                                        const idx = insertBefore ? visibleIndex : visibleIndex + 1;
-                                        commitTrackReorder(dragId, idx);
-                                    }
-                                    setDropInsertIndex(null);
-                                    setDropTargetGroupId(null);
-                                    setDraggingTrackId(null);
-                                }}
-                                onDragEndTrack={() => {
-                                    setDropInsertIndex(null);
-                                    setDropTargetGroupId(null);
-                                    setDraggingTrackId(null);
-                                }}
-                                isGroupDropTarget={dropTargetGroupId === track.id}
+                                onHeaderPointerDown={(e) => beginHeaderPointerDrag(e, track.id)}
+                                isGroupDropTarget={groupDropTargetId === track.id}
+                                groupStripeColor={track.groupId ? (tracks.find((t) => t.id === track.groupId)?.color ?? track.color) : track.color}
+                                isLastInParentGroup={isLastInParentGroup}
                                 mixerFocusMode={mixerFocusMode}
                             />
                             {dropInsertIndex === visibleIndex + 1 && (
-                                <div style={{
-                                    height: 2,
-                                    background: 'var(--color-accent-primary)',
-                                    boxShadow: '0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 50%, transparent)',
-                                }} />
+                                <div className="track-drop-insert-line" />
                             )}
                         </div>
                     );
@@ -1553,8 +1709,10 @@ const TrackRow = ({
     isRenaming, renameValue, onRenameChange, onRenameCommit, onRenameCancel,
     onClick, onToggleMute, onToggleSolo, onToggleArm, onToggleCollapse,
     onVolumeChange, onPanChange, onOutputChange, onInputChange, onContextMenu,
-    onDragStartTrack, onDragOverTrack, onDropTrack, onDragEndTrack,
+    onHeaderPointerDown,
     isGroupDropTarget = false,
+    groupStripeColor,
+    isLastInParentGroup = false,
     isMasterFixed, mixerFocusMode = false,
 }: {
     track: TrackData;
@@ -1579,11 +1737,10 @@ const TrackRow = ({
     onOutputChange?: (targetId: string) => void;
     onInputChange?: (inputId: string) => void;
     onContextMenu?: (e: React.MouseEvent) => void;
-    onDragStartTrack?: (e: React.DragEvent<HTMLDivElement>) => void;
-    onDragOverTrack?: (e: React.DragEvent<HTMLDivElement>) => void;
-    onDropTrack?: (e: React.DragEvent<HTMLDivElement>) => void;
-    onDragEndTrack?: () => void;
+    onHeaderPointerDown?: (e: React.PointerEvent<HTMLDivElement>) => void;
     isGroupDropTarget?: boolean;
+    groupStripeColor?: string;
+    isLastInParentGroup?: boolean;
     isMasterFixed?: boolean;
     mixerFocusMode?: boolean;
 }) => {
@@ -1613,69 +1770,56 @@ const TrackRow = ({
     // Subdue track visually when disabled (muted)
     const isEnabled = !track.isMuted;
     const compactControlHeight = 16;
-    const headerContrast = getContrastColor(track.color);
+    const headerBgColor = isMasterFixed ? '#f2f2f2' : track.color;
+    const headerContrast = getContrastColor(headerBgColor);
     const headerTextColor = headerContrast === 'black' ? 'rgba(18, 18, 18, 0.92)' : 'rgba(255, 255, 255, 0.94)';
 
     return (
         <div
             onClick={onClick}
             onContextMenu={onContextMenu}
-            onDragOver={onDragOverTrack}
-            onDrop={onDropTrack}
             style={{
                 display: 'flex', alignItems: 'stretch', height: trackHeight,
                 borderBottom: isMasterFixed ? 'none' : '1px solid var(--color-divider)',
-                borderTop: isMasterFixed ? '1px solid var(--color-divider)' : 'none',
-                background: isMasterFixed ? 'transparent' : 'var(--surface-1)',
+                borderTop: 'none',
+                background: 'var(--surface-1)',
                 cursor: 'default',
                 opacity: isEnabled ? 1 : 0.45,
                 transition: 'background 0.12s ease, opacity 0.12s ease',
-                position: 'relative', paddingLeft: depth * 10, flexShrink: 0,
-                outline: isGroupDropTarget ? '1px solid var(--color-accent-primary)' : 'none',
+                position: 'relative', paddingLeft: depth * 12, flexShrink: 0,
+                outline: isGroupDropTarget ? '1px solid color-mix(in srgb, var(--color-accent-primary) 72%, white)' : 'none',
                 outlineOffset: isGroupDropTarget ? '-1px' : 0,
             }}
         >
             {depth > 0 && (
                 <div style={{
                     position: 'absolute',
-                    left: Math.max(2, depth * 10 - 6),
+                    left: 0,
                     top: 0,
                     bottom: 0,
-                    width: 2,
-                    background: 'color-mix(in srgb, var(--color-accent-primary) 55%, transparent)',
-                    borderRadius: 1,
-                    opacity: 0.75,
+                    width: depth * 12,
+                    background: groupStripeColor || 'var(--color-accent-primary)',
+                    borderRight: '1px solid rgba(0,0,0,0.22)',
+                    borderBottom: isLastInParentGroup ? '1px solid var(--color-divider)' : 'none',
+                    opacity: 1,
                     pointerEvents: 'none',
+                    zIndex: 1,
                 }} />
             )}
             {/* ════ BLOCK 1: Track Header (colored) ════ */}
             <div
-                draggable={!isMaster}
-                onDragStart={onDragStartTrack}
-                onDragEnd={onDragEndTrack}
+                onPointerDown={onHeaderPointerDown}
                 style={{
                     display: 'flex', flexDirection: 'column', justifyContent: 'center',
                     minWidth: isMasterFixed ? 84 : 90,
                     maxWidth: mixerFocusMode ? 118 : 108,
                     padding: mixerFocusMode ? '2px 8px 2px 5px' : '2px 6px 2px 4px',
-                    background: isMasterFixed ? 'transparent' : track.color,
+                    background: headerBgColor,
                     borderRight: isMasterFixed ? 'none' : '1px solid rgba(255,255,255,0.08)',
                     gap: 1,
                     position: 'relative',
                     cursor: !isMaster ? 'grab' : 'default',
                 }}> 
-                {isMasterFixed && (
-                    <div style={{
-                        position: 'absolute',
-                        left: 0,
-                        right: 0,
-                        top: 0,
-                        height: 2,
-                        background: track.color,
-                        opacity: 0.9,
-                        pointerEvents: 'none',
-                    }} />
-                )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                     {/* Collapse / Group icon */}
                     {isGroup && onToggleCollapse ? (
@@ -1698,6 +1842,7 @@ const TrackRow = ({
                             value={renameValue}
                             onChange={e => onRenameChange(e.target.value)}
                             onKeyDown={e => {
+                                e.stopPropagation();
                                 if (e.key === 'Enter') onRenameCommit();
                                 if (e.key === 'Escape') onRenameCancel();
                             }}
@@ -1722,17 +1867,6 @@ const TrackRow = ({
                             textOverflow: 'ellipsis', minWidth: 0,
                         }}>
                             {track.name}
-                        </span>
-                    )}
-                    {isGroupDropTarget && isGroup && (
-                        <span style={{
-                            fontSize: 8,
-                            fontWeight: 700,
-                            color: 'var(--color-accent-primary)',
-                            letterSpacing: '0.03em',
-                            textTransform: 'uppercase',
-                        }}>
-                            Drop
                         </span>
                     )}
                 </div>
@@ -1906,8 +2040,8 @@ const TrackRow = ({
                             style={{
                                 width: mixerFocusMode ? 34 : 36, height: compactControlHeight,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                background: track.isSoloed ? 'var(--color-btn-solo)' : 'var(--surface-elevated)',
-                                color: track.isSoloed ? 'var(--text-primary)' : 'var(--text-muted)',
+                                background: track.isSoloed ? 'var(--color-accent-primary)' : 'var(--surface-elevated)',
+                                color: track.isSoloed ? '#f4f8ff' : 'var(--text-muted)',
                                 border: 'none', borderRadius: 2,
                                 fontSize: 8, fontWeight: 700, cursor: 'pointer',
                                 padding: 0, transition: 'background 0.1s ease',
@@ -2022,6 +2156,16 @@ const TrackRow = ({
                     </>
                 )}
             </div>
+
+            {isGroupDropTarget && isGroup && (
+                <div style={{
+                    position: 'absolute',
+                    inset: 0,
+                    pointerEvents: 'none',
+                    zIndex: 4,
+                    boxShadow: 'inset 0 0 0 2px rgba(255,255,255,0.78), inset 0 0 16px rgba(255,255,255,0.22)',
+                }} />
+            )}
         </div>
     );
 };

@@ -24,6 +24,7 @@ interface StatusBarProps {
     trackCount?: number;
     panelMode?: 'rack' | 'clip';
     onPanelModeChange?: (mode: 'rack' | 'clip') => void;
+    panelInfo?: string;
 }
 
 export const StatusBar = ({
@@ -31,6 +32,7 @@ export const StatusBar = ({
     duration = '2:28.430',
     panelMode,
     onPanelModeChange,
+    panelInfo,
 }: StatusBarProps) => {
     // Live engine data
     const isPlaying = useEngineStore((s) => s.transport.is_playing);
@@ -139,6 +141,9 @@ export const StatusBar = ({
                                 Panel: Clip
                             </button>
                         </div>
+                    )}
+                    {panelInfo && (
+                        <StatusText>{panelInfo}</StatusText>
                     )}
                     <StatusText>Arrangement</StatusText>
 

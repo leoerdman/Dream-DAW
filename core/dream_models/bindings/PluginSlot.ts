@@ -27,6 +27,10 @@ is_bypassed: boolean,
  */
 latency_frames: number, 
 /**
+ * Optional sidechain source track UUID (as string) for plugins that expose sidechain input.
+ */
+sidechain_source_track_id: string | null, 
+/**
  * External plugin format hint (`vst2`, `vst3`, `au`, ...).
  */
 external_format: string | null, 

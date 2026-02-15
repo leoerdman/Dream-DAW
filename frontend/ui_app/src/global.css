@@ -197,3 +197,25 @@ body,
 .timeline-cursor-blink {
    animation: timeline-cursor-blink 2.4s ease-in-out infinite;
 }
+
+@keyframes track-drop-line-pulse {
+   0%,
+   100% {
+      opacity: 0.92;
+      box-shadow: 0 0 7px rgba(255, 255, 255, 0.52);
+   }
+
+   50% {
+      opacity: 0.42;
+      box-shadow: 0 0 2px rgba(255, 255, 255, 0.28);
+   }
+}
+
+.track-drop-insert-line {
+   height: 3px;
+   margin: 0 3px;
+   border-radius: 999px;
+   background: rgba(255, 255, 255, 0.96);
+   animation: track-drop-line-pulse 1.5s ease-in-out infinite;
+   pointer-events: none;
+}

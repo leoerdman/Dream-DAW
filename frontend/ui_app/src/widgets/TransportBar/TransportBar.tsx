@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useGridStore } from '@/shared/stores/useGridStore';
 import * as engineApi from '@/shared/api/engine';
 import {
     Play,
@@ -15,6 +16,7 @@ import {
     EyeOff,
     RefreshCw,
     X,
+    Pencil,
 } from 'lucide-react';
 
 const PDC_PANEL_POS_KEY = 'dream_daw.pdc_panel_pos.v1';
@@ -60,6 +62,8 @@ export const TransportBar = ({
     const engineSetBpm = useEngineStore((s) => s.setBpm);
     const engineSetLoop = useEngineStore((s) => s.setLoop);
     const projectTracks = useEngineStore((s) => s.projectTracks);
+    const pianoPencilMode = useGridStore((s) => s.pianoPencilMode);
+    const togglePianoPencilMode = useGridStore((s) => s.togglePianoPencilMode);
 
     const [isRecording, setIsRecording] = useState(false);
     const [bpmEditing, setBpmEditing] = useState(false);
@@ -352,7 +356,10 @@ export const TransportBar = ({
                             isActive={isPlaying}
                             activeColor="var(--color-status-success)"
                             activeBackground={false}
-                            onClick={togglePlay}
+                            onClick={() => {
+                                void engineApi.stopPreview().catch(() => { });
+                                togglePlay();
+                            }}
                         />
                         <TransportBtn
                             icon={<Square size={13} fill="currentColor" />}
@@ -402,6 +409,13 @@ export const TransportBar = ({
                             isActive={followPlayhead}
                             activeColor="var(--color-accent-primary)"
                             onClick={() => onFollowPlayheadChange?.(!followPlayhead)}
+                        />
+                        <TransportBtn
+                            icon={<Pencil size={13} />}
+                            title="Pencil Mode"
+                            isActive={pianoPencilMode}
+                            activeColor="var(--color-accent-primary)"
+                            onClick={togglePianoPencilMode}
                         />
                         <TransportBtn
                             icon={

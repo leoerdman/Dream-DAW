@@ -571,6 +571,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         duration: { sample_frame: number };
                         source_offset: { sample_frame: number };
                         color_override: unknown;
+                        color_hex?: string | null;
                         is_offline?: boolean;
                     }>;
                     midi_clips?: Array<{
@@ -584,6 +585,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                             start_frame: number;
                             duration_frames: number;
                         }>;
+                        color_override?: unknown;
+                        color_hex?: string | null;
                     }>;
                 }>;
                 sample_rate: number;
@@ -670,8 +673,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         // Editor mode must follow track type:
                         // MIDI tracks -> piano roll, Audio tracks -> sample editor.
                         type: treatAsMidi ? 'midi' : 'audio',
-                        color: resolveTrackColor(clip.color_override) !== '#667788'
-                            ? resolveTrackColor(clip.color_override)
+                        color: resolveTrackColor(clip.color_hex ?? clip.color_override) !== '#667788'
+                            ? resolveTrackColor(clip.color_hex ?? clip.color_override)
                             : trackColor,
                         filePath: treatAsMidi ? undefined : clip.file_path,
                         durationSamples: clip.duration.sample_frame,
@@ -697,7 +700,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         startBeat: posSeconds * beatsPerSecond,
                         durationBeats: durSeconds * beatsPerSecond,
                         type: 'midi',
-                        color: trackColor,
+                        color: resolveTrackColor(clip.color_hex ?? clip.color_override) !== '#667788'
+                            ? resolveTrackColor(clip.color_hex ?? clip.color_override)
+                            : trackColor,
                         durationSamples: clip.duration.sample_frame,
                         sourceOffset: 0,
                         fadeIn: ((clip as Record<string, unknown>).fade_in_frames as number | undefined)

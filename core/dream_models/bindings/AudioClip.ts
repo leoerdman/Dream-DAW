@@ -64,6 +64,11 @@ is_muted: boolean,
  */
 color_override: TrackColor | null, 
 /**
+ * Exact hex color override from ALS color index (e.g. "#FF3636").
+ * When present, UI should prefer this over `color_override`.
+ */
+color_hex?: string | null, 
+/**
  * Session launch mode code (`LaunchMode` in ALS).
  */
 launch_mode: number, 

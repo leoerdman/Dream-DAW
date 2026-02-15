@@ -144,6 +144,11 @@ loop_on: boolean,
  */
 color_override: TrackColor | null, 
 /**
+ * Exact hex color override from ALS color index (e.g. "#FF3636").
+ * When present, UI should prefer this over `color_override`.
+ */
+color_hex?: string | null, 
+/**
  * Groove template name from ALS (e.g., "MPC 8th Swing 59%").
  */
 groove_name: string | null, 

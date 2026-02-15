@@ -26,7 +26,10 @@ fn get_state(handle: tauri::State<'_, AudioEngineHandle>) -> Result<EngineStateR
 /// `telemetry_timestamp_ms` so the frontend can interpolate the
 /// playhead at 144fps between telemetry ticks.
 #[tauri::command]
-fn get_transport(handle: tauri::State<'_, AudioEngineHandle>) -> Result<TransportState, String> {
+fn get_transport(
+    handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<TransportState, String> {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let state = handle
@@ -37,7 +40,23 @@ fn get_transport(handle: tauri::State<'_, AudioEngineHandle>) -> Result<Transpor
     let frames = handle.master_clock.position();
     let sample_rate = state.sample_rate;
     let seconds = frames as f64 / sample_rate;
-    let position_beats = seconds * state.bpm / 60.0;
+    let fallback_bpm = state.bpm;
+    let is_playing = state.is_playing;
+    let loop_enabled = state.loop_enabled;
+    let loop_start = state.loop_start;
+    let loop_end = state.loop_end;
+    drop(state);
+
+    // Authoritative beat conversion must use project pulse map, not mirrored
+    // transport BPM, otherwise imported ALS projects can show playhead drift
+    // (e.g. 33rd bar audio sounding while UI reads ~23rd bar).
+    let (bpm, position_beats) = if let Ok(project) = project_state.project.lock() {
+        let bpm = project.pulse_map.initial_bpm();
+        let beats = project.pulse_map.beats(frames.max(0));
+        (bpm, beats)
+    } else {
+        (fallback_bpm, seconds * fallback_bpm / 60.0)
+    };
 
     // Monotonic timestamp for frontend playhead interpolation.
     // Uses wall-clock ms since UNIX epoch — the frontend converts
@@ -48,15 +67,15 @@ fn get_transport(handle: tauri::State<'_, AudioEngineHandle>) -> Result<Transpor
         .unwrap_or(0.0);
 
     Ok(TransportState {
-        is_playing: state.is_playing,
+        is_playing,
         position_frames: frames,
         position_seconds: seconds,
         position_beats,
-        bpm: state.bpm,
+        bpm,
         sample_rate,
-        loop_enabled: state.loop_enabled,
-        loop_start: state.loop_start,
-        loop_end: state.loop_end,
+        loop_enabled,
+        loop_start,
+        loop_end,
         output_latency_frames: handle.output_latency_frames,
         telemetry_timestamp_ms,
     })
@@ -104,4 +123,3 @@ fn set_frequency(freq: f32, handle: tauri::State<'_, AudioEngineHandle>) -> Resu
     log::info!("[IPC] set_frequency({freq}Hz)");
     Ok(())
 }
-

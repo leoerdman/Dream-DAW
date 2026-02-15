@@ -223,6 +223,11 @@ pub struct MidiClip {
     #[serde(default)]
     pub color_override: Option<TrackColor>,
 
+    /// Exact hex color override from ALS color index (e.g. "#FF3636").
+    /// When present, UI should prefer this over `color_override`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_hex: Option<String>,
+
     /// Groove template name from ALS (e.g., "MPC 8th Swing 59%").
     #[serde(default)]
     pub groove_name: Option<String>,
@@ -277,6 +282,7 @@ impl MidiClip {
             loop_end_beats: None,
             loop_on: false,
             color_override: None,
+            color_hex: None,
             groove_name: None,
             groove_amount: 0.0,
             envelopes: Vec::new(),

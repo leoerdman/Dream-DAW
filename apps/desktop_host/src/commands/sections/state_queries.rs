@@ -19,6 +19,14 @@ fn get_state(handle: tauri::State<'_, AudioEngineHandle>) -> Result<EngineStateR
     })
 }
 
+/// Returns recent project mutation events (append-only in-memory history).
+#[tauri::command]
+fn get_project_history(
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<Vec<ProjectHistoryEvent>, String> {
+    project_state.history_snapshot()
+}
+
 /// Returns the current transport position and state.
 ///
 /// Includes `output_latency_frames` so the frontend can offset the

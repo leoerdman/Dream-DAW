@@ -18,6 +18,7 @@
 
 import { create } from 'zustand';
 import throttle from 'lodash.throttle';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import * as engine from '@/shared/api/engine';
 import type {
     TransportState,
@@ -261,10 +262,7 @@ const DEFAULT_METERS: MeteringSnapshot = {
 
 // ── Telemetry Loop Control ───────────────────────────────────────────────
 
-let _rafId: number | null = null;
-
-// Throttle meters to 30fps (every other frame) for performance
-let _frameCount = 0;
+let _telemetryUnlisten: UnlistenFn | null = null;
 
 // ── Store Creation ───────────────────────────────────────────────────────
 
@@ -770,60 +768,46 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         // Fetch project once at startup
         get().fetchProject('telemetry-startup');
 
-        const poll = async () => {
-            _frameCount++;
+        void (async () => {
             try {
-                // Transport state — every frame (60fps)
-                const nextTransport = await engine.getTransport();
+                _telemetryUnlisten = await listen<{
+                    transport: TransportState;
+                    meters: MeteringSnapshot;
+                }>('telemetry_tick', (event) => {
+                    const nextTransport = event.payload.transport;
+                    const nextMeters = event.payload.meters;
+                    const prev = get().transport;
+                    const transportChanged =
+                        prev.is_playing !== nextTransport.is_playing ||
+                        prev.position_beats !== nextTransport.position_beats ||
+                        prev.position_frames !== nextTransport.position_frames ||
+                        prev.bpm !== nextTransport.bpm ||
+                        prev.loop_enabled !== nextTransport.loop_enabled ||
+                        prev.loop_start !== nextTransport.loop_start ||
+                        prev.loop_end !== nextTransport.loop_end;
 
-                // ── BUG-F5/F10 fix: Shallow comparison ──
-                // Only update Zustand when transport values actually changed.
-                // Without this, set({ transport }) creates a new object ref
-                // every frame, causing every subscriber (DawShell → Timeline →
-                // TransportBar → StatusBar) to re-render at 60fps.
-                const prev = get().transport;
-                const transportChanged =
-                    prev.is_playing !== nextTransport.is_playing ||
-                    prev.position_beats !== nextTransport.position_beats ||
-                    prev.bpm !== nextTransport.bpm ||
-                    prev.loop_enabled !== nextTransport.loop_enabled ||
-                    prev.loop_start !== nextTransport.loop_start ||
-                    prev.loop_end !== nextTransport.loop_end;
-
-                if (transportChanged) {
-                    set({ transport: nextTransport, connected: true, lastError: null });
-                } else if (!get().connected) {
-                    set({ connected: true, lastError: null });
-                }
-
-                // Meters — every other frame (30fps) for performance
-                if (_frameCount % 2 === 0) {
-                    const meters = await engine.getMeters();
-                    set({ meters });
-                }
+                    if (transportChanged) {
+                        set({ transport: nextTransport, meters: nextMeters, connected: true, lastError: null });
+                    } else if (!get().connected) {
+                        set({ meters: nextMeters, connected: true, lastError: null });
+                    } else {
+                        set({ meters: nextMeters });
+                    }
+                });
             } catch (e) {
-                // Don't spam errors — only set if different
-                const current = get().lastError;
                 const msg = String(e);
-                if (current !== msg) {
-                    set({ lastError: msg, connected: false });
+                if (get().lastError !== msg) {
+                    set({ lastError: msg, connected: false, telemetryRunning: false });
                 }
             }
-
-            // Continue loop if still running
-            if (get().telemetryRunning) {
-                _rafId = requestAnimationFrame(poll);
-            }
-        };
-
-        _rafId = requestAnimationFrame(poll);
+        })();
     },
 
     stopTelemetryLoop: () => {
         set({ telemetryRunning: false });
-        if (_rafId !== null) {
-            cancelAnimationFrame(_rafId);
-            _rafId = null;
+        if (_telemetryUnlisten) {
+            _telemetryUnlisten();
+            _telemetryUnlisten = null;
         }
     },
 }));

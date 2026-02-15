@@ -360,7 +360,7 @@ impl DiskStreamerHandle {
     /// The DiskIO thread uses this to determine which chunks to pre-read.
     #[inline]
     pub fn set_playhead(&self, position: i64) {
-        self.playhead.store(position, Ordering::Relaxed);
+        self.playhead.store(position, Ordering::Release);
     }
 }
 
@@ -456,6 +456,7 @@ fn disk_io_thread(
     let mut last_read_frame: i64 = 0;
     let mut needs_seek = false;
     let mut consecutive_errors = 0u32;
+    let mut pending_chunk: Option<StreamChunk> = None;
 
     log::info!("DiskIO: thread started for '{}'", path.display());
 
@@ -464,7 +465,23 @@ fn disk_io_thread(
             break;
         }
 
-        let current_playhead = playhead.load(Ordering::Relaxed);
+        let current_playhead = playhead.load(Ordering::Acquire);
+
+        // If back-pressure left us with an unsent chunk, retry push first.
+        // This avoids re-decoding the same source span repeatedly when the ring
+        // is temporarily full.
+        if let Some(chunk) = pending_chunk.take() {
+            match producer.push(chunk) {
+                Ok(()) => {
+                    // Successfully delivered; continue with normal prefetch.
+                }
+                Err(rtrb::PushError::Full(chunk)) => {
+                    pending_chunk = Some(chunk);
+                    thread::sleep(std::time::Duration::from_millis(1));
+                    continue;
+                }
+            }
+        }
 
         // ── Determine what to read ──────────────────────────────
         // Read ahead of the playhead by LOOK_AHEAD_CHUNKS chunks.
@@ -590,9 +607,11 @@ fn disk_io_thread(
             Ok(()) => {
                 last_read_frame = chunk_start_frame + frames_read as i64;
             }
-            Err(_) => {
-                // Ring buffer full — back-pressure. Sleep and retry.
-                thread::sleep(std::time::Duration::from_millis(2));
+            Err(rtrb::PushError::Full(chunk)) => {
+                // Ring buffer full — preserve the already decoded chunk and retry
+                // on the next loop iteration instead of decoding it again.
+                pending_chunk = Some(chunk);
+                thread::sleep(std::time::Duration::from_millis(1));
             }
         }
     }

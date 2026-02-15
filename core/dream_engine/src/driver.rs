@@ -288,24 +288,84 @@ fn eval_automation(points: &[AutomationPoint], at_frame: i64) -> Option<f32> {
 }
 
 #[inline]
-fn apply_plugin_gain(left: &mut [f32], right: &mut [f32], gain: f32) {
-    let n = left.len().min(right.len());
-    let g = gain.clamp(0.0, 2.0);
-    for i in 0..n {
-        left[i] *= g;
-        right[i] *= g;
+fn eval_automation_with_cursor(
+    points: &[AutomationPoint],
+    at_frame: i64,
+    cursor: &mut usize,
+) -> Option<f32> {
+    if points.is_empty() {
+        return None;
     }
+    if points.len() == 1 {
+        return Some(points[0].value);
+    }
+    if at_frame <= points[0].sample_frame {
+        *cursor = 0;
+        return Some(points[0].value);
+    }
+
+    let last_pair = points.len().saturating_sub(2);
+    while *cursor < last_pair && at_frame > points[*cursor + 1].sample_frame {
+        *cursor += 1;
+    }
+
+    let a = &points[*cursor];
+    let b = &points[(*cursor + 1).min(points.len() - 1)];
+    if at_frame <= b.sample_frame {
+        let span = (b.sample_frame - a.sample_frame).max(1) as f32;
+        let t = ((at_frame - a.sample_frame) as f32 / span).clamp(0.0, 1.0);
+        return Some(a.value + (b.value - a.value) * t);
+    }
+
+    points.last().map(|p| p.value)
 }
 
 #[inline]
-fn apply_plugin_pan(left: &mut [f32], right: &mut [f32], pan: f32) {
+fn apply_plugin_automation_sample_accurate(
+    left: &mut [f32],
+    right: &mut [f32],
+    buffer_start_frame: i64,
+    gain_points: Option<&[AutomationPoint]>,
+    pan_points: Option<&[AutomationPoint]>,
+) {
     let n = left.len().min(right.len());
-    let p = pan.clamp(-1.0, 1.0);
-    let left_mul = if p > 0.0 { 1.0 - p } else { 1.0 };
-    let right_mul = if p < 0.0 { 1.0 + p } else { 1.0 };
+    if n == 0 {
+        return;
+    }
+
+    if gain_points.is_none() && pan_points.is_none() {
+        return;
+    }
+
+    let pan_is_unit_interval = pan_points
+        .map(|pts| !pts.is_empty() && pts.iter().all(|p| (0.0..=1.0).contains(&p.value)))
+        .unwrap_or(false);
+
+    let mut gain_cursor = 0usize;
+    let mut pan_cursor = 0usize;
+
     for i in 0..n {
-        left[i] *= left_mul;
-        right[i] *= right_mul;
+        let frame = buffer_start_frame + i as i64;
+        let gain = gain_points
+            .and_then(|pts| eval_automation_with_cursor(pts, frame, &mut gain_cursor))
+            .unwrap_or(1.0)
+            .clamp(0.0, 2.0);
+
+        let raw_pan = pan_points
+            .and_then(|pts| eval_automation_with_cursor(pts, frame, &mut pan_cursor))
+            .unwrap_or(0.0);
+        let pan = if pan_is_unit_interval {
+            raw_pan * 2.0 - 1.0
+        } else {
+            raw_pan
+        }
+        .clamp(-1.0, 1.0);
+
+        let left_mul = if pan > 0.0 { 1.0 - pan } else { 1.0 };
+        let right_mul = if pan < 0.0 { 1.0 + pan } else { 1.0 };
+
+        left[i] *= gain * left_mul;
+        right[i] *= gain * right_mul;
     }
 }
 
@@ -1173,31 +1233,20 @@ pub fn start_audio_thread_on_device(
                                             }
 
                                             // Canonicalized in desktop_host:
-                                            // __plugin_gain__ => [0..2], __plugin_pan__ => [0..1] or [-1..1]
+                                            // __plugin_gain__ => [0..2], __plugin_pan__ => [0..1] or [-1..1].
+                                            // Apply sample-accurate values across the current buffer.
                                             if let Some(lane) = automation.get(track_idx) {
-                                                if let Some(points) = lane.plugin_params.get("__plugin_gain__")
-                                                    && let Some(gain) = eval_automation(points, playhead_pos)
-                                                {
-                                                    apply_plugin_gain(
-                                                        &mut left[..c],
-                                                        &mut right[..c],
-                                                        gain,
-                                                    );
-                                                }
-                                                if let Some(points) = lane.plugin_params.get("__plugin_pan__")
-                                                    && let Some(raw_pan) = eval_automation(points, playhead_pos)
-                                                {
-                                                    let pan = if (0.0..=1.0).contains(&raw_pan) {
-                                                        raw_pan * 2.0 - 1.0
-                                                    } else {
-                                                        raw_pan
-                                                    };
-                                                    apply_plugin_pan(
-                                                        &mut left[..c],
-                                                        &mut right[..c],
-                                                        pan,
-                                                    );
-                                                }
+                                                apply_plugin_automation_sample_accurate(
+                                                    &mut left[..c],
+                                                    &mut right[..c],
+                                                    playhead_pos,
+                                                    lane.plugin_params
+                                                        .get("__plugin_gain__")
+                                                        .map(|v| v.as_slice()),
+                                                    lane.plugin_params
+                                                        .get("__plugin_pan__")
+                                                        .map(|v| v.as_slice()),
+                                                );
                                             }
                                         }
                                     },
@@ -1531,5 +1580,61 @@ mod tests {
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].len(), 1);
         assert_eq!(loaded[0][0].name, "Test");
+    }
+
+    #[test]
+    fn sample_accurate_plugin_gain_changes_within_buffer() {
+        let mut left = vec![1.0f32; 8];
+        let mut right = vec![1.0f32; 8];
+        let gain_points = vec![
+            AutomationPoint {
+                sample_frame: 0,
+                value: 0.0,
+            },
+            AutomationPoint {
+                sample_frame: 7,
+                value: 2.0,
+            },
+        ];
+
+        apply_plugin_automation_sample_accurate(
+            &mut left,
+            &mut right,
+            0,
+            Some(&gain_points),
+            None,
+        );
+
+        assert!(left[0] < left[7]);
+        assert!(right[0] < right[7]);
+        assert!((left[7] - 2.0).abs() < 0.05);
+    }
+
+    #[test]
+    fn sample_accurate_plugin_pan_unit_interval_maps_correctly() {
+        let mut left = vec![1.0f32; 4];
+        let mut right = vec![1.0f32; 4];
+        // 0.0 -> hard left, 1.0 -> hard right in legacy unit domain.
+        let pan_points = vec![
+            AutomationPoint {
+                sample_frame: 0,
+                value: 0.0,
+            },
+            AutomationPoint {
+                sample_frame: 3,
+                value: 1.0,
+            },
+        ];
+
+        apply_plugin_automation_sample_accurate(
+            &mut left,
+            &mut right,
+            0,
+            None,
+            Some(&pan_points),
+        );
+
+        assert!(left[0] > right[0]);
+        assert!(right[3] > left[3]);
     }
 }

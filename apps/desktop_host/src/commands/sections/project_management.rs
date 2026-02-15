@@ -6410,6 +6410,8 @@ fn new_project(
     *project_state.project_folder.lock().map_err(|e| e.to_string())? = None;
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
     *project_state.undo.lock().map_err(|e| e.to_string())? = UndoState::new();
+    *project_state.history.lock().map_err(|e| e.to_string())? = ProjectHistory::new();
+    project_state.record_history("new_project", format!("created '{}'", new.name))?;
     clip_pool_state.rebuild_snapshot(&new);
     rebuild_automation_snapshot_from_project(&new, &automation_runtime);
     rebuild_midi_snapshot_from_project(&new, &handle);
@@ -6428,97 +6430,106 @@ fn new_project(
 
 /// Saves the current project to its existing path (or fails if unsaved).
 #[tauri::command]
-fn save_project(
+async fn save_project(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let file_path_guard = project_state.file_path.lock().map_err(|e| e.to_string())?;
+    let (snapshot, path, project_name) = {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let file_path_guard = project_state.file_path.lock().map_err(|e| e.to_string())?;
+        let path = file_path_guard
+            .as_ref()
+            .ok_or("No file path set. Use Save As first.")?
+            .clone();
 
-    let path = file_path_guard
-        .as_ref()
-        .ok_or("No file path set. Use Save As first.")?
-        .clone();
-
-    // Keep project name aligned with the active file name.
-    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-        let normalized = stem.trim_end_matches(".dream").trim();
-        if !normalized.is_empty() && project.name != normalized {
-            project.name = normalized.to_string();
+        // Keep project name aligned with the active file name.
+        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+            let normalized = stem.trim_end_matches(".dream").trim();
+            if !normalized.is_empty() && project.name != normalized {
+                project.name = normalized.to_string();
+            }
         }
-    }
 
-    ProjectFile::save(&project, &path).map_err(|e| e.to_string())?;
+        (project.clone(), path, project.name.clone())
+    };
+
+    let save_path = path.clone();
+    tauri::async_runtime::spawn_blocking(move || ProjectFile::save(&snapshot, &save_path))
+        .await
+        .map_err(|e| format!("Save task join error: {e}"))?
+        .map_err(|e| e.to_string())?;
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
+    project_state.record_history("save", format!("saved to {}", path.display()))?;
 
     // Update window title (also clears any dirty marker left from mark_dirty_cmd).
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.set_title(&format!("Dream DAW — {}", project.name));
+        let _ = window.set_title(&format!("Dream DAW — {}", project_name));
     }
 
-    log::info!("Project saved: '{}' → {}", project.name, path.display());
+    log::info!("Project saved: '{}' → {}", project_name, path.display());
     Ok(path.display().to_string())
 }
 
 /// Saves the project to a specific path.
 #[tauri::command]
-fn save_project_as(
+async fn save_project_as(
     path: String,
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let file_path = PathBuf::from(&path);
-
-    // Determine if we should create an Ableton-style folder structure.
-    // If the user chose a path like "Foo.dream.json", we create:
-    //   parent/Foo/Foo.dream.json + Samples/ + Backup/
-    let parent_dir = file_path.parent().unwrap_or(std::path::Path::new("."));
-    let project_name = file_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or(&project.name)
-        .trim_end_matches(".dream")
-        .to_string();
-
-    // Save As should establish the active project name from chosen filename.
-    if !project_name.trim().is_empty() {
-        project.name = project_name.trim().to_string();
-    }
-
-    let (actual_file_path, folder) = if ProjectManager::is_project_directory(parent_dir) {
-        // Already inside a project directory — save in place
-        ProjectFile::save(&project, &file_path)
-            .map_err(|e| e.to_string())?;
-        (file_path.clone(), parent_dir.to_path_buf())
-    } else {
-        // New location — create Ableton-style folder structure
-        let folder = ProjectManager::create_project_folder(parent_dir, &project_name)
-            .map_err(|e| e.to_string())?;
-        let saved_path = ProjectManager::save_to_folder(&project, &folder, true)
-            .map_err(|e| e.to_string())?;
-        (saved_path, folder)
+    let (snapshot, project_name) = {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let computed_name = file_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&project.name)
+            .trim_end_matches(".dream")
+            .to_string();
+        if !computed_name.trim().is_empty() {
+            project.name = computed_name.trim().to_string();
+        }
+        (project.clone(), project.name.clone())
     };
+
+    let save_target = file_path.clone();
+    let project_name_for_save = project_name.clone();
+    let (actual_file_path, folder) = tauri::async_runtime::spawn_blocking(move || -> Result<(PathBuf, PathBuf), String> {
+        let parent_dir = save_target.parent().unwrap_or(std::path::Path::new("."));
+        if ProjectManager::is_project_directory(parent_dir) {
+            ProjectFile::save(&snapshot, &save_target).map_err(|e| e.to_string())?;
+            Ok((save_target.clone(), parent_dir.to_path_buf()))
+        } else {
+            let folder = ProjectManager::create_project_folder(parent_dir, &project_name_for_save)
+                .map_err(|e| e.to_string())?;
+            let saved_path = ProjectManager::save_to_folder(&snapshot, &folder, true)
+                .map_err(|e| e.to_string())?;
+            Ok((saved_path, folder))
+        }
+    })
+    .await
+    .map_err(|e| format!("Save As task join error: {e}"))??;
 
     *project_state.file_path.lock().map_err(|e| e.to_string())? = Some(actual_file_path.clone());
     *project_state.project_folder.lock().map_err(|e| e.to_string())? = Some(folder);
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
+    project_state.record_history("save_as", format!("saved as {}", actual_file_path.display()))?;
 
     // Track in recent projects
     let result_path = actual_file_path.display().to_string();
     if let Ok(app_data_dir) = app.path().app_data_dir() {
         let mut recent = RecentProjects::load(&app_data_dir);
-        recent.add(project.name.clone(), result_path.clone());
+        recent.add(project_name.clone(), result_path.clone());
         let _ = recent.save(&app_data_dir);
     }
 
     // Update window title
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.set_title(&format!("Dream DAW — {}", project.name));
+        let _ = window.set_title(&format!("Dream DAW — {}", project_name));
     }
 
-    log::info!("Project saved as: '{}' → {}", project.name, actual_file_path.display());
+    log::info!("Project saved as: '{}' → {}", project_name, actual_file_path.display());
     Ok(result_path)
 }
 
@@ -6557,6 +6568,9 @@ fn open_project(
     };
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = importing_als;
     *project_state.undo.lock().map_err(|e| e.to_string())? = UndoState::new();
+    *project_state.history.lock().map_err(|e| e.to_string())? = ProjectHistory::new();
+    let source_kind = if importing_als { "als_import" } else { "project_open" };
+    project_state.record_history(source_kind, format!("loaded '{}'", loaded.name))?;
     clip_pool_state.rebuild_snapshot(&loaded);
     clip_pool_state.load_project_clips(&loaded);
     rebuild_automation_snapshot_from_project(&loaded, &automation_runtime);

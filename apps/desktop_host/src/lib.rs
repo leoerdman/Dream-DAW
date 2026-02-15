@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use arc_swap::ArcSwap;
 
@@ -37,7 +37,10 @@ use dream_io::peak_cache::{PeakCache, WaveformPeaks};
 use dream_io::project_file::ProjectFile;
 use dream_io::project_manager::ProjectManager;
 use dream_io::wav_writer::WavWriter;
-use dream_plugins::{PluginDescriptor, PluginHost, PluginScanner};
+use dream_plugins::{
+    PluginDescriptor, PluginHost, PluginSandboxConfig, PluginSandboxSnapshot, PluginSandboxSupervisor,
+    PluginScanner,
+};
 use dream_plugins::format::{PluginCategory, PluginFormat};
 use dream_ipc::metering::MeterBank;
 use dream_ipc::{EngineCommand, MasterClock};
@@ -696,6 +699,52 @@ impl UndoState {
 
 /// Maximum number of undo snapshots to retain.
 const MAX_UNDO_DEPTH: usize = 100;
+const MAX_PROJECT_HISTORY: usize = 2048;
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectHistoryEvent {
+    seq: u64,
+    kind: String,
+    detail: String,
+    timestamp_ms: u128,
+}
+
+struct ProjectHistory {
+    next_seq: u64,
+    events: VecDeque<ProjectHistoryEvent>,
+}
+
+impl ProjectHistory {
+    fn new() -> Self {
+        Self {
+            next_seq: 1,
+            events: VecDeque::new(),
+        }
+    }
+
+    fn push(&mut self, kind: impl Into<String>, detail: impl Into<String>) {
+        let timestamp_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let event = ProjectHistoryEvent {
+            seq: self.next_seq,
+            kind: kind.into(),
+            detail: detail.into(),
+            timestamp_ms,
+        };
+        self.next_seq = self.next_seq.saturating_add(1);
+        self.events.push_back(event);
+        if self.events.len() > MAX_PROJECT_HISTORY {
+            self.events.pop_front();
+        }
+    }
+
+    fn snapshot(&self) -> Vec<ProjectHistoryEvent> {
+        self.events.iter().cloned().collect()
+    }
+}
 
 /// Thread-safe handle to the current project's state.
 /// The project is independently managed from the audio engine.
@@ -715,6 +764,7 @@ struct ProjectState {
 
     /// Undo/Redo history.
     undo: Mutex<UndoState>,
+    history: Mutex<ProjectHistory>,
 }
 
 impl ProjectState {
@@ -725,6 +775,7 @@ impl ProjectState {
             project_folder: Mutex::new(None),
             is_dirty: Mutex::new(false),
             undo: Mutex::new(UndoState::new()),
+            history: Mutex::new(ProjectHistory::new()),
         }
     }
 
@@ -759,12 +810,24 @@ impl ProjectState {
         }
         Ok(())
     }
+
+    fn record_history(&self, kind: impl Into<String>, detail: impl Into<String>) -> Result<(), String> {
+        let mut history = self.history.lock().map_err(|e| e.to_string())?;
+        history.push(kind, detail);
+        Ok(())
+    }
+
+    fn history_snapshot(&self) -> Result<Vec<ProjectHistoryEvent>, String> {
+        let history = self.history.lock().map_err(|e| e.to_string())?;
+        Ok(history.snapshot())
+    }
 }
 
 /// Snapshots the current project state onto the undo stack.
 ///
 /// Must be called BEFORE any mutation. Clears the redo stack
 /// (a new action invalidates the redo history).
+#[track_caller]
 fn push_undo(project_state: &ProjectState) -> Result<(), String> {
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
@@ -772,10 +835,23 @@ fn push_undo(project_state: &ProjectState) -> Result<(), String> {
     let snapshot = SharedProjectSnapshot::from_project(&project, previous);
     drop(project);
     undo.undo_stack.push(snapshot);
+    let depth = undo.undo_stack.len();
     if undo.undo_stack.len() > MAX_UNDO_DEPTH {
         undo.undo_stack.remove(0);
     }
     undo.redo_stack.clear();
+    drop(undo);
+
+    let caller = std::panic::Location::caller();
+    project_state.record_history(
+        "mutation_snapshot",
+        format!(
+            "captured undo snapshot depth={} caller={}:{}",
+            depth,
+            caller.file(),
+            caller.line()
+        ),
+    )?;
     Ok(())
 }
 
@@ -1957,13 +2033,18 @@ impl MidiInputRuntime {
 struct PluginHostState {
     host: Mutex<PluginHost>,
     loaded_by_key: Mutex<HashMap<String, Uuid>>,
+    loaded_sandbox_by_key: Mutex<HashMap<String, Uuid>>,
+    sandbox_supervisor: Mutex<PluginSandboxSupervisor>,
 }
 
 impl PluginHostState {
     fn new() -> Self {
+        let sandbox_config = PluginSandboxConfig::from_env();
         Self {
             host: Mutex::new(PluginHost::new(44100.0, 1024)),
             loaded_by_key: Mutex::new(HashMap::new()),
+            loaded_sandbox_by_key: Mutex::new(HashMap::new()),
+            sandbox_supervisor: Mutex::new(PluginSandboxSupervisor::new(sandbox_config)),
         }
     }
 
@@ -1998,6 +2079,79 @@ impl PluginHostState {
                         .unwrap_or(false)
             })
             .ok_or_else(|| format!("Plugin not found: {plugin_id}"))
+    }
+
+    fn sandbox_snapshot(&self) -> Result<PluginSandboxSnapshot, String> {
+        let supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+        Ok(supervisor.snapshot())
+    }
+
+    fn set_sandbox_enabled(&self, enabled: bool) -> Result<PluginSandboxSnapshot, String> {
+        let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+        supervisor.set_enabled(enabled);
+        Ok(supervisor.snapshot())
+    }
+
+    fn sandbox_enabled(&self) -> Result<bool, String> {
+        let supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+        Ok(supervisor.enabled())
+    }
+
+    fn open_in_sandbox(
+        &self,
+        plugin_key: &str,
+        descriptor: PluginDescriptor,
+    ) -> Result<Uuid, String> {
+        let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+        let instance_id = supervisor
+            .attach_plugin_process(descriptor)
+            .map_err(|e| format!("Sandbox spawn failed: {e}"))?;
+        drop(supervisor);
+        self.loaded_sandbox_by_key
+            .lock()
+            .map_err(|e| e.to_string())?
+            .insert(plugin_key.to_string(), instance_id);
+        Ok(instance_id)
+    }
+
+    fn close_in_sandbox(&self, plugin_key: &str) -> Result<(), String> {
+        let maybe_id = self
+            .loaded_sandbox_by_key
+            .lock()
+            .map_err(|e| e.to_string())?
+            .remove(plugin_key);
+        if let Some(id) = maybe_id {
+            let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+            supervisor.remove_instance(id);
+        }
+        Ok(())
+    }
+
+    fn tick_sandbox_watchdog(&self) -> Result<PluginSandboxSnapshot, String> {
+        let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
+        let timed_out = supervisor.tick_watchdog();
+        if !timed_out.is_empty() {
+            let mut reverse = HashMap::<Uuid, String>::new();
+            if let Ok(map) = self.loaded_sandbox_by_key.lock() {
+                for (k, v) in map.iter() {
+                    reverse.insert(*v, k.clone());
+                }
+            }
+            for id in timed_out {
+                if let Some(key) = reverse.get(&id) {
+                    log::error!(
+                        "[PluginSandbox] Host unhealthy for key='{}' (instance={}) -> bypass requested",
+                        key, id
+                    );
+                } else {
+                    log::error!(
+                        "[PluginSandbox] Host unhealthy for instance={} -> bypass requested",
+                        id
+                    );
+                }
+            }
+        }
+        Ok(supervisor.snapshot())
     }
 }
 

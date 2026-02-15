@@ -100,6 +100,16 @@ fn open_plugin_window(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
 ) -> Result<(), String> {
+    if plugin_host_state
+        .loaded_sandbox_by_key
+        .lock()
+        .map_err(|e| e.to_string())?
+        .contains_key(&plugin_id)
+    {
+        log::info!("[IPC] open_plugin_window({plugin_id}) -> already managed by sandbox host");
+        return Ok(());
+    }
+
     if let Some(instance_id) = plugin_host_state
         .loaded_by_key
         .lock()
@@ -115,6 +125,26 @@ fn open_plugin_window(
     }
 
     let descriptor = plugin_host_state.resolve_descriptor(&plugin_id)?;
+
+    if plugin_host_state.sandbox_enabled().unwrap_or(false) {
+        match plugin_host_state.open_in_sandbox(&plugin_id, descriptor.clone()) {
+            Ok(instance_id) => {
+                log::info!(
+                    "[IPC] open_plugin_window({plugin_id}) -> sandbox instance {} ({})",
+                    instance_id,
+                    descriptor.path.display()
+                );
+                return Ok(());
+            }
+            Err(err) => {
+                log::warn!(
+                    "[PluginSandbox] open_plugin_window({plugin_id}) sandbox failed: {}. Falling back to in-process host.",
+                    err
+                );
+            }
+        }
+    }
+
     let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
     let instance_id = host
         .load_vst3(descriptor.clone())
@@ -155,6 +185,18 @@ fn can_open_plugin_editor(
     plugin_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<PluginEditorCapability, String> {
+    if plugin_host_state
+        .loaded_sandbox_by_key
+        .lock()
+        .map_err(|e| e.to_string())?
+        .contains_key(&plugin_id)
+    {
+        return Ok(PluginEditorCapability {
+            supported: true,
+            reason: None,
+        });
+    }
+
     if let Some(instance_id) = plugin_host_state
         .loaded_by_key
         .lock()
@@ -216,6 +258,8 @@ fn close_plugin_window(
     plugin_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<(), String> {
+    plugin_host_state.close_in_sandbox(&plugin_id)?;
+
     let maybe_instance = plugin_host_state
         .loaded_by_key
         .lock()
@@ -236,6 +280,33 @@ fn close_plugin_window(
         log::info!("[IPC] close_plugin_window({plugin_id}) -> no loaded instance");
     }
     Ok(())
+}
+
+/// Snapshot plugin sandbox runtime (supervisor + instance statuses).
+#[tauri::command]
+fn get_plugin_sandbox_runtime(
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+) -> Result<PluginSandboxSnapshot, String> {
+    plugin_host_state.sandbox_snapshot()
+}
+
+/// Enable/disable out-of-process plugin sandbox mode.
+///
+/// When disabled, plugin windows are loaded in-process (legacy path).
+#[tauri::command]
+fn set_plugin_sandbox_enabled(
+    enabled: bool,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+) -> Result<PluginSandboxSnapshot, String> {
+    plugin_host_state.set_sandbox_enabled(enabled)
+}
+
+/// Run one watchdog tick for sandboxed plugin host processes.
+#[tauri::command]
+fn tick_plugin_sandbox_watchdog(
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+) -> Result<PluginSandboxSnapshot, String> {
+    plugin_host_state.tick_sandbox_watchdog()
 }
 
 /// Unified frontend error logger (ErrorBoundary -> backend log).

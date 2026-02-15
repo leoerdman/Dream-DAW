@@ -28,6 +28,7 @@ async fn undo_cmd(
     rebuild_midi_snapshot_from_project(&project, &handle);
     rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
     rebuild_runtime_device_chains_from_project(&project, &handle)?;
+    project_state.record_history("undo", "restored previous project snapshot")?;
     log::info!("[IPC] undo_cmd: restored previous state");
     Ok(())
 }
@@ -60,6 +61,7 @@ async fn redo_cmd(
     rebuild_midi_snapshot_from_project(&project, &handle);
     rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
     rebuild_runtime_device_chains_from_project(&project, &handle)?;
+    project_state.record_history("redo", "reapplied project snapshot")?;
     log::info!("[IPC] redo_cmd: restored redo state");
     Ok(())
 }

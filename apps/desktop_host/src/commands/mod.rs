@@ -46,6 +46,7 @@ pub(crate) fn invoke_handler()
         get_state,
         get_transport,
         get_meters,
+        get_project_history,
         // Project Management
         new_project,
         save_project,
@@ -132,6 +133,9 @@ pub(crate) fn invoke_handler()
         open_plugin_window,
         can_open_plugin_editor,
         close_plugin_window,
+        get_plugin_sandbox_runtime,
+        set_plugin_sandbox_enabled,
+        tick_plugin_sandbox_watchdog,
         log_frontend_error,
         get_routing_targets,
         set_track_routing_cmd,

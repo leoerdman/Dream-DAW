@@ -110,6 +110,8 @@ pub struct PdcDelayLine {
     write_pos: usize,
     /// Total delay in samples.
     delay_samples: usize,
+    /// Fractional delay component in samples, [0.0, 1.0).
+    frac_delay: f32,
     /// Ring buffer capacity (must be power of 2 for fast modulus).
     capacity: usize,
     /// Bitmask for fast modulus (capacity - 1).
@@ -128,6 +130,7 @@ impl PdcDelayLine {
             buffer_right: vec![0.0; capacity],
             write_pos: 0,
             delay_samples: 0,
+            frac_delay: 0.0,
             capacity,
             mask: capacity - 1,
         }
@@ -138,6 +141,15 @@ impl PdcDelayLine {
     /// Called when the execution plan changes (not on the hot path).
     pub fn set_delay(&mut self, samples: usize) {
         self.delay_samples = samples.min(self.capacity - 1);
+        self.frac_delay = 0.0;
+    }
+
+    /// Sets delay with sub-sample precision.
+    pub fn set_delay_f32(&mut self, samples: f32) {
+        let clamped = samples.max(0.0).min((self.capacity - 1) as f32);
+        let int_delay = clamped.floor() as usize;
+        self.delay_samples = int_delay;
+        self.frac_delay = clamped - int_delay as f32;
     }
 
     /// Returns the current delay in samples.
@@ -159,19 +171,26 @@ impl PdcDelayLine {
         right: &mut [f32],
         frame_count: usize,
     ) {
-        if self.delay_samples == 0 {
+        if self.delay_samples == 0 && self.frac_delay == 0.0 {
             return;
         }
 
         let n = frame_count.min(left.len()).min(right.len());
+        let frac = self.frac_delay;
 
         for i in 0..n {
             let wp = (self.write_pos + i) & self.mask;
-            let rp = (self.write_pos + i + self.capacity - self.delay_samples) & self.mask;
+            let rp0 = (self.write_pos + i + self.capacity - self.delay_samples) & self.mask;
 
-            // Read delayed sample
-            let delayed_l = self.buffer_left[rp];
-            let delayed_r = self.buffer_right[rp];
+            let (delayed_l, delayed_r) = if frac == 0.0 {
+                (self.buffer_left[rp0], self.buffer_right[rp0])
+            } else {
+                let rp1 = (rp0 + self.capacity - 1) & self.mask;
+                (
+                    self.buffer_left[rp0] * (1.0 - frac) + self.buffer_left[rp1] * frac,
+                    self.buffer_right[rp0] * (1.0 - frac) + self.buffer_right[rp1] * frac,
+                )
+            };
 
             // Write current sample into ring buffer
             self.buffer_left[wp] = left[i];
@@ -346,8 +365,8 @@ impl GraphRenderer {
         //
         // We process nodes sequentially. For each node:
         //   a) Sum all input buffers into this node's buffer.
-        //   b) Apply PDC delay compensation.
-        //   c) Dispatch to node-specific processor.
+        //   b) Dispatch to node-specific processor.
+        //   c) Apply PDC delay compensation on node output.
         //
         // Because the order is topological, every input is already
         // processed by the time we reach a node.
@@ -389,17 +408,7 @@ impl GraphRenderer {
                 }
             }
 
-            // ── b) Apply PDC delay compensation ──────────────────
-            if idx < self.pdc_delays.len() {
-                let buf = &mut self.node_buffers[idx];
-                self.pdc_delays[idx].process(
-                    &mut buf.left[..n],
-                    &mut buf.right[..n],
-                    n,
-                );
-            }
-
-            // ── c) Dispatch to node processor ────────────────────
+            // ── b) Dispatch to node processor ────────────────────
             let buf = &mut self.node_buffers[idx];
             match &node.kind {
                 NodeKind::Track { .. } => {
@@ -426,11 +435,24 @@ impl GraphRenderer {
                     // Future: gain/pan/compression on bus output.
                 }
                 NodeKind::MasterOutput => {
-                    // Master node: copy to final output.
-                    let out_n = n.min(output_left.len()).min(output_right.len());
-                    output_left[..out_n].copy_from_slice(&buf.left[..out_n]);
-                    output_right[..out_n].copy_from_slice(&buf.right[..out_n]);
+                    // Master copy happens after optional output delay.
                 }
+            }
+
+            // ── c) Apply PDC delay compensation ──────────────────
+            if idx < self.pdc_delays.len() {
+                self.pdc_delays[idx].process(
+                    &mut buf.left[..n],
+                    &mut buf.right[..n],
+                    n,
+                );
+            }
+
+            // ── d) Master node: copy to final output ─────────────
+            if matches!(&node.kind, NodeKind::MasterOutput) {
+                let out_n = n.min(output_left.len()).min(output_right.len());
+                output_left[..out_n].copy_from_slice(&buf.left[..out_n]);
+                output_right[..out_n].copy_from_slice(&buf.right[..out_n]);
             }
         }
     }
@@ -550,6 +572,49 @@ mod tests {
     }
 
     #[test]
+    fn renderer_applies_track_output_pdc() {
+        let dag = build_simple_dag();
+        let order = dag.topological_order().unwrap();
+        let mut compensation = vec![0u32; dag.graph().node_count()];
+        let track_idx = dag
+            .graph()
+            .node_indices()
+            .find(|&i| matches!(dag.node(i).kind, NodeKind::Track { .. }))
+            .unwrap();
+        compensation[track_idx.index()] = 2;
+        let plan = ExecutionPlan {
+            processing_order: order.clone(),
+            delay_compensation: compensation,
+            parallel_stages: dag.parallel_stages_from_order(&order),
+        };
+
+        let mut renderer = GraphRenderer::new(16, 16);
+        renderer.update_plan(&plan, &dag);
+
+        let mut out_l = vec![0.0f32; 8];
+        let mut out_r = vec![0.0f32; 8];
+
+        renderer.render(
+            &plan,
+            &dag,
+            8,
+            &mut out_l,
+            &mut out_r,
+            |_node, left, right, n| {
+                for i in 0..n {
+                    left[i] = 1.0;
+                    right[i] = 1.0;
+                }
+            },
+            |_node, _left, _right, _n| {},
+        );
+
+        assert_eq!(out_l[0], 0.0);
+        assert_eq!(out_l[1], 0.0);
+        assert_eq!(out_l[2], 1.0);
+    }
+
+    #[test]
     fn renderer_processes_effect_chain() {
         let dag = build_chain_dag();
         let plan = make_plan(&dag);
@@ -618,6 +683,22 @@ mod tests {
 
         // Zero delay = passthrough
         assert_eq!(left, [1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn pdc_delay_line_fractional_delay_interpolates() {
+        let mut delay = PdcDelayLine::new(1024);
+        delay.set_delay_f32(1.5);
+
+        let mut left = [1.0, 3.0, 5.0, 7.0];
+        let mut right = left;
+
+        delay.process(&mut left, &mut right, 4);
+
+        assert!((left[0] - 0.0).abs() < 1e-6);
+        assert!((left[1] - 0.5).abs() < 1e-6);
+        assert!((left[2] - 2.0).abs() < 1e-6);
+        assert!((left[3] - 4.0).abs() < 1e-6);
     }
 
     #[test]

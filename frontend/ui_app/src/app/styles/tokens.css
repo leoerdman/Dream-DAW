@@ -58,14 +58,36 @@
     --daw-divider-width: 1px;
 
     /* ─────────────────────────────────────────────────────────────
-     Z-INDICES (DAW Layer Stack)
+     Z-INDICES (DAW Layer Stack — Enterprise 12-Level)
      ───────────────────────────────────────────────────────────── */
     --z-canvas: 0;
+    --z-local: 1;
+    /* within-component layers (automation dots, resize handles) */
+    --z-local-raised: 5;
+    /* slightly elevated local elements */
     --z-ui-overlay: 10;
+    --z-header: 20;
+    /* panel headers, sticky rows */
+    --z-sticky: 30;
+    /* piano-roll toolbar, ruler overlays */
     --z-panels: 40;
     --z-transport: 50;
-    --z-modal: 1000;
-    --z-tooltip: 2000;
+    --z-dropdown: 1000;
+    /* menus, tooltips, popups within panels */
+    --z-status-popup: 1200;
+    /* status bar flyouts */
+    --z-pdc-panel: 1400;
+    /* PDC dropdown in transport */
+    --z-modal: 9000;
+    /* plugin windows, export modals */
+    --z-menu: 9999;
+    /* top-level menus (file, edit) */
+    --z-drag-overlay: 10000;
+    /* drag-and-drop ghost */
+    --z-splash: 99999;
+    /* splash screen — above everything */
+    --z-tooltip: 100000;
+    /* tooltips — absolute top */
 
     /* ─────────────────────────────────────────────────────────────
      TYPOGRAPHY (from DreamTheme.swift fonts)
@@ -435,6 +457,7 @@
 
 /* ═══════════════════════════════════════════════════════════════
    LIGHT THEME (from LightTheme struct, lines 561-654)
+   Complete 1:1 parity with dark theme.
    ═══════════════════════════════════════════════════════════════ */
 :root[data-theme="light"] {
     --color-bg-base: #ffffff;
@@ -473,6 +496,8 @@
     --color-text-tertiary: #999999;
     --color-text-bright: #000000;
     --color-text-inverse: #ffffff;
+    --color-text-on-accent: #ffffff;
+    --color-text-on-color: #ffffff;
 
     --color-accent-primary: #007aff;
     --color-accent-primary-hover: #0066e0;
@@ -485,6 +510,12 @@
     --color-status-info: #1a80cc;
     --color-status-record: #cc2626;
 
+    /* ── DAW Buttons (light) ── */
+    --color-btn-mute: #cc9900;
+    --color-btn-solo: #1a80cc;
+    --color-btn-arm: #cc2626;
+    --color-midi-indicator: #cc9900;
+
     --color-border-subtle: rgba(0, 0, 0, 0.08);
     --color-border-default: #cccccc;
     --color-border-highlight: rgba(0, 122, 255, 0.5);
@@ -492,6 +523,15 @@
 
     --color-divider: #d1d1d1;
     --color-divider-light: #e0e0e0;
+
+    /* ── UI Elements (light) ── */
+    --color-grid-line: #d5d5d5;
+    --color-grid-line-major: #bfbfbf;
+    --color-playhead: #1a1a1a;
+    --color-selection-border: rgba(0, 122, 255, 0.7);
+    --color-selection-fill: rgba(0, 122, 255, 0.12);
+    --color-clip-highlight: rgba(0, 0, 0, 0.06);
+    --color-drop-target: rgba(200, 200, 200, 0.5);
 
     --color-meter-bg: #e0e0e0;
     --color-meter-normal: #33b326;
@@ -504,14 +544,78 @@
     --color-control-border: #cccccc;
     --color-control-tint: #737373;
 
+    /* ── Effect Type Tints (light) ── */
+    --color-effect-eq: #3a6cbf;
+    --color-effect-compressor: #995533;
+    --color-effect-delay: #4a8f5a;
+    --color-effect-reverb: #7a52a6;
+    --color-effect-chorus: #8f6a33;
+    --color-effect-utility: #666666;
+    --color-effect-vst: #267a4d;
+
+    /* ── Browser Category Colors (light) ── */
+    --color-browser-default: #6b6050;
+    --color-browser-audio: #cc9900;
+    --color-browser-midi: #4090bf;
+    --color-browser-plugin: #8060bf;
+    --color-browser-preset: #26b36d;
+
     --color-knob-arc-inactive: #c7c7c7;
     --color-knob-fill: #ebebeb;
     --color-knob-value-text: #4d4d4d;
     --color-fader-track-bg: #e0e0e0;
     --color-fader-groove: #e6e6e6;
 
+    /* ── Port Colors (light) ── */
+    --color-port-audio: #007aff;
+    --color-port-midi: #cc9900;
+    --color-port-sidechain: #e67300;
+
+    /* ── Piano Roll (light) ── */
+    --color-piano-white: #e8e8e8;
+    --color-piano-black: #d0d0d0;
+    --color-piano-grid: #dcdcdc;
+    --color-piano-c-line: #c0c0c0;
+    --color-piano-bar: #b3b3b3;
+    --color-piano-beat: #d5d5d5;
+    --color-piano-sub: rgba(220, 220, 220, 0.5);
+
+    /* ── Timeline (light) ── */
+    --color-timeline-bg: #f5f5f5;
+    --color-timeline-ruler-bg: #eaeaea;
+    --color-timeline-grid-line: rgba(0, 0, 0, 0.06);
+    --color-timeline-grid-bar: rgba(0, 0, 0, 0.12);
+    --color-timeline-track-default: #f0f0f0;
+    --color-timeline-track-selected: #e5e5e5;
+    --color-timeline-playhead: #1a1a1a;
+    --color-timeline-playhead-glow: rgba(0, 0, 0, 0.15);
+    --color-timeline-edit-cursor: rgba(0, 0, 0, 0.7);
+    --color-timeline-loop-fill: rgba(0, 122, 255, 0.06);
+    --color-timeline-loop-border: rgba(0, 122, 255, 0.4);
+    --color-timeline-ruler-text: rgba(0, 0, 0, 0.5);
+
+    /* ── Glass (light) ── */
     --glass-bg: rgba(255, 255, 255, 0.92);
     --glass-bg-hover: rgba(255, 255, 255, 0.97);
     --glass-border: rgba(0, 0, 0, 0.08);
     --glass-border-hover: rgba(0, 0, 0, 0.14);
+    --glass-blur: 12px;
+    --glass-radius: 4px;
+
+    /* ── Overlays (light) ── */
+    --color-overlay-light: rgba(0, 0, 0, 0.1);
+    --color-overlay-medium: rgba(0, 0, 0, 0.25);
+    --color-overlay-dark: rgba(0, 0, 0, 0.4);
+    --color-overlay-modal: rgba(0, 0, 0, 0.5);
+
+    /* ── Gradients (light) ── */
+    --gradient-primary: linear-gradient(135deg, #007aff 0%, #0066e0 100%);
+    --gradient-meter: linear-gradient(to top, #33b326 0%, #f2b30d 70%, #e62626 100%);
+
+    /* ── Plugin Tokens (light) ── */
+    --plugin-card-border: color-mix(in srgb, var(--surface-3) 74%, #8a97a8);
+    --plugin-card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px rgba(0, 0, 0, 0.08);
+    --plugin-card-bg-main: linear-gradient(180deg, #f4f6f8 0%, #ebeef2 100%);
+    --plugin-title-color: #1a2a44;
+    --plugin-meta-color: color-mix(in srgb, var(--color-text-secondary) 82%, #4a6a9a);
 }

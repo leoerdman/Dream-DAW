@@ -36,7 +36,7 @@
     --daw-sidebar-width: 240px;
     --daw-sidebar-min-width: 200px;
     --daw-sidebar-max-width: 400px;
-    --daw-inspector-width: 356px;
+    --daw-inspector-width: 300px;
     --daw-device-rack-height: 24vh;
     --daw-device-rack-min-height: 190px;
     --daw-panel-gap: 0px;
@@ -162,6 +162,34 @@
 
     --border-width-1: 1px;
     --border-width-2: 2px;
+
+    /* ─────────────────────────────────────────────────────────────
+     DEVICE RACK / PLUGIN UI TOKENS
+     ───────────────────────────────────────────────────────────── */
+    --plugin-card-radius: 8px;
+    --plugin-card-pad-y: 10px;
+    --plugin-card-pad-x: 12px;
+    --plugin-card-gap: 8px;
+    --plugin-grid-gap: 10px;
+    --plugin-card-border: color-mix(in srgb, var(--surface-3) 74%, #5f6f86);
+    --plugin-card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 6px 18px rgba(0, 0, 0, 0.24);
+    --plugin-card-bg-main: linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 88%, #172033) 0%, color-mix(in srgb, var(--surface-1) 92%, #0e1523) 100%);
+    --plugin-title-color: #d2e2ff;
+    --plugin-meta-color: color-mix(in srgb, var(--color-text-secondary) 82%, #8ab7ff);
+
+    --plugin-bg-eq: linear-gradient(180deg, #1a2028 0%, #11161f 100%);
+    --plugin-bg-utility: linear-gradient(180deg, #1f232b 0%, #13171f 100%);
+    --plugin-bg-compressor: linear-gradient(180deg, #171f2a 0%, #10161f 100%);
+    --plugin-bg-delay: linear-gradient(180deg, #1a2230 0%, #0f1520 100%);
+    --plugin-bg-reverb: radial-gradient(circle at 30% 20%, rgba(137, 89, 194, 0.5) 0%, rgba(28, 24, 38, 0.92) 65%);
+    --plugin-bg-chorus: linear-gradient(180deg, #24172a 0%, #14111b 100%);
+    --plugin-bg-saturator: linear-gradient(180deg, #2d1d13 0%, #1a120d 100%);
+    --plugin-bg-limiter: linear-gradient(180deg, #152625 0%, #0f1616 100%);
+    --plugin-bg-gate: linear-gradient(180deg, #1a2415 0%, #101611 100%);
+    --plugin-bg-mod: linear-gradient(180deg, #151a24 0%, #0f141b 100%);
+    --plugin-bg-distortion: linear-gradient(180deg, #261a12 0%, #15100c 100%);
+    --plugin-bg-noise: linear-gradient(180deg, #17261a 0%, #0e150f 100%);
+    --plugin-bg-midi: linear-gradient(180deg, #1b1f2a 0%, #121521 100%);
 }
 
 

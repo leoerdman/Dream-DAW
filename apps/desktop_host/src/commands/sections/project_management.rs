@@ -37,10 +37,10 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
     }
 
     if merged.contains("eq") || merged.contains("channel eq") {
-        return Some(("internal://effect/eq-eight", "EQ Eight", "effect"));
+        return Some(("internal://effect/eq-eight", "EQ", "effect"));
     }
     if compact.contains("proq") {
-        return Some(("internal://effect/eq-eight", "EQ Eight", "effect"));
+        return Some(("internal://effect/eq-eight", "EQ", "effect"));
     }
     if merged.contains("compressor") || merged.contains("glue") || compact.contains("multibanddynamics") || compact.contains("drumbuss")
         || compact.contains("compressor2")
@@ -5946,6 +5946,13 @@ fn consolidate_automation_lanes(track: &mut Track) {
 }
 
 fn import_als_project(file_path: &Path) -> Result<Project, String> {
+    import_als_project_with_target_sample_rate(file_path, None)
+}
+
+fn import_als_project_with_target_sample_rate(
+    file_path: &Path,
+    target_sample_rate: Option<f64>,
+) -> Result<Project, String> {
     use std::io::Read;
 
     let bytes = std::fs::read(file_path).map_err(|e| format!("Failed to read ALS file '{}': {e}", file_path.display()))?;
@@ -5994,7 +6001,7 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
     // ── STUB-11 FIX: Dynamic sample rate detection ─────────────────────
     // Ableton stores a preferred sample rate in <SampleRate><Manual>.  We also
     // check <OverrideSampleRate> for projects that explicitly override it.
-    let sample_rate = live_set
+    let imported_sample_rate = live_set
         .descendants()
         .find(|n| n.is_element() && n.has_tag_name("OverrideSampleRate"))
         .and_then(|n| n.children().find(|c| c.is_element() && c.has_tag_name("Manual")))
@@ -6011,9 +6018,13 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
                 .filter(|v| *v > 0.0)
         })
         .unwrap_or(44100.0);
+    let sample_rate = target_sample_rate
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .unwrap_or(imported_sample_rate);
     log::info!(
-        "[ALS Import] Sample rate detected: {} Hz",
-        sample_rate
+        "[ALS Import] Sample rate: imported={} Hz, timeline={} Hz",
+        imported_sample_rate,
+        sample_rate,
     );
     let mut project = Project::new(project_name, tempo, sample_rate);
     project.tracks.clear();
@@ -7228,12 +7239,22 @@ fn open_project(
         .unwrap_or(false);
 
     let mut loaded = if importing_als {
-        import_als_project(&file_path)?
+        let runtime_sample_rate = handle
+            .playback_state
+            .lock()
+            .map_err(|e| e.to_string())?
+            .sample_rate;
+        import_als_project_with_target_sample_rate(&file_path, Some(runtime_sample_rate))?
     } else {
         let mut project = ProjectFile::load(&file_path).map_err(|e| e.to_string())?;
         normalize_internal_plugins_for_import(&mut project);
         project
     };
+    if importing_als {
+        for track in &mut loaded.tracks {
+            track.height = track.height.clamp(24.0, 120.0);
+        }
+    }
     refresh_offline_flags(&mut loaded);
 
     *project_state.project.lock().map_err(|e| e.to_string())? = loaded.clone();

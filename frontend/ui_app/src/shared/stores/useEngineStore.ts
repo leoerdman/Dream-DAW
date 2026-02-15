@@ -754,6 +754,14 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                             durationBeats: (note.duration_frames / sr) * beatsPerSecond,
                             velocity: note.velocity,
                         })),
+                        midiEnvelopes: (((clip as Record<string, unknown>).envelopes as Array<Record<string, unknown>> | undefined) ?? []).map((env) => ({
+                            paramId: String(env.param_id ?? env.paramId ?? ''),
+                            points: ((env.points as Array<Record<string, unknown>> | undefined) ?? []).map((p) => ({
+                                beat: Number(p.beat ?? 0),
+                                value: Number(p.value ?? 0),
+                                curveType: String(p.curve_type ?? p.curveType ?? 'linear'),
+                            })),
+                        })),
                     });
                 }
             }

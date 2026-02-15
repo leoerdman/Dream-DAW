@@ -47,6 +47,9 @@ const SettingsPanel = lazy(async () => ({
 const ExportModal = lazy(async () => ({
     default: (await import('@/widgets/ExportModal/ExportModal')).ExportModal,
 }));
+const JobCenter = lazy(async () => ({
+    default: (await import('@/widgets/JobCenter/JobCenter')).JobCenter,
+}));
 
 /**
  * DawShell — The "Hole-Punch Architecture" Layout with integrated Timeline.
@@ -96,7 +99,14 @@ export const DawShell = () => {
     const [aiVariationBusy, setAiVariationBusy] = useState(false);
     const [browserWidth, setBrowserWidth] = useState(320);
     const [trackHeightPx, setTrackHeightPx] = useState(48);
+    const [bottomPanelHeightPx, setBottomPanelHeightPx] = useState(220);
     const midiSaveThrottlesRef = useRef<Map<string, (notes: MidiNote[]) => void>>(new Map());
+    const midiEnvelopeSaveThrottlesRef = useRef<
+        Map<string, (envelopes: Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>) => void>
+    >(new Map());
+    const latestMidiEnvelopesRef = useRef<
+        Record<string, Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>>
+    >({});
     const latestMidiNotesRef = useRef<Record<string, MidiNote[]>>({});
     const importFile = useEngineStore(s => s.importFile);
     const createMidiClip = useEngineStore(s => s.createMidiClip);
@@ -296,6 +306,43 @@ export const DawShell = () => {
         window.addEventListener('mouseup', onUp);
     }, []);
 
+    const beginBottomPanelResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        const minHeight = 180;
+        const maxHeight = Math.round(window.innerHeight * 0.72);
+
+        let rafId: number | null = null;
+        let pendingHeight: number | null = null;
+
+        const flushHeight = () => {
+            rafId = null;
+            if (pendingHeight == null) return;
+            const nextHeight = pendingHeight;
+            setBottomPanelHeightPx((prev) => (prev === nextHeight ? prev : nextHeight));
+        };
+
+        const onMove = (me: MouseEvent) => {
+            const nextHeight = Math.max(minHeight, Math.min(maxHeight, window.innerHeight - me.clientY));
+            pendingHeight = nextHeight;
+            if (rafId == null) {
+                rafId = window.requestAnimationFrame(flushHeight);
+            }
+        };
+
+        const onUp = () => {
+            if (rafId != null) {
+                window.cancelAnimationFrame(rafId);
+                rafId = null;
+            }
+            flushHeight();
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+    }, []);
+
     // Safety-net bootstrap: if splash transition missed telemetry startup,
     // mount of workspace guarantees playhead + meters start updating.
     useEffect(() => {
@@ -387,6 +434,8 @@ export const DawShell = () => {
         if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return 8;
         return Math.max(1, Math.ceil(selectedTimelineClip.durationBeats / 4));
     }, [selectedTimelineClip]);
+    const isPianoRollEditorActive =
+        bottomPanelMode === 'clip' && selectedTimelineClip?.type === 'midi';
     const handleGenerateMidiVariation = useCallback(async () => {
         if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return;
         const clip = selectedTimelineClip;
@@ -487,16 +536,23 @@ export const DawShell = () => {
                         startFrames: Math.max(0, Math.round((n.startBeat / beatsPerSecond) * sr)),
                         durationFrames: Math.max(1, Math.round((n.durationBeats / beatsPerSecond) * sr)),
                     })),
+                    { pushUndoStep: true },
                 )
                 .catch((err) => console.error('[DawShell] updateMidiClip final flush failed:', err));
+
+            const envelopes = latestMidiEnvelopesRef.current[clip.id] ?? [];
+            void engineApi
+                .setMidiClipEnvelopes(clip.id, envelopes, { pushUndoStep: true })
+                .catch((err) => console.error('[DawShell] setMidiClipEnvelopes final flush failed:', err));
         };
         window.addEventListener('pointerup', onPointerUp);
         return () => window.removeEventListener('pointerup', onPointerUp);
     }, [flushTrackControlFinals, selectedTimelineClip, projectBpm, transport.bpm]);
 
     // ── Shared layout constants (SSOT for height sync) ──────────────
+    const TRACK_HEIGHT_DEFAULT = 48;
     const TRACK_HEIGHT_MIN = 24;
-    const TRACK_HEIGHT_MAX = 200;
+    const TRACK_HEIGHT_MAX = 120;
     const TRACK_HEIGHT_STEP = 8;
     const TRACK_HEIGHT = trackHeightPx;
     const trackHeightReadyRef = useRef(false);
@@ -518,7 +574,7 @@ export const DawShell = () => {
         }
 
         const persisted = Number(projectTracksSnapshot[0]?.height ?? NaN);
-        const baseline = Number.isFinite(persisted) ? persisted : 48;
+        const baseline = Number.isFinite(persisted) ? persisted : TRACK_HEIGHT_DEFAULT;
         const snapped = Math.round(baseline / TRACK_HEIGHT_STEP) * TRACK_HEIGHT_STEP;
         const clamped = Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, snapped));
         setTrackHeightPx((prev) => (Math.abs(prev - clamped) < 0.001 ? prev : clamped));
@@ -552,6 +608,7 @@ export const DawShell = () => {
     const RULER_HEIGHT = 28;
 
     // Option(Alt)+Wheel: vertical track height zoom in 8px steps.
+    // Option(Alt)+0: reset track height to default.
     useEffect(() => {
         const WHEEL_STEP_THRESHOLD = 40;
         let wheelAccumulator = 0;
@@ -585,14 +642,29 @@ export const DawShell = () => {
                 wheelRafId = window.requestAnimationFrame(flushWheelZoom);
             }
         };
+
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (!e.altKey) return;
+            if (e.key !== '0') return;
+            const target = e.target as HTMLElement | null;
+            const tag = target?.tagName?.toLowerCase();
+            const isTextInput =
+                tag === 'input' || tag === 'textarea' || target?.isContentEditable;
+            if (isTextInput) return;
+            e.preventDefault();
+            setTrackHeightPx(TRACK_HEIGHT_DEFAULT);
+        };
+
         window.addEventListener('wheel', onWheel, { passive: false, capture: true });
+        window.addEventListener('keydown', onKeyDown, { capture: true });
         return () => {
             window.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions);
+            window.removeEventListener('keydown', onKeyDown, { capture: true } as EventListenerOptions);
             if (wheelRafId) {
                 window.cancelAnimationFrame(wheelRafId);
             }
         };
-    }, []);
+    }, [TRACK_HEIGHT_DEFAULT]);
 
     // ── Scroll sync between Timeline and TrackInspector ─────────────
     const [timelineScrollTop, setTimelineScrollTop] = useState(0);
@@ -920,6 +992,15 @@ export const DawShell = () => {
                                         onClipMove={handleClipMove}
                                         onClipResize={handleClipResize}
                                         onClipFades={handleClipFades}
+                                        onClipFadeCurves={(clipId, fadeInCurve, fadeOutCurve) => {
+                                            setClipFadeCurves((prev) => ({
+                                                ...prev,
+                                                [clipId]: {
+                                                    fadeInCurve: Math.max(0.05, Math.min(0.95, fadeInCurve)),
+                                                    fadeOutCurve: Math.max(0.05, Math.min(0.95, fadeOutCurve)),
+                                                },
+                                            }));
+                                        }}
                                         onDropBrowserItem={handleBrowserDrop}
                                         onDoubleClickTrack={handleDoubleClickTrack}
                                         onOpenMidiClip={handleOpenMidiClip}
@@ -970,11 +1051,38 @@ export const DawShell = () => {
                 <footer
                     className="shrink-0 z-40 overflow-hidden"
                     style={{
-                        height: 'var(--daw-device-rack-height)',
+                        height: isPianoRollEditorActive ? `${bottomPanelHeightPx}px` : 'var(--daw-device-rack-height)',
                         minHeight: 'var(--daw-device-rack-min-height)',
                         borderTop: '1px solid var(--color-divider)',
+                        position: 'relative',
                     }}
                 >
+                    {isPianoRollEditorActive && (
+                        <div
+                            onMouseDown={beginBottomPanelResize}
+                            title="Resize Piano Roll"
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                height: 8,
+                                cursor: 'ns-resize',
+                                zIndex: 60,
+                                background: 'transparent',
+                            }}
+                        >
+                            <div
+                                style={{
+                                    width: 56,
+                                    height: 2,
+                                    borderRadius: 2,
+                                    background: 'color-mix(in srgb, var(--color-text-secondary) 45%, transparent)',
+                                    margin: '2px auto 0',
+                                }}
+                            />
+                        </div>
+                    )}
                     {bottomPanelMode === 'rack' ? (
                         <ErrorBoundary module="Device Rack">
                             <Suspense fallback={null}>
@@ -997,6 +1105,20 @@ export const DawShell = () => {
                                             selectedTimelineClip.fadeOutCurve ?? 0.5,
                                         ].join(':')}
                                         notes={midiNotesByClip[selectedTimelineClip.id] ?? []}
+                                        ghostNotes={timelineClipsForView
+                                            .filter((c) => c.type === 'midi' && c.trackIndex === selectedTimelineClip.trackIndex && c.id !== selectedTimelineClip.id)
+                                            .flatMap((c) => {
+                                                const source = midiNotesByClip[c.id] ?? c.midiNotes ?? [];
+                                                return source.map((n) => ({
+                                                    id: `ghost-${c.id}-${n.id ?? `${n.pitch}-${n.startBeat}`}`,
+                                                    pitch: n.pitch,
+                                                    startBeat: n.startBeat,
+                                                    durationBeats: n.durationBeats,
+                                                    velocity: n.velocity,
+                                                }));
+                                            })}
+                                        midiEnvelopes={selectedTimelineClip.midiEnvelopes ?? []}
+                                        trackIndex={selectedTimelineClip.trackIndex}
                                         onNotesChange={(notes) => {
                                             const clipId = selectedTimelineClip.id;
                                             setMidiNotesByClip((prev) => ({ ...prev, [clipId]: notes }));
@@ -1015,6 +1137,7 @@ export const DawShell = () => {
                                                                 startFrames: Math.max(0, Math.round((n.startBeat / beatsPerSecond) * sr)),
                                                                 durationFrames: Math.max(1, Math.round((n.durationBeats / beatsPerSecond) * sr)),
                                                             })),
+                                                            { pushUndoStep: false },
                                                         )
                                                         .catch((err) => console.error('[DawShell] updateMidiClip failed:', err));
                                                 }, 80);
@@ -1022,34 +1145,26 @@ export const DawShell = () => {
                                             }
                                             send(notes);
                                         }}
+                                        onSetMidiEnvelopes={(envelopes) => {
+                                            const clipId = selectedTimelineClip.id;
+                                            latestMidiEnvelopesRef.current[clipId] = envelopes;
+
+                                            let send = midiEnvelopeSaveThrottlesRef.current.get(clipId);
+                                            if (!send) {
+                                                send = throttle((toSend) => {
+                                                    void engineApi
+                                                        .setMidiClipEnvelopes(clipId, toSend, { pushUndoStep: false })
+                                                        .catch((err) => console.error('[DawShell] setMidiClipEnvelopes failed:', err));
+                                                }, 100);
+                                                midiEnvelopeSaveThrottlesRef.current.set(clipId, send);
+                                            }
+                                            send(envelopes);
+                                        }}
                                         onGenerateVariation={handleGenerateMidiVariation}
                                         aiVariationBusy={aiVariationBusy}
                                         playheadBeat={playheadBeat}
                                         totalBars={selectedMidiTotalBars}
                                         clipLengthBeats={selectedTimelineClip.durationBeats}
-                                        clipId={selectedTimelineClip.id}
-                                        clipDurationSamples={selectedTimelineClip.durationSamples}
-                                        fadeInFrames={Math.max(0, Math.round(selectedTimelineClip.fadeIn ?? 0))}
-                                        fadeOutFrames={Math.max(0, Math.round(selectedTimelineClip.fadeOut ?? 0))}
-                                        fadeInCurve={selectedTimelineClip.fadeInCurve ?? 0.5}
-                                        fadeOutCurve={selectedTimelineClip.fadeOutCurve ?? 0.5}
-                                        onSetClipFades={async (fadeInFrames, fadeOutFrames) => {
-                                            await engineApi.setClipFades(
-                                                selectedTimelineClip.id,
-                                                Math.max(0, Math.round(fadeInFrames)),
-                                                Math.max(0, Math.round(fadeOutFrames)),
-                                            );
-                                            await fetchProject();
-                                        }}
-                                        onSetFadeCurves={async (fadeInCurve, fadeOutCurve) => {
-                                            setClipFadeCurves((prev) => ({
-                                                ...prev,
-                                                [selectedTimelineClip.id]: {
-                                                    fadeInCurve: Math.max(0.05, Math.min(0.95, fadeInCurve)),
-                                                    fadeOutCurve: Math.max(0.05, Math.min(0.95, fadeOutCurve)),
-                                                },
-                                            }));
-                                        }}
                                     />
                                 </Suspense>
                             ) : selectedTimelineClip?.type === 'audio' ? (
@@ -1127,6 +1242,10 @@ export const DawShell = () => {
                     onClose={() => setExportOpen(false)}
                     projectName="My Project"
                 />
+            </Suspense>
+
+            <Suspense fallback={null}>
+                <JobCenter />
             </Suspense>
 
             <DragOverlay />

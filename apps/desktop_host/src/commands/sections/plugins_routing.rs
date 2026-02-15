@@ -365,24 +365,16 @@ fn can_open_plugin_editor(
         });
     }
 
-    // Probe capability by loading the plugin and querying the live instance.
-    // The probe instance is removed immediately to avoid changing chain state.
-    let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-    let probe_id = host
-        .load_vst3(descriptor.clone())
-        .map_err(|e| format!("Failed to load plugin '{}': {e}", descriptor.name))?;
-    let supported = host
-        .supports_editor(probe_id)
-        .map_err(|e| format!("Failed to check editor capability: {e}"))?;
-    let _ = host.remove(probe_id);
-
     Ok(PluginEditorCapability {
-        supported,
-        reason: if supported {
-            None
-        } else {
-            Some("Plugin does not expose a host-openable editor in this build.".to_string())
-        },
+        // Enterprise hardening: never instantiate an unloaded third-party plugin
+        // just to probe editor capability. Some plugins crash during activation,
+        // which can take down the whole DAW process.
+        //
+        // We only do exact capability checks on already-loaded instances above.
+        // For unloaded VST3 descriptors, report optimistic support and defer the
+        // real result to open_plugin_window (where failures are surfaced safely).
+        supported: true,
+        reason: None,
     })
 }
 
@@ -425,14 +417,25 @@ fn set_external_plugin_param_cmd(
     param_index: u32,
     value: f64,
     plugin_host_state: tauri::State<'_, PluginHostState>,
-    project_state: tauri::State<'_, ProjectState>,
+    _project_state: tauri::State<'_, ProjectState>,
 ) -> Result<(), String> {
     if plugin_host_state.set_sandbox_parameter(&plugin_id, param_index, value)? {
         return Ok(());
     }
 
     let normalized = value.clamp(0.0, 1.0);
-    let instance_id = ensure_loaded_external_instance(&plugin_id, &plugin_host_state, &project_state)?;
+    let instance_id = plugin_host_state
+        .loaded_by_key
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(&plugin_id)
+        .copied()
+        .ok_or_else(|| {
+            format!(
+                "Plugin is not active yet: {}. Open plugin window first before controlling external params.",
+                plugin_id
+            )
+        })?;
     let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
     let instance = host
         .get_mut(instance_id)
@@ -457,6 +460,22 @@ fn get_external_plugin_params(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
 ) -> Result<Vec<ExternalPluginParamInfo>, String> {
+    fn fallback_param_block(metadata_count: usize) -> Vec<ExternalPluginParamInfo> {
+        let count = if metadata_count > 0 { metadata_count } else { 16 }.min(128);
+        let mut out = Vec::with_capacity(count);
+        for idx in 0..count {
+            out.push(ExternalPluginParamInfo {
+                index: idx as u32,
+                name: format!("Param {}", idx + 1),
+                min: 0.0,
+                max: 1.0,
+                step: 0.001,
+                value: 0.5,
+            });
+        }
+        out
+    }
+
     let plugin_key = normalize_plugin_key_local(&plugin_id);
     if plugin_host_state
         .loaded_sandbox_by_key
@@ -484,11 +503,24 @@ fn get_external_plugin_params(
         (count, hints)
     };
 
-    let instance_id = ensure_loaded_external_instance(&plugin_id, &plugin_host_state, &project_state)?;
+    let Some(instance_id) = plugin_host_state
+        .loaded_by_key
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(&plugin_id)
+        .copied()
+    else {
+        return Ok(fallback_param_block(metadata_count));
+    };
+
     let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-    let instance = host
-        .get_mut(instance_id)
-        .ok_or_else(|| format!("Plugin instance not found: {instance_id}"))?;
+    let Some(instance) = host.get_mut(instance_id) else {
+        log::warn!(
+            "[PluginParams] Missing instance for active plugin key '{}'; using fallback params",
+            plugin_id
+        );
+        return Ok(fallback_param_block(metadata_count));
+    };
 
     let host_count = instance.parameter_count() as usize;
     let count = if host_count > 0 {
@@ -709,6 +741,9 @@ fn set_plugin_sidechain_source_cmd(
         && let Some(slot) = inst.as_single_mut()
         && slot.id == slot_uuid
     {
+        if slot.supports_sidechain_input == Some(false) {
+            return Err("Plugin does not expose sidechain input".to_string());
+        }
         slot.sidechain_source_track_id = source_value.clone();
         updated = true;
     }
@@ -717,6 +752,9 @@ fn set_plugin_sidechain_source_cmd(
             if let Some(slot) = node.as_single_mut()
                 && slot.id == slot_uuid
             {
+                if slot.supports_sidechain_input == Some(false) {
+                    return Err("Plugin does not expose sidechain input".to_string());
+                }
                 slot.sidechain_source_track_id = source_value.clone();
                 updated = true;
                 break;
@@ -746,6 +784,7 @@ fn add_plugin_to_track_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<(), String> {
     fn canonical_internal_plugin(plugin_id: &str, plugin_name: &str) -> Option<(&'static str, &'static str, &'static str)> {
         let merged = format!("{} {}", plugin_id, plugin_name).to_lowercase();
@@ -765,7 +804,7 @@ fn add_plugin_to_track_cmd(
             || compact.contains("mxdeviceinstrument")
             || compact.contains("loungelizard")
         {
-            return Some(("internal://instrument/wave-synth", "Wave Synth", "instrument"));
+            return Some(("internal://instrument/wave-synth", "Essense", "instrument"));
         }
         if merged.contains("sampler") || merged.contains("simpler") || compact.contains("multisampler") || compact.contains("drumcell") {
             return Some(("internal://instrument/sampler", "Sampler", "instrument"));
@@ -773,7 +812,7 @@ fn add_plugin_to_track_cmd(
 
         // Effects
         if merged.contains("eq eight") || merged.contains("eq eight") || merged.contains("eq3") || merged.contains("eq three") || merged.contains("channel eq") {
-            return Some(("internal://effect/eq-eight", "EQ Eight", "effect"));
+            return Some(("internal://effect/eq-eight", "EQ", "effect"));
         }
         if merged.contains("glue compressor") || merged.contains("multiband dynamics") {
             return Some(("internal://effect/compressor", "Compressor", "effect"));
@@ -781,11 +820,35 @@ fn add_plugin_to_track_cmd(
         if merged.contains("simple delay") || merged.contains("ping pong delay") || merged.contains("echo") {
             return Some(("internal://effect/delay", "Delay", "effect"));
         }
+        if merged.contains("beat repeat") || merged.contains("filter delay") || merged.contains("grain delay") || merged.contains("looper") {
+            return Some(("internal://effect/delay", "Delay", "effect"));
+        }
         if merged.contains("hybrid reverb") {
+            return Some(("internal://effect/reverb", "Reverb", "effect"));
+        }
+        if merged.contains("corpus") || merged.contains("resonators") || merged.contains("spectral resonator") {
             return Some(("internal://effect/reverb", "Reverb", "effect"));
         }
         if merged.contains("chorus-ensemble") || merged.contains("chorus ensemble") {
             return Some(("internal://effect/chorus", "Chorus", "effect"));
+        }
+        if merged.contains("eq three") || merged.contains("band eq") || merged.contains("channel eq") {
+            return Some(("internal://effect/eq-eight", "EQ", "effect"));
+        }
+        if merged.contains("drum buss") || merged.contains("dynamic tube") {
+            return Some(("internal://effect/saturator", "Saturator", "effect"));
+        }
+        if merged.contains("transient shaper") {
+            return Some(("internal://effect/compressor", "Compressor", "effect"));
+        }
+        if merged.contains("vocoder") {
+            return Some(("internal://effect/auto-filter", "Auto Filter", "effect"));
+        }
+        if merged.contains("spectral time") {
+            return Some(("internal://effect/delay", "Delay", "effect"));
+        }
+        if merged.contains("roar") {
+            return Some(("internal://effect/distortion", "Distortion", "effect"));
         }
         if merged.contains("auto filter") || merged.contains("autofilter") {
             return Some(("internal://effect/auto-filter", "Auto Filter", "effect"));
@@ -806,16 +869,22 @@ fn add_plugin_to_track_cmd(
             return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
         }
         if compact.contains("midichord") {
-            return Some(("internal://midi-fx/scale", "MIDI Chord", "effect"));
+            return Some(("internal://midi-fx/scale", "MIDI Scale", "effect"));
         }
         if merged.contains("mxdevicerandom") || merged.contains("midi random") {
             return Some(("internal://midi-fx/random", "MIDI Random", "effect"));
         }
+        if merged.contains("arpeggiator") {
+            return Some(("internal://midi-fx/random", "MIDI Random", "effect"));
+        }
+        if merged.contains("cc control") || merged.contains("expression control") {
+            return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
+        }
         if compact.contains("midiarpeggiator") {
-            return Some(("internal://midi-fx/random", "MIDI Arp", "effect"));
+            return Some(("internal://midi-fx/random", "MIDI Random", "effect"));
         }
         if merged.contains("midi note length") || compact.contains("midinotelength") {
-            return Some(("internal://midi-fx/velocity", "MIDI Note Length", "effect"));
+            return Some(("internal://midi-fx/velocity", "MIDI Velocity", "effect"));
         }
         if merged.contains("spectrum") || compact.contains("spectrumanalyzer") {
             return Some(("internal://effect/spectrum", "Spectrum", "effect"));
@@ -878,19 +947,49 @@ fn add_plugin_to_track_cmd(
         if key.starts_with("internal://effect/") {
             return match key.as_str() {
                 "internal://effect/eq-eight" => Some(FX_EQ),
+                "internal://effect/channel-eq" => Some(FX_EQ),
+                "internal://effect/eq-three" => Some(FX_EQ),
                 "internal://effect/compressor" => Some(FX_COMPRESSOR),
+                "internal://effect/glue-compressor" => Some(FX_COMPRESSOR),
+                "internal://effect/multiband-dynamics" => Some(FX_COMPRESSOR),
+                "internal://effect/transient-shaper" => Some(FX_COMPRESSOR),
                 "internal://effect/delay" => Some(FX_DELAY),
+                "internal://effect/echo" => Some(FX_DELAY),
+                "internal://effect/simple-delay" => Some(FX_DELAY),
+                "internal://effect/filter-delay" => Some(FX_DELAY),
+                "internal://effect/grain-delay" => Some(FX_DELAY),
+                "internal://effect/beat-repeat" => Some(FX_DELAY),
+                "internal://effect/looper" => Some(FX_DELAY),
+                "internal://effect/spectral-time" => Some(FX_DELAY),
                 "internal://effect/reverb" => Some(FX_REVERB),
+                "internal://effect/hybrid-reverb" => Some(FX_REVERB),
+                "internal://effect/corpus" => Some(FX_REVERB),
+                "internal://effect/resonators" => Some(FX_REVERB),
+                "internal://effect/spectral-resonator" => Some(FX_REVERB),
                 "internal://effect/chorus" => Some(FX_CHORUS),
                 "internal://effect/utility" => Some(FX_UTILITY),
+                "internal://effect/tuner" => Some(FX_UTILITY),
+                "internal://effect/external-audio-effect" => Some(FX_UTILITY),
+                "internal://effect/auto-shift" => Some(FX_UTILITY),
+                "internal://effect/shifter" => Some(FX_UTILITY),
                 "internal://effect/saturator" => Some(FX_SATURATOR),
+                "internal://effect/drum-buss" => Some(FX_SATURATOR),
+                "internal://effect/dynamic-tube" => Some(FX_SATURATOR),
                 "internal://effect/limiter" => Some(FX_LIMITER),
                 "internal://effect/gate" => Some(FX_GATE),
                 "internal://effect/auto-filter" => Some(FX_AUTO_FILTER),
+                "internal://effect/vocoder" => Some(FX_AUTO_FILTER),
                 "internal://effect/phaser" => Some(FX_PHASER),
+                "internal://effect/phaser-flanger" => Some(FX_PHASER),
                 "internal://effect/flanger" => Some(FX_FLANGER),
                 "internal://effect/distortion" => Some(FX_DISTORTION),
+                "internal://effect/amp" => Some(FX_DISTORTION),
+                "internal://effect/cabinet" => Some(FX_DISTORTION),
+                "internal://effect/overdrive" => Some(FX_DISTORTION),
+                "internal://effect/pedal" => Some(FX_DISTORTION),
+                "internal://effect/roar" => Some(FX_DISTORTION),
                 "internal://effect/bitcrusher" => Some(FX_BITCRUSHER),
+                "internal://effect/erosion" => Some(FX_BITCRUSHER),
                 "internal://effect/noise-machine" => Some(FX_NOISE_MACHINE),
                 "internal://effect/auto-pan" => Some(FX_AUTO_PAN),
                 _ => None,
@@ -963,7 +1062,15 @@ fn add_plugin_to_track_cmd(
     let slot = payload.slot.to_lowercase();
     let canonical = canonical_internal_plugin(&payload.plugin_id, &payload.plugin_name);
     let effective_plugin_id = canonical.map(|v| v.0.to_string()).unwrap_or_else(|| payload.plugin_id.clone());
-    let effective_plugin_name = canonical.map(|v| v.1.to_string()).unwrap_or_else(|| payload.plugin_name.clone());
+    let effective_plugin_name = canonical
+        .map(|v| {
+            if payload.plugin_name.trim().is_empty() {
+                v.1.to_string()
+            } else {
+                payload.plugin_name.clone()
+            }
+        })
+        .unwrap_or_else(|| payload.plugin_name.clone());
     let canonical_slot_hint = canonical.map(|v| v.2);
     let use_instrument = match slot.as_str() {
         "instrument" => true,
@@ -977,7 +1084,14 @@ fn add_plugin_to_track_cmd(
     let is_sampler_instrument = plugin_id_lower.starts_with("internal://instrument/sampler");
     let is_wave_synth_instrument = plugin_id_lower.starts_with("internal://instrument/wave-synth")
         || plugin_id_lower.starts_with("internal://instrument/simple-sine-synth");
-    let plugin_slot = DeviceNode::Single(PluginSlot::new(effective_plugin_name.clone(), effective_plugin_id.clone()));
+    let mut slot_data = PluginSlot::new(effective_plugin_name.clone(), effective_plugin_id.clone());
+    if !effective_plugin_id.starts_with("internal://")
+        && let Ok(desc) = plugin_host_state.resolve_descriptor(&effective_plugin_id)
+    {
+        slot_data.external_audio_inputs = Some(desc.audio_inputs);
+        slot_data.supports_sidechain_input = Some(desc.audio_inputs > 2);
+    }
+    let plugin_slot = DeviceNode::Single(slot_data);
     let mut runtime_add: Option<(Uuid, u8, u8)> = None;
     let mut runtime_waveform: Option<(Uuid, u8)> = None;
     if use_instrument {

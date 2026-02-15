@@ -76,10 +76,6 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             const isAbleton = path.toLowerCase().endsWith('.als');
             if (isAbleton) {
                 await engineApi.importAbletonProject(path);
-                // Eagerly activate external plugins in background (fire-and-forget)
-                engineApi.eagerActivateExternalPlugins().catch((e) =>
-                    console.warn('[FileMenu] Eager plugin activation:', e),
-                );
             } else {
                 await engineApi.openProject(path);
             }
@@ -98,9 +94,6 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             const isAbleton = path.toLowerCase().endsWith('.als');
             if (isAbleton) {
                 await engineApi.importAbletonProject(path);
-                engineApi.eagerActivateExternalPlugins().catch((e) =>
-                    console.warn('[FileMenu] Eager plugin activation:', e),
-                );
             } else {
                 await engineApi.openProject(path);
             }

@@ -200,7 +200,7 @@ async fn set_track_height_cmd(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let parsed_id = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
-    let clamped_height = height.clamp(24.0, 200.0);
+    let clamped_height = height.clamp(24.0, 120.0);
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let track = project

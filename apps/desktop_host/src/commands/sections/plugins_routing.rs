@@ -1,5 +1,95 @@
 // ═══════════════════════════════════════════════════════════════════════
 
+fn find_slot_in_node_by_plugin_id(node: &DeviceNode, plugin_id: &str) -> Option<PluginSlot> {
+    match node {
+        DeviceNode::Single(slot) => {
+            if slot.plugin_id == plugin_id {
+                Some(slot.clone())
+            } else {
+                None
+            }
+        }
+        DeviceNode::Rack(rack) => {
+            for chain in &rack.chains {
+                for child in &chain.devices {
+                    if let Some(found) = find_slot_in_node_by_plugin_id(child, plugin_id) {
+                        return Some(found);
+                    }
+                }
+            }
+            None
+        }
+    }
+}
+
+fn find_project_plugin_slot(project: &Project, plugin_id: &str) -> Option<PluginSlot> {
+    for track in &project.tracks {
+        if let Some(inst) = &track.instrument
+            && let Some(found) = find_slot_in_node_by_plugin_id(inst, plugin_id)
+        {
+            return Some(found);
+        }
+        for fx in &track.effects {
+            if let Some(found) = find_slot_in_node_by_plugin_id(fx, plugin_id) {
+                return Some(found);
+            }
+        }
+    }
+    for fx in &project.master_track.effects {
+        if let Some(found) = find_slot_in_node_by_plugin_id(fx, plugin_id) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn apply_imported_external_state_blob(
+    host: &mut PluginHost,
+    instance_id: uuid::Uuid,
+    slot: &PluginSlot,
+) -> Result<(), String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+    let mut attempts: Vec<(&str, Option<&String>, Option<&String>)> = Vec::new();
+    attempts.push(("state", slot.external_state_blob.as_ref(), slot.external_state_blob_kind.as_ref()));
+    attempts.push(("preset", slot.external_preset_blob.as_ref(), slot.external_preset_blob_kind.as_ref()));
+
+    for (label, maybe_blob, maybe_kind) in attempts {
+        let Some(blob) = maybe_blob else { continue };
+        let trimmed = blob.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let decoded = match STANDARD.decode(trimmed.as_bytes()) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                log::warn!(
+                    "[PluginState] {} blob decode failed for '{}': {}",
+                    label,
+                    slot.name,
+                    err
+                );
+                continue;
+            }
+        };
+        if decoded.is_empty() {
+            continue;
+        }
+        host.load_state_blob(instance_id, maybe_kind.map(|s| s.as_str()), &decoded)
+            .map_err(|e| format!("Failed to apply {} state blob: {e}", label))?;
+        log::info!(
+            "[PluginState] Applied {} blob for '{}' ({} bytes, kind={})",
+            label,
+            slot.name,
+            decoded.len(),
+            maybe_kind.map(|s| s.as_str()).unwrap_or("unknown")
+        );
+        return Ok(());
+    }
+
+    Ok(())
+}
+
 /// Open plugin native GUI window.
 ///
 /// Current implementation delegates lifecycle to the backend plugin host.
@@ -8,6 +98,7 @@
 fn open_plugin_window(
     plugin_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
 ) -> Result<(), String> {
     if let Some(instance_id) = plugin_host_state
         .loaded_by_key
@@ -28,6 +119,16 @@ fn open_plugin_window(
     let instance_id = host
         .load_vst3(descriptor.clone())
         .map_err(|e| format!("Failed to load plugin '{}': {e}", descriptor.name))?;
+    if let Ok(project) = project_state.project.lock()
+        && let Some(slot) = find_project_plugin_slot(&project, &plugin_id)
+        && let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, &slot)
+    {
+        log::warn!(
+            "[PluginState] Could not restore imported state for '{}': {}",
+            slot.name,
+            err
+        );
+    }
     if let Err(err) = host.open_editor(instance_id) {
         // Roll back loaded instance on editor-open failure to avoid leaked/ghost instances.
         let _ = host.remove(instance_id);

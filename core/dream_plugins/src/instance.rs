@@ -182,6 +182,20 @@ pub trait PluginInstance: Send {
         ))
     }
 
+    /// Loads serialized plugin state/preset data.
+    ///
+    /// `kind` is an optional source hint (e.g. `ProcessorState`, `Chunk`).
+    /// The default implementation reports unsupported.
+    fn load_state_blob(
+        &mut self,
+        _kind: Option<&str>,
+        _data: &[u8],
+    ) -> Result<(), PluginError> {
+        Err(PluginError::UnsupportedFormat(
+            "Plugin state restore is not supported for this instance".to_string(),
+        ))
+    }
+
     /// Opens the plugin editor window (native GUI), if supported.
     ///
     /// Called from the UI thread. Implementations may return an error

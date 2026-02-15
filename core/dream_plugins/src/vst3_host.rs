@@ -48,9 +48,13 @@ type Tuid = [u8; 16];
 type Tresult = i32;
 
 const K_RESULT_OK: Tresult = 0;
+const K_RESULT_FALSE: Tresult = 1;
 const K_SAMPLE32: i32 = 0;
 const K_REALTIME: i32 = 0;
 const K_NO_INTERFACE: Tresult = -1; // E_NOINTERFACE
+const K_SEEK_SET: i32 = 0;
+const K_SEEK_CUR: i32 = 1;
+const K_SEEK_END: i32 = 2;
 
 // ── VST3 ProcessContext C-ABI (matches Steinberg::Vst::ProcessContext) ──
 //
@@ -401,6 +405,164 @@ struct IAudioProcessorVtbl {
     process: unsafe extern "C" fn(*mut IAudioProcessor, *mut ProcessData) -> Tresult,
     get_tail_samples: unsafe extern "C" fn(*mut IAudioProcessor) -> u32,
 }
+
+#[repr(C)]
+struct IBStream {
+    vtbl: *const IBStreamVtbl,
+}
+
+#[repr(C)]
+struct IBStreamVtbl {
+    query_interface: unsafe extern "C" fn(*mut IBStream, *const c_char, *mut *mut c_void) -> Tresult,
+    add_ref: unsafe extern "C" fn(*mut IBStream) -> u32,
+    release: unsafe extern "C" fn(*mut IBStream) -> u32,
+    read: unsafe extern "C" fn(*mut IBStream, *mut c_void, i32, *mut i32) -> Tresult,
+    write: unsafe extern "C" fn(*mut IBStream, *mut c_void, i32, *mut i32) -> Tresult,
+    seek: unsafe extern "C" fn(*mut IBStream, i64, i32, *mut i64) -> Tresult,
+    tell: unsafe extern "C" fn(*mut IBStream, *mut i64) -> Tresult,
+}
+
+#[repr(C)]
+struct HostReadStream {
+    vtbl: *const IBStreamVtbl,
+    ref_count: u32,
+    data: Vec<u8>,
+    pos: usize,
+}
+
+impl HostReadStream {
+    fn new(bytes: Vec<u8>) -> Self {
+        Self {
+            vtbl: &HOST_READ_STREAM_VTBL,
+            ref_count: 1,
+            data: bytes,
+            pos: 0,
+        }
+    }
+}
+
+unsafe extern "C" fn stream_query_interface(
+    _this: *mut IBStream,
+    _iid: *const c_char,
+    _obj: *mut *mut c_void,
+) -> Tresult {
+    K_NO_INTERFACE
+}
+
+unsafe extern "C" fn stream_add_ref(this: *mut IBStream) -> u32 {
+    let stream = unsafe { &mut *(this as *mut HostReadStream) };
+    stream.ref_count = stream.ref_count.saturating_add(1);
+    stream.ref_count
+}
+
+unsafe extern "C" fn stream_release(this: *mut IBStream) -> u32 {
+    let stream = unsafe { &mut *(this as *mut HostReadStream) };
+    stream.ref_count = stream.ref_count.saturating_sub(1);
+    stream.ref_count
+}
+
+unsafe extern "C" fn stream_read(
+    this: *mut IBStream,
+    buffer: *mut c_void,
+    num_bytes: i32,
+    num_bytes_read: *mut i32,
+) -> Tresult {
+    if this.is_null() || buffer.is_null() || num_bytes < 0 {
+        return K_RESULT_FALSE;
+    }
+    let stream = unsafe { &mut *(this as *mut HostReadStream) };
+    let requested = num_bytes as usize;
+    let remaining = stream.data.len().saturating_sub(stream.pos);
+    let to_copy = requested.min(remaining);
+    if to_copy > 0 {
+        unsafe {
+            ptr::copy_nonoverlapping(
+                stream.data.as_ptr().add(stream.pos),
+                buffer as *mut u8,
+                to_copy,
+            );
+        }
+        stream.pos = stream.pos.saturating_add(to_copy);
+    }
+    if !num_bytes_read.is_null() {
+        unsafe {
+            *num_bytes_read = to_copy as i32;
+        }
+    }
+    if to_copy == requested {
+        K_RESULT_OK
+    } else {
+        K_RESULT_FALSE
+    }
+}
+
+unsafe extern "C" fn stream_write(
+    _this: *mut IBStream,
+    _buffer: *mut c_void,
+    _num_bytes: i32,
+    num_bytes_written: *mut i32,
+) -> Tresult {
+    if !num_bytes_written.is_null() {
+        unsafe {
+            *num_bytes_written = 0;
+        }
+    }
+    K_RESULT_FALSE
+}
+
+unsafe extern "C" fn stream_seek(
+    this: *mut IBStream,
+    pos: i64,
+    mode: i32,
+    result: *mut i64,
+) -> Tresult {
+    if this.is_null() {
+        return K_RESULT_FALSE;
+    }
+    let stream = unsafe { &mut *(this as *mut HostReadStream) };
+    let len = stream.data.len() as i64;
+    let base = match mode {
+        K_SEEK_SET => 0_i64,
+        K_SEEK_CUR => stream.pos as i64,
+        K_SEEK_END => len,
+        _ => return K_RESULT_FALSE,
+    };
+    let mut next = base.saturating_add(pos);
+    if next < 0 {
+        next = 0;
+    }
+    if next > len {
+        next = len;
+    }
+    stream.pos = next as usize;
+    if !result.is_null() {
+        unsafe {
+            *result = next;
+        }
+    }
+    K_RESULT_OK
+}
+
+unsafe extern "C" fn stream_tell(this: *mut IBStream, result: *mut i64) -> Tresult {
+    if this.is_null() || result.is_null() {
+        return K_RESULT_FALSE;
+    }
+    let stream = unsafe { &*(this as *mut HostReadStream) };
+    unsafe {
+        *result = stream.pos as i64;
+    }
+    K_RESULT_OK
+}
+
+static HOST_READ_STREAM_VTBL: IBStreamVtbl = IBStreamVtbl {
+    query_interface: stream_query_interface,
+    add_ref: stream_add_ref,
+    release: stream_release,
+    read: stream_read,
+    write: stream_write,
+    seek: stream_seek,
+    tell: stream_tell,
+};
 
 // ── VST3 Bundle Resolution ────────────────────────────────────────────
 
@@ -1017,6 +1179,43 @@ impl PluginInstance for Vst3Instance {
     fn supports_editor(&self) -> bool {
         self.open_editor_fn.is_some()
     }
+
+    fn load_state_blob(
+        &mut self,
+        kind: Option<&str>,
+        data: &[u8],
+    ) -> Result<(), PluginError> {
+        if data.is_empty() {
+            return Ok(());
+        }
+        if self.component_ptr == 0 {
+            return Err(PluginError::InvalidState(
+                "Cannot restore state: VST3 component pointer is null".to_string(),
+            ));
+        }
+        let mut stream = HostReadStream::new(data.to_vec());
+        let component = self.component_ptr as *mut IComponent;
+        let status = unsafe {
+            ((*(*component).vtbl).set_state)(
+                component,
+                (&mut stream as *mut HostReadStream).cast::<c_void>(),
+            )
+        };
+        if status != K_RESULT_OK {
+            return Err(PluginError::ProcessError(format!(
+                "set_state failed for '{}' (kind={}, status={status})",
+                self.descriptor.name,
+                kind.unwrap_or("unknown")
+            )));
+        }
+        info!(
+            "[VST3] Applied state blob for '{}' (kind={}, bytes={})",
+            self.descriptor.name,
+            kind.unwrap_or("unknown"),
+            data.len()
+        );
+        Ok(())
+    }
 }
 
 // ── Plugin Host (Instance Registry) ───────────────────────────────────
@@ -1137,6 +1336,19 @@ impl PluginHost {
             .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
         Ok(instance.supports_editor())
     }
+
+    /// Applies serialized state data to a loaded plugin instance.
+    pub fn load_state_blob(
+        &mut self,
+        id: Uuid,
+        kind: Option<&str>,
+        data: &[u8],
+    ) -> Result<(), PluginError> {
+        let instance = self
+            .get_mut(id)
+            .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
+        instance.load_state_blob(kind, data)
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1243,5 +1455,49 @@ mod tests {
         stub.activate(44100.0, 128).unwrap();
         let result = stub.open_editor();
         assert!(matches!(result, Err(PluginError::UnsupportedFormat(_))));
+    }
+
+    #[test]
+    fn host_read_stream_read_and_seek() {
+        let mut stream = HostReadStream::new(vec![10, 20, 30, 40, 50]);
+        let mut out = [0u8; 3];
+        let mut read = 0i32;
+        let status = unsafe {
+            stream_read(
+                (&mut stream as *mut HostReadStream).cast::<IBStream>(),
+                out.as_mut_ptr().cast::<c_void>(),
+                3,
+                &mut read,
+            )
+        };
+        assert_eq!(status, K_RESULT_OK);
+        assert_eq!(read, 3);
+        assert_eq!(out, [10, 20, 30]);
+
+        let mut pos = -1i64;
+        let seek_status = unsafe {
+            stream_seek(
+                (&mut stream as *mut HostReadStream).cast::<IBStream>(),
+                -1,
+                K_SEEK_END,
+                &mut pos,
+            )
+        };
+        assert_eq!(seek_status, K_RESULT_OK);
+        assert_eq!(pos, 4);
+
+        let mut b = [0u8; 1];
+        let mut read2 = 0i32;
+        let status2 = unsafe {
+            stream_read(
+                (&mut stream as *mut HostReadStream).cast::<IBStream>(),
+                b.as_mut_ptr().cast::<c_void>(),
+                1,
+                &mut read2,
+            )
+        };
+        assert_eq!(status2, K_RESULT_OK);
+        assert_eq!(read2, 1);
+        assert_eq!(b[0], 50);
     }
 }

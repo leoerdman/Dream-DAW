@@ -837,6 +837,16 @@ fn parse_output_target(
                     dc.descendants()
                         .find(|n| n.is_element() && n.has_tag_name(routing_tag))
                 })
+        })
+        .or_else(|| {
+            track_node
+                .children()
+                .find(|n| n.is_element() && n.has_tag_name(routing_tag))
+                .or_else(|| {
+                    track_node
+                        .descendants()
+                        .find(|n| n.is_element() && n.has_tag_name(routing_tag))
+                })
         });
     let Some(routing) = routing_node else {
         return None;
@@ -916,10 +926,10 @@ fn classify_output_routing_target(target: &str) -> OutputRoutingTarget {
         return OutputRoutingTarget::Unknown;
     }
     let low = t.to_ascii_lowercase();
-    if low.ends_with("/none") {
+    if low.ends_with("/none") || low.contains("no output") || low.contains("nooutput") {
         return OutputRoutingTarget::None;
     }
-    if low.ends_with("/main") {
+    if low.ends_with("/main") || low == "main" || low == "master" {
         return OutputRoutingTarget::Master;
     }
     if low.ends_with("/grouptrack") {
@@ -938,7 +948,11 @@ fn normalize_input_routing_target(raw: &str) -> Option<String> {
     }
     // Common Ableton "no input" sentinel variants.
     let low = v.to_ascii_lowercase();
-    if low.contains("noinput") || low.contains("no_input") || low.ends_with("/none") {
+    if low.contains("noinput")
+        || low.contains("no_input")
+        || low.contains("no input")
+        || low.ends_with("/none")
+    {
         return None;
     }
     Some(v.to_string())
@@ -950,7 +964,10 @@ fn parse_target_track_xml_id(target: &str) -> Option<String> {
         let Some((kind, id)) = segment.split_once('.') else {
             continue;
         };
-        if !["Track", "AudioTrack", "MidiTrack", "ReturnTrack", "GroupTrack"].contains(&kind) {
+        let kind_norm = kind.trim().to_ascii_lowercase();
+        if !["track", "audiotrack", "miditrack", "returntrack", "grouptrack"]
+            .contains(&kind_norm.as_str())
+        {
             continue;
         }
         let id = id.trim();
@@ -1890,6 +1907,10 @@ mod als_import_tests {
             parse_target_track_xml_id("AudioOut/ReturnTrack.81"),
             Some("81".to_string())
         );
+        assert_eq!(
+            parse_target_track_xml_id("AudioOut/track.99"),
+            Some("99".to_string())
+        );
         assert_eq!(parse_target_track_xml_id("AudioOut/Main"), None);
         assert_eq!(parse_target_track_xml_id("AudioOut/GroupTrack"), None);
     }
@@ -1899,6 +1920,7 @@ mod als_import_tests {
         assert_eq!(normalize_input_routing_target(""), None);
         assert_eq!(normalize_input_routing_target("AudioIn/NoInput"), None);
         assert_eq!(normalize_input_routing_target("AudioIn/no_input"), None);
+        assert_eq!(normalize_input_routing_target("No Input"), None);
         assert_eq!(
             normalize_input_routing_target("AudioIn/Ext.1"),
             Some("AudioIn/Ext.1".to_string())
@@ -1937,6 +1959,26 @@ mod als_import_tests {
         assert_eq!(
             parse_output_target(track, "AudioOutputRouting").as_deref(),
             Some("AudioOut/Track.123")
+        );
+    }
+
+    #[test]
+    fn parse_output_target_supports_direct_track_level_routing_node() {
+        let xml = r#"
+        <Track>
+          <AudioOutputRouting>
+            <Target Value="AudioOut/Main"/>
+          </AudioOutputRouting>
+        </Track>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let track = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Track"))
+            .expect("track");
+        assert_eq!(
+            parse_output_target(track, "AudioOutputRouting").as_deref(),
+            Some("AudioOut/Main")
         );
     }
 
@@ -1988,7 +2030,15 @@ mod als_import_tests {
             OutputRoutingTarget::Master
         ));
         assert!(matches!(
+            classify_output_routing_target("Master"),
+            OutputRoutingTarget::Master
+        ));
+        assert!(matches!(
             classify_output_routing_target("MidiOut/None"),
+            OutputRoutingTarget::None
+        ));
+        assert!(matches!(
+            classify_output_routing_target("No Output"),
             OutputRoutingTarget::None
         ));
         assert!(matches!(
@@ -2179,6 +2229,36 @@ mod als_import_tests {
     }
 
     #[test]
+    fn collect_external_plugin_static_lanes_suffixes_numeric_parameter_id() {
+        let xml = r#"
+        <PluginDevice Id="18">
+          <UserName Value="My FX"/>
+          <ParameterList>
+            <PluginFloatParameter Id="0">
+              <ParameterName Value="Cutoff"/>
+              <ParameterId Value="10"/>
+              <ParameterValue><Manual Value="0.10"/></ParameterValue>
+            </PluginFloatParameter>
+            <PluginFloatParameter Id="1">
+              <ParameterName Value="Cutoff"/>
+              <ParameterId Value="11"/>
+              <ParameterValue><Manual Value="0.20"/></ParameterValue>
+            </PluginFloatParameter>
+          </ParameterList>
+        </PluginDevice>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let device = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("PluginDevice"))
+            .expect("plugin device");
+        let lanes = collect_external_plugin_static_lanes(device, 2, "myfx");
+        assert_eq!(lanes.len(), 2);
+        assert_eq!(lanes[0].0, "plugin:2:myfx:cutoff_id10");
+        assert_eq!(lanes[1].0, "plugin:2:myfx:cutoff_id11");
+    }
+
+    #[test]
     fn parse_external_plugin_meta_reads_vst_preset_info() {
         let xml = r#"
         <PluginDevice Id="18">
@@ -2310,6 +2390,8 @@ mod als_import_tests {
         let xml = r#"
         <OriginalSimpler>
           <Detune><Manual Value="-12"/></Detune>
+          <Osc2Waveform><Manual Value="3"/></Osc2Waveform>
+          <OscMix><Manual Value="40"/></OscMix>
           <Sub><Manual Value="45"/></Sub>
           <LfoRate><Manual Value="3.5"/></LfoRate>
           <LfoDepth><Manual Value="65"/></LfoDepth>
@@ -2326,6 +2408,8 @@ mod als_import_tests {
         import_internal_device_static_params(&mut track, "internal://instrument/sampler", device);
         let cfg = track.sampler.expect("sampler cfg");
         assert!((cfg.detune_cents + 12.0).abs() < 1e-9);
+        assert_eq!(cfg.osc2_waveform, 3);
+        assert!((cfg.osc_mix - 0.4).abs() < 1e-9);
         assert!((cfg.sub_level - 0.45).abs() < 1e-9);
         assert!((cfg.lfo_rate - 3.5).abs() < 1e-9);
         assert!((cfg.lfo_depth - 0.65).abs() < 1e-9);
@@ -2439,6 +2523,40 @@ mod als_import_tests {
         assert_eq!(lane.points.len(), 2);
         assert!((lane.points[0].value - 0.25).abs() < 1e-9);
         assert!((lane.points[1].value - 0.50).abs() < 1e-9);
+    }
+
+    #[test]
+    fn import_main_track_mixer_snapshot_reads_master_mixer_values() {
+        let xml = r#"
+        <MainTrack>
+          <DeviceChain>
+            <Mixer>
+              <Volume><Manual Value="1.25"/></Volume>
+              <Pan><Manual Value="-0.2"/></Pan>
+              <On><Manual Value="false"/></On>
+            </Mixer>
+            <AudioOutputRouting>
+              <Target Value="AudioOut/None"/>
+            </AudioOutputRouting>
+          </DeviceChain>
+        </MainTrack>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let main_track = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("MainTrack"))
+            .expect("main track");
+
+        let mut master = Track::with_type("Master", TrackType::Master, 0);
+        import_main_track_mixer_snapshot(main_track, &mut master);
+        assert!((master.volume - 1.25).abs() < 1e-9);
+        assert!((master.pan + 0.2).abs() < 1e-9);
+        assert!(
+            master
+                .automation_lanes
+                .iter()
+                .any(|l| l.param_id == "mixer.output_enabled" && (l.points[0].value - 0.0).abs() < 1e-9)
+        );
     }
 
     #[test]
@@ -4204,6 +4322,14 @@ fn import_internal_device_static_params(
             cfg.detune_cents = v.clamp(-50.0, 50.0);
             lane_updates.push(("sampler.detune_cents".to_string(), cfg.detune_cents));
         }
+        if let Some(v) = first_param_value(&params, &["Osc2Waveform", "Voice_Oscillator2_Waveform"]) {
+            cfg.osc2_waveform = v.round().clamp(0.0, 3.0) as u8;
+            lane_updates.push(("sampler.osc2_waveform".to_string(), cfg.osc2_waveform as f64));
+        }
+        if let Some(v) = first_param_value(&params, &["OscMix", "Voice_Oscillator_Blend"]) {
+            cfg.osc_mix = normalize_percent_or_unit(v);
+            lane_updates.push(("sampler.osc_mix".to_string(), cfg.osc_mix));
+        }
         if let Some(v) = first_param_value(&params, &["Sub", "SubLevel", "SubOsc"]) {
             cfg.sub_level = normalize_percent_or_unit(v);
             lane_updates.push(("sampler.sub_level".to_string(), cfg.sub_level));
@@ -4281,6 +4407,10 @@ fn collect_external_plugin_static_lanes(
         }
         if param_key.is_empty() {
             param_key = format!("param{param_idx}");
+        } else if let Some(v) = raw_id.parse::<i64>().ok() {
+            if v >= 0 {
+                param_key = format!("{param_key}_id{v}");
+            }
         }
 
         out.push((
@@ -4984,6 +5114,97 @@ fn import_track_automation(
     }
 
     import_plugin_device_static_automation_fallback(track_node, track);
+}
+
+fn import_main_track_mixer_snapshot(
+    main_track_node: roxmltree::Node<'_, '_>,
+    master_track: &mut Track,
+) {
+    let mut static_mixer_values = Vec::<(String, f64)>::new();
+
+    if let Some(mixer) = main_track_node
+        .children()
+        .find(|n| n.is_element() && n.has_tag_name("DeviceChain"))
+        .and_then(|dc| dc.children().find(|n| n.is_element() && n.has_tag_name("Mixer")))
+    {
+        if let Some(volume) = maybe_parse_f64_manual(mixer, "Volume") {
+            master_track.volume = volume.clamp(0.0, 2.0);
+            static_mixer_values.push(("volume".to_string(), master_track.volume));
+        }
+        if let Some(pan) = maybe_parse_f64_manual(mixer, "Pan") {
+            master_track.pan = pan.clamp(-1.0, 1.0);
+            static_mixer_values.push(("pan".to_string(), master_track.pan));
+        }
+        if let Some(on) = maybe_parse_bool_manual(mixer, "On") {
+            static_mixer_values.push(("mixer.on".to_string(), if on { 1.0 } else { 0.0 }));
+        }
+        if let Some(speaker) = maybe_parse_bool_manual(mixer, "Speaker") {
+            static_mixer_values.push(("mixer.speaker".to_string(), if speaker { 1.0 } else { 0.0 }));
+        }
+        if let Some(v) = maybe_parse_f64_manual(mixer, "CrossFadeState") {
+            static_mixer_values.push(("mixer.crossfade_state".to_string(), v.clamp(0.0, 2.0)));
+        }
+        if let Some(v) = maybe_parse_f64_manual(mixer, "SplitStereoPanL") {
+            static_mixer_values.push(("mixer.pan_left".to_string(), v.clamp(-1.0, 1.0)));
+        }
+        if let Some(v) = maybe_parse_f64_manual(mixer, "SplitStereoPanR") {
+            static_mixer_values.push(("mixer.pan_right".to_string(), v.clamp(-1.0, 1.0)));
+        }
+    }
+
+    let output_target = choose_preferred_output_target(
+        TrackType::Master,
+        parse_output_target(main_track_node, "AudioOutputRouting"),
+        parse_output_target(main_track_node, "MidiOutputRouting"),
+    );
+    if let Some(target) = output_target {
+        match classify_output_routing_target(&target) {
+            OutputRoutingTarget::None => {
+                static_mixer_values.push(("mixer.output_enabled".to_string(), 0.0));
+            }
+            OutputRoutingTarget::TrackXmlId(_)
+            | OutputRoutingTarget::GroupFallback
+            | OutputRoutingTarget::Master => {
+                static_mixer_values.push(("mixer.output_enabled".to_string(), 1.0));
+            }
+            OutputRoutingTarget::Unknown => {
+                // Keep output enabled for valid-but-unrecognized routing
+                // tokens (e.g. external hardware targets).
+                static_mixer_values.push(("mixer.output_enabled".to_string(), 1.0));
+            }
+        }
+    }
+
+    if let Some(v) = parse_track_bool_flag(main_track_node, "IsAutoSelectEnabled") {
+        static_mixer_values.push((
+            "mixer.is_auto_select_enabled".to_string(),
+            if v { 1.0 } else { 0.0 },
+        ));
+    }
+    if let Some(v) = parse_track_bool_flag(main_track_node, "KeepRecordMonitoringLatency") {
+        static_mixer_values.push((
+            "mixer.keep_record_monitoring_latency".to_string(),
+            if v { 1.0 } else { 0.0 },
+        ));
+    }
+    if let Some(monitoring_mode) = node_child_value(main_track_node, "MonitoringEnum")
+        .or_else(|| {
+            main_track_node
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name("MonitoringEnum"))
+                .and_then(|n| n.attribute("Value"))
+                .map(ToString::to_string)
+        })
+        .as_deref()
+        .and_then(parse_i64_value)
+        .map(|v| v.clamp(0, 2) as u8)
+    {
+        static_mixer_values.push(("mixer.monitoring_mode".to_string(), monitoring_mode as f64));
+    }
+
+    for (param_id, value) in static_mixer_values {
+        upsert_static_import_lane_if_missing(master_track, &param_id, value);
+    }
 }
 
 fn consolidate_automation_lanes(track: &mut Track) {
@@ -5726,6 +5947,19 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
         import_track_devices(track_node, &mut track, &external_plugins, file_path);
         import_track_clips(track_node, &mut track, file_path, tempo, sample_rate);
         import_track_automation(track_node, &mut track);
+        if track_type == TrackType::Midi
+            && let Some(root_note) = parse_track_key_note_target(track_node)
+            && !track
+                .automation_lanes
+                .iter()
+                .any(|lane| lane.param_id.eq_ignore_ascii_case("sampler.root_note"))
+        {
+            track
+                .sampler
+                .get_or_insert_with(SamplerConfig::default)
+                .root_note = root_note;
+            upsert_static_import_lane_if_missing(&mut track, "sampler.root_note", root_note as f64);
+        }
         for (send_idx, send_value) in static_send_values {
             if send_idx >= 26 {
                 continue;
@@ -5771,7 +6005,10 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
                     // Preserve explicit "no output" (distinct from "to master").
                     static_mixer_values.push(("mixer.output_enabled".to_string(), 0.0));
                 }
-                OutputRoutingTarget::Unknown => {}
+                OutputRoutingTarget::Unknown => {
+                    // Unknown token may still be a valid external/hardware output.
+                    static_mixer_values.push(("mixer.output_enabled".to_string(), 1.0));
+                }
             }
         }
 
@@ -5823,6 +6060,7 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
     }
 
     if let Some(main_track) = live_set.descendants().find(|n| n.is_element() && n.has_tag_name("MainTrack")) {
+        import_main_track_mixer_snapshot(main_track, &mut project.master_track);
         import_track_devices(main_track, &mut project.master_track, &external_plugins, file_path);
         import_track_automation(main_track, &mut project.master_track);
         consolidate_automation_lanes(&mut project.master_track);

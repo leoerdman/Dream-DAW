@@ -19,36 +19,27 @@
     "sample_refs": 89302,
     "native_mapped": 18968,
     "native_unmapped": 0,
-    "external_resolved": 8969,
-    "external_missing": 9
+    "external_resolved": 8978,
+    "external_missing": 0
   },
   "rates_snapshot": {
     "native_mapped_rate": 1.0,
-    "external_resolved_rate": 0.9989975495656048,
-    "overall_compat_rate": 0.9996779503327846
+    "external_resolved_rate": 1.0,
+    "overall_compat_rate": 1.0
   },
-  "top_missing_external": [
-    [
-      "reastream-standalone",
-      6
-    ],
-    [
-      "Nectar 3",
-      3
-    ]
-  ],
+  "top_missing_external": [],
   "checks": [
     {
       "id": 1,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 2,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 3,
@@ -72,13 +63,13 @@
       "id": 6,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 7,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 8,
@@ -102,13 +93,13 @@
       "id": 11,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 12,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 13,
@@ -132,13 +123,13 @@
       "id": 16,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 17,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 18,
@@ -162,13 +153,13 @@
       "id": 21,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 22,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 23,
@@ -192,13 +183,13 @@
       "id": 26,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 27,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 28,
@@ -222,13 +213,13 @@
       "id": 31,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 32,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 33,
@@ -252,13 +243,13 @@
       "id": 36,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 37,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 38,
@@ -282,13 +273,13 @@
       "id": 41,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 42,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 43,
@@ -312,13 +303,13 @@
       "id": 46,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 47,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 48,
@@ -342,13 +333,13 @@
       "id": 51,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 52,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 53,
@@ -372,13 +363,13 @@
       "id": 56,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 57,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 58,
@@ -402,13 +393,13 @@
       "id": 61,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 62,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 63,
@@ -432,13 +423,13 @@
       "id": 66,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 67,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 68,
@@ -462,13 +453,13 @@
       "id": 71,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 72,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 73,
@@ -492,13 +483,13 @@
       "id": 76,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 77,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 78,
@@ -522,13 +513,13 @@
       "id": 81,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 82,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 83,
@@ -552,13 +543,13 @@
       "id": 86,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 87,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 88,
@@ -582,13 +573,13 @@
       "id": 91,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 92,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 93,
@@ -612,13 +603,13 @@
       "id": 96,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 97,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 98,
@@ -642,13 +633,13 @@
       "id": 101,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 102,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 103,
@@ -672,13 +663,13 @@
       "id": 106,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 107,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 108,
@@ -702,13 +693,13 @@
       "id": 111,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 112,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 113,
@@ -732,13 +723,13 @@
       "id": 116,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 117,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 118,
@@ -762,13 +753,13 @@
       "id": 121,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 122,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 123,
@@ -792,13 +783,13 @@
       "id": 126,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 127,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 128,
@@ -822,13 +813,13 @@
       "id": 131,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 132,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 133,
@@ -852,13 +843,13 @@
       "id": 136,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 137,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 138,
@@ -882,13 +873,13 @@
       "id": 141,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 142,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 143,
@@ -912,13 +903,13 @@
       "id": 146,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 147,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 148,
@@ -942,13 +933,13 @@
       "id": 151,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 152,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 153,
@@ -972,13 +963,13 @@
       "id": 156,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 157,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 158,
@@ -1002,13 +993,13 @@
       "id": 161,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 162,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 163,
@@ -1032,13 +1023,13 @@
       "id": 166,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 167,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 168,
@@ -1062,13 +1053,13 @@
       "id": 171,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 172,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 173,
@@ -1092,13 +1083,13 @@
       "id": 176,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 177,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 178,
@@ -1122,13 +1113,13 @@
       "id": 181,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 182,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 183,
@@ -1152,13 +1143,13 @@
       "id": 186,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 187,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 188,
@@ -1182,13 +1173,13 @@
       "id": 191,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 192,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 193,
@@ -1212,13 +1203,13 @@
       "id": 196,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 197,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 198,
@@ -1242,13 +1233,13 @@
       "id": 201,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 202,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 203,
@@ -1272,13 +1263,13 @@
       "id": 206,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 207,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 208,
@@ -1302,13 +1293,13 @@
       "id": 211,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 212,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 213,
@@ -1332,13 +1323,13 @@
       "id": 216,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 217,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 218,
@@ -1362,13 +1353,13 @@
       "id": 221,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 222,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 223,
@@ -1392,13 +1383,13 @@
       "id": 226,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 227,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 228,
@@ -1422,13 +1413,13 @@
       "id": 231,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 232,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 233,
@@ -1452,13 +1443,13 @@
       "id": 236,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 237,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 238,
@@ -1482,13 +1473,13 @@
       "id": 241,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 242,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 243,
@@ -1512,13 +1503,13 @@
       "id": 246,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 247,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 248,
@@ -1542,13 +1533,13 @@
       "id": 251,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 252,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 253,
@@ -1572,13 +1563,13 @@
       "id": 256,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 257,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 258,
@@ -1602,13 +1593,13 @@
       "id": 261,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 262,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 263,
@@ -1632,13 +1623,13 @@
       "id": 266,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 267,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 268,
@@ -1662,13 +1653,13 @@
       "id": 271,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 272,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 273,
@@ -1692,13 +1683,13 @@
       "id": 276,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 277,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 278,
@@ -1722,13 +1713,13 @@
       "id": 281,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 282,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 283,
@@ -1752,13 +1743,13 @@
       "id": 286,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 287,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 288,
@@ -1782,13 +1773,13 @@
       "id": 291,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 292,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 293,
@@ -1812,13 +1803,13 @@
       "id": 296,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 297,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 298,
@@ -1842,13 +1833,13 @@
       "id": 301,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 302,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 303,
@@ -1872,13 +1863,13 @@
       "id": 306,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 307,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 308,
@@ -1902,13 +1893,13 @@
       "id": 311,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 312,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 313,
@@ -1932,13 +1923,13 @@
       "id": 316,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 317,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 318,
@@ -1962,13 +1953,13 @@
       "id": 321,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 322,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 323,
@@ -1992,13 +1983,13 @@
       "id": 326,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 327,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 328,
@@ -2022,13 +2013,13 @@
       "id": 331,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 332,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 333,
@@ -2052,13 +2043,13 @@
       "id": 336,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 337,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 338,
@@ -2082,13 +2073,13 @@
       "id": 341,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 342,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 343,
@@ -2112,13 +2103,13 @@
       "id": 346,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 347,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 348,
@@ -2142,13 +2133,13 @@
       "id": 351,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 352,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 353,
@@ -2172,13 +2163,13 @@
       "id": 356,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 357,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 358,
@@ -2202,13 +2193,13 @@
       "id": 361,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 362,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 363,
@@ -2232,13 +2223,13 @@
       "id": 366,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 367,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 368,
@@ -2262,13 +2253,13 @@
       "id": 371,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 372,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 373,
@@ -2292,13 +2283,13 @@
       "id": 376,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 377,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 378,
@@ -2322,13 +2313,13 @@
       "id": 381,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 382,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 383,
@@ -2352,13 +2343,13 @@
       "id": 386,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 387,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 388,
@@ -2382,13 +2373,13 @@
       "id": 391,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 392,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 393,
@@ -2412,13 +2403,13 @@
       "id": 396,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 397,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 398,
@@ -2442,13 +2433,13 @@
       "id": 401,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 402,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 403,
@@ -2472,13 +2463,13 @@
       "id": 406,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 407,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 408,
@@ -2502,13 +2493,13 @@
       "id": 411,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 412,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 413,
@@ -2532,13 +2523,13 @@
       "id": 416,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 417,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 418,
@@ -2562,13 +2553,13 @@
       "id": 421,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 422,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 423,
@@ -2592,13 +2583,13 @@
       "id": 426,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 427,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 428,
@@ -2622,13 +2613,13 @@
       "id": 431,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 432,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 433,
@@ -2652,13 +2643,13 @@
       "id": 436,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 437,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 438,
@@ -2682,13 +2673,13 @@
       "id": 441,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 442,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 443,
@@ -2712,13 +2703,13 @@
       "id": 446,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 447,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 448,
@@ -2742,13 +2733,13 @@
       "id": 451,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 452,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 453,
@@ -2772,13 +2763,13 @@
       "id": 456,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 457,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 458,
@@ -2802,13 +2793,13 @@
       "id": 461,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 462,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 463,
@@ -2832,13 +2823,13 @@
       "id": 466,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 467,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 468,
@@ -2862,13 +2853,13 @@
       "id": 471,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 472,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 473,
@@ -2892,13 +2883,13 @@
       "id": 476,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 477,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 478,
@@ -2922,13 +2913,13 @@
       "id": 481,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 482,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 483,
@@ -2952,13 +2943,13 @@
       "id": 486,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 487,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 488,
@@ -2982,13 +2973,13 @@
       "id": 491,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 492,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 493,
@@ -3012,13 +3003,13 @@
       "id": 496,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 497,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 498,
@@ -3042,13 +3033,13 @@
       "id": 501,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 502,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 503,
@@ -3072,13 +3063,13 @@
       "id": 506,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 507,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 508,
@@ -3102,13 +3093,13 @@
       "id": 511,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 512,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 513,
@@ -3132,13 +3123,13 @@
       "id": 516,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 517,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 518,
@@ -3162,13 +3153,13 @@
       "id": 521,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 522,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 523,
@@ -3192,13 +3183,13 @@
       "id": 526,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 527,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 528,
@@ -3222,13 +3213,13 @@
       "id": 531,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 532,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 533,
@@ -3252,13 +3243,13 @@
       "id": 536,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 537,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 538,
@@ -3282,13 +3273,13 @@
       "id": 541,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 542,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 543,
@@ -3312,13 +3303,13 @@
       "id": 546,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 547,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 548,
@@ -3342,13 +3333,13 @@
       "id": 551,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 552,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 553,
@@ -3372,13 +3363,13 @@
       "id": 556,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 557,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 558,
@@ -3402,13 +3393,13 @@
       "id": 561,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 562,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 563,
@@ -3432,13 +3423,13 @@
       "id": 566,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 567,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 568,
@@ -3462,13 +3453,13 @@
       "id": 571,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 572,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 573,
@@ -3492,13 +3483,13 @@
       "id": 576,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 577,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 578,
@@ -3522,13 +3513,13 @@
       "id": 581,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 582,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 583,
@@ -3552,13 +3543,13 @@
       "id": 586,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 587,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 588,
@@ -3582,13 +3573,13 @@
       "id": 591,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 592,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 593,
@@ -3612,13 +3603,13 @@
       "id": 596,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 597,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 598,
@@ -3642,13 +3633,13 @@
       "id": 601,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 602,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 603,
@@ -3672,13 +3663,13 @@
       "id": 606,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 607,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 608,
@@ -3702,13 +3693,13 @@
       "id": 611,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 612,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 613,
@@ -3732,13 +3723,13 @@
       "id": 616,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 617,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 618,
@@ -3762,13 +3753,13 @@
       "id": 621,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 622,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 623,
@@ -3792,13 +3783,13 @@
       "id": 626,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 627,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 628,
@@ -3822,13 +3813,13 @@
       "id": 631,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 632,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 633,
@@ -3852,13 +3843,13 @@
       "id": 636,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 637,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 638,
@@ -3882,13 +3873,13 @@
       "id": 641,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 642,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 643,
@@ -3912,13 +3903,13 @@
       "id": 646,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 647,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 648,
@@ -3942,13 +3933,13 @@
       "id": 651,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 652,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 653,
@@ -3972,13 +3963,13 @@
       "id": 656,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 657,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 658,
@@ -4002,13 +3993,13 @@
       "id": 661,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 662,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 663,
@@ -4032,13 +4023,13 @@
       "id": 666,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 667,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 668,
@@ -4062,13 +4053,13 @@
       "id": 671,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 672,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 673,
@@ -4092,13 +4083,13 @@
       "id": 676,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 677,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 678,
@@ -4122,13 +4113,13 @@
       "id": 681,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 682,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 683,
@@ -4152,13 +4143,13 @@
       "id": 686,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 687,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 688,
@@ -4182,13 +4173,13 @@
       "id": 691,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 692,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 693,
@@ -4212,13 +4203,13 @@
       "id": 696,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 697,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 698,
@@ -4242,13 +4233,13 @@
       "id": 701,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 702,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 703,
@@ -4272,13 +4263,13 @@
       "id": 706,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 707,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 708,
@@ -4302,13 +4293,13 @@
       "id": 711,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 712,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 713,
@@ -4332,13 +4323,13 @@
       "id": 716,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 717,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 718,
@@ -4362,13 +4353,13 @@
       "id": 721,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 722,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 723,
@@ -4392,13 +4383,13 @@
       "id": 726,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 727,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 728,
@@ -4422,13 +4413,13 @@
       "id": 731,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 732,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 733,
@@ -4452,13 +4443,13 @@
       "id": 736,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 737,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 738,
@@ -4482,13 +4473,13 @@
       "id": 741,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 742,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 743,
@@ -4512,13 +4503,13 @@
       "id": 746,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 747,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 748,
@@ -4542,13 +4533,13 @@
       "id": 751,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 752,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 753,
@@ -4572,13 +4563,13 @@
       "id": 756,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 757,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 758,
@@ -4602,13 +4593,13 @@
       "id": 761,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 762,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 763,
@@ -4632,13 +4623,13 @@
       "id": 766,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 767,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 768,
@@ -4662,13 +4653,13 @@
       "id": 771,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 772,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 773,
@@ -4692,13 +4683,13 @@
       "id": 776,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 777,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 778,
@@ -4722,13 +4713,13 @@
       "id": 781,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 782,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 783,
@@ -4752,13 +4743,13 @@
       "id": 786,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 787,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 788,
@@ -4782,13 +4773,13 @@
       "id": 791,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 792,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 793,
@@ -4812,13 +4803,13 @@
       "id": 796,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 797,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 798,
@@ -4842,13 +4833,13 @@
       "id": 801,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 802,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 803,
@@ -4872,13 +4863,13 @@
       "id": 806,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 807,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 808,
@@ -4902,13 +4893,13 @@
       "id": 811,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 812,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 813,
@@ -4932,13 +4923,13 @@
       "id": 816,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 817,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 818,
@@ -4962,13 +4953,13 @@
       "id": 821,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 822,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 823,
@@ -4992,13 +4983,13 @@
       "id": 826,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 827,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 828,
@@ -5022,13 +5013,13 @@
       "id": 831,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 832,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 833,
@@ -5052,13 +5043,13 @@
       "id": 836,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 837,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 838,
@@ -5082,13 +5073,13 @@
       "id": 841,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 842,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 843,
@@ -5112,13 +5103,13 @@
       "id": 846,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 847,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 848,
@@ -5142,13 +5133,13 @@
       "id": 851,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 852,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 853,
@@ -5172,13 +5163,13 @@
       "id": 856,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 857,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 858,
@@ -5202,13 +5193,13 @@
       "id": 861,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 862,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 863,
@@ -5232,13 +5223,13 @@
       "id": 866,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 867,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 868,
@@ -5262,13 +5253,13 @@
       "id": 871,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 872,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 873,
@@ -5292,13 +5283,13 @@
       "id": 876,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 877,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 878,
@@ -5322,13 +5313,13 @@
       "id": 881,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 882,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 883,
@@ -5352,13 +5343,13 @@
       "id": 886,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 887,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 888,
@@ -5382,13 +5373,13 @@
       "id": 891,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 892,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 893,
@@ -5412,13 +5403,13 @@
       "id": 896,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 897,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 898,
@@ -5442,13 +5433,13 @@
       "id": 901,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 902,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 903,
@@ -5472,13 +5463,13 @@
       "id": 906,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 907,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 908,
@@ -5502,13 +5493,13 @@
       "id": 911,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 912,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 913,
@@ -5532,13 +5523,13 @@
       "id": 916,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 917,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 918,
@@ -5562,13 +5553,13 @@
       "id": 921,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 922,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 923,
@@ -5592,13 +5583,13 @@
       "id": 926,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 927,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 928,
@@ -5622,13 +5613,13 @@
       "id": 931,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 932,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 933,
@@ -5652,13 +5643,13 @@
       "id": 936,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 937,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 938,
@@ -5682,13 +5673,13 @@
       "id": 941,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 942,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 943,
@@ -5712,13 +5703,13 @@
       "id": 946,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 947,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 948,
@@ -5742,13 +5733,13 @@
       "id": 951,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 952,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 953,
@@ -5772,13 +5763,13 @@
       "id": 956,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 957,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 958,
@@ -5802,13 +5793,13 @@
       "id": 961,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 962,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 963,
@@ -5832,13 +5823,13 @@
       "id": 966,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 967,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 968,
@@ -5862,13 +5853,13 @@
       "id": 971,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 972,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 973,
@@ -5892,13 +5883,13 @@
       "id": 976,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 977,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 978,
@@ -5922,13 +5913,13 @@
       "id": 981,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 982,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 983,
@@ -5952,13 +5943,13 @@
       "id": 986,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 987,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 988,
@@ -5982,13 +5973,13 @@
       "id": 991,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 992,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 993,
@@ -6012,13 +6003,13 @@
       "id": 996,
       "name": "external_missing_threshold",
       "passed": true,
-      "detail": "9"
+      "detail": "0"
     },
     {
       "id": 997,
       "name": "overall_rate_threshold",
       "passed": true,
-      "detail": "0.999678"
+      "detail": "1.000000"
     },
     {
       "id": 998,
@@ -6054,7 +6045,7 @@
       "id": 1003,
       "name": "file_sanity:26. Alybek [2025-08-29 022248]__de04332e.als",
       "passed": true,
-      "detail": "nm=0 em=1"
+      "detail": "nm=0 em=0"
     },
     {
       "id": 1004,
@@ -6222,25 +6213,25 @@
       "id": 1031,
       "name": "file_sanity:Erdman - Agelia 3 [2025-07-08 000805]__fde03e5c.als",
       "passed": true,
-      "detail": "nm=0 em=2"
+      "detail": "nm=0 em=0"
     },
     {
       "id": 1032,
       "name": "file_sanity:Erdman - Illusion 4.3 [2025-07-03 021919]__322d983d.als",
       "passed": true,
-      "detail": "nm=0 em=1"
+      "detail": "nm=0 em=0"
     },
     {
       "id": 1033,
       "name": "file_sanity:Erdman - Illusion 4.3__7ebbd27a.als",
       "passed": true,
-      "detail": "nm=0 em=1"
+      "detail": "nm=0 em=0"
     },
     {
       "id": 1034,
       "name": "file_sanity:Erdman - Mushroom V5 [2025-08-26 030638]__5fa91bc9.als",
       "passed": true,
-      "detail": "nm=0 em=1"
+      "detail": "nm=0 em=0"
     },
     {
       "id": 1035,
@@ -6474,7 +6465,7 @@
       "id": 1073,
       "name": "file_sanity:Leo Erdman - Colors V8 [2025-09-28 111904]__7f80d545.als",
       "passed": true,
-      "detail": "nm=0 em=2"
+      "detail": "nm=0 em=0"
     },
     {
       "id": 1074,
@@ -6744,7 +6735,7 @@
       "id": 1118,
       "name": "file_sanity:Leo Erdman - Source V3 [2025-09-29 151514]__28d10755.als",
       "passed": true,
-      "detail": "nm=0 em=1"
+      "detail": "nm=0 em=0"
     },
     {
       "id": 1119,

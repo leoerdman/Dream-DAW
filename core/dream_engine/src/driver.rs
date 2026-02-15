@@ -1092,6 +1092,7 @@ pub fn start_audio_thread_on_device(
                             //   render_tracks() internally advances the playhead,
                             //   so we must snapshot BEFORE the call.
                             let midi_playhead_pos = render_ctx.playhead.position();
+                            let mut playhead_advanced_in_render = false;
 
                             if has_clips {
                                 // Disable test tone automatically when real clips exist
@@ -1111,6 +1112,7 @@ pub fn start_audio_thread_on_device(
                                     &pool_snap,
                                     Some(&post_sum_processing_mask[..track_count]),
                                 );
+                                playhead_advanced_in_render = true;
 
                                 // Graph pass: route pre-rendered tracks through DAG.
                                 let n = frame_count
@@ -1360,6 +1362,20 @@ pub fn start_audio_thread_on_device(
                                         }
                                     }
                                 }
+                            }
+
+                            // When there are no audio clips, RenderContext isn't called and
+                            // therefore doesn't advance playhead internally. Advance it here
+                            // so MIDI scheduling and transport telemetry stay aligned.
+                            if is_playing && !playhead_advanced_in_render {
+                                let transport_loop = render_ctx.loop_region.as_ref().map(|r| {
+                                    dream_transport::LoopRegion {
+                                        start: r.start,
+                                        end: r.end,
+                                        enabled: true,
+                                    }
+                                });
+                                render_ctx.playhead.advance(frame_count, transport_loop.as_ref());
                             }
                         }
 

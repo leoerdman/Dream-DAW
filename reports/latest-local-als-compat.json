@@ -1,0 +1,945 @@
+{
+  "als_root": "Demo/51. Rainbow",
+  "user_folder": "Demo/51. Rainbow",
+  "generated_at_epoch": 1771116665,
+  "elapsed_seconds": 61.92,
+  "installed_plugins_indexed": 207,
+  "totals": {
+    "files": 40,
+    "audio_tracks": 1152,
+    "midi_tracks": 1141,
+    "group_tracks": 313,
+    "main_tracks": 40,
+    "audio_clips": 12908,
+    "midi_clips": 23094,
+    "float_events": 29107,
+    "sample_refs": 13152,
+    "native_mapped": 7878,
+    "native_unmapped": 0,
+    "external_resolved": 4120,
+    "external_missing": 0
+  },
+  "rates": {
+    "native_mapped_rate": 1.0,
+    "external_resolved_rate": 1.0,
+    "overall_compat_rate": 1.0
+  },
+  "parse_errors": [],
+  "top": {
+    "device_tags": [
+      [
+        "PluginDevice",
+        4120
+      ],
+      [
+        "Eq8",
+        1888
+      ],
+      [
+        "StereoGain",
+        1621
+      ],
+      [
+        "Reverb",
+        929
+      ],
+      [
+        "MidiPitcher",
+        832
+      ],
+      [
+        "Saturator",
+        630
+      ],
+      [
+        "AudioEffectGroupDevice",
+        571
+      ],
+      [
+        "AutoFilter2",
+        423
+      ],
+      [
+        "Delay",
+        321
+      ],
+      [
+        "OriginalSimpler",
+        244
+      ],
+      [
+        "AutoPan2",
+        209
+      ],
+      [
+        "Chorus2",
+        186
+      ],
+      [
+        "MultibandDynamics",
+        158
+      ],
+      [
+        "Vocoder",
+        87
+      ],
+      [
+        "InstrumentGroupDevice",
+        80
+      ],
+      [
+        "Compressor2",
+        76
+      ],
+      [
+        "Erosion",
+        63
+      ],
+      [
+        "PhaserNew",
+        58
+      ],
+      [
+        "Overdrive",
+        40
+      ],
+      [
+        "Drift",
+        40
+      ],
+      [
+        "MxDeviceAudioEffect",
+        40
+      ],
+      [
+        "Transmute",
+        29
+      ],
+      [
+        "Resonator",
+        4
+      ]
+    ],
+    "mapped_targets": [
+      [
+        "EQ Eight",
+        1888
+      ],
+      [
+        "Utility",
+        1661
+      ],
+      [
+        "Reverb",
+        933
+      ],
+      [
+        "MIDI Pitch",
+        832
+      ],
+      [
+        "Saturator",
+        630
+      ],
+      [
+        "Auto Filter",
+        423
+      ],
+      [
+        "Delay",
+        321
+      ],
+      [
+        "Sampler",
+        244
+      ],
+      [
+        "Compressor",
+        234
+      ],
+      [
+        "Distortion",
+        219
+      ],
+      [
+        "Auto Pan",
+        209
+      ],
+      [
+        "Chorus",
+        186
+      ],
+      [
+        "Phaser",
+        58
+      ],
+      [
+        "Wave Synth",
+        40
+      ]
+    ],
+    "unknown_native": [],
+    "missing_external": [],
+    "resolved_external": [
+      [
+        "Serum 2",
+        852
+      ],
+      [
+        "Pro-Q 3",
+        831
+      ],
+      [
+        "ShaperBox 3",
+        520
+      ],
+      [
+        "kHs Clipper",
+        483
+      ],
+      [
+        "Ozone 11 Imager",
+        429
+      ],
+      [
+        "kHs Transient Shaper",
+        240
+      ],
+      [
+        "FabFilter Pro-Q 4",
+        226
+      ],
+      [
+        "FabFilter Pro-Q 3",
+        145
+      ],
+      [
+        "Pro-Q 4",
+        95
+      ],
+      [
+        "SPAN",
+        80
+      ],
+      [
+        "kHs Pitch Shifter",
+        46
+      ],
+      [
+        "ValhallaShimmer",
+        40
+      ],
+      [
+        "Pro-L 2",
+        40
+      ],
+      [
+        "MusePlugin",
+        40
+      ],
+      [
+        "Fresh Air",
+        28
+      ],
+      [
+        "ADPTR MetricAB",
+        20
+      ],
+      [
+        "ValhallaRoom",
+        5
+      ]
+    ],
+    "vst3_names": [
+      [
+        "Serum 2",
+        852
+      ],
+      [
+        "Pro-Q 3",
+        831
+      ],
+      [
+        "ShaperBox 3",
+        498
+      ],
+      [
+        "kHs Clipper",
+        483
+      ],
+      [
+        "Ozone 11 Imager",
+        429
+      ],
+      [
+        "kHs Transient Shaper",
+        160
+      ],
+      [
+        "Pro-Q 4",
+        95
+      ],
+      [
+        "SPAN",
+        80
+      ],
+      [
+        "Pro-L 2",
+        40
+      ],
+      [
+        "MusePlugin",
+        40
+      ],
+      [
+        "Fresh Air",
+        28
+      ],
+      [
+        "ADPTR MetricAB",
+        20
+      ]
+    ],
+    "vst2_names": [
+      [
+        "FabFilter Pro-Q 4",
+        226
+      ],
+      [
+        "FabFilter Pro-Q 3",
+        145
+      ],
+      [
+        "kHs Transient Shaper",
+        80
+      ],
+      [
+        "kHs Pitch Shifter",
+        46
+      ],
+      [
+        "ValhallaShimmer",
+        40
+      ],
+      [
+        "ShaperBox 3",
+        22
+      ],
+      [
+        "ValhallaRoom",
+        5
+      ]
+    ]
+  },
+  "user_inventory": {
+    "bucket_counts": {},
+    "extension_counts": {},
+    "scanned_files": 0,
+    "max_files_limit": 0,
+    "defaults_root": "Demo/51. Rainbow/User Library/Defaults",
+    "defaults_file_count": 0,
+    "defaults_top_dirs": []
+  },
+  "files": [
+    {
+      "file": "Backup/Rainbow V10 [2026-02-04 033455].als",
+      "audio_tracks": 31,
+      "midi_tracks": 30,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 438,
+      "midi_clips": 797,
+      "float_events": 1078,
+      "sample_refs": 444,
+      "native_mapped": 219,
+      "native_unmapped": 0,
+      "external_resolved": 108,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V10 [2026-02-04 141200].als",
+      "audio_tracks": 31,
+      "midi_tracks": 31,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 438,
+      "midi_clips": 821,
+      "float_events": 1078,
+      "sample_refs": 444,
+      "native_mapped": 221,
+      "native_unmapped": 0,
+      "external_resolved": 112,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V10 [2026-02-04 145332].als",
+      "audio_tracks": 31,
+      "midi_tracks": 32,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 438,
+      "midi_clips": 845,
+      "float_events": 1078,
+      "sample_refs": 444,
+      "native_mapped": 222,
+      "native_unmapped": 0,
+      "external_resolved": 116,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V10 [2026-02-07 043047].als",
+      "audio_tracks": 31,
+      "midi_tracks": 32,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 438,
+      "midi_clips": 845,
+      "float_events": 1078,
+      "sample_refs": 444,
+      "native_mapped": 222,
+      "native_unmapped": 0,
+      "external_resolved": 116,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V11 [2026-02-07 043312].als",
+      "audio_tracks": 31,
+      "midi_tracks": 32,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 438,
+      "midi_clips": 845,
+      "float_events": 1078,
+      "sample_refs": 444,
+      "native_mapped": 222,
+      "native_unmapped": 0,
+      "external_resolved": 116,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V11 [2026-02-07 060850].als",
+      "audio_tracks": 31,
+      "midi_tracks": 32,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 438,
+      "midi_clips": 849,
+      "float_events": 1033,
+      "sample_refs": 444,
+      "native_mapped": 222,
+      "native_unmapped": 0,
+      "external_resolved": 116,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V12 [2026-02-07 065607].als",
+      "audio_tracks": 31,
+      "midi_tracks": 33,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 439,
+      "midi_clips": 874,
+      "float_events": 1084,
+      "sample_refs": 446,
+      "native_mapped": 236,
+      "native_unmapped": 0,
+      "external_resolved": 122,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V14 [2026-02-07 222145].als",
+      "audio_tracks": 31,
+      "midi_tracks": 33,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 439,
+      "midi_clips": 879,
+      "float_events": 1095,
+      "sample_refs": 446,
+      "native_mapped": 236,
+      "native_unmapped": 0,
+      "external_resolved": 123,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V2 [2026-01-31 010447].als",
+      "audio_tracks": 33,
+      "midi_tracks": 30,
+      "group_tracks": 7,
+      "main_tracks": 1,
+      "audio_clips": 348,
+      "midi_clips": 333,
+      "float_events": 491,
+      "sample_refs": 354,
+      "native_mapped": 186,
+      "native_unmapped": 0,
+      "external_resolved": 99,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V2 [2026-01-31 012243].als",
+      "audio_tracks": 29,
+      "midi_tracks": 29,
+      "group_tracks": 7,
+      "main_tracks": 1,
+      "audio_clips": 234,
+      "midi_clips": 320,
+      "float_events": 508,
+      "sample_refs": 240,
+      "native_mapped": 184,
+      "native_unmapped": 0,
+      "external_resolved": 99,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V2 [2026-01-31 013031].als",
+      "audio_tracks": 28,
+      "midi_tracks": 29,
+      "group_tracks": 7,
+      "main_tracks": 1,
+      "audio_clips": 205,
+      "midi_clips": 317,
+      "float_events": 450,
+      "sample_refs": 211,
+      "native_mapped": 179,
+      "native_unmapped": 0,
+      "external_resolved": 99,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V2 [2026-01-31 013741].als",
+      "audio_tracks": 25,
+      "midi_tracks": 27,
+      "group_tracks": 7,
+      "main_tracks": 1,
+      "audio_clips": 197,
+      "midi_clips": 303,
+      "float_events": 405,
+      "sample_refs": 203,
+      "native_mapped": 170,
+      "native_unmapped": 0,
+      "external_resolved": 94,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V3 [2026-01-31 022111].als",
+      "audio_tracks": 24,
+      "midi_tracks": 25,
+      "group_tracks": 7,
+      "main_tracks": 1,
+      "audio_clips": 211,
+      "midi_clips": 373,
+      "float_events": 441,
+      "sample_refs": 217,
+      "native_mapped": 164,
+      "native_unmapped": 0,
+      "external_resolved": 89,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V3 [2026-01-31 022250].als",
+      "audio_tracks": 25,
+      "midi_tracks": 25,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 215,
+      "midi_clips": 373,
+      "float_events": 424,
+      "sample_refs": 221,
+      "native_mapped": 169,
+      "native_unmapped": 0,
+      "external_resolved": 90,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V4 [2026-01-31 022523].als",
+      "audio_tracks": 25,
+      "midi_tracks": 25,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 215,
+      "midi_clips": 373,
+      "float_events": 424,
+      "sample_refs": 221,
+      "native_mapped": 169,
+      "native_unmapped": 0,
+      "external_resolved": 90,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V4 [2026-01-31 022910].als",
+      "audio_tracks": 25,
+      "midi_tracks": 25,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 215,
+      "midi_clips": 373,
+      "float_events": 424,
+      "sample_refs": 221,
+      "native_mapped": 170,
+      "native_unmapped": 0,
+      "external_resolved": 90,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V5 [2026-01-31 032644].als",
+      "audio_tracks": 26,
+      "midi_tracks": 25,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 221,
+      "midi_clips": 373,
+      "float_events": 429,
+      "sample_refs": 227,
+      "native_mapped": 169,
+      "native_unmapped": 0,
+      "external_resolved": 92,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V6 [2026-01-31 223226].als",
+      "audio_tracks": 28,
+      "midi_tracks": 26,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 219,
+      "midi_clips": 392,
+      "float_events": 446,
+      "sample_refs": 225,
+      "native_mapped": 179,
+      "native_unmapped": 0,
+      "external_resolved": 95,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V6 [2026-01-31 224306].als",
+      "audio_tracks": 28,
+      "midi_tracks": 26,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 219,
+      "midi_clips": 395,
+      "float_events": 439,
+      "sample_refs": 225,
+      "native_mapped": 181,
+      "native_unmapped": 0,
+      "external_resolved": 96,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V7 [2026-01-31 231828].als",
+      "audio_tracks": 28,
+      "midi_tracks": 26,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 219,
+      "midi_clips": 391,
+      "float_events": 452,
+      "sample_refs": 225,
+      "native_mapped": 181,
+      "native_unmapped": 0,
+      "external_resolved": 96,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V7 [2026-02-01 203855].als",
+      "audio_tracks": 28,
+      "midi_tracks": 26,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 219,
+      "midi_clips": 391,
+      "float_events": 452,
+      "sample_refs": 225,
+      "native_mapped": 181,
+      "native_unmapped": 0,
+      "external_resolved": 96,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V7 [2026-02-02 045124].als",
+      "audio_tracks": 28,
+      "midi_tracks": 26,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 219,
+      "midi_clips": 391,
+      "float_events": 452,
+      "sample_refs": 225,
+      "native_mapped": 181,
+      "native_unmapped": 0,
+      "external_resolved": 96,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V8 [2026-02-04 020600].als",
+      "audio_tracks": 28,
+      "midi_tracks": 26,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 219,
+      "midi_clips": 394,
+      "float_events": 470,
+      "sample_refs": 225,
+      "native_mapped": 184,
+      "native_unmapped": 0,
+      "external_resolved": 98,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V8 [2026-02-04 021234].als",
+      "audio_tracks": 30,
+      "midi_tracks": 29,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 437,
+      "midi_clips": 796,
+      "float_events": 1021,
+      "sample_refs": 443,
+      "native_mapped": 204,
+      "native_unmapped": 0,
+      "external_resolved": 103,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V9 [2026-02-04 022651].als",
+      "audio_tracks": 30,
+      "midi_tracks": 30,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 437,
+      "midi_clips": 800,
+      "float_events": 1051,
+      "sample_refs": 443,
+      "native_mapped": 213,
+      "native_unmapped": 0,
+      "external_resolved": 106,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V9 [2026-02-04 023013].als",
+      "audio_tracks": 30,
+      "midi_tracks": 30,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 437,
+      "midi_clips": 800,
+      "float_events": 1068,
+      "sample_refs": 443,
+      "native_mapped": 216,
+      "native_unmapped": 0,
+      "external_resolved": 108,
+      "external_missing": 0
+    },
+    {
+      "file": "Backup/Rainbow V9 [2026-02-04 023820].als",
+      "audio_tracks": 30,
+      "midi_tracks": 30,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 437,
+      "midi_clips": 798,
+      "float_events": 1072,
+      "sample_refs": 443,
+      "native_mapped": 218,
+      "native_unmapped": 0,
+      "external_resolved": 108,
+      "external_missing": 0
+    },
+    {
+      "file": "Rainbow V1.als",
+      "audio_tracks": 33,
+      "midi_tracks": 30,
+      "group_tracks": 7,
+      "main_tracks": 1,
+      "audio_clips": 350,
+      "midi_clips": 327,
+      "float_events": 483,
+      "sample_refs": 356,
+      "native_mapped": 186,
+      "native_unmapped": 0,
+      "external_resolved": 98,
+      "external_missing": 0
+    },
+    {
+      "file": "Rainbow V10.als",
+      "audio_tracks": 31,
+      "midi_tracks": 32,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 438,
+      "midi_clips": 845,
+      "float_events": 1078,
+      "sample_refs": 444,
+      "native_mapped": 222,
+      "native_unmapped": 0,
+      "external_resolved": 116,
+      "external_missing": 0
+    },
+    {
+      "file": "Rainbow V11.als",
+      "audio_tracks": 31,
+      "midi_tracks": 33,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 439,
+      "midi_clips": 873,
+      "float_events": 1059,
+      "sample_refs": 446,
+      "native_mapped": 235,
+      "native_unmapped": 0,
+      "external_resolved": 121,
+      "external_missing": 0
+    },
+    {
+      "file": "Rainbow V12.als",
+      "audio_tracks": 31,
+      "midi_tracks": 33,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 439,
+      "midi_clips": 879,
+      "float_events": 1095,
+      "sample_refs": 446,
+      "native_mapped": 236,
+      "native_unmapped": 0,
+      "external_resolved": 122,
+      "external_missing": 0
+    },
+    {
+      "file": "Rainbow V14.als",
+      "audio_tracks": 31,
+      "midi_tracks": 32,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 439,
+      "midi_clips": 855,
+      "float_events": 1095,
+      "sample_refs": 445,
+      "native_mapped": 233,
+      "native_unmapped": 0,
+      "external_resolved": 122,
+      "external_missing": 0
+    },
+    {
+      "file": "Rainbow V2.als",
+      "audio_tracks": 24,
+      "midi_tracks": 25,
+      "group_tracks": 7,
+      "main_tracks": 1,
+      "audio_clips": 211,
+      "midi_clips": 373,
+      "float_events": 441,
+      "sample_refs": 217,
+      "native_mapped": 164,
+      "native_unmapped": 0,
+      "external_resolved": 89,
+      "external_missing": 0
+    },
+    {
+      "file": "Rainbow V3.als",
+      "audio_tracks": 25,
+      "midi_tracks": 25,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 215,
+      "midi_clips": 373,
+      "float_events": 424,
+      "sample_refs": 221,
+      "native_mapped": 169,
+      "native_unmapped": 0,
+      "external_resolved": 90,
+      "external_missing": 0
+    },
+    {
+      "file": "Rainbow V4.als",
+      "audio_tracks": 25,
+      "midi_tracks": 25,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 216,
+      "midi_clips": 373,
+      "float_events": 429,
+      "sample_refs": 222,
+      "native_mapped": 170,
+      "native_unmapped": 0,
+      "external_resolved": 90,
+      "external_missing": 0
+    },
+    {
+      "file": "Rainbow V5.als",
+      "audio_tracks": 28,
+      "midi_tracks": 25,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 219,
+      "midi_clips": 375,
+      "float_events": 446,
+      "sample_refs": 225,
+      "native_mapped": 173,
+      "native_unmapped": 0,
+      "external_resolved": 93,
+      "external_missing": 0
+    },
+    {
+      "file": "Rainbow V6.als",
+      "audio_tracks": 28,
+      "midi_tracks": 26,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 219,
+      "midi_clips": 391,
+      "float_events": 452,
+      "sample_refs": 225,
+      "native_mapped": 181,
+      "native_unmapped": 0,
+      "external_resolved": 96,
+      "external_missing": 0
+    },
+    {
+      "file": "Rainbow V7.als",
+      "audio_tracks": 28,
+      "midi_tracks": 26,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 219,
+      "midi_clips": 394,
+      "float_events": 470,
+      "sample_refs": 225,
+      "native_mapped": 184,
+      "native_unmapped": 0,
+      "external_resolved": 98,
+      "external_missing": 0
+    },
+    {
+      "file": "Rainbow V8.als",
+      "audio_tracks": 30,
+      "midi_tracks": 29,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 437,
+      "midi_clips": 798,
+      "float_events": 1036,
+      "sample_refs": 443,
+      "native_mapped": 208,
+      "native_unmapped": 0,
+      "external_resolved": 104,
+      "external_missing": 0
+    },
+    {
+      "file": "Rainbow V9.als",
+      "audio_tracks": 31,
+      "midi_tracks": 30,
+      "group_tracks": 8,
+      "main_tracks": 1,
+      "audio_clips": 438,
+      "midi_clips": 797,
+      "float_events": 1078,
+      "sample_refs": 444,
+      "native_mapped": 219,
+      "native_unmapped": 0,
+      "external_resolved": 108,
+      "external_missing": 0
+    }
+  ]
+}

@@ -760,7 +760,7 @@ dependencies = [
 
 [[package]]
 name = "desktop_host"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
@@ -912,7 +912,7 @@ dependencies = [
 
 [[package]]
 name = "dream_automation"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "log",
  "serde",
@@ -921,7 +921,7 @@ dependencies = [
 
 [[package]]
 name = "dream_clip_engine"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "arc-swap",
  "crossbeam-utils",
@@ -933,7 +933,7 @@ dependencies = [
 
 [[package]]
 name = "dream_dsp"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "log",
  "rubato",
@@ -941,7 +941,7 @@ dependencies = [
 
 [[package]]
 name = "dream_engine"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "arc-swap",
  "cpal",
@@ -962,7 +962,7 @@ dependencies = [
 
 [[package]]
 name = "dream_graph"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "arc-swap",
  "dream_ipc",
@@ -972,7 +972,7 @@ dependencies = [
 
 [[package]]
 name = "dream_io"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "bytemuck",
  "dream_models",
@@ -986,21 +986,21 @@ dependencies = [
 
 [[package]]
 name = "dream_ipc"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "rtrb",
 ]
 
 [[package]]
 name = "dream_mixer"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "log",
 ]
 
 [[package]]
 name = "dream_models"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "parking_lot",
  "serde",
@@ -1011,7 +1011,7 @@ dependencies = [
 
 [[package]]
 name = "dream_plugins"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "dream_models",
  "libloading 0.8.9",
@@ -1023,7 +1023,7 @@ dependencies = [
 
 [[package]]
 name = "dream_renderer"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "bytemuck",
  "dream_models",
@@ -1033,7 +1033,7 @@ dependencies = [
 
 [[package]]
 name = "dream_transport"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "dream_models",
  "log",

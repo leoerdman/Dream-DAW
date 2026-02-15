@@ -78,25 +78,31 @@ export interface ProjectTrack {
     } | null;
 }
 
-// ── Track color mapping (matches Rust TrackColor enum) ───────────────────
+// ── Track color mapping (matches Rust TrackColor enum hex values) ─────────
 
 const TRACK_COLORS: Record<string, string> = {
-    Red: '#c93c38',
-    Orange: '#d97028',
-    Yellow: '#d9a428',
-    Green: '#38a84f',
-    Teal: '#2d8fa5',
-    Blue: '#4466cc',
-    Purple: '#8844aa',
-    Pink: '#c850a0',
-    Slate: '#667788',
-    Coral: '#e05050',
-    Lime: '#a2a835',
-    Indigo: '#5555cc',
+    Coral: '#F05C4D',
+    Orange: '#FF8A1A',
+    Gold: '#FFBF33',
+    Yellow: '#FFE14D',
+    Lime: '#A3D94D',
+    Green: '#4DC775',
+    Teal: '#4DC7B0',
+    Cyan: '#4DC7CC',
+    Sky: '#4DA6E3',
+    Blue: '#4D7AE3',
+    Indigo: '#6B5CE3',
+    Purple: '#9B59D9',
+    Magenta: '#D94DA6',
+    Pink: '#E36B96',
+    Rose: '#E66673',
+    Slate: '#8C949E',
 };
 
 function resolveTrackColor(color: unknown): string {
     if (typeof color === 'string') {
+        // Pass through raw hex colors (e.g. from Ableton imports)
+        if (color.startsWith('#')) return color;
         return TRACK_COLORS[color] ?? '#667788';
     }
     return '#667788';
@@ -535,6 +541,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     name: string;
                     track_type: string;
                     color: unknown;
+                    color_hex?: string | null;
                     volume: number;
                     pan: number;
                     is_mute: boolean;
@@ -618,7 +625,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
             for (let trackIdx = 0; trackIdx < project.tracks.length; trackIdx++) {
                 const track = project.tracks[trackIdx];
-                const trackColor = resolveTrackColor(track.color);
+                const trackColor = track.color_hex || resolveTrackColor(track.color);
                 const trackTypeRaw = (track.track_type ?? '').toString().toLowerCase();
                 const isMidiTrack = trackTypeRaw === 'midi';
 

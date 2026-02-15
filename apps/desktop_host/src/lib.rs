@@ -132,6 +132,7 @@ struct SharedTrackSnapshot {
     is_mute: bool,
     is_armed: bool,
     color: TrackColor,
+    color_hex: Option<String>,
     height: f64,
     output_destination_id: Option<Uuid>,
     input_source_id: Option<String>,
@@ -171,6 +172,7 @@ impl SharedTrackSnapshot {
             is_mute: track.is_mute,
             is_armed: track.is_armed,
             color: track.color,
+            color_hex: track.color_hex.clone(),
             height: track.height,
             output_destination_id: track.output_destination_id,
             input_source_id: track.input_source_id.clone(),
@@ -196,6 +198,7 @@ impl SharedTrackSnapshot {
             && self.is_mute == track.is_mute
             && self.is_armed == track.is_armed
             && self.color == track.color
+            && self.color_hex == track.color_hex
             && self.height == track.height
             && self.output_destination_id == track.output_destination_id
             && self.input_source_id == track.input_source_id
@@ -228,6 +231,7 @@ impl SharedTrackSnapshot {
             is_mute: self.is_mute,
             is_armed: self.is_armed,
             color: self.color,
+            color_hex: self.color_hex.clone(),
             height: self.height,
             output_destination_id: self.output_destination_id,
             input_source_id: self.input_source_id.clone(),
@@ -787,6 +791,17 @@ fn rebuild_automation_snapshot_from_project(
     project: &Project,
     automation_runtime: &AutomationRuntime,
 ) {
+    fn normalize_pan_value(raw: f32) -> f32 {
+        // Accept both conventions:
+        // - normalized UI domain [0..1]
+        // - bipolar mixer/import domain [-1..1]
+        if (0.0..=1.0).contains(&raw) {
+            (raw * 2.0 - 1.0).clamp(-1.0, 1.0)
+        } else {
+            raw.clamp(-1.0, 1.0)
+        }
+    }
+
     fn is_track_pan_param(key: &str) -> bool {
         matches!(key, "pan" | "track.pan" | "mixer.pan")
     }
@@ -821,7 +836,7 @@ fn rebuild_automation_snapshot_from_project(
 
             if is_track_pan_param(&key) {
                 for p in &mut points {
-                    p.value = (p.value * 2.0 - 1.0).clamp(-1.0, 1.0);
+                    p.value = normalize_pan_value(p.value);
                 }
                 state.pan = points;
             } else if is_track_volume_param(&key) {

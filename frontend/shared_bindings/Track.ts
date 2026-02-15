@@ -58,6 +58,11 @@ is_armed: boolean,
  */
 color: TrackColor, 
 /**
+ * Exact hex color override (e.g. "#FF3636" from Ableton import).
+ * When present, the frontend uses this instead of the `color` enum.
+ */
+color_hex?: string | null, 
+/**
  * Track height in pixels (for arrangement view).
  */
 height: number, 

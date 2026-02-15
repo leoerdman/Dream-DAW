@@ -775,6 +775,11 @@ pub struct AudioClip {
     /// Optional color override (uses track color when `None`).
     pub color_override: Option<TrackColor>,
 
+    /// Exact hex color override from ALS color index (e.g. "#FF3636").
+    /// When present, UI should prefer this over `color_override`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_hex: Option<String>,
+
     /// Session launch mode code (`LaunchMode` in ALS).
     #[serde(default)]
     pub launch_mode: i32,
@@ -898,6 +903,7 @@ impl AudioClip {
             is_selected: false,
             is_muted: false,
             color_override: None,
+            color_hex: None,
             launch_mode: 0,
             launch_quantization: 0,
             follow_action_enabled: false,
@@ -1021,6 +1027,11 @@ pub struct Track {
     /// Visual color in the UI.
     pub color: TrackColor,
 
+    /// Exact hex color override (e.g. "#FF3636" from Ableton import).
+    /// When present, the frontend uses this instead of the `color` enum.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_hex: Option<String>,
+
     /// Track height in pixels (for arrangement view).
     pub height: f64,
 
@@ -1091,6 +1102,7 @@ impl Track {
             is_mute: false,
             is_armed: false,
             color: TrackColor::default(),
+            color_hex: None,
             height: 80.0,
             output_destination_id: None,
             input_source_id: None,

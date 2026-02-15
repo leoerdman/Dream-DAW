@@ -79,7 +79,12 @@ async function buildNativeMenu(onProjectChange?: () => void) {
             try {
                 const path = await engineApi.pickProjectFile();
                 if (!path) return;
-                await engineApi.openProject(path);
+                const isAbleton = path.toLowerCase().endsWith('.als');
+                if (isAbleton) {
+                    await engineApi.importAbletonProject(path);
+                } else {
+                    await engineApi.openProject(path);
+                }
                 await fetchProject('native-menu:open');
                 onProjectChange?.();
                 console.log('[NativeMenu] Opened project:', path);
@@ -95,13 +100,13 @@ async function buildNativeMenu(onProjectChange?: () => void) {
     const saveItem = await MenuItem.new({
         id: 'file_save',
         text: 'Save',
-            accelerator: 'CmdOrCtrl+S',
-            action: async () => {
-                try {
-                    const flush = window.__dreamFlushPendingEdits;
-                    if (typeof flush === 'function') await flush();
-                    await engineApi.saveProject();
-                    console.log('[NativeMenu] Project saved');
+        accelerator: 'CmdOrCtrl+S',
+        action: async () => {
+            try {
+                const flush = window.__dreamFlushPendingEdits;
+                if (typeof flush === 'function') await flush();
+                await engineApi.saveProject();
+                console.log('[NativeMenu] Project saved');
             } catch (err) {
                 // Fallback to Save As
                 console.log('[NativeMenu] Save failed, trying Save As...', err);
@@ -228,7 +233,12 @@ async function buildRecentSubmenu(
                         text: label,
                         action: async () => {
                             try {
-                                await engineApi.openProject(rp.path);
+                                const isAbleton = rp.path.toLowerCase().endsWith('.als');
+                                if (isAbleton) {
+                                    await engineApi.importAbletonProject(rp.path);
+                                } else {
+                                    await engineApi.openProject(rp.path);
+                                }
                                 await fetchProject('native-menu:open-recent');
                                 onProjectChange?.();
                                 console.log('[NativeMenu] Opened recent:', rp.path);

@@ -71,7 +71,12 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
         try {
             const path = await engineApi.pickProjectFile();
             if (!path) return; // Cancelled
-            await engineApi.openProject(path);
+            const isAbleton = path.toLowerCase().endsWith('.als');
+            if (isAbleton) {
+                await engineApi.importAbletonProject(path);
+            } else {
+                await engineApi.openProject(path);
+            }
             await fetchProject('file-menu:open');
             onProjectChange?.();
             console.log('[FileMenu] Opened project:', path);
@@ -83,7 +88,12 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
     const handleOpenRecent = useCallback(async (path: string) => {
         setOpen(false);
         try {
-            await engineApi.openProject(path);
+            const isAbleton = path.toLowerCase().endsWith('.als');
+            if (isAbleton) {
+                await engineApi.importAbletonProject(path);
+            } else {
+                await engineApi.openProject(path);
+            }
             await fetchProject('file-menu:open-recent');
             onProjectChange?.();
             console.log('[FileMenu] Opened recent:', path);

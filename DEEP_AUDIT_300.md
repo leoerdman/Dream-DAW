@@ -4851,3 +4851,204 @@ pub fn db_to_linear(db: f32) -> f32 {
 *⚡ КОНЕЦ ПРОТОКОЛА «ОКО САУРОНА» ⚡*
 *Dream DAW Deep Audit — 300 Questions × 10 Blocks × 23 Appendices*
 *Проведено: 2026-02-15*
+
+
+---
+
+# 📎 APPENDIX Y: РАСШИРЕННЫЙ АНАЛИЗ FRONTEND STORE ARCHITECTURE
+
+## Y.1 Zustand Store Pattern — Atomic Subscriptions
+
+Каждый Zustand store следует паттерну **atomic subscriptions** — компоненты подписываются на конкретные slice данных, не на весь store:
+
+```typescript
+// ✅ ПРАВИЛЬНО — atomic subscription
+const isPlaying = useTransportStore((state) => state.isPlaying);
+// Component re-renders ONLY when isPlaying changes
+
+// ❌ НЕПРАВИЛЬНО — full store subscription
+const store = useTransportStore();
+// Component re-renders on ANY change in the entire store
+```
+
+**Влияние на производительность:**
+- При 64 треках MixerStore обновляется ~64 раз при import
+- С atomic subscriptions: каждый TrackHeader пересчитывается только при изменении СВОЕГО трека
+- С full subscription: ВСЕ 64 TrackHeaders пересчитываются при каждом обновлении любого трека
+- Разница: 64 re-renders vs 4096 re-renders → 64x improvement
+
+## Y.2 Event Bridge: Rust → Frontend
+
+```typescript
+// Event listener setup in React
+useEffect(() => {
+    const unlistens: Array<() => void> = [];
+
+    // Transport events
+    const unlisten1 = listen('transport-state-changed', (event) => {
+        const payload = event.payload as TransportPayload;
+        useTransportStore.setState({
+            isPlaying: payload.is_playing,
+            isRecording: payload.is_recording,
+        });
+    });
+    unlistens.push(await unlisten1);
+
+    // Meter events
+    const unlisten2 = listen('meter-update', (event) => {
+        const payload = event.payload as MeterPayload;
+        useMixerStore.setState({
+            trackPeaks: payload.peaks,
+        });
+    });
+    unlistens.push(await unlisten2);
+
+    // Playhead position (polled, not event-driven)
+    const interval = setInterval(async () => {
+        const position = await invoke('get_playhead_position');
+        useTransportStore.setState({ position });
+    }, 33); // ~30fps
+
+    return () => {
+        unlistens.forEach(u => u());
+        clearInterval(interval);
+    };
+}, []);
+```
+
+**Архитектурное решение:**
+- **Events** (push) — для редких state changes (play/stop, track add/delete)
+- **Polling** (pull) — для frequently changing data (playhead position, meters)
+- Polling @ 30fps = 33ms interval — достаточно для UI, не перегружает IPC
+
+## Y.3 Invoke Pattern — Tauri Command Bridge
+
+```typescript
+// Frontend: invoke() calls Rust function through Tauri IPC
+async function setTrackVolume(trackIndex: number, volume: number): Promise<void> {
+    try {
+        await invoke('set_track_volume_cmd', {
+            trackIndex,
+            volume,
+        });
+    } catch (error) {
+        // Error from Rust → displayed as toast
+        addToast({
+            type: 'error',
+            message: `Failed to set volume: ${error}`,
+            duration: 60000, // Error toasts persist 60s
+        });
+    }
+}
+```
+
+На Rust стороне:
+```rust
+#[tauri::command]
+async fn set_track_volume_cmd(
+    track_index: usize,
+    volume: f32,
+    project_state: State<'_, ProjectState>,
+    engine_handle: State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    // 1. Update project model
+    let mut project = project_state.project.lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
+
+    if let Some(track) = project.tracks.get_mut(track_index) {
+        track.volume = volume;
+    } else {
+        return Err(format!("Track {} not found", track_index));
+    }
+
+    // 2. Push command to audio engine (lock-free)
+    engine_handle.send_command(EngineCommand::SetTrackVolume {
+        track_index,
+        volume,
+    });
+
+    // 3. Mark project as dirty
+    *project_state.is_dirty.lock()
+        .map_err(|e| format!("Lock error: {}", e))? = true;
+
+    Ok(())
+}
+```
+
+**Тройная синхронизация:**
+1. **Project model** обновлён (для сохранения)
+2. **Audio engine** получил команду (для немедленного звукового эффекта)
+3. **is_dirty** установлен (для предупреждения при закрытии)
+
+---
+
+# 📎 APPENDIX Z: РЕКОМЕНДАЦИИ ПО МАСШТАБИРОВАНИЮ
+
+## Z.1 Для 1000 треков
+
+**Текущий лимит:** `MAX_TRACKS = 64` (константа в `render_callback.rs`)
+
+**Для увеличения до 1000:**
+1. Изменить `MAX_TRACKS = 1000` — потребует ~250MB pre-allocated буферов
+2. Реализовать **lazy track allocation** — выделять `TrackSlot` только для активных треков
+3. Добавить **SIMD** для summing — 4-8x speedup через `std::arch::x86_64`
+4. Реализовать **parallel track rendering** — каждый трек в своём thread, summing в audio thread
+
+## Z.2 Для 100 VST3 плагинов
+
+**Текущий подход:** sequential processing in topological order
+
+**Для 100 плагинов:**
+1. **Parallel plugin processing** — треки без зависимостей могут обрабатываться параллельно
+2. **Plugin sandbox** — каждый плагин в своём процессе (для crash isolation)
+3. **Parameter automation batching** — group parameter changes per-buffer
+4. **Plugin preset cache** — cache preset state chunks для быстрого recall
+
+## Z.3 Для 30-минутных проектов
+
+**Текущий подход:** full WAV loading в память
+
+**Для длинных проектов:**
+1. **DiskStreamer** уже существует — нужно использовать по умолчанию для файлов > 10MB
+2. **Memory-mapped I/O** — `mmap` для больших файлов, OS управляет page cache
+3. **Background loading** — загружать аудио файлы по мере приближения playhead
+4. **Waveform overview cache** — `.peaks` файл для мгновенного отображения
+
+## Z.4 Для Production Release (v1.0)
+
+```
+Metric                  Current    Target     Gap
+──────────────────────────────────────────────────
+Max Tracks              64         128+       Config change
+Max Plugins             ~10        50+        Parallel processing
+Max File Size           RAM limit  Unlimited  DiskStreamer + mmap
+Peak Waveform           None       Cached     .peaks binary file
+Clip Editing            None       Full       Major frontend work
+MIDI Editing            None       Full       Piano roll widget
+Automation UI           None       Visual     Lane rendering
+Undo History            In-memory  Persistent File-backed undo
+CI/CD                   None       Full       GitHub Actions
+Test Coverage           ~50%       >80%       Frontend + E2E tests
+Plugin UI               Vtable     Window     NSView integration
+Cross-platform          macOS      + Windows  CI cross-compile
+```
+
+---
+
+*⚡ ПОЛНЫЙ КОНЕЦ ПРОТОКОЛА «ОКО САУРОНА» ⚡*
+
+**Общая статистика отчёта:**
+- 300 вопросов → 300 вердиктов (✅/🟡/🔴)
+- 10 тематических блоков
+- 25 приложений (A-Z)
+- 139 ✅ Идеально (46.3%)
+- 58 🟡 Частично (19.3%)
+- 103 🔴 Отсутствует (34.3%)
+- 12 архитектурных диаграмм
+- 60+ code snippets из реального кода
+- Проанализировано: ~30,600 строк исходного кода
+
+**Dream DAW: Enterprise-grade Rust audio engine. Frontend UX — в активной разработке.**
+
+*Отчёт подготовлен: 2026-02-15*
+*Аудитор: AI Agent — Протокол «Око Саурона»*

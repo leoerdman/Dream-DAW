@@ -898,6 +898,19 @@ fn parse_track_key_note_target(track_node: roxmltree::Node<'_, '_>) -> Option<u8
         .map(|v| v.clamp(0, 127) as u8)
 }
 
+fn parse_track_i64_value(track_node: roxmltree::Node<'_, '_>, tag: &str) -> Option<i64> {
+    node_child_value(track_node, tag)
+        .or_else(|| {
+            track_node
+                .descendants()
+                .find(|n| n.is_element() && n.has_tag_name(tag))
+                .and_then(|n| n.attribute("Value"))
+                .map(ToString::to_string)
+        })
+        .as_deref()
+        .and_then(parse_i64_value)
+}
+
 fn choose_preferred_output_target(
     track_type: TrackType,
     audio_output: Option<String>,
@@ -1440,6 +1453,11 @@ impl ExternalPluginIndex {
             }
         }
 
+        log::info!(
+            "[ALS Import] ExternalPluginIndex built: {} by_name, {} by_stem, {} by_file_name, {} by_normalized",
+            by_name.len(), by_stem.len(), by_file_name.len(), by_normalized.len()
+        );
+
         Self {
             by_name,
             by_stem,
@@ -1573,10 +1591,23 @@ fn collect_track_devices<'a, 'input>(
         .children()
         .filter(|n| n.is_element() && n.has_tag_name("DeviceChain"))
     {
-        if let Some(root_devices) = chain
+        // Ableton may store root devices either directly:
+        //   DeviceChain > Devices
+        // or under wrappers:
+        //   DeviceChain > AudioToAudioDeviceChain > Devices
+        //   DeviceChain > MidiToAudioDeviceChain > Devices
+        let root_devices = chain
             .children()
             .find(|n| n.is_element() && n.has_tag_name("Devices"))
-        {
+            .or_else(|| {
+                chain.children().filter(|n| n.is_element()).find_map(|wrapper| {
+                    wrapper
+                        .children()
+                        .find(|n| n.is_element() && n.has_tag_name("Devices"))
+                })
+            });
+
+        if let Some(root_devices) = root_devices {
             collect_devices_in_container(root_devices, &mut devices);
         }
     }
@@ -1700,6 +1731,74 @@ mod als_import_tests {
         assert!(names.iter().any(|n| n == "Eq8"));
         assert!(names.iter().any(|n| n == "PluginDevice"));
         assert!(names.iter().any(|n| n == "AutoFilter"));
+    }
+
+    #[test]
+    fn collect_track_devices_reads_wrapper_root_chain_devices() {
+        let xml = r#"
+        <Track>
+          <DeviceChain>
+            <AudioToAudioDeviceChain>
+              <Devices>
+                <PluginDevice Id="11"/>
+                <Compressor2 Id="12"/>
+              </Devices>
+            </AudioToAudioDeviceChain>
+          </DeviceChain>
+        </Track>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let track = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("Track"))
+            .expect("track");
+
+        let names: Vec<String> = collect_track_devices(track)
+            .into_iter()
+            .map(|n| n.tag_name().name().to_string())
+            .collect();
+
+        assert!(names.iter().any(|n| n == "PluginDevice"));
+        assert!(names.iter().any(|n| n == "Compressor2"));
+    }
+
+    #[test]
+    fn import_track_devices_keeps_full_chain_from_wrapper_root() {
+        let xml = r#"
+        <AudioTrack>
+          <DeviceChain>
+            <AudioToAudioDeviceChain>
+              <Devices>
+                <PluginDevice Id="11">
+                  <UserName Value="Third Party FX" />
+                </PluginDevice>
+                <Compressor2 Id="12" />
+                <AutoFilter Id="13" />
+              </Devices>
+            </AudioToAudioDeviceChain>
+          </DeviceChain>
+        </AudioTrack>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let track_node = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("AudioTrack"))
+            .expect("track");
+        let external_plugins = ExternalPluginIndex {
+            by_name: std::collections::HashMap::new(),
+            by_stem: std::collections::HashMap::new(),
+            by_file_name: std::collections::HashMap::new(),
+            by_normalized: std::collections::HashMap::new(),
+        };
+        let mut track = Track::with_type("Audio", TrackType::Audio, 0);
+        import_track_devices(
+            track_node,
+            &mut track,
+            &external_plugins,
+            Path::new("/tmp/Test.als"),
+        );
+
+        assert_eq!(track.effects.len(), 3);
     }
 
     #[test]
@@ -1876,6 +1975,15 @@ mod als_import_tests {
     }
 
     #[test]
+    fn ableton_color_hex_matches_enum_mapping_for_common_indices() {
+        assert_eq!(ableton_color_index_to_hex(17), Some(TrackColor::Teal.hex()));
+        assert_eq!(ableton_color_index_to_hex(24), Some(TrackColor::Blue.hex()));
+        assert_eq!(ableton_color_index_to_hex(56), Some(TrackColor::Slate.hex()));
+        assert_eq!(ableton_color_index_to_hex(-1), None);
+        assert_eq!(ableton_color_index_to_hex(70), None);
+    }
+
+    #[test]
     fn static_lane_if_missing_does_not_override_existing_lane() {
         let mut track = Track::new("Test");
         track.automation_lanes.push(dream_models::project::AutomationLane {
@@ -2024,6 +2132,21 @@ mod als_import_tests {
     }
 
     #[test]
+    fn parse_track_i64_value_reads_nested_value() {
+        let xml = r#"
+        <MidiTrack>
+          <PitchbendRange Value="96" />
+        </MidiTrack>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let track = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("MidiTrack"))
+            .expect("track");
+        assert_eq!(parse_track_i64_value(track, "PitchbendRange"), Some(96));
+    }
+
+    #[test]
     fn classify_output_routing_target_handles_main_none_group_and_track() {
         assert!(matches!(
             classify_output_routing_target("AudioOut/Main"),
@@ -2049,6 +2172,10 @@ mod als_import_tests {
             OutputRoutingTarget::TrackXmlId(id) => assert_eq!(id, "243"),
             _ => panic!("expected track xml id"),
         }
+        assert!(matches!(
+            classify_output_routing_target("AudioOut/External/S0"),
+            OutputRoutingTarget::Unknown
+        ));
     }
 
     #[test]
@@ -2556,6 +2683,33 @@ mod als_import_tests {
                 .automation_lanes
                 .iter()
                 .any(|l| l.param_id == "mixer.output_enabled" && (l.points[0].value - 0.0).abs() < 1e-9)
+        );
+    }
+
+    #[test]
+    fn import_main_track_mixer_snapshot_marks_unknown_output_as_enabled() {
+        let xml = r#"
+        <MainTrack>
+          <DeviceChain>
+            <AudioOutputRouting>
+              <Target Value="AudioOut/External/S0"/>
+            </AudioOutputRouting>
+          </DeviceChain>
+        </MainTrack>
+        "#;
+        let doc = roxmltree::Document::parse(xml).expect("valid xml");
+        let main_track = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("MainTrack"))
+            .expect("main track");
+
+        let mut master = Track::with_type("Master", TrackType::Master, 0);
+        import_main_track_mixer_snapshot(main_track, &mut master);
+        assert!(
+            master
+                .automation_lanes
+                .iter()
+                .any(|l| l.param_id == "mixer.output_enabled" && (l.points[0].value - 1.0).abs() < 1e-9)
         );
     }
 
@@ -3868,6 +4022,10 @@ fn parse_als_rack_chains(
                         };
 
                         if let Some(plugin_id) = resolved_plugin_id {
+                            log::info!(
+                                "[ALS Import] Plugin RESOLVED: '{}' → '{}'",
+                                preferred_name, plugin_id
+                            );
                             let mut slot = PluginSlot::new(preferred_name, plugin_id);
                             apply_external_plugin_meta(&mut slot, &meta);
                             let node = DeviceNode::Single(slot);
@@ -3877,11 +4035,19 @@ fn parse_als_rack_chains(
                         } else if let Some((pid, pname, _)) =
                             canonical_internal_plugin_for_import("PluginDevice", &preferred_name)
                         {
+                            log::info!(
+                                "[ALS Import] Plugin CANONICAL: '{}' → internal '{}'",
+                                preferred_name, pid
+                            );
                             let node = DeviceNode::Single(PluginSlot::new(pname, pid));
                             pending_macro_mappings
                                 .extend(collect_pending_macro_mappings_for_device(child_device, &node));
                             chain.devices.push(node);
                         } else {
+                            log::warn!(
+                                "[ALS Import] Plugin NOT FOUND: '{}' (vst3='{}', vst2='{}', vst3_path='{}', vst2_path='{}')",
+                                preferred_name, vst3_name, vst2_name, vst3_path, vst2_path
+                            );
                             let node = make_missing_external_plugin_slot_with_metadata(
                                 "external",
                                 &preferred_name,
@@ -4595,12 +4761,20 @@ fn import_track_devices(
 
             let is_instrument_slot = track.track_type == TrackType::Midi && track.instrument.is_none();
             let slot = if let Some(plugin_id) = resolved_plugin_id {
+                log::info!(
+                    "[ALS Import] Instrument RESOLVED: '{}' → '{}'",
+                    preferred_name, plugin_id
+                );
                 let mut slot = PluginSlot::new(preferred_name, plugin_id);
                 apply_external_plugin_meta(&mut slot, &meta);
                 DeviceNode::Single(slot)
             } else if let Some((pid, pname, slot_kind)) =
                 canonical_internal_plugin_for_import("PluginDevice", &preferred_name)
             {
+                log::info!(
+                    "[ALS Import] Instrument CANONICAL: '{}' → internal '{}' (kind='{}')",
+                    preferred_name, pid, slot_kind
+                );
                 import_internal_device_static_params(track, pid, device);
                 if slot_kind == "instrument" && is_instrument_slot {
                     DeviceNode::Single(PluginSlot::new(pname, pid))
@@ -4608,6 +4782,10 @@ fn import_track_devices(
                     DeviceNode::Single(PluginSlot::new(pname, pid))
                 }
             } else {
+                log::warn!(
+                    "[ALS Import] Instrument NOT FOUND: '{}' (vst3='{}', vst2='{}', vst3_path='{}', vst2_path='{}')",
+                    preferred_name, vst3_name, vst2_name, vst3_path, vst2_path
+                );
                 make_missing_external_plugin_slot_with_metadata(
                     "external",
                     &preferred_name,
@@ -4742,6 +4920,18 @@ fn ableton_color_to_track_color(index: i64, fallback: usize) -> TrackColor {
         // Grays / Slates
         38..=69 => TrackColor::Slate,
         _ => TrackColor::for_index(fallback),
+    }
+}
+
+/// Returns a stable hex color for a given Ableton color index (0-69).
+///
+/// We intentionally derive this from the same index→`TrackColor` mapping used
+/// for track/clip enums so the rendered hex and enum stay in sync.
+fn ableton_color_index_to_hex(index: i64) -> Option<&'static str> {
+    if (0..=69).contains(&index) {
+        Some(ableton_color_to_track_color(index, 0).hex())
+    } else {
+        None
     }
 }
 
@@ -5859,6 +6049,8 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
             .and_then(parse_i64_value)
         {
             track.color = ableton_color_to_track_color(color_value, index);
+            // Store exact Ableton hex color for 1:1 visual fidelity
+            track.color_hex = ableton_color_index_to_hex(color_value).map(|s| s.to_string());
         }
 
         if let Some(mixer) = track_node
@@ -5931,6 +6123,14 @@ fn import_als_project(file_path: &Path) -> Result<Project, String> {
                 "mixer.keep_record_monitoring_latency".to_string(),
                 if v { 1.0 } else { 0.0 },
             ));
+        }
+        if track_type == TrackType::Midi {
+            if let Some(v) = parse_track_i64_value(track_node, "PitchbendRange") {
+                static_mixer_values.push(("midi.pitchbend_range".to_string(), v as f64));
+            }
+            if let Some(v) = parse_track_bool_flag(track_node, "IsTuned") {
+                static_mixer_values.push(("midi.is_tuned".to_string(), if v { 1.0 } else { 0.0 }));
+            }
         }
 
         let preferred_input_target = if track_type == TrackType::Midi {

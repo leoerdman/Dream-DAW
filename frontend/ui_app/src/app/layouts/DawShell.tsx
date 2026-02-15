@@ -476,13 +476,15 @@ export const DawShell = () => {
         const justStarted = transport.is_playing && !prevIsPlayingRef.current;
         prevIsPlayingRef.current = transport.is_playing;
         if (!justStarted) return;
-        const startBeat = queuedStartBeatRef.current ?? editCursorBeat;
+        const queued = queuedStartBeatRef.current;
         queuedStartBeatRef.current = null;
-        // Playback start anchor: start from queued edit cursor (from paused state).
-        void engineApi.seekToBeat(Math.max(0, startBeat)).catch((err) => {
+        // Only seek on start when the user explicitly queued a cursor position.
+        // Otherwise preserve current transport/playhead position.
+        if (queued == null) return;
+        void engineApi.seekToBeat(Math.max(0, queued)).catch((err) => {
             console.error('[DawShell] seek to edit cursor failed:', err);
         });
-    }, [transport.is_playing, editCursorBeat]);
+    }, [transport.is_playing]);
 
     // Clip selection callback
     const handleClipSelect = useCallback((clipId: string) => {

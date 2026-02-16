@@ -3269,10 +3269,30 @@ pub fn run() {
     let preview_buffer_for_engine = Arc::clone(&preview_buffer);
     let preview_cursor_for_engine = Arc::clone(&preview_cursor);
 
+    // Load settings from disk before booting audio so we can honor persisted
+    // output device selection on startup.
+    let app_data_dir_for_settings = dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("com.dreamdaw.desktop");
+    let settings_state = SettingsState::load_from_disk(&app_data_dir_for_settings);
+
+    // Ensure User Info directory and initial settings.json exist
+    if let Err(e) = settings_state.save_to_user_folder() {
+        log::warn!("Failed to create initial settings file: {}", e);
+    }
+
+    let preferred_output_device = {
+        let settings = settings_state.settings.lock().ok();
+        settings
+            .as_ref()
+            .map(|s| s.output_device.clone())
+            .filter(|v| !v.trim().is_empty())
+    };
+
     // Start the audio engine on a dedicated thread
     let clock_for_engine = Arc::clone(&master_clock);
     let meter_for_engine = Arc::clone(&meter_bank);
-    let stream = match dream_engine::driver::start_audio_thread(
+    let stream = match dream_engine::driver::start_audio_thread_on_device(
         consumer,
         clock_for_engine,
         meter_for_engine,
@@ -3288,6 +3308,7 @@ pub fn run() {
         plugin_host_for_engine,
         preview_buffer_for_engine,
         preview_cursor_for_engine,
+        preferred_output_device.as_deref(),
     ) {
         Ok(stream) => stream,
         Err(err) => {
@@ -3298,6 +3319,22 @@ pub fn run() {
 
     // Capture output latency from the stream handle before boxing
     let output_latency_frames = stream.output_latency_frames;
+    let resolved_output_device = stream.output_device_name.clone();
+
+    let mut should_persist_resolved_output = false;
+    {
+        if let Ok(mut s) = settings_state.settings.lock()
+            && s.output_device != resolved_output_device
+        {
+            s.output_device = resolved_output_device;
+            should_persist_resolved_output = true;
+        }
+    }
+    if should_persist_resolved_output
+        && let Err(e) = settings_state.save_to_user_folder()
+    {
+        log::warn!("Failed to persist resolved output device: {}", e);
+    }
 
     let engine_handle = AudioEngineHandle {
         producer: Mutex::new(producer),
@@ -3320,17 +3357,6 @@ pub fn run() {
         plugin_host: plugin_host_for_handle,
         output_latency_frames,
     };
-
-    // Load settings from user folder (primary) or app_data_dir (fallback)
-    let app_data_dir_for_settings = dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("com.dreamdaw.desktop");
-    let settings_state = SettingsState::load_from_disk(&app_data_dir_for_settings);
-
-    // Ensure User Info directory and initial settings.json exist
-    if let Err(e) = settings_state.save_to_user_folder() {
-        log::warn!("Failed to create initial settings file: {}", e);
-    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())

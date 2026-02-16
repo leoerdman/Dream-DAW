@@ -105,8 +105,11 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
     useEffect(() => {
         if (!isOpen || missingPlugins.length === 0) return;
         let mounted = true;
-        setScanBusy(true);
-        setMessage(null);
+        const raf = window.requestAnimationFrame(() => {
+            if (!mounted) return;
+            setScanBusy(true);
+            setMessage(null);
+        });
         void engineApi.scanPluginFolders()
             .then((entries) => {
                 if (!mounted) return;
@@ -121,6 +124,7 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
             });
         return () => {
             mounted = false;
+            window.cancelAnimationFrame(raf);
         };
     }, [isOpen, missingPlugins.length]);
 

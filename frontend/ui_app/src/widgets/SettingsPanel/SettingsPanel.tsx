@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import * as engine from '@/shared/api/engine';
 
@@ -36,20 +36,83 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
     const [sandboxLoading, setSandboxLoading] = useState(false);
     const [sandboxSnapshot, setSandboxSnapshot] = useState<engine.PluginSandboxSnapshot | null>(null);
 
+    const refreshAudioDevices = useCallback(async () => {
+        setDevicesLoading(true);
+        try {
+            const devices = await engine.getAudioDevices();
+            setAudioDevices(devices);
+        } catch (err) {
+            console.error('[SettingsPanel] Failed to enumerate devices:', err);
+        } finally {
+            setDevicesLoading(false);
+        }
+    }, []);
+
     // Fetch real devices when Audio tab is opened
     useEffect(() => {
         if (tab !== 'audio') return;
-        setDevicesLoading(true);
-        engine.getAudioDevices()
-            .then(devices => setAudioDevices(devices))
-            .catch(err => console.error('[SettingsPanel] Failed to enumerate devices:', err))
-            .finally(() => setDevicesLoading(false));
+        void refreshAudioDevices();
         setSandboxLoading(true);
         engine.getPluginSandboxRuntime()
             .then((snap) => setSandboxSnapshot(snap))
             .catch((err) => console.error('[SettingsPanel] Failed to read plugin sandbox runtime:', err))
             .finally(() => setSandboxLoading(false));
-    }, [tab]);
+    }, [tab, refreshAudioDevices]);
+
+    useEffect(() => {
+        if (tab !== 'audio') return;
+        const intervalId = window.setInterval(() => {
+            void refreshAudioDevices();
+        }, 2000);
+        const onFocus = () => {
+            void refreshAudioDevices();
+        };
+        window.addEventListener('focus', onFocus);
+        document.addEventListener('visibilitychange', onFocus);
+        return () => {
+            window.clearInterval(intervalId);
+            window.removeEventListener('focus', onFocus);
+            document.removeEventListener('visibilitychange', onFocus);
+        };
+    }, [tab, refreshAudioDevices]);
+
+    useEffect(() => {
+        if (tab !== 'audio') return;
+        if (restartingEngine) return;
+        const selected = settings.outputDevice;
+        if (!selected || selected === 'Default Output') return;
+        if (audioDevices.outputs.length === 0) return;
+        if (audioDevices.outputs.includes(selected)) return;
+
+        setRestartingEngine(true);
+        void engine.restartAudioEngine('Default Output')
+            .then((resolvedDevice) => {
+                updateSetting('outputDevice', resolvedDevice);
+            })
+            .catch((err) => {
+                console.error('[SettingsPanel] Failed to auto-fallback output device:', err);
+            })
+            .finally(() => {
+                setRestartingEngine(false);
+                void refreshAudioDevices();
+            });
+    }, [tab, restartingEngine, settings.outputDevice, audioDevices.outputs, updateSetting, refreshAudioDevices]);
+
+    const outputOptions = useMemo(() => {
+        const options = [...audioDevices.outputs];
+        if (settings.outputDevice && !options.includes(settings.outputDevice)) {
+            options.push(settings.outputDevice);
+        }
+        return options.length > 0 ? options : ['Default Output'];
+    }, [audioDevices.outputs, settings.outputDevice]);
+
+    const inputOptions = useMemo(() => {
+        const options = [...audioDevices.inputs];
+        if (settings.inputDevice && !options.includes(settings.inputDevice)) {
+            options.push(settings.inputDevice);
+        }
+        return options.length > 0 ? options : ['Default Input'];
+    }, [audioDevices.inputs, settings.inputDevice]);
 
     useEffect(() => {
         if (tab !== 'midi') return;
@@ -184,16 +247,20 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                             <SettingRow label="Output Device">
                                 <Select
                                     value={settings.outputDevice}
-                                    options={audioDevices.outputs.length > 0 ? audioDevices.outputs : [settings.outputDevice]}
+                                    options={outputOptions}
+                                    onMouseDown={() => {
+                                        void refreshAudioDevices();
+                                    }}
                                     onChange={async v => {
-                                        updateSetting('outputDevice', v);
                                         setRestartingEngine(true);
                                         try {
-                                            await engine.restartAudioEngine(v);
+                                            const resolvedDevice = await engine.restartAudioEngine(v);
+                                            updateSetting('outputDevice', resolvedDevice);
                                         } catch (err) {
                                             console.error('[SettingsPanel] restartAudioEngine failed:', err);
                                         } finally {
                                             setRestartingEngine(false);
+                                            void refreshAudioDevices();
                                         }
                                     }}
                                 />
@@ -205,7 +272,10 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                             <SettingRow label="Input Device">
                                 <Select
                                     value={settings.inputDevice}
-                                    options={audioDevices.inputs.length > 0 ? audioDevices.inputs : [settings.inputDevice]}
+                                    options={inputOptions}
+                                    onMouseDown={() => {
+                                        void refreshAudioDevices();
+                                    }}
                                     onChange={v => updateSetting('inputDevice', v)}
                                 />
                                 {devicesLoading && <span style={{ ...valueStyle, marginLeft: 4 }}>⏳</span>}
@@ -546,10 +616,21 @@ const FolderRow = ({ label, path, onBrowse }: { label: string; path: string; onB
     </div>
 );
 
-const Select = ({ value, options, onChange }: { value: string; options: string[]; onChange: (v: string) => void }) => (
+const Select = ({
+    value,
+    options,
+    onChange,
+    onMouseDown,
+}: {
+    value: string;
+    options: string[];
+    onChange: (v: string) => void;
+    onMouseDown?: () => void;
+}) => (
     <select
         value={value}
         onChange={e => onChange(e.target.value)}
+        onMouseDown={onMouseDown}
         style={selectStyle}
     >
         {options.map(o => <option key={o} value={o}>{o}</option>)}

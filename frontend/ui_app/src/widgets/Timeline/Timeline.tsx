@@ -21,11 +21,13 @@ interface TimelineProps {
     totalBars?: number;
     trackCount?: number;
     trackHeight?: number;
+    trackHeights?: number[];
     clips?: TimelineClip[];
     playheadBeat?: number;
     editCursorBeat?: number;
     editCursorTrackIndex?: number;
     selectedTrackIndex?: number;
+    selectedTrackIndices?: number[];
     isPlaying?: boolean;
     recordingActive?: boolean;
     recordingTrackIndex?: number;
@@ -68,11 +70,13 @@ export const Timeline = (props: TimelineProps) => {
         totalBars = 128,
         trackCount = 8,
         trackHeight = DEFAULT_TRACK_HEIGHT,
+        trackHeights,
         clips = [],
         playheadBeat = 0,
         editCursorBeat = 0,
         editCursorTrackIndex = 0,
         selectedTrackIndex = -1,
+        selectedTrackIndices,
         isPlaying = false,
         trackIds = [],
         loopStart = 0,
@@ -116,6 +120,7 @@ export const Timeline = (props: TimelineProps) => {
         totalBeats,
         trackCount,
         trackHeight,
+        trackHeights,
         rulerHeight: RULER_HEIGHT,
         initialPpb: DEFAULT_PPB,
         snapBeats: snapBeatsValue,
@@ -363,8 +368,11 @@ export const Timeline = (props: TimelineProps) => {
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
-        engine.setSelectedTrack(selectedTrackIndex);
-    }, [selectedTrackIndex, engineRef]);
+        const list = (selectedTrackIndices && selectedTrackIndices.length > 0)
+            ? selectedTrackIndices
+            : (selectedTrackIndex >= 0 ? [selectedTrackIndex] : []);
+        engine.setSelectedTracks(selectedTrackIndex, list);
+    }, [selectedTrackIndex, selectedTrackIndices, engineRef]);
 
     // ── Feed loop region ──────────────────────────────────────────────
     useEffect(() => {

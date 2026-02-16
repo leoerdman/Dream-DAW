@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { type ConfigEnv, defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { resolve } from 'path'
@@ -14,9 +14,18 @@ function autoVersionPlugin() {
 
   return {
     name: 'dream-daw-auto-version',
-    config() {
+    config(_: unknown, env: ConfigEnv) {
       const raw = readFileSync(versionPath, 'utf-8')
-      const ver = JSON.parse(raw)
+      const ver = JSON.parse(raw) as { major: number; minor: number; patch: number }
+
+      // Build semantics:
+      // - version.json is the single source of truth
+      // - on each production build, bump patch by +1 from CURRENT stored value
+      // - manual edits to major/minor/patch become the next baseline automatically
+      if (env.command === 'build' || env.command === 'serve') {
+        ver.patch = Number.isFinite(ver.patch) ? Math.max(0, Math.floor(ver.patch)) + 1 : 1
+        writeFileSync(versionPath, JSON.stringify(ver, null, 2) + '\n')
+      }
 
       const versionString = `${ver.major}.${ver.minor}.${ver.patch}`
 

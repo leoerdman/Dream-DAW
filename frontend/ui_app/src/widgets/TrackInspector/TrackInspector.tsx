@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import * as engineApi from '@/shared/api/engine';
@@ -37,6 +38,22 @@ interface TrackData {
     sends: { name: string; amount: number; color: string }[];
     input?: string;
     output?: string;
+}
+
+interface TrackRowLayoutMetrics {
+    headerColWidth: number;
+    routingColWidth: number;
+    groupStripeWidthPx: number;
+    indentStepPx: number;
+    maxIndentPx: number;
+    muteSoloColWidth: number;
+    faderColWidth: number;
+    armColWidth: number;
+    meterColWidth: number;
+    mixerColumnGapPx: number;
+    mixerPaddingX: number;
+    mixerPaddingY: number;
+    mixerSectionWidthPx: number;
 }
 
 // ── Live Track Mapping ──
@@ -111,8 +128,14 @@ const TRACK_PALETTE = [
 
 interface TrackInspectorProps {
     selectedTrackId: string;
+    /** Optional multi-selection (owned by shell). If omitted, TrackInspector manages local multi-select. */
+    selectedTrackIds?: string[];
     onSelectTrack: (id: string) => void;
+    /** Optional callback to lift multi-selection to shell. */
+    onSelectTracks?: (ids: string[], primaryId: string) => void;
     trackHeight?: number;
+    /** Height to apply to selected tracks (defaults to trackHeight). */
+    selectedTrackHeight?: number;
     rulerHeight?: number;
     scrollTop?: number;
     mixerFocusMode?: boolean;
@@ -120,12 +143,16 @@ interface TrackInspectorProps {
 
 export const TrackInspector = ({
     selectedTrackId,
+    selectedTrackIds: selectedTrackIdsProp,
     onSelectTrack,
+    onSelectTracks,
     trackHeight = 48,
+    selectedTrackHeight,
     rulerHeight = 24,
     scrollTop: externalScrollTop,
     mixerFocusMode = false,
 }: TrackInspectorProps) => {
+    const selectedRowHeight = selectedTrackHeight ?? trackHeight;
     const projectTracks = useEngineStore((s) => s.projectTracks);
     const engineSetTrackMute = useEngineStore((s) => s.setTrackMute);
     const engineSetTrackSolo = useEngineStore((s) => s.setTrackSolo);
@@ -133,7 +160,7 @@ export const TrackInspector = ({
     const engineSetTrackPan = useEngineStore((s) => s.setTrackPan);
     const engineSetMasterVolume = useEngineStore((s) => s.setMasterVolume);
     const masterVolume = useEngineStore((s) => s.masterVolume);
-    const [masterColor, setMasterColor] = useState('#ffffff');
+    const [masterColor, setMasterColor] = useState('#2b2f36');
     const addTrack = useEngineStore((s) => s.addTrack);
     const deleteTrack = useEngineStore((s) => s.deleteTrack);
     const renameTrackAction = useEngineStore((s) => s.renameTrack);
@@ -164,9 +191,25 @@ export const TrackInspector = ({
     // Local overrides
     const [localOverrides, setLocalOverrides] = useState<Record<string, Partial<TrackData>>>({});
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-    const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(
+    const [localSelectedTrackIds, setLocalSelectedTrackIds] = useState<Set<string>>(
         () => new Set(selectedTrackId && selectedTrackId !== 'master' ? [selectedTrackId] : []),
     );
+
+    const effectiveSelectedTrackIds = useMemo(() => (
+        selectedTrackIdsProp ?? Array.from(localSelectedTrackIds)
+    ), [selectedTrackIdsProp, localSelectedTrackIds]);
+
+    const selectedTrackIdSet = useMemo(
+        () => new Set(effectiveSelectedTrackIds.filter((id) => id && id !== 'master')),
+        [effectiveSelectedTrackIds],
+    );
+
+    const applySelection = useCallback((ids: string[], primaryId: string) => {
+        const cleaned = Array.from(new Set(ids)).filter((id) => id && id !== 'master');
+        if (onSelectTracks) onSelectTracks(cleaned, primaryId);
+        else setLocalSelectedTrackIds(new Set(cleaned));
+        onSelectTrack(primaryId);
+    }, [onSelectTrack, onSelectTracks]);
     const [draggingTrackId, setDraggingTrackId] = useState<string | null>(null);
     const draggingTrackIdRef = useRef<string | null>(null);
     const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
@@ -210,14 +253,15 @@ export const TrackInspector = ({
     const [renameValue, setRenameValue] = useState('');
 
     useEffect(() => {
-        setSelectedTrackIds((prev) => {
+        if (selectedTrackIdsProp) return; // shell owns selection
+        setLocalSelectedTrackIds((prev) => {
             if (!selectedTrackId || selectedTrackId === 'master') {
                 return prev.size === 0 ? prev : new Set();
             }
             if (prev.has(selectedTrackId)) return prev;
             return new Set([selectedTrackId]);
         });
-    }, [selectedTrackId]);
+    }, [selectedTrackId, selectedTrackIdsProp]);
 
     const tracks = useMemo(() => {
         return liveTracks.map(t => ({ ...t, ...(localOverrides[t.id] || {}) }));
@@ -236,8 +280,8 @@ export const TrackInspector = ({
     }, [tracks, getTrackIndex, engineSetTrackMute]);
 
     const toggleSolo = useCallback((id: string) => {
-        const selected = selectedTrackIds.has(id)
-            ? Array.from(selectedTrackIds).filter((trackId) => trackId !== 'master')
+        const selected = selectedTrackIdSet.has(id)
+            ? Array.from(selectedTrackIdSet)
             : [id];
         const targetIds = selected.length > 0 ? selected : [id];
         const targetSet = new Set(targetIds);
@@ -270,7 +314,7 @@ export const TrackInspector = ({
             }
             return next;
         });
-    }, [tracks, selectedTrackIds, getTrackIndex, engineSetTrackSolo]);
+    }, [tracks, selectedTrackIdSet, getTrackIndex, engineSetTrackSolo]);
 
     const toggleArm = useCallback((id: string) => {
         const track = tracks.find(t => t.id === id);
@@ -350,6 +394,46 @@ export const TrackInspector = ({
         return 1;
     }, [tracks]);
 
+    const rowLayout = useMemo<TrackRowLayoutMetrics>(() => {
+        const maxDepth = visibleTracks.reduce((acc, t) => Math.max(acc, getDepth(t)), 0);
+        const headerColWidth = mixerFocusMode ? 112 : 100;
+        const routingColWidth = mixerFocusMode ? 104 : 92;
+        const groupStripeWidthPx = 6;
+        const indentStepPx = 10;
+        const maxIndentPx = Math.min(30, Math.max(0, maxDepth * indentStepPx));
+
+        const muteSoloColWidth = mixerFocusMode ? 34 : 36;
+        const faderColWidth = mixerFocusMode ? 84 : 62;
+        const armColWidth = 16;
+        const meterColWidth = 10;
+        const mixerColumnGapPx = 6;
+        const mixerPaddingX = 4;
+        const mixerPaddingY = 4;
+        const mixerSectionWidthPx =
+            muteSoloColWidth
+            + faderColWidth
+            + armColWidth
+            + meterColWidth
+            + mixerColumnGapPx * 3
+            + mixerPaddingX * 2;
+
+        return {
+            headerColWidth,
+            routingColWidth,
+            groupStripeWidthPx,
+            indentStepPx,
+            maxIndentPx,
+            muteSoloColWidth,
+            faderColWidth,
+            armColWidth,
+            meterColWidth,
+            mixerColumnGapPx,
+            mixerPaddingX,
+            mixerPaddingY,
+            mixerSectionWidthPx,
+        };
+    }, [visibleTracks, getDepth, mixerFocusMode]);
+
     // ── Context Menu handlers ──
     const handleContextMenu = useCallback((e: React.MouseEvent, trackId: string, trackIndex: number) => {
         e.preventDefault();
@@ -387,7 +471,7 @@ export const TrackInspector = ({
     }, [getTrackIndex, deleteTrack]);
 
     const handleDeleteSelectedTracks = useCallback(() => {
-        const selected = Array.from(selectedTrackIds)
+        const selected = Array.from(selectedTrackIdSet)
             .map((id) => ({ id, idx: getTrackIndex(id) }))
             .filter((v) => v.idx >= 0)
             .sort((a, b) => b.idx - a.idx);
@@ -396,22 +480,23 @@ export const TrackInspector = ({
             for (const item of selected) {
                 await engineApi.deleteTrack(item.idx);
             }
-            setSelectedTrackIds(new Set());
+            if (selectedTrackIdsProp) onSelectTracks?.([], 'master');
+            else setLocalSelectedTrackIds(new Set());
             await useEngineStore.getState().fetchProject();
         })().catch((err) => {
             console.error('[TrackInspector] delete selected tracks failed:', err);
         });
-    }, [selectedTrackIds, getTrackIndex]);
+    }, [selectedTrackIdSet, getTrackIndex, onSelectTracks, selectedTrackIdsProp]);
 
     const handleDuplicateSelectedTracks = useCallback(() => {
-        const ids = Array.from(selectedTrackIds);
+        const ids = Array.from(selectedTrackIdSet);
         if (ids.length === 0) return;
         void engineApi.duplicateTracks(ids).then(() => {
             return useEngineStore.getState().fetchProject();
         }).catch((err) => {
             console.error('[TrackInspector] duplicate selected tracks failed:', err);
         });
-    }, [selectedTrackIds]);
+    }, [selectedTrackIdSet]);
 
     const handleGroupTrack = useCallback((trackId: string) => {
         void engineApi.createGroup([trackId]).then(() => {
@@ -508,7 +593,7 @@ export const TrackInspector = ({
             }
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'g' && selectedTrackId && selectedTrackId !== 'master') {
                 e.preventDefault();
-                const ids = Array.from(selectedTrackIds);
+                const ids = Array.from(selectedTrackIdSet);
                 if (ids.length > 1) {
                     void engineApi.createGroup(ids).then(() => {
                         void useEngineStore.getState().fetchProject();
@@ -531,11 +616,11 @@ export const TrackInspector = ({
                     });
                 }
             }
-            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd' && selectedTrackIds.size > 0) {
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd' && selectedTrackIdSet.size > 0) {
                 e.preventDefault();
                 handleDuplicateSelectedTracks();
             }
-            if ((e.key === 'Delete' || e.key === 'Backspace') && selectedTrackIds.size > 0) {
+            if ((e.key === 'Delete' || e.key === 'Backspace') && selectedTrackIdSet.size > 0) {
                 // Guard: don't delete tracks if a device is focused in DeviceRack
                 const inDeviceRack = (e.target as HTMLElement | null)?.closest?.('[data-keyboard-scope="device-rack"]');
                 if (inDeviceRack) return;
@@ -546,7 +631,7 @@ export const TrackInspector = ({
         };
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
-    }, [selectedTrackId, selectedTrackIds, tracks, renamingTrackId, handleRenameStart, handleGroupTrack, handleDeleteSelectedTracks, handleDuplicateSelectedTracks]);
+    }, [selectedTrackId, selectedTrackIdSet, tracks, renamingTrackId, handleRenameStart, handleGroupTrack, handleDeleteSelectedTracks, handleDuplicateSelectedTracks]);
 
     const computeRawInsertIndex = useCallback((visibleInsertIndex: number): number => {
         if (visibleTracks.length === 0) return 0;
@@ -864,7 +949,13 @@ export const TrackInspector = ({
             <div
                 ref={scrollRef}
                 className="scrollbar-hide"
-                style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}
+                style={{
+                    flex: 1,
+                    overflowY: 'auto',
+                    overflowX: 'hidden',
+                    paddingRight: 8,
+                    boxSizing: 'border-box',
+                }}
                 onDragOver={(e) => {
                     const activeDragId = draggingTrackIdRef.current ?? draggingTrackId;
                     if (!activeDragId) return;
@@ -897,17 +988,13 @@ export const TrackInspector = ({
                 )}
                 {visibleTracks.map((track) => {
                     const isGroup = track.type === 'group';
-                    if (!isGroup) trackNum++;
-                    const displayNum = isGroup ? undefined : trackNum;
+                    if (track.type !== 'master') trackNum++;
+                    const displayNum = track.type === 'master' ? undefined : trackNum;
                     const isCollapsed = isGroup ? collapsedGroups.has(track.id) : false;
                     const depth = getDepth(track);
                     const trackIndex = getTrackIndex(track.id);
 
                     const visibleIndex = visibleTracks.findIndex((t) => t.id === track.id);
-                    const prevVisible = visibleTracks[visibleIndex - 1];
-                    const nextVisible = visibleTracks[visibleIndex + 1];
-                    const isFirstInParentGroup = Boolean(track.groupId) && (!prevVisible || prevVisible.groupId !== track.groupId);
-                    const isLastInParentGroup = Boolean(track.groupId) && (!nextVisible || nextVisible.groupId !== track.groupId);
                     return (
                         <div
                             key={track.id}
@@ -916,9 +1003,10 @@ export const TrackInspector = ({
                             <TrackRow
                                 track={track}
                                 allTracks={tracks}
-                                trackHeight={trackHeight}
+                                trackHeight={selectedTrackIdSet.has(track.id) ? selectedRowHeight : trackHeight}
                                 displayNum={displayNum}
-                                isSelected={selectedTrackId === track.id}
+                                isSelected={selectedTrackIdSet.has(track.id)}
+                                isPrimarySelected={selectedTrackId === track.id}
                                 isCollapsed={isCollapsed}
                                 depth={depth}
                                 isRenaming={renamingTrackId === track.id}
@@ -933,29 +1021,28 @@ export const TrackInspector = ({
                                         return;
                                     }
                                     if (e.shiftKey) {
-                                        const anchorId = lastClickedTrackId ?? selectedTrackId;
+                                        const anchorId = lastClickedTrackId && lastClickedTrackId !== 'master'
+                                            ? lastClickedTrackId
+                                            : (selectedTrackId && selectedTrackId !== 'master' ? selectedTrackId : null);
                                         const anchorIndex = visibleTracks.findIndex((t) => t.id === anchorId);
                                         const currentIndex = visibleTracks.findIndex((t) => t.id === track.id);
                                         if (anchorIndex >= 0 && currentIndex >= 0) {
                                             const start = Math.min(anchorIndex, currentIndex);
                                             const end = Math.max(anchorIndex, currentIndex);
                                             const rangeIds = visibleTracks.slice(start, end + 1).map((t) => t.id);
-                                            setSelectedTrackIds(new Set(rangeIds));
+                                            applySelection(rangeIds, track.id);
                                         } else {
-                                            setSelectedTrackIds(new Set([track.id]));
+                                            applySelection([track.id], track.id);
                                         }
                                     } else if (e.metaKey || e.ctrlKey) {
-                                        setSelectedTrackIds((prev) => {
-                                            const next = new Set(prev);
-                                            if (next.has(track.id)) next.delete(track.id);
-                                            else next.add(track.id);
-                                            return next;
-                                        });
+                                        const next = new Set(selectedTrackIdSet);
+                                        if (next.has(track.id)) next.delete(track.id);
+                                        else next.add(track.id);
+                                        applySelection(Array.from(next), track.id);
                                     } else {
-                                        setSelectedTrackIds(new Set([track.id]));
+                                        applySelection([track.id], track.id);
                                     }
                                     setLastClickedTrackId(track.id);
-                                    onSelectTrack(track.id);
                                 }}
                                 onToggleMute={() => toggleMute(track.id)}
                                 onToggleSolo={() => toggleSolo(track.id)}
@@ -981,8 +1068,7 @@ export const TrackInspector = ({
                                 onHeaderPointerDown={(e) => beginHeaderPointerDrag(e, track.id)}
                                 isGroupDropTarget={groupDropTargetId === track.id}
                                 groupStripeColor={track.groupId ? (tracks.find((t) => t.id === track.groupId)?.color ?? track.color) : track.color}
-                                isFirstInParentGroup={isFirstInParentGroup}
-                                isLastInParentGroup={isLastInParentGroup}
+                                layout={rowLayout}
                                 mixerFocusMode={mixerFocusMode}
                             />
                             {dropInsertIndex === visibleIndex + 1 && (
@@ -998,18 +1084,19 @@ export const TrackInspector = ({
                     style={{
                         width: '100%', height: 32,
                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                        background: 'transparent', border: 'none',
+                        background: 'color-mix(in srgb, var(--surface-2) 45%, transparent)',
+                        border: 'none',
                         borderTop: '1px solid var(--color-divider)',
-                        color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)', fontWeight: 500,
+                        color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', fontWeight: 650,
                         cursor: 'pointer', transition: `all var(--transition-fast)`,
                     }}
                     onMouseEnter={e => {
-                        e.currentTarget.style.background = 'color-mix(in srgb, var(--color-accent-primary) 10%, transparent)';
+                        e.currentTarget.style.background = 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)';
                         e.currentTarget.style.color = 'var(--color-accent-primary)';
                     }}
                     onMouseLeave={e => {
-                        e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.color = 'var(--color-text-tertiary)';
+                        e.currentTarget.style.background = 'color-mix(in srgb, var(--surface-2) 45%, transparent)';
+                        e.currentTarget.style.color = 'var(--color-text-secondary)';
                     }}
                 >
                     <span style={{ fontSize: 14, lineHeight: 1 }}>+</span>
@@ -1023,6 +1110,7 @@ export const TrackInspector = ({
                 allTracks={tracks}
                 trackHeight={trackHeight}
                 isSelected={selectedTrackId === 'master'}
+                isPrimarySelected={selectedTrackId === 'master'}
                 isCollapsed={false}
                 depth={0}
                 isRenaming={false}
@@ -1031,8 +1119,7 @@ export const TrackInspector = ({
                 onRenameCommit={() => { }}
                 onRenameCancel={() => { }}
                 onClick={() => {
-                    setSelectedTrackIds(new Set());
-                    onSelectTrack('master');
+                    applySelection([], 'master');
                 }}
                 onToggleMute={() => { }}
                 onToggleSolo={() => { }}
@@ -1047,6 +1134,7 @@ export const TrackInspector = ({
                     e.preventDefault();
                     setContextMenu({ trackId: 'master', trackIndex: -1, x: e.clientX, y: e.clientY });
                 }}
+                layout={rowLayout}
                 isMasterFixed
                 mixerFocusMode={mixerFocusMode}
             />
@@ -1136,7 +1224,7 @@ const ContextMenuPopup = ({
         display: 'flex', alignItems: 'center', gap: 8,
     };
 
-    return (
+    const node = (
         <div ref={ref} style={{
             position: 'fixed', left: clampedX, top: clampedY, width: 160,
             background: 'var(--surface-2)', border: '1px solid var(--color-border-subtle)',
@@ -1195,6 +1283,12 @@ const ContextMenuPopup = ({
             </button>
         </div>
     );
+
+    // Render into <body> so it is never clipped by panel overflow/stacking contexts.
+    if (typeof document !== 'undefined' && document.body) {
+        return createPortal(node, document.body);
+    }
+    return node;
 };
 
 // ── dB ↔ Linear conversions ──────────────────────────────
@@ -1868,15 +1962,14 @@ const VerticalMixerStrip = ({
 // ── TrackRow (3-block Ableton-style layout) ──────────────────────────────
 
 const TrackRow = ({
-    track, allTracks, trackHeight, displayNum, isSelected, isCollapsed, depth,
+    track, allTracks, trackHeight, displayNum, isSelected, isPrimarySelected = false, isCollapsed, depth,
     isRenaming, renameValue, onRenameChange, onRenameCommit, onRenameCancel,
     onClick, onToggleMute, onToggleSolo, onToggleArm, onToggleCollapse,
     onVolumeChange, onPanChange, onOutputChange, onInputChange, onContextMenu,
     onHeaderPointerDown,
     isGroupDropTarget = false,
     groupStripeColor,
-    isFirstInParentGroup = false,
-    isLastInParentGroup = false,
+    layout,
     isMasterFixed, mixerFocusMode = false,
 }: {
     track: TrackData;
@@ -1884,6 +1977,7 @@ const TrackRow = ({
     trackHeight: number;
     displayNum?: number;
     isSelected: boolean;
+    isPrimarySelected?: boolean;
     isCollapsed: boolean;
     depth: number;
     isRenaming: boolean;
@@ -1904,14 +1998,12 @@ const TrackRow = ({
     onHeaderPointerDown?: (e: React.PointerEvent<HTMLDivElement>) => void;
     isGroupDropTarget?: boolean;
     groupStripeColor?: string;
-    isFirstInParentGroup?: boolean;
-    isLastInParentGroup?: boolean;
+    layout: TrackRowLayoutMetrics;
     isMasterFixed?: boolean;
     mixerFocusMode?: boolean;
 }) => {
     const isMaster = track.type === 'master';
     const isGroup = track.type === 'group';
-    const showGroupRail = !isMaster && (isGroup || depth > 0);
     const isNestedGroup = isGroup && depth > 0;
     const groupRailColor = isNestedGroup
         ? (groupStripeColor || track.color)
@@ -1945,11 +2037,9 @@ const TrackRow = ({
     const headerBgColor = track.color;
     const headerContrast = getContrastColor(track.color);
     const headerTextColor = headerContrast === 'black' ? 'var(--glass-bg)' : 'color-mix(in srgb, var(--color-text-primary) 94%, transparent)';
-    const nestedIndentPx = !isMaster && depth > 0 ? Math.max(0, Math.min(40, depth * 10)) : 0;
-    const headerPaddingLeft = (mixerFocusMode ? 5 : 4) + nestedIndentPx;
-    const headerPaddingRight = mixerFocusMode ? 8 : 6;
-    const headerMinWidth = isMasterFixed ? 84 : Math.max(72, 90 - nestedIndentPx);
-    const headerMaxWidth = Math.max(headerMinWidth + 8, (mixerFocusMode ? 118 : 108) - nestedIndentPx);
+
+    const indentW = !isMaster && depth > 0 ? Math.min(layout.maxIndentPx, depth * layout.indentStepPx) : 0;
+    const stripeW = !isMaster && depth > 0 ? layout.groupStripeWidthPx : 0;
 
     return (
         <div
@@ -1961,9 +2051,11 @@ const TrackRow = ({
                 borderTop: 'none',
                 background: isGroupDropTarget
                     ? 'color-mix(in srgb, var(--color-accent-primary) 20%, var(--surface-1))'
-                    : isSelected
+                    : isPrimarySelected
                         ? 'color-mix(in srgb, var(--color-accent-primary) 14%, var(--surface-1))'
-                        : 'var(--surface-1)',
+                        : isSelected
+                            ? 'color-mix(in srgb, var(--color-accent-primary) 8%, var(--surface-1))'
+                            : 'var(--surface-1)',
                 cursor: 'default',
                 opacity: isEnabled ? 1 : 0.45,
                 transition: `background var(--transition-linear), opacity var(--transition-linear)`,
@@ -1975,59 +2067,46 @@ const TrackRow = ({
                     : 'none',
             }}
         >
-            {showGroupRail && (
-                <div style={{
-                    position: 'absolute',
-                    left: 0,
-                    top: -1,
-                    bottom: -1,
-                    width: 8,
-                    background: groupRailColor,
-                    opacity: 1,
-                    pointerEvents: 'none',
-                    zIndex: 'var(--z-local)' as unknown as number,
-                }} />
-            )}
-            {depth > 0 && isFirstInParentGroup && (
-                <div style={{
-                    position: 'absolute',
-                    left: 0,
-                    top: -1,
-                    width: 8,
-                    height: 2,
-                    background: groupRailColor,
-                    pointerEvents: 'none',
-                    zIndex: 3,
-                }} />
-            )}
-            {depth > 0 && isLastInParentGroup && (
-                <div style={{
-                    position: 'absolute',
-                    left: 0,
-                    bottom: -1,
-                    width: 8,
-                    height: 2,
-                    background: groupRailColor,
-                    pointerEvents: 'none',
-                    zIndex: 3,
-                }} />
-            )}
             {/* ════ BLOCK 1: Track Header (colored) ════ */}
             <div
                 onPointerDown={onHeaderPointerDown}
                 style={{
-                    display: 'flex', flexDirection: 'column', justifyContent: 'center',
-                    minWidth: headerMinWidth,
-                    maxWidth: headerMaxWidth,
-                    padding: `2px ${headerPaddingRight}px 2px ${headerPaddingLeft}px`,
-                    background: headerBgColor,
+                    width: layout.headerColWidth,
+                    minWidth: layout.headerColWidth,
+                    maxWidth: layout.headerColWidth,
+                    display: 'flex',
+                    alignItems: 'stretch',
                     borderRight: isMasterFixed ? 'none' : '1px solid var(--color-border-subtle)',
-                    gap: 1,
-                    position: 'relative',
-                    cursor: !isMaster ? 'grab' : 'default',
                     boxSizing: 'border-box',
-                }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                    cursor: !isMaster ? 'grab' : 'default',
+                }}
+            >
+                {stripeW > 0 && (
+                    <div
+                        aria-hidden
+                        style={{
+                            width: stripeW,
+                            minWidth: stripeW,
+                            background: `color-mix(in srgb, ${groupRailColor} 70%, #000)`,
+                            opacity: 1,
+                        }}
+                    />
+                )}
+                <div
+                    style={{
+                        flex: 1,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'center',
+                        padding: `2px ${mixerFocusMode ? 8 : 6}px 2px ${(mixerFocusMode ? 5 : 4) + indentW}px`,
+                        background: headerBgColor,
+                        gap: 1,
+                        position: 'relative',
+                        boxSizing: 'border-box',
+                        minWidth: 0,
+                    }}
+                >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                     {/* Collapse / Group icon */}
                     {isGroup && onToggleCollapse ? (
                         <button
@@ -2103,6 +2182,7 @@ const TrackRow = ({
                         )}
                     </span>
                 )}
+                </div>
             </div>
 
             {/* ════ BLOCK 2: Routing (gray) ════ */}
@@ -2111,7 +2191,10 @@ const TrackRow = ({
                     display: 'flex', flexDirection: 'column', justifyContent: 'center',
                     gap: 4, padding: 4,
                     borderRight: '1px solid var(--color-border-subtle)',
-                    minWidth: mixerFocusMode ? 102 : 92,
+                    width: layout.routingColWidth,
+                    minWidth: layout.routingColWidth,
+                    maxWidth: layout.routingColWidth,
+                    boxSizing: 'border-box',
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <div style={{ position: 'relative', display: 'flex', flex: 1, minWidth: 0 }}>
@@ -2212,51 +2295,99 @@ const TrackRow = ({
 
             {/* ════ BLOCK 3: Mixer (gray background) ════ */}
             <div style={{
-                display: 'flex', alignItems: 'center',
-                gap: 4,
-                padding: 4,
-                flex: 1, minWidth: 0,
+                display: 'grid',
+                gridTemplateColumns: `${layout.muteSoloColWidth}px ${layout.faderColWidth}px ${layout.armColWidth}px ${layout.meterColWidth}px`,
+                alignItems: 'center',
+                columnGap: layout.mixerColumnGapPx,
+                padding: `${layout.mixerPaddingY}px ${layout.mixerPaddingX}px`,
+                width: layout.mixerSectionWidthPx,
+                minWidth: layout.mixerSectionWidthPx,
+                maxWidth: layout.mixerSectionWidthPx,
+                flex: '0 0 auto',
                 overflow: 'hidden',
                 background: 'color-mix(in srgb, var(--surface-2) 55%, transparent)',
+                boxSizing: 'border-box',
             }}>
-                {/* Buttons column (vertical stack) */}
-                {!isMaster && (
+                {/* Column 1: Enable + Solo */}
+                {!isMaster ? (
                     <div style={{
-                        display: 'flex', flexDirection: 'column',
-                        gap: 4, flexShrink: 0,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                        width: layout.muteSoloColWidth,
+                        minWidth: layout.muteSoloColWidth,
                     }}>
-                        {/* Enable button — green when active, shows track number */}
                         <button
                             onClick={e => { e.stopPropagation(); onToggleMute(); }}
                             title={isEnabled ? 'Disable track' : 'Enable track'}
                             style={{
-                                width: mixerFocusMode ? 34 : 36, height: compactControlHeight,
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                width: layout.muteSoloColWidth,
+                                height: compactControlHeight,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
                                 background: isEnabled ? 'var(--color-status-success)' : 'var(--surface-elevated)',
                                 color: isEnabled ? 'var(--color-text-on-color)' : 'var(--text-muted)',
-                                border: 'none', borderRadius: 'var(--radius-xs)',
-                                fontSize: 'var(--font-size-micro)', fontWeight: 700, fontFamily: 'var(--font-mono)',
+                                border: 'none',
+                                borderRadius: 'var(--radius-xs)',
+                                fontSize: 'var(--font-size-micro)',
+                                fontWeight: 700,
+                                fontFamily: 'var(--font-mono)',
                                 cursor: 'pointer',
-                                padding: 0, transition: `background var(--transition-micro)`,
+                                padding: 0,
+                                transition: `background var(--transition-micro)`,
                             }}
                         >{displayNum ?? '●'}</button>
-                        {/* Solo button */}
                         <button
                             onClick={e => { e.stopPropagation(); onToggleSolo(); }}
                             title="Solo"
                             style={{
-                                width: mixerFocusMode ? 34 : 36, height: compactControlHeight,
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                background: track.isSoloed ? 'var(--color-accent-primary)' : 'var(--surface-elevated)',
-                                color: track.isSoloed ? 'var(--color-text-on-accent)' : 'var(--text-muted)',
-                                border: 'none', borderRadius: 'var(--radius-xs)',
-                                fontSize: 'var(--font-size-micro)', fontWeight: 700, cursor: 'pointer',
-                                padding: 0, transition: 'background 0.1s ease',
+                                width: layout.muteSoloColWidth,
+                                height: compactControlHeight,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                background: track.isSoloed
+                                    ? 'var(--color-accent-primary)'
+                                    : 'color-mix(in srgb, var(--color-accent-primary) 8%, var(--surface-elevated))',
+                                color: track.isSoloed ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
+                                border: track.isSoloed
+                                    ? 'none'
+                                    : '1px solid color-mix(in srgb, var(--text-primary) 18%, transparent)',
+                                borderRadius: 'var(--radius-xs)',
+                                fontSize: 'var(--font-size-micro)',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                padding: 0,
+                                transition: 'background 0.1s ease',
+                            }}
+                            onMouseEnter={(e) => {
+                                if (track.isSoloed) return;
+                                e.currentTarget.style.background = 'color-mix(in srgb, var(--color-accent-primary) 12%, var(--surface-elevated))';
+                            }}
+                            onMouseLeave={(e) => {
+                                if (track.isSoloed) return;
+                                e.currentTarget.style.background = 'color-mix(in srgb, var(--color-accent-primary) 8%, var(--surface-elevated))';
                             }}
                         >S</button>
                     </div>
+                ) : (
+                    <div
+                        aria-hidden
+                        style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 4,
+                            width: layout.muteSoloColWidth,
+                            minWidth: layout.muteSoloColWidth,
+                        }}
+                    >
+                        <div style={{ width: layout.muteSoloColWidth, height: compactControlHeight }} />
+                        <div style={{ width: layout.muteSoloColWidth, height: compactControlHeight }} />
+                    </div>
                 )}
 
+                {/* Column 2: Faders */}
                 {!isGroup && !isMaster && mixerFocusMode && onVolumeChange && onPanChange ? (
                     <VerticalMixerStrip
                         volumeLinear={track.volume}
@@ -2267,74 +2398,17 @@ const TrackRow = ({
                         onPanChange={onPanChange}
                     />
                 ) : (
-                    <>
-                        {/* Volume Fader — horizontal blue slider */}
-                        {!isGroup && !isMaster && onVolumeChange && onPanChange && (
-                            <div style={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: 4,
-                                minWidth: 50,
-                                flex: 1,
-                            }}>
-                                <VolumeFader
-                                    volumeLinear={track.volume}
-                                    onVolumeChange={onVolumeChange}
-                                    compact
-                                    showZeroTick
-                                />
-                                <PanFader
-                                    pan={track.pan}
-                                    onPanChange={onPanChange}
-                                    compact
-                                />
-                            </div>
-                        )}
-                        {!isGroup && !isMaster && onVolumeChange && onPanChange && (
-                            <div style={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: 4,
-                                flexShrink: 0,
-                            }}>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); onToggleArm(); }}
-                                    title="Arm for recording"
-                                    style={{
-                                        width: compactControlHeight,
-                                        height: compactControlHeight,
-                                        borderRadius: 'var(--radius-xs)',
-                                        border: '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
-                                        background: track.isArmed
-                                            ? 'color-mix(in srgb, var(--color-status-record) 55%, transparent)'
-                                            : 'var(--surface-elevated)',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        padding: 0,
-                                        cursor: 'pointer',
-                                    }}
-                                >
-                                    <span style={{
-                                        width: 8,
-                                        height: 8,
-                                        borderRadius: '50%',
-                                        background: track.isArmed ? 'var(--color-status-record)' : 'color-mix(in srgb, var(--color-control-tint) 38%, transparent)',
-                                        boxShadow: track.isArmed ? '0 0 6px color-mix(in srgb, var(--color-status-record) 80%, transparent)' : 'none',
-                                    }} />
-                                </button>
-                                <div
-                                    style={{
-                                        width: compactControlHeight,
-                                        height: compactControlHeight,
-                                        borderRadius: 'var(--radius-xs)',
-                                        border: '1px solid color-mix(in srgb, var(--text-primary) 10%, transparent)',
-                                        background: 'var(--surface-elevated)',
-                                    }}
-                                />
-                            </div>
-                        )}
-                        {!isGroup && onVolumeChange && (isMaster || !onPanChange) && (
+                    <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                        width: layout.faderColWidth,
+                        minWidth: layout.faderColWidth,
+                        maxWidth: layout.faderColWidth,
+                        minHeight: compactControlHeight * 2 + 4,
+                        justifyContent: 'center',
+                    }}>
+                        {onVolumeChange && (
                             <VolumeFader
                                 volumeLinear={track.volume}
                                 onVolumeChange={onVolumeChange}
@@ -2342,26 +2416,104 @@ const TrackRow = ({
                                 showZeroTick
                             />
                         )}
-                        {!isGroup && !isMaster && !onVolumeChange && onPanChange && (
+                        {!isMaster && onPanChange && (
                             <PanFader
                                 pan={track.pan}
                                 onPanChange={onPanChange}
                                 compact
                             />
                         )}
-
-                        {/* Tri-Color VU Meter — grayed out when track disabled */}
-                        {!isGroup && (
-                            <TriColorVU
-                                peakDb={track.vuLevel}
-                                isMidi={track.type === 'midi'}
-                                compact
-                                isEnabled={isEnabled}
-                                trackHeight={trackHeight}
-                            />
-                        )}
-                    </>
+                    </div>
                 )}
+
+                {/* Column 3: Arm + spacer (keeps grid stable) */}
+                {!isMaster && !isGroup ? (
+                    <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                        width: layout.armColWidth,
+                        minWidth: layout.armColWidth,
+                    }}>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onToggleArm(); }}
+                            title="Arm for recording"
+                            style={{
+                                width: layout.armColWidth,
+                                height: layout.armColWidth,
+                                borderRadius: 'var(--radius-xs)',
+                                border: '1px solid color-mix(in srgb, var(--text-primary) 12%, transparent)',
+                                background: track.isArmed
+                                    ? 'color-mix(in srgb, var(--color-status-record) 55%, transparent)'
+                                    : 'var(--surface-elevated)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: 0,
+                                cursor: 'pointer',
+                            }}
+                        >
+                            <span style={{
+                                width: 8,
+                                height: 8,
+                                borderRadius: '50%',
+                                background: track.isArmed ? 'var(--color-status-record)' : 'color-mix(in srgb, var(--color-control-tint) 38%, transparent)',
+                                boxShadow: track.isArmed ? '0 0 6px color-mix(in srgb, var(--color-status-record) 80%, transparent)' : 'none',
+                            }} />
+                        </button>
+                        <div
+                            aria-hidden
+                            style={{
+                                width: layout.armColWidth,
+                                height: layout.armColWidth,
+                                borderRadius: 'var(--radius-xs)',
+                                border: '1px solid color-mix(in srgb, var(--text-primary) 10%, transparent)',
+                                background: 'var(--surface-elevated)',
+                            }}
+                        />
+                    </div>
+                ) : (
+                    <div
+                        aria-hidden
+                        style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 4,
+                            width: layout.armColWidth,
+                            minWidth: layout.armColWidth,
+                        }}
+                    >
+                        <div
+                            style={{
+                                width: layout.armColWidth,
+                                height: layout.armColWidth,
+                                borderRadius: 'var(--radius-xs)',
+                                border: '1px solid color-mix(in srgb, var(--text-primary) 7%, transparent)',
+                                background: 'color-mix(in srgb, var(--surface-elevated) 85%, transparent)',
+                                opacity: 0.45,
+                            }}
+                        />
+                        <div
+                            style={{
+                                width: layout.armColWidth,
+                                height: layout.armColWidth,
+                                borderRadius: 'var(--radius-xs)',
+                                border: '1px solid color-mix(in srgb, var(--text-primary) 7%, transparent)',
+                                background: 'color-mix(in srgb, var(--surface-elevated) 85%, transparent)',
+                                opacity: 0.45,
+                            }}
+                        />
+                    </div>
+                )}
+
+                {/* Column 4: VU */}
+                <TriColorVU
+                    peakDb={track.vuLevel}
+                    isMidi={track.type === 'midi' && !isGroup}
+                    compact
+                    isEnabled={isMaster ? true : isEnabled}
+                    trackHeight={trackHeight}
+                />
             </div>
 
             {isGroupDropTarget && isGroup && (
@@ -2407,7 +2559,7 @@ const ColorPickerPopup = ({
     const clampedX = Math.min(x, window.innerWidth - popupWidth - 8);
     const clampedY = Math.min(y, window.innerHeight - popupHeight - 8);
 
-    return (
+    const node = (
         <div ref={ref} style={{
             position: 'fixed', left: clampedX, top: clampedY, width: popupWidth,
             background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border-subtle)',
@@ -2447,4 +2599,9 @@ const ColorPickerPopup = ({
             </div>
         </div>
     );
+
+    if (typeof document !== 'undefined' && document.body) {
+        return createPortal(node, document.body);
+    }
+    return node;
 };

@@ -24,7 +24,7 @@ fn set_audio_device(
     device_name: String,
     handle: tauri::State<'_, AudioEngineHandle>,
     settings_state: tauri::State<'_, SettingsState>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     restart_audio_engine_impl(device_name, handle, settings_state)
 }
 
@@ -32,15 +32,8 @@ fn restart_audio_engine_impl(
     device_name: String,
     handle: tauri::State<'_, AudioEngineHandle>,
     settings_state: tauri::State<'_, SettingsState>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     log::info!("Audio device change requested: '{}'", device_name);
-
-    // Persist selection immediately.
-    {
-        let mut settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
-        settings.output_device = device_name.clone();
-    }
-    settings_state.save_to_user_folder()?;
 
     // Build a fresh engine ring buffer and stream on requested device.
     let (new_producer, new_consumer) = rtrb::RingBuffer::<EngineCommand>::new(1024);
@@ -63,6 +56,8 @@ fn restart_audio_engine_impl(
         Some(device_name.as_str()),
     )
     .map_err(|e| format!("Failed to restart engine on '{}': {}", device_name, e))?;
+
+    let resolved_output_device = new_stream.output_device_name.clone();
 
     // Atomically replace queue producer first, then stream handle.
     {
@@ -97,11 +92,19 @@ fn restart_audio_engine_impl(
     }
     push_command(&handle, EngineCommand::SetPlay(snapshot.is_playing))?;
 
+    // Persist the resolved device only after successful hot-swap.
+    {
+        let mut settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+        settings.output_device = resolved_output_device.clone();
+    }
+    settings_state.save_to_user_folder()?;
+
     log::info!(
-        "Audio engine hot-swapped to output device '{}'",
-        device_name
+        "Audio engine hot-swapped: requested='{}', resolved='{}'",
+        device_name,
+        resolved_output_device
     );
-    Ok(())
+    Ok(resolved_output_device)
 }
 
 /// Explicit hot-restart command for audio engine on selected output device.
@@ -110,6 +113,6 @@ fn restart_audio_engine(
     device_name: String,
     handle: tauri::State<'_, AudioEngineHandle>,
     settings_state: tauri::State<'_, SettingsState>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     restart_audio_engine_impl(device_name, handle, settings_state)
 }

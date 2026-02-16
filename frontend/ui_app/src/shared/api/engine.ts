@@ -832,11 +832,11 @@ export const getAudioDevices = () =>
 
 /** Request engine to switch to a named audio device. */
 export const setAudioDevice = (deviceName: string) =>
-    invoke<void>('set_audio_device', { deviceName });
+    invoke<string>('set_audio_device', { deviceName });
 
 /** Force hot-restart audio engine on a named output device. */
 export const restartAudioEngine = (deviceName: string) =>
-    invoke<void>('restart_audio_engine', { deviceName });
+    invoke<string>('restart_audio_engine', { deviceName });
 
 // ── Plugin Window Management ────────────────────────────────────────────
 

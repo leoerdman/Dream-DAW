@@ -84,6 +84,7 @@ export const DawShell = () => {
     type MainViewMode = 'arrangement' | 'session';
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [selectedTrackId, setSelectedTrackId] = useState('');
+    const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
     const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
     const [selectedClipIds, setSelectedClipIds] = useState<string[]>([]);
     const [editCursorBeat, setEditCursorBeat] = useState(0);
@@ -266,8 +267,20 @@ export const DawShell = () => {
     const openSettings = useCallback(() => setSettingsOpen(true), []);
     const handleSelectTrack = useCallback((id: string) => {
         setSelectedTrackId(id);
+        setSelectedTrackIds(id && id !== 'master' ? [id] : []);
         const tracks = useEngineStore.getState().projectTracks;
         const index = tracks.findIndex((t) => t.id === id);
+        if (index >= 0) {
+            setEditCursorTrackIndex(index);
+        }
+    }, []);
+
+    const handleSelectTracks = useCallback((ids: string[], primaryId: string) => {
+        const cleaned = Array.from(new Set(ids)).filter((t) => t && t !== 'master');
+        setSelectedTrackIds(cleaned);
+        setSelectedTrackId(primaryId);
+        const tracks = useEngineStore.getState().projectTracks;
+        const index = tracks.findIndex((t) => t.id === primaryId);
         if (index >= 0) {
             setEditCursorTrackIndex(index);
         }
@@ -434,6 +447,15 @@ export const DawShell = () => {
         if (!selectedTrackId || selectedTrackId === 'master') return -1;
         return projectTracks.findIndex((t) => t.id === selectedTrackId);
     }, [projectTracks, selectedTrackId]);
+    const selectedTrackIndices = useMemo(() => {
+        const byId = new Map(projectTracks.map((t, i) => [t.id, i] as const));
+        const out: number[] = [];
+        for (const id of selectedTrackIds) {
+            const idx = byId.get(id);
+            if (typeof idx === 'number' && idx >= 0) out.push(idx);
+        }
+        return out;
+    }, [projectTracks, selectedTrackIds]);
     const selectedTimelineClip = useMemo(
         () => timelineClipsForView.find((c) => c.id === selectedClipId) ?? null,
         [timelineClipsForView, selectedClipId],
@@ -576,16 +598,19 @@ export const DawShell = () => {
         return () => window.removeEventListener('pointerup', onPointerUp);
     }, [flushTrackControlFinals, selectedTimelineClip, projectBpm, transport.bpm]);
 
-    // ── Shared layout constants (SSOT for height sync) ──────────────
+    // ── Track Height (Per-Selection) ───────────────────────────────
+    // Base height is the default row height. trackHeightPx is the current
+    // "expanded" height applied to selected tracks.
     const TRACK_HEIGHT_DEFAULT = 48;
     const TRACK_HEIGHT_MIN = 24;
     const TRACK_HEIGHT_MAX = 120;
     const TRACK_HEIGHT_STEP = 4;
-    const TRACK_HEIGHT = trackHeightPx;
+    const TRACK_HEIGHT_BASE = TRACK_HEIGHT_DEFAULT;
+    const TRACK_HEIGHT_SELECTED = trackHeightPx;
     const trackHeightReadyRef = useRef(false);
     const trackHeightSourceTrackRef = useRef<string | null>(null);
 
-    // Restore track row height from project data (persisted per track in .ddpj).
+    // Restore expanded height from the selected track (persisted per track in .ddpj).
     useEffect(() => {
         if (projectTracksSnapshot.length === 0) {
             trackHeightReadyRef.current = false;
@@ -593,14 +618,16 @@ export const DawShell = () => {
             return;
         }
 
-        const sourceTrackId = projectTracksSnapshot[0]?.id ?? null;
+        const sourceTrackId = (selectedTrackId && selectedTrackId !== 'master')
+            ? selectedTrackId
+            : (projectTracksSnapshot[0]?.id ?? null);
         const projectChanged = sourceTrackId !== trackHeightSourceTrackRef.current;
         if (projectChanged) {
             trackHeightReadyRef.current = false;
             trackHeightSourceTrackRef.current = sourceTrackId;
         }
 
-        const persisted = Number(projectTracksSnapshot[0]?.height ?? NaN);
+        const persisted = Number(projectTracksSnapshot.find((t) => t.id === sourceTrackId)?.height ?? NaN);
         const baseline = Number.isFinite(persisted) ? persisted : TRACK_HEIGHT_DEFAULT;
         const snapped = Math.round(baseline / TRACK_HEIGHT_STEP) * TRACK_HEIGHT_STEP;
         const clamped = Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, snapped));
@@ -610,7 +637,7 @@ export const DawShell = () => {
             trackHeightReadyRef.current = true;
         }, 0);
         return () => window.clearTimeout(readyId);
-    }, [projectTracksSnapshot]);
+    }, [projectTracksSnapshot, selectedTrackId]);
 
     const persistTrackHeightThrottledRef = useRef(
         throttle((trackIds: string[], heightPx: number) => {
@@ -622,10 +649,12 @@ export const DawShell = () => {
 
     useEffect(() => {
         if (!trackHeightReadyRef.current) return;
-        const trackIds = projectTracksSnapshot.map((t) => t.id);
+        const trackIds = selectedTrackIds.length > 0
+            ? selectedTrackIds
+            : (selectedTrackId && selectedTrackId !== 'master' ? [selectedTrackId] : []);
         if (trackIds.length === 0) return;
-        persistTrackHeightThrottledRef.current(trackIds, TRACK_HEIGHT);
-    }, [projectTracksSnapshot, TRACK_HEIGHT]);
+        persistTrackHeightThrottledRef.current(trackIds, TRACK_HEIGHT_SELECTED);
+    }, [selectedTrackIds, selectedTrackId, TRACK_HEIGHT_SELECTED]);
 
     useEffect(() => {
         return () => {
@@ -692,6 +721,11 @@ export const DawShell = () => {
             }
         };
     }, [TRACK_HEIGHT_DEFAULT]);
+
+    const timelineTrackHeights = useMemo(() => {
+        const selected = new Set(selectedTrackIds);
+        return projectTracksSnapshot.map((t) => (selected.has(t.id) ? TRACK_HEIGHT_SELECTED : TRACK_HEIGHT_BASE));
+    }, [projectTracksSnapshot, selectedTrackIds, TRACK_HEIGHT_SELECTED, TRACK_HEIGHT_BASE]);
 
     // ── Scroll sync between Timeline and TrackInspector ─────────────
     const [timelineScrollTop, setTimelineScrollTop] = useState(0);
@@ -988,6 +1022,7 @@ export const DawShell = () => {
                                         editCursorBeat={editCursorBeat}
                                         editCursorTrackIndex={editCursorTrackIndex}
                                         selectedTrackIndex={selectedTrackIndex}
+                                        selectedTrackIndices={selectedTrackIndices}
                                         isPlaying={transport.is_playing}
                                         recordingActive={recordingState.active}
                                         recordingTrackIndex={recordingState.trackIndex}
@@ -996,7 +1031,8 @@ export const DawShell = () => {
                                         loopEnd={(transport.loop_end / projectSampleRate) * ((projectBpm || transport.bpm || 120) / 60)}
                                         loopEnabled={transport.loop_enabled}
                                         trackCount={trackCount}
-                                        trackHeight={TRACK_HEIGHT}
+                                        trackHeight={TRACK_HEIGHT_BASE}
+                                        trackHeights={timelineTrackHeights}
                                         onPlayheadChange={handlePlayheadChange}
                                         onEditCursorChange={handleEditCursorChange}
                                         onMarqueeSelectionStart={handleMarqueeSelectionStart}
@@ -1056,8 +1092,11 @@ export const DawShell = () => {
                                     <Suspense fallback={null}>
                                         <TrackInspector
                                             selectedTrackId={selectedTrackId}
+                                            selectedTrackIds={selectedTrackIds}
+                                            onSelectTracks={handleSelectTracks}
                                             onSelectTrack={handleSelectTrack}
-                                            trackHeight={TRACK_HEIGHT}
+                                            trackHeight={TRACK_HEIGHT_BASE}
+                                            selectedTrackHeight={TRACK_HEIGHT_SELECTED}
                                             rulerHeight={RULER_HEIGHT}
                                             scrollTop={timelineScrollTop}
                                             mixerFocusMode={false}

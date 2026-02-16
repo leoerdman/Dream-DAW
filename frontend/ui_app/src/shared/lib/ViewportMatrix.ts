@@ -39,6 +39,8 @@ export interface ViewportConfig {
     totalBeats: number;
     trackCount: number;
     trackHeight: number;
+    /** Optional per-track heights (length == trackCount). */
+    trackHeights?: number[];
     rulerHeight: number;
     initialPpb?: number;
 }
@@ -72,6 +74,9 @@ export class ViewportMatrix {
     private _totalBeats: number;
     private _trackCount: number;
     private _trackHeight: number;
+    private _trackHeights: number[] | null = null;
+    /** Track boundary offsets in track-space (0..contentHeight). Length = trackCount + 1. */
+    private _trackOffsets: number[] = [];
     private _rulerHeight: number;
 
     // ── Dirty flag — signals TimelineEngine to re-draw ────────────────
@@ -88,6 +93,19 @@ export class ViewportMatrix {
         this._trackHeight = config.trackHeight;
         this._rulerHeight = config.rulerHeight;
         this._ppb = config.initialPpb ?? DEFAULT_PPB;
+        this.setTrackHeights(config.trackHeights ?? null);
+    }
+
+    /** Set per-track heights. Pass null to revert to uniform trackHeight. */
+    setTrackHeights(heights: number[] | null): void {
+        if (heights && heights.length !== this._trackCount) {
+            // Soft-fail: ignore invalid arrays to avoid corrupting camera math.
+            return;
+        }
+        this._trackHeights = heights ? heights.map((h) => Math.max(1, Math.round(h))) : null;
+        this._rebuildTrackOffsets();
+        this._clampScroll();
+        this._markDirty();
     }
 
     // ── Getters ───────────────────────────────────────────────────────
@@ -120,7 +138,30 @@ export class ViewportMatrix {
     }
 
     get canvasContentHeight(): number {
+        // Sum of per-track heights if available, else uniform.
+        if (this._trackOffsets.length === this._trackCount + 1) {
+            return this._trackOffsets[this._trackCount] ?? (this._trackCount * this._trackHeight);
+        }
         return this._trackCount * this._trackHeight;
+    }
+
+    /** Track top offset in track-space (0..contentHeight). */
+    trackOffsetY(trackIndex: number): number {
+        if (this._trackOffsets.length === this._trackCount + 1) {
+            return this._trackOffsets[Math.max(0, Math.min(this._trackCount, trackIndex))] ?? 0;
+        }
+        return Math.max(0, Math.min(this._trackCount, trackIndex)) * this._trackHeight;
+    }
+
+    /** Track boundary offset (0..trackCount). */
+    trackBoundaryOffsetY(boundaryIndex: number): number {
+        return this.trackOffsetY(boundaryIndex);
+    }
+
+    /** Height for a specific track. */
+    trackHeightAt(trackIndex: number): number {
+        const idx = Math.max(0, Math.min(this._trackCount - 1, trackIndex));
+        return this._trackHeights ? (this._trackHeights[idx] ?? this._trackHeight) : this._trackHeight;
     }
 
     // ── Viewport dimensions ───────────────────────────────────────────
@@ -149,11 +190,17 @@ export class ViewportMatrix {
             this._trackHeight = config.trackHeight;
             changed = true;
         }
+        if (config.trackHeights !== undefined) {
+            // Defer to setter so offsets rebuild consistently.
+            this.setTrackHeights(config.trackHeights ?? null);
+            changed = false; // setTrackHeights already clamped + marked dirty
+        }
         if (config.rulerHeight !== undefined && config.rulerHeight !== this._rulerHeight) {
             this._rulerHeight = config.rulerHeight;
             changed = true;
         }
         if (changed) {
+            this._rebuildTrackOffsets();
             this._clampScroll();
             this._markDirty();
         }
@@ -176,7 +223,7 @@ export class ViewportMatrix {
     screenToTrack(clientY: number, canvasRect: DOMRect): number {
         const localY = clientY - canvasRect.top;
         const trackY = localY + this._scrollY - this._rulerHeight;
-        return Math.max(0, Math.min(this._trackCount - 1, Math.floor(trackY / this._trackHeight)));
+        return this._trackIndexAtOffsetY(trackY);
     }
 
     /** Convert screen clientY → pixel Y in canvas content space. */
@@ -188,7 +235,7 @@ export class ViewportMatrix {
     beatTrackToPixel(beat: number, track: number): { x: number; y: number } {
         return {
             x: beat * this._ppb - this._scrollX,
-            y: this._rulerHeight + track * this._trackHeight - this._scrollY,
+            y: this._rulerHeight + this.trackOffsetY(track) - this._scrollY,
         };
     }
 
@@ -197,12 +244,40 @@ export class ViewportMatrix {
     getVisibleRange(): VisibleRange {
         const startBeat = Math.max(0, this._scrollX / this._ppb);
         const endBeat = (this._scrollX + this._viewportW) / this._ppb;
-        const startTrack = Math.max(0, Math.floor(this._scrollY / this._trackHeight));
-        const endTrack = Math.min(
-            this._trackCount - 1,
-            Math.floor((this._scrollY + this._viewportH) / this._trackHeight),
-        );
+        const trackViewportH = Math.max(0, this._viewportH - this._rulerHeight);
+        const startTrack = this._trackIndexAtOffsetY(this._scrollY);
+        const endTrack = this._trackIndexAtOffsetY(this._scrollY + trackViewportH);
         return { startBeat, endBeat, startTrack, endTrack };
+    }
+
+    private _rebuildTrackOffsets(): void {
+        const offsets: number[] = new Array(this._trackCount + 1);
+        offsets[0] = 0;
+        for (let i = 0; i < this._trackCount; i++) {
+            const h = this._trackHeights ? (this._trackHeights[i] ?? this._trackHeight) : this._trackHeight;
+            offsets[i + 1] = offsets[i] + Math.max(1, Math.round(h));
+        }
+        this._trackOffsets = offsets;
+    }
+
+    private _trackIndexAtOffsetY(offsetY: number): number {
+        if (this._trackCount <= 0) return 0;
+        const y = Math.max(0, Math.min(this.canvasContentHeight - 0.0001, offsetY));
+
+        // Binary search over boundary offsets.
+        const offsets = this._trackOffsets;
+        if (offsets.length !== this._trackCount + 1) {
+            return Math.max(0, Math.min(this._trackCount - 1, Math.floor(y / this._trackHeight)));
+        }
+
+        let lo = 0;
+        let hi = this._trackCount;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if ((offsets[mid + 1] ?? 0) <= y) lo = mid + 1;
+            else hi = mid;
+        }
+        return Math.max(0, Math.min(this._trackCount - 1, lo));
     }
 
     // ── Scroll ────────────────────────────────────────────────────────

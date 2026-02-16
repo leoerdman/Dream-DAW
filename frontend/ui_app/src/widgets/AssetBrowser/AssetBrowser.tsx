@@ -36,6 +36,7 @@ import {
 
 type BrowserIconName =
     | 'star'
+    | 'search'
     | 'folder-tree'
     | 'grid'
     | 'wave'
@@ -66,6 +67,7 @@ interface BrowserCategory {
     title: string;
     icon: BrowserIconName;
     kind: 'section' | 'leaf';
+    markerColor?: string;
     /** For user-added folders — the absolute path */
     folderPath?: string;
     /** Whether this folder can be removed (user-added) */
@@ -92,8 +94,10 @@ interface BrowserItem {
 // ── Static Categories ────────────────────────────────────
 
 const STATIC_CATEGORIES: BrowserCategory[] = [
-    { id: 'sec-collections', title: 'Collections', icon: 'star', kind: 'section' },
-    { id: 'favorites', title: 'Favorites', icon: 'star', kind: 'leaf' },
+    { id: 'sec-collections', title: 'Browser', icon: 'search', kind: 'section' },
+    { id: 'collection-red', title: 'Collection', icon: 'star', markerColor: '#ef4444', kind: 'leaf' },
+    { id: 'collection-yellow', title: 'Collection', icon: 'star', markerColor: '#f59e0b', kind: 'leaf' },
+    { id: 'collection-green', title: 'Collection', icon: 'star', markerColor: '#22c55e', kind: 'leaf' },
 
     { id: 'sec-library', title: 'Library', icon: 'folder-tree', kind: 'section' },
     { id: 'all', title: 'All', icon: 'grid', kind: 'leaf' },
@@ -138,6 +142,31 @@ function detectPluginSource(raw: string): BrowserItem['pluginSource'] {
     if (norm.includes('.vst') || norm.includes('vst2') || norm.includes(' vst ')) return 'vst2';
     if (norm.includes('.component') || norm.includes(' audio unit') || norm.includes(' au ')) return 'au';
     return 'external';
+}
+
+function isLikelyInstrumentPlugin(item: BrowserItem): boolean {
+    const text = `${item.name} ${item.meta ?? ''} ${item.format ?? ''}`.toLowerCase();
+    return (
+        text.includes('synth')
+        || text.includes('serum')
+        || text.includes('piano')
+        || text.includes('sampler')
+        || text.includes('kontakt')
+        || text.includes('instrument')
+    );
+}
+
+function isLikelyDrumAudio(item: BrowserItem): boolean {
+    const text = item.name.toLowerCase();
+    return (
+        text.includes('kick')
+        || text.includes('snare')
+        || text.includes('clap')
+        || text.includes('hihat')
+        || text.includes('hat')
+        || text.includes('drum')
+        || text.includes('perc')
+    );
 }
 
 const PLUGIN_SOURCE_ORDER: Array<NonNullable<BrowserItem['pluginSource']>> = [
@@ -285,6 +314,11 @@ export const AssetBrowser = () => {
     const [showSizeColumn, setShowSizeColumn] = useState(settings.browserShowSizeColumn);
     const [showTypeColumn, setShowTypeColumn] = useState(settings.browserShowTypeColumn);
     const [columnMenuPos, setColumnMenuPos] = useState<{ x: number; y: number } | null>(null);
+    const [collectionLabels, setCollectionLabels] = useState<Record<string, string>>({
+        'collection-red': 'Collection',
+        'collection-yellow': 'Collection',
+        'collection-green': 'Collection',
+    });
     const [previewEnabled, setPreviewEnabled] = useState(true);
     const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
     const [leftPaneWidth, setLeftPaneWidth] = useState(settings.browserLeftPaneWidth);
@@ -306,6 +340,7 @@ export const AssetBrowser = () => {
     const leftPaneWidthRef = useRef(leftPaneWidth);
     const itemRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const columnMenuRef = useRef<HTMLDivElement>(null);
+    const [currentProjectFolder, setCurrentProjectFolder] = useState<string | null>(null);
 
     useEffect(() => {
         leftPaneWidthRef.current = leftPaneWidth;
@@ -332,16 +367,23 @@ export const AssetBrowser = () => {
             };
         });
 
+        const staticWithCollections = STATIC_CATEGORIES.map((cat) => {
+            if (!cat.id.startsWith('collection-')) return cat;
+            return {
+                ...cat,
+                title: collectionLabels[cat.id] ?? cat.title,
+            };
+        });
+
         return [
-            ...STATIC_CATEGORIES,
-            { id: 'sec-places', title: 'Places', icon: 'hard-drive', kind: 'section' as const },
-            { id: 'packs', title: 'Packs', icon: 'package', kind: 'leaf' as const },
+            ...staticWithCollections,
+            { id: 'sec-folders', title: 'Folders', icon: 'hard-drive', kind: 'section' as const },
             { id: 'userLibrary', title: 'User Lib…', icon: 'user', kind: 'leaf' as const },
             { id: 'currentProject', title: 'Current…', icon: 'file', kind: 'leaf' as const },
             ...folderCats,
             { id: 'addFolder', title: 'Add Fol…', icon: 'folder-plus', kind: 'leaf' as const },
         ];
-    }, [userFolders]);
+    }, [userFolders, collectionLabels]);
 
     // Keyboard shortcut
     useEffect(() => {
@@ -384,6 +426,23 @@ export const AssetBrowser = () => {
             window.removeEventListener('dream:browser-set-search', setBrowserSearch as EventListener);
         };
     }, []);
+
+    useEffect(() => {
+        if (selectedCategoryId !== 'currentProject') return;
+        let mounted = true;
+        void engineApi.getProjectStatus()
+            .then((status) => {
+                if (!mounted) return;
+                setCurrentProjectFolder(status.projectFolder ?? null);
+            })
+            .catch(() => {
+                if (!mounted) return;
+                setCurrentProjectFolder(null);
+            });
+        return () => {
+            mounted = false;
+        };
+    }, [selectedCategoryId]);
 
     useEffect(() => {
         if (!settingsLoaded) return;
@@ -482,13 +541,22 @@ export const AssetBrowser = () => {
     // ── Plugin scanning ──
     const [pluginFiles, setPluginFiles] = useState<BrowserFileEntry[]>([]);
     const [pluginScanNonce, setPluginScanNonce] = useState(0);
+    const [pluginScanned, setPluginScanned] = useState(false);
 
     const triggerPluginScan = useCallback(() => {
         setPluginScanNonce((prev) => prev + 1);
     }, []);
 
     useEffect(() => {
-        if (selectedCategoryId !== 'plugins') return;
+        const needsPluginCatalog = selectedCategoryId === 'plugins'
+            || selectedCategoryId === 'all'
+            || selectedCategoryId === 'instruments'
+            || selectedCategoryId === 'audioEffects';
+        if (!needsPluginCatalog) return;
+
+        const forceRescan = selectedCategoryId === 'plugins' || pluginScanNonce > 0;
+        if (pluginScanned && !forceRescan) return;
+
         let cancelled = false;
         Promise.resolve().then(() => {
             if (cancelled) return;
@@ -500,6 +568,7 @@ export const AssetBrowser = () => {
             .then(files => {
                 if (cancelled) return;
                 setPluginFiles(files);
+                setPluginScanned(true);
                 setScanLoading(false);
             })
             .catch(err => {
@@ -512,7 +581,7 @@ export const AssetBrowser = () => {
         return () => {
             cancelled = true;
         };
-    }, [selectedCategoryId, pluginScanNonce]);
+    }, [selectedCategoryId, pluginScanNonce, pluginScanned]);
 
     const handleSetPluginFolder = useCallback(async (target: 'vst2Path' | 'vst3Path') => {
         try {
@@ -532,9 +601,14 @@ export const AssetBrowser = () => {
     const [folderScanPath, setFolderScanPath] = useState<string | null>(null);
 
     const activeCategory = categories.find(c => c.id === selectedCategoryId);
+    const userLibraryFolder = settings.userFolderPath?.trim() || null;
     const activeFolderPath = folderStack.length > 0
         ? folderStack[folderStack.length - 1]
-        : activeCategory?.folderPath || null;
+        : selectedCategoryId === 'currentProject'
+            ? currentProjectFolder
+            : selectedCategoryId === 'userLibrary'
+                ? userLibraryFolder
+                : activeCategory?.folderPath || null;
 
     useEffect(() => {
         if (!activeFolderPath || activeFolderPath === folderScanPath) return;
@@ -629,34 +703,47 @@ export const AssetBrowser = () => {
         } else {
             switch (selectedCategoryId) {
                 case 'all':
-                    // "All" shows library audio + internal plugins only.
-                    // Third-party plugins are intentionally isolated in "Plug-Ins".
                     base = [
                         ...realBrowserItems,
                         ...INTERNAL_INSTRUMENT_ITEMS,
                         ...INTERNAL_EFFECT_ITEMS,
+                        ...pluginBrowserItems,
                     ].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
                     break;
                 case 'samples':
-                case 'sounds':
-                case 'drums':
                     base = realBrowserItems;
+                    break;
+                case 'sounds':
+                    base = realBrowserItems.filter((i) => !isLikelyDrumAudio(i));
+                    break;
+                case 'drums':
+                    base = realBrowserItems.filter((i) => isLikelyDrumAudio(i));
                     break;
                 case 'plugins':
                     base = [...INTERNAL_INSTRUMENT_ITEMS, ...INTERNAL_EFFECT_ITEMS, ...pluginBrowserItems];
                     break;
                 case 'audioEffects':
-                    base = [...INTERNAL_EFFECT_ITEMS];
+                    base = [...INTERNAL_EFFECT_ITEMS, ...pluginBrowserItems.filter((p) => !isLikelyInstrumentPlugin(p))];
                     break;
                 case 'instruments':
-                    base = [...INTERNAL_INSTRUMENT_ITEMS];
+                    base = [...INTERNAL_INSTRUMENT_ITEMS, ...pluginBrowserItems.filter((p) => isLikelyInstrumentPlugin(p))];
                     break;
-                case 'favorites':
+                case 'collection-red':
+                case 'collection-yellow':
+                case 'collection-green':
                     base = realBrowserItems.filter(i => i.favorite);
+                    break;
+                case 'currentProject':
+                case 'userLibrary':
+                    base = folderBrowserItems;
                     break;
                 default:
                     base = realBrowserItems;
             }
+        }
+
+        if (selectedCategoryId === 'all') {
+            base = base.filter((i) => i.type !== 'project');
         }
 
         if (searchQuery.trim()) {
@@ -1190,59 +1277,64 @@ export const AssetBrowser = () => {
                     {categories.map(cat => {
                         // Section header
                         if (cat.kind === 'section') {
-                            const collapsed = collapsedSections.has(cat.id);
+                            const collapsed = cat.id === 'sec-collections' ? false : collapsedSections.has(cat.id);
                             currentSection = cat.id;
+                            const addTopGap = cat.id === 'sec-library' || cat.id === 'sec-folders';
+                            const isBrowserSection = cat.id === 'sec-collections';
                             return (
-                                <button
-                                    key={cat.id}
-                                    onClick={() => toggleSection(cat.id)}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 4,
-                                        width: '100%',
-                                        padding: '3px 4px 3px 12px',
-                                        background: 'none',
-                                        border: 'none',
-                                        color: 'var(--color-text-primary)',
-                                        fontSize: 'var(--font-size-sm)',
-                                        fontWeight: 700,
-                                        textTransform: 'uppercase',
-                                        letterSpacing: '0.04em',
-                                        cursor: 'pointer',
-                                        opacity: 0.9,
-                                    }}
-                                >
-                                    <span style={{ width: 14, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
-                                        <BrowserGlyph name={cat.icon} size={11} />
-                                    </span>
-                                    <span style={{
-                                        flex: 1,
-                                        minWidth: 0,
-                                        textAlign: 'left',
-                                    }}>
-                                        {cat.title}
-                                    </span>
-                                    <svg
-                                        width="9"
-                                        height="9"
-                                        viewBox="0 0 9 9"
+                                <div key={cat.id} style={{ marginTop: addTopGap ? 10 : 0 }}>
+                                    <button
+                                        onClick={isBrowserSection ? undefined : () => toggleSection(cat.id)}
                                         style={{
-                                            flexShrink: 0,
-                                            opacity: 0.78,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 4,
+                                            width: '100%',
+                                            padding: '3px 6px 3px 12px',
+                                            background: 'none',
+                                            border: 'none',
+                                            color: '#ffffff',
+                                            fontSize: 'var(--font-size-sm)',
+                                            fontWeight: 700,
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.04em',
+                                            cursor: isBrowserSection ? 'default' : 'pointer',
+                                            opacity: 0.9,
                                         }}
-                                        aria-hidden
                                     >
-                                        <polyline
-                                            points={collapsed ? '2,1 6,4.5 2,8' : '1,2 4.5,6 8,2'}
-                                            fill="none"
-                                            stroke="currentColor"
-                                            strokeWidth="1.4"
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                        />
-                                    </svg>
-                                </button>
+                                        <span style={{ width: 14, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
+                                            <BrowserGlyph name={cat.icon} size={11} />
+                                        </span>
+                                        <span style={{
+                                            flex: 1,
+                                            minWidth: 0,
+                                            textAlign: 'left',
+                                        }}>
+                                            {cat.title}
+                                        </span>
+                                        {!isBrowserSection && (
+                                            <svg
+                                                width="9"
+                                                height="9"
+                                                viewBox="0 0 9 9"
+                                                style={{
+                                                    flexShrink: 0,
+                                                    opacity: 0.78,
+                                                }}
+                                                aria-hidden
+                                            >
+                                                <polyline
+                                                    points={collapsed ? '2,1 6,4.5 2,8' : '1,2 4.5,6 8,2'}
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    strokeWidth="1.4"
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                />
+                                            </svg>
+                                        )}
+                                    </button>
+                                </div>
                             );
                         }
 
@@ -1266,7 +1358,7 @@ export const AssetBrowser = () => {
                                         padding: '2px 4px 2px 12px',
                                         background: 'transparent',
                                         border: 'none',
-                                        color: 'var(--color-accent-primary)',
+                                        color: '#ffffff',
                                         fontSize: 'var(--font-size-base)',
                                         fontWeight: 600,
                                         textAlign: 'left',
@@ -1296,7 +1388,15 @@ export const AssetBrowser = () => {
                                     if (cat.folderPath && confirm(`Remove "${cat.title}" from browser?`)) {
                                         handleRemoveFolder(cat.folderPath);
                                     }
-                                } : undefined}
+                                } : (cat.id.startsWith('collection-') ? (e) => {
+                                    e.preventDefault();
+                                    const next = window.prompt('Rename collection', cat.title)?.trim();
+                                    if (!next) return;
+                                    setCollectionLabels((prev) => ({
+                                        ...prev,
+                                        [cat.id]: next,
+                                    }));
+                                } : undefined)}
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
@@ -1305,7 +1405,7 @@ export const AssetBrowser = () => {
                                     padding: '2px 4px 2px 12px',
                                     background: isSelected ? 'var(--color-bg-selected)' : 'transparent',
                                     border: 'none',
-                                    color: isSelected ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                                    color: '#ffffff',
                                     fontSize: 'var(--font-size-base)',
                                     fontWeight: isSelected ? 600 : 500,
                                     textAlign: 'left',
@@ -1314,8 +1414,20 @@ export const AssetBrowser = () => {
                                     lineHeight: 1.9,
                                 }}
                             >
-                                <span style={{ width: 14, display: 'inline-flex', justifyContent: 'center', flexShrink: 0, color: 'var(--color-text-primary)' }}>
-                                    <BrowserGlyph name={cat.icon} size={12} />
+                                <span style={{ width: 14, display: 'inline-flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0, color: '#ffffff' }}>
+                                    {cat.markerColor ? (
+                                        <span
+                                            style={{
+                                                width: 7,
+                                                height: 7,
+                                                borderRadius: '50%',
+                                                background: cat.markerColor,
+                                                boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.28)',
+                                            }}
+                                        />
+                                    ) : (
+                                        <BrowserGlyph name={cat.icon} size={12} />
+                                    )}
                                 </span>
                                 <span style={{
                                     whiteSpace: 'nowrap',
@@ -2180,6 +2292,8 @@ const BrowserGlyph = ({
     switch (name) {
         case 'star':
             return <svg {...commonProps}><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z" /></svg>;
+        case 'search':
+            return <svg {...commonProps}><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>;
         case 'folder-tree':
             return <svg {...commonProps}><path d="M3 19h7M3 12h7M3 5h7M10 12h4v7h7" /><path d="M14 19h7" /></svg>;
         case 'grid':

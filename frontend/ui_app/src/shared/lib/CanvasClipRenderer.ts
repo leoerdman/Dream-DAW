@@ -150,6 +150,7 @@ export class CanvasClipRenderer {
         editCursorBeat: number,
         editCursorTrack: number,
         selectedTrack: number,
+        selectedTracks: number[],
         loop: LoopRegion | null,
         beatsPerBar: number,
         snapBeats: number,
@@ -187,7 +188,7 @@ export class CanvasClipRenderer {
         ctx.rect(0, vp.rulerHeight, w, h - vp.rulerHeight);
         ctx.clip();
 
-        this._drawTrackBackgrounds(ctx, vp, theme, selectedTrack);
+        this._drawTrackBackgrounds(ctx, vp, theme, selectedTrack, selectedTracks);
         this._drawGrid(ctx, vp, range, beatsPerBar, snapBeats, theme);
         this._drawLoopRegion(ctx, vp, loop, theme);
         this._drawClips(ctx, vp, clips, range, sampleRate);
@@ -205,21 +206,31 @@ export class CanvasClipRenderer {
         ctx.restore(); // ← Pop DPR scale (matches ctx.save() above)
     }
 
-    private _drawTrackBackgrounds(ctx: CanvasRenderingContext2D, vp: ViewportMatrix, theme: TimelineTheme, selectedTrack: number): void {
+    private _drawTrackBackgrounds(
+        ctx: CanvasRenderingContext2D,
+        vp: ViewportMatrix,
+        theme: TimelineTheme,
+        selectedTrack: number,
+        selectedTracks: number[],
+    ): void {
         const rulerH = vp.rulerHeight;
-        const trackH = vp.trackHeight;
 
         // Fill the entire track area with the default track color
         ctx.fillStyle = theme.trackDefault;
         ctx.fillRect(0, rulerH, vp.viewportWidth, vp.viewportHeight - rulerH);
 
-        // Highlight only the selected track
-        if (selectedTrack >= 0) {
-            const y = rulerH + selectedTrack * trackH - vp.scrollY;
-            if (y + trackH >= rulerH && y <= vp.viewportHeight) {
-                ctx.fillStyle = theme.trackSelected;
-                ctx.fillRect(0, Math.max(rulerH, y), vp.viewportWidth, trackH);
-            }
+        // Highlight selected tracks (primary gets stronger)
+        const list = (selectedTracks && selectedTracks.length > 0) ? selectedTracks : (selectedTrack >= 0 ? [selectedTrack] : []);
+        for (const t of list) {
+            if (t < 0) continue;
+            const y = rulerH + vp.trackOffsetY(t) - vp.scrollY;
+            const h = vp.trackHeightAt(t);
+            if (y + h < rulerH || y > vp.viewportHeight) continue;
+            ctx.save();
+            ctx.globalAlpha = (t === selectedTrack) ? 1.0 : 0.55;
+            ctx.fillStyle = theme.trackSelected;
+            ctx.fillRect(0, Math.max(rulerH, y), vp.viewportWidth, h);
+            ctx.restore();
         }
     }
 
@@ -236,7 +247,6 @@ export class CanvasClipRenderer {
         theme: TimelineTheme,
     ): void {
         const ppb = vp.pixelsPerBeat;
-        const trackH = vp.trackHeight;
         const rulerH = vp.rulerHeight;
 
         // ── Vertical grid lines ──────────────────────────────────────
@@ -270,7 +280,7 @@ export class CanvasClipRenderer {
         ctx.strokeStyle = theme.trackDivider;
         ctx.lineWidth = 1;
         for (let i = 0; i <= vp.trackCount; i++) {
-            const y = rulerH + i * trackH - vp.scrollY;
+            const y = rulerH + vp.trackBoundaryOffsetY(i) - vp.scrollY;
             if (y < rulerH - 1 || y > vp.viewportHeight + 1) continue;
             ctx.beginPath();
             ctx.moveTo(0, Math.round(y));
@@ -452,10 +462,10 @@ export class CanvasClipRenderer {
         sampleRate: number,
     ): void {
         const ppb = vp.pixelsPerBeat;
-        const trackH = vp.trackHeight;
+        const trackH = vp.trackHeightAt(clip.trackIndex);
 
         const x = vp.beatsToScreenX(clip.startBeat);
-        const y = vp.rulerHeight + clip.trackIndex * trackH - vp.scrollY;
+        const y = vp.rulerHeight + vp.trackOffsetY(clip.trackIndex) - vp.scrollY;
         const w = clip.durationBeats * ppb;
         const h = trackH - 2; // 1px gap top and bottom
 
@@ -827,7 +837,7 @@ export class CanvasClipRenderer {
         const x = vp.beatsToScreenX(beat);
         if (x < -2 || x > vp.viewportWidth + 2) return;
 
-        const y = vp.rulerHeight + track * vp.trackHeight - vp.scrollY;
+        const y = vp.rulerHeight + vp.trackOffsetY(track) - vp.scrollY;
         const cursorX = Math.round(x) + 0.5;
 
         // Solid bright white line with slow, smooth breathing alpha.
@@ -842,7 +852,7 @@ export class CanvasClipRenderer {
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(cursorX, Math.max(vp.rulerHeight, y));
-        ctx.lineTo(cursorX, y + vp.trackHeight);
+        ctx.lineTo(cursorX, y + vp.trackHeightAt(track));
         ctx.stroke();
         ctx.restore();
     }
@@ -893,9 +903,9 @@ export class CanvasClipRenderer {
         if (!target) return;
 
         const x = vp.beatsToScreenX(target.beat);
-        const y = vp.rulerHeight + target.track * vp.trackHeight - vp.scrollY;
+        const y = vp.rulerHeight + vp.trackOffsetY(target.track) - vp.scrollY;
         const w = vp.pixelsPerBeat * 4; // 1 bar default width
-        const h = vp.trackHeight;
+        const h = vp.trackHeightAt(target.track);
 
         ctx.fillStyle = DROP_TARGET_COLOR;
         ctx.fillRect(x, y, w, h);
@@ -919,8 +929,8 @@ export class CanvasClipRenderer {
         const x2 = vp.beatsToScreenX(Math.max(marquee.startBeat, marquee.endBeat));
         const minTrack = Math.min(marquee.startTrack, marquee.endTrack);
         const maxTrack = Math.max(marquee.startTrack, marquee.endTrack);
-        const y1 = vp.rulerHeight + minTrack * vp.trackHeight - vp.scrollY;
-        const y2 = vp.rulerHeight + (maxTrack + 1) * vp.trackHeight - vp.scrollY;
+        const y1 = vp.rulerHeight + vp.trackBoundaryOffsetY(minTrack) - vp.scrollY;
+        const y2 = vp.rulerHeight + vp.trackBoundaryOffsetY(maxTrack + 1) - vp.scrollY;
 
         // Fill
         ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
@@ -957,9 +967,9 @@ export class CanvasClipRenderer {
         if (!ghost) return;
 
         const x = vp.beatsToScreenX(ghost.beat);
-        const y = vp.rulerHeight + ghost.trackIndex * vp.trackHeight - vp.scrollY;
+        const y = vp.rulerHeight + vp.trackOffsetY(ghost.trackIndex) - vp.scrollY;
         const w = ghost.widthBeats * vp.pixelsPerBeat;
-        const h = vp.trackHeight - 2;
+        const h = vp.trackHeightAt(ghost.trackIndex) - 2;
         const r = Math.min(CLIP_RADIUS, w / 2, h / 2);
 
         ctx.save();

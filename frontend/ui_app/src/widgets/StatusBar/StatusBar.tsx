@@ -131,7 +131,7 @@ export const StatusBar = ({
                                 style={panelModeBtnStyle(panelMode === 'rack')}
                                 title="Instrument & Effects Chain (Shift+Tab)"
                             >
-                                Panel: Rack
+                                Rack
                             </button>
                             <button
                                 type="button"
@@ -139,7 +139,7 @@ export const StatusBar = ({
                                 style={panelModeBtnStyle(panelMode === 'clip')}
                                 title="Clip Editor (Shift+Tab)"
                             >
-                                Panel: Clip
+                                Clip
                             </button>
                         </div>
                     )}

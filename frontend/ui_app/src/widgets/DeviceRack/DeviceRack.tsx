@@ -426,8 +426,6 @@ export const DeviceRack = ({
     const [externalParamsBySlotId, setExternalParamsBySlotId] = useState<Record<string, PluginParam[]>>({});
     const [inlineSettingsOpen, setInlineSettingsOpen] = useState<Record<string, boolean>>({});
     const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
-    const [deviceSearch, setDeviceSearch] = useState('');
-    const [deviceFilter, setDeviceFilter] = useState<'all' | 'instrument' | 'effect' | 'vst'>('all');
     const [paramSnapshotsByDevice, setParamSnapshotsByDevice] = useState<
         Record<string, { A?: Record<string, number>; B?: Record<string, number>; active?: 'A' | 'B' }>
     >({});
@@ -491,12 +489,6 @@ export const DeviceRack = ({
         : trackIndex >= 0 && meters.tracks[trackIndex]
             ? vuNorm(meters.tracks[trackIndex][1].peak)
             : 0;
-
-    const trackName = isMaster
-        ? 'Master'
-        : trackIndex >= 0
-            ? projectTracks[trackIndex].name
-            : 'No Track';
 
     const masterProjectTrack = useMemo(
         () => projectTracks.find((t) => t.track_type === 'Master') ?? null,
@@ -1304,21 +1296,7 @@ export const DeviceRack = ({
         });
     }, []);
 
-    const visibleChain = useMemo(() => {
-        const query = deviceSearch.trim().toLowerCase();
-        return chain.filter((d) => {
-            const isInstrument = d.effectType === 'instrument' || d.effectType === 'sampler' || d.effectType === 'waveSynth';
-            if (deviceFilter === 'vst' && !d.isVst) return false;
-            if (deviceFilter === 'instrument' && !isInstrument) return false;
-            if (deviceFilter === 'effect' && isInstrument) return false;
-            if (!query) return true;
-            return (
-                d.name.toLowerCase().includes(query)
-                || d.effectType.toLowerCase().includes(query)
-                || d.pluginId.toLowerCase().includes(query)
-            );
-        });
-    }, [chain, deviceSearch, deviceFilter]);
+    const visibleChain = chain;
 
     const setBypassSelected = useCallback((enabled: boolean) => {
         const selectedSet = new Set(selectedDeviceIds);
@@ -1351,57 +1329,27 @@ export const DeviceRack = ({
 
                 <div style={{
                     display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
-                    padding: '6px 10px',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '4px 10px',
                     borderBottom: '1px solid var(--color-divider)',
                     background: 'var(--color-bg-header)',
+                    minHeight: 24,
                     flexShrink: 0,
                 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                        <span style={{
-                            fontSize: 'var(--font-size-2xs)',
-                            fontWeight: 600,
-                            color: 'var(--color-text-secondary)',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.05em',
-                        }}>
-                            {trackName} - Instrument & Effects Chain - {visibleChain.length}/{chain.length}
-                        </span>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                            <button onClick={() => setBypassSelected(true)} style={headerIconBtnStyle(selectedDeviceIds.length === 0)} disabled={selectedDeviceIds.length === 0}>On</button>
-                            <button onClick={() => setBypassSelected(false)} style={headerIconBtnStyle(selectedDeviceIds.length === 0)} disabled={selectedDeviceIds.length === 0}>Byp</button>
-                            <button onClick={() => setInlineSettingsOpen({})} style={headerIconBtnStyle(false)}>Fold</button>
-                        </div>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
-                        <input
-                            value={deviceSearch}
-                            onChange={(e) => setDeviceSearch(e.target.value)}
-                            placeholder="Search plugins..."
-                            style={{
-                                flex: 1,
-                                minWidth: 120,
-                                height: 22,
-                                borderRadius: 'var(--radius-md)',
-                                border: '1px solid var(--color-divider)',
-                                background: 'var(--color-bg-panel)',
-                                color: 'var(--color-text-primary)',
-                                fontSize: 'var(--font-size-2xs)',
-                                padding: '0 8px',
-                                outline: 'none',
-                            }}
-                        />
-                        {(['all', 'instrument', 'effect', 'vst'] as const).map((f) => (
-                            <button
-                                key={f}
-                                onClick={() => setDeviceFilter(f)}
-                                style={headerIconBtnStyle(false, deviceFilter === f)}
-                            >
-                                {f === 'all' ? 'All' : f === 'instrument' ? 'Inst' : f === 'effect' ? 'FX' : 'VST'}
-                            </button>
-                        ))}
+                    <span style={{
+                        fontSize: 'var(--font-size-2xs)',
+                        fontWeight: 700,
+                        color: 'var(--color-text-secondary)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                    }}>
+                        Device Chain · {chain.length}
+                    </span>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                        <button onClick={() => setBypassSelected(true)} style={headerIconBtnStyle(selectedDeviceIds.length === 0)} disabled={selectedDeviceIds.length === 0}>On</button>
+                        <button onClick={() => setBypassSelected(false)} style={headerIconBtnStyle(selectedDeviceIds.length === 0)} disabled={selectedDeviceIds.length === 0}>Byp</button>
+                        <button onClick={() => setInlineSettingsOpen({})} style={headerIconBtnStyle(false)}>Fold</button>
                     </div>
                 </div>
 
@@ -1570,7 +1518,7 @@ export const DeviceRack = ({
                                 fontWeight: 500,
                                 letterSpacing: '0.03em',
                             }}>
-                                {chain.length > 0 ? 'No plugins match current filter' : 'Drop Files and Devices Here'}
+                                Drop Files and Devices Here
                             </span>
                         </div>
                     )}
@@ -1578,8 +1526,8 @@ export const DeviceRack = ({
                     {/* Add device button */}
                     <button
                         onClick={() => {
-                            window.dispatchEvent(new CustomEvent('dream:browser-focus-search', {
-                                detail: { categoryId: 'plugins' },
+                            window.dispatchEvent(new CustomEvent('dream:browser-set-search', {
+                                detail: { categoryId: 'plugins', query: '' },
                             }));
                             statusClear();
                         }}

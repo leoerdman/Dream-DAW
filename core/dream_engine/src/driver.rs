@@ -28,7 +28,7 @@ use dream_graph::{
     AudioDag, AudioNode, ExecutionPlan, GraphBuilder, GraphRenderer, LiveGraph, NodeId, NodeKind,
 };
 use dream_plugins::{PluginHost, TransportContext};
-use log::{error, info};
+use log::{error, info, warn};
 use uuid::Uuid;
 
 use dream_clip_engine::midi_scheduler::{MidiScheduler, ScheduledNote};
@@ -994,6 +994,9 @@ pub struct AudioStreamHandle {
     /// The frontend subtracts this from the MasterClock position so the
     /// visual playhead aligns with the audio actually reaching the speakers.
     pub output_latency_frames: u32,
+
+    /// Resolved output device name that the stream is actually bound to.
+    pub output_device_name: String,
 }
 
 // ── Error Type ──────────────────────────────────────────────────────────
@@ -1107,20 +1110,33 @@ pub fn start_audio_thread_on_device(
     let host = cpal::default_host();
     info!("Audio host: {:?}", host.id());
 
-    let device = if let Some(wanted_name) = preferred_output_device {
-        let mut found = None;
-        if let Ok(mut outputs) = host.output_devices() {
-            found = outputs.find(|dev| {
-                dev.description()
-                    .map(|d| d.name().to_string())
-                    .ok()
-                    .as_deref()
-                    == Some(wanted_name)
-            });
+    let requested_device_name = preferred_output_device.map(str::trim).filter(|s| !s.is_empty());
+
+    let device = if let Some(wanted_name) = requested_device_name {
+        if wanted_name.eq_ignore_ascii_case("Default Output") {
+            host.default_output_device()
+                .ok_or(AudioDriverError::NoOutputDevice)?
+        } else {
+            let mut found = None;
+            if let Ok(mut outputs) = host.output_devices() {
+                found = outputs.find(|dev| {
+                    dev.description()
+                        .map(|d| d.name().to_string())
+                        .ok()
+                        .as_deref()
+                        == Some(wanted_name)
+                });
+            }
+            found
+                .or_else(|| {
+                    warn!(
+                        "Requested output device '{}' not found; falling back to system default",
+                        wanted_name
+                    );
+                    host.default_output_device()
+                })
+                .ok_or(AudioDriverError::NoOutputDevice)?
         }
-        found
-            .or_else(|| host.default_output_device())
-            .ok_or(AudioDriverError::NoOutputDevice)?
     } else {
         host.default_output_device()
             .ok_or(AudioDriverError::NoOutputDevice)?
@@ -1130,6 +1146,17 @@ pub fn start_audio_thread_on_device(
         .description()
         .map(|d| d.name().to_string())
         .unwrap_or_else(|_| String::from("Unknown Device"));
+
+    if let Some(wanted) = requested_device_name
+        && !wanted.eq_ignore_ascii_case("Default Output")
+        && wanted != device_name
+    {
+        warn!(
+            "Output device '{}' resolved to '{}'",
+            wanted, device_name
+        );
+    }
+
     info!("Output device: {}", device_name);
 
     // ── 2. Config ───────────────────────────────────────────────────
@@ -2439,6 +2466,7 @@ pub fn start_audio_thread_on_device(
     Ok(AudioStreamHandle {
         _stream: stream,
         output_latency_frames,
+        output_device_name: device_name,
     })
 }
 
@@ -2454,7 +2482,7 @@ pub fn start_audio_thread_on_device(
 pub fn list_audio_devices() -> (Vec<String>, Vec<String>) {
     let host = cpal::default_host();
 
-    let outputs: Vec<String> = host
+    let mut outputs: Vec<String> = host
         .output_devices()
         .map(|devices| {
             devices
@@ -2463,7 +2491,7 @@ pub fn list_audio_devices() -> (Vec<String>, Vec<String>) {
         })
         .unwrap_or_default();
 
-    let inputs: Vec<String> = host
+    let mut inputs: Vec<String> = host
         .input_devices()
         .map(|devices| {
             devices
@@ -2471,6 +2499,14 @@ pub fn list_audio_devices() -> (Vec<String>, Vec<String>) {
                 .collect()
         })
         .unwrap_or_default();
+
+    outputs.sort();
+    outputs.dedup();
+    inputs.sort();
+    inputs.dedup();
+
+    outputs.insert(0, String::from("Default Output"));
+    inputs.insert(0, String::from("Default Input"));
 
     info!(
         "Audio devices: {} outputs, {} inputs",

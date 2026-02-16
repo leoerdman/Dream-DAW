@@ -292,7 +292,13 @@
 }
 
 .scrollbar-hide::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
     display: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar-thumb {
+    background: transparent;
 }
 
 /* ── Progress Shimmer ────────────────────────────────────────── */

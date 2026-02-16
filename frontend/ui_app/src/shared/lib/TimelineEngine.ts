@@ -149,6 +149,7 @@ export class TimelineEngine {
     private _editCursorBeat = 0;
     private _editCursorTrack = 0;
     private _selectedTrack = -1;
+    private _selectedTracks: number[] = [];
     private _loop: LoopRegion | null = null;
     private _ghost: GhostClipData | null = null;
     private _dropTarget: { track: number; beat: number } | null = null;
@@ -346,11 +347,27 @@ export class TimelineEngine {
     }
 
     setSelectedTrack(track: number): void {
-        const normalized = Number.isFinite(track)
-            ? Math.max(-1, Math.min(this._viewport.trackCount - 1, Math.trunc(track)))
+        this.setSelectedTracks(track, track >= 0 ? [track] : []);
+    }
+
+    setSelectedTracks(primary: number, tracks: number[]): void {
+        const normalizedPrimary = Number.isFinite(primary)
+            ? Math.max(-1, Math.min(this._viewport.trackCount - 1, Math.trunc(primary)))
             : -1;
-        if (normalized === this._selectedTrack) return;
-        this._selectedTrack = normalized;
+
+        const cleaned = Array.from(new Set(tracks))
+            .map((t) => Math.max(0, Math.min(this._viewport.trackCount - 1, Math.trunc(t))))
+            .filter((t) => Number.isFinite(t));
+
+        // Ensure primary is included when valid.
+        if (normalizedPrimary >= 0 && !cleaned.includes(normalizedPrimary)) cleaned.unshift(normalizedPrimary);
+
+        const samePrimary = normalizedPrimary === this._selectedTrack;
+        const sameList = cleaned.length === this._selectedTracks.length && cleaned.every((v, i) => v === this._selectedTracks[i]);
+        if (samePrimary && sameList) return;
+
+        this._selectedTrack = normalizedPrimary;
+        this._selectedTracks = cleaned;
         this._requestRedraw();
     }
 
@@ -443,6 +460,7 @@ export class TimelineEngine {
             this._editCursorBeat,
             this._editCursorTrack,
             this._selectedTrack,
+            this._selectedTracks,
             this._loop,
             this._beatsPerBar,
             this._snapBeats,
@@ -607,16 +625,17 @@ export class TimelineEngine {
 
             if (isInsideOrNear) {
                 const clipTopPx =
-                    this._viewport.rulerHeight + clip.trackIndex * this._viewport.trackHeight - this._viewport.scrollY;
+                    this._viewport.rulerHeight + this._viewport.trackOffsetY(clip.trackIndex) - this._viewport.scrollY;
                 const localYInClip = Math.max(0, clientY - rect.top - clipTopPx);
                 const localYPx = clientY - rect.top;
+                const trackH = this._viewport.trackHeightAt(clip.trackIndex);
                 const region: 'header' | 'body' =
-                    localYInClip <= Math.min(CLIP_HEADER_HEIGHT_PX, this._viewport.trackHeight - 2)
+                    localYInClip <= Math.min(CLIP_HEADER_HEIGHT_PX, trackH - 2)
                         ? 'header'
                         : 'body';
 
                 const showFadeUi = this._shouldShowFadeUiForClip(clip.id);
-                const fadeBody = this._getFadeBodyBounds(clipTopPx);
+                const fadeBody = this._getFadeBodyBounds(clipTopPx, trackH);
                 const inFadeBody = showFadeUi && localYPx >= fadeBody.top && localYPx <= fadeBody.bottom;
 
                 let fadeZone: 'in' | 'out' | undefined;
@@ -726,10 +745,10 @@ export class TimelineEngine {
         return FADE_CURVE_PRESETS[(idx + 1) % FADE_CURVE_PRESETS.length];
     }
 
-    private _getFadeBodyBounds(clipTopPx: number): { top: number; bottom: number } {
-        const headerH = Math.min(CLIP_HEADER_HEIGHT_PX, this._viewport.trackHeight - 2);
+    private _getFadeBodyBounds(clipTopPx: number, trackH: number): { top: number; bottom: number } {
+        const headerH = Math.min(CLIP_HEADER_HEIGHT_PX, trackH - 2);
         const bodyTop = clipTopPx + headerH + 2;
-        const bodyBottom = clipTopPx + this._viewport.trackHeight - 2;
+        const bodyBottom = clipTopPx + trackH - 2;
         return { top: bodyTop, bottom: Math.max(bodyTop + 6, bodyBottom) };
     }
 
@@ -747,7 +766,7 @@ export class TimelineEngine {
         const curve = side === 'in'
             ? this._clampFadeCurve(clip.fadeInCurve ?? 0.5)
             : this._clampFadeCurve(clip.fadeOutCurve ?? 0.5);
-        const body = this._getFadeBodyBounds(clipTopPx);
+        const body = this._getFadeBodyBounds(clipTopPx, this._viewport.trackHeightAt(clip.trackIndex));
         const bodyH = body.bottom - body.top;
         const handleY = side === 'in'
             ? body.bottom - bodyH * curve
@@ -1131,8 +1150,8 @@ export class TimelineEngine {
                 const clipLeftPx = this._viewport.beatsToScreenX(clip.startBeat);
                 const clipRightPx = this._viewport.beatsToScreenX(clip.startBeat + clip.durationBeats);
                 const clipTopPx =
-                    this._viewport.rulerHeight + clip.trackIndex * this._viewport.trackHeight - this._viewport.scrollY;
-                const body = this._getFadeBodyBounds(clipTopPx);
+                    this._viewport.rulerHeight + this._viewport.trackOffsetY(clip.trackIndex) - this._viewport.scrollY;
+                const body = this._getFadeBodyBounds(clipTopPx, this._viewport.trackHeightAt(clip.trackIndex));
                 const bodyHeight = Math.max(6, body.bottom - body.top);
                 const yCurveIn = this._clampFadeCurve((body.bottom - localY) / bodyHeight);
                 const yCurveOut = this._clampFadeCurve((localY - body.top) / bodyHeight);

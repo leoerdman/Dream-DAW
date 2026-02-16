@@ -30,6 +30,8 @@ export interface UseTimelineEngineConfig {
     totalBeats: number;
     trackCount: number;
     trackHeight: number;
+    /** Optional per-track heights (length == trackCount). */
+    trackHeights?: number[];
     rulerHeight: number;
     initialPpb?: number;
     snapBeats?: number;
@@ -75,6 +77,7 @@ export function useTimelineEngine(
                 totalBeats: config.totalBeats,
                 trackCount: config.trackCount,
                 trackHeight: config.trackHeight,
+                trackHeights: config.trackHeights,
                 rulerHeight: config.rulerHeight,
                 initialPpb: config.initialPpb,
             },
@@ -115,12 +118,14 @@ export function useTimelineEngine(
                 totalBeats: config.totalBeats,
                 trackCount: config.trackCount,
                 trackHeight: config.trackHeight,
+                trackHeights: config.trackHeights,
                 rulerHeight: config.rulerHeight,
             },
         });
     }, [
         config.beatsPerBar, config.bpm, config.sampleRate,
         config.totalBeats, config.trackCount, config.trackHeight,
+        config.trackHeights,
         config.rulerHeight, config.snapBeats, config.snapEnabled,
     ]);
 

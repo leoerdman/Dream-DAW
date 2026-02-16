@@ -111,6 +111,7 @@ export interface AppSettings {
     waveformStyle: string;
     driverType: string;
     outputDevice: string;
+    fallbackOutputDevice: string;
     inputDevice: string;
     sampleRate: number;
     bufferSize: number;

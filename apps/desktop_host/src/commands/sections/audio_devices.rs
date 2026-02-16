@@ -54,6 +54,7 @@ fn restart_audio_engine_impl(
         Arc::clone(&handle.preview_buffer),
         Arc::clone(&handle.preview_cursor),
         Some(device_name.as_str()),
+        Some(handle.stream_error_tx.clone()),
     )
     .map_err(|e| format!("Failed to restart engine on '{}': {}", device_name, e))?;
 

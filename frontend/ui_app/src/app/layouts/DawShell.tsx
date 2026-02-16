@@ -105,6 +105,8 @@ export const DawShell = () => {
     const [browserWidth, setBrowserWidth] = useState(320);
     const [trackHeightPx, setTrackHeightPx] = useState(48);
     const [bottomPanelHeightPx, setBottomPanelHeightPx] = useState(220);
+    const recoveringAudioRef = useRef(false);
+    const lastAudioRecoverAtRef = useRef(0);
     const midiSaveThrottlesRef = useRef<Map<string, (notes: MidiNote[]) => void>>(new Map());
     const midiEnvelopeSaveThrottlesRef = useRef<
         Map<string, (envelopes: Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>) => void>
@@ -284,6 +286,51 @@ export const DawShell = () => {
         if (index >= 0) {
             setEditCursorTrackIndex(index);
         }
+    }, []);
+
+    // Event-driven audio failover: when backend reports stream errors
+    // (device unplugged / backend failure), auto-switch to pinned fallback.
+    useEffect(() => {
+        let unlisten: (() => void) | undefined;
+
+        const setup = async () => {
+            unlisten = await listen<{ error?: string }>('audio_stream_error', async (event) => {
+                const now = Date.now();
+                if (recoveringAudioRef.current) return;
+                if (now - lastAudioRecoverAtRef.current < 3000) return;
+
+                recoveringAudioRef.current = true;
+                lastAudioRecoverAtRef.current = now;
+
+                try {
+                    const settings = await engineApi.getSettings();
+                    const fallback = settings.fallbackOutputDevice || 'Default Output';
+                    const resolved = await engineApi.restartAudioEngine(fallback);
+
+                    if (settings.outputDevice !== resolved) {
+                        await engineApi.updateSettings({
+                            ...settings,
+                            outputDevice: resolved,
+                        });
+                    }
+
+                    console.warn('[DawShell] Audio stream recovered via fallback:', {
+                        streamError: event.payload?.error,
+                        requestedFallback: fallback,
+                        resolved,
+                    });
+                } catch (err) {
+                    console.error('[DawShell] Audio fallback recovery failed:', err);
+                } finally {
+                    recoveringAudioRef.current = false;
+                }
+            });
+        };
+
+        void setup();
+        return () => {
+            if (unlisten) unlisten();
+        };
     }, []);
     const beginBrowserResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         e.preventDefault();

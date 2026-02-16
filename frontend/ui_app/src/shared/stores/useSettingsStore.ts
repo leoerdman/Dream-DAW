@@ -44,6 +44,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     waveformStyle: 'colored',
     driverType: 'CoreAudio',
     outputDevice: 'Default Output',
+    fallbackOutputDevice: 'Default Output',
     inputDevice: 'Default Input',
     sampleRate: 44100,
     bufferSize: 512,

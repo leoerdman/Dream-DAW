@@ -270,8 +270,8 @@ const DEFAULT_TRANSPORT: TransportState = {
 };
 
 const DEFAULT_METER: engine.MeterReading = {
-    rms: 0,
-    peak: 0,
+    rms: -160,
+    peak: -160,
     clipping: false,
 };
 

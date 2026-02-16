@@ -953,7 +953,7 @@ export const TrackInspector = ({
                     flex: 1,
                     overflowY: 'auto',
                     overflowX: 'hidden',
-                    paddingRight: 8,
+                    paddingRight: 2,
                     boxSizing: 'border-box',
                 }}
                 onDragOver={(e) => {

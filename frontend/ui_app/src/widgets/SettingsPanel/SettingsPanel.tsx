@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSettingsStore } from '@/shared/stores/useSettingsStore';
 import * as engine from '@/shared/api/engine';
 
@@ -35,45 +35,34 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
     const [midiConnecting, setMidiConnecting] = useState<string | null>(null);
     const [sandboxLoading, setSandboxLoading] = useState(false);
     const [sandboxSnapshot, setSandboxSnapshot] = useState<engine.PluginSandboxSnapshot | null>(null);
+    const audioRefreshInFlightRef = useRef(false);
 
-    const refreshAudioDevices = useCallback(async () => {
-        setDevicesLoading(true);
+    const refreshAudioDevices = useCallback(async (opts?: { force?: boolean; silent?: boolean }) => {
+        const silent = !!opts?.silent;
+        if (audioRefreshInFlightRef.current) return;
+
+        audioRefreshInFlightRef.current = true;
+        if (!silent) setDevicesLoading(true);
         try {
             const devices = await engine.getAudioDevices();
             setAudioDevices(devices);
         } catch (err) {
             console.error('[SettingsPanel] Failed to enumerate devices:', err);
         } finally {
-            setDevicesLoading(false);
+            if (!silent) setDevicesLoading(false);
+            audioRefreshInFlightRef.current = false;
         }
     }, []);
 
     // Fetch real devices when Audio tab is opened
     useEffect(() => {
         if (tab !== 'audio') return;
-        void refreshAudioDevices();
+        void refreshAudioDevices({ force: true });
         setSandboxLoading(true);
         engine.getPluginSandboxRuntime()
             .then((snap) => setSandboxSnapshot(snap))
             .catch((err) => console.error('[SettingsPanel] Failed to read plugin sandbox runtime:', err))
             .finally(() => setSandboxLoading(false));
-    }, [tab, refreshAudioDevices]);
-
-    useEffect(() => {
-        if (tab !== 'audio') return;
-        const intervalId = window.setInterval(() => {
-            void refreshAudioDevices();
-        }, 2000);
-        const onFocus = () => {
-            void refreshAudioDevices();
-        };
-        window.addEventListener('focus', onFocus);
-        document.addEventListener('visibilitychange', onFocus);
-        return () => {
-            window.clearInterval(intervalId);
-            window.removeEventListener('focus', onFocus);
-            document.removeEventListener('visibilitychange', onFocus);
-        };
     }, [tab, refreshAudioDevices]);
 
     useEffect(() => {
@@ -94,7 +83,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
             })
             .finally(() => {
                 setRestartingEngine(false);
-                void refreshAudioDevices();
+                void refreshAudioDevices({ force: true, silent: true });
             });
     }, [tab, restartingEngine, settings.outputDevice, audioDevices.outputs, updateSetting, refreshAudioDevices]);
 
@@ -240,7 +229,22 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
 
                     {tab === 'audio' && (
                         <div>
-                            <h2 style={titleStyle}>Audio</h2>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                                <h2 style={{ ...titleStyle, margin: 0 }}>Audio</h2>
+                                <button
+                                    onClick={() => {
+                                        void refreshAudioDevices({ force: true });
+                                    }}
+                                    style={{
+                                        ...chipStyle,
+                                        background: 'var(--color-bg-elevated)',
+                                        color: 'var(--color-text-secondary)',
+                                        fontWeight: 600,
+                                    }}
+                                >
+                                    Refresh Devices
+                                </button>
+                            </div>
                             <SettingRow label="Driver Type">
                                 <Select value={settings.driverType} options={['CoreAudio']} onChange={v => updateSetting('driverType', v)} />
                             </SettingRow>
@@ -249,7 +253,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                                     value={settings.outputDevice}
                                     options={outputOptions}
                                     onMouseDown={() => {
-                                        void refreshAudioDevices();
+                                        void refreshAudioDevices({ force: true, silent: true });
                                     }}
                                     onChange={async v => {
                                         setRestartingEngine(true);
@@ -260,25 +264,42 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                                             console.error('[SettingsPanel] restartAudioEngine failed:', err);
                                         } finally {
                                             setRestartingEngine(false);
-                                            void refreshAudioDevices();
+                                            void refreshAudioDevices({ force: true });
                                         }
                                     }}
                                 />
-                                {devicesLoading && <span style={{ ...valueStyle, marginLeft: 4 }}>⏳</span>}
+                                {devicesLoading && audioDevices.outputs.length === 0 && <span style={{ ...valueStyle, marginLeft: 4 }}>⏳</span>}
                                 {restartingEngine && (
                                     <span style={{ ...valueStyle, marginLeft: 6 }}>Restarting Engine...</span>
                                 )}
+                            </SettingRow>
+                            <SettingRow label="Pinned Fallback">
+                                <Select
+                                    value={settings.fallbackOutputDevice || 'Default Output'}
+                                    options={outputOptions}
+                                    onMouseDown={() => {
+                                        void refreshAudioDevices({ force: true, silent: true });
+                                    }}
+                                    onChange={v => updateSetting('fallbackOutputDevice', v)}
+                                />
+                                <button
+                                    onClick={() => updateSetting('fallbackOutputDevice', settings.outputDevice || 'Default Output')}
+                                    style={actionBtnSmStyle}
+                                    title="Pin current output as fallback"
+                                >
+                                    📌 Pin Current
+                                </button>
                             </SettingRow>
                             <SettingRow label="Input Device">
                                 <Select
                                     value={settings.inputDevice}
                                     options={inputOptions}
                                     onMouseDown={() => {
-                                        void refreshAudioDevices();
+                                        void refreshAudioDevices({ force: true, silent: true });
                                     }}
                                     onChange={v => updateSetting('inputDevice', v)}
                                 />
-                                {devicesLoading && <span style={{ ...valueStyle, marginLeft: 4 }}>⏳</span>}
+                                {devicesLoading && audioDevices.inputs.length === 0 && <span style={{ ...valueStyle, marginLeft: 4 }}>⏳</span>}
                             </SettingRow>
                             <SettingRow label="Sample Rate">
                                 <Select

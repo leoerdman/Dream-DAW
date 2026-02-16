@@ -36,7 +36,7 @@ use dream_clip_engine::pool::ClipAudio;
 use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::scheduler::LoopRegion;
 use dream_dsp::dsp_processor::BuiltinEffectType;
-use dream_ipc::metering::{MeterBank, compute_peak, compute_rms, linear_to_db};
+use dream_ipc::metering::{METER_FLOOR_DB, MeterBank, compute_peak, compute_rms, linear_to_db};
 use dream_ipc::{EngineCommand, MasterClock};
 use dream_models::midi::MidiClip;
 use dream_models::project::AudioClip;
@@ -1080,6 +1080,7 @@ pub fn start_audio_thread(
         preview_buffer,
         preview_cursor,
         None,
+        None,
     )
 }
 
@@ -1105,6 +1106,7 @@ pub fn start_audio_thread_on_device(
     preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
     preferred_output_device: Option<&str>,
+    stream_error_tx: Option<std::sync::mpsc::Sender<String>>,
 ) -> Result<AudioStreamHandle, AudioDriverError> {
     // ── 1. Host & Device ────────────────────────────────────────────
     let host = cpal::default_host();
@@ -1265,6 +1267,18 @@ pub fn start_audio_thread_on_device(
                         }
 
                         let frame_count = data.len() / channels;
+
+                        // Baseline all track meters to silence each callback, with
+                        // peak-decay persistence. Active signal paths below will lift
+                        // meters back up for tracks that actually output audio.
+                        for track_idx in 0..render_ctx.meter_bank.track_count() {
+                            if let Some((meter_l, meter_r)) = render_ctx.meter_bank.track(track_idx) {
+                                meter_l.store_rms(METER_FLOOR_DB);
+                                meter_r.store_rms(METER_FLOOR_DB);
+                                meter_l.store_peak_decay(METER_FLOOR_DB, 0.99);
+                                meter_r.store_peak_decay(METER_FLOOR_DB, 0.99);
+                            }
+                        }
 
                         // ── A1. Drain command queue ───────────────────────────────
                         while let Ok(cmd) = consumer.pop() {
@@ -1880,9 +1894,14 @@ pub fn start_audio_thread_on_device(
                                                 );
                                             }
 
-                                            // Always meter — even disabled tracks show
-                                            // levels (grayed out in the UI).
+                                            let route_to_output = render_ctx
+                                                .track_slots
+                                                .get(track_idx)
+                                                .map(|slot| slot.strip.is_output_enabled())
+                                                .unwrap_or(true);
+
                                             if post_sum_processed
+                                                && route_to_output
                                                 && let Some((meter_l, meter_r)) =
                                                     render_ctx.meter_bank.track(track_idx)
                                             {
@@ -1893,8 +1912,8 @@ pub fn start_audio_thread_on_device(
                                                     linear_to_db(compute_peak(&right[..c]));
                                                 meter_l.store_rms(rms_l);
                                                 meter_r.store_rms(rms_r);
-                                                meter_l.store_peak_decay(peak_l, 0.99);
-                                                meter_r.store_peak_decay(peak_r, 0.99);
+                                                meter_l.store_peak(meter_l.load_peak().max(peak_l));
+                                                meter_r.store_peak(meter_r.load_peak().max(peak_r));
                                             }
                                         }
                                     },
@@ -2296,14 +2315,8 @@ pub fn start_audio_thread_on_device(
 
                                     meter_l.store_rms(meter_l.load_rms().max(sampler_rms_l));
                                     meter_r.store_rms(meter_r.load_rms().max(sampler_rms_r));
-                                    meter_l.store_peak_decay(
-                                        meter_l.load_peak().max(sampler_peak_l),
-                                        0.99,
-                                    );
-                                    meter_r.store_peak_decay(
-                                        meter_r.load_peak().max(sampler_peak_r),
-                                        0.99,
-                                    );
+                                    meter_l.store_peak(meter_l.load_peak().max(sampler_peak_l));
+                                    meter_r.store_peak(meter_r.load_peak().max(sampler_peak_r));
                                 }
 
                                 let route_to_output = render_ctx
@@ -2438,7 +2451,11 @@ pub fn start_audio_thread_on_device(
             },
             // RT_CALLBACK_END
             move |err| {
-                error!("Audio stream error: {}", err);
+                let err_msg = err.to_string();
+                error!("Audio stream error: {}", err_msg);
+                if let Some(tx) = stream_error_tx.as_ref() {
+                    let _ = tx.send(err_msg);
+                }
             },
             None,
         )

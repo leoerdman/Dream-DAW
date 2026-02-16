@@ -38,7 +38,7 @@
     --daw-sidebar-max-width: 400px;
     /* Wider by default to fit TrackInspector's 3-block layout without clipping.
        Responsive clamp keeps the timeline usable on smaller windows. */
-    --daw-inspector-width: clamp(360px, 28vw, 460px);
+    --daw-inspector-width: clamp(300px, 22vw, 360px);
     --daw-device-rack-height: 24vh;
     --daw-device-rack-min-height: 190px;
     --daw-panel-gap: 0px;

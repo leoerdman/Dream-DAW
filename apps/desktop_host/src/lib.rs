@@ -120,6 +120,9 @@ struct AudioEngineHandle {
     /// Captured from cpal at stream init. Passed to frontend so the
     /// visual playhead can be offset to match actual speaker output.
     output_latency_frames: u32,
+
+    /// Event channel for RT stream errors (device disconnect, backend failures).
+    stream_error_tx: std::sync::mpsc::Sender<String>,
 }
 
 impl AudioEngineHandle {
@@ -2646,6 +2649,8 @@ struct AppSettings {
     driver_type: String,
     #[serde(default = "default_output_device", alias = "audioOutputDeviceUID")]
     output_device: String,
+    #[serde(default = "default_output_device")]
+    fallback_output_device: String,
     #[serde(default = "default_input_device", alias = "audioInputDeviceUID")]
     input_device: String,
     #[serde(default = "default_sample_rate", alias = "audioSampleRate")]
@@ -2760,6 +2765,7 @@ impl Default for AppSettings {
             waveform_style: "colored".into(),
             driver_type: "CoreAudio".into(),
             output_device: "Default Output".into(),
+            fallback_output_device: "Default Output".into(),
             input_device: "Default Input".into(),
             sample_rate: 44100,
             buffer_size: 512,
@@ -3289,6 +3295,8 @@ pub fn run() {
             .filter(|v| !v.trim().is_empty())
     };
 
+    let (stream_error_tx, stream_error_rx) = std::sync::mpsc::channel::<String>();
+
     // Start the audio engine on a dedicated thread
     let clock_for_engine = Arc::clone(&master_clock);
     let meter_for_engine = Arc::clone(&meter_bank);
@@ -3309,6 +3317,7 @@ pub fn run() {
         preview_buffer_for_engine,
         preview_cursor_for_engine,
         preferred_output_device.as_deref(),
+        Some(stream_error_tx.clone()),
     ) {
         Ok(stream) => stream,
         Err(err) => {
@@ -3356,6 +3365,7 @@ pub fn run() {
         sampler_samples: sampler_samples_for_handle,
         plugin_host: plugin_host_for_handle,
         output_latency_frames,
+        stream_error_tx,
     };
 
     tauri::Builder::default()
@@ -3469,6 +3479,26 @@ pub fn run() {
                 })
             {
                 log::warn!("Failed to spawn plugin sandbox watchdog thread: {err}");
+            }
+
+            // ── Audio Stream Error Relay (event-driven, zero polling) ─
+            let stream_error_app = app.handle().clone();
+            if let Err(err) = std::thread::Builder::new()
+                .name("audio-stream-error-relay".into())
+                .spawn(move || {
+                    while let Ok(err_msg) = stream_error_rx.recv() {
+                        let payload = serde_json::json!({
+                            "error": err_msg,
+                            "at_ms": std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis())
+                                .unwrap_or(0),
+                        });
+                        let _ = stream_error_app.emit("audio_stream_error", payload);
+                    }
+                })
+            {
+                log::warn!("Failed to spawn audio stream error relay: {err}");
             }
 
             log::info!(

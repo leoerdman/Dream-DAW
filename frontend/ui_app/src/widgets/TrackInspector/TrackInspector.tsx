@@ -211,9 +211,11 @@ export const TrackInspector = ({
 
     useEffect(() => {
         setSelectedTrackIds((prev) => {
-            if (!selectedTrackId || selectedTrackId === 'master') return prev;
-            if (prev.size === 0) return new Set([selectedTrackId]);
-            return prev;
+            if (!selectedTrackId || selectedTrackId === 'master') {
+                return prev.size === 0 ? prev : new Set();
+            }
+            if (prev.has(selectedTrackId)) return prev;
+            return new Set([selectedTrackId]);
         });
     }, [selectedTrackId]);
 
@@ -247,11 +249,10 @@ export const TrackInspector = ({
         const shouldSoloTargets = !allTargetsAlreadySolo;
 
         const nextSoloById = new Map<string, boolean>();
-        for (const track of tracks) {
+        for (const track of targetTracks) {
             if (track.type === 'master') continue;
-            const nextSolo = shouldSoloTargets ? targetSet.has(track.id) : false;
-            if (track.isSoloed !== nextSolo) {
-                nextSoloById.set(track.id, nextSolo);
+            if (track.isSoloed !== shouldSoloTargets) {
+                nextSoloById.set(track.id, shouldSoloTargets);
             }
         }
 
@@ -535,6 +536,10 @@ export const TrackInspector = ({
                 handleDuplicateSelectedTracks();
             }
             if ((e.key === 'Delete' || e.key === 'Backspace') && selectedTrackIds.size > 0) {
+                // Guard: don't delete tracks if a device is focused in DeviceRack
+                const inDeviceRack = (e.target as HTMLElement | null)?.closest?.('[data-keyboard-scope="device-rack"]');
+                if (inDeviceRack) return;
+                if (renamingTrackId) return;
                 e.preventDefault();
                 handleDeleteSelectedTracks();
             }
@@ -913,7 +918,7 @@ export const TrackInspector = ({
                                 allTracks={tracks}
                                 trackHeight={trackHeight}
                                 displayNum={displayNum}
-                                isSelected={selectedTrackIds.has(track.id)}
+                                isSelected={selectedTrackId === track.id}
                                 isCollapsed={isCollapsed}
                                 depth={depth}
                                 isRenaming={renamingTrackId === track.id}
@@ -1907,7 +1912,12 @@ const TrackRow = ({
     const isMaster = track.type === 'master';
     const isGroup = track.type === 'group';
     const showGroupRail = !isMaster && (isGroup || depth > 0);
-    const groupRailColor = isGroup ? track.color : (groupStripeColor || track.color);
+    const isNestedGroup = isGroup && depth > 0;
+    const groupRailColor = isNestedGroup
+        ? (groupStripeColor || track.color)
+        : isGroup
+            ? track.color
+            : (groupStripeColor || track.color);
     const renameInputRef = useRef<HTMLInputElement>(null);
 
     const availableRoutingTargets = allTracks.filter(t => t.id !== track.id && t.type !== 'master');
@@ -1935,7 +1945,11 @@ const TrackRow = ({
     const headerBgColor = track.color;
     const headerContrast = getContrastColor(track.color);
     const headerTextColor = headerContrast === 'black' ? 'var(--glass-bg)' : 'color-mix(in srgb, var(--color-text-primary) 94%, transparent)';
-    const childIndentPx = !isMaster && depth > 0 ? Math.max(0, Math.min(48, depth * 12) - 3) : 0;
+    const nestedIndentPx = !isMaster && depth > 0 ? Math.max(0, Math.min(40, depth * 10)) : 0;
+    const headerPaddingLeft = (mixerFocusMode ? 5 : 4) + nestedIndentPx;
+    const headerPaddingRight = mixerFocusMode ? 8 : 6;
+    const headerMinWidth = isMasterFixed ? 84 : Math.max(72, 90 - nestedIndentPx);
+    const headerMaxWidth = Math.max(headerMinWidth + 8, (mixerFocusMode ? 118 : 108) - nestedIndentPx);
 
     return (
         <div
@@ -1953,7 +1967,7 @@ const TrackRow = ({
                 cursor: 'default',
                 opacity: isEnabled ? 1 : 0.45,
                 transition: `background var(--transition-linear), opacity var(--transition-linear)`,
-                position: 'relative', paddingLeft: childIndentPx, flexShrink: 0,
+                position: 'relative', flexShrink: 0, boxSizing: 'border-box', width: '100%',
                 outline: isGroupDropTarget ? '2px solid color-mix(in srgb, var(--color-accent-primary) 82%, white)' : 'none',
                 outlineOffset: isGroupDropTarget ? '-2px' : 0,
                 boxShadow: isGroupDropTarget
@@ -2003,14 +2017,15 @@ const TrackRow = ({
                 onPointerDown={onHeaderPointerDown}
                 style={{
                     display: 'flex', flexDirection: 'column', justifyContent: 'center',
-                    minWidth: isMasterFixed ? 84 : 90,
-                    maxWidth: mixerFocusMode ? 118 : 108,
-                    padding: mixerFocusMode ? '2px 8px 2px 5px' : '2px 6px 2px 4px',
+                    minWidth: headerMinWidth,
+                    maxWidth: headerMaxWidth,
+                    padding: `2px ${headerPaddingRight}px 2px ${headerPaddingLeft}px`,
                     background: headerBgColor,
                     borderRight: isMasterFixed ? 'none' : '1px solid var(--color-border-subtle)',
                     gap: 1,
                     position: 'relative',
                     cursor: !isMaster ? 'grab' : 'default',
+                    boxSizing: 'border-box',
                 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                     {/* Collapse / Group icon */}

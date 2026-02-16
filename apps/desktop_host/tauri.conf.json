@@ -1,11 +1,11 @@
 {
     "productName": "Dream DAW",
-    "version": "0.1.119",
+    "version": "0.2.0",
     "identifier": "com.dreamdaw.desktop",
     "build": {
         "frontendDist": "../../frontend/ui_app/dist",
-        "devUrl": "http://localhost:5173",
-        "beforeDevCommand": "pnpm --filter ui_app dev",
+        "devUrl": "http://localhost:5179",
+        "beforeDevCommand": "pnpm --filter ui_app dev -- --port 5179 --strictPort",
         "beforeBuildCommand": "pnpm --filter ui_app build"
     },
     "app": {

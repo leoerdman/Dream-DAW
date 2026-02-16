@@ -148,6 +148,7 @@ export class TimelineEngine {
     private _playheadBeat = 0;
     private _editCursorBeat = 0;
     private _editCursorTrack = 0;
+    private _selectedTrack = -1;
     private _loop: LoopRegion | null = null;
     private _ghost: GhostClipData | null = null;
     private _dropTarget: { track: number; beat: number } | null = null;
@@ -344,6 +345,15 @@ export class TimelineEngine {
         this._requestRedraw();
     }
 
+    setSelectedTrack(track: number): void {
+        const normalized = Number.isFinite(track)
+            ? Math.max(-1, Math.min(this._viewport.trackCount - 1, Math.trunc(track)))
+            : -1;
+        if (normalized === this._selectedTrack) return;
+        this._selectedTrack = normalized;
+        this._requestRedraw();
+    }
+
     setLoop(loop: LoopRegion | null): void {
         // While dragging, ignore external updates to prevent "fighting" with React round-trips.
         // This is the core fix for the "markers jumping/flying away" bug.
@@ -432,6 +442,7 @@ export class TimelineEngine {
             this._playheadBeat,
             this._editCursorBeat,
             this._editCursorTrack,
+            this._selectedTrack,
             this._loop,
             this._beatsPerBar,
             this._snapBeats,

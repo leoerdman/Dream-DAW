@@ -366,8 +366,23 @@ export const AssetBrowser = () => {
             searchRef.current?.focus();
             searchRef.current?.select();
         };
+        const setBrowserSearch = (evt: Event) => {
+            const detail = (evt as CustomEvent<{ query?: string; categoryId?: string }>).detail;
+            if (detail?.categoryId) {
+                setSelectedCategoryId(detail.categoryId);
+                setFolderStack([]);
+            }
+            if (typeof detail?.query === 'string') {
+                setSearchQuery(detail.query);
+            }
+            searchRef.current?.focus();
+        };
         window.addEventListener('dream:browser-focus-search', focusBrowserSearch as EventListener);
-        return () => window.removeEventListener('dream:browser-focus-search', focusBrowserSearch as EventListener);
+        window.addEventListener('dream:browser-set-search', setBrowserSearch as EventListener);
+        return () => {
+            window.removeEventListener('dream:browser-focus-search', focusBrowserSearch as EventListener);
+            window.removeEventListener('dream:browser-set-search', setBrowserSearch as EventListener);
+        };
     }, []);
 
     useEffect(() => {

@@ -50,6 +50,9 @@ const ExportModal = lazy(async () => ({
 const BlockingJobPopup = lazy(async () => ({
     default: (await import('@/widgets/BlockingJobPopup/BlockingJobPopup')).BlockingJobPopup,
 }));
+const MissingAssetsPanel = lazy(async () => ({
+    default: (await import('@/widgets/MissingAssetsPanel/MissingAssetsPanel')).MissingAssetsPanel,
+}));
 
 /**
  * DawShell — The "Hole-Punch Architecture" Layout with integrated Timeline.
@@ -97,6 +100,7 @@ export const DawShell = () => {
     const [midiNotesByClip, setMidiNotesByClip] = useState<Record<string, MidiNote[]>>({});
     const [clipFadeCurves, setClipFadeCurves] = useState<Record<string, { fadeInCurve: number; fadeOutCurve: number }>>({});
     const [aiVariationBusy, setAiVariationBusy] = useState(false);
+    const [missingAssetsOpen, setMissingAssetsOpen] = useState(false);
     const [browserWidth, setBrowserWidth] = useState(320);
     const [trackHeightPx, setTrackHeightPx] = useState(48);
     const [bottomPanelHeightPx, setBottomPanelHeightPx] = useState(220);
@@ -426,10 +430,33 @@ export const DawShell = () => {
 
     const trackCount = Math.max(projectTracks.length, 1);
     const trackIds = useMemo(() => projectTracks.map((t) => t.id), [projectTracks]);
+    const selectedTrackIndex = useMemo(() => {
+        if (!selectedTrackId || selectedTrackId === 'master') return -1;
+        return projectTracks.findIndex((t) => t.id === selectedTrackId);
+    }, [projectTracks, selectedTrackId]);
     const selectedTimelineClip = useMemo(
         () => timelineClipsForView.find((c) => c.id === selectedClipId) ?? null,
         [timelineClipsForView, selectedClipId],
     );
+    const missingMediaSummary = useMemo(() => {
+        const offlineClipCount = timelineClipsForView.filter((c) => c.type === 'audio' && c.isOffline).length;
+        let missingPluginCount = 0;
+        for (const track of projectTracks) {
+            if (track.instrument?.plugin_id?.startsWith('missing://')) missingPluginCount += 1;
+            missingPluginCount += (track.effects ?? []).filter((fx) => fx.plugin_id?.startsWith('missing://')).length;
+        }
+        return {
+            offlineClipCount,
+            missingPluginCount,
+            total: offlineClipCount + missingPluginCount,
+        };
+    }, [timelineClipsForView, projectTracks]);
+
+    useEffect(() => {
+        if (missingMediaSummary.total > 0) {
+            setMissingAssetsOpen(true);
+        }
+    }, [missingMediaSummary.total]);
     const selectedMidiTotalBars = useMemo(() => {
         if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return 8;
         return Math.max(1, Math.ceil(selectedTimelineClip.durationBeats / 4));
@@ -960,6 +987,7 @@ export const DawShell = () => {
                                         playheadBeat={playheadBeat}
                                         editCursorBeat={editCursorBeat}
                                         editCursorTrackIndex={editCursorTrackIndex}
+                                        selectedTrackIndex={selectedTrackIndex}
                                         isPlaying={transport.is_playing}
                                         recordingActive={recordingState.active}
                                         recordingTrackIndex={recordingState.trackIndex}
@@ -1196,6 +1224,43 @@ export const DawShell = () => {
                 </footer>
 
                 {/* ── VERY BOTTOM: Status Bar ── */}
+                {missingMediaSummary.total > 0 && (
+                    <div
+                        className="z-50"
+                        style={{
+                            borderTop: '1px solid color-mix(in srgb, #ff6b6b 55%, transparent)',
+                            borderBottom: '1px solid color-mix(in srgb, #ff6b6b 35%, transparent)',
+                            background: 'linear-gradient(90deg, color-mix(in srgb, #ff5f5f 18%, var(--color-bg-panel)) 0%, color-mix(in srgb, #ff5f5f 8%, var(--color-bg-panel)) 100%)',
+                            minHeight: 24,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '3px 10px',
+                            gap: 10,
+                        }}
+                    >
+                        <span style={{ fontSize: 11, fontWeight: 700, color: '#ffb3b3', letterSpacing: '0.02em' }}>
+                            Missing media detected: {missingMediaSummary.offlineClipCount} files, {missingMediaSummary.missingPluginCount} plugins
+                        </span>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                                onClick={() => setMissingAssetsOpen((v) => !v)}
+                                style={{
+                                    border: '1px solid color-mix(in srgb, #ff9b9b 45%, transparent)',
+                                    background: 'color-mix(in srgb, #ff6b6b 20%, transparent)',
+                                    color: '#ffd5d5',
+                                    borderRadius: 6,
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    padding: '3px 8px',
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                {missingAssetsOpen ? 'Hide Resolver' : 'Open Resolver'}
+                            </button>
+                        </div>
+                    </div>
+                )}
                 <div className="z-50">
                     <StatusBar
                         panelMode={bottomPanelMode}
@@ -1209,6 +1274,10 @@ export const DawShell = () => {
             {/* ═══ SETTINGS MODAL ═══ */}
             <Suspense fallback={null}>
                 <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+            </Suspense>
+
+            <Suspense fallback={null}>
+                <MissingAssetsPanel isOpen={missingAssetsOpen && missingMediaSummary.total > 0} onClose={() => setMissingAssetsOpen(false)} />
             </Suspense>
 
             {/* ═══ DRAG-OVER OVERLAY ═══ */}

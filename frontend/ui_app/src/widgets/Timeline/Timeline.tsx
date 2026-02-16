@@ -25,6 +25,7 @@ interface TimelineProps {
     playheadBeat?: number;
     editCursorBeat?: number;
     editCursorTrackIndex?: number;
+    selectedTrackIndex?: number;
     isPlaying?: boolean;
     recordingActive?: boolean;
     recordingTrackIndex?: number;
@@ -71,6 +72,7 @@ export const Timeline = (props: TimelineProps) => {
         playheadBeat = 0,
         editCursorBeat = 0,
         editCursorTrackIndex = 0,
+        selectedTrackIndex = -1,
         isPlaying = false,
         trackIds = [],
         loopStart = 0,
@@ -356,6 +358,13 @@ export const Timeline = (props: TimelineProps) => {
         if (!engine) return;
         engine.setEditCursor(editCursorBeat, editCursorTrackIndex);
     }, [editCursorBeat, editCursorTrackIndex, engineRef]);
+
+    // ── Feed selected track highlight ─────────────────────────────────
+    useEffect(() => {
+        const engine = engineRef.current;
+        if (!engine) return;
+        engine.setSelectedTrack(selectedTrackIndex);
+    }, [selectedTrackIndex, engineRef]);
 
     // ── Feed loop region ──────────────────────────────────────────────
     useEffect(() => {

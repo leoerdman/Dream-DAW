@@ -5,8 +5,7 @@ import { resolve } from 'path'
 import { readFileSync, writeFileSync } from 'fs'
 
 // ── Auto-Version Plugin ─────────────────────────────────────────
-// Reads version.json, increments the patch version on every build,
-// syncs tauri.conf.json and workspace Cargo.toml,
+// Reads version.json and syncs tauri.conf.json + workspace Cargo.toml,
 // and injects __APP_VERSION__ as a compile-time constant.
 function autoVersionPlugin() {
   const versionPath = resolve(__dirname, 'version.json')
@@ -18,10 +17,6 @@ function autoVersionPlugin() {
     config() {
       const raw = readFileSync(versionPath, 'utf-8')
       const ver = JSON.parse(raw)
-
-      // Increment patch version
-      ver.patch += 1
-      writeFileSync(versionPath, JSON.stringify(ver, null, 2) + '\n')
 
       const versionString = `${ver.major}.${ver.minor}.${ver.patch}`
 
@@ -91,5 +86,13 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src'),
     },
+  },
+  server: {
+    port: 5179,
+    strictPort: true,
+  },
+  preview: {
+    port: 5179,
+    strictPort: true,
   },
 })

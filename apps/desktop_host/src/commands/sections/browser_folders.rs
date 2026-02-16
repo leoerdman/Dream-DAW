@@ -314,15 +314,38 @@ async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
 async fn pick_project_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
 
+    fn preferred_project_dialog_dir(project_state: &tauri::State<'_, ProjectState>) -> Option<std::path::PathBuf> {
+        if let Ok(folder_guard) = project_state.project_folder.lock()
+            && let Some(folder) = folder_guard.as_ref()
+            && folder.exists()
+        {
+            return Some(folder.clone());
+        }
+        if let Ok(file_guard) = project_state.file_path.lock()
+            && let Some(file_path) = file_guard.as_ref()
+            && let Some(parent) = file_path.parent()
+            && parent.exists()
+        {
+            return Some(parent.to_path_buf());
+        }
+        std::env::var("HOME").ok().map(std::path::PathBuf::from)
+    }
+
+    let project_state: tauri::State<'_, ProjectState> = app.state();
+    let default_dir = preferred_project_dialog_dir(&project_state);
+
     let (tx, rx) = std::sync::mpsc::channel();
 
-    app.dialog().file()
+    let mut builder = app.dialog().file()
         .add_filter("Dream DAW Project", &["ddpj", "json"])
         .add_filter("Ableton Live Set", &["als"])
-        .set_title("Open Project")
-        .pick_file(move |file| {
-            let _ = tx.send(file.map(|p| p.to_string()));
-        });
+        .set_title("Open Project");
+    if let Some(dir) = default_dir.as_ref() {
+        builder = builder.set_directory(dir);
+    }
+    builder.pick_file(move |file| {
+        let _ = tx.send(file.map(|p| p.to_string()));
+    });
 
     tauri::async_runtime::spawn_blocking(move || {
         rx.recv().map_err(|e| format!("Dialog error: {}", e))
@@ -339,34 +362,55 @@ async fn save_project_dialog(
 ) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
 
+    fn preferred_project_dialog_dir(project_state: &tauri::State<'_, ProjectState>) -> Option<std::path::PathBuf> {
+        if let Ok(folder_guard) = project_state.project_folder.lock()
+            && let Some(folder) = folder_guard.as_ref()
+            && folder.exists()
+        {
+            return Some(folder.clone());
+        }
+        if let Ok(file_guard) = project_state.file_path.lock()
+            && let Some(file_path) = file_guard.as_ref()
+            && let Some(parent) = file_path.parent()
+            && parent.exists()
+        {
+            return Some(parent.to_path_buf());
+        }
+        std::env::var("HOME").ok().map(std::path::PathBuf::from)
+    }
+
     // Use current project name as default filename
     let default_name = {
         let project = project_state.project.lock().map_err(|e| e.to_string())?;
         format!("{}.ddpj", project.name)
     };
+    let default_dir = preferred_project_dialog_dir(&project_state);
 
     log::info!("[SaveDialog] Opening native save dialog with default_name={:?}", default_name);
 
     let (tx, rx) = std::sync::mpsc::channel();
 
-    app.dialog().file()
+    let mut builder = app.dialog().file()
         .add_filter("Dream DAW Project", &["ddpj"])
         .set_title("Save Project As")
-        .set_file_name(&default_name)
-        .save_file(move |file| {
-            let result = file.map(|p| {
-                let raw = p.to_string();
-                log::info!("[SaveDialog] Raw FilePath from dialog: {:?}", raw);
-                // Enforce .ddpj extension — macOS NSSavePanel may not auto-append it
-                if !raw.to_lowercase().ends_with(".ddpj") {
-                    format!("{}.ddpj", raw)
-                } else {
-                    raw
-                }
-            });
-            log::info!("[SaveDialog] Sending result to channel: {:?}", result);
-            let _ = tx.send(result);
+        .set_file_name(&default_name);
+    if let Some(dir) = default_dir.as_ref() {
+        builder = builder.set_directory(dir);
+    }
+    builder.save_file(move |file| {
+        let result = file.map(|p| {
+            let raw = p.to_string();
+            log::info!("[SaveDialog] Raw FilePath from dialog: {:?}", raw);
+            // Enforce .ddpj extension — macOS NSSavePanel may not auto-append it
+            if !raw.to_lowercase().ends_with(".ddpj") {
+                format!("{}.ddpj", raw)
+            } else {
+                raw
+            }
         });
+        log::info!("[SaveDialog] Sending result to channel: {:?}", result);
+        let _ = tx.send(result);
+    });
 
     let result = tauri::async_runtime::spawn_blocking(move || {
         rx.recv().map_err(|e| format!("Dialog channel recv error: {}", e))

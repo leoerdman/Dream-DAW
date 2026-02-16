@@ -597,7 +597,12 @@ export const DeviceRack = ({
             const isBypassed: boolean = slot.is_bypassed ?? false;
 
             const pluginIdLower = normalizeInternalPluginId(pluginId.toLowerCase());
-            const isVst = pluginIdLower.includes('vst3') || pluginIdLower.includes('.vst') || pluginIdLower.includes('vst');
+            const pluginTypeHint = String(slot.type ?? '').toLowerCase();
+            const isVst = pluginIdLower.includes('vst3')
+                || pluginIdLower.includes('.vst')
+                || pluginIdLower.includes('vst')
+                || pluginTypeHint.includes('vst3')
+                || pluginTypeHint.includes('vst');
             const isInternal = pluginIdLower.startsWith('internal://');
             const rawExternalParamCount = Math.max(0, Number(slot.external_parameter_count ?? 0) || 0);
             const externalParamCount = isVst
@@ -690,6 +695,7 @@ export const DeviceRack = ({
                 }
                 return {
                     ...template,
+                    defaultValue: template.value,
                     value: localParams[key] ?? backendValue,
                 };
             });
@@ -714,6 +720,7 @@ export const DeviceRack = ({
                         step: 0.001,
                         suffix: '',
                         value: localParams[key] ?? 0.5,
+                        defaultValue: 0.5,
                     } as PluginParam;
                 })
                 : [];
@@ -728,7 +735,7 @@ export const DeviceRack = ({
                 vuLevel: outLevel,
                 pluginId,
                 isVst,
-                source: isInternal ? 'internal' : isVst ? 'vst' : 'unknown',
+                source: isInternal ? 'internal' : (isVst || pluginTypeHint.includes('vst')) ? 'vst' : 'unknown',
                 supportsSidechain: slot.supports_sidechain_input ?? (effectType === 'compressor' || effectType === 'gate'),
                 sidechainSourceTrackId: slot.sidechain_source_track_id ?? null,
                 guiMode,
@@ -752,6 +759,49 @@ export const DeviceRack = ({
             statusError('Failed to set plugin sidechain source.');
         }
     }, [selectedTrack, fetchProject, statusClear, statusError]);
+
+    const ensureSlotRuntimeActive = useCallback(async (slotId: string) => {
+        if (!selectedTrack) return null;
+        const known = pluginRuntimeBySlot[slotId];
+        if (known?.runtime === 'unsupported') {
+            statusError(known.message ?? 'This plugin format is not supported by runtime in this build.');
+            return null;
+        }
+
+        const runActivation = async () => {
+            await engineApi.ensurePluginSlotActive(selectedTrack.id, slotId);
+            const status = await engineApi.getPluginSlotRuntimeStatus(selectedTrack.id, slotId);
+            setPluginRuntimeBySlot((prev) => ({ ...prev, [slotId]: status }));
+            return status;
+        };
+
+        try {
+            const status = await runActivation();
+            statusClear();
+            return status;
+        } catch (err) {
+            const firstMsg = errorMessage(err).toLowerCase();
+            const shouldRescan = firstMsg.includes('cannot find native binary')
+                || firstMsg.includes('plugin not found')
+                || firstMsg.includes('failed to load plugin');
+            if (shouldRescan) {
+                try {
+                    await engineApi.scanPluginFolders();
+                    const status = await runActivation();
+                    statusClear();
+                    return status;
+                } catch (retryErr) {
+                    console.error('[DeviceRack] ensureSlotRuntimeActive retry failed:', retryErr);
+                    statusError(`Plugin activation failed: ${errorMessage(retryErr)}`);
+                    return null;
+                }
+            }
+
+            console.error('[DeviceRack] ensureSlotRuntimeActive failed:', err);
+            statusError(`Plugin activation failed: ${errorMessage(err)}`);
+            return null;
+        }
+    }, [selectedTrack, pluginRuntimeBySlot, statusError, statusClear]);
 
     const toggleDevice = useCallback((device: DeviceSlot) => {
         const currentBypassed = localBypass[device.id] ?? !device.isEnabled;
@@ -1007,6 +1057,7 @@ export const DeviceRack = ({
             if (tag === 'input' || tag === 'textarea' || (e.target as HTMLElement | null)?.isContentEditable) return;
             if (!selectedTrack) return;
             e.preventDefault();
+            e.stopImmediatePropagation();
             try {
                 for (const deviceId of selectedDeviceIds) {
                     await engineApi.removePluginFromTrack(selectedTrack.id, deviceId);
@@ -1132,6 +1183,7 @@ export const DeviceRack = ({
                             step: p.step,
                             suffix: '',
                             value: p.value,
+                            defaultValue: (p.min + p.max) * 0.5,
                         }));
                         return [device.id, mapped] as const;
                     } catch (err) {
@@ -1427,21 +1479,7 @@ export const DeviceRack = ({
                                         void setPluginSidechainSource(device.id, sourceTrackId);
                                     }}
                                     onEnsureActive={async () => {
-                                        if (!selectedTrack) return;
-                                        const known = pluginRuntimeBySlot[device.id];
-                                        if (known?.runtime === 'unsupported') {
-                                            statusError(known.message ?? 'This plugin format is not supported by runtime in this build.');
-                                            return;
-                                        }
-                                        try {
-                                            await engineApi.ensurePluginSlotActive(selectedTrack.id, device.id);
-                                            const status = await engineApi.getPluginSlotRuntimeStatus(selectedTrack.id, device.id);
-                                            setPluginRuntimeBySlot((prev) => ({ ...prev, [device.id]: status }));
-                                            statusClear();
-                                        } catch (err) {
-                                            console.error('[DeviceRack] ensurePluginSlotActive failed:', err);
-                                            statusError(`Failed to activate plugin: ${errorMessage(err)}`);
-                                        }
+                                        await ensureSlotRuntimeActive(device.id);
                                     }}
                                     onDropSample={async (samplePath) => {
                                         if (!selectedTrack) return;
@@ -1491,15 +1529,9 @@ export const DeviceRack = ({
                                             return;
                                         }
                                         if (!selectedTrack) return;
-                                        const known = pluginRuntimeBySlot[device.id];
-                                        if (known?.runtime === 'unsupported') {
-                                            statusError(known.message ?? 'This plugin format is not supported by runtime in this build.');
-                                            return;
-                                        }
                                         try {
-                                            await engineApi.ensurePluginSlotActive(selectedTrack.id, device.id);
-                                            const status = await engineApi.getPluginSlotRuntimeStatus(selectedTrack.id, device.id);
-                                            setPluginRuntimeBySlot((prev) => ({ ...prev, [device.id]: status }));
+                                            const status = await ensureSlotRuntimeActive(device.id);
+                                            if (!status) return;
                                             const nextOpen = !inlineSettingsOpen[device.id];
                                             setInlineSettingsOpen((prev) => ({
                                                 ...prev,
@@ -1508,7 +1540,6 @@ export const DeviceRack = ({
                                             if (!nextOpen) {
                                                 await engineApi.closePluginWindowForSlot(selectedTrack.id, device.id);
                                             }
-                                            statusClear();
                                         } catch (err) {
                                             console.error('[DeviceRack] Failed to activate inline plugin view:', err);
                                             statusError(`Plugin activation failed: ${errorMessage(err)}`);
@@ -1832,6 +1863,24 @@ const DeviceNode = ({
     const settingsWidth = Math.min(1460, Math.max(baseWidth, 280 + device.params.length * 110));
     const rackWidth = showSettings ? settingsWidth : baseWidth;
     const supportsSettingsToggle = device.source === 'vst' || (device.source === 'internal' && device.effectType !== 'utility');
+    const pluginIdLower = (device.pluginId || '').toLowerCase();
+    const pluginFormat = pluginIdLower.includes('.vst3') || pluginIdLower.includes('vst3')
+        ? 'VST3'
+        : pluginIdLower.includes('.vst') || pluginIdLower.includes('vst2')
+            ? 'VST2'
+            : device.source === 'vst'
+                ? 'VST'
+                : 'INT';
+    const showUiButton = device.source === 'vst' || pluginFormat === 'VST3';
+    const runtimeMessage = (runtimeStatus?.message || '').toLowerCase();
+    const hasHardRuntimeError = runtimeMessage.includes('vst2 runtime is not supported')
+        || runtimeMessage.includes('supports vst3 only')
+        || runtimeMessage.includes('cannot find native binary');
+    const showRecoverAction = !!runtimeStatus && !runtimeStatus.loaded;
+    const allowInlineParamEditing = device.source !== 'vst' || !!runtimeStatus?.loaded;
+    const runtimeHint = hasHardRuntimeError
+        ? (runtimeStatus?.message || 'Plugin runtime is offline.')
+        : (!runtimeStatus?.loaded ? 'Plugin runtime is offline. Click Fix/UI to retry activation.' : '');
 
     return (
         <div
@@ -1879,18 +1928,31 @@ const DeviceNode = ({
             }}
                 onClick={(e) => { e.stopPropagation(); onSelect(e); }}
             >
-                <button
-                    onClick={onToggle}
-                    title={device.isEnabled ? 'Disable' : 'Enable'}
-                    style={{
-                        width: 11, height: 11,
-                        borderRadius: '50%',
-                        background: device.isEnabled ? typeColor : 'var(--color-text-tertiary)',
-                        border: 'none',
-                        cursor: 'pointer',
-                        flexShrink: 0,
-                    }}
-                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                    <button
+                        onClick={onToggle}
+                        title={device.isEnabled ? 'Disable' : 'Enable'}
+                        style={{
+                            width: 11, height: 11,
+                            borderRadius: '50%',
+                            background: device.isEnabled ? typeColor : 'var(--color-text-tertiary)',
+                            border: 'none',
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                        }}
+                    />
+                    {showUiButton && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onOpenGUI?.(); }}
+                            title={editorSupported === false
+                                ? (editorReason ?? 'Plugin editor is unavailable')
+                                : 'Open Inline Plugin View'}
+                            style={headerIconBtnStyle(false, showSettings)}
+                        >
+                            UI
+                        </button>
+                    )}
+                </div>
                 <span style={{
                     fontSize: 'var(--font-size-2xs)',
                     fontWeight: 600,
@@ -1911,7 +1973,7 @@ const DeviceNode = ({
                 }}>
                     {order}
                 </span>
-                {device.source === 'vst' ? (
+                {showUiButton ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         {runtimeStatus && (
                             <span
@@ -1937,7 +1999,7 @@ const DeviceNode = ({
                                     : 'offline'}
                             </span>
                         )}
-                        {runtimeStatus && !runtimeStatus.loaded && (
+                        {showRecoverAction && (
                             <button
                                 onClick={(e) => { e.stopPropagation(); onEnsureActive?.(); }}
                                 title="Recover plugin runtime"
@@ -1946,15 +2008,6 @@ const DeviceNode = ({
                                 Fix
                             </button>
                         )}
-                        <button
-                            onClick={(e) => { e.stopPropagation(); onOpenGUI?.(); }}
-                            title={editorSupported === false
-                                ? (editorReason ?? 'Plugin editor is unavailable')
-                                : 'Open Inline Plugin View'}
-                            style={headerIconBtnStyle(false, showSettings)}
-                        >
-                            View
-                        </button>
                         <button
                             onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
                             title="Plugin Settings / Automatable Params"
@@ -1976,12 +2029,14 @@ const DeviceNode = ({
                 )}
                 <span style={{
                     fontSize: 'var(--font-size-micro)',
-                    color: device.source === 'vst' ? '#2ecc71' : 'var(--color-text-tertiary)',
+                    color: showUiButton
+                        ? (pluginFormat === 'VST3' ? '#2ecc71' : '#ffb36a')
+                        : 'var(--color-text-tertiary)',
                     fontWeight: 700,
                     minWidth: 28,
                     textAlign: 'right',
                 }}>
-                    {device.source === 'vst' ? 'VST' : 'INT'}
+                    {showUiButton ? pluginFormat : 'INT'}
                 </span>
             </div>
 
@@ -2113,6 +2168,7 @@ const DeviceNode = ({
                                                 max={p.max}
                                                 step={step}
                                                 value={p.value}
+                                                disabled={!allowInlineParamEditing}
                                                 onChange={(e) => onParamChange(p.name, Number(e.target.value))}
                                                 style={{
                                                     width: '100%',
@@ -2130,6 +2186,11 @@ const DeviceNode = ({
                                     );
                                 })}
                             </div>
+                            {!allowInlineParamEditing && (
+                                <div style={{ fontSize: 10, color: '#ff9b9b', lineHeight: 1.35 }}>
+                                    {runtimeHint || 'Plugin runtime is offline. Use a valid VST3 bundle to edit parameters.'}
+                                </div>
+                            )}
                             <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
@@ -2348,6 +2409,9 @@ function resolveQuickPresetParams(
 }
 
 function defaultParamForReset(param: PluginParam): number {
+    if (Number.isFinite(param.defaultValue)) {
+        return clampAndSnapParamValue(param, param.defaultValue as number);
+    }
     const name = param.name.toLowerCase();
     if (param.min <= 0 && param.max >= 0) return 0;
     if (name.includes('mix') || name.includes('width') || name.includes('amount') || name.includes('depth')) {

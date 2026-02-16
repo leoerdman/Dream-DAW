@@ -2406,8 +2406,30 @@ impl PluginHostState {
     }
 
     fn resolve_descriptor(&self, plugin_id: &str) -> Result<PluginDescriptor, String> {
-        let path = PathBuf::from(plugin_id);
+        let mut path = PathBuf::from(plugin_id);
         if path.exists() {
+            // If caller passed an inner binary path from a .vst3 bundle
+            // (e.g. .../Foo.vst3/Contents/MacOS/Foo), normalize to the bundle root.
+            if !path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("vst3"))
+                .unwrap_or(false)
+            {
+                if let Some(bundle_root) = path
+                    .ancestors()
+                    .find(|p| {
+                        p.extension()
+                            .and_then(|e| e.to_str())
+                            .map(|e| e.eq_ignore_ascii_case("vst3"))
+                            .unwrap_or(false)
+                    })
+                    .map(|p| p.to_path_buf())
+                {
+                    path = bundle_root;
+                }
+            }
+
             let ext = path
                 .extension()
                 .and_then(|e| e.to_str())

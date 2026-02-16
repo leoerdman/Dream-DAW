@@ -65,6 +65,47 @@ fn find_slot_in_node_by_id(node: &DeviceNode, slot_id: Uuid) -> Option<PluginSlo
     }
 }
 
+fn find_slot_in_node_by_id_mut(node: &mut DeviceNode, slot_id: Uuid) -> Option<&mut PluginSlot> {
+    match node {
+        DeviceNode::Single(slot) => {
+            if slot.id == slot_id {
+                Some(slot)
+            } else {
+                None
+            }
+        }
+        DeviceNode::Rack(rack) => {
+            for chain in &mut rack.chains {
+                for child in &mut chain.devices {
+                    if let Some(found) = find_slot_in_node_by_id_mut(child, slot_id) {
+                        return Some(found);
+                    }
+                }
+            }
+            None
+        }
+    }
+}
+
+fn find_slot_on_track_mut(
+    project: &mut Project,
+    track_id: Uuid,
+    slot_id: Uuid,
+) -> Option<&mut PluginSlot> {
+    let track = project.tracks.iter_mut().find(|t| t.id == track_id)?;
+    if let Some(inst) = &mut track.instrument
+        && let Some(found) = find_slot_in_node_by_id_mut(inst, slot_id)
+    {
+        return Some(found);
+    }
+    for fx in &mut track.effects {
+        if let Some(found) = find_slot_in_node_by_id_mut(fx, slot_id) {
+            return Some(found);
+        }
+    }
+    None
+}
+
 fn find_slot_on_track(project: &Project, track_id: Uuid, slot_id: Uuid) -> Option<PluginSlot> {
     let track = project.tracks.iter().find(|t| t.id == track_id)?;
     if let Some(inst) = &track.instrument
@@ -77,6 +118,71 @@ fn find_slot_on_track(project: &Project, track_id: Uuid, slot_id: Uuid) -> Optio
             return Some(found);
         }
     }
+    None
+}
+
+fn diagnose_external_plugin_reference(plugin_id: &str) -> Option<String> {
+    if plugin_id.trim().is_empty() {
+        return Some("Plugin path is empty.".to_string());
+    }
+    if plugin_id.starts_with("internal://") {
+        return None;
+    }
+
+    let path = PathBuf::from(plugin_id);
+    if !path.exists() {
+        if plugin_id.contains(".vst3/") {
+            return Some(format!(
+                "Plugin path points inside a VST3 bundle and was not found: {}. Try rescanning plugin folders.",
+                plugin_id
+            ));
+        }
+        return Some(format!(
+            "Plugin path does not exist on disk: {}. Try rescanning plugin folders.",
+            plugin_id
+        ));
+    }
+
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if ext == "vst" {
+        return Some("This plugin is VST2; current runtime supports VST3 only.".to_string());
+    }
+    if ext != "vst3" {
+        return Some(format!(
+            "Unsupported plugin extension '.{}'. Expected a .vst3 bundle path.",
+            ext
+        ));
+    }
+
+    let macos_dir = path.join("Contents").join("MacOS");
+    if !macos_dir.exists() {
+        return Some(format!(
+            "VST3 bundle missing Contents/MacOS directory: {}",
+            path.display()
+        ));
+    }
+    let Ok(entries) = std::fs::read_dir(&macos_dir) else {
+        return Some(format!(
+            "VST3 bundle MacOS directory is not readable: {}",
+            macos_dir.display()
+        ));
+    };
+    let file_count = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file())
+        .count();
+    if file_count == 0 {
+        return Some(format!(
+            "VST3 bundle has no native binaries in {}",
+            macos_dir.display()
+        ));
+    }
+
     None
 }
 
@@ -610,7 +716,23 @@ fn get_plugin_slot_runtime_status_cmd(
         });
     }
 
-    let descriptor = plugin_host_state.resolve_descriptor(&slot.plugin_id)?;
+    let descriptor = match plugin_host_state.resolve_descriptor(&slot.plugin_id) {
+        Ok(d) => d,
+        Err(err) => {
+            return Ok(PluginSlotRuntimeStatus {
+                loaded: false,
+                editor_supported: false,
+                runtime: "unloaded".to_string(),
+                sidechain_ready: false,
+                latency_frames: None,
+                message: Some(
+                    diagnose_external_plugin_reference(&slot.plugin_id)
+                        .map(|diag| format!("{err}. {diag}"))
+                        .unwrap_or(err),
+                ),
+            });
+        }
+    };
     if descriptor.format != PluginFormat::VST3 {
         return Ok(PluginSlotRuntimeStatus {
             loaded: false,
@@ -695,7 +817,13 @@ fn ensure_plugin_slot_active_cmd(
         return Ok(());
     }
 
-    let descriptor = plugin_host_state.resolve_descriptor(&slot.plugin_id)?;
+    let descriptor = plugin_host_state
+        .resolve_descriptor(&slot.plugin_id)
+        .map_err(|err| {
+            diagnose_external_plugin_reference(&slot.plugin_id)
+                .map(|diag| format!("{err}. {diag}"))
+                .unwrap_or(err)
+        })?;
     if descriptor.format != PluginFormat::VST3 {
         return Err(format!(
             "Unsupported plugin runtime format: {}. Dream DAW runtime currently supports VST3 only.",
@@ -741,6 +869,89 @@ fn unload_plugin_slot_cmd(
         track_id,
         slot_id
     );
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReplaceMissingPluginPayload {
+    track_id: String,
+    slot_id: String,
+    replacement_plugin_id: String,
+    replacement_plugin_name: Option<String>,
+}
+
+/// Replace a missing external plugin placeholder with a real plugin on the same slot.
+#[tauri::command]
+fn replace_missing_plugin_slot_cmd(
+    payload: ReplaceMissingPluginPayload,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let track_uuid = Uuid::parse_str(&payload.track_id)
+        .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
+    let slot_uuid = Uuid::parse_str(&payload.slot_id)
+        .map_err(|_| format!("Invalid slot_id: {}", payload.slot_id))?;
+
+    let replacement_plugin_id = payload.replacement_plugin_id.trim().to_string();
+    if replacement_plugin_id.is_empty() {
+        return Err("Replacement plugin path cannot be empty".to_string());
+    }
+    if replacement_plugin_id.starts_with("internal://") {
+        return Err("Missing external plugin replacement expects an external plugin bundle path".to_string());
+    }
+
+    let descriptor = plugin_host_state.resolve_descriptor(&replacement_plugin_id)?;
+    if descriptor.format != PluginFormat::VST3 {
+        return Err(format!(
+            "Replacement plugin format '{}' is not supported in runtime. Use VST3.",
+            descriptor.format
+        ));
+    }
+
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let slot = find_slot_on_track_mut(&mut project, track_uuid, slot_uuid).ok_or_else(|| {
+        format!(
+            "Plugin slot not found on track {}: {}",
+            payload.track_id, payload.slot_id
+        )
+    })?;
+
+    if !slot.plugin_id.starts_with("missing://") {
+        return Err("Slot is not a missing plugin placeholder".to_string());
+    }
+
+    slot.plugin_id = replacement_plugin_id.clone();
+    slot.name = payload
+        .replacement_plugin_name
+        .as_ref()
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| descriptor.name.clone());
+    slot.external_audio_inputs = Some(descriptor.audio_inputs);
+    slot.supports_sidechain_input = Some(descriptor.audio_inputs > 2);
+    slot.external_format = Some(descriptor.format.to_string().to_lowercase());
+    slot.external_uid = descriptor.unique_id.clone();
+    slot.external_plugin_version = descriptor.version.clone();
+    slot.is_bypassed = false;
+
+    let _ = plugin_host_state.unload_slot_instance(slot_uuid);
+    if let Err(err) = plugin_host_state.ensure_loaded_instance_for_slot(slot_uuid, &replacement_plugin_id) {
+        log::warn!(
+            "[IPC] replace_missing_plugin_slot_cmd runtime init failed (slot={}, plugin={}): {}",
+            slot_uuid,
+            replacement_plugin_id,
+            err
+        );
+    }
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     Ok(())
 }
 

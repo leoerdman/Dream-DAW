@@ -149,6 +149,7 @@ export class CanvasClipRenderer {
         playheadBeat: number,
         editCursorBeat: number,
         editCursorTrack: number,
+        selectedTrack: number,
         loop: LoopRegion | null,
         beatsPerBar: number,
         snapBeats: number,
@@ -186,7 +187,7 @@ export class CanvasClipRenderer {
         ctx.rect(0, vp.rulerHeight, w, h - vp.rulerHeight);
         ctx.clip();
 
-        this._drawTrackBackgrounds(ctx, vp, theme, editCursorTrack);
+        this._drawTrackBackgrounds(ctx, vp, theme, selectedTrack);
         this._drawGrid(ctx, vp, range, beatsPerBar, snapBeats, theme);
         this._drawLoopRegion(ctx, vp, loop, theme);
         this._drawClips(ctx, vp, clips, range, sampleRate);

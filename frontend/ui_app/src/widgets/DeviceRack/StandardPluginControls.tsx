@@ -7,6 +7,7 @@ export interface PluginParam {
     max: number;
     suffix: string;
     step?: number;
+    defaultValue?: number;
 }
 
 const formatPluginParamValue = (param: PluginParam): string => {
@@ -23,6 +24,9 @@ const formatPluginParamName = (raw: string): string => {
 };
 
 const defaultParamValue = (param: PluginParam): number => {
+    if (Number.isFinite(param.defaultValue)) {
+        return Math.max(param.min, Math.min(param.max, param.defaultValue as number));
+    }
     const name = param.name.toLowerCase();
     if (param.min <= 0 && param.max >= 0) return 0;
     if (name.includes('mix') || name.includes('width') || name.includes('amount') || name.includes('depth')) {
@@ -78,6 +82,8 @@ export const PluginKnob = ({
     const markerHeight = compact ? 11 : 14;
     const markerTopOffset = compact ? '-84%' : '-88%';
     const [isDragging, setIsDragging] = useState(false);
+    const [isEditingValue, setIsEditingValue] = useState(false);
+    const [editValueText, setEditValueText] = useState('');
     const dragPointerIdRef = useRef<number | null>(null);
     const dragStartYRef = useRef(0);
     const dragStartValueRef = useRef(0);
@@ -107,19 +113,19 @@ export const PluginKnob = ({
         if (dragPointerIdRef.current !== e.pointerId) return;
         e.preventDefault();
         const valueRange = Math.max(1e-9, param.max - param.min);
-        const dx = e.clientX - ((dialRef.current?.getBoundingClientRect().left ?? 0) + size / 2);
         const dy = e.clientY - dragStartYRef.current;
-        const dragScalePx = e.shiftKey ? 520 : 260;
-        const nextRaw = dragStartValueRef.current + (((-dy + dx * 0.35) / dragScalePx) * valueRange);
+        const dragScalePx = e.shiftKey ? 130 : e.altKey ? 760 : 220;
+        const nextRaw = dragStartValueRef.current + (((-dy) / dragScalePx) * valueRange);
         onChange(param.name, quantizeValue(nextRaw));
-    }, [onChange, param.max, param.min, param.name, quantizeValue, size]);
+    }, [onChange, param.max, param.min, param.name, quantizeValue]);
 
     const onKnobWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
         e.preventDefault();
         e.stopPropagation();
         const valueRange = Math.max(1e-9, param.max - param.min);
         const step = param.step && param.step > 0 ? param.step : valueRange / 160;
-        const delta = (e.deltaY < 0 ? 1 : -1) * (e.shiftKey ? step * 0.2 : step * 1.0);
+        const wheelMul = e.shiftKey ? 4.0 : e.altKey ? 0.2 : 1.0;
+        const delta = (e.deltaY < 0 ? 1 : -1) * step * wheelMul;
         onChange(param.name, quantizeValue(param.value + delta));
     }, [onChange, param.max, param.min, param.name, param.step, param.value, quantizeValue]);
 
@@ -136,6 +142,27 @@ export const PluginKnob = ({
         setIsDragging(false);
         onGestureEnd?.(param.name);
     }, [onGestureEnd, param.name]);
+
+    const beginValueEdit = useCallback((e: React.MouseEvent<HTMLSpanElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setEditValueText(String(param.value));
+        setIsEditingValue(true);
+    }, [param.value]);
+
+    const commitValueEdit = useCallback(() => {
+        const normalized = editValueText.replace(',', '.').trim();
+        const parsed = Number(normalized);
+        if (Number.isFinite(parsed)) {
+            onChange(param.name, quantizeValue(parsed));
+        }
+        setIsEditingValue(false);
+    }, [editValueText, onChange, param.name, quantizeValue]);
+
+    const cancelValueEdit = useCallback(() => {
+        setIsEditingValue(false);
+        setEditValueText(String(param.value));
+    }, [param.value]);
 
     return (
         <label
@@ -178,7 +205,32 @@ export const PluginKnob = ({
                 )}
             </div>
             <span style={knobParamNameStyle}>{formatPluginParamName(param.name)}</span>
-            <span style={knobValueStyle(compact)}>{formatPluginParamValue(param)}</span>
+            {isEditingValue ? (
+                <input
+                    autoFocus
+                    value={editValueText}
+                    onChange={(e) => setEditValueText(e.target.value)}
+                    onBlur={commitValueEdit}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            commitValueEdit();
+                        } else if (e.key === 'Escape') {
+                            e.preventDefault();
+                            cancelValueEdit();
+                        }
+                    }}
+                    style={knobValueInputStyle(compact)}
+                />
+            ) : (
+                <span
+                    style={knobValueStyle(compact)}
+                    onDoubleClick={beginValueEdit}
+                    title="Double-click to type value"
+                >
+                    {formatPluginParamValue(param)}
+                </span>
+            )}
         </label>
     );
 };
@@ -265,6 +317,22 @@ const knobValueStyle = (compact: boolean): CSSProperties => ({
     color: 'var(--color-text-primary)',
     fontFamily: 'var(--font-mono)',
     opacity: 0.92,
+    cursor: 'text',
+    userSelect: 'none',
+});
+
+const knobValueInputStyle = (compact: boolean): CSSProperties => ({
+    width: compact ? 52 : 62,
+    height: compact ? 16 : 18,
+    border: '1px solid color-mix(in srgb, var(--color-accent-primary) 55%, rgba(255,255,255,0.2))',
+    borderRadius: 'var(--radius-xs)',
+    background: 'color-mix(in srgb, var(--surface-2) 88%, black)',
+    color: 'var(--color-text-primary)',
+    fontFamily: 'var(--font-mono)',
+    fontSize: compact ? 9 : 10,
+    textAlign: 'center',
+    padding: '0 4px',
+    outline: 'none',
 });
 
 const knobDragValueBadgeStyle: CSSProperties = {

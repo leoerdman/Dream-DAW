@@ -884,6 +884,22 @@ export const ensurePluginSlotActive = (trackId: string, slotId: string) =>
 export const unloadPluginSlot = (trackId: string, slotId: string) =>
     invoke<void>('unload_plugin_slot_cmd', { trackId, slotId });
 
+/** Replace missing plugin placeholder on an exact slot. */
+export const replaceMissingPluginSlot = (
+    trackId: string,
+    slotId: string,
+    replacementPluginId: string,
+    replacementPluginName?: string,
+) =>
+    invoke<void>('replace_missing_plugin_slot_cmd', {
+        payload: {
+            trackId,
+            slotId,
+            replacementPluginId,
+            replacementPluginName: replacementPluginName ?? null,
+        },
+    });
+
 /** Close an open plugin window. */
 export const closePluginWindow = (pluginId: string) =>
     invoke<void>('close_plugin_window', { pluginId });

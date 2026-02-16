@@ -3632,6 +3632,54 @@ fn import_track_clips(
     bpm: f64,
     sample_rate: f64,
 ) {
+    fn remove_overlapping_audio_clips(clips: &mut Vec<AudioClip>) -> usize {
+        clips.sort_by(|a, b| {
+            a.position
+                .sample_frame
+                .cmp(&b.position.sample_frame)
+                .then_with(|| b.duration.sample_frame.cmp(&a.duration.sample_frame))
+        });
+        let mut cleaned: Vec<AudioClip> = Vec::with_capacity(clips.len());
+        let mut last_end = i64::MIN;
+        let mut removed = 0usize;
+        for clip in clips.drain(..) {
+            let start = clip.position.sample_frame;
+            let end = start + clip.duration.sample_frame.max(1);
+            if start < last_end {
+                removed += 1;
+                continue;
+            }
+            last_end = end;
+            cleaned.push(clip);
+        }
+        *clips = cleaned;
+        removed
+    }
+
+    fn remove_overlapping_midi_clips(clips: &mut Vec<MidiClip>) -> usize {
+        clips.sort_by(|a, b| {
+            a.position
+                .sample_frame
+                .cmp(&b.position.sample_frame)
+                .then_with(|| b.duration.sample_frame.cmp(&a.duration.sample_frame))
+        });
+        let mut cleaned: Vec<MidiClip> = Vec::with_capacity(clips.len());
+        let mut last_end = i64::MIN;
+        let mut removed = 0usize;
+        for clip in clips.drain(..) {
+            let start = clip.position.sample_frame;
+            let end = start + clip.duration.sample_frame.max(1);
+            if start < last_end {
+                removed += 1;
+                continue;
+            }
+            last_end = end;
+            cleaned.push(clip);
+        }
+        *clips = cleaned;
+        removed
+    }
+
     let pointee_map = build_pointee_map(track_node);
 
     for clip_node in track_node.descendants().filter(|n| n.is_element() && n.has_tag_name("AudioClip")) {
@@ -3858,6 +3906,17 @@ fn import_track_clips(
         }
 
         track.midi_clips.push(clip);
+    }
+
+    let removed_audio = remove_overlapping_audio_clips(&mut track.clips);
+    let removed_midi = remove_overlapping_midi_clips(&mut track.midi_clips);
+    if removed_audio > 0 || removed_midi > 0 {
+        log::warn!(
+            "[ALS Import] Removed overlapping clips on track '{}': audio={}, midi={}",
+            track.name,
+            removed_audio,
+            removed_midi
+        );
     }
 }
 
@@ -7277,40 +7336,9 @@ fn open_project(
     project_state.record_history(source_kind, format!("loaded '{}'", loaded.name))?;
 
     let _ = plugin_host_state.unload_all_instances();
-
-    fn bind_external_slots(
-        node: &DeviceNode,
-        plugin_host_state: &tauri::State<'_, PluginHostState>,
-    ) {
-        match node {
-            DeviceNode::Single(slot) => {
-                if !slot.plugin_id.starts_with("internal://")
-                    && let Ok(instance_id) = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)
-                {
-                    plugin_host_state.bind_slot_instance(slot.id, instance_id);
-                }
-            }
-            DeviceNode::Rack(rack) => {
-                for chain in &rack.chains {
-                    for child in &chain.devices {
-                        bind_external_slots(child, plugin_host_state);
-                    }
-                }
-            }
-        }
-    }
-
-    for track in &loaded.tracks {
-        if let Some(inst) = &track.instrument {
-            bind_external_slots(inst, &plugin_host_state);
-        }
-        for fx in &track.effects {
-            bind_external_slots(fx, &plugin_host_state);
-        }
-    }
-    for fx in &loaded.master_track.effects {
-        bind_external_slots(fx, &plugin_host_state);
-    }
+    // Do not eagerly activate external plugins while opening a project.
+    // Some third-party VSTs can crash on activation/probing; runtime activation
+    // is done lazily from the rack (UI/Fix/Open actions).
 
     clip_pool_state.rebuild_snapshot(&loaded);
     clip_pool_state.rebuild_external_fx_snapshot(&loaded, plugin_host_state.slot_instance_snapshot().as_ref());

@@ -9,6 +9,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use log::info;
@@ -83,19 +84,13 @@ impl PluginScanner {
 
             info!("Scanning {}: {}", format, dir.display());
 
-            match std::fs::read_dir(&dir) {
-                Ok(entries) => {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if Self::matches_format(&path, extension)
-                            && let Some(desc) = Self::descriptor_from_path(&path, format)
-                        {
-                            results.push(desc);
-                        }
-                    }
-                }
-                Err(e) => {
-                    log::warn!("Cannot read {}: {}", dir.display(), e);
+            let paths = Self::collect_plugin_paths(&dir, extension, 4);
+            if paths.is_empty() {
+                continue;
+            }
+            for path in paths {
+                if let Some(desc) = Self::descriptor_from_path(&path, format) {
+                    results.push(desc);
                 }
             }
         }
@@ -229,6 +224,40 @@ impl PluginScanner {
         }
 
         PluginCategory::Other
+    }
+
+    /// Recursively collects plugin bundle/file paths with a matching extension.
+    ///
+    /// This is needed because many vendors install plugins in nested subfolders,
+    /// e.g. `/Library/Audio/Plug-Ins/VST3/Vendor/Product.vst3`.
+    fn collect_plugin_paths(root: &Path, extension: &str, max_depth: usize) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        let mut stack = vec![(root.to_path_buf(), 0usize)];
+
+        while let Some((dir, depth)) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if Self::matches_format(&path, extension) {
+                    let key = path.to_string_lossy().to_string();
+                    if seen.insert(key) {
+                        out.push(path);
+                    }
+                    continue;
+                }
+
+                if depth < max_depth && path.is_dir() {
+                    stack.push((path, depth + 1));
+                }
+            }
+        }
+
+        out.sort();
+        out
     }
 }
 

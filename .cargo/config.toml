@@ -11,4 +11,5 @@
 # This is critical for DSP performance in dream_dsp (Phase 2+).
 
 [build]
+target-dir = "/tmp/dream-daw-target"
 rustflags = ["-C", "target-cpu=native"]

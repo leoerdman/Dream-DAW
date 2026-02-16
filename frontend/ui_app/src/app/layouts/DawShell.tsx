@@ -20,6 +20,8 @@ import * as engineApi from '@/shared/api/engine';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
 import { getContrastColor } from '@/shared/lib/colorUtils';
+import { ClipEditorShell } from '@/widgets/ClipEditor/ClipEditorShell';
+import { ClipEditorMetaRow, ClipEditorSection, ClipEditorSidebar } from '@/widgets/ClipEditor/ClipEditorSidebar';
 
 /** Supported audio file extensions for drag-and-drop import. */
 const AUDIO_EXTENSIONS = new Set([
@@ -104,9 +106,11 @@ export const DawShell = () => {
     const [missingAssetsOpen, setMissingAssetsOpen] = useState(false);
     const [browserWidth, setBrowserWidth] = useState(320);
     const [trackHeightPx, setTrackHeightPx] = useState(48);
-    const [bottomPanelHeightPx, setBottomPanelHeightPx] = useState(220);
+    const DEFAULT_BOTTOM_PANEL_HEIGHT = 220;
+    const [bottomPanelHeightPx, setBottomPanelHeightPx] = useState(DEFAULT_BOTTOM_PANEL_HEIGHT);
     const recoveringAudioRef = useRef(false);
     const lastAudioRecoverAtRef = useRef(0);
+    const projectRefreshTimerRef = useRef<number | null>(null);
     const midiSaveThrottlesRef = useRef<Map<string, (notes: MidiNote[]) => void>>(new Map());
     const midiEnvelopeSaveThrottlesRef = useRef<
         Map<string, (envelopes: Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>) => void>
@@ -372,7 +376,7 @@ export const DawShell = () => {
 
     const beginBottomPanelResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         e.preventDefault();
-        const minHeight = 180;
+        const minHeight = DEFAULT_BOTTOM_PANEL_HEIGHT;
         const maxHeight = Math.round(window.innerHeight * 0.72);
 
         let rafId: number | null = null;
@@ -405,7 +409,7 @@ export const DawShell = () => {
 
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
-    }, []);
+    }, [DEFAULT_BOTTOM_PANEL_HEIGHT]);
 
     // Safety-net bootstrap: if splash transition missed telemetry startup,
     // mount of workspace guarantees playhead + meters start updating.
@@ -423,7 +427,12 @@ export const DawShell = () => {
     }, []);
 
     // ── Engine state for Timeline ───────────────────────────────────
-    const transport = useEngineStore(s => s.transport);
+    const transportBpm = useEngineStore(s => s.transport.bpm);
+    const transportIsPlaying = useEngineStore(s => s.transport.is_playing);
+    const transportPositionBeats = useEngineStore(s => s.transport.position_beats);
+    const transportLoopStart = useEngineStore(s => s.transport.loop_start);
+    const transportLoopEnd = useEngineStore(s => s.transport.loop_end);
+    const transportLoopEnabled = useEngineStore(s => s.transport.loop_enabled);
     const projectSampleRate = useEngineStore(s => s.projectSampleRate || 44100);
     const projectBpm = useEngineStore(s => s.projectBpm);
     const projectSampleRateFromStore = useEngineStore(s => s.projectSampleRate);
@@ -450,6 +459,27 @@ export const DawShell = () => {
             }),
         [timelineClips, midiNotesByClip, clipFadeCurves],
     );
+
+    const scheduleProjectRefresh = useCallback((reason: string) => {
+        if (!transportIsPlaying) {
+            void fetchProject(reason);
+            return;
+        }
+        if (projectRefreshTimerRef.current !== null) {
+            window.clearTimeout(projectRefreshTimerRef.current);
+        }
+        projectRefreshTimerRef.current = window.setTimeout(() => {
+            projectRefreshTimerRef.current = null;
+            void fetchProject(reason);
+        }, 240);
+    }, [transportIsPlaying, fetchProject]);
+
+    useEffect(() => () => {
+        if (projectRefreshTimerRef.current !== null) {
+            window.clearTimeout(projectRefreshTimerRef.current);
+            projectRefreshTimerRef.current = null;
+        }
+    }, []);
 
     // Keep a valid selected track at all times.
     useEffect(() => {
@@ -486,7 +516,7 @@ export const DawShell = () => {
     }, [projectTracks, selectedTrackId]);
 
     // Use position_beats directly from engine (single-source, no float round-trip)
-    const playheadBeat = transport.position_beats ?? 0;
+    const playheadBeat = transportPositionBeats ?? 0;
 
     const trackCount = Math.max(projectTracks.length, 1);
     const trackIds = useMemo(() => projectTracks.map((t) => t.id), [projectTracks]);
@@ -530,14 +560,14 @@ export const DawShell = () => {
         if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return 8;
         return Math.max(1, Math.ceil(selectedTimelineClip.durationBeats / 4));
     }, [selectedTimelineClip]);
-    const isPianoRollEditorActive =
-        bottomPanelMode === 'clip' && selectedTimelineClip?.type === 'midi';
+    const hasResizableClipEditor =
+        bottomPanelMode === 'clip' && (selectedTimelineClip?.type === 'midi' || selectedTimelineClip?.type === 'audio');
     const handleGenerateMidiVariation = useCallback(async () => {
         if (!selectedTimelineClip || selectedTimelineClip.type !== 'midi') return;
         const clip = selectedTimelineClip;
         const notes = midiNotesByClip[clip.id] ?? [];
         const track = projectTracks[clip.trackIndex];
-        const bpm = projectBpm || transport.bpm || 120;
+        const bpm = projectBpm || transportBpm || 120;
         const beatsPerBar = 4;
         const sampleRate = useEngineStore.getState().projectSampleRate || 44100;
         const beatsPerSecond = bpm / 60;
@@ -590,7 +620,7 @@ export const DawShell = () => {
         midiNotesByClip,
         projectTracks,
         projectBpm,
-        transport.bpm,
+        transportBpm,
         fetchProject,
     ]);
 
@@ -620,7 +650,7 @@ export const DawShell = () => {
             const clip = selectedTimelineClip;
             if (!clip || clip.type !== 'midi') return;
             const notes = latestMidiNotesRef.current[clip.id] ?? [];
-            const bpm = projectBpm || transport.bpm || 120;
+            const bpm = projectBpm || transportBpm || 120;
             const sr = useEngineStore.getState().projectSampleRate || 44100;
             const beatsPerSecond = bpm / 60;
             void engineApi
@@ -643,21 +673,21 @@ export const DawShell = () => {
         };
         window.addEventListener('pointerup', onPointerUp);
         return () => window.removeEventListener('pointerup', onPointerUp);
-    }, [flushTrackControlFinals, selectedTimelineClip, projectBpm, transport.bpm]);
+    }, [flushTrackControlFinals, selectedTimelineClip, projectBpm, transportBpm]);
 
-    // ── Track Height (Per-Selection) ───────────────────────────────
-    // Base height is the default row height. trackHeightPx is the current
-    // "expanded" height applied to selected tracks.
+    // ── Track Height (Global) ───────────────────────────────────────
+    // Track row height is global and must not change when selection changes.
     const TRACK_HEIGHT_DEFAULT = 48;
     const TRACK_HEIGHT_MIN = 24;
     const TRACK_HEIGHT_MAX = 120;
-    const TRACK_HEIGHT_STEP = 4;
+    const TRACK_HEIGHT_STEP = 1;
     const TRACK_HEIGHT_BASE = TRACK_HEIGHT_DEFAULT;
     const TRACK_HEIGHT_SELECTED = trackHeightPx;
     const trackHeightReadyRef = useRef(false);
     const trackHeightSourceTrackRef = useRef<string | null>(null);
+    const trackHeightUserAdjustedRef = useRef(false);
 
-    // Restore expanded height from the selected track (persisted per track in .ddpj).
+    // Restore height from project data without coupling to selected track.
     useEffect(() => {
         if (projectTracksSnapshot.length === 0) {
             trackHeightReadyRef.current = false;
@@ -665,9 +695,7 @@ export const DawShell = () => {
             return;
         }
 
-        const sourceTrackId = (selectedTrackId && selectedTrackId !== 'master')
-            ? selectedTrackId
-            : (projectTracksSnapshot[0]?.id ?? null);
+        const sourceTrackId = projectTracksSnapshot[0]?.id ?? null;
         const projectChanged = sourceTrackId !== trackHeightSourceTrackRef.current;
         if (projectChanged) {
             trackHeightReadyRef.current = false;
@@ -684,7 +712,7 @@ export const DawShell = () => {
             trackHeightReadyRef.current = true;
         }, 0);
         return () => window.clearTimeout(readyId);
-    }, [projectTracksSnapshot, selectedTrackId]);
+    }, [projectTracksSnapshot]);
 
     const persistTrackHeightThrottledRef = useRef(
         throttle((trackIds: string[], heightPx: number) => {
@@ -696,16 +724,18 @@ export const DawShell = () => {
 
     useEffect(() => {
         if (!trackHeightReadyRef.current) return;
-        const trackIds = selectedTrackIds.length > 0
-            ? selectedTrackIds
-            : (selectedTrackId && selectedTrackId !== 'master' ? [selectedTrackId] : []);
+        if (!trackHeightUserAdjustedRef.current) return;
+        const trackIds = projectTracksSnapshot
+            .map((t) => t.id)
+            .filter((id) => id && id !== 'master');
         if (trackIds.length === 0) return;
         persistTrackHeightThrottledRef.current(trackIds, TRACK_HEIGHT_SELECTED);
-    }, [selectedTrackIds, selectedTrackId, TRACK_HEIGHT_SELECTED]);
+    }, [projectTracksSnapshot, TRACK_HEIGHT_SELECTED]);
 
     useEffect(() => {
+        const persistTrackHeightThrottled = persistTrackHeightThrottledRef.current;
         return () => {
-            persistTrackHeightThrottledRef.current.cancel();
+            persistTrackHeightThrottled.cancel();
         };
     }, []);
     const RULER_HEIGHT = 28;
@@ -725,6 +755,7 @@ export const DawShell = () => {
             const direction = wheelAccumulator < 0 ? 1 : -1;
             wheelAccumulator -= Math.sign(wheelAccumulator) * steps * WHEEL_STEP_THRESHOLD;
 
+            trackHeightUserAdjustedRef.current = true;
             setTrackHeightPx((prev) => {
                 const next = prev + direction * TRACK_HEIGHT_STEP * steps;
                 return Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, next));
@@ -755,6 +786,7 @@ export const DawShell = () => {
                 tag === 'input' || tag === 'textarea' || target?.isContentEditable;
             if (isTextInput) return;
             e.preventDefault();
+            trackHeightUserAdjustedRef.current = true;
             setTrackHeightPx(TRACK_HEIGHT_DEFAULT);
         };
 
@@ -769,10 +801,14 @@ export const DawShell = () => {
         };
     }, [TRACK_HEIGHT_DEFAULT]);
 
+    // Keep timeline hit-test geometry identical to TrackInspector rows.
     const timelineTrackHeights = useMemo(() => {
-        const selected = new Set(selectedTrackIds);
-        return projectTracksSnapshot.map((t) => (selected.has(t.id) ? TRACK_HEIGHT_SELECTED : TRACK_HEIGHT_BASE));
-    }, [projectTracksSnapshot, selectedTrackIds, TRACK_HEIGHT_SELECTED, TRACK_HEIGHT_BASE]);
+        const clamp = (h: number) => Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, Math.round(h)));
+        return projectTracksSnapshot.map((t) => {
+            const persisted = Number.isFinite(t.height) ? t.height : TRACK_HEIGHT_BASE;
+            return clamp(persisted);
+        });
+    }, [projectTracksSnapshot, TRACK_HEIGHT_BASE, TRACK_HEIGHT_MIN, TRACK_HEIGHT_MAX]);
 
     // ── Scroll sync between Timeline and TrackInspector ─────────────
     const [timelineScrollTop, setTimelineScrollTop] = useState(0);
@@ -808,8 +844,8 @@ export const DawShell = () => {
     // Priority: selected clip(s) -> queued anchor -> edit cursor.
     const prevIsPlayingRef = useRef(false);
     useEffect(() => {
-        const justStarted = transport.is_playing && !prevIsPlayingRef.current;
-        prevIsPlayingRef.current = transport.is_playing;
+        const justStarted = transportIsPlaying && !prevIsPlayingRef.current;
+        prevIsPlayingRef.current = transportIsPlaying;
         if (!justStarted) return;
 
         let startBeat: number | null = null;
@@ -838,7 +874,7 @@ export const DawShell = () => {
         void engineApi.seekToBeat(Math.max(0, startBeat)).catch((err) => {
             console.error('[DawShell] seek to playback anchor failed:', err);
         });
-    }, [transport.is_playing, selectedClipIds, timelineClipsForView, editCursorBeat]);
+    }, [transportIsPlaying, selectedClipIds, timelineClipsForView, editCursorBeat]);
 
     // Clip selection callback
     const handleClipSelect = useCallback((clipId: string) => {
@@ -860,7 +896,7 @@ export const DawShell = () => {
     } = useBrowserDnDOrchestrator({
         projectTracks,
         projectBpm,
-        transportBpm: transport.bpm || 120,
+        transportBpm: transportBpm || 120,
         projectSampleRate: projectSampleRateFromStore || 44100,
         importFile,
         fetchProject,
@@ -875,7 +911,7 @@ export const DawShell = () => {
     // Double-click on track lane → create 1-bar MIDI clip
     const handleDoubleClickTrack = useCallback((trackIndex: number, beat: number) => {
         console.log('[DawShell] handleDoubleClickTrack', { trackIndex, beat });
-        const bpm = projectBpm || transport.bpm || 120;
+        const bpm = projectBpm || transportBpm || 120;
         const sr = useEngineStore.getState().projectSampleRate || 44100;
         const beatsPerBar = 4; // 4/4 time signature
         const posSeconds = beat / (bpm / 60);
@@ -883,11 +919,11 @@ export const DawShell = () => {
         const positionFrames = Math.round(posSeconds * sr);
         const durationFrames = Math.round(barSeconds * sr);
         createMidiClip(trackIndex, positionFrames, durationFrames);
-    }, [createMidiClip, projectBpm, transport.bpm]);
+    }, [createMidiClip, projectBpm, transportBpm]);
 
     // Clip drag → move clip to new position in engine (syncs audio with visual)
     const handleClipMove = useCallback((clipId: string, newStartBeat: number, newTrackIndex: number) => {
-        const bpm = projectBpm || transport.bpm || 120;
+        const bpm = projectBpm || transportBpm || 120;
         const sr = useEngineStore.getState().projectSampleRate || 44100;
         const beatsPerSecond = bpm / 60;
 
@@ -930,14 +966,14 @@ export const DawShell = () => {
                     newStartBeat,
                     mode: moveAsGroup ? 'group' : 'single',
                 });
-                fetchProject();
+                scheduleProjectRefresh('clip-move');
             })
             .catch(err => console.error('[DawShell] moveClip failed:', err));
-    }, [projectBpm, transport.bpm, fetchProject, timelineClipsForView, selectedClipIds, trackCount]);
+    }, [projectBpm, transportBpm, scheduleProjectRefresh, timelineClipsForView, selectedClipIds, trackCount]);
 
     // Clip resize → update position and duration in engine
     const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number) => {
-        const bpm = projectBpm || transport.bpm || 120;
+        const bpm = projectBpm || transportBpm || 120;
         const sr = useEngineStore.getState().projectSampleRate || 44100;
         const posSeconds = newStartBeat / (bpm / 60);
         const durSeconds = newDurationBeats / (bpm / 60);
@@ -947,10 +983,10 @@ export const DawShell = () => {
         engineApi.resizeClip(clipId, newPositionFrames, newDurationFrames)
             .then(() => {
                 console.log('[DawShell] Clip resized', { clipId, newStartBeat, newDurationBeats });
-                fetchProject(); // Refresh project state
+                scheduleProjectRefresh('clip-resize');
             })
             .catch(err => console.error('[DawShell] resizeClip failed:', err));
-    }, [projectBpm, transport.bpm, fetchProject]);
+    }, [projectBpm, transportBpm, scheduleProjectRefresh]);
 
     const handleClipFades = useCallback((clipId: string, fadeInFrames: number, fadeOutFrames: number) => {
         engineApi.setClipFades(
@@ -959,10 +995,10 @@ export const DawShell = () => {
             Math.max(0, Math.round(fadeOutFrames)),
         )
             .then(() => {
-                fetchProject();
+                scheduleProjectRefresh('clip-fades');
             })
             .catch((err) => console.error('[DawShell] setClipFades failed:', err));
-    }, [fetchProject]);
+    }, [scheduleProjectRefresh]);
 
     const handleOpenMidiClip = useCallback((clipId: string) => {
         setSelectedClipId(clipId);
@@ -970,7 +1006,7 @@ export const DawShell = () => {
     }, []);
 
     const flushPendingMidiEdits = useCallback(async () => {
-        const bpm = projectBpm || transport.bpm || 120;
+        const bpm = projectBpm || transportBpm || 120;
         const sr = useEngineStore.getState().projectSampleRate || 44100;
         const beatsPerSecond = bpm / 60;
         const tasks: Promise<unknown>[] = [];
@@ -990,7 +1026,7 @@ export const DawShell = () => {
         }
 
         await Promise.allSettled(tasks);
-    }, [projectBpm, transport.bpm]);
+    }, [projectBpm, transportBpm]);
 
     useEffect(() => {
         window.__dreamFlushPendingEdits = async () => {
@@ -1063,20 +1099,20 @@ export const DawShell = () => {
                             >
                                 <ErrorBoundary module="Timeline">
                                     <Timeline
-                                        bpm={projectBpm || transport.bpm || 120}
+                                        bpm={projectBpm || transportBpm || 120}
                                         clips={timelineClipsForView}
                                         playheadBeat={playheadBeat}
                                         editCursorBeat={editCursorBeat}
                                         editCursorTrackIndex={editCursorTrackIndex}
                                         selectedTrackIndex={selectedTrackIndex}
                                         selectedTrackIndices={selectedTrackIndices}
-                                        isPlaying={transport.is_playing}
+                                        isPlaying={transportIsPlaying}
                                         recordingActive={recordingState.active}
                                         recordingTrackIndex={recordingState.trackIndex}
                                         trackIds={trackIds}
-                                        loopStart={(transport.loop_start / projectSampleRate) * ((projectBpm || transport.bpm || 120) / 60)}
-                                        loopEnd={(transport.loop_end / projectSampleRate) * ((projectBpm || transport.bpm || 120) / 60)}
-                                        loopEnabled={transport.loop_enabled}
+                                        loopStart={(transportLoopStart / projectSampleRate) * ((projectBpm || transportBpm || 120) / 60)}
+                                        loopEnd={(transportLoopEnd / projectSampleRate) * ((projectBpm || transportBpm || 120) / 60)}
+                                        loopEnabled={transportLoopEnabled}
                                         trackCount={trackCount}
                                         trackHeight={TRACK_HEIGHT_BASE}
                                         trackHeights={timelineTrackHeights}
@@ -1143,7 +1179,7 @@ export const DawShell = () => {
                                             onSelectTracks={handleSelectTracks}
                                             onSelectTrack={handleSelectTrack}
                                             trackHeight={TRACK_HEIGHT_BASE}
-                                            selectedTrackHeight={TRACK_HEIGHT_SELECTED}
+                                            selectedTrackHeight={TRACK_HEIGHT_BASE}
                                             rulerHeight={RULER_HEIGHT}
                                             scrollTop={timelineScrollTop}
                                             mixerFocusMode={false}
@@ -1165,16 +1201,16 @@ export const DawShell = () => {
                 <footer
                     className="shrink-0 z-40 overflow-hidden"
                     style={{
-                        height: isPianoRollEditorActive ? `${bottomPanelHeightPx}px` : 'var(--daw-device-rack-height)',
-                        minHeight: 'var(--daw-device-rack-min-height)',
+                        height: hasResizableClipEditor ? `${bottomPanelHeightPx}px` : 'var(--daw-device-rack-height)',
+                        minHeight: hasResizableClipEditor ? 'var(--daw-device-rack-height)' : 'var(--daw-device-rack-min-height)',
                         borderTop: '1px solid var(--color-divider)',
                         position: 'relative',
                     }}
                 >
-                    {isPianoRollEditorActive && (
+                    {hasResizableClipEditor && (
                         <div
                             onMouseDown={beginBottomPanelResize}
-                            title="Resize Piano Roll"
+                            title="Resize Clip Editor"
                             style={{
                                 position: 'absolute',
                                 top: 0,
@@ -1219,24 +1255,13 @@ export const DawShell = () => {
                                             selectedTimelineClip.fadeOutCurve ?? 0.5,
                                         ].join(':')}
                                         notes={midiNotesByClip[selectedTimelineClip.id] ?? []}
-                                        ghostNotes={timelineClipsForView
-                                            .filter((c) => c.type === 'midi' && c.trackIndex === selectedTimelineClip.trackIndex && c.id !== selectedTimelineClip.id)
-                                            .flatMap((c) => {
-                                                const source = midiNotesByClip[c.id] ?? c.midiNotes ?? [];
-                                                return source.map((n) => ({
-                                                    id: `ghost-${c.id}-${n.id ?? `${n.pitch}-${n.startBeat}`}`,
-                                                    pitch: n.pitch,
-                                                    startBeat: n.startBeat,
-                                                    durationBeats: n.durationBeats,
-                                                    velocity: n.velocity,
-                                                }));
-                                            })}
+                                        ghostNotes={[]}
                                         midiEnvelopes={selectedTimelineClip.midiEnvelopes ?? []}
                                         trackIndex={selectedTimelineClip.trackIndex}
                                         onNotesChange={(notes) => {
                                             const clipId = selectedTimelineClip.id;
                                             setMidiNotesByClip((prev) => ({ ...prev, [clipId]: notes }));
-                                            const bpm = projectBpm || transport.bpm || 120;
+                                            const bpm = projectBpm || transportBpm || 120;
                                             const sr = useEngineStore.getState().projectSampleRate || 44100;
                                             const beatsPerSecond = bpm / 60;
                                             let send = midiSaveThrottlesRef.current.get(clipId);
@@ -1285,6 +1310,9 @@ export const DawShell = () => {
                                 <SampleClipEditor
                                     key={[
                                         selectedTimelineClip.id,
+                                        selectedTimelineClip.isWarped ? 'warp-on' : 'warp-off',
+                                        selectedTimelineClip.warpMode ?? 0,
+                                        selectedTimelineClip.warpBaseBpm ?? 120,
                                         selectedTimelineClip.sourceOffset ?? 0,
                                         selectedTimelineClip.fadeIn ?? 0,
                                         selectedTimelineClip.fadeOut ?? 0,
@@ -1292,15 +1320,6 @@ export const DawShell = () => {
                                         selectedTimelineClip.fadeOutCurve ?? 0.5,
                                     ].join(':')}
                                     clip={selectedTimelineClip}
-                                    onSetFadeCurves={(fadeInCurve, fadeOutCurve) => {
-                                        setClipFadeCurves((prev) => ({
-                                            ...prev,
-                                            [selectedTimelineClip.id]: {
-                                                fadeInCurve: Math.max(0.05, Math.min(0.95, fadeInCurve)),
-                                                fadeOutCurve: Math.max(0.05, Math.min(0.95, fadeOutCurve)),
-                                            },
-                                        }));
-                                    }}
                                 />
                             ) : (
                                 <EmptyClipEditor />
@@ -1730,7 +1749,6 @@ const EmptyClipEditor = () => (
 
 const SampleClipEditor = ({
     clip,
-    onSetFadeCurves,
 }: {
     clip: {
         id: string;
@@ -1738,6 +1756,10 @@ const SampleClipEditor = ({
         durationBeats: number;
         filePath?: string;
         durationSamples?: number;
+        isWarped?: boolean;
+        warpMode?: number | null;
+        warpBaseBpm?: number;
+        warpSourceDurationFrames?: number;
         sourceOffset?: number;
         fadeIn?: number;
         fadeOut?: number;
@@ -1745,7 +1767,6 @@ const SampleClipEditor = ({
         fadeOutCurve?: number;
         isOffline?: boolean;
     };
-    onSetFadeCurves?: (fadeInCurve: number, fadeOutCurve: number) => void;
 }) => {
     const sampleRate = useEngineStore((s) => s.projectSampleRate || 44100);
     const bpm = useEngineStore((s) => s.projectBpm || s.transport.bpm || 120);
@@ -1753,36 +1774,10 @@ const SampleClipEditor = ({
     const gridTriplet = useGridStore((s) => s.triplet);
     const [zoomX, setZoomX] = useState(1);
     const durationSamples = Math.max(0, clip.durationSamples ?? 0);
-    const maxOffset = Math.max(0, durationSamples - 1);
-    const maxFade = Math.max(0, Math.round(durationSamples * 0.5));
-    const [draftOffset, setDraftOffset] = useState<number>(clip.sourceOffset ?? 0);
-    const [draftFadeIn, setDraftFadeIn] = useState<number>(clip.fadeIn ?? 0);
-    const [draftFadeOut, setDraftFadeOut] = useState<number>(clip.fadeOut ?? 0);
-    const [draftFadeInCurve, setDraftFadeInCurve] = useState<number>(clip.fadeInCurve ?? 0.5);
-    const [draftFadeOutCurve, setDraftFadeOutCurve] = useState<number>(clip.fadeOutCurve ?? 0.5);
+    const [draftWarpEnabled, setDraftWarpEnabled] = useState<boolean>(Boolean(clip.isWarped));
+    const [draftWarpMode, setDraftWarpMode] = useState<number>((clip.warpMode ?? 0) > 0 ? 1 : 0);
+    const [draftWarpBaseBpm, setDraftWarpBaseBpm] = useState<number>(Math.max(20, Math.round(clip.warpBaseBpm ?? bpm)));
     const [isPreviewing, setIsPreviewing] = useState(false);
-
-    const commitOffset = useCallback(async (value: number) => {
-        const next = Math.max(0, Math.min(maxOffset, Math.round(value)));
-        setDraftOffset(next);
-        try {
-            await engineApi.setClipSourceOffset(clip.id, next);
-        } catch (err) {
-            console.error('[SampleClipEditor] setClipSourceOffset failed:', err);
-        }
-    }, [clip.id, maxOffset]);
-
-    const commitFades = useCallback(async (nextFadeIn: number, nextFadeOut: number) => {
-        const fadeInFrames = Math.max(0, Math.min(maxFade, Math.round(nextFadeIn)));
-        const fadeOutFrames = Math.max(0, Math.min(maxFade, Math.round(nextFadeOut)));
-        setDraftFadeIn(fadeInFrames);
-        setDraftFadeOut(fadeOutFrames);
-        try {
-            await engineApi.setClipFades(clip.id, fadeInFrames, fadeOutFrames);
-        } catch (err) {
-            console.error('[SampleClipEditor] setClipFades failed:', err);
-        }
-    }, [clip.id, maxFade]);
 
     const togglePreview = useCallback(async () => {
         if (!clip.filePath) return;
@@ -1805,16 +1800,64 @@ const SampleClipEditor = ({
         }
     }, [isPreviewing]);
 
+    const commitWarp = useCallback(async (next: {
+        enabled: boolean;
+        mode: number;
+        baseBpm: number;
+    }) => {
+        const base = Math.max(20, Math.min(300, Math.round(next.baseBpm)));
+        const store = useEngineStore.getState();
+        const sr = store.projectSampleRate || 44100;
+        const projectTempo = store.projectBpm || store.transport.bpm || 120;
+        const beatsPerSecond = projectTempo / 60;
+        const sourceFrames = Math.max(1, clip.warpSourceDurationFrames ?? clip.durationSamples ?? 1);
+
+        const nextDurationBeats = next.enabled
+            ? (sourceFrames / sr) * (base / 60)
+            : (sourceFrames / sr) * beatsPerSecond;
+        const nextDurationSamples = next.enabled
+            ? Math.max(1, Math.round((nextDurationBeats / beatsPerSecond) * sr))
+            : sourceFrames;
+
+        const previousClips = useEngineStore.getState().timelineClips;
+        useEngineStore.setState((state) => ({
+            timelineClips: state.timelineClips.map((c) => {
+                if (c.id !== clip.id) return c;
+                return {
+                    ...c,
+                    isWarped: next.enabled,
+                    warpMode: next.mode > 0 ? 1 : 0,
+                    warpBaseBpm: base,
+                    warpSourceDurationFrames: sourceFrames,
+                    durationBeats: nextDurationBeats,
+                    durationSamples: nextDurationSamples,
+                };
+            }),
+        }));
+
+        setDraftWarpEnabled(next.enabled);
+        setDraftWarpMode(next.mode > 0 ? 1 : 0);
+        setDraftWarpBaseBpm(base);
+        try {
+            await engineApi.setClipWarp({
+                clipId: clip.id,
+                isWarped: next.enabled,
+                warpMode: next.mode > 0 ? 1 : 0,
+                warpBaseBpm: base,
+            });
+        } catch (err) {
+            useEngineStore.setState({ timelineClips: previousClips });
+            console.error('[SampleClipEditor] setClipWarp failed:', err);
+        }
+    }, [clip.id, clip.durationSamples, clip.warpSourceDurationFrames]);
+
     const beatsPerBar = 4;
     const beatsPerSecond = bpm / 60;
     const clipDurationBeats = Math.max(0.25, clip.durationBeats || ((durationSamples / sampleRate) * beatsPerSecond));
     const gridStep = Math.max(0.0625, divisionToInterval(gridDivision, beatsPerBar, gridTriplet));
     const pxPerBeat = 82 * zoomX;
     const waveformWidth = Math.max(420, Math.round(clipDurationBeats * pxPerBeat));
-    const fadeInPx = durationSamples > 0 ? Math.round((draftFadeIn / durationSamples) * waveformWidth) : 0;
-    const fadeOutPx = durationSamples > 0 ? Math.round((draftFadeOut / durationSamples) * waveformWidth) : 0;
     const gridLineCount = Math.min(512, Math.ceil(clipDurationBeats / gridStep));
-    const fadeLabel = (frames: number) => `${(frames / sampleRate).toFixed(3)}s`;
 
     return (
         <div style={{
@@ -1838,143 +1881,105 @@ const SampleClipEditor = ({
                 textTransform: 'uppercase',
             }}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    Audio Clip Editor • {clip.name}
+                    {clip.name}
                 </span>
                 <span style={{ fontFamily: 'var(--font-mono)' }}>
                     {clipDurationBeats.toFixed(2)} beats
                 </span>
             </div>
 
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                flexWrap: 'wrap',
-                padding: '6px 10px',
-                borderBottom: '1px solid var(--color-divider)',
-                background: 'color-mix(in srgb, var(--color-bg-panel) 85%, #000)',
-            }}>
-                <button type="button" onClick={togglePreview} style={editorButtonStyle}>
-                    {isPreviewing ? 'Stop Preview' : 'Preview'}
-                </button>
-                <button type="button" onClick={() => void commitOffset(draftOffset - 1024)} style={editorButtonStyle}>Offset -1024</button>
-                <button type="button" onClick={() => void commitOffset(draftOffset + 1024)} style={editorButtonStyle}>Offset +1024</button>
-                <button type="button" onClick={() => void commitOffset(0)} style={editorButtonStyle}>Offset Reset</button>
-                <button type="button" onClick={() => void commitFades(0, 0)} style={editorButtonStyle}>Fades Reset</button>
-                <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <span style={editorMetaTextStyle}>Zoom</span>
-                    <input
-                        type="range"
-                        min={0.6}
-                        max={4}
-                        step={0.1}
-                        value={zoomX}
-                        onChange={(e) => setZoomX(Number(e.target.value))}
-                    />
-                    <span style={{ ...editorMetaTextStyle, minWidth: 34 }}>{zoomX.toFixed(1)}x</span>
-                </div>
-            </div>
+            <ClipEditorShell
+                sidebar={(
+                    <ClipEditorSidebar>
+                        <ClipEditorSection title="Clip Setup">
+                            <ClipEditorMetaRow label="Length" value={`${clipDurationBeats.toFixed(2)} beats`} />
+                            <ClipEditorMetaRow label="Source" value={clip.filePath ? 'Linked' : 'Missing'} />
+                        </ClipEditorSection>
 
-            <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
-                gap: 8,
-                alignItems: 'center',
-                padding: '6px 10px',
-                borderBottom: '1px solid var(--color-divider)',
-                background: 'color-mix(in srgb, var(--color-bg-panel) 90%, #03070e)',
-            }}>
-                <label style={editorLabeledControlStyle}>
-                    <span style={editorMetaTextStyle}>Source Offset</span>
-                    <input
-                        type="range"
-                        min={0}
-                        max={Math.max(1, maxOffset)}
-                        value={Math.max(0, Math.min(maxOffset, draftOffset))}
-                        onChange={(e) => setDraftOffset(Number(e.target.value))}
-                        onMouseUp={() => void commitOffset(draftOffset)}
-                        onTouchEnd={() => void commitOffset(draftOffset)}
-                        style={{ width: '100%' }}
-                    />
-                    <span style={editorValueTextStyle}>{(draftOffset / sampleRate).toFixed(3)}s</span>
-                </label>
-                <label style={editorLabeledControlStyle}>
-                    <span style={editorMetaTextStyle}>Fade In</span>
-                    <input
-                        type="range"
-                        min={0}
-                        max={Math.max(1, maxFade)}
-                        value={Math.max(0, Math.min(maxFade, draftFadeIn))}
-                        onChange={(e) => setDraftFadeIn(Number(e.target.value))}
-                        onMouseUp={() => void commitFades(draftFadeIn, draftFadeOut)}
-                        onTouchEnd={() => void commitFades(draftFadeIn, draftFadeOut)}
-                        style={{ width: '100%' }}
-                    />
-                    <span style={editorValueTextStyle}>{fadeLabel(draftFadeIn)}</span>
-                </label>
-                <label style={editorLabeledControlStyle}>
-                    <span style={editorMetaTextStyle}>Fade Out</span>
-                    <input
-                        type="range"
-                        min={0}
-                        max={Math.max(1, maxFade)}
-                        value={Math.max(0, Math.min(maxFade, draftFadeOut))}
-                        onChange={(e) => setDraftFadeOut(Number(e.target.value))}
-                        onMouseUp={() => void commitFades(draftFadeIn, draftFadeOut)}
-                        onTouchEnd={() => void commitFades(draftFadeIn, draftFadeOut)}
-                        style={{ width: '100%' }}
-                    />
-                    <span style={editorValueTextStyle}>{fadeLabel(draftFadeOut)}</span>
-                </label>
-                <label style={editorLabeledControlStyle}>
-                    <span style={editorMetaTextStyle}>In Curve</span>
-                    <input
-                        type="range"
-                        min={0.05}
-                        max={0.95}
-                        step={0.01}
-                        value={draftFadeInCurve}
-                        onChange={(e) => {
-                            const next = Number(e.target.value);
-                            setDraftFadeInCurve(next);
-                        }}
-                        onMouseUp={() => onSetFadeCurves?.(draftFadeInCurve, draftFadeOutCurve)}
-                        onTouchEnd={() => onSetFadeCurves?.(draftFadeInCurve, draftFadeOutCurve)}
-                        style={{ width: '100%' }}
-                    />
-                    <span style={editorValueTextStyle}>{draftFadeInCurve.toFixed(2)}</span>
-                </label>
-                <label style={editorLabeledControlStyle}>
-                    <span style={editorMetaTextStyle}>Out Curve</span>
-                    <input
-                        type="range"
-                        min={0.05}
-                        max={0.95}
-                        step={0.01}
-                        value={draftFadeOutCurve}
-                        onChange={(e) => {
-                            const next = Number(e.target.value);
-                            setDraftFadeOutCurve(next);
-                        }}
-                        onMouseUp={() => onSetFadeCurves?.(draftFadeInCurve, draftFadeOutCurve)}
-                        onTouchEnd={() => onSetFadeCurves?.(draftFadeInCurve, draftFadeOutCurve)}
-                        style={{ width: '100%' }}
-                    />
-                    <span style={editorValueTextStyle}>{draftFadeOutCurve.toFixed(2)}</span>
-                </label>
-            </div>
+                        <ClipEditorSection title="Warp">
+                            <label style={{ ...editorMetaTextStyle, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                <input
+                                    type="checkbox"
+                                    checked={draftWarpEnabled}
+                                    onChange={(e) => {
+                                        void commitWarp({
+                                            enabled: e.target.checked,
+                                            mode: draftWarpMode,
+                                            baseBpm: draftWarpBaseBpm,
+                                        });
+                                    }}
+                                />
+                                Enabled
+                            </label>
+                            <select
+                                value={draftWarpMode > 0 ? 'pro' : 'standard'}
+                                disabled={!draftWarpEnabled}
+                                onChange={(e) => {
+                                    const mode = e.target.value === 'pro' ? 1 : 0;
+                                    void commitWarp({
+                                        enabled: draftWarpEnabled,
+                                        mode,
+                                        baseBpm: draftWarpBaseBpm,
+                                    });
+                                }}
+                                style={{ ...editorButtonStyle, padding: '3px 6px' }}
+                            >
+                                <option value="standard">Standard</option>
+                                <option value="pro">Pro</option>
+                            </select>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <span style={editorMetaTextStyle}>Base BPM</span>
+                                <input
+                                    type="number"
+                                    min={20}
+                                    max={300}
+                                    value={draftWarpBaseBpm}
+                                    disabled={!draftWarpEnabled}
+                                    onChange={(e) => setDraftWarpBaseBpm(Number(e.target.value) || 120)}
+                                    onBlur={() => {
+                                        void commitWarp({
+                                            enabled: draftWarpEnabled,
+                                            mode: draftWarpMode,
+                                            baseBpm: draftWarpBaseBpm,
+                                        });
+                                    }}
+                                    style={{ width: 68, ...editorButtonStyle, padding: '2px 6px' }}
+                                />
+                            </div>
+                        </ClipEditorSection>
 
+                        <ClipEditorSection title="Performance">
+                            <button type="button" onClick={togglePreview} style={{ ...editorButtonStyle, width: '100%' }}>
+                                {isPreviewing ? 'Stop Preview' : 'Preview'}
+                            </button>
+                            <div style={{ display: 'grid', gap: 4 }}>
+                                <span style={editorMetaTextStyle}>Zoom</span>
+                                <input
+                                    type="range"
+                                    min={0.6}
+                                    max={4}
+                                    step={0.1}
+                                    value={zoomX}
+                                    onChange={(e) => setZoomX(Number(e.target.value))}
+                                />
+                                <span style={{ ...editorMetaTextStyle }}>{zoomX.toFixed(1)}x</span>
+                            </div>
+                        </ClipEditorSection>
+                    </ClipEditorSidebar>
+                )}
+            >
             <div style={{
                 flex: 1,
                 padding: 10,
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 8,
+                minHeight: 0,
             }}>
                 {clip.filePath && durationSamples > 0 && !clip.isOffline ? (
                     <div style={{
-                        height: '100%',
-                        minHeight: 80,
+                        flex: 1,
+                        minHeight: 120,
                         border: '1px solid var(--color-divider)',
                         borderRadius: 'var(--radius-md)',
                         overflow: 'hidden',
@@ -2013,57 +2018,9 @@ const SampleClipEditor = ({
                                         width={waveformWidth}
                                         height={Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)}
                                         durationSamples={durationSamples}
-                                        sourceOffset={draftOffset}
+                                        sourceOffset={clip.sourceOffset ?? 0}
                                         isSelected
                                     />
-                                    {fadeInPx > 0 && (
-                                        <div style={{
-                                            position: 'absolute',
-                                            left: 0,
-                                            top: 0,
-                                            bottom: 0,
-                                            width: fadeInPx,
-                                            background: 'linear-gradient(90deg, color-mix(in srgb, var(--color-accent-primary) 25%, transparent) 0%, color-mix(in srgb, var(--color-accent-primary) 5%, transparent) 100%)',
-                                            borderRight: '1px solid color-mix(in srgb, var(--color-accent-primary) 60%, transparent)',
-                                            pointerEvents: 'none',
-                                        }} />
-                                    )}
-                                    {fadeOutPx > 0 && (
-                                        <div style={{
-                                            position: 'absolute',
-                                            right: 0,
-                                            top: 0,
-                                            bottom: 0,
-                                            width: fadeOutPx,
-                                            background: 'linear-gradient(270deg, color-mix(in srgb, var(--color-accent-primary) 25%, transparent) 0%, color-mix(in srgb, var(--color-accent-primary) 5%, transparent) 100%)',
-                                            borderLeft: '1px solid color-mix(in srgb, var(--color-accent-primary) 60%, transparent)',
-                                            pointerEvents: 'none',
-                                        }} />
-                                    )}
-                                    {(fadeInPx > 0 || fadeOutPx > 0) && (
-                                        <svg
-                                            width={waveformWidth}
-                                            height={Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)}
-                                            style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
-                                        >
-                                            {fadeInPx > 0 && (
-                                                <path
-                                                    d={`M 0 ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)} Q ${fadeInPx * draftFadeInCurve} ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20) * (1 - draftFadeInCurve)} ${fadeInPx} 0`}
-                                                    fill="none"
-                                                    stroke="color-mix(in srgb, var(--color-accent-primary) 95%, transparent)"
-                                                    strokeWidth={1.5}
-                                                />
-                                            )}
-                                            {fadeOutPx > 0 && (
-                                                <path
-                                                    d={`M ${waveformWidth - fadeOutPx} 0 Q ${waveformWidth - fadeOutPx * (1 - draftFadeOutCurve)} ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20) * draftFadeOutCurve} ${waveformWidth} ${Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)}`}
-                                                    fill="none"
-                                                    stroke="color-mix(in srgb, var(--color-accent-primary) 95%, transparent)"
-                                                    strokeWidth={1.5}
-                                                />
-                                            )}
-                                        </svg>
-                                    )}
                                 </div>
                             </div>
                         </div>
@@ -2083,6 +2040,7 @@ const SampleClipEditor = ({
                     </div>
                 )}
             </div>
+            </ClipEditorShell>
         </div>
     );
 };
@@ -2098,22 +2056,10 @@ const editorButtonStyle = {
     cursor: 'pointer',
 };
 
-const editorLabeledControlStyle: CSSProperties = {
-    display: 'grid',
-    gap: 3,
-    alignItems: 'center',
-};
-
 const editorMetaTextStyle: CSSProperties = {
     fontSize: 'var(--font-size-xs)',
     color: 'var(--color-text-tertiary)',
     textTransform: 'uppercase',
     letterSpacing: '0.04em',
     fontWeight: 700,
-};
-
-const editorValueTextStyle: CSSProperties = {
-    fontSize: 'var(--font-size-xs)',
-    color: 'var(--color-text-secondary)',
-    fontFamily: 'var(--font-mono)',
 };

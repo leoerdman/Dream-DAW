@@ -1,5 +1,4 @@
 import { Fragment, useMemo, useState, useCallback, useEffect, useRef } from 'react';
-import throttle from 'lodash.throttle';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
@@ -417,6 +416,18 @@ export const DeviceRack = ({
     selectedTrackId,
     onDropPluginToTrack,
 }: DeviceRackProps) => {
+    type AdaptiveSender = {
+        send: (value: number, pushUndoStep: boolean) => void;
+        cancel: () => void;
+    };
+    type PendingGestureCommit = {
+        source: 'internal' | 'vst';
+        trackId: string;
+        deviceId: string;
+        paramName: string;
+        value: number;
+        paramIndex?: number;
+    };
     const [localBypass, setLocalBypass] = useState<Record<string, boolean>>({});
     const [localParams, setLocalParams] = useState<Record<string, number>>({});
     const [pluginCapability, setPluginCapability] = useState<
@@ -431,7 +442,10 @@ export const DeviceRack = ({
     >({});
     const statusError = useStatusStore((s) => s.setError);
     const statusClear = useStatusStore((s) => s.clear);
-    const throttledParamSendsRef = useRef<Map<string, (value: number, pushUndoStep: boolean) => void>>(new Map());
+    const throttledParamSendsRef = useRef<Map<string, AdaptiveSender>>(new Map());
+    const throttledExternalParamSendsRef = useRef<Map<string, AdaptiveSender>>(new Map());
+    const adaptiveParamIntervalMsRef = useRef<number>(24);
+    const pendingGestureCommitsRef = useRef<Map<string, Map<string, PendingGestureCommit>>>(new Map());
     const activeParamGesturesRef = useRef<Set<string>>(new Set());
     const pushedUndoForGestureRef = useRef<Set<string>>(new Set());
     const gestureGroupByParamKeyRef = useRef<Map<string, string>>(new Map());
@@ -752,6 +766,79 @@ export const DeviceRack = ({
         }
     }, [selectedTrack, fetchProject, statusClear, statusError]);
 
+    const createAdaptiveParamSender = useCallback(
+        (emit: (value: number, pushUndoStep: boolean) => Promise<void> | void): AdaptiveSender => {
+            let timer: number | null = null;
+            let pending: { value: number; pushUndoStep: boolean } | null = null;
+            let lastSentAt = 0;
+
+            const schedule = () => {
+                if (timer != null || !pending) return;
+                const now = performance.now();
+                const delay = Math.max(0, adaptiveParamIntervalMsRef.current - (now - lastSentAt));
+                timer = window.setTimeout(() => {
+                    timer = null;
+                    const payload = pending;
+                    pending = null;
+                    if (!payload) return;
+
+                    const startedAt = performance.now();
+                    lastSentAt = startedAt;
+                    void Promise.resolve(emit(payload.value, payload.pushUndoStep))
+                        .catch(() => {
+                            // Errors are handled by caller.
+                        })
+                        .finally(() => {
+                            const elapsed = Math.max(1, performance.now() - startedAt);
+                            const target = Math.max(16, Math.min(48, elapsed * 1.25));
+                            adaptiveParamIntervalMsRef.current =
+                                adaptiveParamIntervalMsRef.current * 0.7 + target * 0.3;
+                            if (pending) schedule();
+                        });
+                }, delay);
+            };
+
+            return {
+                send: (value: number, pushUndoStep: boolean) => {
+                    if (pushUndoStep) {
+                        if (timer != null) {
+                            window.clearTimeout(timer);
+                            timer = null;
+                        }
+                        pending = null;
+                        const startedAt = performance.now();
+                        lastSentAt = startedAt;
+                        void Promise.resolve(emit(value, true))
+                            .catch(() => {
+                                // Errors are handled by caller.
+                            })
+                            .finally(() => {
+                                const elapsed = Math.max(1, performance.now() - startedAt);
+                                const target = Math.max(16, Math.min(48, elapsed * 1.25));
+                                adaptiveParamIntervalMsRef.current =
+                                    adaptiveParamIntervalMsRef.current * 0.7 + target * 0.3;
+                            });
+                        return;
+                    }
+
+                    pending = {
+                        value,
+                        pushUndoStep: pending?.pushUndoStep === true ? true : false,
+                    };
+                    schedule();
+                },
+                cancel: () => {
+                    if (timer != null) {
+                        window.clearTimeout(timer);
+                        timer = null;
+                    }
+                    pending = null;
+                },
+            };
+        },
+        [],
+    );
+
     const ensureSlotRuntimeActive = useCallback(async (slotId: string) => {
         if (!selectedTrack) return null;
         const known = pluginRuntimeBySlot[slotId];
@@ -822,6 +909,12 @@ export const DeviceRack = ({
             options?: { gestureKey?: string; forcePushUndo?: boolean },
         ) => {
             if (!selectedTrack) return;
+
+            const effectiveGestureKey = options?.gestureKey
+                ? (gestureGroupByParamKeyRef.current.get(options.gestureKey) ?? options.gestureKey)
+                : undefined;
+            const pushUndoStep = options?.forcePushUndo ?? (!effectiveGestureKey);
+
             if (device.source === 'vst') {
                 const idxFromList = device.params.findIndex((p) => p.name === paramName);
                 const idxFromName = (() => {
@@ -836,10 +929,31 @@ export const DeviceRack = ({
                     ? (value - paramDef.min) / Math.max(1e-9, paramDef.max - paramDef.min)
                     : value;
                 const clamped = Math.min(1, Math.max(0, normalized));
-                void engineApi.setExternalPluginParamForSlot(selectedTrack.id, device.id, paramIndex, clamped).catch((err) => {
-                    console.error('[DeviceRack] setExternalPluginParam failed:', err);
-                    statusError(`External plugin parameter update failed: ${errorMessage(err)}`);
-                });
+
+                const key = `${selectedTrack.id}:${device.id}:${paramIndex}`;
+                let sender = throttledExternalParamSendsRef.current.get(key);
+                if (!sender) {
+                    sender = createAdaptiveParamSender(async (v: number, pushUndo: boolean) => {
+                        await engineApi.setExternalPluginParamForSlot(selectedTrack.id, device.id, paramIndex, v, {
+                            pushUndoStep: pushUndo,
+                        });
+                    });
+                    throttledExternalParamSendsRef.current.set(key, sender);
+                }
+
+                sender.send(clamped, pushUndoStep);
+                if (effectiveGestureKey) {
+                    const bucket = pendingGestureCommitsRef.current.get(effectiveGestureKey) ?? new Map();
+                    bucket.set(`${device.id}:${paramIndex}`, {
+                        source: 'vst',
+                        trackId: selectedTrack.id,
+                        deviceId: device.id,
+                        paramName,
+                        value: clamped,
+                        paramIndex,
+                    });
+                    pendingGestureCommitsRef.current.set(effectiveGestureKey, bucket);
+                }
                 return;
             }
 
@@ -868,37 +982,34 @@ export const DeviceRack = ({
 
             const scopedParamId = `slot:${device.id}:${paramId}`;
             const key = `${selectedTrack.id}:${device.id}:${scopedParamId}`;
-            const effectiveGestureKey = options?.gestureKey
-                ? (gestureGroupByParamKeyRef.current.get(options.gestureKey) ?? options.gestureKey)
-                : undefined;
-            let pushUndoStep = options?.forcePushUndo ?? false;
-            if (!options?.forcePushUndo) {
-                if (!effectiveGestureKey) {
-                    pushUndoStep = true;
-                } else if (!pushedUndoForGestureRef.current.has(effectiveGestureKey)) {
-                    pushedUndoForGestureRef.current.add(effectiveGestureKey);
-                    pushUndoStep = true;
-                }
-            }
 
             let sender = throttledParamSendsRef.current.get(key);
             if (!sender) {
-                sender = throttle((v: number, pushUndo: boolean) => {
-                    void engineApi.setInternalPluginParam(
+                sender = createAdaptiveParamSender(async (v: number, pushUndo: boolean) => {
+                    await engineApi.setInternalPluginParam(
                         selectedTrack.id,
                         device.id,
                         scopedParamId,
                         v,
                         { pushUndoStep: pushUndo },
-                    ).catch((err) => {
-                        console.error('[DeviceRack] setInternalPluginParam failed:', err);
-                    });
-                }, 32);
+                    );
+                });
                 throttledParamSendsRef.current.set(key, sender);
             }
-            sender(value, pushUndoStep);
+            sender.send(value, pushUndoStep);
+            if (effectiveGestureKey) {
+                const bucket = pendingGestureCommitsRef.current.get(effectiveGestureKey) ?? new Map();
+                bucket.set(`${device.id}:${scopedParamId}`, {
+                    source: 'internal',
+                    trackId: selectedTrack.id,
+                    deviceId: device.id,
+                    paramName,
+                    value,
+                });
+                pendingGestureCommitsRef.current.set(effectiveGestureKey, bucket);
+            }
         },
-        [selectedTrack, projectTracks, statusError],
+        [selectedTrack, projectTracks, createAdaptiveParamSender],
     );
 
     const beginParamGesture = useCallback((deviceId: string, paramName: string, gestureGroupId?: string) => {
@@ -916,13 +1027,50 @@ export const DeviceRack = ({
         if (!selectedTrack) return;
         const gestureKey = `${selectedTrack.id}:${deviceId}:${paramName.toLowerCase()}`;
         const gestureGroupId = gestureGroupByParamKeyRef.current.get(gestureKey);
+        const commitKey = gestureGroupId ?? gestureKey;
+
+        const pending = pendingGestureCommitsRef.current.get(commitKey);
+        if (pending && pending.size > 0) {
+            const entries = Array.from(pending.values());
+            pendingGestureCommitsRef.current.delete(commitKey);
+            // Final commit at gesture end: one undo/snapshot step per gesture.
+            entries.forEach((entry, index) => {
+                if (entry.source === 'vst') {
+                    if (entry.paramIndex == null) return;
+                    void engineApi.setExternalPluginParamForSlot(
+                        entry.trackId,
+                        entry.deviceId,
+                        entry.paramIndex,
+                        entry.value,
+                        { pushUndoStep: index === 0 },
+                    ).catch((err) => {
+                        console.error('[DeviceRack] setExternalPluginParam(commit) failed:', err);
+                    });
+                    return;
+                }
+
+                const effectType = chain.find((d) => d.id === entry.deviceId)?.effectType;
+                if (!effectType) return;
+                const scopedParamId = `slot:${entry.deviceId}:${internalParamIdForControl(effectType, entry.paramName)}`;
+                void engineApi.setInternalPluginParam(
+                    entry.trackId,
+                    entry.deviceId,
+                    scopedParamId,
+                    entry.value,
+                    { pushUndoStep: index === 0 },
+                ).catch((err) => {
+                    console.error('[DeviceRack] setInternalPluginParam(commit) failed:', err);
+                });
+            });
+        }
+
         activeParamGesturesRef.current.delete(gestureKey);
         pushedUndoForGestureRef.current.delete(gestureKey);
         if (gestureGroupId) {
             pushedUndoForGestureRef.current.delete(gestureGroupId);
             gestureGroupByParamKeyRef.current.delete(gestureKey);
         }
-    }, [selectedTrack]);
+    }, [selectedTrack, chain]);
 
     const applyParamBatch = useCallback((
         device: DeviceSlot,
@@ -1036,6 +1184,11 @@ export const DeviceRack = ({
         activeParamGesturesRef.current.clear();
         pushedUndoForGestureRef.current.clear();
         gestureGroupByParamKeyRef.current.clear();
+        pendingGestureCommitsRef.current.clear();
+        throttledParamSendsRef.current.forEach((s) => s.cancel());
+        throttledExternalParamSendsRef.current.forEach((s) => s.cancel());
+        throttledParamSendsRef.current.clear();
+        throttledExternalParamSendsRef.current.clear();
     }, [selectedTrackId]);
 
     useEffect(() => {
@@ -1298,17 +1451,6 @@ export const DeviceRack = ({
 
     const visibleChain = chain;
 
-    const setBypassSelected = useCallback((enabled: boolean) => {
-        const selectedSet = new Set(selectedDeviceIds);
-        chain
-            .filter((d) => selectedSet.has(d.id))
-            .forEach((d) => {
-                if (d.isEnabled !== enabled) {
-                    toggleDevice(d);
-                }
-            });
-    }, [chain, selectedDeviceIds, toggleDevice]);
-
     const rackContent = (
         <>
             <div
@@ -1327,38 +1469,12 @@ export const DeviceRack = ({
                     boxShadow: isDropActive ? 'inset 0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 35%, transparent)' : 'none',
                 }}>
 
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '4px 10px',
-                    borderBottom: '1px solid var(--color-divider)',
-                    background: 'var(--color-bg-header)',
-                    minHeight: 24,
-                    flexShrink: 0,
-                }}>
-                    <span style={{
-                        fontSize: 'var(--font-size-2xs)',
-                        fontWeight: 700,
-                        color: 'var(--color-text-secondary)',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                    }}>
-                        Device Chain · {chain.length}
-                    </span>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                        <button onClick={() => setBypassSelected(true)} style={headerIconBtnStyle(selectedDeviceIds.length === 0)} disabled={selectedDeviceIds.length === 0}>On</button>
-                        <button onClick={() => setBypassSelected(false)} style={headerIconBtnStyle(selectedDeviceIds.length === 0)} disabled={selectedDeviceIds.length === 0}>Byp</button>
-                        <button onClick={() => setInlineSettingsOpen({})} style={headerIconBtnStyle(false)}>Fold</button>
-                    </div>
-                </div>
-
                 {/* ── Device Chain (horizontal scroll) ── */}
                 <div className="scrollbar-hide" style={{
                     display: 'flex',
                     alignItems: 'stretch',
                     gap: 6,
-                    padding: '8px 10px',
+                    padding: '10px',
                     flex: 1,
                     minHeight: 0,
                     overflowX: 'auto',

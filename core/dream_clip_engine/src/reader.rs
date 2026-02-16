@@ -15,7 +15,62 @@
 ///   ClipScheduler → ActiveClip → ClipReader → mix buffer
 pub struct ClipReader;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WarpResampleMode {
+    Standard,
+    Pro,
+}
+
 impl ClipReader {
+    #[inline(always)]
+    fn sample_linear(source: &[f32], pos: f64) -> f32 {
+        if source.is_empty() {
+            return 0.0;
+        }
+        if pos <= 0.0 {
+            return source[0];
+        }
+        let last = (source.len() - 1) as f64;
+        if pos >= last {
+            return source[source.len() - 1];
+        }
+        let i0 = pos.floor() as usize;
+        let i1 = (i0 + 1).min(source.len() - 1);
+        let frac = (pos - i0 as f64) as f32;
+        source[i0] * (1.0 - frac) + source[i1] * frac
+    }
+
+    #[inline(always)]
+    fn sample_cubic(source: &[f32], pos: f64) -> f32 {
+        if source.is_empty() {
+            return 0.0;
+        }
+        if source.len() < 4 {
+            return Self::sample_linear(source, pos);
+        }
+
+        let idx = pos.floor() as isize;
+        let t = (pos - idx as f64) as f32;
+        let max = (source.len() - 1) as isize;
+
+        let i0 = (idx - 1).clamp(0, max) as usize;
+        let i1 = idx.clamp(0, max) as usize;
+        let i2 = (idx + 1).clamp(0, max) as usize;
+        let i3 = (idx + 2).clamp(0, max) as usize;
+
+        let p0 = source[i0];
+        let p1 = source[i1];
+        let p2 = source[i2];
+        let p3 = source[i3];
+
+        let a = -0.5 * p0 + 1.5 * p1 - 1.5 * p2 + 0.5 * p3;
+        let b = p0 - 2.5 * p1 + 2.0 * p2 - 0.5 * p3;
+        let c = -0.5 * p0 + 0.5 * p2;
+        let d = p1;
+
+        (((a * t + b) * t + c) * t + d).clamp(-1.0, 1.0)
+    }
+
     /// Reads samples from a source buffer and writes them into the output,
     /// applying gain and micro-fades.
     ///
@@ -93,6 +148,49 @@ impl ClipReader {
             num_frames,
             gain,
         );
+    }
+
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    pub fn read_stereo_into_rate(
+        source_left: &[f32],
+        source_right: &[f32],
+        source_start: f64,
+        rate: f64,
+        output_left: &mut [f32],
+        output_right: &mut [f32],
+        output_offset: usize,
+        num_frames: usize,
+        gain: f32,
+        mode: WarpResampleMode,
+    ) {
+        if num_frames == 0
+            || output_offset >= output_left.len()
+            || output_offset >= output_right.len()
+        {
+            return;
+        }
+        let out_end = (output_offset + num_frames)
+            .min(output_left.len())
+            .min(output_right.len());
+        let write_frames = out_end.saturating_sub(output_offset);
+        if write_frames == 0 {
+            return;
+        }
+
+        let read_sample = |src: &[f32], pos: f64| -> f32 {
+            match mode {
+                WarpResampleMode::Standard => Self::sample_linear(src, pos),
+                WarpResampleMode::Pro => Self::sample_cubic(src, pos),
+            }
+        };
+
+        for i in 0..write_frames {
+            let src_pos = source_start + (i as f64) * rate;
+            let out_idx = output_offset + i;
+            output_left[out_idx] += read_sample(source_left, src_pos) * gain;
+            output_right[out_idx] += read_sample(source_right, src_pos) * gain;
+        }
     }
 }
 

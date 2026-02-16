@@ -40,6 +40,12 @@ pub enum EngineCommand {
     /// Change the engine's BPM (affects tempo-synced processing).
     SetBpm(f64),
 
+    /// Set timeline sample-rate domain used for transport frame math.
+    ///
+    /// Device stream SR can differ from project/timeline SR. The audio callback
+    /// uses this value to advance playhead/master clock in project-frame domain.
+    SetTimelineSampleRate(f64),
+
     /// Enable or disable loop mode.
     SetLoopEnabled(bool),
 
@@ -218,6 +224,12 @@ impl MasterClock {
     /// Resets the clock to zero. Non-RT only (project load, transport reset).
     pub fn reset(&self) {
         self.frames_rendered.store(0, Ordering::Relaxed);
+    }
+
+    /// Sets absolute frame position atomically.
+    #[inline]
+    pub fn set_position(&self, frame: i64) {
+        self.frames_rendered.store(frame.max(0), Ordering::Relaxed);
     }
 }
 

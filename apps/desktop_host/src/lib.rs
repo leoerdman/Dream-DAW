@@ -42,9 +42,10 @@ use arc_swap::ArcSwap;
 
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
 use dream_engine::driver::{
-    AutomationPoint, MidiFxRuntimeConfig, MidiTrackRuntime, SharedAutomationSnapshot,
+    parse_external_param_target, AutomationPoint, ExternalParamAutomationLane,
+    MidiFxRuntimeConfig, MidiTrackRuntime, SharedAutomationSnapshot,
     SharedClipSnapshot, SharedExternalFxSnapshot, SharedPreparedGraphSnapshot,
-    SharedRoutingSnapshot, SharedSidechainSnapshot, TrackAutomationState,
+    SharedRoutingSnapshot, SharedRtDebugStats, SharedSidechainSnapshot, TrackAutomationState,
 };
 use dream_engine::offline_bounce::{BounceConfig, OfflineBouncer};
 use dream_engine::recording::RecordingSession;
@@ -115,6 +116,7 @@ struct AudioEngineHandle {
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<dream_engine::driver::SharedSamplerSamples>,
     plugin_host: Arc<Mutex<PluginHost>>,
+    rt_debug_stats: Arc<SharedRtDebugStats>,
 
     /// Estimated hardware output latency in sample frames.
     /// Captured from cpal at stream init. Passed to frontend so the
@@ -989,6 +991,12 @@ fn rebuild_automation_snapshot_from_project(
                     state
                         .plugin_params
                         .insert(alias.to_string(), points.clone());
+                }
+                if let Some(target) = parse_external_param_target(&lane.param_id) {
+                    state.external_plugin_params.push(ExternalParamAutomationLane {
+                        target,
+                        points: points.clone(),
+                    });
                 }
                 state.plugin_params.insert(lane.param_id.clone(), points);
             }
@@ -1940,6 +1948,7 @@ fn sync_transport_from_project(
     handle: &AudioEngineHandle,
 ) -> Result<(), String> {
     let bpm = project.pulse_map.initial_bpm();
+    let timeline_sample_rate = project.sample_rate.max(1.0);
     let loop_enabled = project.is_looping;
     let loop_start = project.loop_start_frames.unwrap_or(0);
     let loop_end = project.loop_end_frames.unwrap_or(0);
@@ -1949,6 +1958,7 @@ fn sync_transport_from_project(
     {
         let mut state = handle.playback_state.lock().map_err(|e| e.to_string())?;
         state.bpm = bpm;
+        state.sample_rate = timeline_sample_rate;
         state.loop_enabled = loop_enabled;
         state.loop_start = loop_start;
         state.loop_end = loop_end;
@@ -1958,6 +1968,7 @@ fn sync_transport_from_project(
 
     // Keep realtime transport in sync.
     push_command(handle, EngineCommand::SetPlay(false))?;
+    push_command(handle, EngineCommand::SetTimelineSampleRate(timeline_sample_rate))?;
     push_command(handle, EngineCommand::SetBpm(bpm))?;
     if loop_enabled && loop_end > loop_start {
         push_command(
@@ -3204,7 +3215,10 @@ fn push_command(handle: &AudioEngineHandle, cmd: EngineCommand) -> Result<(), St
 
     producer
         .push(cmd)
-        .map_err(|_| "Command queue full — audio thread overloaded".to_string())
+        .map_err(|_| {
+            handle.rt_debug_stats.record_queue_full_reject();
+            "Command queue full — audio thread overloaded".to_string()
+        })
 }
 
 fn read_meter(level: &dream_ipc::metering::LockFreeLevel) -> MeterReading {
@@ -3231,7 +3245,7 @@ pub fn run() {
     env_logger::init();
 
     // Create the lock-free command queue (capacity: 1024 commands)
-    let (producer, consumer) = rtrb::RingBuffer::<EngineCommand>::new(1024);
+    let (mut producer, consumer) = rtrb::RingBuffer::<EngineCommand>::new(1024);
     let master_clock = Arc::new(MasterClock::new());
     let meter_bank = Arc::new(MeterBank::new(64)); // 64 tracks max
     let plugin_host_state = PluginHostState::new();
@@ -3267,6 +3281,9 @@ pub fn run() {
     let sampler_samples_for_handle = Arc::clone(&sampler_samples);
     let plugin_host_for_engine = Arc::clone(&plugin_host_state.host);
     let plugin_host_for_handle = Arc::clone(&plugin_host_state.host);
+    let rt_debug_stats = Arc::new(SharedRtDebugStats::new());
+    let rt_debug_stats_for_engine = Arc::clone(&rt_debug_stats);
+    let rt_debug_stats_for_handle = Arc::clone(&rt_debug_stats);
 
     // Create preview buffer Arcs (shared between engine handle and audio driver)
     let preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>> = Arc::new(ArcSwap::from_pointee(None));
@@ -3313,6 +3330,7 @@ pub fn run() {
         automation_snapshot_for_engine,
         sampler_samples_for_engine,
         prepared_graph_snapshot_for_engine,
+        rt_debug_stats_for_engine,
         plugin_host_for_engine,
         preview_buffer_for_engine,
         preview_cursor_for_engine,
@@ -3345,10 +3363,17 @@ pub fn run() {
         log::warn!("Failed to persist resolved output device: {}", e);
     }
 
+    let mut playback_state = PlaybackState::default();
+    playback_state.sample_rate = bootstrap_project.sample_rate.max(1.0);
+
+    // Ensure audio callback starts in the same timeline sample-rate domain
+    // as the bootstrap project before any transport activity.
+    let _ = producer.push(EngineCommand::SetTimelineSampleRate(playback_state.sample_rate));
+
     let engine_handle = AudioEngineHandle {
         producer: Mutex::new(producer),
         master_clock,
-        playback_state: Mutex::new(PlaybackState::default()),
+        playback_state: Mutex::new(playback_state),
         meter_bank,
         _stream: Mutex::new(Some(Box::new(stream))),
         preview_buffer,
@@ -3364,6 +3389,7 @@ pub fn run() {
         automation_snapshot: automation_snapshot_for_handle,
         sampler_samples: sampler_samples_for_handle,
         plugin_host: plugin_host_for_handle,
+        rt_debug_stats: rt_debug_stats_for_handle,
         output_latency_frames,
         stream_error_tx,
     };

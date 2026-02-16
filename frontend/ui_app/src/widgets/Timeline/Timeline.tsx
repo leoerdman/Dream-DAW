@@ -5,6 +5,7 @@
  */
 
 import { useRef, useEffect, useCallback } from 'react';
+import throttle from 'lodash.throttle';
 import { useTimelineEngine, type UseTimelineEngineConfig } from '@/shared/lib/useTimelineEngine';
 import type { TimelineClipData } from '@/shared/lib/CanvasClipRenderer';
 import { useDragStore } from '@/shared/stores/useDragStore';
@@ -103,7 +104,6 @@ export const Timeline = (props: TimelineProps) => {
 
     const beatsPerBar = timeSignature[0];
     const totalBeats = totalBars * beatsPerBar;
-
     // Read live sample rate from engine (could be 44100, 48000, 96000+)
     const engineSampleRate = useEngineStore((s) => s.transport.sample_rate);
 
@@ -296,15 +296,8 @@ export const Timeline = (props: TimelineProps) => {
         };
 
         engine.onLoopChange = (loop) => {
-            const currentBpm = propsRef.current.bpm || 120;
-            const currentSampleRate = useEngineStore.getState().transport.sample_rate || 44100;
-
-            // Convert beats back to frames for the engine
-            const startFrames = Math.round((loop.start * 60 * currentSampleRate) / currentBpm);
-            const endFrames = Math.round((loop.end * 60 * currentSampleRate) / currentBpm);
-
-            // setLoop from useEngineStore
-            useEngineStore.getState().setLoop(loop.enabled, startFrames, endFrames);
+            pendingLoopRef.current = loop;
+            throttledLoopCommitRef.current();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -314,13 +307,48 @@ export const Timeline = (props: TimelineProps) => {
     selectedClipIdsRef.current = selectedClipIds;
     const trackIdsRef = useRef(trackIds);
     trackIdsRef.current = trackIds;
+    const pendingLoopRef = useRef<{ start: number; end: number; enabled: boolean } | null>(null);
+    const commitLoopRef = useRef<(loop: { start: number; end: number; enabled: boolean }) => void>(() => {});
+
+    useEffect(() => {
+        commitLoopRef.current = (loop) => {
+            const currentBpm = propsRef.current.bpm || 120;
+            const currentSampleRate = useEngineStore.getState().transport.sample_rate || 44100;
+            const startFrames = Math.round((loop.start * 60 * currentSampleRate) / currentBpm);
+            const endFrames = Math.round((loop.end * 60 * currentSampleRate) / currentBpm);
+            useEngineStore.getState().setLoop(loop.enabled, startFrames, endFrames);
+        };
+    }, []);
+
+    const throttledLoopCommitRef = useRef(
+        throttle(() => {
+            const pending = pendingLoopRef.current;
+            if (!pending) return;
+            commitLoopRef.current(pending);
+        }, 33, { leading: true, trailing: true }),
+    );
+
+    useEffect(() => {
+        const throttledLoopCommit = throttledLoopCommitRef.current;
+        const flush = () => {
+            throttledLoopCommit.flush();
+            const pending = pendingLoopRef.current;
+            if (!pending) return;
+            commitLoopRef.current(pending);
+        };
+        window.addEventListener('mouseup', flush, true);
+        window.addEventListener('touchend', flush, true);
+        return () => {
+            window.removeEventListener('mouseup', flush, true);
+            window.removeEventListener('touchend', flush, true);
+            throttledLoopCommit.cancel();
+        };
+    }, []);
 
     // ── Feed clips to engine ──────────────────────────────────────────
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
-
-        const selectedSet = new Set(selectedClipIds);
         const clipData: TimelineClipData[] = clips.map(c => ({
             // Stored fades are in sample-frames; canvas renderer expects 0..1 fraction of clip width.
             fadeIn: (c.durationSamples && c.durationSamples > 0)
@@ -336,7 +364,7 @@ export const Timeline = (props: TimelineProps) => {
             durationBeats: c.durationBeats,
             type: c.type,
             color: c.color,
-            selected: selectedSet.has(c.id),
+            selected: false,
             filePath: c.filePath,
             durationSamples: c.durationSamples,
             sourceOffset: c.sourceOffset,
@@ -348,7 +376,13 @@ export const Timeline = (props: TimelineProps) => {
         }));
 
         engine.setClips(clipData);
-    }, [clips, selectedClipIds, engineRef]);
+    }, [clips, engineRef]);
+
+    useEffect(() => {
+        const engine = engineRef.current;
+        if (!engine) return;
+        engine.setClipSelection(selectedClipIds);
+    }, [selectedClipIds, engineRef]);
 
     // ── Feed playhead ─────────────────────────────────────────────────
     useEffect(() => {
@@ -584,14 +618,18 @@ export const Timeline = (props: TimelineProps) => {
                     position: 'relative',
                     flex: 1,
                     minHeight: 0,
+                    overflow: 'visible',
                 }}
             >
                 <canvas
                     ref={canvasRef}
                     style={{
-                        display: 'block',
+                        position: 'absolute',
+                        left: 0,
+                        top: 0,
                         width: '100%',
-                        height: '100%',
+                        height: `calc(100% + ${trackHeight}px)`,
+                        display: 'block',
                     }}
                 />
                 {props.automationVisible && (
@@ -611,7 +649,11 @@ export const Timeline = (props: TimelineProps) => {
                     height: trackHeight,
                     flexShrink: 0,
                     borderTop: 'none',
-                    background: 'var(--surface-1)',
+                    boxShadow: 'inset 0 1px 0 var(--color-border-subtle)',
+                    background: 'transparent',
+                    pointerEvents: 'none',
+                    position: 'relative',
+                    zIndex: 2,
                 }}
             />
         </div>

@@ -73,6 +73,20 @@ export interface PdcDebugSnapshot {
     edge_summary: string;
 }
 
+export interface RtDebugSnapshot {
+    enabled: boolean;
+    callbackCount: number;
+    commandCountTotal: number;
+    commandCountLast: number;
+    commandCountMax: number;
+    callbackDurationUsLast: number;
+    callbackDurationUsMax: number;
+    callbackFramesLast: number;
+    pluginHostLockMissTotal: number;
+    queueFullRejectTotal: number;
+    deferredTopologyLenLast: number;
+}
+
 export interface PdcNodeDebug {
     node_id: number;
     name: string;
@@ -378,6 +392,14 @@ export const getProjectHistory = (options?: { limit?: number; sinceSeq?: number 
 /** Build a backend routing DAG snapshot and return PDC diagnostics. */
 export const getPdcDebugSnapshot = () =>
     invoke<PdcDebugSnapshot>('get_pdc_debug_snapshot');
+
+/** Read realtime audio callback diagnostics. */
+export const getRtDebugSnapshot = () =>
+    invoke<RtDebugSnapshot>('get_rt_debug_snapshot');
+
+/** Enable/disable RT debug counters collection in audio engine. */
+export const setRtDebugEnabled = (enabled: boolean) =>
+    invoke<void>('set_rt_debug_enabled', { enabled });
 
 // ── Legacy / Debug ───────────────────────────────────────────────────────
 
@@ -1028,12 +1050,14 @@ export const setExternalPluginParamForSlot = (
     slotId: string,
     paramIndex: number,
     value: number,
+    options?: { pushUndoStep?: boolean },
 ) =>
     invoke<void>('set_external_plugin_param_for_slot_cmd', {
         trackId,
         slotId,
         paramIndex,
         value,
+        pushUndoStep: options?.pushUndoStep,
     });
 
 export interface ExternalPluginParamInfo {
@@ -1072,6 +1096,17 @@ export const setClipFades = (clipId: string, fadeInFrames: number, fadeOutFrames
 /** Set source offset for a clip (slip editing — waveform slides inside clip frame). */
 export const setClipSourceOffset = (clipId: string, sourceOffsetFrames: number) =>
     invoke<void>('set_clip_source_offset_cmd', { clipId, sourceOffsetFrames });
+
+export interface SetClipWarpPayload {
+    clipId: string;
+    isWarped: boolean;
+    warpMode?: number | null;
+    warpBaseBpm?: number | null;
+}
+
+/** Configure clip warp state/mode/base BPM. */
+export const setClipWarp = (payload: SetClipWarpPayload) =>
+    invoke<void>('set_clip_warp_cmd', { payload });
 
 // ── Export / Bounce ─────────────────────────────────────────────────────
 

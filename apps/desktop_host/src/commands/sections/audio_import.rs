@@ -114,21 +114,25 @@ async fn import_audio_file(
         None => handle.master_clock.position(),
     };
 
-    // Create AudioClip in the project
-    let clip = AudioClip::new(
-        &clip_name,
-        &path,
-        AbsoluteTime::new(clip_position),
-        AbsoluteTime::new(num_frames as i64),
-    );
-    let clip_id = clip.id.to_string();
-
     // Add clip to the specified track (create track if needed)
+    let clip_id: String;
     {
         // Snapshot for undo BEFORE mutation
         push_undo(&project_state)?;
 
         let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project_sr = project.sample_rate.max(1.0);
+        let source_sr = sample_rate.max(1) as f64;
+        let timeline_frames = ((num_frames as f64) * (project_sr / source_sr)).round() as i64;
+
+        // Create AudioClip in the project's frame domain.
+        let clip = AudioClip::new(
+            &clip_name,
+            &path,
+            AbsoluteTime::new(clip_position),
+            AbsoluteTime::new(timeline_frames.max(1)),
+        );
+        clip_id = clip.id.to_string();
 
         let idx = track_index as usize;
         while project.tracks.len() <= idx {

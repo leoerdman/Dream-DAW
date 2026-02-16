@@ -31,6 +31,22 @@ struct PdcEdgeDebug {
     edge_delay_samples: u32,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RtDebugSnapshotPayload {
+    enabled: bool,
+    callback_count: u64,
+    command_count_total: u64,
+    command_count_last: u64,
+    command_count_max: u64,
+    callback_duration_us_last: u64,
+    callback_duration_us_max: u64,
+    callback_frames_last: u64,
+    plugin_host_lock_miss_total: u64,
+    queue_full_reject_total: u64,
+    deferred_topology_len_last: u64,
+}
+
 /// Returns the current engine state as JSON.
 #[tauri::command]
 fn get_state(handle: tauri::State<'_, AudioEngineHandle>) -> Result<EngineStateResponse, String> {
@@ -150,7 +166,9 @@ fn get_meters(handle: tauri::State<'_, AudioEngineHandle>) -> Result<MeteringSna
 #[tauri::command]
 fn set_frequency(freq: f32, handle: tauri::State<'_, AudioEngineHandle>) -> Result<(), String> {
     if !(20.0..=20000.0).contains(&freq) {
-        return Err(format!("Frequency {freq}Hz out of audible range (20–20000 Hz)"));
+        return Err(format!(
+            "Frequency {freq}Hz out of audible range (20–20000 Hz)"
+        ));
     }
 
     push_command(&handle, EngineCommand::SetFreq(freq))?;
@@ -332,4 +350,34 @@ fn get_pdc_debug_snapshot(
         node_summary: pdc::pdc_summary(&dag, &node_pdc),
         edge_summary: pdc::pdc_edge_summary(&dag, &edge_pdc),
     })
+}
+
+/// Returns real-time audio callback diagnostics for performance auditing.
+#[tauri::command]
+fn get_rt_debug_snapshot(
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<RtDebugSnapshotPayload, String> {
+    let snap = handle.rt_debug_stats.snapshot();
+    Ok(RtDebugSnapshotPayload {
+        enabled: snap.enabled,
+        callback_count: snap.callback_count,
+        command_count_total: snap.command_count_total,
+        command_count_last: snap.command_count_last,
+        command_count_max: snap.command_count_max,
+        callback_duration_us_last: snap.callback_duration_us_last,
+        callback_duration_us_max: snap.callback_duration_us_max,
+        callback_frames_last: snap.callback_frames_last,
+        plugin_host_lock_miss_total: snap.plugin_host_lock_miss_total,
+        queue_full_reject_total: snap.queue_full_reject_total,
+        deferred_topology_len_last: snap.deferred_topology_len_last,
+    })
+}
+
+#[tauri::command]
+fn set_rt_debug_enabled(
+    enabled: bool,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<(), String> {
+    handle.rt_debug_stats.set_enabled(enabled);
+    Ok(())
 }

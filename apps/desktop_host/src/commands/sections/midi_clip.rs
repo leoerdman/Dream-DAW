@@ -441,6 +441,7 @@ async fn update_midi_clip_cmd(
     }
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut should_rebuild_clip_snapshot = false;
     match target {
         UpdateTarget::MidiClip {
             track_index,
@@ -475,12 +476,15 @@ async fn update_midi_clip_cmd(
             migrated.id = legacy.id;
             migrated.notes = normalized;
             track.midi_clips.push(migrated);
+            should_rebuild_clip_snapshot = true;
         }
         UpdateTarget::Noop => {}
     }
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
-    clip_pool_state.rebuild_snapshot(&project);
+    if should_rebuild_clip_snapshot {
+        clip_pool_state.rebuild_snapshot(&project);
+    }
     rebuild_midi_snapshot_from_project(&project, &handle);
     Ok(())
 }

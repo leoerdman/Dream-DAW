@@ -10,7 +10,7 @@
 //   - Note blocks (draggable, resizable)
 //   - Velocity lane (bottom)
 //   - Snap-to-grid via useGridStore
-//   - Tools: Draw, Select, Erase
+//   - Tools: Draw, Paint, Select
 //
 // Design: Uses CSS custom properties from tokens.css exclusively.
 //         Piano Roll tokens: --color-piano-* for grid, keyboard, lines.
@@ -26,8 +26,6 @@ import * as engineApi from '@/shared/api/engine';
 import {
     Pencil,
     Brush,
-    MousePointer2,
-    Eraser,
     Sparkles,
     RotateCw,
     Music,
@@ -35,6 +33,7 @@ import {
     ChevronUp,
     ChevronDown,
 } from 'lucide-react';
+import { ClipEditorMetaRow, ClipEditorSection, ClipEditorSidebar } from '@/widgets/ClipEditor/ClipEditorSidebar';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -47,7 +46,7 @@ export interface MidiNote {
     selected?: boolean;
 }
 
-export type PianoRollTool = 'draw' | 'paint' | 'select' | 'erase';
+export type PianoRollTool = 'draw' | 'paint';
 
 interface PianoRollProps {
     notes: MidiNote[];
@@ -119,12 +118,13 @@ const MIN_NOTE_HEIGHT = 4;
 const MAX_NOTE_HEIGHT = 32;
 const VELOCITY_LANE_HEIGHT = 64;
 const RULER_HEIGHT = 22;
-const LEFT_PANEL_WIDTH = 182;
 const LOWEST_PITCH = 0;
 const HIGHEST_PITCH = 115;
 const TOTAL_KEYS = HIGHEST_PITCH - LOWEST_PITCH + 1;
 const MIN_PPB = 4;
 const MAX_PPB = 200;
+const MIN_NOTE_BEATS = 0.125;
+const EPS = 1e-6;
 
 const KEY_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 // UI octave labeling offset:
@@ -307,7 +307,7 @@ export const PianoRoll = memo(function PianoRoll({
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const noteCanvasRef = useRef<HTMLCanvasElement>(null);
-    const containerRef = useRef<HTMLDivElement>(null);
+    const gridViewportRef = useRef<HTMLDivElement>(null);
     const keyboardScrollRef = useRef<HTMLDivElement>(null);
     const editorRootRef = useRef<HTMLDivElement>(null);
     const snapBeat = useGridStore((s) => s.snapBeat);
@@ -326,12 +326,63 @@ export const PianoRoll = memo(function PianoRoll({
     // Auto-fit horizontal: scale so the entire clip fills the available width.
     // Only apply MIN_PPB/MAX_PPB clamping to user-driven zoom overrides,
     // so auto-fit always shows the clip's exact natural length.
-    const gridAreaWidth = Math.max(100, containerWidth - KEYBOARD_WIDTH - LEFT_PANEL_WIDTH);
+    const gridAreaWidth = Math.max(100, containerWidth);
     const autoFitPPB = Math.max(MIN_PPB, gridAreaWidth / clipBeats);
     const pixelsPerBeat = zoomOverrideH != null
         ? Math.max(MIN_PPB, Math.min(MAX_PPB, zoomOverrideH))
         : autoFitPPB;
     const totalBeats = Math.max(clipBeats, gridAreaWidth / pixelsPerBeat);
+
+    const enforceNoOverlap = useCallback((input: MidiNote[], aggressorIds: Set<string>): MidiNote[] => {
+        if (input.length <= 1 || aggressorIds.size === 0) return input;
+
+        const byId = new Map<string, MidiNote>(input.map((n) => [n.id, { ...n }]));
+        const deleted = new Set<string>();
+
+        const aggressors = Array.from(aggressorIds)
+            .map((id) => byId.get(id))
+            .filter((n): n is MidiNote => !!n)
+            .sort((a, b) => a.startBeat - b.startBeat);
+
+        for (const a of aggressors) {
+            if (deleted.has(a.id)) continue;
+            const aStart = a.startBeat;
+            const aEnd = a.startBeat + a.durationBeats;
+
+            for (const [id, b] of byId) {
+                if (id === a.id || deleted.has(id)) continue;
+                if (b.pitch !== a.pitch) continue;
+
+                const bStart = b.startBeat;
+                const bEnd = b.startBeat + b.durationBeats;
+                const overlaps = aEnd > bStart + EPS && bEnd > aStart + EPS;
+                if (!overlaps) continue;
+
+                if (aStart <= bStart + EPS) {
+                    deleted.add(id);
+                    continue;
+                }
+
+                const trimmedDuration = aStart - bStart;
+                if (trimmedDuration <= EPS) {
+                    deleted.add(id);
+                } else {
+                    b.durationBeats = Math.max(EPS, trimmedDuration);
+                }
+            }
+        }
+
+        return input
+            .filter((n) => !deleted.has(n.id))
+            .map((n) => {
+                const next = byId.get(n.id) ?? n;
+                return {
+                    ...next,
+                    durationBeats: Math.max(EPS, Math.min(totalBeats - next.startBeat, next.durationBeats)),
+                };
+            })
+            .filter((n) => n.durationBeats > EPS);
+    }, [totalBeats]);
 
     const pasteClipboard = useCallback(() => {
         if (clipboardRef.current.length === 0) return;
@@ -343,11 +394,11 @@ export const PianoRoll = memo(function PianoRoll({
         const pasted = clipboardRef.current.map((n) => ({
             ...n,
             id: genNoteId(),
-            startBeat: Math.max(0, Math.min(totalBeats - 0.125, n.startBeat + offset)),
+            startBeat: Math.max(0, Math.min(totalBeats - MIN_NOTE_BEATS, n.startBeat + offset)),
         }));
-        onNotesChange([...notes, ...pasted]);
+        onNotesChange(enforceNoOverlap([...notes, ...pasted], new Set(pasted.map((n) => n.id))));
         setSelectedNotes(new Set(pasted.map((n) => n.id)));
-    }, [notes, playheadBeat, totalBeats, onNotesChange]);
+    }, [notes, playheadBeat, totalBeats, onNotesChange, enforceNoOverlap]);
 
     const visiblePitches = useMemo(() => {
         if (drumMode) {
@@ -357,7 +408,9 @@ export const PianoRoll = memo(function PianoRoll({
         if (!foldToUsedNotes) return allPitches;
         const usedSet = new Set(notes.map((n) => n.pitch));
         const filtered = allPitches.filter((pitch) => usedSet.has(pitch));
-        return filtered.length > 0 ? filtered : [DEFAULT_FOCUS_PITCH];
+        // Never collapse editor to a near-empty row when clip has no notes.
+        // If fold has nothing to show, fall back to full keyboard range.
+        return filtered.length > 0 ? filtered : allPitches;
     }, [drumMode, foldToUsedNotes, notes]);
 
     const pitchRowIndex = useMemo(() => {
@@ -371,7 +424,7 @@ export const PianoRoll = memo(function PianoRoll({
 
     // Measure container
     useEffect(() => {
-        const el = containerRef.current;
+        const el = gridViewportRef.current;
         if (!el) return;
         const ro = new ResizeObserver((entries) => {
             for (const entry of entries) {
@@ -460,9 +513,10 @@ export const PianoRoll = memo(function PianoRoll({
     }, [trackIndex, stopAudition]);
 
     useEffect(() => {
+        const timers = auditionOffTimersRef.current;
         return () => {
-            auditionOffTimersRef.current.forEach((timer) => window.clearTimeout(timer));
-            auditionOffTimersRef.current.clear();
+            timers.forEach((timer) => window.clearTimeout(timer));
+            timers.clear();
         };
     }, []);
 
@@ -535,17 +589,24 @@ export const PianoRoll = memo(function PianoRoll({
     }, [pitchToY, scaleSet, visiblePitches]);
 
     // ── Note Actions ──
+    const snapToCellStart = useCallback((rawBeat: number) => {
+        const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
+        const clamped = Math.max(0, Math.min(totalBeats - MIN_NOTE_BEATS, rawBeat));
+        const cell = Math.floor((clamped + EPS) / step);
+        return Math.max(0, Math.min(totalBeats - MIN_NOTE_BEATS, cell * step));
+    }, [currentGridInterval, totalBeats]);
+
     const insertNoteFromPointer = useCallback((clientX: number, clientY: number, target: HTMLElement) => {
         const rect = target.getBoundingClientRect();
         const x = clientX - rect.left;
         const y = clientY - rect.top;
         const pitch = yToPitch(y);
         const rawBeat = x / pixelsPerBeat;
-        const beat = snapBeat(rawBeat, beatsPerBar, pixelsPerBeat);
+        const beat = snapToCellStart(rawBeat);
         if (beat >= totalBeats) return;
 
         const gridStep = currentGridInterval > 0 ? currentGridInterval : 0.25;
-        const duration = Math.max(0.125, Math.min(gridStep, totalBeats - beat));
+        const duration = Math.max(MIN_NOTE_BEATS, Math.min(gridStep, totalBeats - beat));
         const newNote: MidiNote = {
             id: genNoteId(),
             pitch,
@@ -553,10 +614,10 @@ export const PianoRoll = memo(function PianoRoll({
             durationBeats: duration,
             velocity: 100,
         };
-        onNotesChange([...notes, newNote]);
+        onNotesChange(enforceNoOverlap([...notes, newNote], new Set([newNote.id])));
         setStepInputCursorBeat(Math.min(totalBeats, beat + duration));
         auditionNote(pitch, 100, 160);
-    }, [yToPitch, pixelsPerBeat, snapBeat, beatsPerBar, totalBeats, currentGridInterval, onNotesChange, notes, auditionNote]);
+    }, [yToPitch, pixelsPerBeat, totalBeats, currentGridInterval, onNotesChange, notes, auditionNote, enforceNoOverlap, snapToCellStart]);
 
     const handleGridClick = useCallback(
         (e: React.MouseEvent) => {
@@ -583,7 +644,7 @@ export const PianoRoll = memo(function PianoRoll({
         const target = e.currentTarget as HTMLElement;
         const rect = target.getBoundingClientRect();
         const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
-        const duration = Math.max(0.125, step);
+        const duration = Math.max(MIN_NOTE_BEATS, step);
         const pitch = yToPitch(e.clientY - rect.top);
 
         let workingNotes = notes;
@@ -597,7 +658,7 @@ export const PianoRoll = memo(function PianoRoll({
             const x = clientX - rect.left;
             const y = clientY - rect.top;
             const drawPitch = yToPitch(y);
-            const beat = Math.max(0, Math.min(totalBeats - duration, snapBeat(x / pixelsPerBeat, beatsPerBar, pixelsPerBeat)));
+            const beat = Math.max(0, Math.min(totalBeats - duration, snapToCellStart(x / pixelsPerBeat)));
             const key = `${drawPitch}:${beat.toFixed(6)}`;
             if (occupied.has(key)) return;
             occupied.add(key);
@@ -608,7 +669,7 @@ export const PianoRoll = memo(function PianoRoll({
                 durationBeats: duration,
                 velocity: 100,
             };
-            workingNotes = [...workingNotes, newNote];
+            workingNotes = enforceNoOverlap([...workingNotes, newNote], new Set([newNote.id]));
             onNotesChange(workingNotes);
             auditionNote(drawPitch, 100, 95);
         };
@@ -625,7 +686,7 @@ export const PianoRoll = memo(function PianoRoll({
 
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
-    }, [tool, currentGridInterval, yToPitch, notes, totalBeats, snapBeat, pixelsPerBeat, beatsPerBar, onNotesChange, auditionNote]);
+    }, [tool, currentGridInterval, yToPitch, notes, totalBeats, pixelsPerBeat, onNotesChange, auditionNote, enforceNoOverlap, snapToCellStart]);
 
     const applyRatchet = useCallback(() => {
         const repeats = Math.max(2, Math.min(12, Math.round(ratchetCount)));
@@ -660,31 +721,29 @@ export const PianoRoll = memo(function PianoRoll({
         (e: React.MouseEvent, noteId: string) => {
             e.stopPropagation();
             editorRootRef.current?.focus();
-            if (tool === 'erase') {
+            if (tool === 'draw') {
                 onNotesChange(notes.filter((n) => n.id !== noteId));
                 return;
             }
-            if (tool === 'select') {
-                const target = notes.find((n) => n.id === noteId);
-                if (target) auditionNote(target.pitch, target.velocity, 120);
-                setSelectedNotes((prev) => {
-                    const next = new Set(prev);
-                    if (e.shiftKey) {
-                        if (next.has(noteId)) next.delete(noteId);
-                        else next.add(noteId);
-                    } else {
-                        next.clear();
-                        next.add(noteId);
-                    }
-                    return next;
-                });
-            }
+            const target = notes.find((n) => n.id === noteId);
+            if (target) auditionNote(target.pitch, target.velocity, 120);
+            setSelectedNotes((prev) => {
+                const next = new Set(prev);
+                if (e.shiftKey) {
+                    if (next.has(noteId)) next.delete(noteId);
+                    else next.add(noteId);
+                } else {
+                    next.clear();
+                    next.add(noteId);
+                }
+                return next;
+            });
         },
         [tool, notes, onNotesChange, auditionNote],
     );
 
     const handleGridSelectionStart = useCallback((e: React.MouseEvent) => {
-        if (tool !== 'select') return;
+        if (tool === 'paint') return;
         editorRootRef.current?.focus();
         e.preventDefault();
         const rect = e.currentTarget.getBoundingClientRect();
@@ -751,7 +810,7 @@ export const PianoRoll = memo(function PianoRoll({
     // Note drag
     const handleNoteDrag = useCallback(
         (e: React.MouseEvent, noteId: string) => {
-            if (tool !== 'select') return;
+            if (tool === 'paint') return;
             e.stopPropagation();
             e.preventDefault();
             editorRootRef.current?.focus();
@@ -799,31 +858,31 @@ export const PianoRoll = memo(function PianoRoll({
 
                     if (mode === 'resize-right') {
                         if (n.id !== noteId) return n;
-                        const maxDur = Math.max(0.125, totalBeats - original.startBeat);
+                        const maxDur = Math.max(MIN_NOTE_BEATS, totalBeats - original.startBeat);
                         const rawDur = original.durationBeats + beatDelta;
                         const finalDur = shouldSnap ? snapBeat(rawDur, beatsPerBar, pixelsPerBeat) : rawDur;
                         return {
                             ...n,
-                            durationBeats: Math.min(maxDur, Math.max(0.125, finalDur)),
+                            durationBeats: Math.min(maxDur, Math.max(MIN_NOTE_BEATS, finalDur)),
                         };
                     }
                     if (mode === 'resize-left') {
                         if (n.id !== noteId) return n;
                         const rawStart = original.startBeat + beatDelta;
-                        const snappedBeat = Math.max(0, Math.min(totalBeats - 0.125, shouldSnap ? snapBeat(rawStart, beatsPerBar, pixelsPerBeat) : rawStart));
+                        const snappedBeat = Math.max(0, Math.min(totalBeats - MIN_NOTE_BEATS, shouldSnap ? snapBeat(rawStart, beatsPerBar, pixelsPerBeat) : rawStart));
                         return {
                             ...n,
                             startBeat: snappedBeat,
-                            durationBeats: Math.max(0.125, original.durationBeats + (original.startBeat - snappedBeat)),
+                            durationBeats: Math.max(MIN_NOTE_BEATS, original.durationBeats + (original.startBeat - snappedBeat)),
                         };
                     }
 
                     const rawStart = original.startBeat + beatDelta;
-                    const newBeat = Math.max(0, Math.min(totalBeats - 0.125, shouldSnap ? snapBeat(rawStart, beatsPerBar, pixelsPerBeat) : rawStart));
+                    const newBeat = Math.max(0, Math.min(totalBeats - MIN_NOTE_BEATS, shouldSnap ? snapBeat(rawStart, beatsPerBar, pixelsPerBeat) : rawStart));
                     const newPitch = Math.max(LOWEST_PITCH, Math.min(LOWEST_PITCH + TOTAL_KEYS - 1, original.pitch + pitchDelta));
                     return { ...n, startBeat: newBeat, pitch: newPitch };
                 });
-                onNotesChange(updated);
+                onNotesChange(enforceNoOverlap(updated, selectedIds));
 
                 if (mode === 'move') {
                     const lead = updated.find((n) => n.id === noteId);
@@ -841,7 +900,7 @@ export const PianoRoll = memo(function PianoRoll({
             window.addEventListener('mousemove', onMove);
             window.addEventListener('mouseup', onUp);
         },
-        [tool, notes, onNotesChange, pixelsPerBeat, noteHeight, snapBeat, beatsPerBar, totalBeats, selectedNotes, snapEnabled, auditionNote],
+        [tool, notes, onNotesChange, pixelsPerBeat, noteHeight, snapBeat, beatsPerBar, totalBeats, selectedNotes, snapEnabled, auditionNote, enforceNoOverlap],
     );
 
     const [hoveredNoteEdge, setHoveredNoteEdge] = useState<string | null>(null);
@@ -943,8 +1002,8 @@ export const PianoRoll = memo(function PianoRoll({
             return { ...n, pitch: Math.max(LOWEST_PITCH, Math.min(HIGHEST_PITCH, n.pitch + delta)) };
         });
         setClipTranspose((prev) => Math.max(-24, Math.min(24, prev + delta)));
-        onNotesChange(next);
-    }, [notes, onNotesChange, selectedNotes]);
+        onNotesChange(enforceNoOverlap(next, targets));
+    }, [notes, onNotesChange, selectedNotes, enforceNoOverlap]);
 
     const quantizeAllNotesToGrid = useCallback((amountPct = quantizeAmount) => {
         const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
@@ -962,8 +1021,8 @@ export const PianoRoll = memo(function PianoRoll({
                 durationBeats: Math.max(step, blendedDur),
             };
         });
-        onNotesChange(next);
-    }, [notes, onNotesChange, currentGridInterval, snapBeat, beatsPerBar, pixelsPerBeat, totalBeats, selectedNotes, quantizeAmount]);
+        onNotesChange(enforceNoOverlap(next, targetIds ?? new Set(next.map((n) => n.id))));
+    }, [notes, onNotesChange, currentGridInterval, snapBeat, beatsPerBar, pixelsPerBeat, totalBeats, selectedNotes, quantizeAmount, enforceNoOverlap]);
 
     const duplicateSelection = useCallback(() => {
         const targets = selectedNotes.size > 0 ? notes.filter((n) => selectedNotes.has(n.id)) : notes;
@@ -974,12 +1033,12 @@ export const PianoRoll = memo(function PianoRoll({
         const clones = targets.map((n) => ({
             ...n,
             id: genNoteId(),
-            startBeat: Math.max(0, Math.min(totalBeats - 0.125, n.startBeat + shift)),
+            startBeat: Math.max(0, Math.min(totalBeats - MIN_NOTE_BEATS, n.startBeat + shift)),
             selected: false,
         }));
-        onNotesChange([...notes, ...clones]);
+        onNotesChange(enforceNoOverlap([...notes, ...clones], new Set(clones.map((n) => n.id))));
         setSelectedNotes(new Set(clones.map((n) => n.id)));
-    }, [selectedNotes, notes, currentGridInterval, totalBeats, onNotesChange]);
+    }, [selectedNotes, notes, currentGridInterval, totalBeats, onNotesChange, enforceNoOverlap]);
 
     const selectSamePitch = useCallback(() => {
         if (selectedNotes.size === 0) return;
@@ -998,12 +1057,12 @@ export const PianoRoll = memo(function PianoRoll({
             const velocity = Math.round((Math.random() - 0.5) * 10);
             return {
                 ...n,
-                startBeat: Math.max(0, Math.min(totalBeats - 0.125, n.startBeat + timing)),
+                startBeat: Math.max(0, Math.min(totalBeats - MIN_NOTE_BEATS, n.startBeat + timing)),
                 velocity: Math.max(1, Math.min(127, n.velocity + velocity)),
             };
         });
-        onNotesChange(next);
-    }, [selectedNotes, notes, currentGridInterval, totalBeats, onNotesChange]);
+        onNotesChange(enforceNoOverlap(next, targets));
+    }, [selectedNotes, notes, currentGridInterval, totalBeats, onNotesChange, enforceNoOverlap]);
 
     const applyLegato = useCallback(() => {
         const targets = selectedNotes.size > 0 ? selectedNotes : new Set(notes.map((n) => n.id));
@@ -1021,16 +1080,16 @@ export const PianoRoll = memo(function PianoRoll({
                 const current = arr[i];
                 const next = arr[i + 1];
                 const targetEnd = next ? next.startBeat : clipBeats;
-                durationById.set(current.id, Math.max(0.125, targetEnd - current.startBeat));
+                durationById.set(current.id, Math.max(MIN_NOTE_BEATS, targetEnd - current.startBeat));
             }
         });
         if (durationById.size === 0) return;
-        onNotesChange(notes.map((n) => (
+        onNotesChange(enforceNoOverlap(notes.map((n) => (
             durationById.has(n.id)
-                ? { ...n, durationBeats: Math.max(0.125, Math.min(clipBeats - n.startBeat, durationById.get(n.id) ?? n.durationBeats)) }
+                ? { ...n, durationBeats: Math.max(MIN_NOTE_BEATS, Math.min(clipBeats - n.startBeat, durationById.get(n.id) ?? n.durationBeats)) }
                 : n
-        )));
-    }, [selectedNotes, notes, clipBeats, onNotesChange]);
+        )), targets));
+    }, [selectedNotes, notes, clipBeats, onNotesChange, enforceNoOverlap]);
 
     // Canvas note renderer
     useEffect(() => {
@@ -1221,7 +1280,7 @@ export const PianoRoll = memo(function PianoRoll({
                         durationBeats: step,
                         velocity: 100,
                     };
-                    onNotesChange([...notes, newNote]);
+                    onNotesChange(enforceNoOverlap([...notes, newNote], new Set([newNote.id])));
                     setSelectedNotes(new Set([newNote.id]));
                     setStepInputCursorBeat((prev) => Math.min(totalBeats, prev + step));
                     auditionNote(pitch, 100, 170);
@@ -1248,9 +1307,9 @@ export const PianoRoll = memo(function PianoRoll({
                 if (e.key === 'ArrowLeft') {
                     return { ...n, startBeat: Math.max(0, n.startBeat - beatStep) };
                 }
-                return { ...n, startBeat: Math.min(totalBeats - 0.125, n.startBeat + beatStep) };
+                return { ...n, startBeat: Math.min(totalBeats - MIN_NOTE_BEATS, n.startBeat + beatStep) };
             });
-            onNotesChange(moved);
+            onNotesChange(enforceNoOverlap(moved, selectedNotes));
         };
         window.addEventListener('keydown', onKeyDown, { capture: true });
         return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
@@ -1275,6 +1334,7 @@ export const PianoRoll = memo(function PianoRoll({
         snapBeat,
         beatsPerBar,
         auditionNote,
+        enforceNoOverlap,
     ]);
 
     // Clip duration label
@@ -1302,7 +1362,6 @@ export const PianoRoll = memo(function PianoRoll({
         <div
             ref={(el) => {
                 editorRootRef.current = el;
-                containerRef.current = el;
             }}
             tabIndex={0}
             data-keyboard-scope="piano-roll"
@@ -1332,14 +1391,12 @@ export const PianoRoll = memo(function PianoRoll({
                 flexShrink: 0,
             }}>
                 {/* Tool buttons */}
-                {(['draw', 'paint', 'select', 'erase'] as const).map((t) => {
+                {(['draw', 'paint'] as const).map((t) => {
                     const isActive = tool === t;
                     let Icon;
                     let label;
                     if (t === 'draw') { Icon = Pencil; label = 'Draw'; }
-                    else if (t === 'paint') { Icon = Brush; label = 'Paint'; }
-                    else if (t === 'select') { Icon = MousePointer2; label = 'Select'; }
-                    else { Icon = Eraser; label = 'Erase'; }
+                    else { Icon = Brush; label = 'Paint'; }
 
                     return (
                         <button
@@ -1362,7 +1419,7 @@ export const PianoRoll = memo(function PianoRoll({
                             }}
                             title={`${label} Tool`}
                         >
-                            <Icon size={13} fill={isActive && t !== 'select' ? 'currentColor' : 'none'} fillOpacity={0.2} />
+                            <Icon size={13} fill={isActive ? 'currentColor' : 'none'} fillOpacity={0.2} />
                             <span style={{ marginTop: 1 }}>{label}</span>
                         </button>
                     );
@@ -1661,33 +1718,10 @@ export const PianoRoll = memo(function PianoRoll({
 
             {/* ── Main area ── */}
             <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-                {/* Left setup panel (2 vertical blocks) */}
-                <div style={{
-                    width: LEFT_PANEL_WIDTH,
-                    flexShrink: 0,
-                    borderRight: '1px solid var(--color-divider)',
-                    background: 'var(--color-bg-panel)',
-                    padding: 8,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 8,
-                }}>
-                    <div style={{
-                        border: '1px solid var(--color-control-border)',
-                        borderRadius: 'var(--radius-sm)',
-                        background: 'var(--color-bg-secondary)',
-                        padding: 8,
-                        minHeight: 124,
-                    }}>
-                        <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            Clip Setup
-                        </div>
-                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginBottom: 6 }}>
-                            Length: <span style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>{clipDurationLabel}</span>
-                        </div>
-                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginBottom: 6 }}>
-                            Grid: <span style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)' }}>{gridDivision}{gridTriplet ? 'T' : ''}</span>
-                        </div>
+                <ClipEditorSidebar>
+                    <ClipEditorSection title="Clip Setup">
+                        <ClipEditorMetaRow label="Length" value={clipDurationLabel} />
+                        <ClipEditorMetaRow label="Grid" value={`${gridDivision}${gridTriplet ? 'T' : ''}`} />
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
                             <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>Transpose</span>
                             <button
@@ -1706,18 +1740,9 @@ export const PianoRoll = memo(function PianoRoll({
                                 {clipTranspose >= 0 ? `+${clipTranspose}` : clipTranspose}
                             </span>
                         </div>
-                    </div>
+                    </ClipEditorSection>
 
-                    <div style={{
-                        border: '1px solid var(--color-control-border)',
-                        borderRadius: 'var(--radius-sm)',
-                        background: 'var(--color-bg-secondary)',
-                        padding: 8,
-                        minHeight: 124,
-                    }}>
-                        <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            Performance
-                        </div>
+                    <ClipEditorSection title="Performance">
                         <button onClick={() => quantizeAllNotesToGrid()} style={{ ...miniBtnStyle, width: '100%', marginBottom: 6 }}>
                             Quantize To Grid
                         </button>
@@ -1736,8 +1761,8 @@ export const PianoRoll = memo(function PianoRoll({
                         >
                             Velocity +8
                         </button>
-                    </div>
-                </div>
+                    </ClipEditorSection>
+                </ClipEditorSidebar>
 
                 {/* Piano Keyboard */}
                 <div style={{
@@ -1824,7 +1849,10 @@ export const PianoRoll = memo(function PianoRoll({
 
                 {/* Grid area */}
                 <div
-                    ref={scrollRef}
+                    ref={(el) => {
+                        scrollRef.current = el;
+                        gridViewportRef.current = el;
+                    }}
                     style={{ flex: 1, overflow: 'auto', position: 'relative' }}
                 >
                     <div style={{
@@ -1991,9 +2019,7 @@ export const PianoRoll = memo(function PianoRoll({
                                 cursor:
                                     tool === 'draw' || tool === 'paint'
                                         ? 'crosshair'
-                                        : tool === 'erase'
-                                            ? 'not-allowed'
-                                            : 'default',
+                                        : 'default',
                             }}
                         >
                             <canvas
@@ -2029,9 +2055,11 @@ export const PianoRoll = memo(function PianoRoll({
                                             height: noteHeight - 2,
                                             background: 'transparent',
                                             borderRadius: 'var(--radius-xs)',
-                                            cursor: tool === 'erase' ? 'not-allowed' : (hoveredNoteEdge === note.id ? 'col-resize' : 'grab'),
+                                            cursor: tool === 'draw'
+                                                ? 'pointer'
+                                                : (hoveredNoteEdge === note.id ? 'col-resize' : 'grab'),
                                             zIndex: isSelected ? 5 : 2,
-                                            pointerEvents: (tool === 'draw' || tool === 'paint') ? 'none' : 'auto',
+                                            pointerEvents: tool === 'paint' ? 'none' : 'auto',
                                         }}
                                     />
                                 );
@@ -2083,12 +2111,12 @@ export const PianoRoll = memo(function PianoRoll({
                                 position: 'absolute',
                                 left: playheadBeat * pixelsPerBeat,
                                 top: RULER_HEIGHT,
-                                width: 'var(--daw-playhead-width)',
+                                width: 2,
                                 height: canvasHeight,
-                                background: 'var(--color-playhead)',
+                                background: 'rgba(255, 255, 255, 0.95)',
                                 zIndex: 'var(--z-header)' as unknown as number,
                                 pointerEvents: 'none',
-                                boxShadow: '0 0 4px var(--color-accent-primary-glow)',
+                                boxShadow: '0 0 6px rgba(255,255,255,0.45)',
                             }} />
                         )}
 

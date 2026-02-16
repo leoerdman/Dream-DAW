@@ -50,6 +50,7 @@ fn restart_audio_engine_impl(
         Arc::clone(&handle.automation_snapshot),
         Arc::clone(&handle.sampler_samples),
         Arc::clone(&handle.prepared_graph_snapshot),
+        Arc::clone(&handle.rt_debug_stats),
         Arc::clone(&handle.plugin_host),
         Arc::clone(&handle.preview_buffer),
         Arc::clone(&handle.preview_cursor),
@@ -76,6 +77,11 @@ fn restart_audio_engine_impl(
         .lock()
         .map_err(|e| e.to_string())?
         .clone();
+    let current_pos_frames = handle.master_clock.position();
+    push_command(
+        &handle,
+        EngineCommand::SetTimelineSampleRate(snapshot.sample_rate),
+    )?;
     push_command(&handle, EngineCommand::SetBpm(snapshot.bpm))?;
     push_command(&handle, EngineCommand::SetFreq(snapshot.test_tone_freq))?;
     push_command(
@@ -91,6 +97,7 @@ fn restart_audio_engine_impl(
             },
         )?;
     }
+    push_command(&handle, EngineCommand::Seek(current_pos_frames.max(0)))?;
     push_command(&handle, EngineCommand::SetPlay(snapshot.is_playing))?;
 
     // Persist the resolved device only after successful hot-swap.

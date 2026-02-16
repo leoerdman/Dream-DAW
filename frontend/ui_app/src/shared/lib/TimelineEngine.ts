@@ -320,6 +320,7 @@ export class TimelineEngine {
     // ═══════════════════════════════════════════════════════════════════
 
     setClips(clips: TimelineClipData[]): void {
+        const prevClips = this._clips;
         this._clips = clips.map((clip) => {
             const flags = this._fadeCurvePoints[clip.id];
             return {
@@ -329,8 +330,27 @@ export class TimelineEngine {
                 showFadeOutCurvePoint: Boolean(flags?.out),
             };
         });
-        this._viewport.clearDirty(); // Force redraw
-        this._prefetchVisibleWaveforms();
+
+        const structureChanged = this._didClipStructureChange(prevClips, this._clips);
+        if (structureChanged) {
+            this._viewport.clearDirty(); // Force redraw for geometry/content changes
+            this._prefetchVisibleWaveforms();
+        }
+        this._requestRedraw();
+    }
+
+    setClipSelection(selectedClipIds: string[]): void {
+        const selected = new Set(selectedClipIds);
+        let changed = false;
+
+        this._clips = this._clips.map((clip) => {
+            const nextSelected = selected.has(clip.id);
+            if (clip.selected === nextSelected) return clip;
+            changed = true;
+            return { ...clip, selected: nextSelected };
+        });
+
+        if (!changed) return;
         this._requestRedraw();
     }
 
@@ -490,6 +510,29 @@ export class TimelineEngine {
                 }
                 : clip,
         );
+    }
+
+    private _didClipStructureChange(prev: TimelineClipData[], next: TimelineClipData[]): boolean {
+        if (prev.length !== next.length) return true;
+        for (let i = 0; i < next.length; i += 1) {
+            const a = prev[i];
+            const b = next[i];
+            if (!a) return true;
+            if (a.id !== b.id) return true;
+            if (a.trackIndex !== b.trackIndex) return true;
+            if (a.startBeat !== b.startBeat || a.durationBeats !== b.durationBeats) return true;
+            if (a.type !== b.type) return true;
+            if ((a.filePath ?? '') !== (b.filePath ?? '')) return true;
+            if ((a.durationSamples ?? 0) !== (b.durationSamples ?? 0)) return true;
+            if ((a.sourceOffset ?? 0) !== (b.sourceOffset ?? 0)) return true;
+            if ((a.fadeIn ?? 0) !== (b.fadeIn ?? 0)) return true;
+            if ((a.fadeOut ?? 0) !== (b.fadeOut ?? 0)) return true;
+            if ((a.fadeInCurve ?? 0.5) !== (b.fadeInCurve ?? 0.5)) return true;
+            if ((a.fadeOutCurve ?? 0.5) !== (b.fadeOutCurve ?? 0.5)) return true;
+            if ((a.muted ?? false) !== (b.muted ?? false)) return true;
+            if ((a.isOffline ?? false) !== (b.isOffline ?? false)) return true;
+        }
+        return false;
     }
 
     private _clientToWorld(clientX: number, clientY: number): { beat: number; trackIndex: number } {
@@ -652,9 +695,12 @@ export class TimelineEngine {
 
                 let fadeHandle: 'in' | 'out' | undefined;
                 if (inFadeBody) {
-                    if (localX >= clipLeftPx && localX <= clipLeftPx + FADE_HANDLE_HOTSPOT_PX) {
+                    const handleY = fadeBody.top + 6;
+                    const inHandleX = clipLeftPx + Math.max(4, Math.min(clipWidthPx - 4, fadeInWidthPx));
+                    const outHandleX = clipRightPx - Math.max(4, Math.min(clipWidthPx - 4, fadeOutWidthPx));
+                    if (Math.hypot(localX - inHandleX, localYPx - handleY) <= FADE_HANDLE_HOTSPOT_PX) {
                         fadeHandle = 'in';
-                    } else if (localX <= clipRightPx && localX >= clipRightPx - FADE_HANDLE_HOTSPOT_PX) {
+                    } else if (Math.hypot(localX - outHandleX, localYPx - handleY) <= FADE_HANDLE_HOTSPOT_PX) {
                         fadeHandle = 'out';
                     }
                 }
@@ -870,11 +916,22 @@ export class TimelineEngine {
                 const clip = this._clips.find(c => c.id === hit.clipId);
                 if (!clip) break;
 
-                // Body click behavior: place edit cursor only, do not alter clip selection.
+                // Any direct clip click should keep/select the clip. Body clicks no longer
+                // clear selection via edit-cursor mode.
                 if (hit.region === 'body' && !hit.edge && !hit.fadeHandle && !hit.fadeCurveHandle) {
-                    const snappedBeat = this._snapBeat(hit.beat);
-                    this.onEditCursorChange?.(snappedBeat, hit.trackIndex);
+                    this.onClipClick?.(hit.clipId, e.shiftKey || e.metaKey);
                     this.onTrackSelect?.(hit.trackIndex);
+                    this._drag = {
+                        mode: DragMode.ClipMove,
+                        clipId: hit.clipId,
+                        startBeat: hit.beat,
+                        startTrack: hit.trackIndex,
+                        currentBeat: hit.beat,
+                        currentTrack: hit.trackIndex,
+                        clipOriginalBeat: clip.startBeat,
+                        clipOriginalTrack: clip.trackIndex,
+                        clipOriginalDuration: clip.durationBeats,
+                    };
                     break;
                 }
 
@@ -1241,6 +1298,14 @@ export class TimelineEngine {
 
                     const deltaBeat = beat - this._drag.startBeat;
                     const deltaTrack = track - this._drag.startTrack;
+                    const beatCommitThreshold = this._snapEnabled
+                        ? Math.max(0.05, this._snapBeats * 0.5)
+                        : 0.05;
+                    const isTinyMove =
+                        Math.abs(deltaBeat) < beatCommitThreshold && Math.abs(deltaTrack) < 0.5;
+                    if (isTinyMove) {
+                        break;
+                    }
                     const finalBeat = this._snapBeat(
                         Math.max(0, this._drag.clipOriginalBeat + deltaBeat),
                     );

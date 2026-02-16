@@ -278,13 +278,16 @@ fn place_bounced_file_on_new_track(
 
     push_undo(project_state)?;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_sr = project.sample_rate.max(1.0);
+    let source_sr = decoded.sample_rate.max(1) as f64;
+    let timeline_frames = ((decoded.num_frames as f64) * (project_sr / source_sr)).round() as i64;
     project.add_track(Track::new(new_track_name));
     let new_track_index = project.tracks.len().saturating_sub(1);
     let clip = AudioClip::new(
         clip_name,
         bounced_file_path,
         AbsoluteTime::new(clip_start_frame.max(0)),
-        AbsoluteTime::new(decoded.num_frames as i64),
+        AbsoluteTime::new(timeline_frames.max(1)),
     );
     if let Some(track) = project.tracks.get_mut(new_track_index) {
         track.clips.push(clip);
@@ -306,6 +309,7 @@ fn place_stem_files_on_new_tracks(
         path: String,
         track_name: String,
         num_frames: usize,
+        sample_rate: u32,
     }
 
     let mut metas: Vec<StemMeta> = Vec::with_capacity(stems.len());
@@ -318,6 +322,7 @@ fn place_stem_files_on_new_tracks(
                 path: stem_path.clone(),
                 track_name: stem_track_name.clone(),
                 num_frames: decoded.num_frames,
+                sample_rate: decoded.sample_rate,
             });
             pool.insert(ClipAudio {
                 source_path: stem_path.clone(),
@@ -330,14 +335,17 @@ fn place_stem_files_on_new_tracks(
 
     push_undo(project_state)?;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_sr = project.sample_rate.max(1.0);
     for stem in &metas {
         project.add_track(Track::new(&stem.track_name));
         let new_track_index = project.tracks.len().saturating_sub(1);
+        let source_sr = stem.sample_rate.max(1) as f64;
+        let timeline_frames = ((stem.num_frames as f64) * (project_sr / source_sr)).round() as i64;
         let clip = AudioClip::new(
             &stem.track_name,
             &stem.path,
             AbsoluteTime::new(clip_start_frame.max(0)),
-            AbsoluteTime::new(stem.num_frames as i64),
+            AbsoluteTime::new(timeline_frames.max(1)),
         );
         if let Some(track) = project.tracks.get_mut(new_track_index) {
             track.clips.push(clip);
@@ -857,6 +865,66 @@ async fn set_clip_source_offset_cmd(
     Ok(())
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetClipWarpPayload {
+    clip_id: String,
+    is_warped: bool,
+    warp_mode: Option<i32>,
+    warp_base_bpm: Option<f64>,
+}
+
+/// Set clip warp state/mode/base BPM and recalculate timeline duration.
+#[tauri::command]
+async fn set_clip_warp_cmd(
+    payload: SetClipWarpPayload,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+) -> Result<(), String> {
+    let uuid = Uuid::parse_str(&payload.clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
+    let base_bpm = payload.warp_base_bpm.unwrap_or(120.0);
+    if !(20.0..=300.0).contains(&base_bpm) {
+        return Err(format!("Warp base BPM {base_bpm} out of range (20-300)"));
+    }
+
+    push_undo(&project_state)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_bpm = project.pulse_map.initial_bpm().clamp(20.0, 999.0);
+    let mut updated = false;
+
+    for track in &mut project.tracks {
+        if let Some(clip) = track.clips.iter_mut().find(|c| c.id == uuid) {
+            if clip.warp_source_duration_frames <= 0 {
+                clip.warp_source_duration_frames = clip.duration.sample_frame.max(1);
+            }
+
+            clip.is_warped = payload.is_warped;
+            clip.warp_mode = payload.warp_mode.or(Some(0));
+            clip.warp_base_bpm = base_bpm;
+
+            if clip.is_warped {
+                let source_len = clip.warp_source_duration_frames.max(1) as f64;
+                let next_len = (source_len * (clip.warp_base_bpm / project_bpm)).round() as i64;
+                clip.duration = AbsoluteTime::new(next_len.max(1));
+            } else {
+                clip.duration = AbsoluteTime::new(clip.warp_source_duration_frames.max(1));
+            }
+
+            updated = true;
+            break;
+        }
+    }
+
+    if !updated {
+        return Err(format!("Clip not found: {}", payload.clip_id));
+    }
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    Ok(())
+}
+
 /// Set clip fades. Current engine applies always-on micro-fades; this command is
 /// accepted for IPC compatibility with interactive UI fade handles.
 #[tauri::command]
@@ -1244,6 +1312,9 @@ async fn stop_recording_cmd(
 
     push_undo(&project_state)?;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let project_sr = project.sample_rate.max(1.0);
+    let source_sr = decoded.sample_rate.max(1) as f64;
+    let timeline_frames = ((result.total_frames as f64) * (project_sr / source_sr)).round() as i64;
     while project.tracks.len() <= armed_idx {
         let track_num = project.tracks.len() + 1;
         project.add_track(Track::new(format!("Track {track_num}")));
@@ -1253,7 +1324,7 @@ async fn stop_recording_cmd(
         "Recording",
         &path,
         AbsoluteTime::new(result.start_frame),
-        AbsoluteTime::new(result.total_frames as i64),
+        AbsoluteTime::new(timeline_frames.max(1)),
     );
     project.tracks[armed_idx].clips.push(clip);
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
@@ -1273,16 +1344,45 @@ async fn export_mix_cmd(
 ) -> Result<String, String> {
     let (job_id, job_cancel) = start_job(&app, "export_mix", true)?;
     let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
+
+    let export_range = settings.range.trim().to_ascii_lowercase();
+    if export_range != "full" && export_range != "loop" {
+        return Err(format!(
+            "Unsupported export range '{}'. Use 'full' or 'loop'.",
+            settings.range
+        ));
+    }
+    let export_format = settings.format.trim().to_ascii_lowercase();
+    if export_format != "wav" && export_format != "mp3" {
+        return Err(format!(
+            "Unsupported export format '{}'. Use 'wav' or 'mp3'.",
+            settings.format
+        ));
+    }
+
     let project_end_frame = project
         .tracks
         .iter()
-        .flat_map(|t| t.clips.iter())
-        .map(|c| c.position.sample_frame + c.duration.sample_frame)
+        .map(|t| {
+            let audio_end = t
+                .clips
+                .iter()
+                .map(|c| c.position.sample_frame + c.duration.sample_frame)
+                .max()
+                .unwrap_or(0);
+            let midi_end = t
+                .midi_clips
+                .iter()
+                .map(|c| c.position.sample_frame + c.duration.sample_frame)
+                .max()
+                .unwrap_or(0);
+            audio_end.max(midi_end)
+        })
         .max()
         .unwrap_or(0)
         .max(1);
 
-    let (start_frame, end_frame) = if settings.range == "loop" {
+    let (start_frame, end_frame) = if export_range == "loop" {
         let state = handle.playback_state.lock().map_err(|e| e.to_string())?;
         if state.loop_enabled && state.loop_end > state.loop_start {
             (state.loop_start, state.loop_end)
@@ -1303,7 +1403,7 @@ async fn export_mix_cmd(
         end_frame,
         normalize: settings.normalize,
         tail_frames: ((settings.tail_ms as f64 / 1000.0) * settings.sample_rate as f64) as i64,
-        format: settings.format.clone(),
+        format: export_format,
     };
     
     // Reset cancel flag and execute export as detached background worker.

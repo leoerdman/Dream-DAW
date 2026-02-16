@@ -1095,24 +1095,29 @@ fn set_external_plugin_param_for_slot_cmd(
     slot_id: String,
     param_index: u32,
     value: f64,
+    push_undo_step: Option<bool>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
 ) -> Result<(), String> {
+    let should_commit_snapshot = push_undo_step.unwrap_or(true);
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
 
-    let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
-    let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
-        .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
-    if slot.plugin_id.starts_with("internal://") {
+    let (resolved_slot_id, resolved_plugin_id) = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
+            .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
+        (slot.id, slot.plugin_id.clone())
+    };
+    if resolved_plugin_id.starts_with("internal://") {
         return Err("Internal plugin slot does not support external parameter API".to_string());
     }
 
     let normalized = value.clamp(0.0, 1.0);
-    let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)?;
-    plugin_host_state.bind_slot_instance(slot.id, instance_id);
+    let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(resolved_slot_id, &resolved_plugin_id)?;
+    plugin_host_state.bind_slot_instance(resolved_slot_id, instance_id);
 
     let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
     let instance = host
@@ -1126,8 +1131,8 @@ fn set_external_plugin_param_for_slot_cmd(
     {
         let mut project_mut = project_state.project.lock().map_err(|e| e.to_string())?;
         if let Some(track_mut) = project_mut.tracks.iter_mut().find(|t| t.id == track_uuid) {
-            let lane_param_id = format!("ext:{}:{}", slot.id, param_index);
-            let legacy_param_id = format!("slot:{}:ext_param_{}", slot.id, param_index);
+            let lane_param_id = format!("ext:{}:{}", resolved_slot_id, param_index);
+            let legacy_param_id = format!("slot:{}:ext_param_{}", resolved_slot_id, param_index);
             let point = dream_models::project::AutomationPoint {
                 beat: 0.0,
                 value: normalized,
@@ -1157,17 +1162,23 @@ fn set_external_plugin_param_for_slot_cmd(
             }
         }
         *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
-        rebuild_automation_snapshot_from_project(&project_mut, &automation_runtime);
+        if should_commit_snapshot {
+            // Expensive snapshot rebuilds are deferred during live gestures.
+            rebuild_automation_snapshot_from_project(&project_mut, &automation_runtime);
+            clip_pool_state.rebuild_external_fx_snapshot(
+                &project_mut,
+                plugin_host_state.slot_instance_snapshot().as_ref(),
+            );
+        }
     }
 
-    clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
-
     log::debug!(
-        "[IPC] set_external_plugin_param_for_slot_cmd(track={}, slot={}, idx={}, value={:.4})",
+        "[IPC] set_external_plugin_param_for_slot_cmd(track={}, slot={}, idx={}, value={:.4}, commit={})",
         track_id,
         slot_id,
         param_index,
-        normalized
+        normalized,
+        should_commit_snapshot
     );
     Ok(())
 }
@@ -2080,7 +2091,8 @@ fn set_internal_plugin_param_cmd(
 
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
-    if payload.push_undo_step.unwrap_or(true) {
+    let should_commit_snapshot = payload.push_undo_step.unwrap_or(true);
+    if should_commit_snapshot {
         push_undo(&project_state)?;
     }
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -2270,9 +2282,13 @@ fn set_internal_plugin_param_cmd(
     };
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
-    clip_pool_state.rebuild_snapshot(&project);
-    rebuild_automation_snapshot_from_project(&project, &automation_runtime);
-    rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
+    if should_commit_snapshot {
+        // Expensive cold-path rebuilds are deferred during live gestures.
+        // Real-time audio updates are already applied via EngineCommand path below.
+        clip_pool_state.rebuild_snapshot(&project);
+        rebuild_automation_snapshot_from_project(&project, &automation_runtime);
+        rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
+    }
 
     if sampler_command_needed
         && let Some(cfg) = &sampler_cfg_for_rt

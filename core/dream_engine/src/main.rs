@@ -63,6 +63,7 @@ fn main() {
         Arc::new(dream_engine::driver::SharedAutomationSnapshot::new()),
         Arc::new(dream_engine::driver::SharedSamplerSamples::new()),
         Arc::new(dream_engine::driver::SharedPreparedGraphSnapshot::new()),
+        Arc::new(dream_engine::driver::SharedRtDebugStats::new()),
         Arc::new(Mutex::new(PluginHost::new(44100.0, 1024))),
         Arc::new(arc_swap::ArcSwap::from_pointee(None)), // preview buffer (unused in standalone)
         Arc::new(std::sync::atomic::AtomicUsize::new(0)), // preview cursor

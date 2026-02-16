@@ -44,6 +44,10 @@ export interface TimelineClip {
     fadeOut?: number;
     fadeInCurve?: number;
     fadeOutCurve?: number;
+    isWarped?: boolean;
+    warpMode?: number | null;
+    warpBaseBpm?: number;
+    warpSourceDurationFrames?: number;
     muted?: boolean;
     isOffline?: boolean;
     midiNotes?: TimelineMidiNote[];

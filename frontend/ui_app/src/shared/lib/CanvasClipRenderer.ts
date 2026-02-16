@@ -604,8 +604,10 @@ export class CanvasClipRenderer {
         // ── 13. Fade grab points (on clip body) ───────────────────────
         if (showFadeUi && w >= 14 && bodyH >= 10) {
             const handleY = bodyY + 6;
-            const leftX = x + 4;
-            const rightX = x + w - 4;
+            const fadeInWidth = w * Math.max(0, Math.min(0.5, clip.fadeIn ?? 0));
+            const fadeOutWidth = w * Math.max(0, Math.min(0.5, clip.fadeOut ?? 0));
+            const leftX = x + Math.max(4, Math.min(w - 4, fadeInWidth));
+            const rightX = x + w - Math.max(4, Math.min(w - 4, fadeOutWidth));
 
             ctx.save();
             ctx.fillStyle = clip.selected ? 'rgba(255,255,255,0.98)' : 'rgba(238,245,255,0.9)';
@@ -624,8 +626,6 @@ export class CanvasClipRenderer {
 
             const curveIn = Math.max(0.05, Math.min(0.95, clip.fadeInCurve ?? 0.5));
             const curveOut = Math.max(0.05, Math.min(0.95, clip.fadeOutCurve ?? 0.5));
-            const fadeInWidth = w * Math.max(0, Math.min(0.5, clip.fadeIn ?? 0));
-            const fadeOutWidth = w * Math.max(0, Math.min(0.5, clip.fadeOut ?? 0));
             const bodyBottom = bodyY + bodyH - 2;
 
             if (clip.showFadeInCurvePoint && fadeInWidth > 0) {

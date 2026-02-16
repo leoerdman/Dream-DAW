@@ -1774,6 +1774,7 @@ impl PluginInstance for Vst3Instance {
 pub struct PluginHost {
     /// All active plugin instances, keyed by their unique ID.
     instances: Vec<Box<dyn PluginInstance>>,
+    instance_index: HashMap<Uuid, usize>,
 
     /// Current audio configuration.
     sample_rate: f64,
@@ -1785,6 +1786,7 @@ impl PluginHost {
     pub fn new(sample_rate: f64, buffer_size: usize) -> Self {
         Self {
             instances: Vec::new(),
+            instance_index: HashMap::new(),
             sample_rate,
             buffer_size,
         }
@@ -1799,6 +1801,7 @@ impl PluginHost {
         info!("[PluginHost] Registered instance: {}", id);
 
         self.instances.push(Box::new(instance));
+        self.instance_index.insert(id, self.instances.len() - 1);
         Ok(id)
     }
 
@@ -1828,12 +1831,14 @@ impl PluginHost {
         let id = instance.id();
         info!("[PluginHost] Registered sandboxed instance: {}", id);
         self.instances.push(Box::new(instance));
+        self.instance_index.insert(id, self.instances.len() - 1);
         Ok(id)
     }
 
     /// Returns a mutable reference to a plugin instance by its ID.
     pub fn get_mut(&mut self, id: Uuid) -> Option<&mut Box<dyn PluginInstance>> {
-        self.instances.iter_mut().find(|inst| inst.id() == id)
+        let idx = *self.instance_index.get(&id)?;
+        self.instances.get_mut(idx)
     }
 
     /// Sets transport context for an instance (RT-safe call-through).
@@ -1874,18 +1879,24 @@ impl PluginHost {
 
     /// Removes and deactivates a plugin instance by its ID.
     pub fn remove(&mut self, id: Uuid) -> Result<(), PluginError> {
-        if let Some(pos) = self.instances.iter().position(|inst| inst.id() == id) {
-            let mut instance = self.instances.remove(pos);
-            let _ = instance.close_editor();
-            instance.deactivate()?;
-            info!("[PluginHost] Removed instance: {}", id);
-            Ok(())
-        } else {
-            Err(PluginError::InvalidState(format!(
+        let Some(pos) = self.instance_index.remove(&id) else {
+            return Err(PluginError::InvalidState(format!(
                 "Instance {} not found",
                 id
-            )))
+            )));
+        };
+
+        let mut instance = self.instances.swap_remove(pos);
+        let _ = instance.close_editor();
+        instance.deactivate()?;
+
+        if pos < self.instances.len() {
+            let swapped_id = self.instances[pos].id();
+            self.instance_index.insert(swapped_id, pos);
         }
+
+        info!("[PluginHost] Removed instance: {}", id);
+        Ok(())
     }
 
     /// Returns the number of active instances.

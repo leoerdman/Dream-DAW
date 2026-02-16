@@ -125,6 +125,16 @@ warp_mode: number | null,
  */
 warp_markers: Array<WarpMarkerPoint>, 
 /**
+ * Clip base BPM used for warp speed ratio calculations.
+ */
+warp_base_bpm: number, 
+/**
+ * Source-domain duration (frames) for warp mapping.
+ *
+ * This stays stable while warped clip timeline duration changes with tempo.
+ */
+warp_source_duration_frames: bigint, 
+/**
  * ALS take identifier (`TakeId`).
  */
 take_id: number | null, 

@@ -17,10 +17,11 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::time::Instant;
 
 use arc_swap::ArcSwap;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -284,6 +285,125 @@ impl Default for SharedExternalFxSnapshot {
     }
 }
 
+/// Lock-free runtime stats written by audio callback for diagnostics.
+pub struct SharedRtDebugStats {
+    enabled: AtomicBool,
+    callback_count: AtomicU64,
+    command_count_total: AtomicU64,
+    command_count_last: AtomicU64,
+    command_count_max: AtomicU64,
+    callback_duration_us_last: AtomicU64,
+    callback_duration_us_max: AtomicU64,
+    callback_frames_last: AtomicU64,
+    plugin_host_lock_miss_total: AtomicU64,
+    queue_full_reject_total: AtomicU64,
+    deferred_topology_len_last: AtomicU64,
+}
+
+impl SharedRtDebugStats {
+    pub fn new() -> Self {
+        Self {
+            enabled: AtomicBool::new(false),
+            callback_count: AtomicU64::new(0),
+            command_count_total: AtomicU64::new(0),
+            command_count_last: AtomicU64::new(0),
+            command_count_max: AtomicU64::new(0),
+            callback_duration_us_last: AtomicU64::new(0),
+            callback_duration_us_max: AtomicU64::new(0),
+            callback_frames_last: AtomicU64::new(0),
+            plugin_host_lock_miss_total: AtomicU64::new(0),
+            queue_full_reject_total: AtomicU64::new(0),
+            deferred_topology_len_last: AtomicU64::new(0),
+        }
+    }
+
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::Relaxed)
+    }
+
+    pub fn record_queue_full_reject(&self) {
+        if !self.is_enabled() {
+            return;
+        }
+        self.queue_full_reject_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn record_callback(
+        &self,
+        frames: usize,
+        commands_processed: usize,
+        callback_us: u64,
+        deferred_topology_len: usize,
+    ) {
+        if !self.is_enabled() {
+            return;
+        }
+        self.callback_count.fetch_add(1, Ordering::Relaxed);
+        self.command_count_total
+            .fetch_add(commands_processed as u64, Ordering::Relaxed);
+        self.command_count_last
+            .store(commands_processed as u64, Ordering::Relaxed);
+        self.command_count_max
+            .fetch_max(commands_processed as u64, Ordering::Relaxed);
+        self.callback_duration_us_last
+            .store(callback_us, Ordering::Relaxed);
+        self.callback_duration_us_max
+            .fetch_max(callback_us, Ordering::Relaxed);
+        self.callback_frames_last
+            .store(frames as u64, Ordering::Relaxed);
+        self.deferred_topology_len_last
+            .store(deferred_topology_len as u64, Ordering::Relaxed);
+    }
+
+    fn record_plugin_host_lock_miss(&self) {
+        if !self.is_enabled() {
+            return;
+        }
+        self.plugin_host_lock_miss_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn snapshot(&self) -> RtDebugSnapshot {
+        RtDebugSnapshot {
+            enabled: self.is_enabled(),
+            callback_count: self.callback_count.load(Ordering::Relaxed),
+            command_count_total: self.command_count_total.load(Ordering::Relaxed),
+            command_count_last: self.command_count_last.load(Ordering::Relaxed),
+            command_count_max: self.command_count_max.load(Ordering::Relaxed),
+            callback_duration_us_last: self.callback_duration_us_last.load(Ordering::Relaxed),
+            callback_duration_us_max: self.callback_duration_us_max.load(Ordering::Relaxed),
+            callback_frames_last: self.callback_frames_last.load(Ordering::Relaxed),
+            plugin_host_lock_miss_total: self.plugin_host_lock_miss_total.load(Ordering::Relaxed),
+            queue_full_reject_total: self.queue_full_reject_total.load(Ordering::Relaxed),
+            deferred_topology_len_last: self.deferred_topology_len_last.load(Ordering::Relaxed),
+        }
+    }
+}
+
+impl Default for SharedRtDebugStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct RtDebugSnapshot {
+    pub enabled: bool,
+    pub callback_count: u64,
+    pub command_count_total: u64,
+    pub command_count_last: u64,
+    pub command_count_max: u64,
+    pub callback_duration_us_last: u64,
+    pub callback_duration_us_max: u64,
+    pub callback_frames_last: u64,
+    pub plugin_host_lock_miss_total: u64,
+    pub queue_full_reject_total: u64,
+    pub deferred_topology_len_last: u64,
+}
+
 // ── Shared Automation Snapshot (LOCK-FREE) ─────────────────────────────
 
 #[derive(Debug, Clone, Default)]
@@ -298,6 +418,14 @@ pub struct TrackAutomationState {
     pub pan: Vec<AutomationPoint>,
     /// Arbitrary automation lanes (e.g. plugin parameter IDs).
     pub plugin_params: BTreeMap<String, Vec<AutomationPoint>>,
+    /// Pre-parsed external plugin automation targets.
+    pub external_plugin_params: Vec<ExternalParamAutomationLane>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExternalParamAutomationLane {
+    pub target: ExternalParamTarget,
+    pub points: Vec<AutomationPoint>,
 }
 
 /// Atomic snapshot of per-track automation lanes.
@@ -562,13 +690,13 @@ fn apply_track_mixer_automation_sample_accurate(
 }
 
 #[derive(Debug, Clone, Copy)]
-struct ExternalParamTarget {
-    slot_id: Option<Uuid>,
-    slot_index: Option<usize>,
-    param_index: u32,
+pub struct ExternalParamTarget {
+    pub slot_id: Option<Uuid>,
+    pub slot_index: Option<usize>,
+    pub param_index: u32,
 }
 
-fn parse_external_param_target(param_key: &str) -> Option<ExternalParamTarget> {
+pub fn parse_external_param_target(param_key: &str) -> Option<ExternalParamTarget> {
     let key = param_key.trim().to_lowercase();
     if key.is_empty() {
         return None;
@@ -647,14 +775,13 @@ fn apply_external_plugin_param_automation_block(
     let Some(lane) = lane else {
         return;
     };
-    if lane.plugin_params.is_empty() {
+    if lane.external_plugin_params.is_empty() {
         return;
     }
 
-    for (param_key, points) in &lane.plugin_params {
-        let Some(target) = parse_external_param_target(param_key) else {
-            continue;
-        };
+    for ext_lane in &lane.external_plugin_params {
+        let target = ext_lane.target;
+        let points = &ext_lane.points;
 
         if let Some(target_slot_id) = target.slot_id
             && runtime_slot.slot_id != Some(target_slot_id)
@@ -985,6 +1112,9 @@ fn quantize_to_scale(pitch: u8, root: u8, mask: u16) -> u8 {
 pub struct AudioStreamHandle {
     _stream: cpal::Stream,
 
+    /// Resolved stream sample rate (Hz) of the active output device config.
+    pub sample_rate_hz: u32,
+
     /// Estimated output latency in sample frames.
     ///
     /// Derived from the cpal `StreamConfig::buffer_size`. When the OS uses
@@ -1059,6 +1189,7 @@ pub fn start_audio_thread(
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<SharedSamplerSamples>,
     prepared_graph_snapshot: Arc<SharedPreparedGraphSnapshot>,
+    rt_debug_stats: Arc<SharedRtDebugStats>,
     plugin_host: Arc<Mutex<PluginHost>>,
     preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
@@ -1076,6 +1207,7 @@ pub fn start_audio_thread(
         automation_snapshot,
         sampler_samples,
         prepared_graph_snapshot,
+        rt_debug_stats,
         plugin_host,
         preview_buffer,
         preview_cursor,
@@ -1102,6 +1234,7 @@ pub fn start_audio_thread_on_device(
     automation_snapshot: Arc<SharedAutomationSnapshot>,
     sampler_samples: Arc<SharedSamplerSamples>,
     prepared_graph_snapshot: Arc<SharedPreparedGraphSnapshot>,
+    rt_debug_stats: Arc<SharedRtDebugStats>,
     plugin_host: Arc<Mutex<PluginHost>>,
     preview_buffer: Arc<ArcSwap<Option<Vec<f32>>>>,
     preview_cursor: Arc<AtomicUsize>,
@@ -1225,6 +1358,19 @@ pub fn start_audio_thread_on_device(
     let mut sampler_right = vec![0.0f32; 8192];
     let mut external_left = vec![0.0f32; 8192];
     let mut external_right = vec![0.0f32; 8192];
+    #[derive(Clone, Copy)]
+    enum DeferredTopologyCmd {
+        Add {
+            track_index: u16,
+            slot_index: u8,
+            effect_type: u8,
+        },
+        Remove {
+            track_index: u16,
+            slot_index: u8,
+        },
+    }
+    let mut deferred_topology: VecDeque<DeferredTopologyCmd> = VecDeque::with_capacity(256);
     let mut midi_schedule_scratch: Vec<ScheduledNote> = Vec::with_capacity(512);
     let mut midi_schedule_tmp: Vec<ScheduledNote> = Vec::with_capacity(512);
     let mut midi_events_scratch: Vec<(usize, u8, u8, u8)> = Vec::with_capacity(1024);
@@ -1243,6 +1389,7 @@ pub fn start_audio_thread_on_device(
             move |data: &mut [f32], _info: &cpal::OutputCallbackInfo| {
                 let callback_result =
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let callback_start = Instant::now();
                         // ═══════════════════════════════════════════════════════════════
                         // RT-Armor: Zero-Alloc, Panic-Safe, Denormal-Free Audio Pipeline
                         // ═══════════════════════════════════════════════════════════════
@@ -1280,8 +1427,20 @@ pub fn start_audio_thread_on_device(
                             }
                         }
 
-                        // ── A1. Drain command queue ───────────────────────────────
-                        while let Ok(cmd) = consumer.pop() {
+                        // ── A1. Drain command queue (bounded) ─────────────────────
+                        // Bound per-callback command work so UI command bursts
+                        // cannot starve audio rendering and cause dropouts.
+                        const MAX_COMMANDS_PER_CALLBACK: usize = 256;
+                        let mut commands_processed = 0usize;
+                        let mut pending_track_volume: [Option<f32>; 64] = [None; 64];
+                        let mut pending_track_pan: [Option<f32>; 64] = [None; 64];
+                        let mut pending_track_mute: [Option<bool>; 64] = [None; 64];
+                        let mut pending_track_solo: [Option<bool>; 64] = [None; 64];
+                        for _ in 0..MAX_COMMANDS_PER_CALLBACK {
+                            let Ok(cmd) = consumer.pop() else {
+                                break;
+                            };
+                            commands_processed += 1;
                             match cmd {
                                 EngineCommand::SetPlay(play) => {
                                     is_playing = play;
@@ -1299,14 +1458,14 @@ pub fn start_audio_thread_on_device(
                                     test_tone_enabled = true;
                                 }
                                 EngineCommand::Seek(frame) => {
-                                    clock.reset();
-                                    if frame > 0 {
-                                        clock.advance(frame);
-                                    }
+                                    clock.set_position(frame);
                                     render_ctx.playhead.seek(frame);
                                 }
                                 EngineCommand::SetBpm(bpm) => {
                                     _bpm = bpm.clamp(20.0, 999.0);
+                                }
+                                EngineCommand::SetTimelineSampleRate(sample_rate) => {
+                                    render_ctx.set_timeline_sample_rate(sample_rate);
                                 }
                                 EngineCommand::SetLoopEnabled(enabled) => {
                                     if enabled {
@@ -1327,14 +1486,14 @@ pub fn start_audio_thread_on_device(
                                     volume,
                                 } => {
                                     let idx = track_index as usize;
-                                    if idx < render_ctx.track_slots.len() {
-                                        render_ctx.track_slots[idx].strip.set_volume(volume);
+                                    if idx < 64 {
+                                        pending_track_volume[idx] = Some(volume);
                                     }
                                 }
                                 EngineCommand::SetTrackPan { track_index, pan } => {
                                     let idx = track_index as usize;
-                                    if idx < render_ctx.track_slots.len() {
-                                        render_ctx.track_slots[idx].strip.set_pan(pan);
+                                    if idx < 64 {
+                                        pending_track_pan[idx] = Some(pan);
                                     }
                                 }
                                 EngineCommand::SetMasterVolume { volume } => {
@@ -1343,15 +1502,7 @@ pub fn start_audio_thread_on_device(
                                 EngineCommand::SetTrackMute { track_index, muted } => {
                                     let idx = track_index as usize;
                                     if idx < 64 {
-                                        track_disabled[idx] = muted;
-                                        // Recalculate output-enabled state
-                                        if idx < render_ctx.track_slots.len() {
-                                            let enabled =
-                                                !muted && (!any_solo || track_soloed[idx]);
-                                            render_ctx.track_slots[idx]
-                                                .strip
-                                                .set_output_enabled(enabled);
-                                        }
+                                        pending_track_mute[idx] = Some(muted);
                                     }
                                 }
                                 EngineCommand::SetTrackSolo {
@@ -1360,16 +1511,7 @@ pub fn start_audio_thread_on_device(
                                 } => {
                                     let idx = track_index as usize;
                                     if idx < 64 {
-                                        track_soloed[idx] = soloed;
-                                        any_solo = track_soloed.iter().any(|s| *s);
-                                        // Recalculate output-enabled state for ALL tracks
-                                        for i in 0..render_ctx.track_slots.len().min(64) {
-                                            let enabled = !track_disabled[i]
-                                                && (!any_solo || track_soloed[i]);
-                                            render_ctx.track_slots[i]
-                                                .strip
-                                                .set_output_enabled(enabled);
-                                        }
+                                        pending_track_solo[idx] = Some(soloed);
                                     }
                                 }
                                 // ── Sampler Commands ────────────────────────
@@ -1536,25 +1678,26 @@ pub fn start_audio_thread_on_device(
                                     slot_index,
                                     effect_type,
                                 } => {
-                                    let idx = track_index as usize;
-                                    if idx < render_ctx.track_slots.len()
-                                        && let Some(etype) = BuiltinEffectType::from_u8(effect_type)
-                                    {
-                                        render_ctx.track_slots[idx]
-                                            .device_chain
-                                            .add_device(slot_index as usize, etype);
+                                    if deferred_topology.len() >= 256 {
+                                        let _ = deferred_topology.pop_front();
                                     }
+                                    deferred_topology.push_back(DeferredTopologyCmd::Add {
+                                        track_index,
+                                        slot_index,
+                                        effect_type,
+                                    });
                                 }
                                 EngineCommand::RemoveDevice {
                                     track_index,
                                     slot_index,
                                 } => {
-                                    let idx = track_index as usize;
-                                    if idx < render_ctx.track_slots.len() {
-                                        render_ctx.track_slots[idx]
-                                            .device_chain
-                                            .remove_device(slot_index as usize);
+                                    if deferred_topology.len() >= 256 {
+                                        let _ = deferred_topology.pop_front();
                                     }
+                                    deferred_topology.push_back(DeferredTopologyCmd::Remove {
+                                        track_index,
+                                        slot_index,
+                                    });
                                 }
                                 EngineCommand::BypassDevice {
                                     track_index,
@@ -1586,6 +1729,64 @@ pub fn start_audio_thread_on_device(
                             }
                         }
 
+                        // Apply coalesced high-frequency mixer commands once per callback.
+                        for i in 0..render_ctx.track_slots.len().min(64) {
+                            if let Some(v) = pending_track_volume[i] {
+                                render_ctx.track_slots[i].strip.set_volume(v);
+                            }
+                            if let Some(p) = pending_track_pan[i] {
+                                render_ctx.track_slots[i].strip.set_pan(p);
+                            }
+                            if let Some(m) = pending_track_mute[i] {
+                                track_disabled[i] = m;
+                            }
+                            if let Some(s) = pending_track_solo[i] {
+                                track_soloed[i] = s;
+                            }
+                        }
+                        if pending_track_solo.iter().any(|v| v.is_some())
+                            || pending_track_mute.iter().any(|v| v.is_some())
+                        {
+                            any_solo = track_soloed.iter().any(|s| *s);
+                            for i in 0..render_ctx.track_slots.len().min(64) {
+                                let enabled = !track_disabled[i] && (!any_solo || track_soloed[i]);
+                                render_ctx.track_slots[i].strip.set_output_enabled(enabled);
+                            }
+                        }
+
+                        // Apply at most one topology mutation per callback.
+                        // This smooths expensive add/remove operations over time and
+                        // prevents single-buffer CPU spikes during active playback.
+                        if let Some(topology_cmd) = deferred_topology.pop_front() {
+                            match topology_cmd {
+                                DeferredTopologyCmd::Add {
+                                    track_index,
+                                    slot_index,
+                                    effect_type,
+                                } => {
+                                    let idx = track_index as usize;
+                                    if idx < render_ctx.track_slots.len()
+                                        && let Some(etype) = BuiltinEffectType::from_u8(effect_type)
+                                    {
+                                        render_ctx.track_slots[idx]
+                                            .device_chain
+                                            .add_device(slot_index as usize, etype);
+                                    }
+                                }
+                                DeferredTopologyCmd::Remove {
+                                    track_index,
+                                    slot_index,
+                                } => {
+                                    let idx = track_index as usize;
+                                    if idx < render_ctx.track_slots.len() {
+                                        render_ctx.track_slots[idx]
+                                            .device_chain
+                                            .remove_device(slot_index as usize);
+                                    }
+                                }
+                            }
+                        }
+
                         if !is_playing {
                             // ── Silence when stopped (no transport audio) ──
                             data.fill(0.0);
@@ -1601,6 +1802,9 @@ pub fn start_audio_thread_on_device(
                             let sidechain_map = sidechain_snapshot.load();
                             let external_fx_map = external_fx_snapshot.load();
                             let mut plugin_host_guard = plugin_host.try_lock().ok();
+                            if plugin_host_guard.is_none() {
+                                rt_debug_stats.record_plugin_host_lock_miss();
+                            }
                             let playhead_pos = render_ctx.playhead.position();
                             for (track_idx, lane) in automation.iter().enumerate() {
                                 if track_idx >= render_ctx.track_slots.len() {
@@ -2421,26 +2625,17 @@ pub fn start_audio_thread_on_device(
                             }
                         }
 
-                        // ── D. Advance master clock ─────────────────────
+                        // ── D. Sync master clock to transport playhead ───
                         if is_playing {
-                            clock.advance(frame_count as i64);
-
-                            // Handle loop wrap on master clock + playhead
-                            if let Some(ref region) = render_ctx.loop_region {
-                                let pos = clock.position();
-                                if pos >= region.end {
-                                    let overshoot = pos - region.end;
-                                    let loop_len = region.end - region.start;
-                                    let new_pos = region.start + (overshoot % loop_len);
-                                    clock.reset();
-                                    clock.advance(new_pos);
-
-                                    // Sync playhead to wrapped position so clip
-                                    // scheduling & MIDI correctly loop as well.
-                                    render_ctx.playhead.seek(new_pos);
-                                }
-                            }
+                            clock.set_position(render_ctx.playhead.position());
                         }
+
+                        rt_debug_stats.record_callback(
+                            frame_count,
+                            commands_processed,
+                            callback_start.elapsed().as_micros() as u64,
+                            deferred_topology.len(),
+                        );
                     }));
                 if callback_result.is_err() {
                     data.fill(0.0);
@@ -2482,6 +2677,7 @@ pub fn start_audio_thread_on_device(
 
     Ok(AudioStreamHandle {
         _stream: stream,
+        sample_rate_hz: sample_rate,
         output_latency_frames,
         output_device_name: device_name,
     })

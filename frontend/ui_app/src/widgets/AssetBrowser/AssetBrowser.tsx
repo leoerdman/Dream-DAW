@@ -2090,6 +2090,78 @@ export const AssetBrowser = () => {
                             </div>
                         )}
                     </div>
+
+                    {/* ── Footer: Preview Panel (RIGHT pane only) ────────── */}
+                    <div style={{
+                        borderTop: '1px solid var(--color-divider)',
+                        background: 'var(--color-bg-header)',
+                    }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '4px 8px',
+                            gap: 5,
+                            fontSize: 'var(--font-size-2xs)',
+                            color: 'var(--color-text-secondary)',
+                        }}>
+                            <div style={{
+                                flex: 1,
+                                minWidth: 0,
+                                height: 16,
+                                borderRadius: 'var(--radius-md)',
+                                border: '1px solid var(--color-border-subtle)',
+                                background: 'color-mix(in srgb, #000 18%, transparent)',
+                                overflow: 'hidden',
+                                display: 'flex',
+                                alignItems: 'center',
+                                padding: '0 4px',
+                            }}>
+                                {previewPeaks ? (
+                                    <PreviewWaveform peaks={previewPeaks} height={12} />
+                                ) : (
+                                    <div style={{
+                                        width: '100%',
+                                        height: 8,
+                                        borderRadius: 'var(--radius-xs)',
+                                        background: 'color-mix(in srgb, var(--color-text-primary) 4%, transparent)',
+                                    }} />
+                                )}
+                            </div>
+
+                            <button
+                                onClick={() => {
+                                    const next = !previewEnabled;
+                                    setPreviewEnabled(next);
+                                    if (!next) {
+                                        engineApi.stopPreview().catch(() => { });
+                                        return;
+                                    }
+                                    const selected = items.find(i => i.id === selectedItemId);
+                                    if (selected?.type === 'audio' && selected.path) {
+                                        engineApi.previewAudioFile(selected.path).catch(() => { });
+                                    }
+                                }}
+                                title={previewEnabled ? 'Preview on' : 'Preview off'}
+                                style={{
+                                    width: 16,
+                                    height: 16,
+                                    minWidth: 16,
+                                    borderRadius: '50%',
+                                    border: '1px solid var(--color-border-subtle)',
+                                    background: previewEnabled ? 'var(--color-control-bg-active)' : 'var(--color-control-bg)',
+                                    color: previewEnabled ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: 'var(--font-size-2xs)',
+                                }}
+                                aria-pressed={previewEnabled}
+                            >
+                                <BrowserGlyph name="headphones" size={9} />
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -2126,78 +2198,6 @@ export const AssetBrowser = () => {
                 </div>
             )}
 
-            {/* ── Footer: Preview Panel ────────── */}
-            <div style={{
-                borderTop: '1px solid var(--color-divider)',
-                background: 'var(--color-bg-header)',
-            }}>
-                {/* Footer bar: count + integrated waveform + round headphone toggle */}
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '4px 8px',
-                    gap: 5,
-                    fontSize: 'var(--font-size-2xs)',
-                    color: 'var(--color-text-secondary)',
-                }}>
-                    <div style={{
-                        flex: 1,
-                        minWidth: 0,
-                        height: 16,
-                        borderRadius: 'var(--radius-md)',
-                        border: '1px solid var(--color-border-subtle)',
-                        background: 'color-mix(in srgb, #000 18%, transparent)',
-                        overflow: 'hidden',
-                        display: 'flex',
-                        alignItems: 'center',
-                        padding: '0 4px',
-                    }}>
-                        {previewPeaks ? (
-                            <PreviewWaveform peaks={previewPeaks} height={12} />
-                        ) : (
-                            <div style={{
-                                width: '100%',
-                                height: 8,
-                                borderRadius: 'var(--radius-xs)',
-                                background: 'color-mix(in srgb, var(--color-text-primary) 4%, transparent)',
-                            }} />
-                        )}
-                    </div>
-
-                    <button
-                        onClick={() => {
-                            const next = !previewEnabled;
-                            setPreviewEnabled(next);
-                            if (!next) {
-                                engineApi.stopPreview().catch(() => { });
-                                return;
-                            }
-                            const selected = items.find(i => i.id === selectedItemId);
-                            if (selected?.type === 'audio' && selected.path) {
-                                engineApi.previewAudioFile(selected.path).catch(() => { });
-                            }
-                        }}
-                        title={previewEnabled ? 'Preview on' : 'Preview off'}
-                        style={{
-                            width: 16,
-                            height: 16,
-                            minWidth: 16,
-                            borderRadius: '50%',
-                            border: '1px solid var(--color-border-subtle)',
-                            background: previewEnabled ? 'var(--color-control-bg-active)' : 'var(--color-control-bg)',
-                            color: previewEnabled ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: 'var(--font-size-2xs)',
-                        }}
-                        aria-pressed={previewEnabled}
-                    >
-                        <BrowserGlyph name="headphones" size={9} />
-                    </button>
-                </div>
-            </div>
         </div>
     );
 };

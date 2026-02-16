@@ -26,6 +26,31 @@ import * as engine from '@/shared/api/engine';
 import { useViewportStore } from '@/shared/stores/useViewportStore';
 import type { WaveformPeaks, PeakPair } from '@/shared/api/engine';
 
+const CLIP_PEAK_CACHE = new Map<string, WaveformPeaks>();
+const CLIP_PEAK_INFLIGHT = new Map<string, Promise<WaveformPeaks>>();
+
+async function loadPeaksCached(filePath: string): Promise<WaveformPeaks> {
+    const cached = CLIP_PEAK_CACHE.get(filePath);
+    if (cached) return cached;
+
+    const inflight = CLIP_PEAK_INFLIGHT.get(filePath);
+    if (inflight) return inflight;
+
+    const request = engine.getWaveformPeaksBinary(filePath)
+        .then((data) => {
+            CLIP_PEAK_CACHE.set(filePath, data);
+            CLIP_PEAK_INFLIGHT.delete(filePath);
+            return data;
+        })
+        .catch((err) => {
+            CLIP_PEAK_INFLIGHT.delete(filePath);
+            throw err;
+        });
+
+    CLIP_PEAK_INFLIGHT.set(filePath, request);
+    return request;
+}
+
 // ── Types ────────────────────────────────────────────────────────────────
 
 export interface ClipRendererProps {
@@ -90,7 +115,7 @@ export const ClipRenderer = memo(function ClipRenderer({
 
         async function fetchPeaks() {
             try {
-                const data = await engine.getWaveformPeaks(filePath);
+                const data = await loadPeaksCached(filePath);
                 if (!cancelled) {
                     setPeaks(data);
                     setError(null);

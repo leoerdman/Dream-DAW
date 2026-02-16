@@ -18,11 +18,11 @@
 
 use dream_clip_engine::disk_streamer::StreamingWindow;
 use dream_clip_engine::pool::ClipPool;
-use dream_clip_engine::reader::ClipReader;
+use dream_clip_engine::reader::{ClipReader, WarpResampleMode};
 use dream_clip_engine::scheduler::{ActiveClipInfo, ClipScheduler, LoopRegion as ClipLoopRegion};
 use dream_dsp::device_chain::DeviceChain;
 use dream_dsp::fades::FadeCache;
-use dream_ipc::metering::{MeterBank, compute_peak, compute_rms, linear_to_db};
+use dream_ipc::metering::{compute_peak, compute_rms, linear_to_db, MeterBank};
 use dream_mixer::{ChannelStrip, SummingBus};
 use dream_transport::Playhead;
 
@@ -107,6 +107,12 @@ pub struct RenderContext {
     /// Sample rate (cached from stream config).
     pub sample_rate: f64,
 
+    /// Timeline/project sample-rate domain for transport math.
+    pub timeline_sample_rate: f64,
+
+    /// Fractional carry when converting device frames into timeline frames.
+    timeline_advance_accumulator: f64,
+
     /// Number of output channels (typically 2 for stereo).
     pub channels: usize,
 
@@ -177,6 +183,8 @@ impl RenderContext {
             fade_cache: FadeCache::new(sample_rate),
             playhead: Playhead::new(sample_rate),
             sample_rate,
+            timeline_sample_rate: sample_rate,
+            timeline_advance_accumulator: 0.0,
             channels,
             meter_bank,
             loop_region: None,
@@ -184,6 +192,18 @@ impl RenderContext {
             scratch_active_clips: Vec::with_capacity(256),
             scratch_post_wrap_clips: Vec::with_capacity(256),
         }
+    }
+
+    /// Set project/timeline sample-rate domain used by playhead and clip scheduling.
+    pub fn set_timeline_sample_rate(&mut self, sample_rate: f64) {
+        let sr = if sample_rate.is_finite() && sample_rate > 0.0 {
+            sample_rate
+        } else {
+            self.sample_rate
+        };
+        self.timeline_sample_rate = sr;
+        self.playhead.set_sample_rate(sr);
+        self.timeline_advance_accumulator = 0.0;
     }
 
     /// The core render function — called once per audio buffer.
@@ -238,6 +258,7 @@ impl RenderContext {
         // Diagnostic: track total active clips this buffer
         let mut _total_active = 0usize;
         let mut _total_pool_hits = 0usize;
+        let mut pro_warp_budget = if frame_count >= 1024 { 6usize } else { 12usize };
 
         for (track_idx, clips) in clips_per_track.iter().enumerate() {
             if track_idx >= self.track_slots.len() {
@@ -268,28 +289,99 @@ impl RenderContext {
                 if clip.is_muted {
                     continue;
                 }
+                let clip_timeline_len = clip.duration.sample_frame.max(1) as f64;
+                let clip_source_len = if clip.warp_source_duration_frames > 0 {
+                    clip.warp_source_duration_frames as f64
+                } else {
+                    clip.duration.sample_frame.max(1) as f64
+                };
+                let is_warped = clip.is_warped && clip_source_len > 1.0;
+                let playback_rate = if is_warped {
+                    (clip_source_len / clip_timeline_len).clamp(0.125, 8.0)
+                } else {
+                    1.0
+                };
+                let mut warp_mode = if clip.warp_mode.unwrap_or(0) <= 0 {
+                    WarpResampleMode::Standard
+                } else {
+                    WarpResampleMode::Pro
+                };
+                if matches!(warp_mode, WarpResampleMode::Pro) {
+                    if pro_warp_budget == 0 {
+                        warp_mode = WarpResampleMode::Standard;
+                    } else {
+                        pro_warp_budget = pro_warp_budget.saturating_sub(1);
+                    }
+                }
+
                 if let Some(audio) = clip_pool.get(&clip.file_path) {
                     _total_pool_hits += 1;
-                    ClipReader::read_stereo_into(
-                        audio.left(),
-                        audio.right(),
-                        ac.source_start_frame as usize,
-                        &mut slot.buf_left,
-                        &mut slot.buf_right,
-                        ac.buffer_offset,
-                        ac.frames_to_read,
-                        clip.gain as f32,
-                    );
+                    let source_to_timeline_rate = (audio.sample_rate.max(1) as f64
+                        / self.sample_rate.max(1.0))
+                    .clamp(0.125, 8.0);
+                    if is_warped {
+                        let clip_local_timeline_start = (playhead_pos + ac.buffer_offset as i64
+                            - clip.position.sample_frame)
+                            .max(0) as f64;
+                        let source_start = (clip.source_offset.sample_frame.max(0) as f64)
+                            + clip_local_timeline_start * playback_rate * source_to_timeline_rate;
+                        ClipReader::read_stereo_into_rate(
+                            audio.left(),
+                            audio.right(),
+                            source_start,
+                            playback_rate * source_to_timeline_rate,
+                            &mut slot.buf_left,
+                            &mut slot.buf_right,
+                            ac.buffer_offset,
+                            ac.frames_to_read,
+                            clip.gain as f32,
+                            warp_mode,
+                        );
+                    } else {
+                        ClipReader::read_stereo_into_rate(
+                            audio.left(),
+                            audio.right(),
+                            (ac.source_start_frame as f64) * source_to_timeline_rate,
+                            source_to_timeline_rate,
+                            &mut slot.buf_left,
+                            &mut slot.buf_right,
+                            ac.buffer_offset,
+                            ac.frames_to_read,
+                            clip.gain as f32,
+                            WarpResampleMode::Standard,
+                        );
+                    }
                 } else if let Some(window) = self.streaming_windows.get(&clip.file_path) {
                     _total_pool_hits += 1;
-                    window.read_into(
-                        ac.source_start_frame,
-                        ac.frames_to_read,
-                        &mut slot.buf_left,
-                        &mut slot.buf_right,
-                        ac.buffer_offset,
-                        clip.gain as f32,
-                    );
+                    let source_to_timeline_rate = (window.sample_rate().max(1) as f64
+                        / self.sample_rate.max(1.0))
+                    .clamp(0.125, 8.0);
+                    if is_warped {
+                        let clip_local_timeline_start = (playhead_pos + ac.buffer_offset as i64
+                            - clip.position.sample_frame)
+                            .max(0) as f64;
+                        let source_start = (clip.source_offset.sample_frame.max(0) as f64)
+                            + clip_local_timeline_start * playback_rate * source_to_timeline_rate;
+                        window.read_into_rate(
+                            source_start,
+                            playback_rate * source_to_timeline_rate,
+                            &mut slot.buf_left,
+                            &mut slot.buf_right,
+                            ac.buffer_offset,
+                            ac.frames_to_read,
+                            clip.gain as f32,
+                        );
+                    } else {
+                        window.read_into_rate(
+                            (ac.source_start_frame as f64) * source_to_timeline_rate,
+                            source_to_timeline_rate,
+                            &mut slot.buf_left,
+                            &mut slot.buf_right,
+                            ac.buffer_offset,
+                            ac.frames_to_read,
+                            clip.gain as f32,
+                        );
+                    }
                 } else {
                     POOL_MISS_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     continue;
@@ -301,28 +393,35 @@ impl RenderContext {
                 if read_len > 0 {
                     let user_fade_in = clip.fade_in_frames.max(0) as usize;
                     let user_fade_out = clip.fade_out_frames.max(0) as usize;
+                    let clip_len_frames = clip.duration.sample_frame.max(1) as usize;
+                    let clip_local_start = (playhead_pos + ac.buffer_offset as i64
+                        - clip.position.sample_frame)
+                        .max(0) as usize;
 
                     let has_user_fades = user_fade_in > 0 || user_fade_out > 0;
                     if has_user_fades {
-                        if ac.is_clip_head && user_fade_in > 0 {
-                            let len = user_fade_in.min(read_len);
-                            for i in 0..len {
-                                let t = i as f32 / len.max(1) as f32;
-                                let g = t * t * (3.0 - 2.0 * t);
-                                slot.buf_left[offset + i] *= g;
-                                slot.buf_right[offset + i] *= g;
-                            }
-                        }
+                        for i in 0..read_len {
+                            let clip_frame = clip_local_start + i;
+                            let mut g = 1.0f32;
 
-                        if ac.is_clip_tail && user_fade_out > 0 {
-                            let len = user_fade_out.min(read_len);
-                            let start = offset + read_len - len;
-                            for i in 0..len {
-                                let t = i as f32 / len.max(1) as f32;
-                                let g = 1.0 - (t * t * (3.0 - 2.0 * t));
-                                slot.buf_left[start + i] *= g;
-                                slot.buf_right[start + i] *= g;
+                            if user_fade_in > 0 && clip_frame < user_fade_in {
+                                let t = clip_frame as f32 / user_fade_in.max(1) as f32;
+                                let fade = t * t * (3.0 - 2.0 * t);
+                                g *= fade;
                             }
+
+                            if user_fade_out > 0 {
+                                let fade_out_start = clip_len_frames.saturating_sub(user_fade_out);
+                                if clip_frame >= fade_out_start {
+                                    let rel = clip_frame.saturating_sub(fade_out_start);
+                                    let t = rel as f32 / user_fade_out.max(1) as f32;
+                                    let fade = 1.0 - (t * t * (3.0 - 2.0 * t));
+                                    g *= fade;
+                                }
+                            }
+
+                            slot.buf_left[offset + i] *= g;
+                            slot.buf_right[offset + i] *= g;
                         }
                     } else {
                         let fade_len = self.fade_cache.fade_length;
@@ -348,28 +447,7 @@ impl RenderContext {
             }
         }
 
-        // Periodic diagnostic logging (once per ~second at 48kHz/1024 buffer)
-        {
-            let diag_counter = (playhead_pos / (self.sample_rate as i64)) as u64;
-            static LAST_DIAG: std::sync::atomic::AtomicU64 =
-                std::sync::atomic::AtomicU64::new(u64::MAX);
-            let prev = LAST_DIAG.load(std::sync::atomic::Ordering::Relaxed);
-            if diag_counter != prev {
-                LAST_DIAG.store(diag_counter, std::sync::atomic::Ordering::Relaxed);
-                let total_clips: usize = clips_per_track.iter().map(|c| c.len()).sum();
-                if total_clips > 0 || _total_active > 0 {
-                    let pool_misses = POOL_MISS_COUNT.swap(0, std::sync::atomic::Ordering::Relaxed);
-                    log::info!(
-                        "[Render] playhead={} total_clips={} active={} pool_hits={} pool_misses={}",
-                        playhead_pos,
-                        total_clips,
-                        _total_active,
-                        _total_pool_hits,
-                        pool_misses
-                    );
-                }
-            }
-        }
+        let _ = (_total_active, _total_pool_hits, playhead_pos);
 
         // ── 4. Process channel strips (gain + pan) per track ────────
         let sr = self.sample_rate as f32;
@@ -421,7 +499,12 @@ impl RenderContext {
                 enabled: true, // presence of Some = enabled
             }
         });
-        self.playhead.advance(frame_count, transport_loop.as_ref());
+        let ratio = (self.timeline_sample_rate / self.sample_rate.max(1.0)).clamp(0.125, 8.0);
+        let advance_exact = frame_count as f64 * ratio + self.timeline_advance_accumulator;
+        let advance_frames = advance_exact.floor().max(0.0) as usize;
+        self.timeline_advance_accumulator = advance_exact - (advance_frames as f64);
+        self.playhead
+            .advance(advance_frames, transport_loop.as_ref());
     }
 
     /// Full render pipeline: fills track slots, sums into master bus, interleaves output.

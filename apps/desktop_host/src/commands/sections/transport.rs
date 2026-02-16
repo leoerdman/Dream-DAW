@@ -22,6 +22,13 @@ fn beat_to_engine_frames(beat: f64, pulse_map: Option<&dream_models::pulse_map::
 
 #[tauri::command]
 fn play(handle: tauri::State<'_, AudioEngineHandle>) -> Result<(), String> {
+    {
+        let state = handle
+            .playback_state
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        push_command(&handle, EngineCommand::SetTimelineSampleRate(state.sample_rate))?;
+    }
     push_command(&handle, EngineCommand::SetPlay(true))?;
 
     let mut state = handle
@@ -58,9 +65,16 @@ fn toggle_playback(handle: tauri::State<'_, AudioEngineHandle>) -> Result<bool, 
         .map_err(|e| format!("Lock poisoned: {e}"))?;
 
     let new_state = !state.is_playing;
+    let timeline_sample_rate = state.sample_rate;
     state.is_playing = new_state;
     drop(state);
 
+    if new_state {
+        push_command(
+            &handle,
+            EngineCommand::SetTimelineSampleRate(timeline_sample_rate),
+        )?;
+    }
     push_command(&handle, EngineCommand::SetPlay(new_state))?;
 
     log::info!("[IPC] toggle_playback → {}", if new_state { "play" } else { "stop" });
@@ -155,6 +169,12 @@ fn set_bpm(
 
     for track in &mut project.tracks {
         for clip in &mut track.clips {
+            if !clip.is_warped {
+                continue;
+            }
+            if clip.warp_source_duration_frames <= 0 {
+                clip.warp_source_duration_frames = clip.duration.sample_frame.max(1);
+            }
             let old_start = clip.position.sample_frame.max(0);
             let old_end = (old_start + clip.duration.sample_frame.max(1)).max(old_start + 1);
             let new_start = remap_frame(old_start);

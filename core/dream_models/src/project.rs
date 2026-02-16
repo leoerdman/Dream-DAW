@@ -861,6 +861,16 @@ pub struct AudioClip {
     #[serde(default)]
     pub warp_markers: Vec<WarpMarkerPoint>,
 
+    /// Clip base BPM used for warp speed ratio calculations.
+    #[serde(default = "default_clip_warp_base_bpm")]
+    pub warp_base_bpm: f64,
+
+    /// Source-domain duration (frames) for warp mapping.
+    ///
+    /// This stays stable while warped clip timeline duration changes with tempo.
+    #[serde(default)]
+    pub warp_source_duration_frames: i64,
+
     /// ALS take identifier (`TakeId`).
     #[serde(default)]
     pub take_id: Option<i32>,
@@ -943,6 +953,8 @@ impl AudioClip {
             is_warped: false,
             warp_mode: None,
             warp_markers: Vec::new(),
+            warp_base_bpm: default_clip_warp_base_bpm(),
+            warp_source_duration_frames: duration.sample_frame.max(1),
             take_id: None,
             legato: false,
             ram: false,
@@ -974,6 +986,10 @@ impl AudioClip {
     pub fn overlaps(&self, start: i64, end: i64) -> bool {
         self.position.sample_frame < end && self.end_position().sample_frame > start
     }
+}
+
+fn default_clip_warp_base_bpm() -> f64 {
+    120.0
 }
 
 // ── Automation ────────────────────────────────────────────────────────
@@ -2277,21 +2293,17 @@ mod tests {
         let project = Project::default();
 
         assert_eq!(project.tracks.len(), 6);
-        assert!(
-            project
-                .tracks
-                .iter()
-                .take(3)
-                .all(|t| t.track_type == TrackType::Audio)
-        );
-        assert!(
-            project
-                .tracks
-                .iter()
-                .skip(3)
-                .take(3)
-                .all(|t| t.track_type == TrackType::Midi)
-        );
+        assert!(project
+            .tracks
+            .iter()
+            .take(3)
+            .all(|t| t.track_type == TrackType::Audio));
+        assert!(project
+            .tracks
+            .iter()
+            .skip(3)
+            .take(3)
+            .all(|t| t.track_type == TrackType::Midi));
         assert_eq!(project.tracks[0].name, "Audio 1");
         assert_eq!(project.tracks[2].name, "Audio 3");
         assert_eq!(project.tracks[3].name, "MIDI 1");

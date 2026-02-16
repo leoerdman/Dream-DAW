@@ -38,6 +38,7 @@ interface TrackData {
     sends: { name: string; amount: number; color: string }[];
     input?: string;
     output?: string;
+    height: number;
 }
 
 interface TrackRowLayoutMetrics {
@@ -88,6 +89,7 @@ function mapProjectTrack(
         sends: [],
         input: pt.input || 'none',
         output: pt.output || 'master',
+        height: Number.isFinite(pt.height) ? pt.height : 48,
         groupId: pt.parent_track_id ?? undefined,
     };
 }
@@ -185,8 +187,9 @@ export const TrackInspector = ({
             id: 'master', name: 'Master', type: 'master', color: masterColor,
             volume: masterVolume, pan: 0, isMuted: false, isSoloed: false, isArmed: false,
             vuLevel: masterVu, routing: '', sends: [], input: '', output: 'Main',
+            height: trackHeight,
         };
-    }, [meters, masterVolume, masterColor]);
+    }, [meters, masterVolume, masterColor, trackHeight]);
 
     // Local overrides
     const [localOverrides, setLocalOverrides] = useState<Record<string, Partial<TrackData>>>({});
@@ -221,6 +224,11 @@ export const TrackInspector = ({
         startY: number;
         active: boolean;
     } | null>(null);
+    const [rowHeightsByTrackId, setRowHeightsByTrackId] = useState<Record<string, number>>({});
+    const [resizingTrackId, setResizingTrackId] = useState<string | null>(null);
+    const resizeStartYRef = useRef(0);
+    const resizeStartHeightRef = useRef(0);
+    const resizeCurrentHeightRef = useRef(0);
     const dragPointerYRef = useRef<number | null>(null);
     const autoScrollRafRef = useRef<number | null>(null);
     const trackMoveInFlightRef = useRef(false);
@@ -251,6 +259,27 @@ export const TrackInspector = ({
     // Inline rename
     const [renamingTrackId, setRenamingTrackId] = useState<string | null>(null);
     const [renameValue, setRenameValue] = useState('');
+
+    useEffect(() => {
+        setRowHeightsByTrackId((prev) => {
+            const next: Record<string, number> = {};
+            let changed = false;
+            for (const track of liveTracks) {
+                const persisted = Math.max(24, Math.min(120, Math.round(track.height || trackHeight)));
+                if (prev[track.id] == null) {
+                    next[track.id] = persisted;
+                    changed = true;
+                } else {
+                    next[track.id] = prev[track.id];
+                }
+            }
+            if (prev.master != null) next.master = prev.master;
+            else next.master = trackHeight;
+            if (Object.keys(prev).length !== Object.keys(next).length) changed = true;
+            if (!changed) return prev;
+            return next;
+        });
+    }, [liveTracks, trackHeight]);
 
     useEffect(() => {
         if (selectedTrackIdsProp) return; // shell owns selection
@@ -433,6 +462,53 @@ export const TrackInspector = ({
             mixerSectionWidthPx,
         };
     }, [visibleTracks, getDepth, mixerFocusMode]);
+
+    const clampRowHeight = useCallback((raw: number) => {
+        const min = 24;
+        const max = 120;
+        return Math.max(min, Math.min(max, Math.round(raw)));
+    }, []);
+
+    const beginRowResize = useCallback((trackId: string, startHeight: number, startY: number) => {
+        resizeStartYRef.current = startY;
+        resizeStartHeightRef.current = startHeight;
+        resizeCurrentHeightRef.current = startHeight;
+        setResizingTrackId(trackId);
+    }, []);
+
+    useEffect(() => {
+        if (!resizingTrackId) return;
+
+        const onPointerMove = (e: PointerEvent) => {
+            e.preventDefault();
+            const dy = e.clientY - resizeStartYRef.current;
+            const nextHeight = clampRowHeight(resizeStartHeightRef.current + dy);
+            resizeCurrentHeightRef.current = nextHeight;
+            setRowHeightsByTrackId((prev) => {
+                const current = prev[resizingTrackId];
+                if (current === nextHeight) return prev;
+                return { ...prev, [resizingTrackId]: nextHeight };
+            });
+        };
+
+        const onPointerUp = () => {
+            const finalTrackId = resizingTrackId;
+            const finalHeight = clampRowHeight(resizeCurrentHeightRef.current || resizeStartHeightRef.current);
+            setResizingTrackId(null);
+            if (finalTrackId && finalTrackId !== 'master') {
+                void engineApi.setTrackHeight(finalTrackId, finalHeight).catch((err) => {
+                    console.error('[TrackInspector] setTrackHeight failed:', err);
+                });
+            }
+        };
+
+        window.addEventListener('pointermove', onPointerMove, { passive: false });
+        window.addEventListener('pointerup', onPointerUp);
+        return () => {
+            window.removeEventListener('pointermove', onPointerMove);
+            window.removeEventListener('pointerup', onPointerUp);
+        };
+    }, [resizingTrackId, clampRowHeight]);
 
     // ── Context Menu handlers ──
     const handleContextMenu = useCallback((e: React.MouseEvent, trackId: string, trackIndex: number) => {
@@ -993,6 +1069,8 @@ export const TrackInspector = ({
                     const isCollapsed = isGroup ? collapsedGroups.has(track.id) : false;
                     const depth = getDepth(track);
                     const trackIndex = getTrackIndex(track.id);
+                    const defaultRowHeight = Math.max(24, Math.min(120, Math.round(track.height || (selectedTrackIdSet.has(track.id) ? selectedRowHeight : trackHeight))));
+                    const resolvedRowHeight = rowHeightsByTrackId[track.id] ?? defaultRowHeight;
 
                     const visibleIndex = visibleTracks.findIndex((t) => t.id === track.id);
                     return (
@@ -1003,7 +1081,7 @@ export const TrackInspector = ({
                             <TrackRow
                                 track={track}
                                 allTracks={tracks}
-                                trackHeight={selectedTrackIdSet.has(track.id) ? selectedRowHeight : trackHeight}
+                                trackHeight={resolvedRowHeight}
                                 displayNum={displayNum}
                                 isSelected={selectedTrackIdSet.has(track.id)}
                                 isPrimarySelected={selectedTrackId === track.id}
@@ -1069,6 +1147,8 @@ export const TrackInspector = ({
                                 isGroupDropTarget={groupDropTargetId === track.id}
                                 groupStripeColor={track.groupId ? (tracks.find((t) => t.id === track.groupId)?.color ?? track.color) : track.color}
                                 layout={rowLayout}
+                                isResizing={resizingTrackId === track.id}
+                                onResizeStart={(startY) => beginRowResize(track.id, resolvedRowHeight, startY)}
                                 mixerFocusMode={mixerFocusMode}
                             />
                             {dropInsertIndex === visibleIndex + 1 && (
@@ -1105,10 +1185,13 @@ export const TrackInspector = ({
             </div>
 
             {/* Master Track — fixed at bottom */}
+            {(() => {
+                const masterRowHeight = rowHeightsByTrackId.master ?? trackHeight;
+                return (
             <TrackRow
                 track={masterTrack}
                 allTracks={tracks}
-                trackHeight={trackHeight}
+                trackHeight={masterRowHeight}
                 isSelected={selectedTrackId === 'master'}
                 isPrimarySelected={selectedTrackId === 'master'}
                 isCollapsed={false}
@@ -1135,9 +1218,13 @@ export const TrackInspector = ({
                     setContextMenu({ trackId: 'master', trackIndex: -1, x: e.clientX, y: e.clientY });
                 }}
                 layout={rowLayout}
+                isResizing={resizingTrackId === 'master'}
+                onResizeStart={(startY) => beginRowResize('master', masterRowHeight, startY)}
                 isMasterFixed
                 mixerFocusMode={mixerFocusMode}
             />
+                );
+            })()}
 
             {/* Context Menu */}
             {contextMenu && (
@@ -1970,6 +2057,8 @@ const TrackRow = ({
     isGroupDropTarget = false,
     groupStripeColor,
     layout,
+    isResizing = false,
+    onResizeStart,
     isMasterFixed, mixerFocusMode = false,
 }: {
     track: TrackData;
@@ -1999,6 +2088,8 @@ const TrackRow = ({
     isGroupDropTarget?: boolean;
     groupStripeColor?: string;
     layout: TrackRowLayoutMetrics;
+    isResizing?: boolean;
+    onResizeStart?: (startY: number) => void;
     isMasterFixed?: boolean;
     mixerFocusMode?: boolean;
 }) => {
@@ -2034,6 +2125,7 @@ const TrackRow = ({
     // Subdue track visually when disabled (muted)
     const isEnabled = !track.isMuted;
     const compactControlHeight = 16;
+    const [resizeHot, setResizeHot] = useState(false);
     const headerBgColor = track.color;
     const headerContrast = getContrastColor(track.color);
     const headerTextColor = headerContrast === 'black' ? 'var(--glass-bg)' : 'color-mix(in srgb, var(--color-text-primary) 94%, transparent)';
@@ -2524,6 +2616,42 @@ const TrackRow = ({
                     zIndex: 'var(--z-local-raised)' as unknown as number,
                     boxShadow: 'inset 0 0 0 2px color-mix(in srgb, var(--color-text-bright) 78%, transparent), inset 0 0 16px color-mix(in srgb, var(--color-text-bright) 22%, transparent)',
                 }} />
+            )}
+
+            <div
+                role="presentation"
+                onPointerEnter={() => setResizeHot(true)}
+                onPointerLeave={() => setResizeHot(false)}
+                onPointerDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onResizeStart?.(e.clientY);
+                }}
+                style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: -3,
+                    height: 7,
+                    cursor: 'ns-resize',
+                    zIndex: 5,
+                }}
+            />
+            {(resizeHot || isResizing) && (
+                <div
+                    aria-hidden
+                    style={{
+                        position: 'absolute',
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        height: 1,
+                        background: 'color-mix(in srgb, var(--color-accent-primary) 76%, white)',
+                        boxShadow: '0 0 6px color-mix(in srgb, var(--color-accent-primary) 35%, transparent)',
+                        pointerEvents: 'none',
+                        zIndex: 4,
+                    }}
+                />
             )}
         </div>
     );

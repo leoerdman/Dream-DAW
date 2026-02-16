@@ -597,6 +597,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         position: { sample_frame: number };
                         duration: { sample_frame: number };
                         source_offset: { sample_frame: number };
+                        is_warped?: boolean;
+                        warp_mode?: number | null;
+                        warp_base_bpm?: number;
+                        warp_source_duration_frames?: number;
                         color_override: unknown;
                         color_hex?: string | null;
                         is_offline?: boolean;
@@ -647,6 +651,16 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             const bpm = project.pulse_map?.tempo_events?.[0]?.bpm || get().transport.bpm || 120;
             const sr = project.sample_rate || 44100;
             const beatsPerSecond = bpm / 60;
+            const toFiniteNumber = (value: unknown, fallback = 0): number => {
+                if (typeof value === 'number') {
+                    return Number.isFinite(value) ? value : fallback;
+                }
+                if (typeof value === 'bigint') {
+                    return Number(value);
+                }
+                const parsed = Number(value);
+                return Number.isFinite(parsed) ? parsed : fallback;
+            };
 
             useGridStore.getState().applyProjectGrid({
                 numerator: project.arrangement_grid_numerator ?? 1,
@@ -694,8 +708,17 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 });
 
                 for (const clip of track.clips) {
-                    const posSeconds = clip.position.sample_frame / sr;
-                    const durSeconds = clip.duration.sample_frame / sr;
+                    const posFrames = toFiniteNumber(clip.position.sample_frame, 0);
+                    const durFrames = Math.max(1, toFiniteNumber(clip.duration.sample_frame, 1));
+                    const isWarped = Boolean(clip.is_warped ?? false);
+                    const warpBaseBpm = Math.max(20, toFiniteNumber(clip.warp_base_bpm, bpm));
+                    const warpSourceDurationFrames = Math.max(1, toFiniteNumber(clip.warp_source_duration_frames, durFrames));
+                    const sourceOffsetFrames = Math.max(0, toFiniteNumber(clip.source_offset?.sample_frame ?? 0, 0));
+                    const fadeInFrames = Math.max(0, toFiniteNumber((clip as Record<string, unknown>).fade_in_frames ?? ((clip as Record<string, unknown>).fadeIn ?? 0), 0));
+                    const fadeOutFrames = Math.max(0, toFiniteNumber((clip as Record<string, unknown>).fade_out_frames ?? ((clip as Record<string, unknown>).fadeOut ?? 0), 0));
+                    const posSeconds = posFrames / sr;
+                    const durSeconds = durFrames / sr;
+                    const sourceSeconds = warpSourceDurationFrames / sr;
                     const hasAudioPath = !!(clip.file_path && clip.file_path.trim().length > 0);
                     const treatAsMidi = isMidiTrack;
 
@@ -704,7 +727,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         name: clip.name,
                         trackIndex: trackIdx,
                         startBeat: posSeconds * beatsPerSecond,
-                        durationBeats: durSeconds * beatsPerSecond,
+                        durationBeats: isWarped
+                            ? sourceSeconds * (warpBaseBpm / 60)
+                            : durSeconds * beatsPerSecond,
                         // Editor mode must follow track type:
                         // MIDI tracks -> piano roll, Audio tracks -> sample editor.
                         type: treatAsMidi ? 'midi' : 'audio',
@@ -712,22 +737,26 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                             ? resolveTrackColor(clip.color_hex ?? clip.color_override)
                             : trackColor,
                         filePath: treatAsMidi ? undefined : clip.file_path,
-                        durationSamples: clip.duration.sample_frame,
-                        sourceOffset: clip.source_offset?.sample_frame ?? 0,
-                        fadeIn: ((clip as Record<string, unknown>).fade_in_frames as number | undefined)
-                            ?? ((clip as Record<string, unknown>).fadeIn as number | undefined)
-                            ?? 0,
-                        fadeOut: ((clip as Record<string, unknown>).fade_out_frames as number | undefined)
-                            ?? ((clip as Record<string, unknown>).fadeOut as number | undefined)
-                            ?? 0,
+                        durationSamples: durFrames,
+                        isWarped,
+                        warpMode: clip.warp_mode ?? null,
+                        warpBaseBpm,
+                        warpSourceDurationFrames,
+                        sourceOffset: sourceOffsetFrames,
+                        fadeIn: fadeInFrames,
+                        fadeOut: fadeOutFrames,
                         isOffline: treatAsMidi ? false : (hasAudioPath ? (clip.is_offline ?? false) : false),
                         muted: (clip as Record<string, unknown>).is_muted as boolean ?? false,
                     });
                 }
 
                 for (const clip of track.midi_clips ?? []) {
-                    const posSeconds = clip.position.sample_frame / sr;
-                    const durSeconds = clip.duration.sample_frame / sr;
+                    const posFrames = toFiniteNumber(clip.position.sample_frame, 0);
+                    const durFrames = Math.max(1, toFiniteNumber(clip.duration.sample_frame, 1));
+                    const fadeInFrames = Math.max(0, toFiniteNumber((clip as Record<string, unknown>).fade_in_frames ?? ((clip as Record<string, unknown>).fadeIn ?? 0), 0));
+                    const fadeOutFrames = Math.max(0, toFiniteNumber((clip as Record<string, unknown>).fade_out_frames ?? ((clip as Record<string, unknown>).fadeOut ?? 0), 0));
+                    const posSeconds = posFrames / sr;
+                    const durSeconds = durFrames / sr;
                     timelineClips.push({
                         id: clip.id,
                         name: clip.name,
@@ -738,14 +767,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         color: resolveTrackColor(clip.color_hex ?? clip.color_override) !== '#667788'
                             ? resolveTrackColor(clip.color_hex ?? clip.color_override)
                             : trackColor,
-                        durationSamples: clip.duration.sample_frame,
+                        durationSamples: durFrames,
                         sourceOffset: 0,
-                        fadeIn: ((clip as Record<string, unknown>).fade_in_frames as number | undefined)
-                            ?? ((clip as Record<string, unknown>).fadeIn as number | undefined)
-                            ?? 0,
-                        fadeOut: ((clip as Record<string, unknown>).fade_out_frames as number | undefined)
-                            ?? ((clip as Record<string, unknown>).fadeOut as number | undefined)
-                            ?? 0,
+                        fadeIn: fadeInFrames,
+                        fadeOut: fadeOutFrames,
                         muted: (clip as Record<string, unknown>).is_muted as boolean ?? false,
                         midiNotes: (clip.notes ?? []).map((note, idx) => ({
                             id: `${clip.id}:${idx}:${note.pitch}:${note.start_frame}`,

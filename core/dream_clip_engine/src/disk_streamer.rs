@@ -24,8 +24,8 @@
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::Arc;
 use std::thread;
 
 /// Size of each streaming chunk in frames.
@@ -208,6 +208,94 @@ impl StreamingWindow {
             }
 
             _frames_written += overlap_frames;
+        }
+
+        any_hit
+    }
+
+    #[inline(always)]
+    fn sample_at_frame(&self, frame: i64, right_channel: bool) -> Option<f32> {
+        if frame < 0 || frame >= self.total_frames {
+            return None;
+        }
+
+        for chunk in &self.chunks {
+            let start = chunk.start_frame;
+            let end = chunk.start_frame + chunk.num_frames as i64;
+            if frame < start || frame >= end {
+                continue;
+            }
+            let idx = (frame - start) as usize;
+            if right_channel {
+                return chunk.right.get(idx).copied();
+            }
+            return chunk.left.get(idx).copied();
+        }
+
+        None
+    }
+
+    #[inline(always)]
+    fn sample_linear_at(&self, pos: f64, right_channel: bool) -> Option<f32> {
+        if !pos.is_finite() {
+            return None;
+        }
+        let max_pos = (self.total_frames.saturating_sub(1)) as f64;
+        if max_pos < 0.0 {
+            return None;
+        }
+
+        let clamped = pos.clamp(0.0, max_pos);
+        let i0 = clamped.floor() as i64;
+        let i1 = (i0 + 1).min(self.total_frames.saturating_sub(1));
+        let frac = (clamped - i0 as f64) as f32;
+
+        let s0 = self.sample_at_frame(i0, right_channel)?;
+        let s1 = self.sample_at_frame(i1, right_channel).unwrap_or(s0);
+        Some(s0 * (1.0 - frac) + s1 * frac)
+    }
+
+    /// SR/warp aware read with linear interpolation.
+    ///
+    /// This is used when timeline-domain and source-domain frame rates diverge
+    /// (sample-rate conversion and/or warp playback-rate).
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    pub fn read_into_rate(
+        &self,
+        source_start: f64,
+        rate: f64,
+        out_left: &mut [f32],
+        out_right: &mut [f32],
+        out_offset: usize,
+        num_frames: usize,
+        gain: f32,
+    ) -> bool {
+        if num_frames == 0 || out_offset >= out_left.len() || out_offset >= out_right.len() {
+            return false;
+        }
+
+        let out_end = (out_offset + num_frames)
+            .min(out_left.len())
+            .min(out_right.len());
+        let write_frames = out_end.saturating_sub(out_offset);
+        if write_frames == 0 {
+            return false;
+        }
+
+        let mut any_hit = false;
+        for i in 0..write_frames {
+            let src_pos = source_start + (i as f64) * rate;
+            let out_idx = out_offset + i;
+
+            if let Some(v) = self.sample_linear_at(src_pos, false) {
+                out_left[out_idx] += v * gain;
+                any_hit = true;
+            }
+            if let Some(v) = self.sample_linear_at(src_pos, true) {
+                out_right[out_idx] += v * gain;
+                any_hit = true;
+            }
         }
 
         any_hit

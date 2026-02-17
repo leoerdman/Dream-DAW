@@ -160,8 +160,19 @@ impl DspProcessor for LimiterProcessor {
                     self.release_coeff * self.gain + (1.0 - self.release_coeff) * la_target;
             }
 
-            // Apply gain and ceiling
-            let scale = self.gain * (ceiling / threshold);
+            // Apply gain and ceiling.
+            // When no limiting (gain ≈ 1.0): output = sample * ceiling_lin
+            //   → ensures output never exceeds the ceiling even with no GR.
+            // When limiting (gain < 1.0): GR brings peak to threshold,
+            //   then ceiling/threshold remaps to the output ceiling.
+            let scale = if self.gain < 1.0 {
+                self.gain * (ceiling / threshold)
+            } else {
+                // No gain reduction — just enforce ceiling as max output.
+                // For signals below ceiling this is a slight attenuation;
+                // for signals between ceiling and threshold it caps them.
+                ceiling
+            };
             left[i] = out_l * scale;
             right[i] = out_r * scale;
 

@@ -1585,16 +1585,7 @@ export const DeviceRack = ({
                                             statusClear();
                                             return;
                                         }
-                                        // Always reveal inline controls immediately so UI click
-                                        // has visible effect even if native editor hosting fails.
-                                        setInlineSettingsOpen((prev) => ({
-                                            ...prev,
-                                            [device.id]: true,
-                                        }));
                                         if (!selectedTrack) return;
-                                        if (pluginCapability[device.id]?.supported === false) {
-                                            statusError(pluginCapability[device.id]?.reason ?? 'Native plugin editor is unavailable; opened inline controls.');
-                                        }
                                         try {
                                             const status = await ensureSlotRuntimeActive(device.id);
                                             if (!status) return;
@@ -1609,6 +1600,11 @@ export const DeviceRack = ({
                                             statusClear();
                                         } catch (err) {
                                             console.error('[DeviceRack] Failed to open native plugin UI:', err);
+                                            // Native editor failed — fall back to inline controls
+                                            setInlineSettingsOpen((prev) => ({
+                                                ...prev,
+                                                [device.id]: true,
+                                            }));
                                             statusError(`Failed to open native plugin UI, inline controls opened: ${errorMessage(err)}`);
                                         }
                                     }}

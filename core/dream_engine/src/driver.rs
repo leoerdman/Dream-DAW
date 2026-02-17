@@ -1377,6 +1377,9 @@ pub fn start_audio_thread_on_device(
     let mut _bpm: f64 = 120.0;
     let mut master_gain_target: f32 = 1.0;
     let mut master_gain_current: f32 = 1.0;
+    // Master gain smoothing coefficient — targets ~5ms time constant,
+    // derived from sample rate so behavior is consistent across 44.1–192kHz.
+    let master_gain_smooth: f32 = 1.0 - (-1.0_f64 / (0.005 * sample_rate_f64)).exp() as f32;
     // per-track disable/solo state (used for output-enable calculation)
     let mut track_disabled: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
     let mut track_soloed: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
@@ -1408,7 +1411,7 @@ pub fn start_audio_thread_on_device(
             slot_index: u8,
         },
     }
-    let mut deferred_topology: VecDeque<DeferredTopologyCmd> = VecDeque::with_capacity(256);
+    let mut deferred_topology: VecDeque<DeferredTopologyCmd> = VecDeque::with_capacity(1024);
     let mut midi_schedule_scratch: Vec<ScheduledNote> = Vec::with_capacity(512);
     let mut midi_schedule_tmp: Vec<ScheduledNote> = Vec::with_capacity(512);
     let mut midi_events_scratch: Vec<(usize, u8, u8, u8, u64)> = Vec::with_capacity(16384);
@@ -1725,7 +1728,8 @@ pub fn start_audio_thread_on_device(
                                     slot_index,
                                     effect_type,
                                 } => {
-                                    if deferred_topology.len() >= 256 {
+                                    if deferred_topology.len() >= 1024 {
+                                        log::warn!("[RT] deferred_topology full — dropping oldest topology command");
                                         let _ = deferred_topology.pop_front();
                                     }
                                     deferred_topology.push_back(DeferredTopologyCmd::Add {
@@ -1738,7 +1742,8 @@ pub fn start_audio_thread_on_device(
                                     track_index,
                                     slot_index,
                                 } => {
-                                    if deferred_topology.len() >= 256 {
+                                    if deferred_topology.len() >= 1024 {
+                                        log::warn!("[RT] deferred_topology full — dropping oldest topology command");
                                         let _ = deferred_topology.pop_front();
                                     }
                                     deferred_topology.push_back(DeferredTopologyCmd::Remove {
@@ -2736,7 +2741,7 @@ pub fn start_audio_thread_on_device(
                         // Smooth target to avoid zipper noise while dragging.
                         for sample in data.iter_mut() {
                             master_gain_current +=
-                                (master_gain_target - master_gain_current) * 0.005;
+                                (master_gain_target - master_gain_current) * master_gain_smooth;
                             *sample = soft_clip(*sample * master_gain_current);
                         }
 

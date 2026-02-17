@@ -115,7 +115,8 @@ const AP_SIZES: [usize; 4] = [556, 441, 341, 225];
 const REF_SAMPLE_RATE: f32 = 44100.0;
 
 // ── Pre-delay buffer ────────────────────────────────────────────────────
-const MAX_PREDELAY_SAMPLES: usize = 9600; // ~200ms @ 48kHz
+/// 200ms at up to 192kHz. Covers all standard DAW sample rates.
+const MAX_PREDELAY_SAMPLES: usize = 38400; // ~200ms @ 192kHz
 
 pub struct ReverbProcessor {
     combs_l: Vec<CombFilter>,
@@ -216,10 +217,23 @@ impl ReverbProcessor {
         self.predelay_samples =
             ((self.predelay_ms * 0.001 * self.sample_rate) as usize).min(MAX_PREDELAY_SAMPLES - 1);
     }
+
+    #[inline]
+    fn sync_sample_rate(&mut self, sample_rate: f32) {
+        if sample_rate.is_finite()
+            && sample_rate > 1000.0
+            && (sample_rate - self.sample_rate).abs() > 0.5
+        {
+            self.sample_rate = sample_rate;
+            self.update_combs();
+            self.update_predelay();
+        }
+    }
 }
 
 impl DspProcessor for ReverbProcessor {
-    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], _sample_rate: f32) {
+    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
+        self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
         let wet = self.mix;
         let dry = 1.0 - wet;

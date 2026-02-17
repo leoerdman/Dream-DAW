@@ -614,10 +614,31 @@ impl PluginSandboxSupervisor {
         )
     }
 
+    pub fn is_instance_healthy(&self, instance_id: Uuid) -> bool {
+        self.instances.get(&instance_id).map_or(false, |inst| {
+            !inst.bypass_requested
+                && matches!(
+                    inst.status,
+                    PluginSandboxStatus::Running | PluginSandboxStatus::Spawning
+                )
+        })
+    }
+
     pub fn send_open_editor(&mut self, instance_id: Uuid) -> Result<(), PluginError> {
         let instance = self.instances.get_mut(&instance_id).ok_or_else(|| {
             PluginError::InvalidState(format!("Sandbox instance not found: {instance_id}"))
         })?;
+        if instance.bypass_requested
+            || matches!(
+                instance.status,
+                PluginSandboxStatus::Crashed | PluginSandboxStatus::TimedOut | PluginSandboxStatus::Stopped
+            )
+        {
+            return Err(PluginError::InvalidState(format!(
+                "Sandbox instance {instance_id} is unhealthy (status={:?}, bypass={})",
+                instance.status, instance.bypass_requested
+            )));
+        }
         let stdin = instance.control_stdin.as_mut().ok_or_else(|| {
             PluginError::InvalidState("Sandbox control pipe is not available".to_string())
         })?;

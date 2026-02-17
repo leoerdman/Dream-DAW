@@ -37,7 +37,9 @@ const AUDIO_EXTENSIONS = new Set([
 
 /** Check if a file path is a supported audio format. */
 const isAudioFile = (path: string): boolean => {
-    const ext = path.slice(path.lastIndexOf('.')).toLowerCase();
+    const dotIdx = path.lastIndexOf('.');
+    if (dotIdx < 0) return false; // BUG-7 fix: no extension → not audio
+    const ext = path.slice(dotIdx).toLowerCase();
     return AUDIO_EXTENSIONS.has(ext);
 };
 

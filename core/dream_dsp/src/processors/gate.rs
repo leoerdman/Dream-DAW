@@ -236,17 +236,18 @@ impl DspProcessor for GateProcessor {
                 .and_then(|sc| sc.get(i).copied())
                 .unwrap_or(right[i]);
 
+            // Sidechain HPF: standard first-order HP y[n] = α*(y[n-1] + x[n] - x[n-1])
             let sc_l = if self.sc_hpf_freq > 25.0 {
-                let p = self.sc_state_l;
-                self.sc_state_l = self.sc_coeff * (p + sc_in_l);
-                sc_in_l - self.sc_state_l + p * self.sc_coeff
+                self.sc_state_l = self.sc_coeff * (self.sc_state_l + sc_in_l - self.sc_prev_l);
+                self.sc_prev_l = sc_in_l;
+                self.sc_state_l
             } else {
                 sc_in_l
             };
             let sc_r = if self.sc_hpf_freq > 25.0 {
-                let p = self.sc_state_r;
-                self.sc_state_r = self.sc_coeff * (p + sc_in_r);
-                sc_in_r - self.sc_state_r + p * self.sc_coeff
+                self.sc_state_r = self.sc_coeff * (self.sc_state_r + sc_in_r - self.sc_prev_r);
+                self.sc_prev_r = sc_in_r;
+                self.sc_state_r
             } else {
                 sc_in_r
             };
@@ -346,6 +347,8 @@ impl DspProcessor for GateProcessor {
         self.hold_counter = 0.0;
         self.sc_state_l = 0.0;
         self.sc_state_r = 0.0;
+        self.sc_prev_l = 0.0;
+        self.sc_prev_r = 0.0;
     }
 }
 

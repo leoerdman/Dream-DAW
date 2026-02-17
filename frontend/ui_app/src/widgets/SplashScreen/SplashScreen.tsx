@@ -8,7 +8,7 @@
    - THEN expand_window runs — maximized window shows the DAW, not the splash
    ═════════════════════════════════════════════════════════════ */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useEngineStore } from '@/shared/stores/useEngineStore'
 import { useSettingsStore } from '@/shared/stores/useSettingsStore'
 import * as engineApi from '@/shared/api/engine'
@@ -25,26 +25,39 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
     const [status, setStatus] = useState('Initializing Audio Engine...')
     const [phase, setPhase] = useState<'visible' | 'fading' | 'done'>('visible')
     const [progress, setProgress] = useState(0)
+    // BUG-5 fix: stale flag to cancel in-flight async work on unmount
+    const cancelledRef = useRef(false)
 
     const startTelemetryLoop = useEngineStore((s) => s.startTelemetryLoop)
 
     const dismiss = useCallback(async () => {
+        console.log('[Splash] dismiss() START')
         // 1. Load user settings from disk BEFORE expanding to workspace
         try {
+            console.log('[Splash] step 1: loadSettings...')
             await useSettingsStore.getState().loadSettings()
+            console.log('[Splash] step 1: loadSettings DONE')
         } catch (e) {
             console.warn('[Splash] Failed to load settings:', e)
         }
+        if (cancelledRef.current) { console.log('[Splash] cancelled after loadSettings'); return }
 
         const settings = useSettingsStore.getState().settings
         const shouldOpenLastProject = settings.startupBehavior === 'last'
+        console.log('[Splash] startupBehavior=', settings.startupBehavior, 'shouldOpenLastProject=', shouldOpenLastProject)
 
         if (shouldOpenLastProject) {
             try {
+                console.log('[Splash] step 2: getRecentProjects...')
                 const recent = await engineApi.getRecentProjects()
+                console.log('[Splash] step 2: getRecentProjects DONE, count=', recent.length)
+                if (cancelledRef.current) { console.log('[Splash] cancelled after getRecentProjects'); return }
                 const lastProject = recent[0]
                 if (lastProject?.path) {
+                    console.log('[Splash] step 2b: openProject...', lastProject.path)
                     await engineApi.openProject(lastProject.path)
+                    console.log('[Splash] step 2b: openProject DONE')
+                    if (cancelledRef.current) { console.log('[Splash] cancelled after openProject'); return }
                     console.info('[Splash] Opened last project on startup:', lastProject.path)
                 } else {
                     console.info('[Splash] startupBehavior=last but recent list is empty')
@@ -53,25 +66,34 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
                 console.warn('[Splash] Failed to open last project on startup:', e)
             }
         }
+        if (cancelledRef.current) { console.log('[Splash] cancelled before telemetry'); return }
 
         // 2. Start telemetry loop — the DAW comes alive
+        console.log('[Splash] step 3: startTelemetryLoop...')
         startTelemetryLoop()
+        console.log('[Splash] step 3: startTelemetryLoop DONE')
 
         // 3. Await initial project fetch — ensures tracks/clips are in the store
         //    before the Workspace component mounts
         const fetchProject = useEngineStore.getState().fetchProject
         try {
+            console.log('[Splash] step 4: fetchProject...')
             await fetchProject()
+            console.log('[Splash] step 4: fetchProject DONE')
         } catch (e) {
             console.warn('[Splash] fetchProject failed:', e)
         }
+        if (cancelledRef.current) { console.log('[Splash] cancelled after fetchProject'); return }
 
         // 4. Now fade out the splash overlay
+        console.log('[Splash] step 5: FADING OUT')
         setProgress(100)
         setPhase('fading')
 
         // 5. After fade completes - mount Workspace
         setTimeout(() => {
+            if (cancelledRef.current) return
+            console.log('[Splash] step 6: onComplete — mounting Workspace')
             onComplete?.()
             setPhase('done')
         }, 400) // fade animation is 400ms
@@ -94,6 +116,7 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
         const dismissTimer = setTimeout(dismiss, minDuration)
 
         return () => {
+            cancelledRef.current = true // BUG-5: cancel in-flight dismiss() work
             timers.forEach(clearTimeout)
             clearTimeout(dismissTimer)
         }

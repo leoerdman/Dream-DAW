@@ -173,7 +173,12 @@ impl DspProcessor for CompressorProcessor {
         let makeup = self.compute_auto_makeup();
         let mix = self.mix;
         let dry_mix = 1.0 - mix;
-        let rms_coeff = if self.rms_mode { 0.001 } else { 0.0 };
+        // RMS coefficient: target ~20ms integration window, sample-rate-independent.
+        let rms_coeff = if self.rms_mode {
+            1.0 - (-1.0 / (0.020 * self.sample_rate)).exp()
+        } else {
+            0.0
+        };
 
         for i in 0..len {
             let dry_l = left[i];
@@ -238,7 +243,12 @@ impl DspProcessor for CompressorProcessor {
         let makeup = self.compute_auto_makeup();
         let mix = self.mix;
         let dry_mix = 1.0 - mix;
-        let rms_coeff = if self.rms_mode { 0.001 } else { 0.0 };
+        // RMS coefficient: target ~20ms integration window, sample-rate-independent.
+        let rms_coeff = if self.rms_mode {
+            1.0 - (-1.0 / (0.020 * self.sample_rate)).exp()
+        } else {
+            0.0
+        };
 
         for i in 0..len {
             let dry_l = left[i];
@@ -251,17 +261,18 @@ impl DspProcessor for CompressorProcessor {
                 .and_then(|sc| sc.get(i).copied())
                 .unwrap_or(dry_r);
 
+            // Sidechain HPF: standard first-order HP y[n] = α*(y[n-1] + x[n] - x[n-1])
             let sc_l = if self.sc_hpf_freq > 25.0 {
-                let prev = self.sc_hp_state_l;
-                self.sc_hp_state_l = self.sc_hp_coeff * (prev + sc_src_l);
-                sc_src_l - self.sc_hp_state_l + prev * self.sc_hp_coeff
+                self.sc_hp_state_l = self.sc_hp_coeff * (self.sc_hp_state_l + sc_src_l - self.sc_hp_prev_l);
+                self.sc_hp_prev_l = sc_src_l;
+                self.sc_hp_state_l
             } else {
                 sc_src_l
             };
             let sc_r = if self.sc_hpf_freq > 25.0 {
-                let prev = self.sc_hp_state_r;
-                self.sc_hp_state_r = self.sc_hp_coeff * (prev + sc_src_r);
-                sc_src_r - self.sc_hp_state_r + prev * self.sc_hp_coeff
+                self.sc_hp_state_r = self.sc_hp_coeff * (self.sc_hp_state_r + sc_src_r - self.sc_hp_prev_r);
+                self.sc_hp_prev_r = sc_src_r;
+                self.sc_hp_state_r
             } else {
                 sc_src_r
             };
@@ -322,6 +333,8 @@ impl DspProcessor for CompressorProcessor {
         self.rms_state = 0.0;
         self.sc_hp_state_l = 0.0;
         self.sc_hp_state_r = 0.0;
+        self.sc_hp_prev_l = 0.0;
+        self.sc_hp_prev_r = 0.0;
     }
 }
 

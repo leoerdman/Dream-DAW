@@ -107,6 +107,14 @@ impl DelayProcessor {
             && (sample_rate - self.sample_rate).abs() > 0.5
         {
             self.sample_rate = sample_rate;
+            // Resize buffers if the new rate requires more space.
+            let required_size = (sample_rate * MAX_DELAY_SECONDS) as usize + 1;
+            if required_size > self.buf_size {
+                self.buf_l.resize(required_size, 0.0);
+                self.buf_r.resize(required_size, 0.0);
+                self.buf_size = required_size;
+                self.write_pos = self.write_pos % self.buf_size;
+            }
             self.update_filter();
             self.update_delay_l();
             self.update_delay_r();

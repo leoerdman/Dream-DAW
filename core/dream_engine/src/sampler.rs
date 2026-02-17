@@ -169,13 +169,18 @@ impl AdsrEnvelope {
 
         // 1ms minimum for any stage to prevent divide-by-zero
         let attack_samples = params.attack.max(0.001) * sr;
-        let decay_samples = params.decay.max(0.001) * sr;
-        let release_samples = params.release.max(0.001) * sr;
 
+        // Attack is linear ramp (standard practice)
         self.attack_rate = 1.0 / attack_samples;
-        self.decay_rate = 1.0 / decay_samples;
+
+        // Decay/Release use exponential one-pole coefficients.
+        // coeff = exp(-1/(time * sr)) gives ~60dB of change in `time` seconds.
+        let decay_time = params.decay.max(0.001);
+        let release_time = params.release.max(0.001);
+        self.decay_rate = (-1.0 / (decay_time * sr)).exp();
+        self.release_rate = (-1.0 / (release_time * sr)).exp();
+
         self.sustain_level = params.sustain.clamp(0.0, 1.0);
-        self.release_rate = 1.0 / release_samples;
     }
 
     /// Trigger note-on — starts the attack phase.
@@ -209,7 +214,9 @@ impl AdsrEnvelope {
                 }
             }
             EnvelopeStage::Decay => {
-                self.level -= self.decay_rate * (self.level - self.sustain_level);
+                // Exponential decay: level converges to sustain in the specified time.
+                self.level = self.sustain_level
+                    + (self.level - self.sustain_level) * self.decay_rate;
                 if self.level <= self.sustain_level + 0.0001 {
                     self.level = self.sustain_level;
                     self.stage = EnvelopeStage::Sustain;
@@ -219,7 +226,8 @@ impl AdsrEnvelope {
                 self.level = self.sustain_level;
             }
             EnvelopeStage::Release => {
-                self.level -= self.release_rate * self.level;
+                // Exponential release: level converges to 0 in the specified time.
+                self.level *= self.release_rate;
                 if self.level < 0.0001 {
                     self.level = 0.0;
                     self.stage = EnvelopeStage::Idle;

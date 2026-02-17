@@ -314,6 +314,9 @@ impl OfflineBouncer {
             let mut mp3_writer =
                 Mp3Writer::create_streaming(&self.config.output_path, self.config.sample_rate)
                     .map_err(|e| BounceError::WriteError(e.to_string()))?;
+            // Pre-allocate L/R scratch buffers — reused every chunk (zero per-iteration alloc).
+            let mut left = Vec::with_capacity(OFFLINE_BUFFER_FRAMES);
+            let mut right = Vec::with_capacity(OFFLINE_BUFFER_FRAMES);
 
             while frames_rendered < total_frames {
                 if self.cancel_flag.load(Ordering::SeqCst) {
@@ -334,8 +337,8 @@ impl OfflineBouncer {
                     clip_pool,
                 );
 
-                let mut left = Vec::with_capacity(chunk_frames);
-                let mut right = Vec::with_capacity(chunk_frames);
+                left.clear();
+                right.clear();
                 for i in 0..chunk_frames {
                     let base = i * OFFLINE_CHANNELS;
                     let l = interleaved_buf[base] * gain * master_gain;

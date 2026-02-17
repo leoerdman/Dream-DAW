@@ -16,7 +16,7 @@ import { create } from 'zustand';
 import throttle from 'lodash.throttle';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import * as engine from '@/shared/api/engine';
-import { frameToBeat, secondsToBeat } from '@/shared/lib/audioMath';
+import { frameToBeat } from '@/shared/lib/audioMath';
 import type {
     TransportState,
     MeteringSnapshot,
@@ -116,6 +116,8 @@ const pendingVolumeValues = new Map<number, number>();
 const pendingPanValues = new Map<number, number>();
 let pendingMasterVolume: number | null = null;
 let projectFetchSeq = 0;
+/** Timestamp (ms) until which telemetry BPM updates are suppressed (BUG-3 fix). */
+let _bpmPendingUntil = 0;
 const PROJECT_HISTORY_WINDOW = 256;
 const PROJECT_HISTORY_SYNC_EVERY_TICKS = 15; // telemetry is ~30fps
 const DEBUG_PROJECT_FETCH =
@@ -348,6 +350,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
         // Keep transport + project tempo in sync to avoid frame↔beat mismatches
         // during drag/move/loop calculations before the next project refresh.
         set((s) => ({ transport: { ...s.transport, bpm }, projectBpm: bpm }));
+        // BUG-3 fix: suppress telemetry BPM overwrites for 500ms so the
+        // optimistic value isn't immediately flickered back to the old BPM.
+        _bpmPendingUntil = Date.now() + 500;
         try {
             await engine.setBpm(bpm);
             // Backend mutates pulse map + retimes persisted project structures.
@@ -689,7 +694,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     pan: track.pan,
                     is_mute: track.is_mute,
                     is_solo: track.is_solo,
-                    is_armed: (track as Record<string, unknown>).is_armed as boolean ?? false,
+                    // BUG-1 fix: use Boolean() for runtime coercion instead of `as boolean`
+                    is_armed: Boolean((track as Record<string, unknown>).is_armed ?? false),
                     height: Number((track as Record<string, unknown>).height ?? 80),
                     output:
                         (track.output_destination_id && track.output_destination_id.length > 0
@@ -701,10 +707,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                             : ((track as Record<string, unknown>).input as string)) || 'none',
                     parent_track_id: (track as Record<string, unknown>).parent_track_id as string | null | undefined,
                     child_track_ids: ((track as Record<string, unknown>).child_track_ids as string[] | undefined) ?? [],
-                    is_expanded: ((track as Record<string, unknown>).is_expanded as boolean | undefined) ?? true,
+                    is_expanded: Boolean((track as Record<string, unknown>).is_expanded ?? true),
                     effects: track.effects ?? [],
                     instrument: track.instrument ?? null,
-                    sampler: (track as Record<string, unknown>).sampler as ProjectTrack['sampler'] ?? null,
+                    sampler: ((track as Record<string, unknown>).sampler as ProjectTrack['sampler']) ?? null,
                 });
 
                 for (const clip of track.clips) {
@@ -716,24 +722,24 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     const sourceOffsetFrames = Math.max(0, toFiniteNumber(clip.source_offset?.sample_frame ?? 0, 0));
                     const fadeInFrames = Math.max(0, toFiniteNumber((clip as Record<string, unknown>).fade_in_frames ?? ((clip as Record<string, unknown>).fadeIn ?? 0), 0));
                     const fadeOutFrames = Math.max(0, toFiniteNumber((clip as Record<string, unknown>).fade_out_frames ?? ((clip as Record<string, unknown>).fadeOut ?? 0), 0));
-                    const sourceSeconds = warpSourceDurationFrames / sr;
                     const hasAudioPath = !!(clip.file_path && clip.file_path.trim().length > 0);
                     const treatAsMidi = isMidiTrack;
+                    // BUG-6 fix: cache color resolution instead of calling twice
+                    const clipColor = resolveTrackColor(clip.color_hex ?? clip.color_override);
 
                     timelineClips.push({
                         id: clip.id,
                         name: clip.name,
                         trackIndex: trackIdx,
                         startBeat: frameToBeat(posFrames, bpm, sr),
-                        durationBeats: isWarped
-                            ? secondsToBeat(sourceSeconds, warpBaseBpm)
-                            : frameToBeat(durFrames, bpm, sr),
+                        // BUG-2 fix: always use project BPM for timeline duration.
+                        // durFrames already represents the timeline extent (Rust engine
+                        // handles warp stretching via playback_rate in render_callback).
+                        durationBeats: frameToBeat(durFrames, bpm, sr),
                         // Editor mode must follow track type:
                         // MIDI tracks -> piano roll, Audio tracks -> sample editor.
                         type: treatAsMidi ? 'midi' : 'audio',
-                        color: resolveTrackColor(clip.color_hex ?? clip.color_override) !== '#667788'
-                            ? resolveTrackColor(clip.color_hex ?? clip.color_override)
-                            : trackColor,
+                        color: clipColor !== '#667788' ? clipColor : trackColor,
                         filePath: treatAsMidi ? undefined : clip.file_path,
                         durationSamples: durFrames,
                         isWarped,
@@ -744,7 +750,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         fadeIn: fadeInFrames,
                         fadeOut: fadeOutFrames,
                         isOffline: treatAsMidi ? false : (hasAudioPath ? (clip.is_offline ?? false) : false),
-                        muted: (clip as Record<string, unknown>).is_muted as boolean ?? false,
+                        // BUG-1 fix: Boolean() runtime coercion
+                        muted: Boolean((clip as Record<string, unknown>).is_muted ?? false),
                     });
                 }
 
@@ -753,6 +760,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     const durFrames = Math.max(1, toFiniteNumber(clip.duration.sample_frame, 1));
                     const fadeInFrames = Math.max(0, toFiniteNumber((clip as Record<string, unknown>).fade_in_frames ?? ((clip as Record<string, unknown>).fadeIn ?? 0), 0));
                     const fadeOutFrames = Math.max(0, toFiniteNumber((clip as Record<string, unknown>).fade_out_frames ?? ((clip as Record<string, unknown>).fadeOut ?? 0), 0));
+                    // BUG-6 fix: cache color resolution
+                    const midiClipColor = resolveTrackColor(clip.color_hex ?? clip.color_override);
                     timelineClips.push({
                         id: clip.id,
                         name: clip.name,
@@ -760,14 +769,13 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         startBeat: frameToBeat(posFrames, bpm, sr),
                         durationBeats: frameToBeat(durFrames, bpm, sr),
                         type: 'midi',
-                        color: resolveTrackColor(clip.color_hex ?? clip.color_override) !== '#667788'
-                            ? resolveTrackColor(clip.color_hex ?? clip.color_override)
-                            : trackColor,
+                        color: midiClipColor !== '#667788' ? midiClipColor : trackColor,
                         durationSamples: durFrames,
                         sourceOffset: 0,
                         fadeIn: fadeInFrames,
                         fadeOut: fadeOutFrames,
-                        muted: (clip as Record<string, unknown>).is_muted as boolean ?? false,
+                        // BUG-1 fix: Boolean() runtime coercion
+                        muted: Boolean((clip as Record<string, unknown>).is_muted ?? false),
                         midiNotes: (clip.notes ?? []).map((note, idx) => ({
                             id: `${clip.id}:${idx}:${note.pitch}:${note.start_frame}`,
                             pitch: note.pitch,
@@ -899,17 +907,25 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     const nextTransport = event.payload.transport;
                     const nextMeters = event.payload.meters;
                     const prev = get().transport;
+
+                    // BUG-3 fix: suppress telemetry BPM overwrites while user's
+                    // optimistic setBpm update is still pending (avoids flicker).
+                    const bpmProtected = Date.now() < _bpmPendingUntil;
+                    const effectiveTransport = bpmProtected
+                        ? { ...nextTransport, bpm: prev.bpm }
+                        : nextTransport;
+
                     const transportChanged =
-                        prev.is_playing !== nextTransport.is_playing ||
-                        prev.position_beats !== nextTransport.position_beats ||
-                        prev.position_frames !== nextTransport.position_frames ||
-                        prev.bpm !== nextTransport.bpm ||
-                        prev.loop_enabled !== nextTransport.loop_enabled ||
-                        prev.loop_start !== nextTransport.loop_start ||
-                        prev.loop_end !== nextTransport.loop_end;
+                        prev.is_playing !== effectiveTransport.is_playing ||
+                        prev.position_beats !== effectiveTransport.position_beats ||
+                        prev.position_frames !== effectiveTransport.position_frames ||
+                        prev.bpm !== effectiveTransport.bpm ||
+                        prev.loop_enabled !== effectiveTransport.loop_enabled ||
+                        prev.loop_start !== effectiveTransport.loop_start ||
+                        prev.loop_end !== effectiveTransport.loop_end;
 
                     if (transportChanged) {
-                        set({ transport: nextTransport, meters: nextMeters, connected: true, lastError: null });
+                        set({ transport: effectiveTransport, meters: nextMeters, connected: true, lastError: null });
                     } else if (!get().connected) {
                         set({ meters: nextMeters, connected: true, lastError: null });
                     } else {

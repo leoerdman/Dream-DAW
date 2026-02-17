@@ -198,9 +198,10 @@ impl RecordingSession {
             .default_input_device()
             .ok_or(RecordingError::NoInputDevice)?;
 
+        // BUG-4 fix: cpal::Device exposes `.name()` → Result<String>,
+        // not `.description()`. Use the correct API.
         let device_name = device
-            .description()
-            .map(|d| d.name().to_string())
+            .name()
             .unwrap_or_else(|_| "Unknown".to_string());
         info!("[Recording] Input device: {}", device_name);
 
@@ -546,7 +547,9 @@ fn recording_worker(
                     sample_rate,
                     ch,
                     bits_per_sample,
-                    data_bytes as u32,
+                    // Cap at u32::MAX to prevent silent overflow corruption.
+                    // WAV spec uses u32 for data chunk size (~4GB max).
+                    data_bytes.min(u32::MAX as u64) as u32,
                 )
                 .map_err(|e| RecordingError::IoError(format!("Header flush failed: {e}")))?;
 
@@ -576,12 +579,19 @@ fn recording_worker(
     // ── Finalize ────────────────────────────────────────────────
     // Write final header with exact data size
     let final_data_bytes = total_samples_written * 4;
+    if final_data_bytes > u32::MAX as u64 {
+        log::warn!(
+            "[RecordingWorker] Recording data exceeds 4GB WAV limit ({} bytes). \
+             Consider using a shorter recording or splitting files.",
+            final_data_bytes
+        );
+    }
     write_wav_header(
         &mut file,
         sample_rate,
         ch,
         bits_per_sample,
-        final_data_bytes as u32,
+        final_data_bytes.min(u32::MAX as u64) as u32,
     )
     .map_err(|e| RecordingError::IoError(format!("Final header write failed: {e}")))?;
 

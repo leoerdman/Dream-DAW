@@ -232,6 +232,14 @@ const IID_FUNKNOWN: Tuid = [
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46,
 ];
 
+/// Module-level thread-local guard: prevents `plug_frame_resize_view` from
+/// calling `onSize()` back into the plugin while `attached()` is still running.
+/// Without this, Serum2 crashes (SIGSEGV) because `attached()` → `resizeView`
+/// → `onSize()` corrupts its internal state during initialization.
+thread_local! {
+    static EDITOR_IN_ATTACHED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 // IComponentHandler IID: {93A0BEA3-0BD0-45DB-8E89-0B0CC1E46AC6}
 const IID_ICOMPONENT_HANDLER: Tuid = [
     0x93, 0xA0, 0xBE, 0xA3, 0x0B, 0xD0, 0x45, 0xDB, 0x8E, 0x89, 0x0B, 0x0C, 0xC1, 0xE4, 0x6A, 0xC6,
@@ -1865,6 +1873,14 @@ unsafe extern "C" fn plug_frame_query_interface(
     iid: *const Tuid,
     obj: *mut *mut c_void,
 ) -> Tresult {
+    // File-based diag (Tauri eats stderr)
+    {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/dream-daw-diag.txt") {
+            let _ = writeln!(f, "[plug_frame_QI] this={:p}, iid_null={}, obj_null={}", this, iid.is_null(), obj.is_null());
+            let _ = f.flush();
+        }
+    }
     if this.is_null() || iid.is_null() || obj.is_null() {
         return K_NO_INTERFACE;
     }
@@ -1894,6 +1910,13 @@ unsafe extern "C" fn plug_frame_query_interface(
 }
 
 unsafe extern "C" fn plug_frame_add_ref(this: *mut c_void) -> u32 {
+    {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/dream-daw-diag.txt") {
+            let _ = writeln!(f, "[plug_frame_addRef] this={:p}", this);
+            let _ = f.flush();
+        }
+    }
     if this.is_null() { return 0; }
     let frame = unsafe { &mut *(this as *mut HostPlugFrame) };
     frame.ref_count += 1;
@@ -1923,6 +1946,14 @@ unsafe extern "C" fn plug_frame_resize_view(
     view: *mut c_void,
     new_rect: *mut ViewRect,
 ) -> Tresult {
+    // File-based diag
+    {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/dream-daw-diag.txt") {
+            let _ = writeln!(f, "[plug_frame_resize_view] this={:p}, view={:p}, rect_null={}", this, view, new_rect.is_null());
+            let _ = f.flush();
+        }
+    }
     use std::cell::Cell;
     thread_local! {
         static IN_RESIZE: Cell<bool> = const { Cell::new(false) };
@@ -1960,7 +1991,13 @@ unsafe extern "C" fn plug_frame_resize_view(
 
     // BUG-E4 FIX: Notify the plugin that its view was resized.
     // Set the recursion guard BEFORE calling onSize to prevent re-entry.
-    if !view.is_null() {
+    // SERUM2 CRASH FIX: Skip onSize() entirely while inside attached().
+    // Serum2 calls resizeView during attached(), and calling onSize() back
+    // into the plugin while it's still initializing corrupts internal state
+    // → SIGSEGV. The plugin will get its final size via our explicit
+    // onSize() call after attached() returns.
+    let in_attached = EDITOR_IN_ATTACHED.with(|c| c.get());
+    if !view.is_null() && !in_attached {
         IN_RESIZE.with(|c| c.set(true));
         let plug_view = view as *mut IPlugView;
         unsafe {
@@ -2844,6 +2881,15 @@ impl Vst3Instance {
             send(content_view, sel_set_wants_layer, 1); // YES = 1
             info!("[VST3-EDITOR] Step 5b: setWantsLayer:YES on contentView");
 
+            // ── CRITICAL: Make the window visible BEFORE attached() ──
+            // VSTGUI's CFrame creates an IPlatformFrame that depends on the
+            // underlying NSView being in a displayable window with a valid
+            // backing store. If the window isn't on-screen, the platform
+            // frame pointer is NULL → Serum2 dereferences offset 0x60 → SIGSEGV.
+            window.center();
+            window.makeKeyAndOrderFront_(nil);
+            info!("[VST3-EDITOR] Step 5c: window centered + makeKeyAndOrderFront");
+
             // ── Wire IPlugFrame for editor resize notifications ──
             // CRITICAL: setFrame() MUST be called BEFORE attached() per VST3 SDK spec.
             // Plugins (e.g. Serum2) may access the IPlugFrame during attached() for
@@ -2860,13 +2906,84 @@ impl Vst3Instance {
             info!("[VST3-EDITOR] Step 6: setFrame returned {}", set_frame_result);
             self.plug_frame = Some(frame_box);
 
-            eprintln!("[CRASH-DIAG] >>> attached about to call, content_view={:p}", content_view);
-            info!("[VST3-EDITOR] Step 7: Calling attached(contentView, 'NSView')...");
+            // ── CRITICAL: Create a dedicated child NSView for plugin embedding ──
+            // Professional VST3 hosts (REAPER, Bitwig, Studio One) NEVER pass the
+            // window's contentView directly to attached(). Instead, they create a
+            // dedicated child NSView with exact plugin dimensions and proper layer
+            // backing. VSTGUI's CFrame::open() creates an IPlatformFrame backed by
+            // this view. If we pass contentView directly, the contentView may have
+            // incompatible autoresizing behavior, conflicting subviews (from the
+            // window chrome), or a frame that doesn't match the plugin's expected
+            // dimensions — causing VSTGUI's internal init to fail → NULL dereference.
+            let sel_alloc = sel_registerName(b"alloc\0".as_ptr() as *const std::os::raw::c_char);
+            let sel_init_with_frame = sel_registerName(b"initWithFrame:\0".as_ptr() as *const std::os::raw::c_char);
+            let sel_add_subview = sel_registerName(b"addSubview:\0".as_ptr() as *const std::os::raw::c_char);
+            let sel_set_autoresizing = sel_registerName(b"setAutoresizingMask:\0".as_ptr() as *const std::os::raw::c_char);
+
+            unsafe extern "C" {
+                fn objc_getClass(name: *const std::os::raw::c_char) -> id;
+                fn objc_msgSend();
+            }
+
+            let nsview_class = objc_getClass(b"NSView\0".as_ptr() as *const std::os::raw::c_char);
+
+            // Allocate a new NSView
+            type MsgSendId = unsafe extern "C" fn(id, *mut c_void) -> id;
+            let send_id: MsgSendId = std::mem::transmute(objc_msgSend as *const ());
+            let plugin_host_view = send_id(nsview_class, sel_alloc);
+
+            // initWithFrame: with the plugin's requested size
+            let plugin_frame = NSRect::new(
+                NSPoint::new(0.0, 0.0),
+                NSSize::new(width, height),
+            );
+            type MsgSendInitFrame = unsafe extern "C" fn(id, *mut c_void, NSRect) -> id;
+            let send_init: MsgSendInitFrame = std::mem::transmute(objc_msgSend as *const ());
+            let plugin_host_view = send_init(plugin_host_view, sel_init_with_frame, plugin_frame);
+
+            if plugin_host_view == nil {
+                let _ = ((*(*plug_view).vtbl).set_frame)(plug_view, ptr::null_mut());
+                self.plug_frame.take();
+                let _ = ((*(*plug_view).vtbl).release)(plug_view);
+                window.close();
+                return Err(PluginError::InvalidState(
+                    "Failed to create plugin host NSView".to_string(),
+                ));
+            }
+
+            // Enable layer-backing on the plugin host view
+            let sel_set_wants_layer2 = sel_registerName(
+                b"setWantsLayer:\0".as_ptr() as *const std::os::raw::c_char,
+            );
+            // MsgSendBool already defined above
+            let send_bool2: MsgSendBool = std::mem::transmute(objc_msgSend as *const ());
+            send_bool2(plugin_host_view, sel_set_wants_layer2, 1);
+
+            // Set autoresizing mask: width + height sizable (18 = NSViewWidthSizable | NSViewHeightSizable)
+            type MsgSendULong = unsafe extern "C" fn(id, *mut c_void, u64);
+            let send_ulong: MsgSendULong = std::mem::transmute(objc_msgSend as *const ());
+            send_ulong(plugin_host_view, sel_set_autoresizing, 18); // NSViewWidthSizable | NSViewHeightSizable
+
+            // Add the plugin host view as a subview of contentView
+            type MsgSendVoidId = unsafe extern "C" fn(id, *mut c_void, id);
+            let send_void_id: MsgSendVoidId = std::mem::transmute(objc_msgSend as *const ());
+            send_void_id(content_view, sel_add_subview, plugin_host_view);
+
+            info!("[VST3-EDITOR] Step 6b: Created plugin host NSView {:p} ({}x{}), added to contentView {:p}",
+                  plugin_host_view, width, height, content_view);
+
+            eprintln!("[CRASH-DIAG] >>> attached about to call, plugin_host_view={:p} (child of content_view={:p})", plugin_host_view, content_view);
+            info!("[VST3-EDITOR] Step 7: Calling attached(pluginHostView, 'NSView')...");
+
+            // Set IN_ATTACHED guard so resizeView callbacks during attached()
+            // don't call onSize() back into the plugin (prevents SIGSEGV).
+            EDITOR_IN_ATTACHED.with(|c| c.set(true));
             let attached = ((*(*plug_view).vtbl).attached)(
                 plug_view,
-                content_view as *mut c_void,
+                plugin_host_view as *mut c_void,
                 b"NSView\0".as_ptr() as *const c_char,
             );
+            EDITOR_IN_ATTACHED.with(|c| c.set(false));
             eprintln!("[CRASH-DIAG] <<< attached returned {}", attached);
             info!("[VST3-EDITOR] Step 7: attached returned {}", attached);
             if attached != K_RESULT_OK {
@@ -2880,9 +2997,7 @@ impl Vst3Instance {
                 )));
             }
 
-            // BUG-E6 FIX: Center the window on screen, then bring it forward.
-            info!("[VST3-EDITOR] Step 8: center + makeKeyAndOrderFront...");
-            window.center();
+            // Window was already centered + ordered front before attached().
 
             // ── CRITICAL: Notify plugin of its initial viewport size ──
             // After attached(), VSTGUI plugins need an explicit onSize() call

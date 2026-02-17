@@ -514,9 +514,21 @@ fn open_plugin_window_for_slot(
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
 
+    log::info!(
+        "[IPC] open_plugin_window_for_slot START track={} slot={}",
+        track_id,
+        slot_id
+    );
+
     let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
     let slot = find_slot_on_track(&project, track_uuid, slot_uuid)
         .ok_or_else(|| format!("Plugin slot not found on track {}: {}", track_id, slot_id))?;
+
+    log::info!(
+        "[IPC] open_plugin_window_for_slot plugin_id='{}' source='{}'",
+        slot.plugin_id,
+        if slot.plugin_id.starts_with("internal://") { "internal" } else { "external" }
+    );
 
     if slot.plugin_id.starts_with("internal://") {
         return Err("Internal device has no native external editor".to_string());
@@ -525,7 +537,12 @@ fn open_plugin_window_for_slot(
     // If this plugin is currently hosted in sandbox, route editor open to the
     // sandbox daemon first. This is the only path that opens the real native
     // GUI for sandboxed instances.
-    if plugin_host_state.open_sandbox_editor(&slot.plugin_id)? {
+    let sandbox_result = plugin_host_state.open_sandbox_editor(&slot.plugin_id)?;
+    log::info!(
+        "[IPC] open_plugin_window_for_slot sandbox_editor_result={}",
+        sandbox_result
+    );
+    if sandbox_result {
         log::info!(
             "[IPC] open_plugin_window_for_slot(track={}, slot={}) -> sandbox editor open",
             track_id,

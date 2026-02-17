@@ -100,6 +100,10 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
     }, [onComplete, startTelemetryLoop])
 
     useEffect(() => {
+        // Reset cancellation flag on (re-)mount — required for React StrictMode
+        // which unmounts → remounts in dev, leaving the ref stale at `true`.
+        cancelledRef.current = false
+
         const steps = [
             { text: 'Loading Core Modules...', delay: 500, pct: 20 },
             { text: 'Initializing DSP Pipeline...', delay: 1100, pct: 45 },
@@ -116,7 +120,7 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
         const dismissTimer = setTimeout(dismiss, minDuration)
 
         return () => {
-            cancelledRef.current = true // BUG-5: cancel in-flight dismiss() work
+            cancelledRef.current = true // cancel in-flight dismiss() work
             timers.forEach(clearTimeout)
             clearTimeout(dismissTimer)
         }

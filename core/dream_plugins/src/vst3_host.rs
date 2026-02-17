@@ -374,6 +374,7 @@ struct IPluginFactoryVtbl {
     ) -> Tresult,
 }
 
+
 #[repr(C)]
 struct IComponent {
     vtbl: *const IComponentVtbl,
@@ -1835,6 +1836,17 @@ impl Drop for Vst3Instance {
 }
 
 impl Vst3Instance {
+    /// VST3 COM bootstrap following the official SDK initialization sequence:
+    ///
+    /// 1. Call `GetPluginFactory` to obtain `IPluginFactory`.
+    /// 2. Enumerate classes and find the Audio Effect class (category = "Audio Module Class").
+    /// 3. Create the class via `IPluginFactory::createInstance` using `IID_ICOMPONENT`.
+    ///    This is the PRIMARY interface — every VST3 Audio Effect implements IComponent.
+    /// 4. Call `IComponent::initialize()` with a valid IHostApplication.
+    /// 5. QueryInterface the component for `IAudioProcessor`.
+    /// 6. Obtain `IEditController`:
+    ///    a. `IComponent::getControllerClassId()` → `IPluginFactory::createInstance(cid, IID_IEDIT_CONTROLLER)`.
+    ///    b. If that fails, QI the component itself for `IEditController` (single-component design).
     fn init_vst3_com(
         library: &libloading::Library,
     ) -> Result<(usize, usize, usize, usize), PluginError> {
@@ -1851,10 +1863,18 @@ impl Vst3Instance {
             ));
         }
 
-        let mut processor_ptr: *mut c_void = ptr::null_mut();
         let mut component_ptr: *mut c_void = ptr::null_mut();
+        let mut processor_ptr: *mut c_void = ptr::null_mut();
 
         let count = unsafe { ((*(*factory).vtbl).count_classes)(factory) }.max(0);
+        info!("[VST3-COM] Factory returned {} classes", count);
+
+        // ── Step 1: Find and create the IComponent ──────────────────────
+        //
+        // Per VST3 spec, the factory registers audio module classes.  We
+        // iterate all classes and try to createInstance with IID_ICOMPONENT
+        // first (the standard approach).  If that fails we fall back to
+        // IID_IAUDIO_PROCESSOR for compatibility with non-standard plugins.
         for idx in 0..count {
             let mut cls = PClassInfo {
                 cid: [0; 16],
@@ -1868,19 +1888,17 @@ impl Vst3Instance {
                 continue;
             }
 
-            let proc_ok = unsafe {
-                ((*(*factory).vtbl).create_instance)(
-                    factory,
-                    &cls.cid,
-                    IID_IAUDIO_PROCESSOR.as_ptr() as *const c_char,
-                    &mut processor_ptr,
-                )
-            } == K_RESULT_OK
-                && !processor_ptr.is_null();
-            if !proc_ok {
-                continue;
-            }
+            let class_name = {
+                let end = cls.name.iter().position(|&c| c == 0).unwrap_or(cls.name.len());
+                String::from_utf8_lossy(&cls.name[..end].iter().map(|&c| c as u8).collect::<Vec<u8>>()).to_string()
+            };
+            let class_category = {
+                let end = cls.category.iter().position(|&c| c == 0).unwrap_or(cls.category.len());
+                String::from_utf8_lossy(&cls.category[..end].iter().map(|&c| c as u8).collect::<Vec<u8>>()).to_string()
+            };
+            info!("[VST3-COM] Class #{}: name='{}' category='{}'", idx, class_name, class_category);
 
+            // Strategy A: create via IID_ICOMPONENT (the standard approach)
             let comp_ok = unsafe {
                 ((*(*factory).vtbl).create_instance)(
                     factory,
@@ -1891,12 +1909,70 @@ impl Vst3Instance {
             } == K_RESULT_OK
                 && !component_ptr.is_null();
 
-            if !comp_ok {
-                component_ptr = ptr::null_mut();
+            if comp_ok {
+                info!("[VST3-COM]   -> IComponent (factory, Strategy A): OK ({:p})", component_ptr);
+
+                // QI the component for IAudioProcessor
+                let qi_result = unsafe {
+                    let comp_as_unk = component_ptr as *mut FUnknown;
+                    ((*(*comp_as_unk).vtbl).query_interface)(
+                        comp_as_unk,
+                        IID_IAUDIO_PROCESSOR.as_ptr() as *const c_char,
+                        &mut processor_ptr,
+                    )
+                };
+                if qi_result == K_RESULT_OK && !processor_ptr.is_null() {
+                    info!("[VST3-COM]   -> IAudioProcessor (QI from component): OK ({:p})", processor_ptr);
+                    break;
+                } else {
+                    info!("[VST3-COM]   -> IAudioProcessor (QI from component): FAILED (result={})", qi_result);
+                    // Release the component and try next class
+                    unsafe {
+                        let comp_as_unk = component_ptr as *mut FUnknown;
+                        ((*(*comp_as_unk).vtbl).release)(comp_as_unk);
+                    }
+                    component_ptr = ptr::null_mut();
+                    processor_ptr = ptr::null_mut();
+                    continue;
+                }
             }
-            break;
+
+            // Strategy B: create via IID_IAUDIO_PROCESSOR (legacy/compat)
+            let proc_ok = unsafe {
+                ((*(*factory).vtbl).create_instance)(
+                    factory,
+                    &cls.cid,
+                    IID_IAUDIO_PROCESSOR.as_ptr() as *const c_char,
+                    &mut processor_ptr,
+                )
+            } == K_RESULT_OK
+                && !processor_ptr.is_null();
+
+            if proc_ok {
+                info!("[VST3-COM]   -> IAudioProcessor (factory, Strategy B): OK ({:p})", processor_ptr);
+
+                // QI the processor for IComponent
+                let qi_result = unsafe {
+                    let proc_as_unk = processor_ptr as *mut FUnknown;
+                    ((*(*proc_as_unk).vtbl).query_interface)(
+                        proc_as_unk,
+                        IID_ICOMPONENT.as_ptr() as *const c_char,
+                        &mut component_ptr,
+                    )
+                };
+                if qi_result == K_RESULT_OK && !component_ptr.is_null() {
+                    info!("[VST3-COM]   -> IComponent (QI from processor): OK ({:p})", component_ptr);
+                } else {
+                    info!("[VST3-COM]   -> IComponent (QI from processor): FAILED");
+                    component_ptr = ptr::null_mut();
+                }
+                break;
+            }
+
+            info!("[VST3-COM]   -> Both strategies failed for class #{}", idx);
         }
 
+        // We require at least a processor (either via factory or QI)
         if processor_ptr.is_null() {
             unsafe {
                 ((*(*factory).vtbl).release)(factory);
@@ -1906,24 +1982,30 @@ impl Vst3Instance {
             ));
         }
 
+        // ── Step 2: Initialize IComponent ───────────────────────────────
+        if !component_ptr.is_null() {
+            let component = component_ptr as *mut IComponent;
+            let init_result = unsafe {
+                ((*(*component).vtbl).initialize)(component, host_application_ptr())
+            };
+            info!("[VST3-COM] IComponent::initialize() result: {}", init_result);
+        }
+
+        // ── Step 3: Obtain IEditController ──────────────────────────────
         let mut controller_ptr: *mut c_void = ptr::null_mut();
+
         if !component_ptr.is_null() {
             let component = component_ptr as *mut IComponent;
 
-            // VST3 spec: IComponent::initialize() MUST be called before
-            // getControllerClassId(). Without this, many plugins (Serum2,
-            // FabFilter, Kontakt, etc.) return kNotImplemented because
-            // their internal state is not yet configured.
-            unsafe {
-                let _ = ((*(*component).vtbl).initialize)(component, host_application_ptr());
-            }
-
+            // 3a. getControllerClassId → createInstance
             let mut controller_cid: Tuid = [0; 16];
             let cid_ok = unsafe {
                 ((*(*component).vtbl).get_controller_class_id)(component, &mut controller_cid)
             } == K_RESULT_OK;
+            info!("[VST3-COM] getControllerClassId: ok={}", cid_ok);
+
             if cid_ok {
-                let _ = unsafe {
+                let create_result = unsafe {
                     ((*(*factory).vtbl).create_instance)(
                         factory,
                         &controller_cid,
@@ -1931,22 +2013,79 @@ impl Vst3Instance {
                         &mut controller_ptr,
                     )
                 };
+                if create_result == K_RESULT_OK && !controller_ptr.is_null() {
+                    info!(
+                        "[VST3-COM] IEditController (factory by CID): OK ({:p})",
+                        controller_ptr
+                    );
+                    // Initialize the separate controller
+                    let ctrl = controller_ptr as *mut IEditController;
+                    unsafe {
+                        let _ = ((*(*ctrl).vtbl).initialize)(ctrl, host_application_ptr());
+                    }
+                } else {
+                    info!(
+                        "[VST3-COM] IEditController (factory by CID): FAILED (result={})",
+                        create_result
+                    );
+                    controller_ptr = ptr::null_mut();
+                }
             }
 
-            // Single-component fallback: many VST3 plugins implement both
-            // IComponent and IEditController in the same class. If we
-            // couldn't create a separate controller, query the component
-            // itself for the IEditController interface.
+            // 3b. Single-component fallback: QI component for IEditController
             if controller_ptr.is_null() {
-                let _ = unsafe {
+                let qi_result = unsafe {
                     ((*(*component).vtbl).query_interface)(
                         component,
                         IID_IEDIT_CONTROLLER.as_ptr() as *const c_char,
                         &mut controller_ptr,
                     )
                 };
+                if qi_result == K_RESULT_OK && !controller_ptr.is_null() {
+                    info!(
+                        "[VST3-COM] IEditController (QI from component): OK ({:p})",
+                        controller_ptr
+                    );
+                } else {
+                    info!(
+                        "[VST3-COM] IEditController (QI from component): FAILED (result={})",
+                        qi_result
+                    );
+                    controller_ptr = ptr::null_mut();
+                }
             }
         }
+
+        // 3c. Last-resort: QI processor directly for IEditController
+        if controller_ptr.is_null() && !processor_ptr.is_null() {
+            let qi_result = unsafe {
+                let proc_as_unk = processor_ptr as *mut FUnknown;
+                ((*(*proc_as_unk).vtbl).query_interface)(
+                    proc_as_unk,
+                    IID_IEDIT_CONTROLLER.as_ptr() as *const c_char,
+                    &mut controller_ptr,
+                )
+            };
+            if qi_result == K_RESULT_OK && !controller_ptr.is_null() {
+                info!(
+                    "[VST3-COM] IEditController (QI from processor, last-resort): OK ({:p})",
+                    controller_ptr
+                );
+            } else {
+                info!(
+                    "[VST3-COM] IEditController: ALL strategies failed — no editor support",
+                );
+                controller_ptr = ptr::null_mut();
+            }
+        }
+
+        info!(
+            "[VST3-COM] Final pointers: factory={:p} component={:p} processor={:p} controller={:p}",
+            factory as *const c_void,
+            component_ptr,
+            processor_ptr,
+            controller_ptr
+        );
 
         Ok((
             factory as usize,

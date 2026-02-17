@@ -1576,8 +1576,10 @@ export const DeviceRack = ({
                                         }
                                     }}
                                     onOpenGUI={async () => {
+                                        console.log('[DeviceRack] onOpenGUI clicked device:', device.id, 'name:', device.name, 'source:', device.source, 'pluginId:', device.pluginId);
                                         selectDevice(device.id, false);
                                         if (device.source === 'internal') {
+                                            console.log('[DeviceRack] onOpenGUI: toggling inline (internal device)');
                                             setInlineSettingsOpen((prev) => ({
                                                 ...prev,
                                                 [device.id]: !prev[device.id],
@@ -1585,17 +1587,26 @@ export const DeviceRack = ({
                                             statusClear();
                                             return;
                                         }
-                                        if (!selectedTrack) return;
+                                        if (!selectedTrack) {
+                                            console.warn('[DeviceRack] onOpenGUI: no selectedTrack, aborting');
+                                            return;
+                                        }
                                         try {
+                                            console.log('[DeviceRack] onOpenGUI: ensuring slot runtime active...');
                                             const status = await ensureSlotRuntimeActive(device.id);
-                                            if (!status) return;
+                                            console.log('[DeviceRack] onOpenGUI: ensureSlotRuntimeActive result:', status);
+                                            if (!status) {
+                                                console.warn('[DeviceRack] onOpenGUI: ensureSlotRuntimeActive returned null/false, aborting');
+                                                return;
+                                            }
                                             try {
+                                                console.log('[DeviceRack] onOpenGUI: calling openPluginWindowForSlot...');
                                                 await engineApi.openPluginWindowForSlot(selectedTrack.id, device.id);
+                                                console.log('[DeviceRack] onOpenGUI: openPluginWindowForSlot SUCCESS');
                                             } catch (slotErr) {
-                                                // Fallback path: some hosts can still resolve/open by plugin key
-                                                // even when slot-scoped editor routing fails.
                                                 console.warn('[DeviceRack] slot-scoped plugin UI open failed, retrying by plugin key:', slotErr);
                                                 await engineApi.openPluginWindow(device.pluginId);
+                                                console.log('[DeviceRack] onOpenGUI: openPluginWindow (fallback by key) SUCCESS');
                                             }
                                             statusClear();
                                         } catch (err) {

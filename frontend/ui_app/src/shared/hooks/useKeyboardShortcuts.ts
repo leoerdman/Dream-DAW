@@ -17,6 +17,7 @@ import * as engine from '@/shared/api/engine';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { beatToFrame, frameToBeat } from '@/shared/lib/audioMath';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -225,13 +226,12 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 const store = useEngineStore.getState();
                 const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
                 const sampleRate = store.projectSampleRate || store.transport.sample_rate || 44100;
-                const framesPerBeat = (60 / bpm) * sampleRate;
 
                 const startBeat = Math.min(marqueeSelection.startBeat, marqueeSelection.endBeat);
                 const endBeat = Math.max(marqueeSelection.startBeat, marqueeSelection.endBeat);
                 const durationBeats = Math.max(0.25, endBeat - startBeat);
-                const positionFrames = Math.max(0, Math.round(startBeat * framesPerBeat));
-                const durationFrames = Math.max(1, Math.round(durationBeats * framesPerBeat));
+                const positionFrames = Math.max(0, beatToFrame(startBeat, bpm, sampleRate));
+                const durationFrames = Math.max(1, beatToFrame(durationBeats, bpm, sampleRate));
 
                 const midiTrackIndices: number[] = [];
                 for (let i = minTrack; i <= maxTrack; i++) {
@@ -265,11 +265,10 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                     const store = useEngineStore.getState();
                     const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
                     const sampleRate = store.projectSampleRate || store.transport.sample_rate || 44100;
-                    const framesPerBeat = (60 / bpm) * sampleRate;
                     const splitBeat = Number.isFinite(editCursorBeat) && editCursorBeat >= 0
                         ? (editCursorBeat as number)
-                        : (playheadFrames / framesPerBeat);
-                    const splitFrame = Math.max(0, Math.round(splitBeat * framesPerBeat));
+                        : frameToBeat(playheadFrames, bpm, sampleRate);
+                    const splitFrame = Math.max(0, beatToFrame(splitBeat, bpm, sampleRate));
                     const hasThinMultiCursor = Boolean(marqueeSelection)
                         && Math.abs((marqueeSelection?.endBeat ?? 0) - (marqueeSelection?.startBeat ?? 0)) <= 1e-6
                         && marqueeSelection != null
@@ -341,18 +340,18 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                     .sort((a, b) => a.startBeat - b.startBeat);
                 if (selected.length === 0) return;
 
-                const bpm = Math.max(1, useEngineStore.getState().projectBpm || useEngineStore.getState().transport.bpm || 120);
+                const store = useEngineStore.getState();
+                const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
                 const minStart = Math.min(...selected.map((c) => c.startBeat));
                 const maxEnd = Math.max(...selected.map((c) => c.startBeat + c.durationBeats));
                 const spanBeats = Math.max(0.0001, maxEnd - minStart);
-                const sampleRate = useEngineStore.getState().projectSampleRate || 44100;
-                const framesPerBeat = (60 / bpm) * sampleRate;
+                const sampleRate = store.projectSampleRate || 44100;
 
                 try {
                     await Promise.all(
                         selected.map((clip) => {
                             const destBeat = clip.startBeat + spanBeats;
-                            const destFrames = Math.max(0, Math.round(destBeat * framesPerBeat));
+                            const destFrames = Math.max(0, beatToFrame(destBeat, bpm, sampleRate));
                             return engine.duplicateClip(clip.id, destFrames);
                         }),
                     );
@@ -411,10 +410,10 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 e.stopPropagation();
                 if (clipboardRef.current.length === 0) return;
 
-                const bpm = Math.max(1, useEngineStore.getState().projectBpm || useEngineStore.getState().transport.bpm || 120);
-                const sampleRate = useEngineStore.getState().projectSampleRate || 44100;
-                const framesPerBeat = (60 / bpm) * sampleRate;
-                const fallbackBeat = playheadFrames / framesPerBeat;
+                const store = useEngineStore.getState();
+                const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
+                const sampleRate = store.projectSampleRate || 44100;
+                const fallbackBeat = frameToBeat(playheadFrames, bpm, sampleRate);
                 const cursorBeat = editCursorBeat >= 0 ? editCursorBeat : fallbackBeat;
                 const firstBeat = clipboardRef.current[0].startBeat;
 
@@ -423,7 +422,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                         clipboardRef.current.map((clip) => {
                             const relative = clip.startBeat - firstBeat;
                             const destBeat = cursorBeat + relative;
-                            const destFrames = Math.max(0, Math.round(destBeat * framesPerBeat));
+                            const destFrames = Math.max(0, beatToFrame(destBeat, bpm, sampleRate));
                             return engine.duplicateClip(clip.id, destFrames);
                         }),
                     );
@@ -588,7 +587,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                     const store = useEngineStore.getState();
                     const bpm = store.projectBpm || store.transport.bpm || 120;
                     const sr = store.projectSampleRate || store.transport.sample_rate || 44100;
-                    const beatsToFrames = (beat: number) => Math.round((beat * 60 * sr) / bpm);
+                    const beatsToFrames = (beat: number) => beatToFrame(beat, bpm, sr);
                     const startBeat = Math.min(marqueeSelection.startBeat, marqueeSelection.endBeat);
                     const endBeat = Math.max(marqueeSelection.startBeat, marqueeSelection.endBeat);
                     if (endBeat - startBeat <= 1e-6) return;
@@ -628,8 +627,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 const hasMarqueeRange = Boolean(marqueeSelection) && marqueeEndBeat - marqueeStartBeat > 1e-6;
 
                 if (hasMarqueeRange) {
-                    const beatsToFrames = (beat: number) =>
-                        Math.round((beat * 60 * sr) / bpm);
+                    const beatsToFrames = (beat: number) => beatToFrame(beat, bpm, sr);
                     const startFrames = beatsToFrames(Math.max(0, marqueeStartBeat));
                     const endFrames = beatsToFrames(Math.max(marqueeStartBeat + 0.25, marqueeEndBeat));
                     store.setLoop(true, startFrames, endFrames);
@@ -675,8 +673,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 }
 
                 // Convert beats → frames
-                const beatsToFrames = (beat: number) =>
-                    Math.round((beat * 60 * sr) / bpm);
+                const beatsToFrames = (beat: number) => beatToFrame(beat, bpm, sr);
 
                 const startFrames = beatsToFrames(startBeat);
                 const endFrames = beatsToFrames(endBeat);

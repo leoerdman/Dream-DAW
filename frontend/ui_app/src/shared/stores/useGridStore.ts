@@ -116,7 +116,7 @@ export const useGridStore = create<GridStore>((set, get) => ({
 
     setDivision: (d: GridDivision) => {
         const nextFixed = d !== 'ADAPTIVE';
-        const nextNumerator = d === '1/1' ? 1 : 1;
+        const nextNumerator = 1;
         const nextDenominator = d === '1/1'
             ? 1
             : d === '1/2'

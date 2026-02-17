@@ -33,6 +33,8 @@ export interface WaveformDrawData {
 interface CacheEntry {
     data: WaveformPeaks;
     lastAccessed: number;
+    /** Cached draw data to avoid per-frame Float32Array allocation. */
+    lastDrawData?: { key: string; data: WaveformDrawData };
 }
 
 // ── Class ─────────────────────────────────────────────────────────────────
@@ -71,7 +73,7 @@ export class WaveformCache {
         const mip = entry.data.mip_levels[mipIdx];
         if (!mip || mip.peaks.length === 0) return null;
 
-        return this._extractDrawData(mip, entry.data, sourceOffset, durationSamples);
+        return this._extractDrawData(mip, entry.data, sourceOffset, durationSamples, entry);
     }
 
     /**
@@ -154,6 +156,7 @@ export class WaveformCache {
         _waveformMeta: WaveformPeaks,
         sourceOffset: number,
         durationSamples: number,
+        entry: CacheEntry,
     ): WaveformDrawData {
         const spp = mip.samples_per_peak;
         const totalPeaks = mip.peaks.length;
@@ -166,6 +169,12 @@ export class WaveformCache {
         );
         const count = Math.max(0, endPeak - startPeak);
 
+        // Cache key: avoid re-allocating Float32Arrays when the visible range hasn't changed
+        const cacheKey = `${startPeak}:${endPeak}:${spp}`;
+        if (entry.lastDrawData?.key === cacheKey) {
+            return entry.lastDrawData.data;
+        }
+
         const mins = new Float32Array(count);
         const maxs = new Float32Array(count);
 
@@ -175,7 +184,9 @@ export class WaveformCache {
             maxs[i] = peak.max;
         }
 
-        return { mins, maxs, samplesPerPeak: spp };
+        const drawData: WaveformDrawData = { mins, maxs, samplesPerPeak: spp };
+        entry.lastDrawData = { key: cacheKey, data: drawData };
+        return drawData;
     }
 
     /** Evict least-recently-used entries when cache exceeds budget. */

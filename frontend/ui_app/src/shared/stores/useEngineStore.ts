@@ -16,6 +16,7 @@ import { create } from 'zustand';
 import throttle from 'lodash.throttle';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import * as engine from '@/shared/api/engine';
+import { frameToBeat } from '@/shared/lib/audioMath';
 import type {
     TransportState,
     MeteringSnapshot,
@@ -562,71 +563,71 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             const historyCursor = get().projectHistoryCursor;
             const [project, projectHistoryDelta] = await Promise.all([
                 engine.getProject() as Promise<{
-                name?: string;
-                tracks: Array<{
-                    id: string;
-                    name: string;
-                    track_type: string;
-                    color: unknown;
-                    color_hex?: string | null;
-                    volume: number;
-                    pan: number;
-                    is_mute: boolean;
-                    is_solo: boolean;
-                    output_destination_id?: string | null;
-                    input_source_id?: string | null;
-                    parent_track_id?: string | null;
-                    child_track_ids?: string[];
-                    is_expanded?: boolean;
-                    effects?: Array<{
+                    name?: string;
+                    tracks: Array<{
                         id: string;
                         name: string;
-                        plugin_id: string;
-                        is_bypassed: boolean;
-                    }>;
-                    instrument?: {
-                        id: string;
-                        name: string;
-                        plugin_id: string;
-                        is_bypassed: boolean;
-                    } | null;
-                    clips: Array<{
-                        id: string;
-                        name: string;
-                        file_path: string;
-                        position: { sample_frame: number };
-                        duration: { sample_frame: number };
-                        source_offset: { sample_frame: number };
-                        is_warped?: boolean;
-                        warp_mode?: number | null;
-                        warp_base_bpm?: number;
-                        warp_source_duration_frames?: number;
-                        color_override: unknown;
+                        track_type: string;
+                        color: unknown;
                         color_hex?: string | null;
-                        is_offline?: boolean;
-                    }>;
-                    midi_clips?: Array<{
-                        id: string;
-                        name: string;
-                        position: { sample_frame: number };
-                        duration: { sample_frame: number };
-                        notes?: Array<{
-                            pitch: number;
-                            velocity: number;
-                            start_frame: number;
-                            duration_frames: number;
+                        volume: number;
+                        pan: number;
+                        is_mute: boolean;
+                        is_solo: boolean;
+                        output_destination_id?: string | null;
+                        input_source_id?: string | null;
+                        parent_track_id?: string | null;
+                        child_track_ids?: string[];
+                        is_expanded?: boolean;
+                        effects?: Array<{
+                            id: string;
+                            name: string;
+                            plugin_id: string;
+                            is_bypassed: boolean;
                         }>;
-                        color_override?: unknown;
-                        color_hex?: string | null;
+                        instrument?: {
+                            id: string;
+                            name: string;
+                            plugin_id: string;
+                            is_bypassed: boolean;
+                        } | null;
+                        clips: Array<{
+                            id: string;
+                            name: string;
+                            file_path: string;
+                            position: { sample_frame: number };
+                            duration: { sample_frame: number };
+                            source_offset: { sample_frame: number };
+                            is_warped?: boolean;
+                            warp_mode?: number | null;
+                            warp_base_bpm?: number;
+                            warp_source_duration_frames?: number;
+                            color_override: unknown;
+                            color_hex?: string | null;
+                            is_offline?: boolean;
+                        }>;
+                        midi_clips?: Array<{
+                            id: string;
+                            name: string;
+                            position: { sample_frame: number };
+                            duration: { sample_frame: number };
+                            notes?: Array<{
+                                pitch: number;
+                                velocity: number;
+                                start_frame: number;
+                                duration_frames: number;
+                            }>;
+                            color_override?: unknown;
+                            color_hex?: string | null;
+                        }>;
                     }>;
-                }>;
-                sample_rate: number;
-                pulse_map: { tempo_events: Array<{ bpm: number }>; sample_rate: number };
-                arrangement_grid_numerator?: number;
-                arrangement_grid_denominator?: number;
-                arrangement_grid_ntoles?: number;
-                arrangement_snap_to_grid?: boolean;
-                arrangement_grid_fixed?: boolean;
+                    sample_rate: number;
+                    pulse_map: { tempo_events: Array<{ bpm: number }>; sample_rate: number };
+                    arrangement_grid_numerator?: number;
+                    arrangement_grid_denominator?: number;
+                    arrangement_grid_ntoles?: number;
+                    arrangement_snap_to_grid?: boolean;
+                    arrangement_grid_fixed?: boolean;
                 }>,
                 engine.getProjectHistory({
                     limit: PROJECT_HISTORY_WINDOW,
@@ -650,7 +651,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             // after open_project until the next telemetry tick arrives.
             const bpm = project.pulse_map?.tempo_events?.[0]?.bpm || get().transport.bpm || 120;
             const sr = project.sample_rate || 44100;
-            const beatsPerSecond = bpm / 60;
             const toFiniteNumber = (value: unknown, fallback = 0): number => {
                 if (typeof value === 'number') {
                     return Number.isFinite(value) ? value : fallback;
@@ -716,8 +716,6 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     const sourceOffsetFrames = Math.max(0, toFiniteNumber(clip.source_offset?.sample_frame ?? 0, 0));
                     const fadeInFrames = Math.max(0, toFiniteNumber((clip as Record<string, unknown>).fade_in_frames ?? ((clip as Record<string, unknown>).fadeIn ?? 0), 0));
                     const fadeOutFrames = Math.max(0, toFiniteNumber((clip as Record<string, unknown>).fade_out_frames ?? ((clip as Record<string, unknown>).fadeOut ?? 0), 0));
-                    const posSeconds = posFrames / sr;
-                    const durSeconds = durFrames / sr;
                     const sourceSeconds = warpSourceDurationFrames / sr;
                     const hasAudioPath = !!(clip.file_path && clip.file_path.trim().length > 0);
                     const treatAsMidi = isMidiTrack;
@@ -726,10 +724,10 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         id: clip.id,
                         name: clip.name,
                         trackIndex: trackIdx,
-                        startBeat: posSeconds * beatsPerSecond,
+                        startBeat: frameToBeat(posFrames, bpm, sr),
                         durationBeats: isWarped
-                            ? sourceSeconds * (warpBaseBpm / 60)
-                            : durSeconds * beatsPerSecond,
+                            ? (sourceSeconds * warpBaseBpm) / 60
+                            : frameToBeat(durFrames, bpm, sr),
                         // Editor mode must follow track type:
                         // MIDI tracks -> piano roll, Audio tracks -> sample editor.
                         type: treatAsMidi ? 'midi' : 'audio',
@@ -755,14 +753,12 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     const durFrames = Math.max(1, toFiniteNumber(clip.duration.sample_frame, 1));
                     const fadeInFrames = Math.max(0, toFiniteNumber((clip as Record<string, unknown>).fade_in_frames ?? ((clip as Record<string, unknown>).fadeIn ?? 0), 0));
                     const fadeOutFrames = Math.max(0, toFiniteNumber((clip as Record<string, unknown>).fade_out_frames ?? ((clip as Record<string, unknown>).fadeOut ?? 0), 0));
-                    const posSeconds = posFrames / sr;
-                    const durSeconds = durFrames / sr;
                     timelineClips.push({
                         id: clip.id,
                         name: clip.name,
                         trackIndex: trackIdx,
-                        startBeat: posSeconds * beatsPerSecond,
-                        durationBeats: durSeconds * beatsPerSecond,
+                        startBeat: frameToBeat(posFrames, bpm, sr),
+                        durationBeats: frameToBeat(durFrames, bpm, sr),
                         type: 'midi',
                         color: resolveTrackColor(clip.color_hex ?? clip.color_override) !== '#667788'
                             ? resolveTrackColor(clip.color_hex ?? clip.color_override)
@@ -775,8 +771,8 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         midiNotes: (clip.notes ?? []).map((note, idx) => ({
                             id: `${clip.id}:${idx}:${note.pitch}:${note.start_frame}`,
                             pitch: note.pitch,
-                            startBeat: (note.start_frame / sr) * beatsPerSecond,
-                            durationBeats: (note.duration_frames / sr) * beatsPerSecond,
+                            startBeat: frameToBeat(note.start_frame, bpm, sr),
+                            durationBeats: frameToBeat(note.duration_frames, bpm, sr),
                             velocity: note.velocity,
                         })),
                         midiEnvelopes: (((clip as Record<string, unknown>).envelopes as Array<Record<string, unknown>> | undefined) ?? []).map((env) => ({
@@ -819,6 +815,21 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     console.debug(
                         `[ProjectFetch] apply #${requestSeq} reason=${reason} tracks=${projectTracks.length} clips=${timelineClips.length} bpm=${bpm}`,
                     );
+                }
+
+                // BUG-23: Prune stale throttle closures for deleted tracks
+                const validTrackIndices = new Set(projectTracks.map((_, i) => i));
+                for (const key of throttledVolumeSends.keys()) {
+                    if (!validTrackIndices.has(key)) throttledVolumeSends.delete(key);
+                }
+                for (const key of throttledPanSends.keys()) {
+                    if (!validTrackIndices.has(key)) throttledPanSends.delete(key);
+                }
+                for (const key of pendingVolumeValues.keys()) {
+                    if (!validTrackIndices.has(key)) pendingVolumeValues.delete(key);
+                }
+                for (const key of pendingPanValues.keys()) {
+                    if (!validTrackIndices.has(key)) pendingPanValues.delete(key);
                 }
             }
         } catch (e) {

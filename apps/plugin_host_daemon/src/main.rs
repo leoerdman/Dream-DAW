@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -5,7 +6,11 @@ use std::sync::mpsc::{self, TryRecvError};
 use std::thread;
 use std::time::Duration;
 
+use dream_plugins::descriptor::PluginDescriptor;
+use dream_plugins::format::{PluginCategory, PluginFormat};
+use dream_plugins::instance::{MidiEvent, PluginInstance};
 use dream_plugins::sandbox_ipc::{PluginHostControlMessage, PluginHostEventMessage};
+use dream_plugins::vst3_host::Vst3Instance;
 use memmap2::MmapMut;
 use uuid::Uuid;
 
@@ -158,8 +163,12 @@ fn main() {
         }
     });
 
+    // Parse instance_id as Uuid for HashMap lookups.
+    let daemon_instance_id: Uuid = args.instance_id.parse().unwrap_or_else(|_| Uuid::new_v4());
+
     let mut running = true;
-    let mut loaded_instances: Vec<Uuid> = Vec::new();
+    let mut loaded_instances: HashMap<Uuid, Box<dyn PluginInstance>> = HashMap::new();
+    let mut pending_midi: HashMap<Uuid, Vec<MidiEvent>> = HashMap::new();
     let mut output_gain: f32 = 1.0;
 
     // Current phase: watchdog heartbeat + process isolation shell.
@@ -183,16 +192,81 @@ fn main() {
                     }
                     PluginHostControlMessage::LoadPlugin {
                         instance_id,
-                        plugin_path: _,
-                        sample_rate: _,
-                        max_block_size: _,
+                        plugin_path,
+                        sample_rate,
+                        max_block_size,
                     } => {
-                        if !loaded_instances.contains(&instance_id) {
-                            loaded_instances.push(instance_id);
+                        // Bug 60: validate plugin path before attempting load
+                        let path = PathBuf::from(&plugin_path);
+                        if !path.exists() {
+                            log::error!(
+                                "[plugin_host_daemon] plugin path does not exist: {}",
+                                plugin_path
+                            );
+                            let evt = PluginHostEventMessage::Error {
+                                instance_id: Some(instance_id),
+                                message: format!("Plugin path not found: {plugin_path}"),
+                            };
+                            if let Ok(json) = serde_json::to_string(&evt) {
+                                println!("{json}");
+                            }
+                            continue;
+                        }
+
+                        if !loaded_instances.contains_key(&instance_id) {
+                            let name = path
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("Unknown")
+                                .to_string();
+                            let descriptor = PluginDescriptor::new(
+                                name,
+                                "Unknown Vendor",
+                                PluginFormat::VST3,
+                                PluginCategory::Effect,
+                                path,
+                            );
+                            match Vst3Instance::load(descriptor) {
+                                Ok(mut inst) => {
+                                    if let Err(e) = inst.activate(sample_rate, max_block_size as usize) {
+                                        log::error!(
+                                            "[plugin_host_daemon] activate failed for {}: {}",
+                                            instance_id, e
+                                        );
+                                    }
+                                    let latency = inst.latency_samples();
+                                    let editor = inst.supports_editor();
+                                    loaded_instances.insert(instance_id, Box::new(inst));
+                                    let evt = PluginHostEventMessage::Loaded {
+                                        instance_id,
+                                        latency_samples: latency,
+                                        supports_editor: editor,
+                                    };
+                                    if let Ok(json) = serde_json::to_string(&evt) {
+                                        println!("{json}");
+                                    }
+                                }
+                                Err(e) => {
+                                    log::error!(
+                                        "[plugin_host_daemon] load failed for {}: {}",
+                                        instance_id, e
+                                    );
+                                    let evt = PluginHostEventMessage::Error {
+                                        instance_id: Some(instance_id),
+                                        message: format!("Plugin load failed: {e}"),
+                                    };
+                                    if let Ok(json) = serde_json::to_string(&evt) {
+                                        println!("{json}");
+                                    }
+                                }
+                            }
                         }
                     }
                     PluginHostControlMessage::UnloadPlugin { instance_id } => {
-                        loaded_instances.retain(|id| *id != instance_id);
+                        if let Some(mut inst) = loaded_instances.remove(&instance_id) {
+                            let _ = inst.deactivate();
+                        }
+                        pending_midi.remove(&instance_id);
                     }
                     PluginHostControlMessage::SetParameter {
                         instance_id: _,
@@ -227,18 +301,18 @@ fn main() {
                         events,
                     } => {
                         // Store pending MIDI events for the next process cycle.
-                        // The daemon's shared-memory process loop will convert
-                        // these to format-specific events when driving the plugin.
-                        log::debug!(
-                            "[plugin_host_daemon] received {} MIDI events for instance {}",
-                            events.len(),
-                            instance_id
-                        );
-                        // Phase 1: MIDI events stored but not yet consumed by daemon
-                        // process loop (daemon runs as passthrough stub currently).
-                        // Full integration happens in Phase 2 when the daemon's
-                        // process loop calls PluginInstance::process() with real events.
-                        let _ = (instance_id, events);
+                        let midi_events: Vec<MidiEvent> = events
+                            .iter()
+                            .map(|(offset, _ch, data)| MidiEvent {
+                                sample_offset: *offset,
+                                channel: 0,
+                                data: *data,
+                            })
+                            .collect();
+                        pending_midi
+                            .entry(instance_id)
+                            .or_default()
+                            .extend(midi_events);
                     }
                     PluginHostControlMessage::Shutdown => {
                         running = false;
@@ -265,11 +339,59 @@ fn main() {
         if let Some(mmap) = shared_mmap.as_mut()
             && !mmap.is_empty()
         {
-            process_passthrough(mmap, args.num_inputs, args.num_outputs, args.max_frames);
+            // Determine number of frames requested from the shared header.
+            let num_frames = args.max_frames as usize;
+            let header_bytes = 64usize;
+            let stride = num_frames * std::mem::size_of::<f32>();
+
+            // Collect the first loaded instance for processing.
+            // (daemon runs one plugin per process — keyed by args.instance_id)
+            let inst = loaded_instances.get_mut(&daemon_instance_id);
+            let midi = pending_midi.remove(&daemon_instance_id).unwrap_or_default();
+
+            if let Some(plugin) = inst {
+                // Read inputs from shared memory into temp buffers.
+                let mut input_bufs: Vec<Vec<f32>> = Vec::with_capacity(args.num_inputs as usize);
+                for ch in 0..args.num_inputs as usize {
+                    let off = header_bytes + ch * stride;
+                    let end = off + stride;
+                    if end <= mmap.len() {
+                        let slice = &mmap[off..end];
+                        let samples: &[f32] = bytemuck::cast_slice(slice);
+                        input_bufs.push(samples[..num_frames].to_vec());
+                    } else {
+                        input_bufs.push(vec![0.0; num_frames]);
+                    }
+                }
+                let input_refs: Vec<&[f32]> = input_bufs.iter().map(|b| b.as_slice()).collect();
+
+                // Prepare output buffers.
+                let mut output_bufs: Vec<Vec<f32>> = (0..args.num_outputs as usize)
+                    .map(|_| vec![0.0; num_frames])
+                    .collect();
+                let mut output_slices: Vec<&mut [f32]> = output_bufs
+                    .iter_mut()
+                    .map(|b| b.as_mut_slice())
+                    .collect();
+
+                // Process through the actual plugin.
+                let _ = plugin.process(&input_refs, &mut output_slices, num_frames, &midi);
+
+                // Write outputs back to shared memory.
+                for (ch, out) in output_bufs.iter().enumerate() {
+                    let out_off = header_bytes + (args.num_inputs as usize + ch) * stride;
+                    let out_end = out_off + stride;
+                    if out_end <= mmap.len() {
+                        let dest: &mut [f32] = bytemuck::cast_slice_mut(&mut mmap[out_off..out_end]);
+                        dest[..num_frames].copy_from_slice(&out[..num_frames]);
+                    }
+                }
+            } else {
+                // No loaded plugin — fallback to passthrough.
+                process_passthrough(mmap, args.num_inputs, args.num_outputs, args.max_frames);
+            }
+
             if (output_gain - 1.0).abs() > f32::EPSILON {
-                // Apply gain to output channels in-place.
-                let header_bytes = 64usize;
-                let stride = args.max_frames as usize * std::mem::size_of::<f32>();
                 for out_idx in 0..args.num_outputs as usize {
                     let out_off = header_bytes + (args.num_inputs as usize + out_idx) * stride;
                     let out_end = out_off + stride;

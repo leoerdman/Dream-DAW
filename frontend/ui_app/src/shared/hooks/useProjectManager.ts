@@ -239,11 +239,16 @@ export function useProjectManager(onProjectLoaded?: () => void) {
     }, [handleSave, handleSaveAs]);
 
     // ── Auto-Backup Timer ─────────────────────────────────────────────
+    // Use refs for volatile state so the interval doesn't have to be
+    // torn down and recreated every time isDirty or projectFolder changes.
+    const isDirtyRef = useRef(state.isDirty);
+    isDirtyRef.current = state.isDirty;
+    const projectFolderRef = useRef(state.projectFolder);
+    projectFolderRef.current = state.projectFolder;
 
     useEffect(() => {
         autoBackupRef.current = setInterval(() => {
-            // Only auto-backup if the project has a folder (has been saved)
-            if (state.projectFolder && state.isDirty) {
+            if (projectFolderRef.current && isDirtyRef.current) {
                 handleBackup();
             }
         }, AUTO_BACKUP_INTERVAL_MS);
@@ -253,7 +258,7 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 clearInterval(autoBackupRef.current);
             }
         };
-    }, [state.projectFolder, state.isDirty, handleBackup]);
+    }, [handleBackup]);
 
     // ── Initial Status Sync ───────────────────────────────────────────
 

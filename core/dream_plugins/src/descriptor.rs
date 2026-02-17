@@ -55,6 +55,10 @@ pub struct PluginDescriptor {
 
     /// Whether this plugin has been validated (loaded + basic smoke test).
     pub is_validated: bool,
+
+    /// Whether the current DAW runtime can load this plugin format.
+    /// AU and CLAP formats are scanned but cannot be instantiated yet.
+    pub runtime_supported: bool,
 }
 
 impl PluginDescriptor {
@@ -79,6 +83,7 @@ impl PluginDescriptor {
             audio_outputs: 2,
             accepts_midi: category == PluginCategory::Instrument,
             is_validated: false,
+            runtime_supported: format == PluginFormat::VST3,
         }
     }
 

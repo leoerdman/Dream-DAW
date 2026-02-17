@@ -2,7 +2,7 @@
  * Utility for color calculations and luminance-aware contrast.
  */
 
-function parseColorToRgb(color: string): { r: number; g: number; b: number } | null {
+export function parseColorToRgb(color: string): { r: number; g: number; b: number } | null {
     const value = color.trim();
     if (!value) return null;
 

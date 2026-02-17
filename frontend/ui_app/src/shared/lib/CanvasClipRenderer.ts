@@ -25,7 +25,7 @@
 
 import type { ViewportMatrix, VisibleRange } from './ViewportMatrix';
 import type { WaveformCache } from './WaveformCache';
-import { getContrastColor } from './colorUtils';
+import { getContrastColor, parseColorToRgb } from './colorUtils';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -1043,33 +1043,14 @@ export class CanvasClipRenderer {
         ctx.closePath();
     }
 
-    /** Parse CSS hex/rgb color string to {r, g, b}. */
+    /** Parse CSS hex/rgb color string to {r, g, b} with hot-path cache. */
+    private static _colorCache = new Map<string, { r: number; g: number; b: number }>();
     private _parseColor(color: string): { r: number; g: number; b: number } {
-        if (color.startsWith('#')) {
-            const hex = color.slice(1);
-            const bigint = parseInt(hex, 16);
-            if (hex.length === 6) {
-                return {
-                    r: (bigint >> 16) & 255,
-                    g: (bigint >> 8) & 255,
-                    b: bigint & 255,
-                };
-            }
-            if (hex.length === 3) {
-                return {
-                    r: ((bigint >> 8) & 15) * 17,
-                    g: ((bigint >> 4) & 15) * 17,
-                    b: (bigint & 15) * 17,
-                };
-            }
-        }
-        // Fallback: try rgb()
-        const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-        if (match) {
-            return { r: +match[1], g: +match[2], b: +match[3] };
-        }
-        // Default to a neutral blue
-        return { r: 80, g: 120, b: 200 };
+        const cached = CanvasClipRenderer._colorCache.get(color);
+        if (cached) return cached;
+        const result = parseColorToRgb(color) ?? { r: 80, g: 120, b: 200 };
+        CanvasClipRenderer._colorCache.set(color, result);
+        return result;
     }
 
     private _toMutedGray(rgb: { r: number; g: number; b: number }): { r: number; g: number; b: number } {

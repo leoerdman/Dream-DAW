@@ -168,15 +168,15 @@ export function computeGridLines(
         const beat = i / finestSubPerBeat;
         if (beat > totalBeats) break;
 
-        const isBar = beat % beatsPerBar === 0;
-        const isMainBeat = beat % 1 === 0;
+        const isBar = Math.abs(beat % beatsPerBar) < 1e-9 || Math.abs(beat % beatsPerBar - beatsPerBar) < 1e-9;
+        const isMainBeat = Math.abs(beat - Math.round(beat)) < 1e-9;
 
         // Calculate depth
         let depth = 4; // default: finest
         if (isBar) depth = 0;
         else if (isMainBeat) depth = 1;
-        else if ((beat * 2) % 1 === 0) depth = 2;
-        else if ((beat * 4) % 1 === 0) depth = 3;
+        else if (Math.abs((beat * 2) % 1) < 1e-9 || Math.abs((beat * 2) % 1 - 1) < 1e-9) depth = 2;
+        else if (Math.abs((beat * 4) % 1) < 1e-9 || Math.abs((beat * 4) % 1 - 1) < 1e-9) depth = 3;
 
         lines.push({ beat, isBar, isMainBeat, depth });
     }

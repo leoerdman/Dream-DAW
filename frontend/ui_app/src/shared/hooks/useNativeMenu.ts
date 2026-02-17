@@ -23,15 +23,21 @@ import { useStatusStore } from '@/shared/stores/useStatusStore';
  */
 export function useNativeMenu(onProjectChange?: () => void) {
     const initialized = useRef(false);
+    const onProjectChangeRef = useRef(onProjectChange);
+
+    // Always keep ref current so menu actions use the latest callback
+    useEffect(() => {
+        onProjectChangeRef.current = onProjectChange;
+    }, [onProjectChange]);
 
     useEffect(() => {
         if (initialized.current) return;
         initialized.current = true;
 
-        buildNativeMenu(onProjectChange).catch((err) => {
+        buildNativeMenu(() => onProjectChangeRef.current?.()).catch((err) => {
             console.error('[useNativeMenu] Failed to build native menu:', err);
         });
-    }, [onProjectChange]);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 // ── Menu Construction ────────────────────────────────────────────────────

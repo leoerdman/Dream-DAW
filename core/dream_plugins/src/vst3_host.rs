@@ -1485,6 +1485,105 @@ static HOST_PLUG_FRAME_VTBL: IPlugFrameVtbl = IPlugFrameVtbl {
     resize_view: plug_frame_resize_view,
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// IComponentHandler — enables plugins to notify host about param changes
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// IComponentHandler IID: {93A0BEA3-0BD0-11D5-BF49-00108B531DC3}
+const IID_ICOMPONENT_HANDLER: Tuid = [
+    0x93, 0xA0, 0xBE, 0xA3, 0x0B, 0xD0, 0x11, 0xD5, 0xBF, 0x49, 0x00, 0x10, 0x8B, 0x53, 0x1D,
+    0xC3,
+];
+
+#[repr(C)]
+struct IComponentHandlerVtbl {
+    query_interface:
+        unsafe extern "C" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
+    add_ref: unsafe extern "C" fn(*mut c_void) -> u32,
+    release: unsafe extern "C" fn(*mut c_void) -> u32,
+    begin_edit: unsafe extern "C" fn(*mut c_void, u32) -> Tresult,
+    perform_edit: unsafe extern "C" fn(*mut c_void, u32, f64) -> Tresult,
+    end_edit: unsafe extern "C" fn(*mut c_void, u32) -> Tresult,
+    restart_component: unsafe extern "C" fn(*mut c_void, i32) -> Tresult,
+}
+
+#[repr(C)]
+struct HostComponentHandler {
+    vtbl: *const IComponentHandlerVtbl,
+}
+
+unsafe extern "C" fn comp_handler_query_interface(
+    this: *mut c_void,
+    iid: *const Tuid,
+    obj: *mut *mut c_void,
+) -> Tresult {
+    if this.is_null() || iid.is_null() || obj.is_null() {
+        return K_NO_INTERFACE;
+    }
+    if tuid_eq(iid, &IID_ICOMPONENT_HANDLER) || tuid_eq(iid, &IID_FUNKNOWN) {
+        unsafe { *obj = this; }
+        return K_RESULT_OK;
+    }
+    K_NO_INTERFACE
+}
+
+unsafe extern "C" fn comp_handler_add_ref(_this: *mut c_void) -> u32 {
+    1 // Singleton — never freed
+}
+
+unsafe extern "C" fn comp_handler_release(_this: *mut c_void) -> u32 {
+    1 // Singleton — never freed
+}
+
+/// Called by plugin when user starts editing a parameter (e.g., mouse down on knob).
+unsafe extern "C" fn comp_handler_begin_edit(_this: *mut c_void, id: u32) -> Tresult {
+    debug!("[IComponentHandler] beginEdit param_id={}", id);
+    K_RESULT_OK
+}
+
+/// Called by plugin when a parameter value changes during editing.
+unsafe extern "C" fn comp_handler_perform_edit(_this: *mut c_void, id: u32, value: f64) -> Tresult {
+    debug!(
+        "[IComponentHandler] performEdit param_id={} value={:.4}",
+        id, value
+    );
+    K_RESULT_OK
+}
+
+/// Called by plugin when user finishes editing a parameter (e.g., mouse up).
+unsafe extern "C" fn comp_handler_end_edit(_this: *mut c_void, id: u32) -> Tresult {
+    debug!("[IComponentHandler] endEdit param_id={}", id);
+    K_RESULT_OK
+}
+
+/// Called by plugin to request host restart (e.g., latency changed, I/O changed).
+unsafe extern "C" fn comp_handler_restart_component(_this: *mut c_void, flags: i32) -> Tresult {
+    info!(
+        "[IComponentHandler] restartComponent flags=0x{:08x}",
+        flags
+    );
+    K_RESULT_OK
+}
+
+static HOST_COMPONENT_HANDLER_VTBL: IComponentHandlerVtbl = IComponentHandlerVtbl {
+    query_interface: comp_handler_query_interface,
+    add_ref: comp_handler_add_ref,
+    release: comp_handler_release,
+    begin_edit: comp_handler_begin_edit,
+    perform_edit: comp_handler_perform_edit,
+    end_edit: comp_handler_end_edit,
+    restart_component: comp_handler_restart_component,
+};
+
+static HOST_COMPONENT_HANDLER: HostComponentHandler = HostComponentHandler {
+    vtbl: &HOST_COMPONENT_HANDLER_VTBL,
+};
+
+/// Returns a raw pointer to the singleton IComponentHandler.
+fn component_handler_ptr() -> *mut c_void {
+    &HOST_COMPONENT_HANDLER as *const HostComponentHandler as *mut c_void
+}
+
 /// VST3 bus media type constants.
 const K_AUDIO: i32 = 0;
 /// VST3 bus direction constants.
@@ -2190,6 +2289,12 @@ impl PluginInstance for Vst3Instance {
                 let controller = self.controller_ptr as *mut IEditController;
                 unsafe {
                     let _ = ((*(*controller).vtbl).initialize)(controller, host_application_ptr());
+                    // Bug 15: Register IComponentHandler so plugins can notify
+                    // host about parameter edits (beginEdit/endEdit/performEdit).
+                    let _ = ((*(*controller).vtbl).set_component_handler)(
+                        controller,
+                        component_handler_ptr(),
+                    );
                 }
             }
 

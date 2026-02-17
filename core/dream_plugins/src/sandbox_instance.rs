@@ -1,9 +1,11 @@
 use std::path::PathBuf;
+use std::sync::mpsc;
 
 use uuid::Uuid;
 
 use crate::descriptor::PluginDescriptor;
 use crate::instance::{MidiEvent, PluginError, PluginInstance, TransportContext};
+use crate::sandbox_ipc::PluginHostControlMessage;
 use crate::shared_memory::{SharedAudioBufferLayout, SharedAudioBufferRegion};
 
 /// PluginInstance implementation backed by an out-of-process sandbox bridge.
@@ -20,6 +22,8 @@ pub struct SandboxedPluginInstance {
     shared_region: SharedAudioBufferRegion,
     request_seq: u32,
     last_seen_processed_seq: u32,
+    /// Channel to send IPC control messages to the daemon (for MIDI, params, etc.)
+    ipc_sender: Option<mpsc::Sender<PluginHostControlMessage>>,
 }
 
 impl SandboxedPluginInstance {
@@ -48,7 +52,14 @@ impl SandboxedPluginInstance {
             shared_region,
             request_seq: 0,
             last_seen_processed_seq: 0,
+            ipc_sender: None,
         })
+    }
+
+    /// Attach an IPC sender channel for forwarding control messages
+    /// (MIDI events, parameter changes) to the sandbox daemon.
+    pub fn set_ipc_sender(&mut self, sender: mpsc::Sender<PluginHostControlMessage>) {
+        self.ipc_sender = Some(sender);
     }
 
     fn pass_through(
@@ -92,12 +103,27 @@ impl PluginInstance for SandboxedPluginInstance {
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
         num_frames: usize,
-        _midi_events: &[MidiEvent],
+        midi_events: &[MidiEvent],
     ) -> Result<(), PluginError> {
         if !self.active {
             return Err(PluginError::InvalidState(
                 "Sandboxed plugin is not active".to_string(),
             ));
+        }
+
+        // Forward MIDI events to daemon via IPC before triggering the process cycle.
+        if !midi_events.is_empty() {
+            if let Some(ref sender) = self.ipc_sender {
+                let events: Vec<(i32, u8, [u8; 3])> = midi_events
+                    .iter()
+                    .map(|e| (e.sample_offset, 0u8, e.data))
+                    .collect();
+                let msg = PluginHostControlMessage::SendMidiEvents {
+                    instance_id: self.id,
+                    events,
+                };
+                let _ = sender.send(msg);
+            }
         }
         if num_frames > self.shared_region.layout.max_frames as usize {
             return Err(PluginError::ProcessError(format!(

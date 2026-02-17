@@ -79,6 +79,10 @@ interface TelemetryPayload {
  * Directly mutates DOM via refs — zero React re-renders.
  * The Rust backend pushes transport + meter data at ~30fps.
  *
+ * @deprecated This hook is no longer consumed by any component.
+ * Telemetry is now handled by `useEngineStore.startTelemetryLoop()`.
+ * Retained for reference — will be removed in a future cleanup pass.
+ *
  * Usage:
  * ```tsx
  * const playheadRef = useRef<HTMLDivElement>(null);

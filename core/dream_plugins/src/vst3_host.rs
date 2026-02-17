@@ -61,6 +61,8 @@ type Tuid = [u8; 16];
 type Tresult = i32;
 
 const K_RESULT_OK: Tresult = 0;
+#[allow(dead_code)]
+const K_RESULT_NOT_IMPLEMENTED: Tresult = -2147467263;
 const K_RESULT_FALSE: Tresult = 1;
 const K_SAMPLE32: i32 = 0;
 const K_REALTIME: i32 = 0;
@@ -180,6 +182,11 @@ const IID_IEDIT_CONTROLLER: Tuid = [
 // IHostApplication IID: {58E595CC-DB2D-4969-8B6A-AF8C36A664E5}
 const IID_IHOST_APPLICATION: Tuid = [
     0x58, 0xE5, 0x95, 0xCC, 0xDB, 0x2D, 0x49, 0x69, 0x8B, 0x6A, 0xAF, 0x8C, 0x36, 0xA6, 0x64, 0xE5,
+];
+
+// IPlugFrame IID: {367FAF01-AFA9-4693-8D4D-A2A0ED0882A3}
+const IID_IPLUG_FRAME: Tuid = [
+    0x36, 0x7F, 0xAF, 0x01, 0xAF, 0xA9, 0x46, 0x93, 0x8D, 0x4D, 0xA2, 0xA0, 0xED, 0x08, 0x82, 0xA3,
 ];
 
 // FUnknown IID: {00000000-0000-0000-C000-000000000046}
@@ -1202,6 +1209,292 @@ static HOST_READ_STREAM_VTBL: IBStreamVtbl = IBStreamVtbl {
     tell: stream_tell,
 };
 
+// ── HostWriteStream (IBStream for getState) ────────────────────────────
+//
+// Writable IBStream that collects plugin state into a `Vec<u8>`. Used by
+// `IComponent::getState` and `IEditController::getState` to serialize
+// plugin parameters and internal state for session save/restore.
+
+/// Writable IBStream that appends into a `Vec<u8>` buffer.
+#[repr(C)]
+struct HostWriteStream {
+    vtbl: *const IBStreamVtbl,
+    ref_count: u32,
+    data: Vec<u8>,
+    pos: usize,
+}
+
+impl HostWriteStream {
+    fn new() -> Self {
+        Self {
+            vtbl: &HOST_WRITE_STREAM_VTBL,
+            ref_count: 1,
+            data: Vec::with_capacity(8192),
+            pos: 0,
+        }
+    }
+
+    fn into_bytes(self) -> Vec<u8> {
+        self.data
+    }
+}
+
+unsafe extern "C" fn write_stream_query_interface(
+    _this: *mut IBStream,
+    _iid: *const c_char,
+    _obj: *mut *mut c_void,
+) -> Tresult {
+    K_NO_INTERFACE
+}
+
+unsafe extern "C" fn write_stream_add_ref(this: *mut IBStream) -> u32 {
+    if this.is_null() { return 0; }
+    let stream = unsafe { &mut *(this as *mut HostWriteStream) };
+    stream.ref_count += 1;
+    stream.ref_count
+}
+
+unsafe extern "C" fn write_stream_release(this: *mut IBStream) -> u32 {
+    if this.is_null() { return 0; }
+    let stream = unsafe { &mut *(this as *mut HostWriteStream) };
+    stream.ref_count = stream.ref_count.saturating_sub(1);
+    stream.ref_count
+}
+
+unsafe extern "C" fn write_stream_read(
+    _this: *mut IBStream,
+    _buffer: *mut c_void,
+    _num_bytes: i32,
+    num_bytes_read: *mut i32,
+) -> Tresult {
+    // Write-only stream — reads are not supported.
+    if !num_bytes_read.is_null() {
+        unsafe { *num_bytes_read = 0; }
+    }
+    K_RESULT_NOT_IMPLEMENTED
+}
+
+unsafe extern "C" fn write_stream_write(
+    this: *mut IBStream,
+    buffer: *mut c_void,
+    num_bytes: i32,
+    num_bytes_written: *mut i32,
+) -> Tresult {
+    if this.is_null() || buffer.is_null() || num_bytes <= 0 {
+        if !num_bytes_written.is_null() {
+            unsafe { *num_bytes_written = 0; }
+        }
+        return K_RESULT_FALSE;
+    }
+    let stream = unsafe { &mut *(this as *mut HostWriteStream) };
+    let count = num_bytes as usize;
+    let src = unsafe { std::slice::from_raw_parts(buffer as *const u8, count) };
+
+    // If writing at pos < data.len(), overwrite in place; otherwise extend.
+    if stream.pos < stream.data.len() {
+        let overwrite_end = (stream.pos + count).min(stream.data.len());
+        let overwrite_count = overwrite_end - stream.pos;
+        stream.data[stream.pos..overwrite_end].copy_from_slice(&src[..overwrite_count]);
+        if count > overwrite_count {
+            stream.data.extend_from_slice(&src[overwrite_count..]);
+        }
+    } else {
+        // Pad with zeros if seeking past end
+        if stream.pos > stream.data.len() {
+            stream.data.resize(stream.pos, 0);
+        }
+        stream.data.extend_from_slice(src);
+    }
+    stream.pos += count;
+
+    if !num_bytes_written.is_null() {
+        unsafe { *num_bytes_written = num_bytes; }
+    }
+    K_RESULT_OK
+}
+
+unsafe extern "C" fn write_stream_seek(
+    this: *mut IBStream,
+    pos: i64,
+    mode: i32,
+    result: *mut i64,
+) -> Tresult {
+    if this.is_null() {
+        return K_RESULT_FALSE;
+    }
+    let stream = unsafe { &mut *(this as *mut HostWriteStream) };
+    let new_pos: i64 = match mode {
+        K_SEEK_SET => pos,
+        K_SEEK_CUR => stream.pos as i64 + pos,
+        K_SEEK_END => stream.data.len() as i64 + pos,
+        _ => return K_RESULT_FALSE,
+    };
+    if new_pos < 0 {
+        return K_RESULT_FALSE;
+    }
+    stream.pos = new_pos as usize;
+    if !result.is_null() {
+        unsafe { *result = stream.pos as i64; }
+    }
+    K_RESULT_OK
+}
+
+unsafe extern "C" fn write_stream_tell(this: *mut IBStream, result: *mut i64) -> Tresult {
+    if this.is_null() || result.is_null() {
+        return K_RESULT_FALSE;
+    }
+    let stream = unsafe { &*(this as *const HostWriteStream) };
+    unsafe { *result = stream.pos as i64; }
+    K_RESULT_OK
+}
+
+static HOST_WRITE_STREAM_VTBL: IBStreamVtbl = IBStreamVtbl {
+    query_interface: write_stream_query_interface,
+    add_ref: write_stream_add_ref,
+    release: write_stream_release,
+    read: write_stream_read,
+    write: write_stream_write,
+    seek: write_stream_seek,
+    tell: write_stream_tell,
+};
+
+// ── IPlugFrame (Editor Resize Notification) ────────────────────────────
+//
+// VST3 plugins call IPlugFrame::resizeView when their editor wants to
+// change size. We implement this so the host NSWindow resizes accordingly.
+// Without this, plugins that dynamically resize (FabFilter, iZotope)
+// will have clipped or corrupted GUIs.
+
+/// COM vtable for IPlugFrame.
+/// Layout: FUnknown (query_interface, addRef, release) + resizeView.
+#[repr(C)]
+struct IPlugFrameVtbl {
+    query_interface:
+        unsafe extern "C" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
+    add_ref: unsafe extern "C" fn(*mut c_void) -> u32,
+    release: unsafe extern "C" fn(*mut c_void) -> u32,
+    resize_view:
+        unsafe extern "C" fn(*mut c_void, *mut c_void, *mut ViewRect) -> Tresult,
+}
+
+/// Heap-allocated IPlugFrame instance. One per editor window.
+/// Stores the NSWindow pointer so `resizeView` can resize it.
+#[repr(C)]
+struct HostPlugFrame {
+    vtbl: *const IPlugFrameVtbl,
+    ref_count: u32,
+    /// NSWindow pointer (as usize for Send safety; 0 = unset).
+    #[cfg(target_os = "macos")]
+    window_ptr: usize,
+}
+
+// Safety: The `vtbl` field points to a `static` vtable in constant memory.
+// The `window_ptr` is stored as `usize` (not a raw pointer), which is already Send.
+// HostPlugFrame is only accessed from the UI thread under normal operation.
+unsafe impl Send for HostPlugFrame {}
+
+#[cfg(target_os = "macos")]
+impl HostPlugFrame {
+    fn new(window_ptr: usize) -> Box<Self> {
+        Box::new(Self {
+            vtbl: &HOST_PLUG_FRAME_VTBL,
+            ref_count: 1,
+            window_ptr,
+        })
+    }
+}
+
+unsafe extern "C" fn plug_frame_query_interface(
+    this: *mut c_void,
+    iid: *const Tuid,
+    obj: *mut *mut c_void,
+) -> Tresult {
+    if this.is_null() || iid.is_null() || obj.is_null() {
+        return K_NO_INTERFACE;
+    }
+    if tuid_eq(iid, &IID_IPLUG_FRAME) || tuid_eq(iid, &IID_FUNKNOWN) {
+        unsafe {
+            *obj = this;
+        }
+        return K_RESULT_OK;
+    }
+    K_NO_INTERFACE
+}
+
+unsafe extern "C" fn plug_frame_add_ref(this: *mut c_void) -> u32 {
+    if this.is_null() { return 0; }
+    let frame = unsafe { &mut *(this as *mut HostPlugFrame) };
+    frame.ref_count += 1;
+    frame.ref_count
+}
+
+unsafe extern "C" fn plug_frame_release(this: *mut c_void) -> u32 {
+    if this.is_null() { return 0; }
+    let frame = unsafe { &mut *(this as *mut HostPlugFrame) };
+    frame.ref_count = frame.ref_count.saturating_sub(1);
+    frame.ref_count
+}
+
+/// Called by the plugin when it wants to resize its editor view.
+/// We resize the host NSWindow to match the requested size.
+#[cfg(target_os = "macos")]
+unsafe extern "C" fn plug_frame_resize_view(
+    this: *mut c_void,
+    _view: *mut c_void,
+    new_rect: *mut ViewRect,
+) -> Tresult {
+    if this.is_null() || new_rect.is_null() {
+        return K_RESULT_FALSE;
+    }
+    let frame = unsafe { &*(this as *const HostPlugFrame) };
+    if frame.window_ptr == 0 {
+        return K_RESULT_FALSE;
+    }
+    let rect = unsafe { &*new_rect };
+    let width = (rect.right - rect.left).max(100) as f64;
+    let height = (rect.bottom - rect.top).max(100) as f64;
+    let window = frame.window_ptr as id;
+    unsafe {
+        let current_frame = window.frame();
+        // Keep the top-left corner fixed by adjusting origin.y
+        let new_origin_y = current_frame.origin.y
+            + current_frame.size.height
+            - height;
+        let new_frame = NSRect::new(
+            NSPoint::new(current_frame.origin.x, new_origin_y),
+            NSSize::new(width, height),
+        );
+        window.setFrame_display_(new_frame, true);
+    }
+    K_RESULT_OK
+}
+
+#[cfg(not(target_os = "macos"))]
+unsafe extern "C" fn plug_frame_resize_view(
+    _this: *mut c_void,
+    _view: *mut c_void,
+    _new_rect: *mut ViewRect,
+) -> Tresult {
+    K_RESULT_NOT_IMPLEMENTED
+}
+
+static HOST_PLUG_FRAME_VTBL: IPlugFrameVtbl = IPlugFrameVtbl {
+    query_interface: plug_frame_query_interface,
+    add_ref: plug_frame_add_ref,
+    release: plug_frame_release,
+    resize_view: plug_frame_resize_view,
+};
+
+/// VST3 bus media type constants.
+const K_AUDIO: i32 = 0;
+/// VST3 bus direction constants.
+const K_INPUT: i32 = 0;
+#[allow(dead_code)]
+const K_OUTPUT: i32 = 1;
+
+/// VST3 speaker arrangement: stereo = L | R.
+const K_SPEAKER_STEREO: u64 = 0x03; // kSpeakerL | kSpeakerR
+
 // ── VST3 Bundle Resolution ────────────────────────────────────────────
 
 /// Resolves the native binary path inside a VST3 bundle.
@@ -1365,6 +1658,16 @@ pub struct Vst3Instance {
 
     #[cfg(target_os = "macos")]
     editor_window: Option<MacEditorWindow>,
+
+    /// Heap-allocated IPlugFrame for editor resize notifications.
+    /// Kept alive while the editor window is open.
+    #[cfg(target_os = "macos")]
+    plug_frame: Option<Box<HostPlugFrame>>,
+
+    /// Number of audio input buses detected from the plugin's IComponent.
+    audio_input_bus_count: i32,
+    /// Number of audio output buses detected from the plugin's IComponent.
+    audio_output_bus_count: i32,
 
     /// Cached transport context (set before each process() call).
     /// Updated via set_transport_context() — zero-alloc Copy struct.
@@ -1620,6 +1923,12 @@ impl Vst3Instance {
                 )));
             }
 
+            // ── Wire IPlugFrame for editor resize notifications ──
+            let mut frame_box = HostPlugFrame::new(window as usize);
+            let frame_ptr = (&mut *frame_box as *mut HostPlugFrame).cast::<c_void>();
+            let _ = ((*(*plug_view).vtbl).set_frame)(plug_view, frame_ptr);
+            self.plug_frame = Some(frame_box);
+
             window.makeKeyAndOrderFront_(nil);
             app.activateIgnoringOtherApps_(true);
 
@@ -1638,6 +1947,8 @@ impl Vst3Instance {
         let Some(window_state) = self.editor_window.take() else {
             return Ok(());
         };
+        // Release IPlugFrame before detaching the view
+        self.plug_frame.take();
         let window = window_state.window as id;
         let plug_view = window_state.plug_view as *mut IPlugView;
         unsafe {
@@ -1756,6 +2067,10 @@ impl Vst3Instance {
             com_initialized: false,
             #[cfg(target_os = "macos")]
             editor_window: None,
+            #[cfg(target_os = "macos")]
+            plug_frame: None,
+            audio_input_bus_count: 0,
+            audio_output_bus_count: 0,
             transport_ctx: TransportContext::default(),
             pending_param_changes: Vec::new(),
             parameter_values: HashMap::new(),
@@ -1789,6 +2104,10 @@ impl Vst3Instance {
             com_initialized: false,
             #[cfg(target_os = "macos")]
             editor_window: None,
+            #[cfg(target_os = "macos")]
+            plug_frame: None,
+            audio_input_bus_count: 0,
+            audio_output_bus_count: 0,
             transport_ctx: TransportContext::default(),
             pending_param_changes: Vec::new(),
             parameter_values: HashMap::new(),
@@ -1838,6 +2157,32 @@ impl PluginInstance for Vst3Instance {
                     // AVANGARD FIX: Pass real IHostApplication instead of NULL.
                     // NULL causes segfault in FabFilter, Serum, Kontakt, etc.
                     let _ = ((*(*component).vtbl).initialize)(component, host_application_ptr());
+
+                    // ── Query bus counts for proper bus arrangement ──
+                    self.audio_input_bus_count =
+                        ((*(*component).vtbl).get_bus_count)(component, K_AUDIO, K_INPUT).max(0);
+                    self.audio_output_bus_count =
+                        ((*(*component).vtbl).get_bus_count)(component, K_AUDIO, K_OUTPUT).max(0);
+
+                    // Activate main input bus (bus 0)
+                    if self.audio_input_bus_count > 0 {
+                        let _ = ((*(*component).vtbl).activate_bus)(
+                            component, K_AUDIO, K_INPUT, 0, 1,
+                        );
+                    }
+                    // Activate sidechain input bus (bus 1) if present
+                    if self.audio_input_bus_count > 1 {
+                        let _ = ((*(*component).vtbl).activate_bus)(
+                            component, K_AUDIO, K_INPUT, 1, 1,
+                        );
+                    }
+                    // Activate main output bus (bus 0)
+                    if self.audio_output_bus_count > 0 {
+                        let _ = ((*(*component).vtbl).activate_bus)(
+                            component, K_AUDIO, K_OUTPUT, 0, 1,
+                        );
+                    }
+
                     let _ = ((*(*component).vtbl).set_active)(component, 1);
                 }
             }
@@ -1846,6 +2191,23 @@ impl PluginInstance for Vst3Instance {
                 unsafe {
                     let _ = ((*(*controller).vtbl).initialize)(controller, host_application_ptr());
                 }
+            }
+
+            // ── Set bus arrangements (stereo main + optional stereo sidechain) ──
+            {
+                let in_bus_count = self.audio_input_bus_count.max(1);
+                let out_bus_count = self.audio_output_bus_count.max(1);
+                let mut in_arrangements = vec![K_SPEAKER_STEREO; in_bus_count as usize];
+                let mut out_arrangements = vec![K_SPEAKER_STEREO; out_bus_count as usize];
+                let _ = unsafe {
+                    ((*(*processor).vtbl).set_bus_arrangements)(
+                        processor,
+                        in_arrangements.as_mut_ptr() as *mut c_void,
+                        in_bus_count,
+                        out_arrangements.as_mut_ptr() as *mut c_void,
+                        out_bus_count,
+                    )
+                };
             }
 
             let setup = ProcessSetup {
@@ -2291,6 +2653,19 @@ impl PluginInstance for Vst3Instance {
                 kind.unwrap_or("unknown")
             )));
         }
+        // Per VST3 spec: after IComponent::setState, call
+        // IEditController::setComponentState so the editor reflects the loaded state.
+        if self.controller_ptr != 0 {
+            let controller = self.controller_ptr as *mut IEditController;
+            let mut controller_stream = HostReadStream::new(data.to_vec());
+            let _ = unsafe {
+                ((*(*controller).vtbl).set_component_state)(
+                    controller,
+                    (&mut controller_stream as *mut HostReadStream).cast::<c_void>(),
+                )
+            };
+        }
+
         info!(
             "[VST3] Applied state blob for '{}' (kind={}, bytes={})",
             self.descriptor.name,
@@ -2298,6 +2673,41 @@ impl PluginInstance for Vst3Instance {
             data.len()
         );
         Ok(())
+    }
+}
+
+impl Vst3Instance {
+    /// Serializes the plugin's current state (component + controller).
+    ///
+    /// Returns a byte blob suitable for `load_state_blob` or session persistence.
+    /// Calls `IComponent::getState` to capture the processor state.
+    pub fn save_state(&self) -> Result<Vec<u8>, PluginError> {
+        if self.component_ptr == 0 {
+            return Err(PluginError::InvalidState(
+                "Cannot save state: VST3 component pointer is null".to_string(),
+            ));
+        }
+        let component = self.component_ptr as *mut IComponent;
+        let mut stream = HostWriteStream::new();
+        let status = unsafe {
+            ((*(*component).vtbl).get_state)(
+                component,
+                (&mut stream as *mut HostWriteStream).cast::<c_void>(),
+            )
+        };
+        if status != K_RESULT_OK {
+            return Err(PluginError::ProcessError(format!(
+                "getState failed for '{}' (status={status})",
+                self.descriptor.name
+            )));
+        }
+        let bytes = stream.into_bytes();
+        info!(
+            "[VST3] Saved state for '{}' ({} bytes)",
+            self.descriptor.name,
+            bytes.len()
+        );
+        Ok(bytes)
     }
 }
 
@@ -2344,6 +2754,36 @@ impl PluginHost {
         self.instances.push(Box::new(instance));
         self.instance_index.insert(id, self.instances.len() - 1);
         Ok(id)
+    }
+
+    /// Reactivates all loaded plugin instances with a new sample rate
+    /// and/or buffer size. This is necessary when the audio device
+    /// configuration changes at runtime (e.g., user switches interface).
+    ///
+    /// Each instance is deactivated, then reactivated with the new config.
+    /// Errors are logged but do not halt processing of remaining instances.
+    pub fn reactivate_all(&mut self, sample_rate: f64, buffer_size: usize) {
+        info!(
+            "[PluginHost] Reactivating {} instances @ {}Hz, {} frames",
+            self.instances.len(), sample_rate, buffer_size
+        );
+        self.sample_rate = sample_rate;
+        self.buffer_size = buffer_size;
+
+        for instance in self.instances.iter_mut() {
+            if let Err(e) = instance.deactivate() {
+                info!(
+                    "[PluginHost] Deactivation warning for {}: {}",
+                    instance.id(), e
+                );
+            }
+            if let Err(e) = instance.activate(sample_rate, buffer_size) {
+                info!(
+                    "[PluginHost] Reactivation failed for {}: {}",
+                    instance.id(), e
+                );
+            }
+        }
     }
 
     /// Registers an out-of-process sandboxed plugin instance.

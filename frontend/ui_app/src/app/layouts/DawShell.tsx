@@ -19,7 +19,9 @@ import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import * as engineApi from '@/shared/api/engine';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
+import { beatToFrame, beatDurationToFrames } from '@/shared/lib/audioMath';
 import { getContrastColor } from '@/shared/lib/colorUtils';
+import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { ClipEditorShell } from '@/widgets/ClipEditor/ClipEditorShell';
 import { ClipEditorMetaRow, ClipEditorSection, ClipEditorSidebar } from '@/widgets/ClipEditor/ClipEditorSidebar';
 
@@ -601,7 +603,6 @@ export const DawShell = () => {
         const bpm = projectBpm || transportBpm || 120;
         const beatsPerBar = 4;
         const sampleRate = projectSampleRate;
-        const beatsPerSecond = bpm / 60;
 
         setAiVariationBusy(true);
         try {
@@ -634,8 +635,8 @@ export const DawShell = () => {
                 normalizedForUi.map((n) => ({
                     pitch: n.pitch,
                     velocity: n.velocity,
-                    startFrames: Math.max(0, Math.round((n.startBeat / beatsPerSecond) * sampleRate)),
-                    durationFrames: Math.max(1, Math.round((n.durationBeats / beatsPerSecond) * sampleRate)),
+                    startFrames: Math.max(0, beatToFrame(n.startBeat, bpm, sampleRate)),
+                    durationFrames: Math.max(1, beatDurationToFrames(n.durationBeats, bpm, sampleRate)),
                 })),
             );
             await fetchProject();
@@ -659,12 +660,11 @@ export const DawShell = () => {
     const serializeMidiNotesToFrames = useCallback((notes: MidiNote[]) => {
         const bpm = projectBpm || transportBpm || 120;
         const sr = projectSampleRate;
-        const beatsPerSecond = bpm / 60;
         return notes.map((n) => ({
             pitch: n.pitch,
             velocity: n.velocity,
-            startFrames: Math.max(0, Math.round((n.startBeat / beatsPerSecond) * sr)),
-            durationFrames: Math.max(1, Math.round((n.durationBeats / beatsPerSecond) * sr)),
+            startFrames: Math.max(0, beatToFrame(n.startBeat, bpm, sr)),
+            durationFrames: Math.max(1, beatDurationToFrames(n.durationBeats, bpm, sr)),
         }));
     }, [projectBpm, transportBpm, projectSampleRate]);
 
@@ -1034,11 +1034,9 @@ export const DawShell = () => {
         console.log('[DawShell] handleDoubleClickTrack', { trackIndex, beat });
         const bpm = projectBpm || transportBpm || 120;
         const sr = projectSampleRate;
-        const beatsPerBar = 4; // 4/4 time signature
-        const posSeconds = beat / (bpm / 60);
-        const barSeconds = beatsPerBar / (bpm / 60);
-        const positionFrames = Math.round(posSeconds * sr);
-        const durationFrames = Math.round(barSeconds * sr);
+        const beatsPerBar = 4; // TODO: read from project time signature when backend supports it
+        const positionFrames = beatToFrame(beat, bpm, sr);
+        const durationFrames = beatDurationToFrames(beatsPerBar, bpm, sr);
         createMidiClip(trackIndex, positionFrames, durationFrames);
     }, [createMidiClip, projectBpm, transportBpm, projectSampleRate]);
 
@@ -1046,7 +1044,6 @@ export const DawShell = () => {
     const handleClipMove = useCallback((clipId: string, newStartBeat: number, newTrackIndex: number) => {
         const bpm = projectBpm || transportBpm || 120;
         const sr = projectSampleRate;
-        const beatsPerSecond = bpm / 60;
 
         const dragged = timelineClipsForView.find((c) => c.id === clipId);
         if (!dragged) return;
@@ -1055,8 +1052,7 @@ export const DawShell = () => {
         const moveAsGroup = selectedSet.size > 1 && selectedSet.has(clipId);
 
         const moveOne = async (id: string, targetBeat: number, targetTrack: number) => {
-            const posSeconds = Math.max(0, targetBeat) / beatsPerSecond;
-            const positionFrames = Math.round(posSeconds * sr);
+            const positionFrames = beatToFrame(Math.max(0, targetBeat), bpm, sr);
             await engineApi.moveClip(id, targetTrack, positionFrames);
         };
 
@@ -1089,24 +1085,32 @@ export const DawShell = () => {
                 });
                 scheduleProjectRefresh('clip-move');
             })
-            .catch(err => console.error('[DawShell] moveClip failed:', err));
+            .catch(err => {
+                console.error('[DawShell] moveClip failed:', err);
+                useStatusStore.getState().setError(
+                    `Clip move failed: ${err instanceof Error ? err.message : String(err)}`
+                );
+            });
     }, [projectBpm, transportBpm, projectSampleRate, scheduleProjectRefresh, timelineClipsForView, selectedClipIds, trackCount]);
 
     // Clip resize → update position and duration in engine
     const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number) => {
         const bpm = projectBpm || transportBpm || 120;
         const sr = projectSampleRate;
-        const posSeconds = newStartBeat / (bpm / 60);
-        const durSeconds = newDurationBeats / (bpm / 60);
-        const newPositionFrames = Math.round(posSeconds * sr);
-        const newDurationFrames = Math.max(128, Math.round(durSeconds * sr));
+        const newPositionFrames = beatToFrame(newStartBeat, bpm, sr);
+        const newDurationFrames = Math.max(128, beatDurationToFrames(newDurationBeats, bpm, sr));
 
         engineApi.resizeClip(clipId, newPositionFrames, newDurationFrames)
             .then(() => {
                 console.log('[DawShell] Clip resized', { clipId, newStartBeat, newDurationBeats });
                 scheduleProjectRefresh('clip-resize');
             })
-            .catch(err => console.error('[DawShell] resizeClip failed:', err));
+            .catch(err => {
+                console.error('[DawShell] resizeClip failed:', err);
+                useStatusStore.getState().setError(
+                    `Clip resize failed: ${err instanceof Error ? err.message : String(err)}`
+                );
+            });
     }, [projectBpm, transportBpm, projectSampleRate, scheduleProjectRefresh]);
 
     const handleClipFades = useCallback((clipId: string, fadeInFrames: number, fadeOutFrames: number) => {
@@ -2100,78 +2104,78 @@ const SampleClipEditor = ({
                     </ClipEditorSidebar>
                 )}
             >
-            <div style={{
-                flex: 1,
-                padding: 10,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 8,
-                minHeight: 0,
-            }}>
-                {clip.filePath && durationSamples > 0 && !clip.isOffline ? (
-                    <div style={{
-                        flex: 1,
-                        minHeight: 120,
-                        border: '1px solid var(--color-divider)',
-                        borderRadius: 'var(--radius-md)',
-                        overflow: 'hidden',
-                        background: 'color-mix(in srgb, var(--color-bg-panel) 82%, transparent)',
-                        position: 'relative',
-                    }}>
-                        <div style={{ overflowX: 'auto', overflowY: 'hidden', height: '100%' }}>
-                            <div style={{ width: waveformWidth, height: '100%', position: 'relative' }}>
-                                <div style={{
-                                    position: 'absolute',
-                                    left: 0,
-                                    top: 0,
-                                    right: 0,
-                                    height: 20,
-                                    borderBottom: '1px solid color-mix(in srgb, var(--color-text-primary) 8%, transparent)',
-                                    background: 'color-mix(in srgb, var(--color-bg-elevated) 86%, transparent)',
-                                }}>
-                                    {Array.from({ length: gridLineCount }).map((_, i) => {
-                                        const beat = i * gridStep;
-                                        const x = beat * pxPerBeat;
-                                        const isBar = Math.abs((beat / beatsPerBar) - Math.round(beat / beatsPerBar)) < 1e-6;
-                                        return (
-                                            <div key={`audio-ruler-${i}`} style={{ position: 'absolute', left: x, top: 0, bottom: 0, width: 1, background: isBar ? 'color-mix(in srgb, var(--color-accent-primary) 58%, transparent)' : 'color-mix(in srgb, var(--color-text-primary) 15%, transparent)' }}>
-                                                {isBar && (
-                                                    <span style={{ position: 'absolute', top: 2, left: 3, fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
-                                                        {Math.floor(beat / beatsPerBar) + 1}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                                <div style={{ position: 'absolute', top: 20, left: 0, right: 0, bottom: 0 }}>
-                                    <ClipRenderer
-                                        filePath={clip.filePath}
-                                        width={waveformWidth}
-                                        height={Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)}
-                                        durationSamples={durationSamples}
-                                        sourceOffset={clip.sourceOffset ?? 0}
-                                        isSelected
-                                    />
+                <div style={{
+                    flex: 1,
+                    padding: 10,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                    minHeight: 0,
+                }}>
+                    {clip.filePath && durationSamples > 0 && !clip.isOffline ? (
+                        <div style={{
+                            flex: 1,
+                            minHeight: 120,
+                            border: '1px solid var(--color-divider)',
+                            borderRadius: 'var(--radius-md)',
+                            overflow: 'hidden',
+                            background: 'color-mix(in srgb, var(--color-bg-panel) 82%, transparent)',
+                            position: 'relative',
+                        }}>
+                            <div style={{ overflowX: 'auto', overflowY: 'hidden', height: '100%' }}>
+                                <div style={{ width: waveformWidth, height: '100%', position: 'relative' }}>
+                                    <div style={{
+                                        position: 'absolute',
+                                        left: 0,
+                                        top: 0,
+                                        right: 0,
+                                        height: 20,
+                                        borderBottom: '1px solid color-mix(in srgb, var(--color-text-primary) 8%, transparent)',
+                                        background: 'color-mix(in srgb, var(--color-bg-elevated) 86%, transparent)',
+                                    }}>
+                                        {Array.from({ length: gridLineCount }).map((_, i) => {
+                                            const beat = i * gridStep;
+                                            const x = beat * pxPerBeat;
+                                            const isBar = Math.abs((beat / beatsPerBar) - Math.round(beat / beatsPerBar)) < 1e-6;
+                                            return (
+                                                <div key={`audio-ruler-${i}`} style={{ position: 'absolute', left: x, top: 0, bottom: 0, width: 1, background: isBar ? 'color-mix(in srgb, var(--color-accent-primary) 58%, transparent)' : 'color-mix(in srgb, var(--color-text-primary) 15%, transparent)' }}>
+                                                    {isBar && (
+                                                        <span style={{ position: 'absolute', top: 2, left: 3, fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                                                            {Math.floor(beat / beatsPerBar) + 1}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    <div style={{ position: 'absolute', top: 20, left: 0, right: 0, bottom: 0 }}>
+                                        <ClipRenderer
+                                            filePath={clip.filePath}
+                                            width={waveformWidth}
+                                            height={Math.max(90, ((window.innerHeight * 0.18) | 0) - 20)}
+                                            durationSamples={durationSamples}
+                                            sourceOffset={clip.sourceOffset ?? 0}
+                                            isSelected
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                ) : (
-                    <div style={{
-                        flex: 1,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: 'var(--color-text-tertiary)',
-                        fontSize: 'var(--font-size-base)',
-                        border: '1px dashed var(--color-divider)',
-                        borderRadius: 'var(--radius-lg)',
-                    }}>
-                        {clip.isOffline ? 'Media offline — resolve file in timeline (double-click clip).' : 'Audio source unavailable'}
-                    </div>
-                )}
-            </div>
+                    ) : (
+                        <div style={{
+                            flex: 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: 'var(--color-text-tertiary)',
+                            fontSize: 'var(--font-size-base)',
+                            border: '1px dashed var(--color-divider)',
+                            borderRadius: 'var(--radius-lg)',
+                        }}>
+                            {clip.isOffline ? 'Media offline — resolve file in timeline (double-click clip).' : 'Audio source unavailable'}
+                        </div>
+                    )}
+                </div>
             </ClipEditorShell>
         </div>
     );

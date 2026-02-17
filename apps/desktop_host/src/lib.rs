@@ -2353,6 +2353,9 @@ struct PluginHostState {
     loaded_sandbox_by_key: Mutex<HashMap<String, Uuid>>,
     slot_instance_map: Arc<ArcSwap<HashMap<Uuid, Uuid>>>,
     sandbox_supervisor: Mutex<PluginSandboxSupervisor>,
+    /// Cached plugin scan results to avoid re-scanning the filesystem on every
+    /// `resolve_descriptor` call. Cleared on explicit rescan request.
+    cached_scan: Mutex<Option<Vec<PluginDescriptor>>>,
 }
 
 impl PluginHostState {
@@ -2382,6 +2385,7 @@ impl PluginHostState {
             loaded_sandbox_by_key: Mutex::new(HashMap::new()),
             slot_instance_map: Arc::new(ArcSwap::from_pointee(HashMap::new())),
             sandbox_supervisor: Mutex::new(PluginSandboxSupervisor::new(sandbox_config)),
+            cached_scan: Mutex::new(None),
         }
     }
 
@@ -2389,6 +2393,20 @@ impl PluginHostState {
         let mut map = self.slot_instance_map.load_full().as_ref().clone();
         map.insert(slot_id, instance_id);
         self.slot_instance_map.store(Arc::new(map));
+    }
+
+    /// Invalidates the cached plugin scan results, forcing a fresh
+    /// filesystem scan on the next `resolve_descriptor` call.
+    fn clear_scan_cache(&self) {
+        *self.cached_scan.lock().unwrap() = None;
+    }
+
+    /// Reactivates all loaded plugin instances with a new sample rate
+    /// and buffer size. Used when the audio device configuration changes.
+    fn reactivate_all(&self, sample_rate: f64, buffer_size: usize) -> Result<(), String> {
+        let mut host = self.host.lock().map_err(|e| e.to_string())?;
+        host.reactivate_all(sample_rate, buffer_size);
+        Ok(())
     }
 
     fn unbind_slot_instance(&self, slot_id: Uuid) {
@@ -2606,9 +2624,19 @@ impl PluginHostState {
             ));
         }
 
-        let scanner = PluginScanner::new();
-        let all = scanner.scan_all();
-        all.into_iter()
+        // Use cached scan results to avoid expensive filesystem traversal on every call.
+        let cached = self.cached_scan.lock().unwrap();
+        let scan_result = if let Some(ref cached_list) = *cached {
+            cached_list.clone()
+        } else {
+            drop(cached);
+            let scanner = PluginScanner::new();
+            let all = scanner.scan_all();
+            *self.cached_scan.lock().unwrap() = Some(all.clone());
+            all
+        };
+        scan_result
+            .into_iter()
             .find(|desc| {
                 desc.path.to_string_lossy() == plugin_id
                     || desc.name == plugin_id

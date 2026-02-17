@@ -7,9 +7,11 @@
 import { useRef, useEffect, useCallback } from 'react';
 import throttle from 'lodash.throttle';
 import { useTimelineEngine, type UseTimelineEngineConfig } from '@/shared/lib/useTimelineEngine';
+import { beatToFrame } from '@/shared/lib/audioMath';
 import type { TimelineClipData } from '@/shared/lib/CanvasClipRenderer';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
+import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import type { BrowserDragItem, TimelineClip } from '@/shared/lib/arrangementTypes';
 import { canDropInZone } from '@/shared/lib/dndMatrix';
@@ -310,14 +312,14 @@ export const Timeline = (props: TimelineProps) => {
     const trackIdsRef = useRef(trackIds);
     trackIdsRef.current = trackIds;
     const pendingLoopRef = useRef<{ start: number; end: number; enabled: boolean } | null>(null);
-    const commitLoopRef = useRef<(loop: { start: number; end: number; enabled: boolean }) => void>(() => {});
+    const commitLoopRef = useRef<(loop: { start: number; end: number; enabled: boolean }) => void>(() => { });
 
     useEffect(() => {
         commitLoopRef.current = (loop) => {
             const currentBpm = propsRef.current.bpm || 120;
             const currentSampleRate = useEngineStore.getState().transport.sample_rate || 44100;
-            const startFrames = Math.round((loop.start * 60 * currentSampleRate) / currentBpm);
-            const endFrames = Math.round((loop.end * 60 * currentSampleRate) / currentBpm);
+            const startFrames = beatToFrame(loop.start, currentBpm, currentSampleRate);
+            const endFrames = beatToFrame(loop.end, currentBpm, currentSampleRate);
             useEngineStore.getState().setLoop(loop.enabled, startFrames, endFrames);
         };
     }, []);
@@ -674,7 +676,7 @@ export const Timeline = (props: TimelineProps) => {
                         visible
                         trackCount={trackCount}
                         trackHeight={trackHeight}
-                        scrollTop={engineRef.current?.viewport.scrollY ?? 0}
+                        scrollTop={useTimelineStore.getState().scrollTop ?? 0}
                         width={arrangementRef.current?.clientWidth ?? 800}
                         bpm={bpm}
                     />

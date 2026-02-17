@@ -1688,8 +1688,13 @@ export class TimelineEngine {
 
         if (paths.length > 0) {
             this._waveformCache.prefetch(paths);
-            // Re-request draw when waveforms load (they'll be available next frame)
-            setTimeout(() => this._requestRedraw(), 200);
+            // Re-request draw when waveforms load — use requestIdleCallback
+            // to avoid blocking the main thread during scroll/zoom
+            if (typeof requestIdleCallback === 'function') {
+                requestIdleCallback(() => this._requestRedraw(), { timeout: 300 });
+            } else {
+                setTimeout(() => this._requestRedraw(), 200);
+            }
         }
     }
 

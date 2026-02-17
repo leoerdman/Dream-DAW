@@ -61,6 +61,59 @@ fn now_ms() -> u128 {
         .unwrap_or(0)
 }
 
+fn next_job_id() -> String {
+    static JOB_COUNTER: std::sync::OnceLock<std::sync::atomic::AtomicU64> =
+        std::sync::OnceLock::new();
+    let seq = JOB_COUNTER
+        .get_or_init(|| std::sync::atomic::AtomicU64::new(1))
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("job_{:x}_{:x}", now_ms(), seq)
+}
+
+fn prune_finished_jobs_locked(
+    jobs: &mut std::collections::HashMap<String, BackgroundJobState>,
+) {
+    const FINISHED_JOB_TTL_MS: u128 = 15 * 60 * 1000;
+    const MAX_FINISHED_JOBS: usize = 200;
+
+    let now = now_ms();
+    jobs.retain(|_, job| {
+        if job.snapshot.status == "running" {
+            return true;
+        }
+        let finished_at = job.snapshot.finished_at_ms.unwrap_or(job.snapshot.started_at_ms);
+        now.saturating_sub(finished_at) <= FINISHED_JOB_TTL_MS
+    });
+
+    let mut finished: Vec<(String, u128)> = jobs
+        .iter()
+        .filter_map(|(id, job)| {
+            if job.snapshot.status == "running" {
+                None
+            } else {
+                Some((
+                    id.clone(),
+                    job.snapshot
+                        .finished_at_ms
+                        .unwrap_or(job.snapshot.started_at_ms),
+                ))
+            }
+        })
+        .collect();
+
+    if finished.len() <= MAX_FINISHED_JOBS {
+        return;
+    }
+
+    finished.sort_by(|a, b| b.1.cmp(&a.1));
+    let keep: std::collections::HashSet<String> = finished
+        .iter()
+        .take(MAX_FINISHED_JOBS)
+        .map(|(id, _)| id.clone())
+        .collect();
+    jobs.retain(|id, job| job.snapshot.status == "running" || keep.contains(id));
+}
+
 fn background_jobs()
 -> &'static std::sync::Mutex<std::collections::HashMap<String, BackgroundJobState>> {
     static JOBS: std::sync::OnceLock<
@@ -78,7 +131,7 @@ fn start_job(
     kind: &str,
     cancellable: bool,
 ) -> Result<(String, std::sync::Arc<std::sync::atomic::AtomicBool>), String> {
-    let id = format!("job_{}", now_ms());
+    let id = next_job_id();
     let cancel_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let snapshot = BackgroundJobSnapshot {
         id: id.clone(),
@@ -93,6 +146,7 @@ fn start_job(
     };
     {
         let mut jobs = background_jobs().lock().map_err(|e| e.to_string())?;
+        prune_finished_jobs_locked(&mut jobs);
         jobs.insert(
             id.clone(),
             BackgroundJobState {
@@ -162,6 +216,7 @@ fn finish_job(
             }),
         );
     }
+    prune_finished_jobs_locked(&mut jobs);
     Ok(())
 }
 
@@ -266,6 +321,8 @@ fn place_bounced_file_on_new_track(
 ) -> Result<(), String> {
     let decoded = AudioReader::read(PathBuf::from(bounced_file_path))
         .map_err(|e| format!("Failed to decode bounced file: {e}"))?;
+    push_undo(project_state)?;
+
     {
         let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
         pool.insert(ClipAudio {
@@ -276,7 +333,6 @@ fn place_bounced_file_on_new_track(
         });
     }
 
-    push_undo(project_state)?;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_sr = project.sample_rate.max(1.0);
     let source_sr = decoded.sample_rate.max(1) as f64;
@@ -308,32 +364,38 @@ fn place_stem_files_on_new_tracks(
     struct StemMeta {
         path: String,
         track_name: String,
+        channels_data: Vec<Vec<f32>>,
         num_frames: usize,
         sample_rate: u32,
     }
 
     let mut metas: Vec<StemMeta> = Vec::with_capacity(stems.len());
+    for (stem_path, stem_track_name) in stems {
+        let decoded = AudioReader::read(PathBuf::from(stem_path))
+            .map_err(|e| format!("Failed to decode stem '{}': {e}", stem_path))?;
+        metas.push(StemMeta {
+            path: stem_path.clone(),
+            track_name: stem_track_name.clone(),
+            channels_data: decoded.channels,
+            num_frames: decoded.num_frames,
+            sample_rate: decoded.sample_rate,
+        });
+    }
+
+    push_undo(project_state)?;
+
     {
         let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
-        for (stem_path, stem_track_name) in stems {
-            let decoded = AudioReader::read(PathBuf::from(stem_path))
-                .map_err(|e| format!("Failed to decode stem '{}': {e}", stem_path))?;
-            metas.push(StemMeta {
-                path: stem_path.clone(),
-                track_name: stem_track_name.clone(),
-                num_frames: decoded.num_frames,
-                sample_rate: decoded.sample_rate,
-            });
+        for stem in &metas {
             pool.insert(ClipAudio {
-                source_path: stem_path.clone(),
-                channels: decoded.channels,
-                sample_rate: decoded.sample_rate,
-                num_frames: decoded.num_frames,
+                source_path: stem.path.clone(),
+                channels: stem.channels_data.clone(),
+                sample_rate: stem.sample_rate,
+                num_frames: stem.num_frames,
             });
         }
     }
 
-    push_undo(project_state)?;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let project_sr = project.sample_rate.max(1.0);
     for stem in &metas {
@@ -943,8 +1005,10 @@ async fn set_clip_fades_cmd(
     let mut updated = false;
     for track in &mut project.tracks {
         if let Some(clip) = track.clips.iter_mut().find(|c| c.id == uuid) {
-            clip.fade_in_frames = fade_in_frames.max(0);
-            clip.fade_out_frames = fade_out_frames.max(0);
+            let clip_len = clip.duration.sample_frame.max(1);
+            let max_fade = (clip_len / 2).max(0);
+            clip.fade_in_frames = fade_in_frames.max(0).min(max_fade);
+            clip.fade_out_frames = fade_out_frames.max(0).min(max_fade);
             updated = true;
             break;
         }
@@ -953,8 +1017,10 @@ async fn set_clip_fades_cmd(
     if !updated {
         for track in &mut project.tracks {
             if let Some(clip) = track.midi_clips.iter_mut().find(|c| c.id == uuid) {
-                clip.fade_in_frames = fade_in_frames.max(0);
-                clip.fade_out_frames = fade_out_frames.max(0);
+                let clip_len = clip.duration.sample_frame.max(1);
+                let max_fade = (clip_len / 2).max(0);
+                clip.fade_in_frames = fade_in_frames.max(0).min(max_fade);
+                clip.fade_out_frames = fade_out_frames.max(0).min(max_fade);
                 updated = true;
                 break;
             }
@@ -982,6 +1048,44 @@ async fn set_clip_fades_cmd(
 ///
 /// Muted clips remain on the timeline but are skipped during playback.
 /// The visual renderer draws them with a dark overlay.
+fn apply_clip_mute(project: &mut Project, clip_id: Uuid, muted: bool) -> (bool, bool) {
+    for track in &mut project.tracks {
+        if let Some(clip) = track.clips.iter_mut().find(|c| c.id == clip_id) {
+            let changed = clip.is_muted != muted;
+            if changed {
+                clip.is_muted = muted;
+            }
+            return (true, changed);
+        }
+    }
+
+    for track in &mut project.tracks {
+        if let Some(clip) = track.midi_clips.iter_mut().find(|c| c.id == clip_id) {
+            let changed = clip.is_muted != muted;
+            if changed {
+                clip.is_muted = muted;
+            }
+            return (true, changed);
+        }
+    }
+
+    (false, false)
+}
+
+fn clip_mute_status(project: &Project, clip_id: Uuid, muted: bool) -> (bool, bool) {
+    for track in &project.tracks {
+        if let Some(clip) = track.clips.iter().find(|c| c.id == clip_id) {
+            return (true, clip.is_muted != muted);
+        }
+    }
+    for track in &project.tracks {
+        if let Some(clip) = track.midi_clips.iter().find(|c| c.id == clip_id) {
+            return (true, clip.is_muted != muted);
+        }
+    }
+    (false, false)
+}
+
 #[tauri::command]
 async fn set_clip_muted_cmd(
     clip_id: String,
@@ -991,33 +1095,26 @@ async fn set_clip_muted_cmd(
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
+
+    let (found, changed) = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        clip_mute_status(&project, uuid, muted)
+    };
+
+    if !found {
+        return Err(format!("Clip not found: {clip_id}"));
+    }
+
+    if !changed {
+        return Ok(());
+    }
+
     push_undo(&project_state)?;
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
-    let mut updated = false;
-
-    // Try audio clips first
-    for track in &mut project.tracks {
-        if let Some(clip) = track.clips.iter_mut().find(|c| c.id == uuid) {
-            clip.is_muted = muted;
-            updated = true;
-            break;
-        }
-    }
-
-    // If not found in audio clips, try MIDI clips
-    if !updated {
-        for track in &mut project.tracks {
-            if let Some(clip) = track.midi_clips.iter_mut().find(|c| c.id == uuid) {
-                clip.is_muted = muted;
-                updated = true;
-                break;
-            }
-        }
-    }
-
-    if !updated {
-        return Err(format!("Clip not found: {clip_id}"));
+    let (_, changed_again) = apply_clip_mute(&mut project, uuid, muted);
+    if !changed_again {
+        return Ok(());
     }
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
@@ -1026,6 +1123,78 @@ async fn set_clip_muted_cmd(
 
     log::info!("[IPC] set_clip_muted_cmd clip={} muted={}", clip_id, muted);
     Ok(())
+}
+
+/// Set mute state on multiple clips in one operation.
+///
+/// This creates a single undo step for the whole batch and avoids undo spam.
+#[tauri::command]
+async fn set_clips_muted_cmd(
+    clip_ids: Vec<String>,
+    muted: bool,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+) -> Result<usize, String> {
+    let uuids: Vec<Uuid> = clip_ids
+        .iter()
+        .map(|id| Uuid::parse_str(id).map_err(|e| format!("Invalid clip ID '{id}': {e}")))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if uuids.is_empty() {
+        return Ok(0);
+    }
+
+    let (found_count, changed_count) = {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let mut found = 0usize;
+        let mut changed = 0usize;
+        for uuid in &uuids {
+            let (is_found, is_changed) = clip_mute_status(&project, *uuid, muted);
+            if is_found {
+                found += 1;
+            }
+            if is_changed {
+                changed += 1;
+            }
+        }
+        (found, changed)
+    };
+
+    if found_count == 0 {
+        return Err("No clips found for mute operation".to_string());
+    }
+    if changed_count == 0 {
+        return Ok(0);
+    }
+
+    push_undo(&project_state)?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut applied = 0usize;
+    for uuid in &uuids {
+        let (_, changed) = apply_clip_mute(&mut project, *uuid, muted);
+        if changed {
+            applied += 1;
+        }
+    }
+
+    if applied == 0 {
+        return Ok(0);
+    }
+
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    clip_pool_state.rebuild_snapshot(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
+
+    log::info!(
+        "[IPC] set_clips_muted_cmd clips={} muted={} applied={}",
+        uuids.len(),
+        muted,
+        applied
+    );
+
+    Ok(applied)
 }
 
 /// Clear clip color overrides on a track so all clips inherit track color.
@@ -1342,7 +1511,6 @@ async fn export_mix_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<String, String> {
-    let (job_id, job_cancel) = start_job(&app, "export_mix", true)?;
     let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
 
     let export_range = settings.range.trim().to_ascii_lowercase();
@@ -1405,6 +1573,8 @@ async fn export_mix_cmd(
         tail_frames: ((settings.tail_ms as f64 / 1000.0) * settings.sample_rate as f64) as i64,
         format: export_format,
     };
+
+    let (job_id, job_cancel) = start_job(&app, "export_mix", true)?;
     
     // Reset cancel flag and execute export as detached background worker.
     handle.export_cancel.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -1435,7 +1605,18 @@ async fn export_mix_cmd(
 
         match result {
             Ok(_) => {
-                let _ = finish_job(&app_for_finish, &job_id_for_finish, true, false, None);
+                let cancelled = cancel_flag.load(std::sync::atomic::Ordering::SeqCst);
+                let _ = finish_job(
+                    &app_for_finish,
+                    &job_id_for_finish,
+                    !cancelled,
+                    cancelled,
+                    if cancelled {
+                        Some("Export cancelled".to_string())
+                    } else {
+                        None
+                    },
+                );
             }
             Err(err) => {
                 let cancelled = cancel_flag.load(std::sync::atomic::Ordering::SeqCst);
@@ -1455,14 +1636,27 @@ async fn export_mix_cmd(
 /// Cancel an in-progress export/bounce operation.
 #[tauri::command]
 async fn cancel_export_cmd(
+    app: tauri::AppHandle,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
     handle.export_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
-    if let Ok(jobs) = background_jobs().lock() {
-        for job in jobs.values() {
+    if let Ok(mut jobs) = background_jobs().lock() {
+        for job in jobs.values_mut() {
             if job.snapshot.status == "running" && job.snapshot.cancellable {
                 job.cancel_flag
                     .store(true, std::sync::atomic::Ordering::SeqCst);
+                job.snapshot.status = "cancelling".to_string();
+                job.snapshot.phase = "Cancelling...".to_string();
+                emit_job_update(&app, &job.snapshot);
+                let _ = app.emit(
+                    "bounce_progress",
+                    serde_json::json!({
+                        "jobId": &job.snapshot.id,
+                        "progress": job.snapshot.progress,
+                        "phase": job.snapshot.phase,
+                        "status": job.snapshot.status,
+                    }),
+                );
             }
         }
     }
@@ -1472,16 +1666,17 @@ async fn cancel_export_cmd(
 
 #[tauri::command]
 async fn list_background_jobs_cmd() -> Result<Vec<BackgroundJobSnapshot>, String> {
-    let jobs = background_jobs().lock().map_err(|e| e.to_string())?;
+    let mut jobs = background_jobs().lock().map_err(|e| e.to_string())?;
+    prune_finished_jobs_locked(&mut jobs);
     let mut out: Vec<BackgroundJobSnapshot> = jobs.values().map(|j| j.snapshot.clone()).collect();
     out.sort_by_key(|j| j.started_at_ms);
     Ok(out)
 }
 
 #[tauri::command]
-async fn cancel_background_job_cmd(job_id: String) -> Result<(), String> {
-    let jobs = background_jobs().lock().map_err(|e| e.to_string())?;
-    let Some(job) = jobs.get(&job_id) else {
+async fn cancel_background_job_cmd(job_id: String, app: tauri::AppHandle) -> Result<(), String> {
+    let mut jobs = background_jobs().lock().map_err(|e| e.to_string())?;
+    let Some(job) = jobs.get_mut(&job_id) else {
         return Err("Job not found".to_string());
     };
     if !job.snapshot.cancellable {
@@ -1489,6 +1684,20 @@ async fn cancel_background_job_cmd(job_id: String) -> Result<(), String> {
     }
     job.cancel_flag
         .store(true, std::sync::atomic::Ordering::SeqCst);
+    if job.snapshot.status == "running" {
+        job.snapshot.status = "cancelling".to_string();
+        job.snapshot.phase = "Cancelling...".to_string();
+        emit_job_update(&app, &job.snapshot);
+        let _ = app.emit(
+            "bounce_progress",
+            serde_json::json!({
+                "jobId": &job.snapshot.id,
+                "progress": job.snapshot.progress,
+                "phase": job.snapshot.phase,
+                "status": job.snapshot.status,
+            }),
+        );
+    }
     Ok(())
 }
 
@@ -1509,7 +1718,6 @@ async fn bounce_selection_to_track_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
-    let (job_id, job_cancel) = start_job(&app, "bounce_selection", true)?;
     let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
     let mut bounce_project = project.clone();
     let mut bounce_track_name = "Bounce".to_string();
@@ -1608,6 +1816,8 @@ async fn bounce_selection_to_track_cmd(
         format: "wav".to_string(),
     };
 
+    let (job_id, job_cancel) = start_job(&app, "bounce_selection", true)?;
+
     handle
         .export_cancel
         .store(false, std::sync::atomic::Ordering::SeqCst);
@@ -1636,6 +1846,17 @@ async fn bounce_selection_to_track_cmd(
         return Err(e);
     }
 
+    if job_cancel.load(std::sync::atomic::Ordering::SeqCst) {
+        let _ = finish_job(
+            &app,
+            &job_id,
+            false,
+            true,
+            Some("Bounce cancelled".to_string()),
+        );
+        return Err("Bounce cancelled".to_string());
+    }
+
     let place_result = place_bounced_file_on_new_track(
         &project_state,
         &clip_pool_state,
@@ -1662,7 +1883,6 @@ async fn bounce_track_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
-    let (job_id, job_cancel) = start_job(&app, "bounce_track", true)?;
     let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track ID: {e}"))?;
     let source_index = project
@@ -1707,6 +1927,8 @@ async fn bounce_track_cmd(
         format: "wav".to_string(),
     };
 
+    let (job_id, job_cancel) = start_job(&app, "bounce_track", true)?;
+
     handle
         .export_cancel
         .store(false, std::sync::atomic::Ordering::SeqCst);
@@ -1735,6 +1957,17 @@ async fn bounce_track_cmd(
         return Err(e);
     }
 
+    if job_cancel.load(std::sync::atomic::Ordering::SeqCst) {
+        let _ = finish_job(
+            &app,
+            &job_id,
+            false,
+            true,
+            Some("Bounce cancelled".to_string()),
+        );
+        return Err("Bounce cancelled".to_string());
+    }
+
     let place_result = place_bounced_file_on_new_track(
         &project_state,
         &clip_pool_state,
@@ -1761,7 +1994,6 @@ async fn bounce_group_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
-    let (job_id, job_cancel) = start_job(&app, "bounce_group", true)?;
     let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
     let group_uuid = Uuid::parse_str(&group_track_id)
         .map_err(|e| format!("Invalid group track ID: {e}"))?;
@@ -1831,6 +2063,8 @@ async fn bounce_group_cmd(
         format: "wav".to_string(),
     };
 
+    let (job_id, job_cancel) = start_job(&app, "bounce_group", true)?;
+
     handle
         .export_cancel
         .store(false, std::sync::atomic::Ordering::SeqCst);
@@ -1859,6 +2093,17 @@ async fn bounce_group_cmd(
         return Err(e);
     }
 
+    if job_cancel.load(std::sync::atomic::Ordering::SeqCst) {
+        let _ = finish_job(
+            &app,
+            &job_id,
+            false,
+            true,
+            Some("Bounce cancelled".to_string()),
+        );
+        return Err("Bounce cancelled".to_string());
+    }
+
     let place_result = place_bounced_file_on_new_track(
         &project_state,
         &clip_pool_state,
@@ -1885,12 +2130,6 @@ async fn split_track_to_stems_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
 ) -> Result<(), String> {
-    let (job_id, job_cancel) = start_job(&app, "split_to_stems", true)?;
-    let _ = app.emit(
-        "bounce_progress",
-        serde_json::json!({ "jobId": &job_id, "progress": 5.0, "phase": "Preparing stem split" }),
-    );
-    let _ = set_job_progress(&app, &job_id, 5.0, "Preparing stem split");
     let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|e| format!("Invalid track ID: {e}"))?;
@@ -1960,6 +2199,13 @@ async fn split_track_to_stems_cmd(
         format: "wav".to_string(),
     };
 
+    let (job_id, job_cancel) = start_job(&app, "split_to_stems", true)?;
+    let _ = app.emit(
+        "bounce_progress",
+        serde_json::json!({ "jobId": &job_id, "progress": 5.0, "phase": "Preparing stem split" }),
+    );
+    let _ = set_job_progress(&app, &job_id, 5.0, "Preparing stem split");
+
     handle
         .export_cancel
         .store(false, std::sync::atomic::Ordering::SeqCst);
@@ -2001,6 +2247,17 @@ async fn split_track_to_stems_cmd(
         e
     })?;
 
+    if job_cancel.load(std::sync::atomic::Ordering::SeqCst) {
+        let _ = finish_job(
+            &app,
+            &job_id,
+            false,
+            true,
+            Some("Stem split cancelled".to_string()),
+        );
+        return Err("Stem split cancelled".to_string());
+    }
+
     let order = ["drums", "bass", "other", "vocals"];
     let mut stem_tracks: Vec<(String, String)> = Vec::new();
     for stem in order {
@@ -2028,6 +2285,16 @@ async fn split_track_to_stems_cmd(
     );
 
     if result.is_ok() {
+        if job_cancel.load(std::sync::atomic::Ordering::SeqCst) {
+            let _ = finish_job(
+                &app,
+                &job_id,
+                false,
+                true,
+                Some("Stem split cancelled".to_string()),
+            );
+            return Err("Stem split cancelled".to_string());
+        }
         let _ = set_job_progress(&app, &job_id, 100.0, "Stem split complete");
         let _ = app.emit(
             "bounce_progress",

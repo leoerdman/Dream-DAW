@@ -29,7 +29,7 @@ pub mod vst3_host;
 
 pub use descriptor::PluginDescriptor;
 pub use format::PluginFormat;
-pub use instance::{PluginInstance, TransportContext};
+pub use instance::{MidiEvent, PluginInstance, TransportContext};
 pub use sandbox_host::{
     PluginSandboxConfig, PluginSandboxSnapshot, PluginSandboxStatus, PluginSandboxSupervisor,
 };

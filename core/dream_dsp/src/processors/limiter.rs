@@ -83,10 +83,22 @@ impl LimiterProcessor {
                 ((self.lookahead_ms * 0.001 * sr) as usize).clamp(1, MAX_LOOKAHEAD - 1);
         }
     }
+
+    #[inline]
+    fn sync_sample_rate(&mut self, sample_rate: f32) {
+        if sample_rate.is_finite()
+            && sample_rate > 1000.0
+            && (sample_rate - self.sample_rate).abs() > 0.5
+        {
+            self.sample_rate = sample_rate;
+            self.update_coefficients();
+        }
+    }
 }
 
 impl DspProcessor for LimiterProcessor {
-    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], _sample_rate: f32) {
+    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
+        self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
         let threshold = self.threshold_lin;
         let ceiling = self.ceiling_lin;

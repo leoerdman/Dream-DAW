@@ -18,7 +18,9 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use dream_models::project::Project;
 
@@ -149,9 +151,7 @@ impl ProjectManager {
         let backup_dir = folder.join(Self::BACKUP_DIR);
         fs::create_dir_all(&backup_dir)?;
 
-        let timestamp = Self::timestamp_string();
-        let backup_name = format!("{}_backup_{}.dream.json", project.name, timestamp);
-        let backup_path = backup_dir.join(&backup_name);
+        let backup_path = Self::next_backup_path(&backup_dir, &project.name);
 
         ProjectFile::save(project, &backup_path)?;
 
@@ -160,6 +160,24 @@ impl ProjectManager {
 
         log::info!("Backup created: {}", backup_path.display());
         Ok(backup_path)
+    }
+
+    fn next_backup_path(backup_dir: &Path, project_name: &str) -> PathBuf {
+        let timestamp = Self::timestamp_string();
+        let millis = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .subsec_millis();
+
+        let base_name = format!("{}_backup_{}_{}", project_name, timestamp, millis);
+        let mut candidate = backup_dir.join(format!("{}.dream.json", base_name));
+        let mut suffix = 1usize;
+        while candidate.exists() {
+            candidate = backup_dir.join(format!("{}_{}.dream.json", base_name, suffix));
+            suffix += 1;
+        }
+
+        candidate
     }
 
     /// Removes old backup files, keeping only the newest `MAX_BACKUPS`.
@@ -214,8 +232,10 @@ impl ProjectManager {
     }
 
     /// Copies a single audio file to the destination directory.
-    /// Skips if the source doesn't exist or the destination already has a file
-    /// with the same name.
+    ///
+    /// If a same-named destination file already exists:
+    /// - skip only when contents are byte-identical,
+    /// - otherwise preserve both by writing a suffixed filename.
     fn copy_single_sample(source: &Path, dest_dir: &Path) -> Result<(), ProjectFileError> {
         if !source.exists() {
             log::debug!("Sample source not found, skipping: {}", source.display());
@@ -227,11 +247,34 @@ impl ProjectManager {
             None => return Ok(()),
         };
 
-        let dest_path = dest_dir.join(file_name);
+        let mut dest_path = dest_dir.join(file_name);
 
-        // Skip if already exists (same name = assumed same file)
         if dest_path.exists() {
-            return Ok(());
+            if Self::files_identical(source, &dest_path)? {
+                return Ok(());
+            }
+
+            let stem = source
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or("sample");
+            let ext = source.extension().and_then(|s| s.to_str()).unwrap_or("");
+
+            let mut n = 1usize;
+            loop {
+                let candidate = if ext.is_empty() {
+                    format!("{}_{}", stem, n)
+                } else {
+                    format!("{}_{}.{}", stem, n, ext)
+                };
+                let candidate_path = dest_dir.join(candidate);
+                if !candidate_path.exists() {
+                    dest_path = candidate_path;
+                    break;
+                }
+                n += 1;
+            }
         }
 
         fs::copy(source, &dest_path)?;
@@ -241,6 +284,33 @@ impl ProjectManager {
             dest_path.display()
         );
         Ok(())
+    }
+
+    fn files_identical(a: &Path, b: &Path) -> Result<bool, ProjectFileError> {
+        let meta_a = fs::metadata(a)?;
+        let meta_b = fs::metadata(b)?;
+        if meta_a.len() != meta_b.len() {
+            return Ok(false);
+        }
+
+        let mut f1 = fs::File::open(a)?;
+        let mut f2 = fs::File::open(b)?;
+        let mut buf1 = [0u8; 64 * 1024];
+        let mut buf2 = [0u8; 64 * 1024];
+
+        loop {
+            let n1 = f1.read(&mut buf1)?;
+            let n2 = f2.read(&mut buf2)?;
+            if n1 != n2 {
+                return Ok(false);
+            }
+            if n1 == 0 {
+                return Ok(true);
+            }
+            if buf1[..n1] != buf2[..n2] {
+                return Ok(false);
+            }
+        }
     }
 
     // ── Detection ─────────────────────────────────────────────────────
@@ -316,8 +386,6 @@ impl ProjectManager {
     /// Returns a timestamp string suitable for filenames.
     /// Format: `YYYY-MM-DD_HH-MM-SS`
     fn timestamp_string() -> String {
-        use std::time::SystemTime;
-
         let seconds = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
@@ -482,6 +550,24 @@ mod tests {
             "Expected at least 1 backup, got {}",
             backups.len()
         );
+
+        let _ = fs::remove_dir_all(&parent);
+    }
+
+    #[test]
+    fn create_backup_is_unique_within_same_second() {
+        let parent = temp_dir("backup_unique");
+        let folder = parent.join("BackupUnique");
+        fs::create_dir_all(&folder).unwrap();
+
+        let project = Project::new("BackupUnique", 120.0, 44100.0);
+
+        let backup_a = ProjectManager::create_backup(&project, &folder).unwrap();
+        let backup_b = ProjectManager::create_backup(&project, &folder).unwrap();
+
+        assert_ne!(backup_a, backup_b);
+        assert!(backup_a.exists());
+        assert!(backup_b.exists());
 
         let _ = fs::remove_dir_all(&parent);
     }

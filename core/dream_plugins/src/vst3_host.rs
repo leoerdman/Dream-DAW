@@ -30,8 +30,18 @@ use uuid::Uuid;
 
 use crate::descriptor::PluginDescriptor;
 use crate::format::PluginFormat;
-use crate::instance::{PluginError, PluginInstance, TransportContext};
+use crate::instance::{MidiEvent, PluginError, PluginInstance, TransportContext};
 use crate::sandbox_instance::SandboxedPluginInstance;
+
+#[cfg(target_os = "macos")]
+use cocoa::appkit::{
+    NSApp, NSApplication, NSApplicationActivationPolicyRegular, NSBackingStoreType, NSWindow,
+    NSWindowStyleMask,
+};
+#[cfg(target_os = "macos")]
+use cocoa::base::{id, nil, NO};
+#[cfg(target_os = "macos")]
+use cocoa::foundation::{NSPoint, NSRect, NSSize};
 
 type DreamDawProcessF32Fn = unsafe extern "C" fn(
     inputs: *const *const f32,
@@ -162,6 +172,9 @@ const IID_IAUDIO_PROCESSOR: Tuid = [
 ];
 const IID_ICOMPONENT: Tuid = [
     0xE8, 0x31, 0xFF, 0x31, 0xF2, 0xD5, 0x43, 0x01, 0x92, 0x8E, 0xBB, 0xEE, 0x25, 0x69, 0x78, 0x02,
+];
+const IID_IEDIT_CONTROLLER: Tuid = [
+    0xDC, 0xD7, 0xBB, 0xE3, 0x77, 0x42, 0x44, 0x8D, 0xA8, 0x74, 0xAA, 0xCC, 0x97, 0x9C, 0x75, 0x9E,
 ];
 
 // IHostApplication IID: {58E595CC-DB2D-4969-8B6A-AF8C36A664E5}
@@ -376,6 +389,70 @@ struct IComponentVtbl {
     set_active: unsafe extern "C" fn(*mut IComponent, i8) -> Tresult,
     set_state: unsafe extern "C" fn(*mut IComponent, *mut c_void) -> Tresult,
     get_state: unsafe extern "C" fn(*mut IComponent, *mut c_void) -> Tresult,
+}
+
+#[repr(C)]
+struct IEditController {
+    vtbl: *const IEditControllerVtbl,
+}
+
+#[repr(C)]
+struct IEditControllerVtbl {
+    query_interface:
+        unsafe extern "C" fn(*mut IEditController, *const c_char, *mut *mut c_void) -> Tresult,
+    add_ref: unsafe extern "C" fn(*mut IEditController) -> u32,
+    release: unsafe extern "C" fn(*mut IEditController) -> u32,
+    initialize: unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
+    terminate: unsafe extern "C" fn(*mut IEditController) -> Tresult,
+    set_component_state: unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
+    set_state: unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
+    get_state: unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
+    get_parameter_count: unsafe extern "C" fn(*mut IEditController) -> i32,
+    get_parameter_info: unsafe extern "C" fn(*mut IEditController, i32, *mut c_void) -> Tresult,
+    get_param_string_by_value:
+        unsafe extern "C" fn(*mut IEditController, u32, f64, *mut u16) -> Tresult,
+    get_param_value_by_string:
+        unsafe extern "C" fn(*mut IEditController, u32, *const u16, *mut f64) -> Tresult,
+    normalized_param_to_plain: unsafe extern "C" fn(*mut IEditController, u32, f64) -> f64,
+    plain_param_to_normalized: unsafe extern "C" fn(*mut IEditController, u32, f64) -> f64,
+    get_param_normalized: unsafe extern "C" fn(*mut IEditController, u32) -> f64,
+    set_param_normalized: unsafe extern "C" fn(*mut IEditController, u32, f64) -> Tresult,
+    set_component_handler: unsafe extern "C" fn(*mut IEditController, *mut c_void) -> Tresult,
+    create_view: unsafe extern "C" fn(*mut IEditController, *const c_char) -> *mut c_void,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct ViewRect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+#[repr(C)]
+struct IPlugView {
+    vtbl: *const IPlugViewVtbl,
+}
+
+#[repr(C)]
+struct IPlugViewVtbl {
+    query_interface:
+        unsafe extern "C" fn(*mut IPlugView, *const c_char, *mut *mut c_void) -> Tresult,
+    add_ref: unsafe extern "C" fn(*mut IPlugView) -> u32,
+    release: unsafe extern "C" fn(*mut IPlugView) -> u32,
+    is_platform_type_supported: unsafe extern "C" fn(*mut IPlugView, *const c_char) -> Tresult,
+    attached: unsafe extern "C" fn(*mut IPlugView, *mut c_void, *const c_char) -> Tresult,
+    removed: unsafe extern "C" fn(*mut IPlugView) -> Tresult,
+    on_wheel: unsafe extern "C" fn(*mut IPlugView, f32) -> Tresult,
+    on_key_down: unsafe extern "C" fn(*mut IPlugView, i16, i16, i16) -> Tresult,
+    on_key_up: unsafe extern "C" fn(*mut IPlugView, i16, i16, i16) -> Tresult,
+    get_size: unsafe extern "C" fn(*mut IPlugView, *mut ViewRect) -> Tresult,
+    on_size: unsafe extern "C" fn(*mut IPlugView, *mut ViewRect) -> Tresult,
+    on_focus: unsafe extern "C" fn(*mut IPlugView, i8) -> Tresult,
+    set_frame: unsafe extern "C" fn(*mut IPlugView, *mut c_void) -> Tresult,
+    can_resize: unsafe extern "C" fn(*mut IPlugView) -> Tresult,
+    check_size_constraint: unsafe extern "C" fn(*mut IPlugView, *mut ViewRect) -> Tresult,
 }
 
 #[repr(C)]
@@ -693,6 +770,254 @@ static HOST_PARAMETER_CHANGES_VTBL: IParameterChangesVtbl = IParameterChangesVtb
     get_parameter_count: host_param_changes_get_parameter_count,
     get_parameter_data: host_param_changes_get_parameter_data,
     add_parameter_data: host_param_changes_add_parameter_data,
+};
+
+// ── VST3 IEventList (MIDI Event Delivery) ──────────────────────────────
+//
+// Pre-allocated COM object that delivers MIDI events to the plugin via
+// ProcessData::inputEvents. Zero-allocation on the audio thread.
+//
+// VST3 event types: NoteOn (0), NoteOff (1), Data (2), PolyPressure (3),
+// NoteExpressionValue (4), NoteExpressionText (5), Chord (6), Scale (7),
+// LegacyMIDICCOut (65535).
+
+/// Maximum MIDI events per process() call.
+const MAX_INPUT_EVENTS: usize = 512;
+
+/// VST3 Event type IDs.
+const K_NOTE_ON_EVENT: u16 = 0;
+const K_NOTE_OFF_EVENT: u16 = 1;
+
+
+/// C-ABI struct matching `Steinberg::Vst::Event`.
+///
+/// Layout must match the SDK exactly:
+///   - bus_index (i32)
+///   - sample_offset (i32)
+///   - ppq_position (f64)
+///   - flags (u16)
+///   - type (u16)
+///   - union payload (variable, but we use EVENT_UNION_SIZE bytes)
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Vst3Event {
+    bus_index: i32,
+    sample_offset: i32,
+    ppq_position: f64,
+    flags: u16,
+    event_type: u16,
+    /// Union payload — covers NoteOnEvent, NoteOffEvent, etc.
+    /// NoteOnEvent layout: channel(i16) + pitch(i16) + tuning(f32) + velocity(f32) + length(i32) + noteId(i32) = 20 bytes
+    /// We use 20 bytes to cover NoteOn (the largest common event).
+    event_data: [u8; 20],
+}
+
+impl Vst3Event {
+    const fn zeroed() -> Self {
+        Self {
+            bus_index: 0,
+            sample_offset: 0,
+            ppq_position: 0.0,
+            flags: 0,
+            event_type: 0,
+            event_data: [0; 20],
+        }
+    }
+
+    /// Creates a VST3 NoteOn event from a MidiEvent.
+    fn from_note_on(midi: &crate::instance::MidiEvent) -> Self {
+        let mut ev = Self::zeroed();
+        ev.sample_offset = midi.sample_offset;
+        ev.event_type = K_NOTE_ON_EVENT;
+        ev.flags = 1; // kIsLive
+
+        // NoteOnEvent layout: channel(i16), pitch(i16), tuning(f32), velocity(f32), length(i32), noteId(i32)
+        let channel = (midi.channel & 0x0F) as i16;
+        let pitch = midi.data[1] as i16;
+        let velocity = midi.data[2] as f32 / 127.0;
+
+        // Write fields into event_data as little-endian bytes
+        ev.event_data[0..2].copy_from_slice(&channel.to_ne_bytes());
+        ev.event_data[2..4].copy_from_slice(&pitch.to_ne_bytes());
+        ev.event_data[4..8].copy_from_slice(&0.0_f32.to_ne_bytes()); // tuning
+        ev.event_data[8..12].copy_from_slice(&velocity.to_ne_bytes());
+        ev.event_data[12..16].copy_from_slice(&0_i32.to_ne_bytes()); // length
+        ev.event_data[16..20].copy_from_slice(&(-1_i32).to_ne_bytes()); // noteId = -1 (unassigned)
+
+        ev
+    }
+
+    /// Creates a VST3 NoteOff event from a MidiEvent.
+    fn from_note_off(midi: &crate::instance::MidiEvent) -> Self {
+        let mut ev = Self::zeroed();
+        ev.sample_offset = midi.sample_offset;
+        ev.event_type = K_NOTE_OFF_EVENT;
+        ev.flags = 1; // kIsLive
+
+        // NoteOffEvent layout: channel(i16), pitch(i16), tuning(f32), velocity(f32), noteId(i32)
+        let channel = (midi.channel & 0x0F) as i16;
+        let pitch = midi.data[1] as i16;
+        let velocity = midi.data[2] as f32 / 127.0;
+
+        ev.event_data[0..2].copy_from_slice(&channel.to_ne_bytes());
+        ev.event_data[2..4].copy_from_slice(&pitch.to_ne_bytes());
+        ev.event_data[4..8].copy_from_slice(&0.0_f32.to_ne_bytes()); // tuning
+        ev.event_data[8..12].copy_from_slice(&velocity.to_ne_bytes());
+        ev.event_data[12..16].copy_from_slice(&(-1_i32).to_ne_bytes()); // noteId = -1
+
+        ev
+    }
+
+    /// Converts a format-agnostic MidiEvent into a VST3 Event.
+    /// Returns `None` for unsupported MIDI message types (CC, pitch bend, etc.
+    /// will be handled in future phases via LegacyMIDICCOut).
+    fn from_midi_event(midi: &crate::instance::MidiEvent) -> Option<Self> {
+        let status = midi.data[0] & 0xF0;
+        match status {
+            0x90 if midi.data[2] > 0 => Some(Self::from_note_on(midi)),
+            0x90 => Some(Self::from_note_off(midi)), // velocity 0 = note off
+            0x80 => Some(Self::from_note_off(midi)),
+            // CC, pitch bend, aftertouch will be added as LegacyMIDICCOut events
+            // in a future iteration. For now, only note events are critical.
+            _ => None,
+        }
+    }
+}
+
+/// COM vtable for IEventList.
+#[repr(C)]
+struct IEventListVtbl {
+    query_interface:
+        unsafe extern "C" fn(*mut HostEventList, *const c_char, *mut *mut c_void) -> Tresult,
+    add_ref: unsafe extern "C" fn(*mut HostEventList) -> u32,
+    release: unsafe extern "C" fn(*mut HostEventList) -> u32,
+    get_event_count: unsafe extern "C" fn(*mut HostEventList) -> i32,
+    get_event: unsafe extern "C" fn(*mut HostEventList, i32, *mut Vst3Event) -> Tresult,
+    add_event: unsafe extern "C" fn(*mut HostEventList, *const Vst3Event) -> Tresult,
+}
+
+/// Pre-allocated IEventList implementation.
+///
+/// Holds up to `MAX_INPUT_EVENTS` events in a stack-allocated array.
+/// Zero heap allocation on the audio thread.
+#[repr(C)]
+struct HostEventList {
+    vtbl: *const IEventListVtbl,
+    ref_count: u32,
+    count: i32,
+    events: [Vst3Event; MAX_INPUT_EVENTS],
+}
+
+impl HostEventList {
+    /// Creates an empty event list.
+    fn empty() -> Self {
+        Self {
+            vtbl: &HOST_EVENT_LIST_VTBL,
+            ref_count: 1,
+            count: 0,
+            events: [Vst3Event::zeroed(); MAX_INPUT_EVENTS],
+        }
+    }
+
+    /// Populates the event list from a slice of format-agnostic MidiEvents.
+    ///
+    /// Events that cannot be converted to VST3 format are silently skipped.
+    /// The list is capped at `MAX_INPUT_EVENTS`.
+    fn from_midi_events(midi_events: &[crate::instance::MidiEvent]) -> Self {
+        let mut list = Self::empty();
+        for midi in midi_events {
+            if list.count as usize >= MAX_INPUT_EVENTS {
+                break;
+            }
+            if let Some(vst3_event) = Vst3Event::from_midi_event(midi) {
+                list.events[list.count as usize] = vst3_event;
+                list.count += 1;
+            }
+        }
+        list
+    }
+}
+
+unsafe extern "C" fn host_event_list_query_interface(
+    _this: *mut HostEventList,
+    _iid: *const c_char,
+    obj: *mut *mut c_void,
+) -> Tresult {
+    if !obj.is_null() {
+        unsafe {
+            *obj = ptr::null_mut();
+        }
+    }
+    K_NO_INTERFACE
+}
+
+unsafe extern "C" fn host_event_list_add_ref(this: *mut HostEventList) -> u32 {
+    if this.is_null() {
+        return 1;
+    }
+    let list = unsafe { &mut *this };
+    list.ref_count = list.ref_count.saturating_add(1);
+    list.ref_count
+}
+
+unsafe extern "C" fn host_event_list_release(this: *mut HostEventList) -> u32 {
+    if this.is_null() {
+        return 1;
+    }
+    let list = unsafe { &mut *this };
+    list.ref_count = list.ref_count.saturating_sub(1);
+    list.ref_count
+}
+
+unsafe extern "C" fn host_event_list_get_event_count(this: *mut HostEventList) -> i32 {
+    if this.is_null() {
+        return 0;
+    }
+    let list = unsafe { &*this };
+    list.count
+}
+
+unsafe extern "C" fn host_event_list_get_event(
+    this: *mut HostEventList,
+    index: i32,
+    event: *mut Vst3Event,
+) -> Tresult {
+    if this.is_null() || event.is_null() || index < 0 {
+        return K_RESULT_FALSE;
+    }
+    let list = unsafe { &*this };
+    if index >= list.count {
+        return K_RESULT_FALSE;
+    }
+    unsafe {
+        *event = list.events[index as usize];
+    }
+    K_RESULT_OK
+}
+
+unsafe extern "C" fn host_event_list_add_event(
+    this: *mut HostEventList,
+    event: *const Vst3Event,
+) -> Tresult {
+    if this.is_null() || event.is_null() {
+        return K_RESULT_FALSE;
+    }
+    let list = unsafe { &mut *this };
+    if list.count as usize >= MAX_INPUT_EVENTS {
+        return K_RESULT_FALSE;
+    }
+    list.events[list.count as usize] = unsafe { *event };
+    list.count += 1;
+    K_RESULT_OK
+}
+
+static HOST_EVENT_LIST_VTBL: IEventListVtbl = IEventListVtbl {
+    query_interface: host_event_list_query_interface,
+    add_ref: host_event_list_add_ref,
+    release: host_event_list_release,
+    get_event_count: host_event_list_get_event_count,
+    get_event: host_event_list_get_event,
+    add_event: host_event_list_add_event,
 };
 
 #[repr(C)]
@@ -1035,7 +1360,11 @@ pub struct Vst3Instance {
     factory_ptr: usize,
     component_ptr: usize,
     processor_ptr: usize,
+    controller_ptr: usize,
     com_initialized: bool,
+
+    #[cfg(target_os = "macos")]
+    editor_window: Option<MacEditorWindow>,
 
     /// Cached transport context (set before each process() call).
     /// Updated via set_transport_context() — zero-alloc Copy struct.
@@ -1051,8 +1380,17 @@ pub struct Vst3Instance {
     parameter_count_hint: u32,
 }
 
+#[cfg(target_os = "macos")]
+struct MacEditorWindow {
+    window: usize,
+    _content_view: usize,
+    plug_view: usize,
+}
+
 impl Drop for Vst3Instance {
     fn drop(&mut self) {
+        let _ = self.close_editor();
+
         if self.processor_ptr != 0 {
             let processor = self.processor_ptr as *mut IAudioProcessor;
             unsafe {
@@ -1072,6 +1410,15 @@ impl Drop for Vst3Instance {
             self.component_ptr = 0;
         }
 
+        if self.controller_ptr != 0 {
+            let controller = self.controller_ptr as *mut IEditController;
+            unsafe {
+                let _ = ((*(*controller).vtbl).terminate)(controller);
+                ((*(*controller).vtbl).release)(controller);
+            }
+            self.controller_ptr = 0;
+        }
+
         if self.factory_ptr != 0 {
             let factory = self.factory_ptr as *mut IPluginFactory;
             unsafe {
@@ -1083,7 +1430,9 @@ impl Drop for Vst3Instance {
 }
 
 impl Vst3Instance {
-    fn init_vst3_com(library: &libloading::Library) -> Result<(usize, usize, usize), PluginError> {
+    fn init_vst3_com(
+        library: &libloading::Library,
+    ) -> Result<(usize, usize, usize, usize), PluginError> {
         let get_factory: libloading::Symbol<unsafe extern "C" fn() -> *mut c_void> = unsafe {
             library.get(b"GetPluginFactory\0").map_err(|e| {
                 PluginError::LoadFailed(format!("GetPluginFactory symbol lookup failed: {e}"))
@@ -1152,11 +1501,151 @@ impl Vst3Instance {
             ));
         }
 
+        let mut controller_ptr: *mut c_void = ptr::null_mut();
+        if !component_ptr.is_null() {
+            let component = component_ptr as *mut IComponent;
+            let mut controller_cid: Tuid = [0; 16];
+            let cid_ok = unsafe {
+                ((*(*component).vtbl).get_controller_class_id)(component, &mut controller_cid)
+            } == K_RESULT_OK;
+            if cid_ok {
+                let _ = unsafe {
+                    ((*(*factory).vtbl).create_instance)(
+                        factory,
+                        &controller_cid,
+                        IID_IEDIT_CONTROLLER.as_ptr() as *const c_char,
+                        &mut controller_ptr,
+                    )
+                };
+            }
+        }
+
         Ok((
             factory as usize,
             component_ptr as usize,
             processor_ptr as usize,
+            controller_ptr as usize,
         ))
+    }
+
+    #[cfg(target_os = "macos")]
+    fn open_editor_macos(&mut self) -> Result<(), PluginError> {
+        if self.editor_window.is_some() {
+            return Ok(());
+        }
+        if self.controller_ptr == 0 {
+            return Err(PluginError::UnsupportedFormat(
+                "VST3 edit controller is unavailable for this plugin".to_string(),
+            ));
+        }
+
+        let controller = self.controller_ptr as *mut IEditController;
+        let view_raw = unsafe {
+            ((*(*controller).vtbl).create_view)(controller, b"editor\0".as_ptr() as *const c_char)
+        };
+        if view_raw.is_null() {
+            return Err(PluginError::UnsupportedFormat(
+                "Plugin did not provide an editor view".to_string(),
+            ));
+        }
+        let plug_view = view_raw as *mut IPlugView;
+
+        let nsview_supported = unsafe {
+            ((*(*plug_view).vtbl).is_platform_type_supported)(
+                plug_view,
+                b"NSView\0".as_ptr() as *const c_char,
+            )
+        } == K_RESULT_OK;
+        if !nsview_supported {
+            unsafe {
+                let _ = ((*(*plug_view).vtbl).release)(plug_view);
+            }
+            return Err(PluginError::UnsupportedFormat(
+                "Plugin editor does not support NSView embedding on macOS".to_string(),
+            ));
+        }
+
+        unsafe {
+            let app = NSApp();
+            app.setActivationPolicy_(NSApplicationActivationPolicyRegular);
+
+            let mut rect = ViewRect {
+                left: 0,
+                top: 0,
+                right: 920,
+                bottom: 640,
+            };
+            let _ = ((*(*plug_view).vtbl).get_size)(plug_view, &mut rect);
+            let width = (rect.right - rect.left).max(420) as f64;
+            let height = (rect.bottom - rect.top).max(300) as f64;
+
+            let frame = NSRect::new(NSPoint::new(180.0, 180.0), NSSize::new(width, height));
+            let style = NSWindowStyleMask::NSTitledWindowMask
+                | NSWindowStyleMask::NSClosableWindowMask
+                | NSWindowStyleMask::NSMiniaturizableWindowMask
+                | NSWindowStyleMask::NSResizableWindowMask;
+
+            let window = NSWindow::alloc(nil).initWithContentRect_styleMask_backing_defer_(
+                frame,
+                style,
+                NSBackingStoreType::NSBackingStoreBuffered,
+                NO,
+            );
+            if window == nil {
+                let _ = ((*(*plug_view).vtbl).release)(plug_view);
+                return Err(PluginError::InvalidState(
+                    "Failed to allocate macOS editor window".to_string(),
+                ));
+            }
+
+            let content_view = window.contentView();
+            if content_view == nil {
+                let _ = ((*(*plug_view).vtbl).release)(plug_view);
+                window.close();
+                return Err(PluginError::InvalidState(
+                    "Failed to acquire editor content view".to_string(),
+                ));
+            }
+
+            let attached = ((*(*plug_view).vtbl).attached)(
+                plug_view,
+                content_view as *mut c_void,
+                b"NSView\0".as_ptr() as *const c_char,
+            );
+            if attached != K_RESULT_OK {
+                let _ = ((*(*plug_view).vtbl).release)(plug_view);
+                window.close();
+                return Err(PluginError::ProcessError(format!(
+                    "Plugin editor attach failed with code {attached}"
+                )));
+            }
+
+            window.makeKeyAndOrderFront_(nil);
+            app.activateIgnoringOtherApps_(true);
+
+            self.editor_window = Some(MacEditorWindow {
+                window: window as usize,
+                _content_view: content_view as usize,
+                plug_view: plug_view as usize,
+            });
+        }
+
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn close_editor_macos(&mut self) -> Result<(), PluginError> {
+        let Some(window_state) = self.editor_window.take() else {
+            return Ok(());
+        };
+        let window = window_state.window as id;
+        let plug_view = window_state.plug_view as *mut IPlugView;
+        unsafe {
+            let _ = ((*(*plug_view).vtbl).removed)(plug_view);
+            let _ = ((*(*plug_view).vtbl).release)(plug_view);
+            window.close();
+        }
+        Ok(())
     }
 
     /// Loads a VST3 plugin from a bundle path.
@@ -1202,16 +1691,17 @@ impl Vst3Instance {
         };
 
         // Attempt real VST3 COM bootstrap.
-        let (factory_ptr, component_ptr, processor_ptr) = match Self::init_vst3_com(&library) {
-            Ok(ptrs) => ptrs,
-            Err(err) => {
-                info!(
-                    "[VST3] COM bootstrap failed for '{}': {}. Using bridge/fallback path.",
-                    descriptor.name, err
-                );
-                (0, 0, 0)
-            }
-        };
+        let (factory_ptr, component_ptr, processor_ptr, controller_ptr) =
+            match Self::init_vst3_com(&library) {
+                Ok(ptrs) => ptrs,
+                Err(err) => {
+                    info!(
+                        "[VST3] COM bootstrap failed for '{}': {}. Using bridge/fallback path.",
+                        descriptor.name, err
+                    );
+                    (0, 0, 0, 0)
+                }
+            };
 
         let process_fn = unsafe {
             library
@@ -1262,7 +1752,10 @@ impl Vst3Instance {
             factory_ptr,
             component_ptr,
             processor_ptr,
+            controller_ptr,
             com_initialized: false,
+            #[cfg(target_os = "macos")]
+            editor_window: None,
             transport_ctx: TransportContext::default(),
             pending_param_changes: Vec::new(),
             parameter_values: HashMap::new(),
@@ -1292,7 +1785,10 @@ impl Vst3Instance {
             factory_ptr: 0,
             component_ptr: 0,
             processor_ptr: 0,
+            controller_ptr: 0,
             com_initialized: false,
+            #[cfg(target_os = "macos")]
+            editor_window: None,
             transport_ctx: TransportContext::default(),
             pending_param_changes: Vec::new(),
             parameter_values: HashMap::new(),
@@ -1345,6 +1841,12 @@ impl PluginInstance for Vst3Instance {
                     let _ = ((*(*component).vtbl).set_active)(component, 1);
                 }
             }
+            if self.controller_ptr != 0 {
+                let controller = self.controller_ptr as *mut IEditController;
+                unsafe {
+                    let _ = ((*(*controller).vtbl).initialize)(controller, host_application_ptr());
+                }
+            }
 
             let setup = ProcessSetup {
                 process_mode: K_REALTIME,
@@ -1384,6 +1886,12 @@ impl PluginInstance for Vst3Instance {
                 let _ = ((*(*component).vtbl).set_active)(component, 0);
             }
         }
+        if self.controller_ptr != 0 {
+            let controller = self.controller_ptr as *mut IEditController;
+            unsafe {
+                let _ = ((*(*controller).vtbl).terminate)(controller);
+            }
+        }
         self.com_initialized = false;
         self.is_active = false;
         info!("[VST3] Deactivated: {}", self.descriptor.name);
@@ -1395,6 +1903,7 @@ impl PluginInstance for Vst3Instance {
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
         num_frames: usize,
+        midi_events: &[MidiEvent],
     ) -> Result<(), PluginError> {
         if !self.is_active {
             return Err(PluginError::InvalidState("Plugin not active".to_string()));
@@ -1512,6 +2021,14 @@ impl PluginInstance for Vst3Instance {
                 ptr::null_mut()
             };
             let mut process_ctx = Vst3ProcessContext::from_transport(&self.transport_ctx);
+            // ── Build IEventList from MIDI events ──
+            let mut host_events = HostEventList::from_midi_events(midi_events);
+            let input_events_ptr = if host_events.count > 0 {
+                (&mut host_events as *mut HostEventList).cast::<c_void>()
+            } else {
+                ptr::null_mut()
+            };
+
             let mut data = ProcessData {
                 process_mode: K_REALTIME,
                 symbolic_sample_size: K_SAMPLE32,
@@ -1522,7 +2039,7 @@ impl PluginInstance for Vst3Instance {
                 outputs: &mut out_bus,
                 input_parameter_changes: input_param_ptr,
                 output_parameter_changes: ptr::null_mut(),
-                input_events: ptr::null_mut(),
+                input_events: input_events_ptr,
                 output_events: ptr::null_mut(),
                 // AVANGARD FIX: Provide real ProcessContext instead of NULL.
                 // NULL causes segfault in FabFilter, Serum, etc. when querying tempo.
@@ -1587,6 +2104,7 @@ impl PluginInstance for Vst3Instance {
         sidechain_inputs: Option<&[&[f32]]>,
         outputs: &mut [&mut [f32]],
         num_frames: usize,
+        midi_events: &[MidiEvent],
     ) -> Result<(), PluginError> {
         let mut merged: [&[f32]; 4] = [&[][..], &[][..], &[][..], &[][..]];
 
@@ -1607,7 +2125,7 @@ impl PluginInstance for Vst3Instance {
         }
 
         let merged_len = if sidechain_inputs.is_some() { 4 } else { 2 };
-        self.process(&merged[..merged_len], outputs, num_frames)
+        self.process(&merged[..merged_len], outputs, num_frames, midi_events)
     }
 
     fn latency_samples(&self) -> u32 {
@@ -1699,6 +2217,16 @@ impl PluginInstance for Vst3Instance {
         if self.editor_open {
             return Ok(());
         }
+
+        #[cfg(target_os = "macos")]
+        {
+            if self.controller_ptr != 0 {
+                self.open_editor_macos()?;
+                self.editor_open = true;
+                return Ok(());
+            }
+        }
+
         let open = self.open_editor_fn.ok_or_else(|| {
             PluginError::UnsupportedFormat(
                 "Native plugin editor bridge symbol is unavailable".to_string(),
@@ -1718,12 +2246,25 @@ impl PluginInstance for Vst3Instance {
         if !self.editor_open {
             return Ok(());
         }
+        #[cfg(target_os = "macos")]
+        {
+            if self.editor_window.is_some() {
+                self.close_editor_macos()?;
+            }
+        }
         self.editor_open = false;
         Ok(())
     }
 
     fn supports_editor(&self) -> bool {
-        self.open_editor_fn.is_some()
+        #[cfg(target_os = "macos")]
+        {
+            return self.controller_ptr != 0 || self.open_editor_fn.is_some();
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            self.open_editor_fn.is_some()
+        }
     }
 
     fn load_state_blob(&mut self, kind: Option<&str>, data: &[u8]) -> Result<(), PluginError> {
@@ -1862,7 +2403,7 @@ impl PluginHost {
         instance.set_parameter(index, value)
     }
 
-    /// Processes one plugin instance with optional sidechain bus.
+    /// Processes one plugin instance with optional sidechain bus and MIDI events.
     pub fn process_with_sidechain(
         &mut self,
         id: Uuid,
@@ -1870,11 +2411,12 @@ impl PluginHost {
         sidechain_inputs: Option<&[&[f32]]>,
         outputs: &mut [&mut [f32]],
         num_frames: usize,
+        midi_events: &[MidiEvent],
     ) -> Result<(), PluginError> {
         let instance = self
             .get_mut(id)
             .ok_or_else(|| PluginError::InvalidState(format!("Instance {} not found", id)))?;
-        instance.process_with_sidechain(main_inputs, sidechain_inputs, outputs, num_frames)
+        instance.process_with_sidechain(main_inputs, sidechain_inputs, outputs, num_frames, midi_events)
     }
 
     /// Removes and deactivates a plugin instance by its ID.
@@ -2028,6 +2570,7 @@ mod tests {
             &[&input_l, &input_r],
             &mut [&mut output_l, &mut output_r],
             128,
+            &[],
         )
         .unwrap();
 
@@ -2056,6 +2599,7 @@ mod tests {
             &[&main_l, &main_r, &sc_l, &sc_r],
             &mut [&mut out_l, &mut out_r],
             64,
+            &[],
         )
         .unwrap();
 
@@ -2078,7 +2622,7 @@ mod tests {
         let input = vec![0.0f32; 64];
         let mut output = vec![0.0f32; 64];
 
-        let result = stub.process(&[&input], &mut [&mut output], 64);
+        let result = stub.process(&[&input], &mut [&mut output], 64, &[]);
         assert!(matches!(result, Err(PluginError::InvalidState(_))));
     }
 

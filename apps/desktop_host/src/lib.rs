@@ -1008,6 +1008,37 @@ fn rebuild_automation_snapshot_from_project(
 }
 
 fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngineHandle) {
+    fn sanitize_runtime_clip(mut clip: MidiClip) -> MidiClip {
+        // Canonicalize notes for deterministic scheduling and guard against
+        // accidental duplicate note entries produced by rapid editor edits.
+        clip.notes.sort_by(|a, b| {
+            a.start_frame
+                .cmp(&b.start_frame)
+                .then_with(|| a.pitch.cmp(&b.pitch))
+                .then_with(|| a.duration_frames.cmp(&b.duration_frames))
+                .then_with(|| a.velocity.cmp(&b.velocity))
+        });
+
+        if clip.notes.len() > 1 {
+            let mut merged: Vec<dream_models::midi::MidiNote> = Vec::with_capacity(clip.notes.len());
+            for note in clip.notes.into_iter() {
+                if let Some(last) = merged.last_mut()
+                    && last.pitch == note.pitch
+                    && last.start_frame == note.start_frame
+                {
+                    last.duration_frames = last.duration_frames.max(note.duration_frames);
+                    last.velocity = last.velocity.max(note.velocity);
+                    continue;
+                }
+                merged.push(note);
+            }
+            clip.notes = merged;
+        }
+
+        clip.notes.sort_by_key(|n| n.start_frame);
+        clip
+    }
+
     fn first_lane_value(track: &Track, keys: &[&str], default: f32) -> f32 {
         for key in keys {
             if let Some(lane) = track
@@ -1094,7 +1125,7 @@ fn rebuild_midi_snapshot_from_project(project: &Project, handle: &AudioEngineHan
             };
 
             MidiTrackRuntime {
-                clips: track.midi_clips.clone(),
+                clips: track.midi_clips.iter().cloned().map(sanitize_runtime_clip).collect(),
                 fx,
             }
         })
@@ -1984,6 +2015,52 @@ fn sync_transport_from_project(
     Ok(())
 }
 
+fn sync_track_mix_state_from_project(
+    project: &Project,
+    handle: &AudioEngineHandle,
+) -> Result<(), String> {
+    for (track_index, track) in project.tracks.iter().enumerate() {
+        let idx = track_index.min(u16::MAX as usize) as u16;
+        push_command(
+            handle,
+            EngineCommand::SetTrackVolume {
+                track_index: idx,
+                volume: track.volume as f32,
+            },
+        )?;
+        push_command(
+            handle,
+            EngineCommand::SetTrackPan {
+                track_index: idx,
+                pan: track.pan as f32,
+            },
+        )?;
+        push_command(
+            handle,
+            EngineCommand::SetTrackMute {
+                track_index: idx,
+                muted: track.is_mute,
+            },
+        )?;
+        push_command(
+            handle,
+            EngineCommand::SetTrackSolo {
+                track_index: idx,
+                soloed: track.is_solo,
+            },
+        )?;
+    }
+
+    push_command(
+        handle,
+        EngineCommand::SetMasterVolume {
+            volume: project.master_track.volume as f32,
+        },
+    )?;
+
+    Ok(())
+}
+
 // ── Clip Pool State (shared between UI and audio thread) ────────────
 
 /// Thread-safe handle to the shared clip pool and project clip snapshot.
@@ -2279,6 +2356,24 @@ struct PluginHostState {
 }
 
 impl PluginHostState {
+    fn allow_unsandboxed_vst3() -> bool {
+        std::env::var("DREAM_DAW_ALLOW_UNSANDBOXED_VST3")
+            .ok()
+            .map(|v| {
+                let s = v.trim().to_ascii_lowercase();
+                matches!(s.as_str(), "1" | "true" | "yes" | "on")
+            })
+            .unwrap_or(false)
+    }
+
+    fn try_enable_sandbox_if_available(&self) {
+        if let Ok(mut supervisor) = self.sandbox_supervisor.lock()
+            && !supervisor.enabled()
+        {
+            supervisor.set_enabled(true);
+        }
+    }
+
     fn new() -> Self {
         let sandbox_config = PluginSandboxConfig::from_env();
         Self {
@@ -2391,6 +2486,7 @@ impl PluginHostState {
         slot_id: Uuid,
         plugin_id: &str,
     ) -> Result<Uuid, String> {
+        self.try_enable_sandbox_if_available();
         if let Some(instance_id) = self.slot_instance_map.load().get(&slot_id).copied() {
             return Ok(instance_id);
         }
@@ -2400,6 +2496,41 @@ impl PluginHostState {
             return Err(format!(
                 "External runtime currently supports only VST3 (got {})",
                 descriptor.format
+            ));
+        }
+
+        if self.sandbox_enabled().unwrap_or(false) {
+            match self.open_in_sandbox(plugin_id, descriptor.clone()) {
+                Ok(instance_id) => {
+                    self.bind_slot_instance(slot_id, instance_id);
+                    self.loaded_by_key
+                        .lock()
+                        .map_err(|e| e.to_string())?
+                        .entry(plugin_id.to_string())
+                        .or_insert(instance_id);
+                    return Ok(instance_id);
+                }
+                Err(err) => {
+                    if !Self::allow_unsandboxed_vst3() {
+                        return Err(format!(
+                            "Plugin sandbox failed for '{}': {}. In-process VST3 loading is disabled for crash safety. Set DREAM_DAW_ALLOW_UNSANDBOXED_VST3=1 to override.",
+                            descriptor.name,
+                            err
+                        ));
+                    }
+                    log::warn!(
+                        "[PluginSandbox] fallback to in-process load for '{}' due to error: {}",
+                        descriptor.name,
+                        err
+                    );
+                }
+            }
+        }
+
+        if !Self::allow_unsandboxed_vst3() {
+            return Err(format!(
+                "Plugin sandbox is unavailable for '{}'. In-process VST3 loading is disabled for crash safety. Build plugin_host_daemon or set DREAM_DAW_ALLOW_UNSANDBOXED_VST3=1 to override.",
+                descriptor.name
             ));
         }
 
@@ -3208,17 +3339,49 @@ struct LoadDevicePresetPayload {
 // ── Helper: push command with error handling ───────────────────────────
 
 fn push_command(handle: &AudioEngineHandle, cmd: EngineCommand) -> Result<(), String> {
-    let mut producer = handle
-        .producer
-        .lock()
-        .map_err(|e| format!("Lock poisoned: {e}"))?;
+    fn is_high_priority_command(cmd: &EngineCommand) -> bool {
+        matches!(
+            cmd,
+            EngineCommand::SetPlay(_)
+                | EngineCommand::Seek(_)
+                | EngineCommand::SetBpm(_)
+                | EngineCommand::SetLoopEnabled(_)
+                | EngineCommand::SetLoopRegion { .. }
+                | EngineCommand::SetTrackMute { .. }
+                | EngineCommand::SetTrackSolo { .. }
+                | EngineCommand::SetTrackVolume { .. }
+                | EngineCommand::SetTrackPan { .. }
+                | EngineCommand::SetMasterVolume { .. }
+        )
+    }
 
-    producer
-        .push(cmd)
-        .map_err(|_| {
-            handle.rt_debug_stats.record_queue_full_reject();
-            "Command queue full — audio thread overloaded".to_string()
-        })
+    let high_priority = is_high_priority_command(&cmd);
+    let max_attempts = if high_priority { 14 } else { 6 };
+    let mut pending = cmd;
+    for attempt in 0..max_attempts {
+        let push_result = {
+            let mut producer = handle
+                .producer
+                .lock()
+                .map_err(|e| format!("Lock poisoned: {e}"))?;
+            producer.push(pending)
+        };
+
+        match push_result {
+            Ok(()) => return Ok(()),
+            Err(rtrb::PushError::Full(returned)) => {
+                pending = returned;
+                if attempt < 3 {
+                    std::thread::yield_now();
+                } else {
+                    std::thread::sleep(Duration::from_micros(if high_priority { 250 } else { 150 }));
+                }
+            }
+        }
+    }
+
+    handle.rt_debug_stats.record_queue_full_reject();
+    Err("Command queue full — audio thread overloaded".to_string())
 }
 
 fn read_meter(level: &dream_ipc::metering::LockFreeLevel) -> MeterReading {
@@ -3245,7 +3408,7 @@ pub fn run() {
     env_logger::init();
 
     // Create the lock-free command queue (capacity: 1024 commands)
-    let (mut producer, consumer) = rtrb::RingBuffer::<EngineCommand>::new(1024);
+    let (mut producer, consumer) = rtrb::RingBuffer::<EngineCommand>::new(4096);
     let master_clock = Arc::new(MasterClock::new());
     let meter_bank = Arc::new(MeterBank::new(64)); // 64 tracks max
     let plugin_host_state = PluginHostState::new();

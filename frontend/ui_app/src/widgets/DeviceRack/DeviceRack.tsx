@@ -1592,21 +1592,31 @@ export const DeviceRack = ({
                                             statusClear();
                                             return;
                                         }
+                                        // Always reveal inline controls immediately so UI click
+                                        // has visible effect even if native editor hosting fails.
+                                        setInlineSettingsOpen((prev) => ({
+                                            ...prev,
+                                            [device.id]: true,
+                                        }));
                                         if (!selectedTrack) return;
+                                        if (pluginCapability[device.id]?.supported === false) {
+                                            statusError(pluginCapability[device.id]?.reason ?? 'Native plugin editor is unavailable; opened inline controls.');
+                                        }
                                         try {
                                             const status = await ensureSlotRuntimeActive(device.id);
                                             if (!status) return;
-                                            const nextOpen = !inlineSettingsOpen[device.id];
-                                            setInlineSettingsOpen((prev) => ({
-                                                ...prev,
-                                                [device.id]: nextOpen,
-                                            }));
-                                            if (!nextOpen) {
-                                                await engineApi.closePluginWindowForSlot(selectedTrack.id, device.id);
+                                            try {
+                                                await engineApi.openPluginWindowForSlot(selectedTrack.id, device.id);
+                                            } catch (slotErr) {
+                                                // Fallback path: some hosts can still resolve/open by plugin key
+                                                // even when slot-scoped editor routing fails.
+                                                console.warn('[DeviceRack] slot-scoped plugin UI open failed, retrying by plugin key:', slotErr);
+                                                await engineApi.openPluginWindow(device.pluginId);
                                             }
+                                            statusClear();
                                         } catch (err) {
-                                            console.error('[DeviceRack] Failed to activate inline plugin view:', err);
-                                            statusError(`Plugin activation failed: ${errorMessage(err)}`);
+                                            console.error('[DeviceRack] Failed to open native plugin UI:', err);
+                                            statusError(`Failed to open native plugin UI, inline controls opened: ${errorMessage(err)}`);
                                         }
                                     }}
                                 />
@@ -1936,6 +1946,7 @@ const DeviceNode = ({
                 ? 'VST'
                 : 'INT';
     const showUiButton = device.source === 'vst' || pluginFormat === 'VST3';
+    const nativeEditorUnavailable = showUiButton && editorSupported === false;
     const runtimeMessage = (runtimeStatus?.message || '').toLowerCase();
     const hasHardRuntimeError = runtimeMessage.includes('vst2 runtime is not supported')
         || runtimeMessage.includes('supports vst3 only')
@@ -2009,8 +2020,8 @@ const DeviceNode = ({
                         <button
                             onClick={(e) => { e.stopPropagation(); onOpenGUI?.(); }}
                             title={editorSupported === false
-                                ? (editorReason ?? 'Plugin editor is unavailable')
-                                : 'Open Inline Plugin View'}
+                                ? (editorReason ?? 'Native plugin editor is unavailable; opening inline controls')
+                                : 'Open Native Plugin UI'}
                             style={headerIconBtnStyle(false, showSettings)}
                         >
                             UI
@@ -2197,7 +2208,9 @@ const DeviceNode = ({
                 }}>
                     <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                            {device.source === 'vst' ? 'Native GUI' : 'Internal GUI'}
+                            {device.source === 'vst'
+                                ? (nativeEditorUnavailable ? 'Plugin Controls' : 'Native GUI')
+                                : 'Internal GUI'}
                         </span>
                         <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-tertiary)' }}>
                             {device.params.length} params
@@ -2257,7 +2270,7 @@ const DeviceNode = ({
                             )}
                             <button
                                 type="button"
-                                onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
+                                onClick={(e) => { e.stopPropagation(); onOpenGUI?.(); }}
                                 style={{
                                     justifySelf: 'start',
                                     border: '1px solid var(--color-divider)',

@@ -106,13 +106,29 @@ impl GateProcessor {
     }
 
     #[inline]
+    fn sync_sample_rate(&mut self, sample_rate: f32) {
+        if sample_rate.is_finite()
+            && sample_rate > 1000.0
+            && (sample_rate - self.sample_rate).abs() > 0.5
+        {
+            self.sample_rate = sample_rate;
+            self.update_all();
+        }
+    }
+
+    #[inline]
     fn linear_to_db(x: f32) -> f32 {
-        if x < 1e-10 { -96.0 } else { 20.0 * x.log10() }
+        if x < 1e-10 {
+            -96.0
+        } else {
+            20.0 * x.log10()
+        }
     }
 }
 
 impl DspProcessor for GateProcessor {
-    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], _sample_rate: f32) {
+    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
+        self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
         let thresh_open = self.threshold_db;
         let thresh_close = self.threshold_db - self.hysteresis;
@@ -199,8 +215,9 @@ impl DspProcessor for GateProcessor {
         right: &mut [f32],
         sidechain_left: Option<&[f32]>,
         sidechain_right: Option<&[f32]>,
-        _sample_rate: f32,
+        sample_rate: f32,
     ) {
+        self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
         let thresh_open = self.threshold_db;
         let thresh_close = self.threshold_db - self.hysteresis;

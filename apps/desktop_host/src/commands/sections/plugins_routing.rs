@@ -378,6 +378,7 @@ fn open_plugin_window(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
+    plugin_host_state.try_enable_sandbox_if_available();
     if plugin_host_state.open_sandbox_editor(&plugin_id)? {
         log::info!("[IPC] open_plugin_window({plugin_id}) -> already managed by sandbox host");
         return Ok(());
@@ -423,12 +424,24 @@ fn open_plugin_window(
                 return Ok(());
             }
             Err(err) => {
+                if !PluginHostState::allow_unsandboxed_vst3() {
+                    return Err(format!(
+                        "Plugin sandbox failed for '{}': {}. In-process fallback is disabled for crash safety. Set DREAM_DAW_ALLOW_UNSANDBOXED_VST3=1 to override.",
+                        descriptor.name,
+                        err
+                    ));
+                }
                 log::warn!(
                     "[PluginSandbox] open_plugin_window({plugin_id}) sandbox failed: {}. Falling back to in-process host.",
                     err
                 );
             }
         }
+    } else if !PluginHostState::allow_unsandboxed_vst3() {
+        return Err(format!(
+            "Plugin sandbox is unavailable for '{}'. In-process fallback is disabled for crash safety. Build plugin_host_daemon or set DREAM_DAW_ALLOW_UNSANDBOXED_VST3=1.",
+            descriptor.name
+        ));
     }
 
     let descriptor = plugin_host_state.resolve_descriptor(&plugin_id)?;
@@ -509,6 +522,18 @@ fn open_plugin_window_for_slot(
         return Err("Internal device has no native external editor".to_string());
     }
 
+    // If this plugin is currently hosted in sandbox, route editor open to the
+    // sandbox daemon first. This is the only path that opens the real native
+    // GUI for sandboxed instances.
+    if plugin_host_state.open_sandbox_editor(&slot.plugin_id)? {
+        log::info!(
+            "[IPC] open_plugin_window_for_slot(track={}, slot={}) -> sandbox editor open",
+            track_id,
+            slot_id
+        );
+        return Ok(());
+    }
+
     let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)?;
     plugin_host_state.bind_slot_instance(slot.id, instance_id);
 
@@ -541,6 +566,50 @@ fn open_plugin_window_for_slot(
             instance_id,
             first_err
         );
+
+        // If in-process editor bridge is unavailable, try sandbox-hosted editor
+        // as a compatibility fallback (many plugins expose UI there reliably).
+        let editor_bridge_missing = first_err.to_ascii_lowercase().contains("editor bridge symbol")
+            || first_err.to_ascii_lowercase().contains("editor is not supported")
+            || first_err.to_ascii_lowercase().contains("native plugin editor bridge");
+        if editor_bridge_missing && plugin_host_state.sandbox_enabled().unwrap_or(false) {
+            match plugin_host_state.resolve_descriptor(&slot.plugin_id) {
+                Ok(descriptor) => {
+                    match plugin_host_state.open_in_sandbox(&slot.plugin_id, descriptor) {
+                        Ok(sandbox_instance_id) => {
+                            plugin_host_state.bind_slot_instance(slot.id, sandbox_instance_id);
+                            clip_pool_state.rebuild_external_fx_snapshot(
+                                &project,
+                                plugin_host_state.slot_instance_snapshot().as_ref(),
+                            );
+                            log::info!(
+                                "[IPC] open_plugin_window_for_slot(track={}, slot={}) -> sandbox fallback instance {}",
+                                track_id,
+                                slot_id,
+                                sandbox_instance_id
+                            );
+                            return Ok(());
+                        }
+                        Err(sandbox_err) => {
+                            log::warn!(
+                                "[IPC] open_plugin_window_for_slot sandbox fallback failed (track={}, slot={}): {}",
+                                track_id,
+                                slot_id,
+                                sandbox_err
+                            );
+                        }
+                    }
+                }
+                Err(resolve_err) => {
+                    log::warn!(
+                        "[IPC] open_plugin_window_for_slot sandbox fallback descriptor resolve failed (track={}, slot={}): {}",
+                        track_id,
+                        slot_id,
+                        resolve_err
+                    );
+                }
+            }
+        }
 
         // Hard recovery path: drop stale instance, reload fresh, retry once.
         {
@@ -680,14 +749,13 @@ fn can_open_plugin_editor_for_slot(
     };
 
     let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-    let supported = host.supports_editor(instance_id).unwrap_or(true);
+    let supported = host.supports_editor(instance_id).unwrap_or(false);
     Ok(PluginEditorCapability {
-        // Keep optimistic behavior here; definitive result is open_plugin_window_for_slot.
-        supported: true,
+        supported,
         reason: if supported {
             None
         } else {
-            Some("Host reports editor bridge uncertainty; opening will attempt recovery automatically.".to_string())
+            Some("Native plugin editor host bridge is unavailable for this runtime instance; inline controls are available.".to_string())
         },
     })
 }
@@ -784,7 +852,7 @@ fn get_plugin_slot_runtime_status_cmd(
 
     Ok(PluginSlotRuntimeStatus {
         loaded: sandbox_loaded,
-        editor_supported: true,
+        editor_supported: false,
         runtime: if sandbox_loaded {
             "sandbox".to_string()
         } else {
@@ -793,7 +861,7 @@ fn get_plugin_slot_runtime_status_cmd(
         sidechain_ready: slot.supports_sidechain_input.unwrap_or(false),
         latency_frames: None,
         message: if sandbox_loaded {
-            None
+            Some("Sandbox runtime active. Native plugin editor window is not available in this host path yet; use inline controls.".to_string())
         } else {
             Some("Plugin not activated yet".to_string())
         },
@@ -1113,6 +1181,10 @@ fn set_external_plugin_param_for_slot_cmd(
     };
     if resolved_plugin_id.starts_with("internal://") {
         return Err("Internal plugin slot does not support external parameter API".to_string());
+    }
+
+    if should_commit_snapshot {
+        push_undo(&project_state)?;
     }
 
     let normalized = value.clamp(0.0, 1.0);

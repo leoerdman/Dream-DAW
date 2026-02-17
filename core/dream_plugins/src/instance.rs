@@ -76,6 +76,87 @@ impl Default for TransportContext {
     }
 }
 
+/// A single MIDI event for plugin processing.
+///
+/// Lightweight, Copy struct — safe for the audio thread.
+/// Sample offset is relative to the start of the current buffer.
+///
+/// # Encoding
+///
+/// The `data` field carries raw MIDI status + data bytes:
+///   - Note On:  `[0x90 | channel, note, velocity]`
+///   - Note Off: `[0x80 | channel, note, velocity]`
+///   - CC:       `[0xB0 | channel, cc_number, cc_value]`
+///   - Pitch Bend: `[0xE0 | channel, lsb, msb]`
+///
+/// The `channel` field is redundant with the low nibble of `data[0]`
+/// but provided for convenience / zero-cost filtering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MidiEvent {
+    /// Sample offset within the current buffer (0-based).
+    pub sample_offset: i32,
+    /// MIDI channel (0–15).
+    pub channel: u8,
+    /// Raw MIDI status + data bytes (up to 3 bytes for channel messages).
+    pub data: [u8; 3],
+}
+
+impl MidiEvent {
+    /// Creates a Note On event.
+    #[inline]
+    pub fn note_on(sample_offset: i32, channel: u8, note: u8, velocity: u8) -> Self {
+        Self {
+            sample_offset,
+            channel: channel & 0x0F,
+            data: [0x90 | (channel & 0x0F), note & 0x7F, velocity & 0x7F],
+        }
+    }
+
+    /// Creates a Note Off event.
+    #[inline]
+    pub fn note_off(sample_offset: i32, channel: u8, note: u8, velocity: u8) -> Self {
+        Self {
+            sample_offset,
+            channel: channel & 0x0F,
+            data: [0x80 | (channel & 0x0F), note & 0x7F, velocity & 0x7F],
+        }
+    }
+
+    /// Creates a Control Change event.
+    #[inline]
+    pub fn cc(sample_offset: i32, channel: u8, cc_number: u8, cc_value: u8) -> Self {
+        Self {
+            sample_offset,
+            channel: channel & 0x0F,
+            data: [0xB0 | (channel & 0x0F), cc_number & 0x7F, cc_value & 0x7F],
+        }
+    }
+
+    /// Returns `true` if this is a Note On event (status 0x9X with velocity > 0).
+    #[inline]
+    pub fn is_note_on(&self) -> bool {
+        (self.data[0] & 0xF0) == 0x90 && self.data[2] > 0
+    }
+
+    /// Returns `true` if this is a Note Off event (status 0x8X, or 0x9X with velocity 0).
+    #[inline]
+    pub fn is_note_off(&self) -> bool {
+        (self.data[0] & 0xF0) == 0x80 || ((self.data[0] & 0xF0) == 0x90 && self.data[2] == 0)
+    }
+
+    /// Returns the MIDI note number (0–127) for note-on/note-off events.
+    #[inline]
+    pub fn note(&self) -> u8 {
+        self.data[1]
+    }
+
+    /// Returns the velocity (0–127) for note-on/note-off events.
+    #[inline]
+    pub fn velocity(&self) -> u8 {
+        self.data[2]
+    }
+}
+
 /// Format-agnostic interface for a loaded plugin instance.
 ///
 /// Each concrete implementation wraps a specific plugin API:
@@ -111,7 +192,7 @@ pub trait PluginInstance: Send {
     /// Not real-time-safe.
     fn deactivate(&mut self) -> Result<(), PluginError>;
 
-    /// Processes audio buffers in-place.
+    /// Processes audio buffers in-place with optional MIDI events.
     ///
     /// # Real-Time Safety
     /// This method MUST be real-time-safe. It runs on the audio thread.
@@ -120,11 +201,14 @@ pub trait PluginInstance: Send {
     /// - `inputs`: Read-only input audio buffers (one per channel).
     /// - `outputs`: Mutable output audio buffers (one per channel).
     /// - `num_frames`: Number of frames to process.
+    /// - `midi_events`: MIDI events for this buffer, sorted by `sample_offset`.
+    ///   Empty slice for audio-only processing.
     fn process(
         &mut self,
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
         num_frames: usize,
+        midi_events: &[MidiEvent],
     ) -> Result<(), PluginError>;
 
     /// Processes audio with an optional dedicated sidechain input bus.
@@ -139,9 +223,10 @@ pub trait PluginInstance: Send {
         sidechain_inputs: Option<&[&[f32]]>,
         outputs: &mut [&mut [f32]],
         num_frames: usize,
+        midi_events: &[MidiEvent],
     ) -> Result<(), PluginError> {
         let _ = sidechain_inputs;
-        self.process(main_inputs, outputs, num_frames)
+        self.process(main_inputs, outputs, num_frames, midi_events)
     }
 
     /// Returns the plugin's processing latency in samples.

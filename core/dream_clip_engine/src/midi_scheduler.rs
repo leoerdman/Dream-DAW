@@ -26,6 +26,8 @@ pub struct ScheduledNote {
     /// The MIDI note data.
     pub pitch: u8,
     pub velocity: u8,
+    /// Stable note identity for pairing note-on/off across loop wraps.
+    pub note_uid: u64,
 
     /// Frame offset within the current buffer where this note starts.
     /// For notes that started before this buffer, this is 0.
@@ -46,6 +48,63 @@ pub struct ScheduledNote {
 pub struct MidiScheduler;
 
 impl MidiScheduler {
+    #[inline]
+    fn note_uid(clip: &MidiClip, note: &dream_models::midi::MidiNote) -> u64 {
+        let clip_u128 = clip.id.as_u128();
+        let mut x = (clip_u128 as u64) ^ ((clip_u128 >> 64) as u64);
+        x ^= (note.pitch as u64) << 56;
+        x ^= (note.start_frame as u64).rotate_left(17);
+        x ^= (note.duration_frames as u64).rotate_left(41);
+        // splitmix64 finalizer
+        x ^= x >> 30;
+        x = x.wrapping_mul(0xbf58476d1ce4e5b9);
+        x ^= x >> 27;
+        x = x.wrapping_mul(0x94d049bb133111eb);
+        x ^ (x >> 31)
+    }
+
+    #[inline]
+    fn sort_and_dedup(events: &mut Vec<ScheduledNote>) {
+        events.sort_by(|a, b| {
+            a.buffer_onset
+                .cmp(&b.buffer_onset)
+                .then_with(|| a.buffer_offset_end.cmp(&b.buffer_offset_end))
+                .then_with(|| a.is_note_on.cmp(&b.is_note_on))
+                .then_with(|| a.is_note_off.cmp(&b.is_note_off))
+                .then_with(|| a.pitch.cmp(&b.pitch))
+                .then_with(|| a.note_uid.cmp(&b.note_uid))
+        });
+
+        if events.len() <= 1 {
+            return;
+        }
+
+        let mut write = 0usize;
+        for read in 0..events.len() {
+            if write > 0 {
+                let prev = events[write - 1];
+                let curr = events[read];
+                if prev.buffer_onset == curr.buffer_onset
+                    && prev.buffer_offset_end == curr.buffer_offset_end
+                    && prev.is_note_on == curr.is_note_on
+                    && prev.is_note_off == curr.is_note_off
+                    && prev.pitch == curr.pitch
+                    && prev.note_uid == curr.note_uid
+                {
+                    if curr.velocity > events[write - 1].velocity {
+                        events[write - 1].velocity = curr.velocity;
+                    }
+                    continue;
+                }
+            }
+            if write != read {
+                events[write] = events[read];
+            }
+            write += 1;
+        }
+        events.truncate(write);
+    }
+
     /// Fills caller-provided output with active MIDI notes (zero alloc reuse).
     pub fn fill_active(
         clips: &[MidiClip],
@@ -115,6 +174,7 @@ impl MidiScheduler {
                 out.push(ScheduledNote {
                     pitch: note.pitch,
                     velocity: velocity_scaled,
+                    note_uid: Self::note_uid(clip, note),
                     buffer_onset: onset.min(frame_count),
                     buffer_offset_end: offset_end.min(frame_count),
                     is_note_on,
@@ -123,12 +183,7 @@ impl MidiScheduler {
             }
         }
 
-        out.sort_by(|a, b| {
-            a.buffer_onset
-                .cmp(&b.buffer_onset)
-                .then_with(|| a.is_note_on.cmp(&b.is_note_on))
-                .then_with(|| a.pitch.cmp(&b.pitch))
-        });
+        Self::sort_and_dedup(out);
     }
 
     /// Finds all MIDI notes active within the current buffer window.
@@ -191,14 +246,40 @@ impl MidiScheduler {
                 note.buffer_offset_end = note.buffer_offset_end.min(frame_count);
                 out.push(note);
             }
+
+            // Loop boundary safety:
+            // Any note that is still active at loop end must be explicitly turned off
+            // at the wrap point. Without this, notes can leak across iterations and
+            // stack/double-trigger on the next loop cycle.
+            let mut forced_off_by_pitch = [false; 128];
+            for clip in clips {
+                if clip.is_muted {
+                    continue;
+                }
+                let clip_start = clip.position.sample_frame;
+                for note in &clip.notes {
+                    let note_abs_start = clip_start + note.start_frame;
+                    let note_abs_end = clip_start + note.end_frame();
+                    if note_abs_start < lr.end && note_abs_end > lr.end {
+                        let p = note.pitch as usize;
+                        if !forced_off_by_pitch[p] {
+                            forced_off_by_pitch[p] = true;
+                            out.push(ScheduledNote {
+                                pitch: note.pitch,
+                                velocity: 1,
+                                note_uid: Self::note_uid(clip, note),
+                                buffer_onset: pre_wrap_frames.min(frame_count),
+                                buffer_offset_end: pre_wrap_frames.min(frame_count),
+                                is_note_on: false,
+                                is_note_off: true,
+                            });
+                        }
+                    }
+                }
+            }
         }
 
-        out.sort_by(|a, b| {
-            a.buffer_onset
-                .cmp(&b.buffer_onset)
-                .then_with(|| a.is_note_on.cmp(&b.is_note_on))
-                .then_with(|| a.pitch.cmp(&b.pitch))
-        });
+        Self::sort_and_dedup(out);
     }
 
     /// Loop-aware MIDI scheduling into caller-provided scratch output.
@@ -253,6 +334,36 @@ mod tests {
     use super::*;
     use dream_models::midi::MidiNote;
     use dream_models::time::AbsoluteTime;
+
+    #[derive(Clone, Copy)]
+    struct Rng32 {
+        state: u32,
+    }
+
+    impl Rng32 {
+        fn new(seed: u32) -> Self {
+            Self { state: seed.max(1) }
+        }
+
+        fn next_u32(&mut self) -> u32 {
+            let mut x = self.state;
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            self.state = x;
+            x
+        }
+
+        fn range_i64(&mut self, min: i64, max_exclusive: i64) -> i64 {
+            let span = (max_exclusive - min).max(1) as u64;
+            min + (self.next_u32() as u64 % span) as i64
+        }
+
+        fn range_u8(&mut self, min: u8, max_inclusive: u8) -> u8 {
+            let span = (max_inclusive - min).max(1) as u32 + 1;
+            min + (self.next_u32() % span) as u8
+        }
+    }
 
     fn make_midi_clip(pos: i64, dur: i64, notes: Vec<MidiNote>) -> MidiClip {
         let mut clip = MidiClip::new("Test", AbsoluteTime::new(pos), AbsoluteTime::new(dur));
@@ -477,5 +588,192 @@ mod tests {
         assert_eq!(events[0].pitch, 60);
         assert!(events[0].is_note_on);
         assert_eq!(events[0].buffer_onset, 200);
+    }
+
+    #[test]
+    fn dedups_identical_notes_same_frame_and_pitch() {
+        let clip = make_midi_clip(
+            0,
+            4000,
+            vec![
+                MidiNote::new(42, 90, 120, 120),
+                MidiNote::new(42, 110, 120, 120), // duplicate, stronger velocity
+            ],
+        );
+
+        let events = MidiScheduler::find_active(&[clip], 0, 512);
+        let on_events: Vec<_> = events
+            .iter()
+            .filter(|e| e.is_note_on && e.pitch == 42 && e.buffer_onset == 120)
+            .collect();
+        assert_eq!(on_events.len(), 1, "duplicate note-on must be collapsed");
+        assert_eq!(
+            on_events[0].velocity, 110,
+            "strongest velocity should be kept"
+        );
+    }
+
+    #[test]
+    fn loop_wrap_emits_single_forced_note_off_for_crossing_note() {
+        // Note crosses loop end and should receive exactly one forced off at wrap.
+        let clip = make_midi_clip(
+            0,
+            4000,
+            vec![MidiNote::new(42, 100, 3900, 300)], // spans 3900..4200 across loop end
+        );
+        let lr = LoopRegion::new(0, 4000);
+        let events = MidiScheduler::find_active_looped(&[clip], 3800, 512, Some(&lr));
+
+        let offs: Vec<_> = events
+            .iter()
+            .filter(|e| e.is_note_off && !e.is_note_on && e.pitch == 42)
+            .collect();
+        assert_eq!(
+            offs.len(),
+            1,
+            "crossing note should produce one forced note-off"
+        );
+        assert_eq!(
+            offs[0].buffer_onset, 200,
+            "forced off must happen at wrap frame"
+        );
+    }
+
+    #[test]
+    fn stress_loop_wrap_single_note_never_duplicates_in_callback() {
+        let clip = make_midi_clip(0, 4000, vec![MidiNote::new(42, 100, 0, 180)]);
+        let lr = LoopRegion::new(0, 4000);
+
+        let frame_sizes = [64usize, 96, 128, 256, 192];
+        let mut pos = 3890i64;
+        let mut observed_on = 0usize;
+        let mut observed_off = 0usize;
+
+        for i in 0..200usize {
+            let fc = frame_sizes[i % frame_sizes.len()];
+            let events = MidiScheduler::find_active_looped(&[clip.clone()], pos, fc, Some(&lr));
+
+            let on_count = events
+                .iter()
+                .filter(|e| e.pitch == 42 && e.is_note_on)
+                .count();
+            let off_count = events
+                .iter()
+                .filter(|e| e.pitch == 42 && e.is_note_off)
+                .count();
+
+            assert!(
+                on_count <= 1,
+                "duplicate note-on in callback (i={i}, pos={pos}, fc={fc}, events={events:?})"
+            );
+            assert!(
+                off_count <= 1,
+                "duplicate note-off in callback (i={i}, pos={pos}, fc={fc}, events={events:?})"
+            );
+
+            observed_on += on_count;
+            observed_off += off_count;
+
+            let next = pos + fc as i64;
+            pos = if next >= lr.end {
+                lr.start + (next - lr.end)
+            } else {
+                next
+            };
+        }
+
+        assert!(
+            observed_on > 0,
+            "expected at least one note-on in stress run"
+        );
+        assert!(
+            observed_off > 0,
+            "expected at least one note-off in stress run"
+        );
+    }
+
+    #[test]
+    fn fuzz_scheduler_no_duplicate_events_per_callback() {
+        let mut rng = Rng32::new(0xC0FF_EE11);
+        let loop_len = 8192i64;
+        let lr = LoopRegion::new(0, loop_len);
+        let frame_sizes = [64usize, 96, 128, 192, 256, 384, 512];
+
+        for _case in 0..120 {
+            let note_count = rng.range_i64(1, 28) as usize;
+            let mut notes = Vec::with_capacity(note_count);
+            for _ in 0..note_count {
+                notes.push(MidiNote::new(
+                    rng.range_u8(36, 84),
+                    rng.range_u8(60, 127),
+                    rng.range_i64(0, loop_len - 1),
+                    rng.range_i64(1, 1400),
+                ));
+            }
+            let clip = make_midi_clip(0, loop_len, notes);
+
+            let mut pos = rng.range_i64(0, loop_len);
+            for i in 0..260usize {
+                let fc = frame_sizes
+                    [(i + (rng.next_u32() as usize % frame_sizes.len())) % frame_sizes.len()];
+                let events = MidiScheduler::find_active_looped(&[clip.clone()], pos, fc, Some(&lr));
+
+                let mut sigs = std::collections::HashSet::<(usize, usize, u8, u64)>::new();
+                for e in &events {
+                    if e.is_note_on {
+                        assert!(sigs.insert((e.buffer_onset, 1, e.pitch, e.note_uid)));
+                    }
+                    if e.is_note_off {
+                        assert!(sigs.insert((e.buffer_offset_end, 0, e.pitch, e.note_uid)));
+                    }
+                    assert!(e.buffer_onset <= fc);
+                    assert!(e.buffer_offset_end <= fc);
+                }
+
+                let next = pos + fc as i64;
+                pos = if next >= lr.end {
+                    lr.start + (next - lr.end)
+                } else {
+                    next
+                };
+            }
+        }
+    }
+
+    #[test]
+    fn fuzz_scheduler_event_bounds_and_order() {
+        let mut rng = Rng32::new(0xA11C_ED42);
+        let loop_len = 12288i64;
+        let lr = LoopRegion::new(0, loop_len);
+
+        for _case in 0..80 {
+            let note_count = rng.range_i64(1, 40) as usize;
+            let mut notes = Vec::with_capacity(note_count);
+            for _ in 0..note_count {
+                notes.push(MidiNote::new(
+                    rng.range_u8(24, 96),
+                    rng.range_u8(1, 127),
+                    rng.range_i64(0, loop_len - 1),
+                    rng.range_i64(1, 1800),
+                ));
+            }
+            let clip = make_midi_clip(0, loop_len, notes);
+            let fc = rng.range_i64(32, 1024) as usize;
+            let pos = rng.range_i64(0, loop_len);
+
+            let events = MidiScheduler::find_active_looped(&[clip], pos, fc, Some(&lr));
+            for w in events.windows(2) {
+                let a = w[0];
+                let b = w[1];
+                assert!(a.buffer_onset <= b.buffer_onset);
+            }
+            for e in events {
+                assert!(e.buffer_onset <= fc);
+                assert!(e.buffer_offset_end <= fc);
+                if e.is_note_on && e.is_note_off {
+                    assert!(e.buffer_onset <= e.buffer_offset_end);
+                }
+            }
+        }
     }
 }

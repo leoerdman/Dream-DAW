@@ -16,4 +16,7 @@ bytemuck = { workspace = true }
 
 dream_models = { path = "../dream_models" }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "0.25"
+
 [dev-dependencies]

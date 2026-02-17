@@ -136,8 +136,6 @@ interface TrackInspectorProps {
     /** Optional callback to lift multi-selection to shell. */
     onSelectTracks?: (ids: string[], primaryId: string) => void;
     trackHeight?: number;
-    /** Height to apply to selected tracks (defaults to trackHeight). */
-    selectedTrackHeight?: number;
     rulerHeight?: number;
     scrollTop?: number;
     mixerFocusMode?: boolean;
@@ -149,12 +147,10 @@ export const TrackInspector = ({
     onSelectTrack,
     onSelectTracks,
     trackHeight = 48,
-    selectedTrackHeight,
     rulerHeight = 24,
     scrollTop: externalScrollTop,
     mixerFocusMode = false,
 }: TrackInspectorProps) => {
-    const selectedRowHeight = selectedTrackHeight ?? trackHeight;
     const projectTracks = useEngineStore((s) => s.projectTracks);
     const engineSetTrackMute = useEngineStore((s) => s.setTrackMute);
     const engineSetTrackSolo = useEngineStore((s) => s.setTrackSolo);
@@ -163,7 +159,6 @@ export const TrackInspector = ({
     const engineSetMasterVolume = useEngineStore((s) => s.setMasterVolume);
     const masterVolume = useEngineStore((s) => s.masterVolume);
     const [masterColor, setMasterColor] = useState('#2b2f36');
-    const addTrack = useEngineStore((s) => s.addTrack);
     const deleteTrack = useEngineStore((s) => s.deleteTrack);
     const renameTrackAction = useEngineStore((s) => s.renameTrack);
     const meters = useEngineStore((s) => s.meters);
@@ -248,7 +243,7 @@ export const TrackInspector = ({
 
     // Context menu
     const [contextMenu, setContextMenu] = useState<{
-        trackId: string; trackIndex: number; x: number; y: number;
+        trackId: string | null; trackIndex: number | null; x: number; y: number;
     } | null>(null);
 
     // Color picker (opened from context menu)
@@ -265,13 +260,14 @@ export const TrackInspector = ({
             const next: Record<string, number> = {};
             let changed = false;
             for (const track of liveTracks) {
-                const persisted = Math.max(24, Math.min(120, Math.round(track.height || trackHeight)));
-                if (prev[track.id] == null) {
-                    next[track.id] = persisted;
-                    changed = true;
-                } else {
-                    next[track.id] = prev[track.id];
+                if (track.type === 'master') {
+                    next[track.id] = prev[track.id] ?? trackHeight;
+                    continue;
                 }
+                const persisted = Number.isFinite(track.height) ? track.height : trackHeight;
+                const resolved = Math.max(24, Math.min(120, Math.round(persisted)));
+                if (prev[track.id] !== resolved) changed = true;
+                next[track.id] = resolved;
             }
             if (prev.master != null) next.master = prev.master;
             else next.master = trackHeight;
@@ -296,7 +292,19 @@ export const TrackInspector = ({
         return liveTracks.map(t => ({ ...t, ...(localOverrides[t.id] || {}) }));
     }, [liveTracks, localOverrides]);
 
-    const getTrackIndex = useCallback((id: string) => liveTracks.findIndex(t => t.id === id), [liveTracks]);
+    const trackById = useMemo(() => {
+        const map = new Map<string, TrackData>();
+        for (const t of tracks) map.set(t.id, t);
+        return map;
+    }, [tracks]);
+
+    const liveTrackIndexById = useMemo(() => {
+        const map = new Map<string, number>();
+        for (let i = 0; i < liveTracks.length; i += 1) map.set(liveTracks[i].id, i);
+        return map;
+    }, [liveTracks]);
+
+    const getTrackIndex = useCallback((id: string) => liveTrackIndexById.get(id) ?? -1, [liveTrackIndexById]);
 
     const toggleMute = useCallback((id: string) => {
         const track = tracks.find(t => t.id === id);
@@ -407,21 +415,44 @@ export const TrackInspector = ({
     }, []);
 
     const isAncestorCollapsed = useCallback((track: TrackData): boolean => {
-        if (!track.groupId) return false;
-        if (collapsedGroups.has(track.groupId)) return true;
-        const parentGroup = tracks.find(t => t.id === track.groupId);
-        if (parentGroup) return isAncestorCollapsed(parentGroup);
+        let groupId = track.groupId;
+        while (groupId) {
+            if (collapsedGroups.has(groupId)) return true;
+            groupId = trackById.get(groupId)?.groupId;
+        }
         return false;
-    }, [tracks, collapsedGroups]);
+    }, [collapsedGroups, trackById]);
 
     const visibleTracks = useMemo(() => tracks.filter(t => !isAncestorCollapsed(t)), [tracks, isAncestorCollapsed]);
 
+    const visibleTrackIndexById = useMemo(() => {
+        const map = new Map<string, number>();
+        for (let i = 0; i < visibleTracks.length; i += 1) map.set(visibleTracks[i].id, i);
+        return map;
+    }, [visibleTracks]);
+
+    const depthByTrackId = useMemo(() => {
+        const memo = new Map<string, number>();
+        const visit = (id: string): number => {
+            const cached = memo.get(id);
+            if (cached != null) return cached;
+            const t = trackById.get(id);
+            if (!t?.groupId) {
+                memo.set(id, 0);
+                return 0;
+            }
+            const parentDepth = visit(t.groupId);
+            const depth = parentDepth + 1;
+            memo.set(id, depth);
+            return depth;
+        };
+        for (const t of tracks) visit(t.id);
+        return memo;
+    }, [tracks, trackById]);
+
     const getDepth = useCallback((track: TrackData): number => {
-        if (!track.groupId) return 0;
-        const parent = tracks.find(t => t.id === track.groupId);
-        if (parent) return 1 + getDepth(parent);
-        return 1;
-    }, [tracks]);
+        return depthByTrackId.get(track.id) ?? 0;
+    }, [depthByTrackId]);
 
     const rowLayout = useMemo<TrackRowLayoutMetrics>(() => {
         const maxDepth = visibleTracks.reduce((acc, t) => Math.max(acc, getDepth(t)), 0);
@@ -476,6 +507,15 @@ export const TrackInspector = ({
         setResizingTrackId(trackId);
     }, []);
 
+    const applyTrackHeightOptimistic = useCallback((trackId: string, height: number) => {
+        if (!trackId || trackId === 'master') return;
+        useEngineStore.setState((state) => ({
+            projectTracks: state.projectTracks.map((track) => (
+                track.id === trackId ? { ...track, height } : track
+            )),
+        }));
+    }, []);
+
     useEffect(() => {
         if (!resizingTrackId) return;
 
@@ -485,10 +525,14 @@ export const TrackInspector = ({
             const nextHeight = clampRowHeight(resizeStartHeightRef.current + dy);
             resizeCurrentHeightRef.current = nextHeight;
             setRowHeightsByTrackId((prev) => {
-                const current = prev[resizingTrackId];
-                if (current === nextHeight) return prev;
+                if (resizingTrackId === 'master') {
+                    if (prev.master === nextHeight) return prev;
+                    return { ...prev, master: nextHeight };
+                }
+                if (prev[resizingTrackId] === nextHeight) return prev;
                 return { ...prev, [resizingTrackId]: nextHeight };
             });
+            applyTrackHeightOptimistic(resizingTrackId, nextHeight);
         };
 
         const onPointerUp = () => {
@@ -496,6 +540,7 @@ export const TrackInspector = ({
             const finalHeight = clampRowHeight(resizeCurrentHeightRef.current || resizeStartHeightRef.current);
             setResizingTrackId(null);
             if (finalTrackId && finalTrackId !== 'master') {
+                applyTrackHeightOptimistic(finalTrackId, finalHeight);
                 void engineApi.setTrackHeight(finalTrackId, finalHeight).catch((err) => {
                     console.error('[TrackInspector] setTrackHeight failed:', err);
                 });
@@ -508,7 +553,7 @@ export const TrackInspector = ({
             window.removeEventListener('pointermove', onPointerMove);
             window.removeEventListener('pointerup', onPointerUp);
         };
-    }, [resizingTrackId, clampRowHeight]);
+    }, [resizingTrackId, clampRowHeight, applyTrackHeightOptimistic]);
 
     // ── Context Menu handlers ──
     const handleContextMenu = useCallback((e: React.MouseEvent, trackId: string, trackIndex: number) => {
@@ -516,6 +561,19 @@ export const TrackInspector = ({
         e.stopPropagation();
         setContextMenu({ trackId, trackIndex, x: e.clientX, y: e.clientY });
     }, []);
+
+    const handleAddTrackFromContext = useCallback((trackType: 'audio' | 'midi') => {
+        const insertAfterIndex = contextMenu?.trackIndex;
+        const resolvedInsertAfter = Number.isInteger(insertAfterIndex) && (insertAfterIndex ?? -1) >= 0
+            ? (insertAfterIndex as number)
+            : null;
+        void engineApi.addTrackAdvanced(trackType, resolvedInsertAfter)
+            .then(() => useEngineStore.getState().fetchProject(`track-context:add-${trackType}`))
+            .catch((err) => {
+                console.error(`[TrackInspector] add ${trackType} track failed:`, err);
+            });
+        setContextMenu(null);
+    }, [contextMenu]);
 
     const handleRenameStart = useCallback((trackId: string) => {
         const track = tracks.find(t => t.id === trackId);
@@ -815,15 +873,52 @@ export const TrackInspector = ({
         return true;
     }, [tracks, isDescendantOf]);
 
-    const commitTrackToGroup = useCallback((trackId: string, groupId: string) => {
+    const resolveGroupAtVisibleInsertIndex = useCallback((visibleInsertIndex: number): string | null => {
+        const prev = visibleInsertIndex > 0 ? visibleTracks[visibleInsertIndex - 1] : null;
+        const next = visibleInsertIndex < visibleTracks.length ? visibleTracks[visibleInsertIndex] : null;
+
+        const prevGroup = prev?.groupId ?? null;
+        const nextGroup = next?.groupId ?? null;
+
+        if (prevGroup && nextGroup && prevGroup === nextGroup) return prevGroup;
+
+        if (prev?.type === 'group' && nextGroup === prev.id) return prev.id;
+        if (next?.type === 'group' && prevGroup === next.id) return next.id;
+
+        return null;
+    }, [visibleTracks]);
+
+    const computeGroupInsertIndex = useCallback((trackId: string, groupId: string, visibleInsertIndex: number | null): number => {
+        const groupIndex = tracks.findIndex((t) => t.id === groupId);
+        if (groupIndex < 0) return findGroupTailInsertIndex(groupId);
+
+        const dragIndex = tracks.findIndex((t) => t.id === trackId);
+        const groupStart = groupIndex + 1;
+        let groupTail = findGroupTailInsertIndex(groupId);
+        if (dragIndex >= groupStart && dragIndex < groupTail) {
+            groupTail -= 1;
+        }
+
+        if (visibleInsertIndex == null) {
+            return Math.max(groupStart, groupTail);
+        }
+
+        const rawInsertIndex = computeRawInsertIndex(visibleInsertIndex);
+        const adjustedInsert = dragIndex >= 0 && rawInsertIndex > dragIndex
+            ? rawInsertIndex - 1
+            : rawInsertIndex;
+        return Math.max(groupStart, Math.min(groupTail, adjustedInsert));
+    }, [tracks, findGroupTailInsertIndex, computeRawInsertIndex]);
+
+    const commitTrackToGroup = useCallback((trackId: string, groupId: string, visibleInsertIndex: number | null = null) => {
         if (!canDropTrackIntoGroup(trackId, groupId)) return;
         if (trackMoveInFlightRef.current) return;
         const draggingTrack = tracks.find((t) => t.id === trackId);
-        const targetIndex = findGroupTailInsertIndex(groupId);
+        const targetIndex = computeGroupInsertIndex(trackId, groupId, visibleInsertIndex);
         const dragIndex = tracks.findIndex((t) => t.id === trackId);
-        if (draggingTrack?.groupId === groupId && dragIndex >= 0) {
-            const expectedIndexWithinGroup = targetIndex - 1;
-            if (dragIndex === expectedIndexWithinGroup) return;
+        if (dragIndex >= 0) {
+            const noOpIndex = targetIndex > dragIndex ? targetIndex - 1 : targetIndex;
+            if (dragIndex === noOpIndex && draggingTrack?.groupId === groupId) return;
         }
         trackMoveInFlightRef.current = true;
         void engineApi.moveTrackWithParent(trackId, targetIndex, groupId).then(() => {
@@ -833,7 +928,7 @@ export const TrackInspector = ({
         }).finally(() => {
             trackMoveInFlightRef.current = false;
         });
-    }, [canDropTrackIntoGroup, findGroupTailInsertIndex, tracks]);
+    }, [canDropTrackIntoGroup, computeGroupInsertIndex, tracks]);
 
     const resolveDropTargetFromClientY = useCallback((clientY: number, dragId: string) => {
         const draggingTrack = tracks.find((t) => t.id === dragId);
@@ -860,10 +955,19 @@ export const TrackInspector = ({
             }
 
             const insertBefore = clientY < rect.top + rect.height / 2;
-            return { groupId: null as string | null, insertIndex: insertBefore ? i : i + 1 };
+            const insertIndex = insertBefore ? i : i + 1;
+            const boundaryGroupId = resolveGroupAtVisibleInsertIndex(insertIndex);
+            if (boundaryGroupId && canDropTrackIntoGroup(dragId, boundaryGroupId)) {
+                return { groupId: boundaryGroupId, insertIndex };
+            }
+            return { groupId: null as string | null, insertIndex };
+        }
+        const boundaryGroupId = resolveGroupAtVisibleInsertIndex(visibleTracks.length);
+        if (boundaryGroupId && canDropTrackIntoGroup(dragId, boundaryGroupId)) {
+            return { groupId: boundaryGroupId, insertIndex: visibleTracks.length };
         }
         return { groupId: null as string | null, insertIndex: visibleTracks.length };
-    }, [tracks, visibleTracks, isDescendantOf]);
+    }, [tracks, visibleTracks, isDescendantOf, resolveGroupAtVisibleInsertIndex, canDropTrackIntoGroup]);
 
     const beginHeaderPointerDrag = useCallback((e: React.PointerEvent<HTMLDivElement>, trackId: string) => {
         if (e.button !== 0) return;
@@ -940,7 +1044,7 @@ export const TrackInspector = ({
             const activeDragId = draggingTrackIdRef.current ?? draggingTrackId;
             if (pointerDrag.active && activeDragId) {
                 if (groupDropTargetId && canDropTrackIntoGroup(activeDragId, groupDropTargetId)) {
-                    commitTrackToGroup(activeDragId, groupDropTargetId);
+                    commitTrackToGroup(activeDragId, groupDropTargetId, dropInsertIndex);
                     suppressNextClickRef.current = true;
                     setPointerDrag(null);
                     resetTrackDragState();
@@ -948,7 +1052,7 @@ export const TrackInspector = ({
                 }
                 const target = resolveDropTargetFromClientY(e.clientY, activeDragId);
                 if (target.groupId && canDropTrackIntoGroup(activeDragId, target.groupId)) {
-                    commitTrackToGroup(activeDragId, target.groupId);
+                    commitTrackToGroup(activeDragId, target.groupId, target.insertIndex);
                 } else {
                     const idx = target.insertIndex ?? computeVisibleInsertIndexFromClientY(e.clientY);
                     commitDraggedTrackToVisibleIndex(activeDragId, idx);
@@ -980,6 +1084,7 @@ export const TrackInspector = ({
         canDropTrackIntoGroup,
         resolveDropTargetFromClientY,
         groupDropTargetId,
+        dropInsertIndex,
         resetTrackDragState,
     ]);
 
@@ -1032,6 +1137,12 @@ export const TrackInspector = ({
                     paddingRight: 2,
                     boxSizing: 'border-box',
                 }}
+                onContextMenu={(e) => {
+                    const target = e.target as HTMLElement | null;
+                    if (target?.closest?.('[data-track-row="true"]')) return;
+                    e.preventDefault();
+                    setContextMenu({ trackId: null, trackIndex: null, x: e.clientX, y: e.clientY });
+                }}
                 onDragOver={(e) => {
                     const activeDragId = draggingTrackIdRef.current ?? draggingTrackId;
                     if (!activeDragId) return;
@@ -1048,7 +1159,7 @@ export const TrackInspector = ({
                         return;
                     }
                     if (groupDropTargetId && canDropTrackIntoGroup(dragId, groupDropTargetId)) {
-                        commitTrackToGroup(dragId, groupDropTargetId);
+                        commitTrackToGroup(dragId, groupDropTargetId, dropInsertIndex);
                         Promise.resolve().finally(() => {
                             resetTrackDragState();
                         });
@@ -1069,10 +1180,12 @@ export const TrackInspector = ({
                     const isCollapsed = isGroup ? collapsedGroups.has(track.id) : false;
                     const depth = getDepth(track);
                     const trackIndex = getTrackIndex(track.id);
-                    const defaultRowHeight = Math.max(24, Math.min(120, Math.round(track.height || (selectedTrackIdSet.has(track.id) ? selectedRowHeight : trackHeight))));
-                    const resolvedRowHeight = rowHeightsByTrackId[track.id] ?? defaultRowHeight;
+                    const defaultRowHeight = Math.max(24, Math.min(120, Math.round(Number.isFinite(track.height) ? track.height : trackHeight)));
+                    const resolvedRowHeight = track.type === 'master'
+                        ? (rowHeightsByTrackId[track.id] ?? trackHeight)
+                        : (rowHeightsByTrackId[track.id] ?? defaultRowHeight);
 
-                    const visibleIndex = visibleTracks.findIndex((t) => t.id === track.id);
+                    const visibleIndex = visibleTrackIndexById.get(track.id) ?? -1;
                     return (
                         <div
                             key={track.id}
@@ -1102,8 +1215,8 @@ export const TrackInspector = ({
                                         const anchorId = lastClickedTrackId && lastClickedTrackId !== 'master'
                                             ? lastClickedTrackId
                                             : (selectedTrackId && selectedTrackId !== 'master' ? selectedTrackId : null);
-                                        const anchorIndex = visibleTracks.findIndex((t) => t.id === anchorId);
-                                        const currentIndex = visibleTracks.findIndex((t) => t.id === track.id);
+                                        const anchorIndex = anchorId ? (visibleTrackIndexById.get(anchorId) ?? -1) : -1;
+                                        const currentIndex = visibleTrackIndexById.get(track.id) ?? -1;
                                         if (anchorIndex >= 0 && currentIndex >= 0) {
                                             const start = Math.min(anchorIndex, currentIndex);
                                             const end = Math.max(anchorIndex, currentIndex);
@@ -1145,7 +1258,7 @@ export const TrackInspector = ({
                                 onContextMenu={(e) => handleContextMenu(e, track.id, trackIndex)}
                                 onHeaderPointerDown={(e) => beginHeaderPointerDrag(e, track.id)}
                                 isGroupDropTarget={groupDropTargetId === track.id}
-                                groupStripeColor={track.groupId ? (tracks.find((t) => t.id === track.groupId)?.color ?? track.color) : track.color}
+                                groupStripeColor={track.groupId ? (trackById.get(track.groupId)?.color ?? track.color) : track.color}
                                 layout={rowLayout}
                                 isResizing={resizingTrackId === track.id}
                                 onResizeStart={(startY) => beginRowResize(track.id, resolvedRowHeight, startY)}
@@ -1158,30 +1271,6 @@ export const TrackInspector = ({
                     );
                 })}
 
-                {/* Add Track Button */}
-                <button
-                    onClick={() => addTrack()}
-                    style={{
-                        width: '100%', height: 32,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                        background: 'color-mix(in srgb, var(--surface-2) 45%, transparent)',
-                        border: 'none',
-                        borderTop: '1px solid var(--color-divider)',
-                        color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', fontWeight: 650,
-                        cursor: 'pointer', transition: `all var(--transition-fast)`,
-                    }}
-                    onMouseEnter={e => {
-                        e.currentTarget.style.background = 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)';
-                        e.currentTarget.style.color = 'var(--color-accent-primary)';
-                    }}
-                    onMouseLeave={e => {
-                        e.currentTarget.style.background = 'color-mix(in srgb, var(--surface-2) 45%, transparent)';
-                        e.currentTarget.style.color = 'var(--color-text-secondary)';
-                    }}
-                >
-                    <span style={{ fontSize: 14, lineHeight: 1 }}>+</span>
-                    Add Track
-                </button>
             </div>
 
             {/* Master Track — fixed at bottom */}
@@ -1231,23 +1320,55 @@ export const TrackInspector = ({
                 <ContextMenuPopup
                     x={contextMenu.x}
                     y={contextMenu.y}
-                    onRename={() => handleRenameStart(contextMenu.trackId)}
-                    onGroup={() => handleGroupTrack(contextMenu.trackId)}
-                    onUngroup={() => handleUngroupTrack(contextMenu.trackId)}
+                    showTrackActions={Boolean(contextMenu.trackId)}
+                    onAddAudioTrack={() => handleAddTrackFromContext('audio')}
+                    onAddMidiTrack={() => handleAddTrackFromContext('midi')}
+                    onRename={() => {
+                        if (!contextMenu.trackId) return;
+                        handleRenameStart(contextMenu.trackId);
+                    }}
+                    onGroup={() => {
+                        if (!contextMenu.trackId) return;
+                        handleGroupTrack(contextMenu.trackId);
+                    }}
+                    onUngroup={() => {
+                        if (!contextMenu.trackId) return;
+                        handleUngroupTrack(contextMenu.trackId);
+                    }}
                     canUngroup={(() => {
+                        if (!contextMenu.trackId) return false;
                         const ctxTrack = tracks.find((t) => t.id === contextMenu.trackId);
                         return !!ctxTrack && (ctxTrack.type === 'group' || !!ctxTrack.groupId);
                     })()}
                     canBounceGroup={(() => {
+                        if (!contextMenu.trackId) return false;
                         const ctxTrack = tracks.find((t) => t.id === contextMenu.trackId);
                         return !!ctxTrack && ctxTrack.type === 'group';
                     })()}
-                    onDelete={() => handleDeleteTrack(contextMenu.trackId)}
-                    onChangeColor={() => handleOpenColorPicker(contextMenu.trackId, contextMenu.x, contextMenu.y)}
-                    onPaintClips={() => handlePaintClipsWithTrackColor(contextMenu.trackId)}
-                    onBounceTrack={() => handleBounceTrack(contextMenu.trackId)}
-                    onBounceGroup={() => handleBounceGroup(contextMenu.trackId)}
-                    onSplitToStems={() => handleSplitTrackToStems(contextMenu.trackId)}
+                    onDelete={() => {
+                        if (!contextMenu.trackId) return;
+                        handleDeleteTrack(contextMenu.trackId);
+                    }}
+                    onChangeColor={() => {
+                        if (!contextMenu.trackId) return;
+                        handleOpenColorPicker(contextMenu.trackId, contextMenu.x, contextMenu.y);
+                    }}
+                    onPaintClips={() => {
+                        if (!contextMenu.trackId) return;
+                        handlePaintClipsWithTrackColor(contextMenu.trackId);
+                    }}
+                    onBounceTrack={() => {
+                        if (!contextMenu.trackId) return;
+                        handleBounceTrack(contextMenu.trackId);
+                    }}
+                    onBounceGroup={() => {
+                        if (!contextMenu.trackId) return;
+                        handleBounceGroup(contextMenu.trackId);
+                    }}
+                    onSplitToStems={() => {
+                        if (!contextMenu.trackId) return;
+                        handleSplitTrackToStems(contextMenu.trackId);
+                    }}
                     onDismiss={() => setContextMenu(null)}
                 />
             )}
@@ -1269,9 +1390,14 @@ export const TrackInspector = ({
 // ── Context Menu Popup ──────────────────────────────────────────
 
 const ContextMenuPopup = ({
-    x, y, onRename, onGroup, onUngroup, canUngroup, canBounceGroup, onDelete, onChangeColor, onPaintClips, onBounceTrack, onBounceGroup, onSplitToStems, onDismiss,
+    x, y, showTrackActions,
+    onAddAudioTrack, onAddMidiTrack,
+    onRename, onGroup, onUngroup, canUngroup, canBounceGroup, onDelete, onChangeColor, onPaintClips, onBounceTrack, onBounceGroup, onSplitToStems, onDismiss,
 }: {
     x: number; y: number;
+    showTrackActions: boolean;
+    onAddAudioTrack: () => void;
+    onAddMidiTrack: () => void;
     onRename: () => void;
     onGroup: () => void;
     onUngroup: () => void;
@@ -1300,8 +1426,11 @@ const ContextMenuPopup = ({
         };
     }, [onDismiss]);
 
-    const clampedX = Math.min(x, window.innerWidth - 168);
-    const clampedY = Math.min(y, window.innerHeight - (canBounceGroup ? 282 : 248));
+    const clampedX = Math.min(x, window.innerWidth - 196);
+    const menuHeight = showTrackActions
+        ? (canBounceGroup ? 348 : 314)
+        : 82;
+    const clampedY = Math.min(y, window.innerHeight - menuHeight);
 
     const itemStyle: React.CSSProperties = {
         width: '100%', padding: '6px 12px',
@@ -1313,11 +1442,25 @@ const ContextMenuPopup = ({
 
     const node = (
         <div ref={ref} style={{
-            position: 'fixed', left: clampedX, top: clampedY, width: 160,
+            position: 'fixed', left: clampedX, top: clampedY, width: 188,
             background: 'var(--surface-2)', border: '1px solid var(--color-border-subtle)',
             borderRadius: 8, padding: 4, zIndex: 'var(--z-menu)' as unknown as number,
             boxShadow: 'var(--shadow-panel)',
         }}>
+            <button style={itemStyle} onClick={onAddAudioTrack}
+                onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                <span style={{ width: 14, fontSize: 12 }}>🎚</span> Add Audio Track
+            </button>
+            <button style={itemStyle} onClick={onAddMidiTrack}
+                onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                <span style={{ width: 14, fontSize: 12 }}>🎹</span> Add MIDI Track
+            </button>
+            {!showTrackActions && null}
+            {showTrackActions && (
+                <>
+            <div style={{ height: 1, background: 'var(--color-divider)', margin: '2px 8px' }} />
             <button style={itemStyle} onClick={onRename}
                 onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
@@ -1368,6 +1511,8 @@ const ContextMenuPopup = ({
                 onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
                 <span style={{ width: 14, fontSize: 12 }}>🗑</span> Delete Track
             </button>
+                </>
+            )}
         </div>
     );
 
@@ -1441,11 +1586,13 @@ const VolumeFader = ({
     onVolumeChange,
     compact = false,
     showZeroTick = true,
+    controlHeight,
 }: {
     volumeLinear: number;
     onVolumeChange: (gain: number) => void;
     compact?: boolean;
     showZeroTick?: boolean;
+    controlHeight?: number;
 }) => {
     const trackRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -1502,7 +1649,7 @@ const VolumeFader = ({
         };
     }, [compact, endDrag, onVolumeChange]);
 
-    const trackHeight = compact ? 18 : 22;
+    const trackHeight = controlHeight ?? (compact ? 18 : 22);
     const trackWidth = compact ? 60 : 108;
 
     // Zero-dB tick position
@@ -1594,10 +1741,12 @@ const PanFader = ({
     pan,
     onPanChange,
     compact = false,
+    controlHeight,
 }: {
     pan: number;
     onPanChange: (pan: number) => void;
     compact?: boolean;
+    controlHeight?: number;
 }) => {
     const trackRef = useRef<HTMLDivElement>(null);
     const isDraggingRef = useRef(false);
@@ -1646,7 +1795,7 @@ const PanFader = ({
         ? 'C'
         : `${pan < 0 ? '-' : '+'}${Math.round(Math.abs(pan) * 100)}`;
 
-    const trackHeight = compact ? 18 : 22;
+    const trackHeight = controlHeight ?? (compact ? 18 : 22);
     const trackWidth = compact ? 60 : 88;
 
     return (
@@ -2124,7 +2273,7 @@ const TrackRow = ({
 
     // Subdue track visually when disabled (muted)
     const isEnabled = !track.isMuted;
-    const compactControlHeight = 16;
+    const compactControlHeight = Math.max(16, Math.min(36, Math.round(trackHeight * 0.38)));
     const [resizeHot, setResizeHot] = useState(false);
     const headerBgColor = track.color;
     const headerContrast = getContrastColor(track.color);
@@ -2135,6 +2284,8 @@ const TrackRow = ({
 
     return (
         <div
+            data-track-row="true"
+            data-track-id={track.id}
             onClick={onClick}
             onContextMenu={onContextMenu}
             style={{
@@ -2506,6 +2657,7 @@ const TrackRow = ({
                                 onVolumeChange={onVolumeChange}
                                 compact
                                 showZeroTick
+                                controlHeight={compactControlHeight}
                             />
                         )}
                         {!isMaster && onPanChange && (
@@ -2513,6 +2665,7 @@ const TrackRow = ({
                                 pan={track.pan}
                                 onPanChange={onPanChange}
                                 compact
+                                controlHeight={compactControlHeight}
                             />
                         )}
                     </div>

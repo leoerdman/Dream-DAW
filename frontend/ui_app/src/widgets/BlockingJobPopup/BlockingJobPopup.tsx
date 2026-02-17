@@ -22,7 +22,9 @@ export const BlockingJobPopup = () => {
             .then((list) => {
                 if (mounted) setJobs(list);
             })
-            .catch(() => {});
+            .catch((err) => {
+                console.warn('[BlockingJobPopup] listBackgroundJobs failed:', err);
+            });
 
         void listen<BackgroundJobSnapshot>('background_job_update', (event) => {
             if (!mounted) return;
@@ -36,7 +38,9 @@ export const BlockingJobPopup = () => {
             });
         }).then((fn) => {
             unlisten = fn;
-        }).catch(() => {});
+        }).catch((err) => {
+            console.warn('[BlockingJobPopup] listener setup failed:', err);
+        });
 
         return () => {
             mounted = false;
@@ -109,7 +113,10 @@ export const BlockingJobPopup = () => {
                     <button
                         onClick={() => {
                             void engineApi.cancelBackgroundJob(activeJob.id)
-                                .catch(() => engineApi.cancelExport());
+                                .catch((err) => {
+                                    console.warn('[BlockingJobPopup] cancelBackgroundJob failed, fallback to cancelExport:', err);
+                                    return engineApi.cancelExport();
+                                });
                         }}
                         style={{
                             height: 28,

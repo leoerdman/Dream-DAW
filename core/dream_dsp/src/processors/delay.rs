@@ -100,6 +100,19 @@ impl DelayProcessor {
             (self.time_r_ms * 0.001 * self.sample_rate).clamp(1.0, (self.buf_size - 2) as f32);
     }
 
+    #[inline]
+    fn sync_sample_rate(&mut self, sample_rate: f32) {
+        if sample_rate.is_finite()
+            && sample_rate > 1000.0
+            && (sample_rate - self.sample_rate).abs() > 0.5
+        {
+            self.sample_rate = sample_rate;
+            self.update_filter();
+            self.update_delay_l();
+            self.update_delay_r();
+        }
+    }
+
     /// Read with linear interpolation for fractional delays.
     #[inline]
     fn read_interp(buf: &[f32], write_pos: usize, delay: f32, buf_size: usize) -> f32 {
@@ -112,7 +125,8 @@ impl DelayProcessor {
 }
 
 impl DspProcessor for DelayProcessor {
-    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], _sample_rate: f32) {
+    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
+        self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
         let bs = self.buf_size;
         let fb = self.feedback;

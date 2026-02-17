@@ -34,8 +34,8 @@ static POOL_MISS_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::Atomic
 // ── Constants ──────────────────────────────────────────────────────────────
 
 /// Maximum number of tracks supported per project.
-/// Pre-allocates buffers for this count. Memory cost: 64 tracks × 2048 × 4 bytes ≈ 512KB.
-pub const MAX_TRACKS: usize = 64;
+/// Pre-allocates buffers for this count.
+pub const MAX_TRACKS: usize = 256;
 
 /// Maximum audio buffer size in frames. Covers USB audio's worst case (4096) with margin.
 pub const MAX_BUFFER_FRAMES: usize = 8192;
@@ -562,6 +562,12 @@ impl RenderContext {
             if base + 1 < output.len() {
                 output[base] = soft_clip(master_l[i]);
                 output[base + 1] = soft_clip(master_r[i]);
+                for ch in 2..self.channels {
+                    let idx = base + ch;
+                    if idx < output.len() {
+                        output[idx] = 0.0;
+                    }
+                }
             }
         }
     }
@@ -592,7 +598,7 @@ mod tests {
 
     #[test]
     fn track_slot_clear() {
-        let mut slot = TrackSlot::new(512);
+        let mut slot = TrackSlot::new(512, 44100.0);
         slot.buf_left[0] = 1.0;
         slot.buf_left[100] = 0.5;
         slot.active = true;
@@ -606,10 +612,10 @@ mod tests {
 
     #[test]
     fn max_tracks_clamped() {
-        let meter_bank = Arc::new(MeterBank::new(200));
-        let ctx = RenderContext::new(200, 44100.0, 2, meter_bank);
+        let meter_bank = Arc::new(MeterBank::new(MAX_TRACKS));
+        let ctx = RenderContext::new(500, 44100.0, 2, meter_bank);
 
-        // Should be clamped to MAX_TRACKS
+        // Requesting 500 tracks should be clamped to MAX_TRACKS (256).
         assert_eq!(ctx.track_count(), MAX_TRACKS);
     }
 

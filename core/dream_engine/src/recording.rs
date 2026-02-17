@@ -31,7 +31,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use log::{error, info};
+use log::{error, info, warn};
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -204,9 +204,40 @@ impl RecordingSession {
             .unwrap_or_else(|_| "Unknown".to_string());
         info!("[Recording] Input device: {}", device_name);
 
-        let supported_config = device
+        let default_config = device
             .default_input_config()
             .map_err(|e| RecordingError::ConfigError(e.to_string()))?;
+
+        let supported_config = if default_config.sample_format() == cpal::SampleFormat::F32 {
+            default_config
+        } else {
+            let fallback = device
+                .supported_input_configs()
+                .ok()
+                .and_then(|mut ranges| {
+                    ranges.find_map(|range| {
+                        if range.sample_format() != cpal::SampleFormat::F32 {
+                            return None;
+                        }
+                        let desired_rate = default_config.sample_rate();
+                        let clamped_rate = desired_rate
+                            .clamp(range.min_sample_rate(), range.max_sample_rate());
+                        Some(range.with_sample_rate(clamped_rate))
+                    })
+                });
+
+            if let Some(cfg) = fallback {
+                warn!(
+                    "Default input sample format {:?} unsupported by recorder, using f32 fallback",
+                    default_config.sample_format()
+                );
+                cfg
+            } else {
+                return Err(RecordingError::ConfigError(
+                    "No f32 input stream config available for selected device".to_string(),
+                ));
+            }
+        };
 
         let sample_rate = supported_config.sample_rate();
         let channels = supported_config.channels() as usize;
@@ -277,6 +308,9 @@ impl RecordingSession {
                     for chunk in data.chunks(channels) {
                         if let Some(&l) = chunk.first() {
                             max_l = max_l.max(l.abs());
+                            if channels == 1 {
+                                max_r = max_r.max(l.abs());
+                            }
                         }
                         if channels > 1
                             && let Some(&r) = chunk.get(1)

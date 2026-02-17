@@ -481,7 +481,8 @@ export class CanvasClipRenderer {
         ctx.clip();
 
         // ── 2. Parse color ────────────────────────────────────────────
-        const rgb = this._parseColor(clip.color);
+        const rgbBase = this._parseColor(clip.color);
+        const rgb = clip.muted ? this._toMutedGray(rgbBase) : rgbBase;
 
         // ── 3. Header band ────────────────────────────────────────────
         const headerH = Math.min(HEADER_HEIGHT, h);
@@ -504,7 +505,7 @@ export class CanvasClipRenderer {
 
         // ── 5. Muted state ────────────────────────────────────────────
         if (clip.muted) {
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillStyle = 'rgba(116, 122, 132, 0.42)';
             ctx.fillRect(x, y + 1, w, h);
         }
 
@@ -520,9 +521,9 @@ export class CanvasClipRenderer {
         if (bodyH > 8) {
 
             if (clip.type === 'audio' && clip.filePath && clip.durationSamples) {
-                this._drawWaveform(ctx, vp, clip, bodyY, bodyH, sampleRate);
+                this._drawWaveform(ctx, vp, clip, bodyY, bodyH, sampleRate, clip.muted === true);
             } else if (clip.type === 'midi' && clip.midiNotes && clip.midiNotes.length > 0) {
-                this._drawMidiNotes(ctx, vp, clip, bodyY, bodyH);
+                this._drawMidiNotes(ctx, vp, clip, bodyY, bodyH, clip.muted === true);
             }
         }
 
@@ -556,7 +557,9 @@ export class CanvasClipRenderer {
         if (w > 30) {
             ctx.font = '11px Inter, -apple-system, sans-serif';
             const contrastColor = getContrastColor(clip.color);
-            ctx.fillStyle = contrastColor === 'black' ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.9)';
+            ctx.fillStyle = clip.muted
+                ? 'rgba(210, 215, 223, 0.95)'
+                : (contrastColor === 'black' ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.9)');
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'left';
             const maxTextW = w - 6;
@@ -664,6 +667,7 @@ export class CanvasClipRenderer {
         bodyY: number,
         bodyH: number,
         sampleRate: number,
+        muted: boolean,
     ): void {
         if (!clip.filePath || !clip.durationSamples) return;
 
@@ -692,9 +696,15 @@ export class CanvasClipRenderer {
         const halfH = bodyH / 2;
 
         const contrastColor = getContrastColor(clip.color);
-        ctx.fillStyle = contrastColor === 'black'
-            ? (clip.selected ? 'rgba(0, 0, 0, 0.76)' : 'rgba(0, 0, 0, 0.62)')
-            : (clip.selected ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.72)');
+        if (muted) {
+            ctx.fillStyle = clip.selected
+                ? 'rgba(186, 192, 202, 0.72)'
+                : 'rgba(162, 168, 178, 0.62)';
+        } else {
+            ctx.fillStyle = contrastColor === 'black'
+                ? (clip.selected ? 'rgba(0, 0, 0, 0.76)' : 'rgba(0, 0, 0, 0.62)')
+                : (clip.selected ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.72)');
+        }
 
         // Map peaks to clip pixel range
         const pixelsPerPeak = clipW / peakCount;
@@ -735,7 +745,9 @@ export class CanvasClipRenderer {
         }
 
         // Center line
-        ctx.strokeStyle = contrastColor === 'black' ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.15)';
+        ctx.strokeStyle = muted
+            ? 'rgba(132, 138, 148, 0.36)'
+            : (contrastColor === 'black' ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.15)');
         ctx.lineWidth = 0.5;
         ctx.beginPath();
         ctx.moveTo(clipX, centerY);
@@ -753,6 +765,7 @@ export class CanvasClipRenderer {
         clip: TimelineClipData,
         bodyY: number,
         bodyH: number,
+        muted: boolean,
     ): void {
         if (!clip.midiNotes || clip.midiNotes.length === 0) return;
 
@@ -774,7 +787,9 @@ export class CanvasClipRenderer {
         const topOffset = Math.max(0, (bodyH - contentH) / 2);
 
         const contrastColor = getContrastColor(clip.color);
-        ctx.fillStyle = contrastColor === 'black' ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.5)';
+        ctx.fillStyle = muted
+            ? 'rgba(156, 163, 173, 0.62)'
+            : (contrastColor === 'black' ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.5)');
 
         for (const note of clip.midiNotes) {
             const noteX = clipX + note.startBeat * ppb;
@@ -1055,6 +1070,12 @@ export class CanvasClipRenderer {
         }
         // Default to a neutral blue
         return { r: 80, g: 120, b: 200 };
+    }
+
+    private _toMutedGray(rgb: { r: number; g: number; b: number }): { r: number; g: number; b: number } {
+        const luma = Math.round(rgb.r * 0.2126 + rgb.g * 0.7152 + rgb.b * 0.0722);
+        const gray = Math.max(78, Math.min(168, luma));
+        return { r: gray, g: gray, b: gray };
     }
 
     /** Draw diagonal stripes for offline media indicator. */

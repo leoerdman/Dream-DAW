@@ -84,10 +84,11 @@ const FADE_CURVE_HANDLE_RADIUS_PX = 6;
 const FADE_CURVE_PRESETS = [0.2, 0.35, 0.5, 0.65, 0.8] as const;
 
 /** Drag state machine. */
-type DragMode = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
+type DragMode = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
 const DragMode = {
     None: 0 as const,
     ClipMove: 1 as const,
+    ClipMoveArmed: 12 as const,
     RulerScrub: 2 as const,
     MarqueeSelect: 3 as const,
     ClipResizeLeft: 4 as const,
@@ -98,7 +99,10 @@ const DragMode = {
     ClipFadeOut: 9 as const,
     ClipFadeInCurve: 10 as const,
     ClipFadeOutCurve: 11 as const,
+    MultiCursorSelect: 13 as const,
 };
+
+const CLIP_DRAG_START_THRESHOLD_PX = 4;
 
 interface DragState {
     mode: DragMode;
@@ -118,6 +122,9 @@ interface DragState {
     clipOriginalTrack: number;
     /** Original clip durationBeats (for resize operations). */
     clipOriginalDuration: number;
+    /** Initial pointer position for drag threshold gating. */
+    startClientX?: number;
+    startClientY?: number;
     /** Original clip fade-in amount (fraction 0..1). */
     clipOriginalFadeIn?: number;
     /** Original clip fade-out amount (fraction 0..1). */
@@ -916,22 +923,33 @@ export class TimelineEngine {
                 const clip = this._clips.find(c => c.id === hit.clipId);
                 if (!clip) break;
 
-                // Any direct clip click should keep/select the clip. Body clicks no longer
-                // clear selection via edit-cursor mode.
+                // Body click behavior (requested):
+                // - place edit cursor at click beat
+                // - do NOT select clip
+                // - do NOT start clip drag
                 if (hit.region === 'body' && !hit.edge && !hit.fadeHandle && !hit.fadeCurveHandle) {
-                    this.onClipClick?.(hit.clipId, e.shiftKey || e.metaKey);
+                    const snapped = this._snapBeat(hit.beat);
+                    this.onEditCursorChange?.(snapped, hit.trackIndex);
                     this.onTrackSelect?.(hit.trackIndex);
                     this._drag = {
-                        mode: DragMode.ClipMove,
-                        clipId: hit.clipId,
-                        startBeat: hit.beat,
+                        mode: DragMode.MultiCursorSelect,
+                        clipId: null,
+                        startBeat: snapped,
                         startTrack: hit.trackIndex,
-                        currentBeat: hit.beat,
+                        currentBeat: snapped,
                         currentTrack: hit.trackIndex,
-                        clipOriginalBeat: clip.startBeat,
-                        clipOriginalTrack: clip.trackIndex,
-                        clipOriginalDuration: clip.durationBeats,
+                        clipOriginalBeat: 0,
+                        clipOriginalTrack: 0,
+                        clipOriginalDuration: 0,
+                        startClientX: e.clientX,
+                        startClientY: e.clientY,
                     };
+                    this._setMarquee({
+                        startBeat: snapped,
+                        endBeat: snapped,
+                        startTrack: hit.trackIndex,
+                        endTrack: hit.trackIndex,
+                    }, false);
                     break;
                 }
 
@@ -1012,12 +1030,12 @@ export class TimelineEngine {
                         durationBeats: clip.durationBeats,
                     };
                 } else {
-                    // Standard clip move
+                    // Header click/drag path: arm drag, start moving only after threshold.
                     this.onClipClick?.(hit.clipId, e.shiftKey || e.metaKey);
                     this.onTrackSelect?.(hit.trackIndex);
 
                     this._drag = {
-                        mode: DragMode.ClipMove,
+                        mode: DragMode.ClipMoveArmed,
                         clipId: hit.clipId,
                         startBeat: hit.beat,
                         startTrack: hit.trackIndex,
@@ -1026,6 +1044,8 @@ export class TimelineEngine {
                         clipOriginalBeat: clip.startBeat,
                         clipOriginalTrack: clip.trackIndex,
                         clipOriginalDuration: clip.durationBeats,
+                        startClientX: e.clientX,
+                        startClientY: e.clientY,
                     };
                 }
                 break;
@@ -1052,6 +1072,8 @@ export class TimelineEngine {
                     clipOriginalBeat: 0,
                     clipOriginalTrack: 0,
                     clipOriginalDuration: 0,
+                    startClientX: e.clientX,
+                    startClientY: e.clientY,
                 };
                 this._setMarquee({
                     startBeat: snappedBeat,
@@ -1099,6 +1121,36 @@ export class TimelineEngine {
         this._drag.currentTrack = track;
 
         switch (this._drag.mode) {
+            case DragMode.ClipMoveArmed: {
+                const startX = this._drag.startClientX ?? e.clientX;
+                const startY = this._drag.startClientY ?? e.clientY;
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
+                if (Math.hypot(dx, dy) < CLIP_DRAG_START_THRESHOLD_PX) {
+                    canvas.style.cursor = 'grab';
+                    break;
+                }
+                this._drag.mode = DragMode.ClipMove;
+                canvas.style.cursor = 'grabbing';
+                // Apply first drag frame immediately.
+                const deltaBeat = beat - this._drag.startBeat;
+                const deltaTrack = track - this._drag.startTrack;
+                const newBeat = this._snapBeat(
+                    Math.max(0, this._drag.clipOriginalBeat + deltaBeat),
+                );
+                const newTrack = Math.max(
+                    0,
+                    Math.min(this._viewport.trackCount - 1, this._drag.clipOriginalTrack + deltaTrack),
+                );
+                const clip = this._clips.find(c => c.id === this._drag.clipId);
+                if (clip) {
+                    clip.startBeat = newBeat;
+                    clip.trackIndex = newTrack;
+                    this._requestRedraw();
+                }
+                break;
+            }
+
             case DragMode.RulerScrub: {
                 // Ruler drag = continuous edit-cursor repositioning (no live scrub).
                 const snapped = this._snapBeat(Math.max(0, beat));
@@ -1265,14 +1317,49 @@ export class TimelineEngine {
             }
 
             case DragMode.MarqueeSelect: {
-                canvas.style.cursor = 'default';
-                const snappedBeat = this._snapBeat(Math.max(0, beat));
+                const dx = Math.abs(e.clientX - (this._drag.startClientX ?? e.clientX));
+                const verticalLineMode = dx <= 6;
+                canvas.style.cursor = verticalLineMode ? 'ns-resize' : 'default';
+                const snappedBeat = verticalLineMode
+                    ? this._drag.startBeat
+                    : this._snapBeat(Math.max(0, beat));
                 const clampedTrack = Math.max(0, Math.min(this._viewport.trackCount - 1, track));
                 this._drag.currentBeat = snappedBeat;
                 this._drag.currentTrack = clampedTrack;
                 this._setMarquee({
                     startBeat: this._drag.startBeat,
                     endBeat: snappedBeat,
+                    startTrack: this._drag.startTrack,
+                    endTrack: clampedTrack,
+                }, false);
+                break;
+            }
+
+            case DragMode.MultiCursorSelect: {
+                const dx = Math.abs(e.clientX - (this._drag.startClientX ?? e.clientX));
+                if (dx > 6) {
+                    // User moved sideways: promote to classic 2D marquee.
+                    this._drag.mode = DragMode.MarqueeSelect;
+                    const snappedBeat = this._snapBeat(Math.max(0, beat));
+                    const clampedTrack = Math.max(0, Math.min(this._viewport.trackCount - 1, track));
+                    this._drag.currentBeat = snappedBeat;
+                    this._drag.currentTrack = clampedTrack;
+                    this._setMarquee({
+                        startBeat: this._drag.startBeat,
+                        endBeat: snappedBeat,
+                        startTrack: this._drag.startTrack,
+                        endTrack: clampedTrack,
+                    }, false);
+                    break;
+                }
+
+                canvas.style.cursor = 'ns-resize';
+                const clampedTrack = Math.max(0, Math.min(this._viewport.trackCount - 1, track));
+                this._drag.currentTrack = clampedTrack;
+                this._drag.currentBeat = this._drag.startBeat;
+                this._setMarquee({
+                    startBeat: this._drag.startBeat,
+                    endBeat: this._drag.startBeat,
                     startTrack: this._drag.startTrack,
                     endTrack: clampedTrack,
                 }, false);
@@ -1288,6 +1375,10 @@ export class TimelineEngine {
         if (canvas) canvas.style.cursor = 'default';
 
         switch (this._drag.mode) {
+            case DragMode.ClipMoveArmed: {
+                // Header click without passing drag threshold: selection already handled on mousedown.
+                break;
+            }
             case DragMode.ClipMove: {
                 if (this._drag.clipId) {
                     if (!canvas) break;
@@ -1385,6 +1476,7 @@ export class TimelineEngine {
                 const maxBeat = Math.max(this._drag.startBeat, this._drag.currentBeat);
                 const minTrack = Math.min(this._drag.startTrack, this._drag.currentTrack);
                 const maxTrack = Math.max(this._drag.startTrack, this._drag.currentTrack);
+                const isVerticalLine = Math.abs(maxBeat - minBeat) <= 1e-6 && minTrack !== maxTrack;
                 const moved =
                     Math.abs(maxBeat - minBeat) >= 1e-6 || minTrack !== maxTrack;
 
@@ -1396,8 +1488,44 @@ export class TimelineEngine {
                     // Empty-space click clears current clip selection.
                     this.onClipBoxSelection?.([]);
                     this._setMarquee(null);
+                } else if (isVerticalLine) {
+                    // Vertical-only marquee becomes multi-cursor stripe.
+                    const snappedBeat = this._snapBeat(Math.max(0, this._drag.startBeat));
+                    this.onEditCursorChange?.(snappedBeat, this._drag.currentTrack);
+                    this.onTrackSelect?.(this._drag.currentTrack);
+                    this._setMarquee({
+                        startBeat: snappedBeat,
+                        endBeat: snappedBeat,
+                        startTrack: minTrack,
+                        endTrack: maxTrack,
+                    });
                 } else {
                     this._selectClipsWithinMarquee(minBeat, maxBeat, minTrack, maxTrack);
+                }
+                break;
+            }
+
+            case DragMode.MultiCursorSelect: {
+                const minTrack = Math.min(this._drag.startTrack, this._drag.currentTrack);
+                const maxTrack = Math.max(this._drag.startTrack, this._drag.currentTrack);
+                const moved = minTrack !== maxTrack;
+                const snappedBeat = this._snapBeat(Math.max(0, this._drag.startBeat));
+
+                this.onEditCursorChange?.(snappedBeat, this._drag.currentTrack);
+                this.onTrackSelect?.(this._drag.currentTrack);
+
+                if (!moved) {
+                    // Plain click on clip body: place cursor and clear box selection overlay.
+                    this.onClipBoxSelection?.([]);
+                    this._setMarquee(null);
+                } else {
+                    // Keep thin multi-cursor stripe active for subsequent Cmd+E split.
+                    this._setMarquee({
+                        startBeat: snappedBeat,
+                        endBeat: snappedBeat,
+                        startTrack: minTrack,
+                        endTrack: maxTrack,
+                    });
                 }
                 break;
             }

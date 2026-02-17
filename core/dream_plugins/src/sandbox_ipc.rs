@@ -34,6 +34,15 @@ pub enum PluginHostControlMessage {
     Heartbeat {
         seq: u64,
     },
+    /// Delivers MIDI events for the next process() cycle.
+    ///
+    /// Events are compact tuples: (sample_offset, channel, raw_data[3]).
+    /// The daemon converts these to format-specific events before calling
+    /// the plugin's process() method.
+    SendMidiEvents {
+        instance_id: Uuid,
+        events: Vec<(i32, u8, [u8; 3])>,
+    },
     Shutdown,
 }
 

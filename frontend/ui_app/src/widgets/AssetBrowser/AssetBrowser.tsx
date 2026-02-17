@@ -1052,12 +1052,16 @@ export const AssetBrowser = () => {
                         console.warn('[Preview]', err);
                     });
             } else {
-                engineApi.stopPreview().catch(() => { });
+                engineApi.stopPreview().catch((err) => {
+                    console.warn('[AssetBrowser] stopPreview failed:', err);
+                });
             }
             return;
         }
 
-        engineApi.stopPreview().catch(() => { });
+        engineApi.stopPreview().catch((err) => {
+            console.warn('[AssetBrowser] stopPreview(reset) failed:', err);
+        });
         setPreviewPeaks(null);
     }, [previewEnabled]);
 
@@ -2133,12 +2137,16 @@ export const AssetBrowser = () => {
                                     const next = !previewEnabled;
                                     setPreviewEnabled(next);
                                     if (!next) {
-                                        engineApi.stopPreview().catch(() => { });
+                                        engineApi.stopPreview().catch((err) => {
+                                            console.warn('[AssetBrowser] stopPreview(toggle) failed:', err);
+                                        });
                                         return;
                                     }
                                     const selected = items.find(i => i.id === selectedItemId);
                                     if (selected?.type === 'audio' && selected.path) {
-                                        engineApi.previewAudioFile(selected.path).catch(() => { });
+                                        engineApi.previewAudioFile(selected.path).catch((err) => {
+                                            console.warn('[AssetBrowser] previewAudioFile(toggle) failed:', err);
+                                        });
                                     }
                                 }}
                                 title={previewEnabled ? 'Preview on' : 'Preview off'}

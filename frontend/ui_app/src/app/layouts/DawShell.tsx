@@ -23,6 +23,11 @@ import { getContrastColor } from '@/shared/lib/colorUtils';
 import { ClipEditorShell } from '@/widgets/ClipEditor/ClipEditorShell';
 import { ClipEditorMetaRow, ClipEditorSection, ClipEditorSidebar } from '@/widgets/ClipEditor/ClipEditorSidebar';
 
+type ThrottledSender<T> = ((payload: T) => void) & {
+    cancel: () => void;
+    flush: () => void;
+};
+
 /** Supported audio file extensions for drag-and-drop import. */
 const AUDIO_EXTENSIONS = new Set([
     '.wav', '.mp3', '.flac', '.aiff', '.aif', '.ogg', '.m4a', '.aac',
@@ -105,20 +110,22 @@ export const DawShell = () => {
     const [aiVariationBusy, setAiVariationBusy] = useState(false);
     const [missingAssetsOpen, setMissingAssetsOpen] = useState(false);
     const [browserWidth, setBrowserWidth] = useState(320);
-    const [trackHeightPx, setTrackHeightPx] = useState(48);
+    const [fitTimelineToken, setFitTimelineToken] = useState(0);
     const DEFAULT_BOTTOM_PANEL_HEIGHT = 220;
     const [bottomPanelHeightPx, setBottomPanelHeightPx] = useState(DEFAULT_BOTTOM_PANEL_HEIGHT);
     const recoveringAudioRef = useRef(false);
     const lastAudioRecoverAtRef = useRef(0);
     const projectRefreshTimerRef = useRef<number | null>(null);
-    const midiSaveThrottlesRef = useRef<Map<string, (notes: MidiNote[]) => void>>(new Map());
+    const midiSaveThrottlesRef = useRef<Map<string, ThrottledSender<MidiNote[]>>>(new Map());
     const midiEnvelopeSaveThrottlesRef = useRef<
-        Map<string, (envelopes: Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>) => void>
+        Map<string, ThrottledSender<Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>>>
     >(new Map());
     const latestMidiEnvelopesRef = useRef<
         Record<string, Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>>
     >({});
     const latestMidiNotesRef = useRef<Record<string, MidiNote[]>>({});
+    const dirtyMidiNotesClipIdsRef = useRef<Set<string>>(new Set());
+    const dirtyMidiEnvelopeClipIdsRef = useRef<Set<string>>(new Set());
     const importFile = useEngineStore(s => s.importFile);
     const createMidiClip = useEngineStore(s => s.createMidiClip);
     const togglePlay = useEngineStore(s => s.togglePlay);
@@ -127,6 +134,8 @@ export const DawShell = () => {
     const flushTrackControlFinals = useEngineStore(s => s.flushTrackControlFinals);
     const timelineClipsSnapshot = useEngineStore(s => s.timelineClips);
     const projectTracksSnapshot = useEngineStore(s => s.projectTracks);
+    const transportPositionSeconds = useEngineStore(s => s.transport.position_seconds ?? 0);
+    const projectSampleRate = useEngineStore(s => s.projectSampleRate || 44100);
     const automationVisible = useAutomationStore(s => s.globalVisible);
     const toggleAutomation = useAutomationStore(s => s.toggleGlobalVisible);
     const importingRef = useRef(false);
@@ -157,10 +166,8 @@ export const DawShell = () => {
         selectedClipIds,
         selectedTrackId,
         projectTracks: projectTracksSnapshot,
-        playheadFrames: Math.round(
-            (useEngineStore.getState().transport.position_seconds ?? 0) *
-            (useEngineStore.getState().projectSampleRate ?? 44100)
-        ),
+        playheadFrames: Math.round(transportPositionSeconds * projectSampleRate),
+        editCursorBeat,
         timelineClips: timelineClipsSnapshot,
         marqueeSelection,
         onProjectMutated: fetchProject,
@@ -279,6 +286,9 @@ export const DawShell = () => {
         if (index >= 0) {
             setEditCursorTrackIndex(index);
         }
+        // Track selection should never auto-select clips.
+        setSelectedClipIds([]);
+        setSelectedClipId(null);
     }, []);
 
     const handleSelectTracks = useCallback((ids: string[], primaryId: string) => {
@@ -290,7 +300,29 @@ export const DawShell = () => {
         if (index >= 0) {
             setEditCursorTrackIndex(index);
         }
+        // Multi-track selection should never auto-select clips.
+        setSelectedClipIds([]);
+        setSelectedClipId(null);
     }, []);
+
+    // Canonicalize clip selection source-of-truth:
+    // selectedClipId is always derived from selectedClipIds tail.
+    useEffect(() => {
+        const derivedPrimary = selectedClipIds.length > 0
+            ? selectedClipIds[selectedClipIds.length - 1]
+            : null;
+        if (selectedClipId !== derivedPrimary) {
+            setSelectedClipId(derivedPrimary);
+        }
+    }, [selectedClipIds, selectedClipId]);
+
+    // Keep selectedTrackId consistent with selectedTrackIds when multi-select changes.
+    useEffect(() => {
+        if (selectedTrackIds.length === 0) return;
+        if (!selectedTrackIds.includes(selectedTrackId)) {
+            setSelectedTrackId(selectedTrackIds[selectedTrackIds.length - 1]);
+        }
+    }, [selectedTrackIds, selectedTrackId]);
 
     // Event-driven audio failover: when backend reports stream errors
     // (device unplugged / backend failure), auto-switch to pinned fallback.
@@ -433,7 +465,6 @@ export const DawShell = () => {
     const transportLoopStart = useEngineStore(s => s.transport.loop_start);
     const transportLoopEnd = useEngineStore(s => s.transport.loop_end);
     const transportLoopEnabled = useEngineStore(s => s.transport.loop_enabled);
-    const projectSampleRate = useEngineStore(s => s.projectSampleRate || 44100);
     const projectBpm = useEngineStore(s => s.projectBpm);
     const projectSampleRateFromStore = useEngineStore(s => s.projectSampleRate);
     const timelineClips = useEngineStore(s => s.timelineClips);
@@ -569,7 +600,7 @@ export const DawShell = () => {
         const track = projectTracks[clip.trackIndex];
         const bpm = projectBpm || transportBpm || 120;
         const beatsPerBar = 4;
-        const sampleRate = useEngineStore.getState().projectSampleRate || 44100;
+        const sampleRate = projectSampleRate;
         const beatsPerSecond = bpm / 60;
 
         setAiVariationBusy(true);
@@ -621,20 +652,42 @@ export const DawShell = () => {
         projectTracks,
         projectBpm,
         transportBpm,
+        projectSampleRate,
         fetchProject,
     ]);
+
+    const serializeMidiNotesToFrames = useCallback((notes: MidiNote[]) => {
+        const bpm = projectBpm || transportBpm || 120;
+        const sr = projectSampleRate;
+        const beatsPerSecond = bpm / 60;
+        return notes.map((n) => ({
+            pitch: n.pitch,
+            velocity: n.velocity,
+            startFrames: Math.max(0, Math.round((n.startBeat / beatsPerSecond) * sr)),
+            durationFrames: Math.max(1, Math.round((n.durationBeats / beatsPerSecond) * sr)),
+        }));
+    }, [projectBpm, transportBpm, projectSampleRate]);
+
+    const flushMidiThrottles = useCallback(() => {
+        midiSaveThrottlesRef.current.forEach((send) => send.flush());
+        midiEnvelopeSaveThrottlesRef.current.forEach((send) => send.flush());
+    }, []);
 
     useEffect(() => {
         const incoming: Record<string, MidiNote[]> = {};
         for (const clip of timelineClips) {
             if (clip.type !== 'midi') continue;
-            incoming[clip.id] = (clip.midiNotes ?? []).map((n) => ({
-                id: n.id ?? `${clip.id}-${n.pitch}-${n.startBeat}`,
-                pitch: n.pitch,
-                startBeat: n.startBeat,
-                durationBeats: n.durationBeats,
-                velocity: n.velocity,
-            }));
+            if (dirtyMidiNotesClipIdsRef.current.has(clip.id)) {
+                incoming[clip.id] = latestMidiNotesRef.current[clip.id] ?? [];
+            } else {
+                incoming[clip.id] = (clip.midiNotes ?? []).map((n) => ({
+                    id: n.id ?? `${clip.id}-${n.pitch}-${n.startBeat}`,
+                    pitch: n.pitch,
+                    startBeat: n.startBeat,
+                    durationBeats: n.durationBeats,
+                    velocity: n.velocity,
+                }));
+            }
         }
         setMidiNotesByClip(incoming);
     }, [timelineClips]);
@@ -643,109 +696,144 @@ export const DawShell = () => {
         latestMidiNotesRef.current = midiNotesByClip;
     }, [midiNotesByClip]);
 
+    useEffect(() => {
+        const activeMidiClipIds = new Set(
+            timelineClips.filter((clip) => clip.type === 'midi').map((clip) => clip.id)
+        );
+        for (const [clipId, send] of midiSaveThrottlesRef.current.entries()) {
+            if (!activeMidiClipIds.has(clipId)) {
+                send.cancel();
+                midiSaveThrottlesRef.current.delete(clipId);
+                dirtyMidiNotesClipIdsRef.current.delete(clipId);
+            }
+        }
+        for (const [clipId, send] of midiEnvelopeSaveThrottlesRef.current.entries()) {
+            if (!activeMidiClipIds.has(clipId)) {
+                send.cancel();
+                midiEnvelopeSaveThrottlesRef.current.delete(clipId);
+                dirtyMidiEnvelopeClipIdsRef.current.delete(clipId);
+            }
+        }
+    }, [timelineClips]);
+
+    useEffect(() => {
+        return () => {
+            midiSaveThrottlesRef.current.forEach((send) => send.cancel());
+            midiEnvelopeSaveThrottlesRef.current.forEach((send) => send.cancel());
+            midiSaveThrottlesRef.current.clear();
+            midiEnvelopeSaveThrottlesRef.current.clear();
+            dirtyMidiNotesClipIdsRef.current.clear();
+            dirtyMidiEnvelopeClipIdsRef.current.clear();
+        };
+    }, []);
+
     // ── Final unthrottled sends on pointer release ──
     useEffect(() => {
         const onPointerUp = () => {
             void flushTrackControlFinals();
+            flushMidiThrottles();
             const clip = selectedTimelineClip;
             if (!clip || clip.type !== 'midi') return;
-            const notes = latestMidiNotesRef.current[clip.id] ?? [];
-            const bpm = projectBpm || transportBpm || 120;
-            const sr = useEngineStore.getState().projectSampleRate || 44100;
-            const beatsPerSecond = bpm / 60;
-            void engineApi
-                .updateMidiClip(
-                    clip.id,
-                    notes.map((n) => ({
-                        pitch: n.pitch,
-                        velocity: n.velocity,
-                        startFrames: Math.max(0, Math.round((n.startBeat / beatsPerSecond) * sr)),
-                        durationFrames: Math.max(1, Math.round((n.durationBeats / beatsPerSecond) * sr)),
-                    })),
-                    { pushUndoStep: true },
-                )
-                .catch((err) => console.error('[DawShell] updateMidiClip final flush failed:', err));
+            if (dirtyMidiNotesClipIdsRef.current.has(clip.id)) {
+                const notes = latestMidiNotesRef.current[clip.id] ?? [];
+                void engineApi
+                    .updateMidiClip(clip.id, serializeMidiNotesToFrames(notes), { pushUndoStep: true })
+                    .then(() => {
+                        dirtyMidiNotesClipIdsRef.current.delete(clip.id);
+                    })
+                    .catch((err) => console.error('[DawShell] updateMidiClip final flush failed:', err));
+            }
 
-            const envelopes = latestMidiEnvelopesRef.current[clip.id] ?? [];
-            void engineApi
-                .setMidiClipEnvelopes(clip.id, envelopes, { pushUndoStep: true })
-                .catch((err) => console.error('[DawShell] setMidiClipEnvelopes final flush failed:', err));
+            if (dirtyMidiEnvelopeClipIdsRef.current.has(clip.id)) {
+                const envelopes = latestMidiEnvelopesRef.current[clip.id] ?? [];
+                void engineApi
+                    .setMidiClipEnvelopes(clip.id, envelopes, { pushUndoStep: true })
+                    .then(() => {
+                        dirtyMidiEnvelopeClipIdsRef.current.delete(clip.id);
+                    })
+                    .catch((err) => console.error('[DawShell] setMidiClipEnvelopes final flush failed:', err));
+            }
         };
         window.addEventListener('pointerup', onPointerUp);
         return () => window.removeEventListener('pointerup', onPointerUp);
-    }, [flushTrackControlFinals, selectedTimelineClip, projectBpm, transportBpm]);
+    }, [flushTrackControlFinals, flushMidiThrottles, selectedTimelineClip, serializeMidiNotesToFrames]);
 
-    // ── Track Height (Global) ───────────────────────────────────────
-    // Track row height is global and must not change when selection changes.
+    // ── Scroll sync between Timeline and TrackInspector ─────────────
+    const [timelineScrollTop, setTimelineScrollTop] = useState(0);
+    const handleTimelineScrollTop = useCallback((st: number) => {
+        setTimelineScrollTop(st);
+    }, []);
+
+    // ── Track Height ────────────────────────────────────────────────
     const TRACK_HEIGHT_DEFAULT = 48;
     const TRACK_HEIGHT_MIN = 24;
     const TRACK_HEIGHT_MAX = 120;
     const TRACK_HEIGHT_STEP = 1;
     const TRACK_HEIGHT_BASE = TRACK_HEIGHT_DEFAULT;
-    const TRACK_HEIGHT_SELECTED = trackHeightPx;
-    const trackHeightReadyRef = useRef(false);
-    const trackHeightSourceTrackRef = useRef<string | null>(null);
-    const trackHeightUserAdjustedRef = useRef(false);
-
-    // Restore height from project data without coupling to selected track.
-    useEffect(() => {
-        if (projectTracksSnapshot.length === 0) {
-            trackHeightReadyRef.current = false;
-            trackHeightSourceTrackRef.current = null;
-            return;
-        }
-
-        const sourceTrackId = projectTracksSnapshot[0]?.id ?? null;
-        const projectChanged = sourceTrackId !== trackHeightSourceTrackRef.current;
-        if (projectChanged) {
-            trackHeightReadyRef.current = false;
-            trackHeightSourceTrackRef.current = sourceTrackId;
-        }
-
-        const persisted = Number(projectTracksSnapshot.find((t) => t.id === sourceTrackId)?.height ?? NaN);
-        const baseline = Number.isFinite(persisted) ? persisted : TRACK_HEIGHT_DEFAULT;
-        const snapped = Math.round(baseline / TRACK_HEIGHT_STEP) * TRACK_HEIGHT_STEP;
-        const clamped = Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, snapped));
-        setTrackHeightPx((prev) => (Math.abs(prev - clamped) < 0.001 ? prev : clamped));
-
-        const readyId = window.setTimeout(() => {
-            trackHeightReadyRef.current = true;
-        }, 0);
-        return () => window.clearTimeout(readyId);
-    }, [projectTracksSnapshot]);
-
-    const persistTrackHeightThrottledRef = useRef(
-        throttle((trackIds: string[], heightPx: number) => {
-            void Promise.all(trackIds.map((id) => engineApi.setTrackHeight(id, heightPx))).catch((err) => {
-                console.warn('[DawShell] persist track height failed:', err);
-            });
-        }, 220, { leading: false, trailing: true }),
-    );
-
-    useEffect(() => {
-        if (!trackHeightReadyRef.current) return;
-        if (!trackHeightUserAdjustedRef.current) return;
-        const trackIds = projectTracksSnapshot
-            .map((t) => t.id)
-            .filter((id) => id && id !== 'master');
-        if (trackIds.length === 0) return;
-        persistTrackHeightThrottledRef.current(trackIds, TRACK_HEIGHT_SELECTED);
-    }, [projectTracksSnapshot, TRACK_HEIGHT_SELECTED]);
-
-    useEffect(() => {
-        const persistTrackHeightThrottled = persistTrackHeightThrottledRef.current;
-        return () => {
-            persistTrackHeightThrottled.cancel();
-        };
-    }, []);
     const RULER_HEIGHT = 28;
+    const clampTrackHeight = useCallback((h: number) => {
+        const snapped = Math.round(h / TRACK_HEIGHT_STEP) * TRACK_HEIGHT_STEP;
+        return Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, snapped));
+    }, [TRACK_HEIGHT_MIN, TRACK_HEIGHT_MAX, TRACK_HEIGHT_STEP]);
 
-    // Option(Alt)+Wheel: vertical track height zoom in 8px steps.
-    // Option(Alt)+0: reset track height to default.
+    const resolveHeightTargetTrackIds = useCallback((target: EventTarget | null, clientY?: number) => {
+        const element = target instanceof Element ? target : null;
+
+        const inspectorRow = element?.closest?.('[data-track-row="true"][data-track-id]') as HTMLElement | null;
+        const inspectorTrackId = inspectorRow?.getAttribute('data-track-id');
+        if (inspectorTrackId && inspectorTrackId !== 'master') {
+            return [inspectorTrackId];
+        }
+
+        const timelineRoot = element?.closest?.('[data-testid="timeline-view"]') as HTMLElement | null;
+        if (timelineRoot && Number.isFinite(clientY)) {
+            const rect = timelineRoot.getBoundingClientRect();
+            const yInViewport = (clientY as number) - rect.top;
+            const yInTracks = yInViewport - RULER_HEIGHT + timelineScrollTop;
+            if (yInTracks >= 0) {
+                let acc = 0;
+                for (const track of projectTracksSnapshot) {
+                    if (!track?.id || track.id === 'master') continue;
+                    const h = clampTrackHeight(typeof track.height === 'number' ? track.height : TRACK_HEIGHT_DEFAULT);
+                    const nextAcc = acc + h;
+                    if (yInTracks < nextAcc) return [track.id];
+                    acc = nextAcc;
+                }
+            }
+        }
+
+        const selected = selectedTrackIds.filter((id) => id && id !== 'master');
+        if (selected.length > 0) return [selected[selected.length - 1]];
+        if (selectedTrackId && selectedTrackId !== 'master') return [selectedTrackId];
+        return [];
+    }, [
+        RULER_HEIGHT,
+        timelineScrollTop,
+        projectTracksSnapshot,
+        clampTrackHeight,
+        TRACK_HEIGHT_DEFAULT,
+        selectedTrackIds,
+        selectedTrackId,
+    ]);
+
+    const applyTrackHeightsOptimistic = useCallback((trackIds: string[], height: number) => {
+        if (trackIds.length === 0) return;
+        const idSet = new Set(trackIds);
+        useEngineStore.setState((state) => ({
+            projectTracks: state.projectTracks.map((track) => (
+                idSet.has(track.id) ? { ...track, height } : track
+            )),
+        }));
+    }, []);
+
+    // Option(Alt)+Wheel: adjust selected track height.
+    // Option(Alt)+0: reset selected track height.
     useEffect(() => {
         const WHEEL_STEP_THRESHOLD = 40;
         let wheelAccumulator = 0;
         let wheelRafId = 0;
+        let lastWheelEventTarget: EventTarget | null = null;
+        let lastWheelClientY = 0;
 
         const flushWheelZoom = () => {
             wheelRafId = 0;
@@ -755,10 +843,18 @@ export const DawShell = () => {
             const direction = wheelAccumulator < 0 ? 1 : -1;
             wheelAccumulator -= Math.sign(wheelAccumulator) * steps * WHEEL_STEP_THRESHOLD;
 
-            trackHeightUserAdjustedRef.current = true;
-            setTrackHeightPx((prev) => {
-                const next = prev + direction * TRACK_HEIGHT_STEP * steps;
-                return Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, next));
+            const trackIds = resolveHeightTargetTrackIds(lastWheelEventTarget, lastWheelClientY);
+            if (trackIds.length === 0) return;
+            const current = projectTracksSnapshot.find((t) => t.id === trackIds[0]);
+            const currentHeight = clampTrackHeight(
+                typeof current?.height === 'number' ? current.height : TRACK_HEIGHT_DEFAULT,
+            );
+            const nextHeight = clampTrackHeight(currentHeight + direction * TRACK_HEIGHT_STEP * steps);
+            if (nextHeight === currentHeight) return;
+
+            applyTrackHeightsOptimistic(trackIds, nextHeight);
+            void Promise.all(trackIds.map((id) => engineApi.setTrackHeight(id, nextHeight))).catch((err) => {
+                console.warn('[DawShell] setTrackHeight failed:', err);
             });
         };
 
@@ -770,6 +866,9 @@ export const DawShell = () => {
             if (!inTimeline && !inInspector) return;
             e.preventDefault();
             e.stopPropagation();
+
+            lastWheelEventTarget = e.target;
+            lastWheelClientY = e.clientY;
 
             wheelAccumulator += e.deltaY;
             if (!wheelRafId) {
@@ -786,8 +885,13 @@ export const DawShell = () => {
                 tag === 'input' || tag === 'textarea' || target?.isContentEditable;
             if (isTextInput) return;
             e.preventDefault();
-            trackHeightUserAdjustedRef.current = true;
-            setTrackHeightPx(TRACK_HEIGHT_DEFAULT);
+            const trackIds = resolveHeightTargetTrackIds(e.target);
+            if (trackIds.length === 0) return;
+            const nextHeight = clampTrackHeight(TRACK_HEIGHT_DEFAULT);
+            applyTrackHeightsOptimistic(trackIds, nextHeight);
+            void Promise.all(trackIds.map((id) => engineApi.setTrackHeight(id, nextHeight))).catch((err) => {
+                console.warn('[DawShell] setTrackHeight reset failed:', err);
+            });
         };
 
         window.addEventListener('wheel', onWheel, { passive: false, capture: true });
@@ -799,7 +903,14 @@ export const DawShell = () => {
                 window.cancelAnimationFrame(wheelRafId);
             }
         };
-    }, [TRACK_HEIGHT_DEFAULT]);
+    }, [
+        TRACK_HEIGHT_DEFAULT,
+        TRACK_HEIGHT_STEP,
+        clampTrackHeight,
+        resolveHeightTargetTrackIds,
+        applyTrackHeightsOptimistic,
+        projectTracksSnapshot,
+    ]);
 
     // Keep timeline hit-test geometry identical to TrackInspector rows.
     const timelineTrackHeights = useMemo(() => {
@@ -810,11 +921,21 @@ export const DawShell = () => {
         });
     }, [projectTracksSnapshot, TRACK_HEIGHT_BASE, TRACK_HEIGHT_MIN, TRACK_HEIGHT_MAX]);
 
-    // ── Scroll sync between Timeline and TrackInspector ─────────────
-    const [timelineScrollTop, setTimelineScrollTop] = useState(0);
-    const handleTimelineScrollTop = useCallback((st: number) => {
-        setTimelineScrollTop(st);
+    const handleFitTimelineHorizontally = useCallback(() => {
+        setFitTimelineToken((v) => v + 1);
     }, []);
+
+    const handleResetTrackHeights = useCallback(() => {
+        const trackIds = projectTracksSnapshot
+            .map((t) => t.id)
+            .filter((id) => id && id !== 'master');
+        if (trackIds.length === 0) return;
+        const nextHeight = clampTrackHeight(TRACK_HEIGHT_DEFAULT);
+        applyTrackHeightsOptimistic(trackIds, nextHeight);
+        void Promise.all(trackIds.map((id) => engineApi.setTrackHeight(id, nextHeight))).catch((err) => {
+            console.warn('[DawShell] reset track heights failed:', err);
+        });
+    }, [TRACK_HEIGHT_DEFAULT, clampTrackHeight, applyTrackHeightsOptimistic, projectTracksSnapshot]);
 
     // Seek callback: Timeline ruler click → seek in engine (beat-precision)
     const handlePlayheadChange = useCallback((beat: number) => {
@@ -912,19 +1033,19 @@ export const DawShell = () => {
     const handleDoubleClickTrack = useCallback((trackIndex: number, beat: number) => {
         console.log('[DawShell] handleDoubleClickTrack', { trackIndex, beat });
         const bpm = projectBpm || transportBpm || 120;
-        const sr = useEngineStore.getState().projectSampleRate || 44100;
+        const sr = projectSampleRate;
         const beatsPerBar = 4; // 4/4 time signature
         const posSeconds = beat / (bpm / 60);
         const barSeconds = beatsPerBar / (bpm / 60);
         const positionFrames = Math.round(posSeconds * sr);
         const durationFrames = Math.round(barSeconds * sr);
         createMidiClip(trackIndex, positionFrames, durationFrames);
-    }, [createMidiClip, projectBpm, transportBpm]);
+    }, [createMidiClip, projectBpm, transportBpm, projectSampleRate]);
 
     // Clip drag → move clip to new position in engine (syncs audio with visual)
     const handleClipMove = useCallback((clipId: string, newStartBeat: number, newTrackIndex: number) => {
         const bpm = projectBpm || transportBpm || 120;
-        const sr = useEngineStore.getState().projectSampleRate || 44100;
+        const sr = projectSampleRate;
         const beatsPerSecond = bpm / 60;
 
         const dragged = timelineClipsForView.find((c) => c.id === clipId);
@@ -969,12 +1090,12 @@ export const DawShell = () => {
                 scheduleProjectRefresh('clip-move');
             })
             .catch(err => console.error('[DawShell] moveClip failed:', err));
-    }, [projectBpm, transportBpm, scheduleProjectRefresh, timelineClipsForView, selectedClipIds, trackCount]);
+    }, [projectBpm, transportBpm, projectSampleRate, scheduleProjectRefresh, timelineClipsForView, selectedClipIds, trackCount]);
 
     // Clip resize → update position and duration in engine
     const handleClipResize = useCallback((clipId: string, newStartBeat: number, newDurationBeats: number) => {
         const bpm = projectBpm || transportBpm || 120;
-        const sr = useEngineStore.getState().projectSampleRate || 44100;
+        const sr = projectSampleRate;
         const posSeconds = newStartBeat / (bpm / 60);
         const durSeconds = newDurationBeats / (bpm / 60);
         const newPositionFrames = Math.round(posSeconds * sr);
@@ -986,7 +1107,7 @@ export const DawShell = () => {
                 scheduleProjectRefresh('clip-resize');
             })
             .catch(err => console.error('[DawShell] resizeClip failed:', err));
-    }, [projectBpm, transportBpm, scheduleProjectRefresh]);
+    }, [projectBpm, transportBpm, projectSampleRate, scheduleProjectRefresh]);
 
     const handleClipFades = useCallback((clipId: string, fadeInFrames: number, fadeOutFrames: number) => {
         engineApi.setClipFades(
@@ -1006,27 +1127,41 @@ export const DawShell = () => {
     }, []);
 
     const flushPendingMidiEdits = useCallback(async () => {
-        const bpm = projectBpm || transportBpm || 120;
-        const sr = useEngineStore.getState().projectSampleRate || 44100;
-        const beatsPerSecond = bpm / 60;
-        const tasks: Promise<unknown>[] = [];
+        flushMidiThrottles();
+        const noteClipIds = Array.from(dirtyMidiNotesClipIdsRef.current);
+        const envelopeClipIds = Array.from(dirtyMidiEnvelopeClipIdsRef.current);
+        const noteTasks = noteClipIds.map((clipId) =>
+            engineApi
+                .updateMidiClip(clipId, serializeMidiNotesToFrames(latestMidiNotesRef.current[clipId] ?? []), {
+                    pushUndoStep: true,
+                })
+                .then(() => ({ ok: true as const, clipId }))
+                .catch((err) => {
+                    console.error('[DawShell] flushPendingMidiEdits updateMidiClip failed:', err);
+                    return { ok: false as const, clipId };
+                })
+        );
+        const envelopeTasks = envelopeClipIds.map((clipId) =>
+            engineApi
+                .setMidiClipEnvelopes(clipId, latestMidiEnvelopesRef.current[clipId] ?? [], { pushUndoStep: true })
+                .then(() => ({ ok: true as const, clipId }))
+                .catch((err) => {
+                    console.error('[DawShell] flushPendingMidiEdits setMidiClipEnvelopes failed:', err);
+                    return { ok: false as const, clipId };
+                })
+        );
 
-        for (const [clipId, notes] of Object.entries(latestMidiNotesRef.current)) {
-            tasks.push(
-                engineApi.updateMidiClip(
-                    clipId,
-                    notes.map((n) => ({
-                        pitch: n.pitch,
-                        velocity: n.velocity,
-                        startFrames: Math.max(0, Math.round((n.startBeat / beatsPerSecond) * sr)),
-                        durationFrames: Math.max(1, Math.round((n.durationBeats / beatsPerSecond) * sr)),
-                    })),
-                )
-            );
+        const [noteResults, envelopeResults] = await Promise.all([
+            Promise.all(noteTasks),
+            Promise.all(envelopeTasks),
+        ]);
+        for (const r of noteResults) {
+            if (r.ok) dirtyMidiNotesClipIdsRef.current.delete(r.clipId);
         }
-
-        await Promise.allSettled(tasks);
-    }, [projectBpm, transportBpm]);
+        for (const r of envelopeResults) {
+            if (r.ok) dirtyMidiEnvelopeClipIdsRef.current.delete(r.clipId);
+        }
+    }, [flushMidiThrottles, serializeMidiNotesToFrames]);
 
     useEffect(() => {
         window.__dreamFlushPendingEdits = async () => {
@@ -1057,6 +1192,8 @@ export const DawShell = () => {
                             onFollowPlayheadChange={setFollowPlayhead}
                             automationVisible={automationVisible}
                             onAutomationToggle={toggleAutomation}
+                            onFitTimelineHorizontally={handleFitTimelineHorizontally}
+                            onResetTrackHeights={handleResetTrackHeights}
                         />
                     </ErrorBoundary>
                 </header>
@@ -1158,6 +1295,7 @@ export const DawShell = () => {
                                         onScrollTop={handleTimelineScrollTop}
                                         followPlayhead={followPlayhead}
                                         automationVisible={automationVisible}
+                                        fitHorizontalToken={fitTimelineToken}
                                     />
                                 </ErrorBoundary>
                             </div>
@@ -1179,7 +1317,6 @@ export const DawShell = () => {
                                             onSelectTracks={handleSelectTracks}
                                             onSelectTrack={handleSelectTrack}
                                             trackHeight={TRACK_HEIGHT_BASE}
-                                            selectedTrackHeight={TRACK_HEIGHT_BASE}
                                             rulerHeight={RULER_HEIGHT}
                                             scrollTop={timelineScrollTop}
                                             mixerFocusMode={false}
@@ -1261,25 +1398,19 @@ export const DawShell = () => {
                                         onNotesChange={(notes) => {
                                             const clipId = selectedTimelineClip.id;
                                             setMidiNotesByClip((prev) => ({ ...prev, [clipId]: notes }));
-                                            const bpm = projectBpm || transportBpm || 120;
-                                            const sr = useEngineStore.getState().projectSampleRate || 44100;
-                                            const beatsPerSecond = bpm / 60;
+                                            latestMidiNotesRef.current[clipId] = notes;
+                                            dirtyMidiNotesClipIdsRef.current.add(clipId);
                                             let send = midiSaveThrottlesRef.current.get(clipId);
                                             if (!send) {
                                                 send = throttle((toSend: MidiNote[]) => {
                                                     void engineApi
                                                         .updateMidiClip(
                                                             clipId,
-                                                            toSend.map((n) => ({
-                                                                pitch: n.pitch,
-                                                                velocity: n.velocity,
-                                                                startFrames: Math.max(0, Math.round((n.startBeat / beatsPerSecond) * sr)),
-                                                                durationFrames: Math.max(1, Math.round((n.durationBeats / beatsPerSecond) * sr)),
-                                                            })),
+                                                            serializeMidiNotesToFrames(toSend),
                                                             { pushUndoStep: false },
                                                         )
                                                         .catch((err) => console.error('[DawShell] updateMidiClip failed:', err));
-                                                }, 80);
+                                                }, 80) as ThrottledSender<MidiNote[]>;
                                                 midiSaveThrottlesRef.current.set(clipId, send);
                                             }
                                             send(notes);
@@ -1294,9 +1425,10 @@ export const DawShell = () => {
                                                     void engineApi
                                                         .setMidiClipEnvelopes(clipId, toSend, { pushUndoStep: false })
                                                         .catch((err) => console.error('[DawShell] setMidiClipEnvelopes failed:', err));
-                                                }, 100);
+                                                }, 100) as ThrottledSender<Array<{ paramId: string; points: Array<{ beat: number; value: number }> }>>;
                                                 midiEnvelopeSaveThrottlesRef.current.set(clipId, send);
                                             }
+                                            dirtyMidiEnvelopeClipIdsRef.current.add(clipId);
                                             send(envelopes);
                                         }}
                                         onGenerateVariation={handleGenerateMidiVariation}

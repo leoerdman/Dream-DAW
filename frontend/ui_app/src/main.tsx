@@ -50,14 +50,12 @@ class ErrorBoundary extends Component<
 
 function App() {
   const [splashDone, setSplashDone] = useState(false)
-  const [windowExpanded, setWindowExpanded] = useState(false)
 
   useEffect(() => {
     import('@/shared/api/engine').then(async (engineApi) => {
       await engineApi.expandWindow()
-      setWindowExpanded(true)
-    }).catch(() => {
-      setWindowExpanded(true)
+    }).catch((err) => {
+      console.warn('[App] expandWindow failed, continuing:', err)
     })
   }, [])
 
@@ -65,7 +63,11 @@ function App() {
     setSplashDone(true)
     setTimeout(() => {
       import('@/shared/api/engine').then(engineApi => {
-        engineApi.maximizeWindow().catch(() => {})
+        engineApi.maximizeWindow().catch((err) => {
+          console.warn('[App] maximizeWindow failed:', err)
+        })
+      }).catch((err) => {
+        console.warn('[App] engine import failed for maximizeWindow:', err)
       })
     }, 400)
   }
@@ -76,7 +78,7 @@ function App() {
       {!splashDone && <SplashScreen onComplete={handleSplashComplete} />}
 
       {/* Workspace mounts ONLY after splash is done, window is already maximized */}
-      {splashDone && windowExpanded && (
+      {splashDone && (
         <ErrorBoundary>
           <Workspace />
         </ErrorBoundary>

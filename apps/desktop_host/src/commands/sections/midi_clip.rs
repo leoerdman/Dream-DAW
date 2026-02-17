@@ -99,6 +99,36 @@ fn normalize_note_payloads(notes: &[MidiNotePayload], clip_len: i64) -> Vec<Midi
             )
         })
         .collect();
+    normalized.sort_by(|a, b| {
+        a.start_frame
+            .cmp(&b.start_frame)
+            .then_with(|| a.pitch.cmp(&b.pitch))
+            .then_with(|| a.duration_frames.cmp(&b.duration_frames))
+            .then_with(|| a.velocity.cmp(&b.velocity))
+    });
+
+    // Canonicalize accidental duplicates: same pitch + same start frame.
+    // Keep the strongest/longest representative.
+    if normalized.len() > 1 {
+        let mut write = 0usize;
+        for read in 0..normalized.len() {
+            if write > 0 {
+                let prev = normalized[write - 1];
+                let curr = normalized[read];
+                if prev.pitch == curr.pitch && prev.start_frame == curr.start_frame {
+                    normalized[write - 1].duration_frames = prev.duration_frames.max(curr.duration_frames);
+                    normalized[write - 1].velocity = prev.velocity.max(curr.velocity);
+                    continue;
+                }
+            }
+            if write != read {
+                normalized[write] = normalized[read];
+            }
+            write += 1;
+        }
+        normalized.truncate(write);
+    }
+
     normalized.sort_by_key(|n| n.start_frame);
     normalized
 }
@@ -505,10 +535,12 @@ async fn set_midi_clip_envelopes_cmd(
     }
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let mut found = false;
     let mut updated = false;
 
     for track in &mut project.tracks {
         if let Some(clip) = track.midi_clips.iter_mut().find(|c| c.id == uuid) {
+            found = true;
             let mut normalized: Vec<dream_models::project::ClipEnvelope> = envelopes
                 .iter()
                 .filter(|env| !env.param_id.trim().is_empty())
@@ -543,6 +575,10 @@ async fn set_midi_clip_envelopes_cmd(
             }
             break;
         }
+    }
+
+    if !found {
+        return Err(format!("MIDI clip not found: {clip_id}"));
     }
 
     if !updated {

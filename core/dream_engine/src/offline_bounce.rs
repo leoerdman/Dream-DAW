@@ -25,8 +25,8 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use log::info;
 
@@ -135,6 +135,27 @@ pub struct OfflineBouncer {
 }
 
 impl OfflineBouncer {
+    fn configure_render_ctx_track_mix_state(project: &Project, render_ctx: &mut RenderContext) {
+        let any_solo = project.tracks.iter().any(|t| t.is_solo);
+        for (idx, slot) in render_ctx.track_slots.iter_mut().enumerate() {
+            let Some(track) = project.tracks.get(idx) else {
+                slot.strip.set_volume(1.0);
+                slot.strip.set_pan(0.0);
+                slot.strip.set_effective_gain(1.0);
+                slot.strip.set_output_enabled(false);
+                continue;
+            };
+
+            slot.strip.set_volume(track.volume.clamp(0.0, 2.0) as f32);
+            slot.strip.set_pan(track.pan.clamp(-1.0, 1.0) as f32);
+
+            let enabled = !track.is_mute && (!any_solo || track.is_solo);
+            slot.strip
+                .set_effective_gain(if enabled { 1.0 } else { 0.0 });
+            slot.strip.set_output_enabled(enabled);
+        }
+    }
+
     /// Creates a new bouncer with the given configuration.
     pub fn new(config: BounceConfig) -> Self {
         Self {
@@ -167,6 +188,7 @@ impl OfflineBouncer {
             OFFLINE_CHANNELS,
             meter_bank,
         );
+        Self::configure_render_ctx_track_mix_state(project, &mut render_ctx);
         render_ctx.loop_region = loop_region.cloned();
         render_ctx.playhead.seek(self.config.start_frame);
         render_ctx.playhead.set_advancing(true);
@@ -227,6 +249,7 @@ impl OfflineBouncer {
             .map(|track| track.clips.clone())
             .collect();
         let is_mp3 = self.config.format.eq_ignore_ascii_case("mp3");
+        let master_gain = project.master_track.volume.clamp(0.0, 2.0) as f32;
 
         if is_mp3 {
             // MP3 path: streaming encode to avoid full-render RAM growth.
@@ -258,7 +281,7 @@ impl OfflineBouncer {
                     );
 
                     for &s in &interleaved_buf[..chunk_samples] {
-                        peak = peak.max(s.abs());
+                        peak = peak.max((s * master_gain).abs());
                     }
 
                     frames_rendered += chunk_frames;
@@ -315,8 +338,8 @@ impl OfflineBouncer {
                 let mut right = Vec::with_capacity(chunk_frames);
                 for i in 0..chunk_frames {
                     let base = i * OFFLINE_CHANNELS;
-                    let l = interleaved_buf[base] * gain;
-                    let r = interleaved_buf[base + 1] * gain;
+                    let l = interleaved_buf[base] * gain * master_gain;
+                    let r = interleaved_buf[base + 1] * gain * master_gain;
                     left.push(l);
                     right.push(r);
                 }
@@ -373,7 +396,7 @@ impl OfflineBouncer {
                         clip_pool,
                     );
                     for &s in &interleaved_buf[..chunk_samples] {
-                        peak = peak.max(s.abs());
+                        peak = peak.max((s * master_gain).abs());
                     }
 
                     frames_rendered += chunk_frames;
@@ -430,9 +453,10 @@ impl OfflineBouncer {
                     clip_pool,
                 );
 
-                if gain != 1.0 {
+                let total_gain = gain * master_gain;
+                if total_gain != 1.0 {
                     for s in &mut interleaved_buf[..chunk_samples] {
-                        *s *= gain;
+                        *s *= total_gain;
                     }
                 }
 

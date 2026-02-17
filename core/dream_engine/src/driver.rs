@@ -42,7 +42,7 @@ use dream_ipc::{EngineCommand, MasterClock};
 use dream_models::midi::MidiClip;
 use dream_models::project::AudioClip;
 
-use crate::render_callback::RenderContext;
+use crate::render_callback::{RenderContext, MAX_TRACKS};
 use crate::sampler::{AdsrParams, SamplerEngine, Waveform};
 
 // ── Shared Clip Snapshot (LOCK-FREE) ───────────────────────────────────
@@ -942,7 +942,7 @@ pub fn prepare_graph_snapshot_for_routing(
     routing: &[Option<usize>],
     generation: u64,
 ) -> PreparedGraphSnapshot {
-    let safe_track_count = track_count.min(64);
+    let safe_track_count = track_count.min(MAX_TRACKS);
     let dag = build_dag_for_tracks(safe_track_count, routing);
     let plan = LiveGraph::from_dag(&dag)
         .map(|live| (*live.load_full()).clone())
@@ -1059,18 +1059,23 @@ const TEST_TONE_AMPLITUDE: f32 = 0.25;
 /// Exponential smoothing coefficient for frequency transitions.
 const FREQ_SMOOTHING: f32 = 0.001;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct MidiNoteMapState {
-    mapped_pitch: [u8; 128],
-    active: [bool; 128],
+    active_notes: Vec<ActiveMappedNote>,
     rng_state: u32,
+}
+
+#[derive(Clone, Copy)]
+struct ActiveMappedNote {
+    uid: u64,
+    src_pitch: u8,
+    mapped_pitch: u8,
 }
 
 impl Default for MidiNoteMapState {
     fn default() -> Self {
         Self {
-            mapped_pitch: [0; 128],
-            active: [false; 128],
+            active_notes: Vec::with_capacity(256),
             rng_state: 0xA5A5_1337,
         }
     }
@@ -1295,9 +1300,41 @@ pub fn start_audio_thread_on_device(
     info!("Output device: {}", device_name);
 
     // ── 2. Config ───────────────────────────────────────────────────
-    let supported_config = device
+    let default_config = device
         .default_output_config()
         .map_err(|e| AudioDriverError::DefaultConfigError(e.to_string()))?;
+
+    let supported_config = if default_config.sample_format() == cpal::SampleFormat::F32 {
+        default_config
+    } else {
+        let fallback = device
+            .supported_output_configs()
+            .ok()
+            .and_then(|mut ranges| {
+                ranges.find_map(|range| {
+                    if range.sample_format() != cpal::SampleFormat::F32 {
+                        return None;
+                    }
+                    let desired_rate = default_config.sample_rate();
+                    let clamped_rate = desired_rate
+                        .clamp(range.min_sample_rate(), range.max_sample_rate());
+                    Some(range.with_sample_rate(clamped_rate))
+                })
+            });
+
+        if let Some(cfg) = fallback {
+            warn!(
+                "Default output sample format {:?} unsupported by engine, using f32 fallback",
+                default_config.sample_format()
+            );
+            cfg
+        } else {
+            return Err(AudioDriverError::DefaultConfigError(format!(
+                "No f32 output stream config available for device '{}'. Current engine supports f32 output only.",
+                device_name
+            )));
+        }
+    };
 
     let sample_format = supported_config.sample_format();
     let sample_rate = supported_config.sample_rate();
@@ -1313,7 +1350,7 @@ pub fn start_audio_thread_on_device(
     // cpal 0.17: sample_rate() returns u32 directly
     let sample_rate_f64 = config.sample_rate as f64;
     let mut render_ctx = RenderContext::new(
-        64, // MAX_TRACKS pre-allocated
+        MAX_TRACKS,
         sample_rate_f64,
         channels,
         Arc::clone(&meter_bank),
@@ -1324,7 +1361,7 @@ pub fn start_audio_thread_on_device(
     let mut graph_plan = prepared_graph.plan.clone();
     let mut graph_out_left = vec![0.0f32; 8192];
     let mut graph_out_right = vec![0.0f32; 8192];
-    let mut post_sum_processing_mask = vec![false; 64];
+    let mut post_sum_processing_mask = vec![false; MAX_TRACKS];
     graph_renderer.update_plan(&graph_plan, &graph_dag);
     let mut graph_last_generation = prepared_graph.generation;
     let mut graph_last_track_count = prepared_graph.track_count;
@@ -1341,18 +1378,19 @@ pub fn start_audio_thread_on_device(
     let mut master_gain_target: f32 = 1.0;
     let mut master_gain_current: f32 = 1.0;
     // per-track disable/solo state (used for output-enable calculation)
-    let mut track_disabled: [bool; 64] = [false; 64];
-    let mut track_soloed: [bool; 64] = [false; 64];
+    let mut track_disabled: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
+    let mut track_soloed: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
     let mut any_solo: bool = false;
 
     // ── 6. Per-track sampler engines ─────────────────────────────────
-    // Pre-allocated array of 64 engines (one per track max).
+    // Pre-allocated sampler engines (one per track max).
     // Each engine starts with no sample loaded — it becomes active
     // when the user assigns a sample via SharedSamplerSamples.
-    let mut sampler_engines: Vec<SamplerEngine> = (0..64)
+    let mut sampler_engines: Vec<SamplerEngine> = (0..MAX_TRACKS)
         .map(|_| SamplerEngine::new(sample_rate_f64))
         .collect();
-    let mut midi_note_states: [MidiNoteMapState; 64] = [MidiNoteMapState::default(); 64];
+    let mut midi_note_states: Vec<MidiNoteMapState> =
+        vec![MidiNoteMapState::default(); MAX_TRACKS];
     // Scratch buffers for sampler output (reused each buffer, zero-alloc)
     let mut sampler_left = vec![0.0f32; 8192];
     let mut sampler_right = vec![0.0f32; 8192];
@@ -1373,7 +1411,7 @@ pub fn start_audio_thread_on_device(
     let mut deferred_topology: VecDeque<DeferredTopologyCmd> = VecDeque::with_capacity(256);
     let mut midi_schedule_scratch: Vec<ScheduledNote> = Vec::with_capacity(512);
     let mut midi_schedule_tmp: Vec<ScheduledNote> = Vec::with_capacity(512);
-    let mut midi_events_scratch: Vec<(usize, u8, u8, u8)> = Vec::with_capacity(1024);
+    let mut midi_events_scratch: Vec<(usize, u8, u8, u8, u64)> = Vec::with_capacity(16384);
     // Track which samples were last loaded per-track to avoid re-assigning
     let _last_sample_generation: u64 = 0;
 
@@ -1387,8 +1425,7 @@ pub fn start_audio_thread_on_device(
             // │  is atomic). NO I/O. NO panics.                      │
             // └──────────────────────────────────────────────────────┘
             move |data: &mut [f32], _info: &cpal::OutputCallbackInfo| {
-                let callback_result =
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut run_callback = || {
                         let callback_start = Instant::now();
                         // ═══════════════════════════════════════════════════════════════
                         // RT-Armor: Zero-Alloc, Panic-Safe, Denormal-Free Audio Pipeline
@@ -1430,12 +1467,12 @@ pub fn start_audio_thread_on_device(
                         // ── A1. Drain command queue (bounded) ─────────────────────
                         // Bound per-callback command work so UI command bursts
                         // cannot starve audio rendering and cause dropouts.
-                        const MAX_COMMANDS_PER_CALLBACK: usize = 256;
+                        const MAX_COMMANDS_PER_CALLBACK: usize = 512;
                         let mut commands_processed = 0usize;
-                        let mut pending_track_volume: [Option<f32>; 64] = [None; 64];
-                        let mut pending_track_pan: [Option<f32>; 64] = [None; 64];
-                        let mut pending_track_mute: [Option<bool>; 64] = [None; 64];
-                        let mut pending_track_solo: [Option<bool>; 64] = [None; 64];
+                        let mut pending_track_volume: [Option<f32>; MAX_TRACKS] = [None; MAX_TRACKS];
+                        let mut pending_track_pan: [Option<f32>; MAX_TRACKS] = [None; MAX_TRACKS];
+                        let mut pending_track_mute: [Option<bool>; MAX_TRACKS] = [None; MAX_TRACKS];
+                        let mut pending_track_solo: [Option<bool>; MAX_TRACKS] = [None; MAX_TRACKS];
                         for _ in 0..MAX_COMMANDS_PER_CALLBACK {
                             let Ok(cmd) = consumer.pop() else {
                                 break;
@@ -1446,6 +1483,10 @@ pub fn start_audio_thread_on_device(
                                     is_playing = play;
                                     render_ctx.playhead.set_advancing(play);
                                     if !play {
+                                        for idx in 0..sampler_engines.len() {
+                                            sampler_engines[idx].all_notes_off();
+                                            midi_note_states[idx] = MidiNoteMapState::default();
+                                        }
                                         test_tone_phase = 0.0;
                                         test_tone_enabled = false;
                                         // Reset all meters to silence when transport stops
@@ -1460,6 +1501,11 @@ pub fn start_audio_thread_on_device(
                                 EngineCommand::Seek(frame) => {
                                     clock.set_position(frame);
                                     render_ctx.playhead.seek(frame);
+                                    // Prevent stuck/stacked notes after timeline jumps.
+                                    for idx in 0..sampler_engines.len() {
+                                        sampler_engines[idx].all_notes_off();
+                                        midi_note_states[idx] = MidiNoteMapState::default();
+                                    }
                                 }
                                 EngineCommand::SetBpm(bpm) => {
                                     _bpm = bpm.clamp(20.0, 999.0);
@@ -1486,13 +1532,13 @@ pub fn start_audio_thread_on_device(
                                     volume,
                                 } => {
                                     let idx = track_index as usize;
-                                    if idx < 64 {
+                                    if idx < MAX_TRACKS {
                                         pending_track_volume[idx] = Some(volume);
                                     }
                                 }
                                 EngineCommand::SetTrackPan { track_index, pan } => {
                                     let idx = track_index as usize;
-                                    if idx < 64 {
+                                    if idx < MAX_TRACKS {
                                         pending_track_pan[idx] = Some(pan);
                                     }
                                 }
@@ -1501,7 +1547,7 @@ pub fn start_audio_thread_on_device(
                                 }
                                 EngineCommand::SetTrackMute { track_index, muted } => {
                                     let idx = track_index as usize;
-                                    if idx < 64 {
+                                    if idx < MAX_TRACKS {
                                         pending_track_mute[idx] = Some(muted);
                                     }
                                 }
@@ -1510,7 +1556,7 @@ pub fn start_audio_thread_on_device(
                                     soloed,
                                 } => {
                                     let idx = track_index as usize;
-                                    if idx < 64 {
+                                    if idx < MAX_TRACKS {
                                         pending_track_solo[idx] = Some(soloed);
                                     }
                                 }
@@ -1730,7 +1776,7 @@ pub fn start_audio_thread_on_device(
                         }
 
                         // Apply coalesced high-frequency mixer commands once per callback.
-                        for i in 0..render_ctx.track_slots.len().min(64) {
+                        for i in 0..render_ctx.track_slots.len().min(MAX_TRACKS) {
                             if let Some(v) = pending_track_volume[i] {
                                 render_ctx.track_slots[i].strip.set_volume(v);
                             }
@@ -1747,8 +1793,9 @@ pub fn start_audio_thread_on_device(
                         if pending_track_solo.iter().any(|v| v.is_some())
                             || pending_track_mute.iter().any(|v| v.is_some())
                         {
-                            any_solo = track_soloed.iter().any(|s| *s);
-                            for i in 0..render_ctx.track_slots.len().min(64) {
+                            let active_track_count = render_ctx.track_slots.len().min(MAX_TRACKS);
+                            any_solo = track_soloed.iter().take(active_track_count).any(|s| *s);
+                            for i in 0..render_ctx.track_slots.len().min(MAX_TRACKS) {
                                 let enabled = !track_disabled[i] && (!any_solo || track_soloed[i]);
                                 render_ctx.track_slots[i].strip.set_output_enabled(enabled);
                             }
@@ -1801,8 +1848,15 @@ pub fn start_audio_thread_on_device(
                             let automation = automation_snapshot.load();
                             let sidechain_map = sidechain_snapshot.load();
                             let external_fx_map = external_fx_snapshot.load();
-                            let mut plugin_host_guard = plugin_host.try_lock().ok();
-                            if plugin_host_guard.is_none() {
+                            let needs_plugin_host = external_fx_map
+                                .iter()
+                                .any(|track_slots| track_slots.iter().any(|slot| slot.instance_id.is_some()));
+                            let mut plugin_host_guard = if needs_plugin_host {
+                                plugin_host.try_lock().ok()
+                            } else {
+                                None
+                            };
+                            if needs_plugin_host && plugin_host_guard.is_none() {
                                 rt_debug_stats.record_plugin_host_lock_miss();
                             }
                             let playhead_pos = render_ctx.playhead.position();
@@ -1820,7 +1874,7 @@ pub fn start_audio_thread_on_device(
 
                             // ── B0. Rebuild graph on routing/track topology changes ─────────
                             let snapshot = clip_snapshot.load();
-                            let track_count = snapshot.len().min(64);
+                            let track_count = snapshot.len().min(MAX_TRACKS);
                             let prepared = prepared_graph_snapshot.load();
                             if prepared.generation != graph_last_generation
                                 || prepared.track_count != graph_last_track_count
@@ -1834,9 +1888,7 @@ pub fn start_audio_thread_on_device(
 
                             // Tracks that receive routed input should apply strip/device
                             // processing after graph summing (bus/group semantics).
-                            if post_sum_processing_mask.len() < track_count {
-                                post_sum_processing_mask.resize(track_count, false);
-                            }
+                            // Pre-allocated to MAX_TRACKS; avoid any RT-path resize/allocation.
                             post_sum_processing_mask[..track_count].fill(false);
                             let routing_now = routing_snapshot.load();
                             for src_idx in 0..track_count {
@@ -1869,8 +1921,12 @@ pub fn start_audio_thread_on_device(
                                 // Use render_tracks() (Phase 1 only) — fills track_slots
                                 // with strip-processed audio. The graph handles summing
                                 // and interleaving, so we skip the master bus path.
+                                let render_frames = frame_count
+                                    .min(graph_out_left.len())
+                                    .min(graph_out_right.len());
+
                                 render_ctx.render_tracks_with_post_sum_mask(
-                                    frame_count,
+                                    render_frames,
                                     snapshot.as_ref(),
                                     &pool_snap,
                                     Some(&post_sum_processing_mask[..track_count]),
@@ -1878,9 +1934,7 @@ pub fn start_audio_thread_on_device(
                                 playhead_advanced_in_render = true;
 
                                 // Graph pass: route pre-rendered tracks through DAG.
-                                let n = frame_count
-                                    .min(graph_out_left.len())
-                                    .min(graph_out_right.len());
+                                let n = render_frames;
                                 graph_out_left[..n].fill(0.0);
                                 graph_out_right[..n].fill(0.0);
 
@@ -2018,6 +2072,7 @@ pub fn start_audio_thread_on_device(
                                                                     .map(|pair| pair.as_slice()),
                                                                 &mut out_slices,
                                                                 c,
+                                                                &[],
                                                             );
                                                             left[..c].copy_from_slice(
                                                                 &external_left[..c],
@@ -2128,9 +2183,33 @@ pub fn start_audio_thread_on_device(
 
                                 for i in 0..n {
                                     let base = i * channels;
+                                    if base >= data.len() {
+                                        break;
+                                    }
+
+                                    if channels == 1 {
+                                        // Mono output device: downmix L/R to mono.
+                                        data[base] = soft_clip((graph_out_left[i] + graph_out_right[i]) * 0.5);
+                                        continue;
+                                    }
+
+                                    data[base] = soft_clip(graph_out_left[i]);
                                     if base + 1 < data.len() {
-                                        data[base] = soft_clip(graph_out_left[i]);
                                         data[base + 1] = soft_clip(graph_out_right[i]);
+                                    }
+                                    for ch in 2..channels {
+                                        let idx = base + ch;
+                                        if idx < data.len() {
+                                            data[idx] = 0.0;
+                                        }
+                                    }
+                                }
+
+                                // Zero-fill any callback tail not rendered this cycle.
+                                if n < frame_count {
+                                    let tail_start = n.saturating_mul(channels);
+                                    if tail_start < data.len() {
+                                        data[tail_start..].fill(0.0);
                                     }
                                 }
                             } else if test_tone_enabled {
@@ -2201,14 +2280,48 @@ pub fn start_audio_thread_on_device(
                             let midi_snap = midi_snapshot.load();
 
                             for (track_idx, midi_track) in midi_snap.iter().enumerate() {
-                                if track_idx >= sampler_engines.len() || midi_track.clips.is_empty()
-                                {
+                                if track_idx >= sampler_engines.len() {
+                                    continue;
+                                }
+
+                                // If track is effectively inaudible (mute/solo routing),
+                                // ensure voices are stopped to avoid hidden accumulation.
+                                let track_enabled = if track_idx < MAX_TRACKS {
+                                    !track_disabled[track_idx] && (!any_solo || track_soloed[track_idx])
+                                } else {
+                                    true
+                                };
+                                if !track_enabled {
+                                    let engine = &mut sampler_engines[track_idx];
+                                    if engine.has_active_voices() {
+                                        engine.all_notes_off();
+                                    }
+                                    midi_note_states[track_idx] = MidiNoteMapState::default();
+                                    continue;
+                                }
+
+                                if midi_track.clips.is_empty() {
+                                    let engine = &mut sampler_engines[track_idx];
+                                    if engine.has_active_voices() {
+                                        engine.all_notes_off();
+                                    }
+                                    midi_note_states[track_idx] = MidiNoteMapState::default();
                                     continue;
                                 }
 
                                 let engine = &mut sampler_engines[track_idx];
                                 let note_state = &mut midi_note_states[track_idx];
                                 let fx = &midi_track.fx;
+
+                                // If every clip on this MIDI track is muted, force-stop
+                                // any currently sounding voices so mute is immediate.
+                                if midi_track.clips.iter().all(|c| c.is_muted) {
+                                    if engine.has_active_voices() {
+                                        engine.all_notes_off();
+                                    }
+                                    *note_state = MidiNoteMapState::default();
+                                    continue;
+                                }
 
                                 // Schedule active notes for this buffer
                                 // ▸ Loop-aware: splits the buffer at the loop
@@ -2238,11 +2351,7 @@ pub fn start_audio_thread_on_device(
                                 // and process them at exact sample offsets in this buffer.
                                 // kind: 0 = note-off, 1 = note-on (off first at same frame).
                                 midi_events_scratch.clear();
-                                let reserve_target = midi_schedule_scratch.len().saturating_mul(2);
-                                if midi_events_scratch.capacity() < reserve_target {
-                                    midi_events_scratch
-                                        .reserve(reserve_target - midi_events_scratch.capacity());
-                                }
+                                // Keep callback zero-alloc: fixed scratch capacity only.
                                 for event in &midi_schedule_scratch {
                                     if event.is_note_off {
                                         midi_events_scratch.push((
@@ -2250,6 +2359,7 @@ pub fn start_audio_thread_on_device(
                                             0,
                                             event.pitch,
                                             event.velocity,
+                                            event.note_uid,
                                         ));
                                     }
                                     if event.is_note_on {
@@ -2258,17 +2368,20 @@ pub fn start_audio_thread_on_device(
                                             1,
                                             event.pitch,
                                             event.velocity,
+                                            event.note_uid,
                                         ));
                                     }
                                 }
+
                                 midi_events_scratch.sort_by(|a, b| {
                                     a.0.cmp(&b.0)
                                         .then_with(|| a.1.cmp(&b.1))
                                         .then_with(|| a.2.cmp(&b.2))
+                                        .then_with(|| a.4.cmp(&b.4))
                                 });
 
                                 let mut cursor = 0usize;
-                                for (event_frame, kind, pitch, velocity) in midi_events_scratch.iter().copied() {
+                                for (event_frame, kind, pitch, velocity, event_uid) in midi_events_scratch.iter().copied() {
                                     let frame = event_frame.min(fc);
                                     if frame > cursor && engine.has_active_voices() {
                                         let seg = frame - cursor;
@@ -2283,10 +2396,22 @@ pub fn start_audio_thread_on_device(
                                     }
 
                                     if kind == 0 {
-                                        let src = pitch as usize;
-                                        let off_pitch = if note_state.active[src] {
-                                            note_state.active[src] = false;
-                                            note_state.mapped_pitch[src]
+                                        let off_pitch = if let Some(pos) = note_state
+                                            .active_notes
+                                            .iter()
+                                            .rposition(|n| n.uid == event_uid)
+                                        {
+                                            let mapped = note_state.active_notes[pos].mapped_pitch;
+                                            note_state.active_notes.swap_remove(pos);
+                                            mapped
+                                        } else if let Some(pos) = note_state
+                                            .active_notes
+                                            .iter()
+                                            .rposition(|n| n.src_pitch == pitch)
+                                        {
+                                            let mapped = note_state.active_notes[pos].mapped_pitch;
+                                            note_state.active_notes.swap_remove(pos);
+                                            mapped
                                         } else {
                                             pitch
                                         };
@@ -2335,8 +2460,28 @@ pub fn start_audio_thread_on_device(
                                     }
                                     let mapped_velocity = velocity_i16.clamp(1, 127) as u8;
 
-                                    note_state.mapped_pitch[pitch as usize] = mapped_pitch;
-                                    note_state.active[pitch as usize] = true;
+                                    // Guard against rare duplicate note-on delivery for the same
+                                    // logical note (same UID) within/around loop boundaries or
+                                    // transport jitter. If the note is already active, release the
+                                    // previous voice first so hats don't stack/phase.
+                                    if let Some(pos) = note_state
+                                        .active_notes
+                                        .iter()
+                                        .rposition(|n| n.uid == event_uid)
+                                    {
+                                        let previous = note_state.active_notes.swap_remove(pos);
+                                        engine.note_off(previous.mapped_pitch);
+                                    }
+
+                                    note_state.active_notes.push(ActiveMappedNote {
+                                        uid: event_uid,
+                                        src_pitch: pitch,
+                                        mapped_pitch,
+                                    });
+                                    if note_state.active_notes.len() > 1024 {
+                                        // Keep bounded state without linear-time front drains.
+                                        let _ = note_state.active_notes.swap_remove(0);
+                                    }
                                     engine.note_on(mapped_pitch, mapped_velocity);
                                 }
 
@@ -2437,6 +2582,7 @@ pub fn start_audio_thread_on_device(
                                                     sc_pair.as_ref().map(|pair| pair.as_slice()),
                                                     &mut out_slices,
                                                     fc,
+                                                    &[],
                                                 );
                                                 sampler_left[..fc]
                                                     .copy_from_slice(&external_left[..fc]);
@@ -2541,6 +2687,15 @@ pub fn start_audio_thread_on_device(
                                 }
                             }
 
+                            // Any sampler tracks with no MIDI runtime track attached
+                            // must not keep stale active notes.
+                            for idx in midi_snap.len()..sampler_engines.len() {
+                                if sampler_engines[idx].has_active_voices() {
+                                    sampler_engines[idx].all_notes_off();
+                                }
+                                midi_note_states[idx] = MidiNoteMapState::default();
+                            }
+
                             // When there are no audio clips, RenderContext isn't called and
                             // therefore doesn't advance playhead internally. Advance it here
                             // so MIDI scheduling and transport telemetry stay aligned.
@@ -2636,12 +2791,23 @@ pub fn start_audio_thread_on_device(
                             callback_start.elapsed().as_micros() as u64,
                             deferred_topology.len(),
                         );
-                    }));
-                if callback_result.is_err() {
-                    data.fill(0.0);
-                    error!(
-                        "[RT] Panic trapped inside audio callback; emitted silence for this buffer"
-                    );
+                    };
+
+                #[cfg(debug_assertions)]
+                {
+                    let callback_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                        &mut run_callback,
+                    ));
+                    if callback_result.is_err() {
+                        data.fill(0.0);
+                        error!(
+                            "[RT] Panic trapped inside audio callback; emitted silence for this buffer"
+                        );
+                    }
+                }
+                #[cfg(not(debug_assertions))]
+                {
+                    run_callback();
                 }
             },
             // RT_CALLBACK_END

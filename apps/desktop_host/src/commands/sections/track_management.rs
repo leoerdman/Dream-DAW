@@ -9,6 +9,7 @@ async fn add_track_cmd(
     name: Option<String>,
     track_type: Option<String>,
     insert_after_index: Option<usize>,
+    inherit_from_track_id: Option<String>,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
@@ -47,6 +48,28 @@ async fn add_track_cmd(
         TrackType::Master => "Track",
     };
     let track_name = name.unwrap_or_else(|| format!("{default_prefix} {track_num}"));
+
+    let inherited_track_id = inherit_from_track_id
+        .as_deref()
+        .filter(|raw| !raw.trim().is_empty() && *raw != "master")
+        .map(|raw| Uuid::parse_str(raw).map_err(|_| format!("Invalid inherit_from_track_id: {raw}")))
+        .transpose()?;
+
+    let inherited_parent_group = inherited_track_id
+        .and_then(|inherited_id| {
+            project.tracks.iter().find(|t| t.id == inherited_id).map(|t| {
+                if t.track_type == TrackType::Group {
+                    Some(t.id)
+                } else {
+                    t.parent_track_id
+                }
+            })
+        })
+        .flatten();
+
+    let inherited_group_color = inherited_parent_group
+        .and_then(|gid| project.tracks.iter().find(|t| t.id == gid).map(|t| t.color));
+
     let insert_index = insert_after_index
         .map(|idx| idx.saturating_add(1))
         .unwrap_or(project.tracks.len())
@@ -57,8 +80,10 @@ async fn add_track_cmd(
         resolved_type,
         insert_index,
     );
-    // Keep deterministic colors by visual order after insert.
-    track.color = TrackColor::for_index(insert_index);
+    track.parent_track_id = inherited_parent_group;
+    track.output_destination_id = inherited_parent_group;
+    // Keep deterministic colors by visual order after insert unless inheriting group color.
+    track.color = inherited_group_color.unwrap_or_else(|| TrackColor::for_index(insert_index));
     project.tracks.insert(insert_index, track);
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;

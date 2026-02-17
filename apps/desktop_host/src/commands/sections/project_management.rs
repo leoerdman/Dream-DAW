@@ -3632,7 +3632,7 @@ fn import_track_clips(
     bpm: f64,
     sample_rate: f64,
 ) {
-    fn remove_overlapping_audio_clips(clips: &mut Vec<AudioClip>) -> usize {
+    fn resolve_overlapping_audio_clips(clips: &mut Vec<AudioClip>) -> usize {
         clips.sort_by(|a, b| {
             a.position
                 .sample_frame
@@ -3641,22 +3641,32 @@ fn import_track_clips(
         });
         let mut cleaned: Vec<AudioClip> = Vec::with_capacity(clips.len());
         let mut last_end = i64::MIN;
-        let mut removed = 0usize;
-        for clip in clips.drain(..) {
-            let start = clip.position.sample_frame;
-            let end = start + clip.duration.sample_frame.max(1);
+        let mut adjusted = 0usize;
+        for mut clip in clips.drain(..) {
+            let mut start = clip.position.sample_frame;
+            let mut end = start + clip.duration.sample_frame.max(1);
             if start < last_end {
-                removed += 1;
-                continue;
+                let trim = last_end - start;
+                if trim >= clip.duration.sample_frame.max(1) {
+                    adjusted += 1;
+                    continue;
+                }
+                start = last_end;
+                clip.position.sample_frame = start;
+                clip.duration.sample_frame = (clip.duration.sample_frame - trim).max(1);
+                clip.source_offset.sample_frame =
+                    (clip.source_offset.sample_frame + trim).max(0);
+                end = start + clip.duration.sample_frame.max(1);
+                adjusted += 1;
             }
             last_end = end;
             cleaned.push(clip);
         }
         *clips = cleaned;
-        removed
+        adjusted
     }
 
-    fn remove_overlapping_midi_clips(clips: &mut Vec<MidiClip>) -> usize {
+    fn resolve_overlapping_midi_clips(clips: &mut Vec<MidiClip>) -> usize {
         clips.sort_by(|a, b| {
             a.position
                 .sample_frame
@@ -3665,19 +3675,27 @@ fn import_track_clips(
         });
         let mut cleaned: Vec<MidiClip> = Vec::with_capacity(clips.len());
         let mut last_end = i64::MIN;
-        let mut removed = 0usize;
-        for clip in clips.drain(..) {
-            let start = clip.position.sample_frame;
-            let end = start + clip.duration.sample_frame.max(1);
+        let mut adjusted = 0usize;
+        for mut clip in clips.drain(..) {
+            let mut start = clip.position.sample_frame;
+            let mut end = start + clip.duration.sample_frame.max(1);
             if start < last_end {
-                removed += 1;
-                continue;
+                let trim = last_end - start;
+                if trim >= clip.duration.sample_frame.max(1) {
+                    adjusted += 1;
+                    continue;
+                }
+                start = last_end;
+                clip.position.sample_frame = start;
+                clip.duration.sample_frame = (clip.duration.sample_frame - trim).max(1);
+                end = start + clip.duration.sample_frame.max(1);
+                adjusted += 1;
             }
             last_end = end;
             cleaned.push(clip);
         }
         *clips = cleaned;
-        removed
+        adjusted
     }
 
     let pointee_map = build_pointee_map(track_node);
@@ -3908,14 +3926,14 @@ fn import_track_clips(
         track.midi_clips.push(clip);
     }
 
-    let removed_audio = remove_overlapping_audio_clips(&mut track.clips);
-    let removed_midi = remove_overlapping_midi_clips(&mut track.midi_clips);
-    if removed_audio > 0 || removed_midi > 0 {
+    let adjusted_audio = resolve_overlapping_audio_clips(&mut track.clips);
+    let adjusted_midi = resolve_overlapping_midi_clips(&mut track.midi_clips);
+    if adjusted_audio > 0 || adjusted_midi > 0 {
         log::warn!(
-            "[ALS Import] Removed overlapping clips on track '{}': audio={}, midi={}",
+            "[ALS Import] Resolved overlapping clips on track '{}': audio={}, midi={}",
             track.name,
-            removed_audio,
-            removed_midi
+            adjusted_audio,
+            adjusted_midi
         );
     }
 }
@@ -7164,6 +7182,7 @@ fn new_project(
     rebuild_sampler_snapshot_from_project(&new, &clip_pool_state, &handle);
     rebuild_runtime_device_chains_from_project(&new, &handle)?;
     sync_transport_from_project(&new, &handle)?;
+    sync_track_mix_state_from_project(&new, &handle)?;
 
     // Update window title
     if let Some(window) = app.get_webview_window("main") {
@@ -7181,22 +7200,24 @@ async fn save_project(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let (snapshot, path, project_name) = {
-        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
         let file_path_guard = project_state.file_path.lock().map_err(|e| e.to_string())?;
         let path = file_path_guard
             .as_ref()
             .ok_or("No file path set. Use Save As first.")?
             .clone();
 
-        // Keep project name aligned with the active file name.
+        let mut snapshot = project.clone();
+
+        // Keep serialized project name aligned with the active file name.
         if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
             let normalized = stem.trim_end_matches(".dream").trim();
-            if !normalized.is_empty() && project.name != normalized {
-                project.name = normalized.to_string();
+            if !normalized.is_empty() && snapshot.name != normalized {
+                snapshot.name = normalized.to_string();
             }
         }
 
-        (project.clone(), path, project.name.clone())
+        (snapshot.clone(), path, snapshot.name.clone())
     };
 
     let save_path = path.clone();
@@ -7204,6 +7225,11 @@ async fn save_project(
         .await
         .map_err(|e| format!("Save task join error: {e}"))?
         .map_err(|e| e.to_string())?;
+
+    {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project.name = project_name.clone();
+    }
 
     *project_state.is_dirty.lock().map_err(|e| e.to_string())? = false;
     project_state.record_history("save", format!("saved to {}", path.display()))?;
@@ -7227,17 +7253,18 @@ async fn save_project_as(
     let file_path = PathBuf::from(&path);
     log::info!("[SaveAs] Received path: {:?}", file_path);
     let (snapshot, project_name) = {
-        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
         let computed_name = file_path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or(&project.name)
             .trim_end_matches(".dream")
             .to_string();
+        let mut snapshot = project.clone();
         if !computed_name.trim().is_empty() {
-            project.name = computed_name.trim().to_string();
+            snapshot.name = computed_name.trim().to_string();
         }
-        (project.clone(), project.name.clone())
+        (snapshot.clone(), snapshot.name.clone())
     };
 
     let save_target = file_path.clone();
@@ -7262,6 +7289,11 @@ async fn save_project_as(
     })
     .await
     .map_err(|e| format!("Save As task join error: {e}"))??;
+
+    {
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+        project.name = project_name.clone();
+    }
 
     *project_state.file_path.lock().map_err(|e| e.to_string())? = Some(actual_file_path.clone());
     *project_state.project_folder.lock().map_err(|e| e.to_string())? = Some(folder);
@@ -7323,18 +7355,6 @@ fn open_project(
     }
     refresh_offline_flags(&mut loaded);
 
-    *project_state.project.lock().map_err(|e| e.to_string())? = loaded.clone();
-    *project_state.file_path.lock().map_err(|e| e.to_string())? = if importing_als {
-        None
-    } else {
-        Some(file_path.clone())
-    };
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = importing_als;
-    *project_state.undo.lock().map_err(|e| e.to_string())? = UndoState::new();
-    *project_state.history.lock().map_err(|e| e.to_string())? = ProjectHistory::new();
-    let source_kind = if importing_als { "als_import" } else { "project_open" };
-    project_state.record_history(source_kind, format!("loaded '{}'", loaded.name))?;
-
     let _ = plugin_host_state.unload_all_instances();
     // Do not eagerly activate external plugins while opening a project.
     // Some third-party VSTs can crash on activation/probing; runtime activation
@@ -7348,6 +7368,19 @@ fn open_project(
     rebuild_sampler_snapshot_from_project(&loaded, &clip_pool_state, &handle);
     rebuild_runtime_device_chains_from_project(&loaded, &handle)?;
     sync_transport_from_project(&loaded, &handle)?;
+    sync_track_mix_state_from_project(&loaded, &handle)?;
+
+    *project_state.project.lock().map_err(|e| e.to_string())? = loaded.clone();
+    *project_state.file_path.lock().map_err(|e| e.to_string())? = if importing_als {
+        None
+    } else {
+        Some(file_path.clone())
+    };
+    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = importing_als;
+    *project_state.undo.lock().map_err(|e| e.to_string())? = UndoState::new();
+    *project_state.history.lock().map_err(|e| e.to_string())? = ProjectHistory::new();
+    let source_kind = if importing_als { "als_import" } else { "project_open" };
+    project_state.record_history(source_kind, format!("loaded '{}'", loaded.name))?;
 
     // Derive project folder from file path
     let folder = if importing_als {

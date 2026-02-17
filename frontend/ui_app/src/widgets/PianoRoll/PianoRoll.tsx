@@ -498,15 +498,21 @@ export const PianoRoll = memo(function PianoRoll({
             window.clearTimeout(existing);
             auditionOffTimersRef.current.delete(pitch);
         }
-        void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch(() => { });
+        void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch((err) => {
+            console.warn('[PianoRoll] previewSamplerNoteOff failed:', err);
+        });
     }, [trackIndex]);
 
     const auditionNote = useCallback((pitch: number, velocity = 100, durationMs = 140) => {
         if (trackIndex == null) return;
         stopAudition(pitch);
-        void engineApi.previewSamplerNoteOn(trackIndex, pitch, velocity).catch(() => { });
+        void engineApi.previewSamplerNoteOn(trackIndex, pitch, velocity).catch((err) => {
+            console.warn('[PianoRoll] previewSamplerNoteOn failed:', err);
+        });
         const timer = window.setTimeout(() => {
-            void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch(() => { });
+            void engineApi.previewSamplerNoteOff(trackIndex, pitch).catch((err) => {
+                console.warn('[PianoRoll] previewSamplerNoteOff(timer) failed:', err);
+            });
             auditionOffTimersRef.current.delete(pitch);
         }, durationMs);
         auditionOffTimersRef.current.set(pitch, timer);
@@ -567,6 +573,22 @@ export const PianoRoll = memo(function PianoRoll({
         }
         return lines;
     }, [totalBeats, beatsPerBar, pixelsPerBeat, currentGridInterval]);
+
+    const rulerBeatLabels = useMemo(() => {
+        const labels: Array<{ x: number; text: string; isBarStart: boolean }> = [];
+        const maxBeat = Math.ceil(totalBeats + 1e-6);
+        for (let beat = 0; beat <= maxBeat; beat += 1) {
+            if (beat > totalBeats + 1e-6) break;
+            const barIndex = Math.floor(beat / beatsPerBar);
+            const beatInBar = (beat % beatsPerBar) + 1;
+            labels.push({
+                x: beat * pixelsPerBeat,
+                text: `${barIndex + 1}.${beatInBar}`,
+                isBarStart: beatInBar === 1,
+            });
+        }
+        return labels;
+    }, [totalBeats, beatsPerBar, pixelsPerBeat]);
 
     // Piano key data
     const pianoKeys = useMemo(() => {
@@ -1883,23 +1905,25 @@ export const PianoRoll = memo(function PianoRoll({
                                 opacity: 0.65,
                             }} />
 
-                            {/* Bar labels */}
-                            {gridLines.filter(gl => gl.label).map((gl, idx) => (
+                            {/* Beat labels (1.1, 1.2, 1.3...) */}
+                            {rulerBeatLabels.map((label, idx) => (
                                 <span
                                     key={`ruler-${idx}`}
                                     style={{
                                         position: 'absolute',
-                                        left: gl.x + 5,
+                                        left: label.x + 5,
                                         top: 6,
                                         fontSize: 'var(--font-size-2xs)',
-                                        color: 'var(--color-text-secondary)',
-                                        fontWeight: 500,
+                                        color: label.isBarStart
+                                            ? 'var(--color-text-primary)'
+                                            : 'var(--color-text-secondary)',
+                                        fontWeight: label.isBarStart ? 700 : 500,
                                         fontFamily: 'var(--font-mono)',
                                         pointerEvents: 'none',
                                         userSelect: 'none',
                                     }}
                                 >
-                                    {gl.label}
+                                    {label.text}
                                 </span>
                             ))}
 

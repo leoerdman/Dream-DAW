@@ -288,11 +288,12 @@ export const updateTrack = (update: TrackStateUpdate) =>
     invoke<void>('update_track', { update });
 
 /** Add a new audio track to the project. Auto-names if name is null. */
-export const addTrack = (name?: string) =>
+export const addTrack = (name?: string, inheritFromTrackId?: string | null) =>
     invoke<void>('add_track_cmd', {
         name: name ?? null,
         trackType: 'audio',
         insertAfterIndex: null,
+        inheritFromTrackId: inheritFromTrackId ?? null,
     });
 
 export type TrackCreateType = 'audio' | 'midi' | 'group';
@@ -302,11 +303,13 @@ export const addTrackAdvanced = (
     trackType: TrackCreateType,
     insertAfterIndex?: number | null,
     name?: string,
+    inheritFromTrackId?: string | null,
 ) =>
     invoke<void>('add_track_cmd', {
         name: name ?? null,
         trackType,
         insertAfterIndex: insertAfterIndex ?? null,
+        inheritFromTrackId: inheritFromTrackId ?? null,
     });
 
 /** Delete a track by its zero-based index. */
@@ -836,6 +839,10 @@ export const deleteClip = (clipId: string) =>
 /** Mute or unmute a clip. Muted clips remain on the timeline but don't play. */
 export const setClipMuted = (clipId: string, muted: boolean) =>
     invoke<void>('set_clip_muted_cmd', { clipId, muted });
+
+/** Mute or unmute multiple clips in one undo-safe batch. Returns number applied. */
+export const setClipsMuted = (clipIds: string[], muted: boolean) =>
+    invoke<number>('set_clips_muted_cmd', { clipIds, muted });
 
 /** Clear clip color overrides on a track so clips inherit track color. */
 export const paintTrackClipsWithTrackColor = (trackId: string) =>

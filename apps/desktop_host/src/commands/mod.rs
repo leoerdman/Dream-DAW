@@ -122,6 +122,7 @@ pub(crate) fn invoke_handler(
         set_clip_source_offset_cmd,
         set_clip_warp_cmd,
         set_clip_muted_cmd,
+        set_clips_muted_cmd,
         paint_track_clips_with_track_color_cmd,
         resolve_missing_file_cmd,
         // Automation / recording / export

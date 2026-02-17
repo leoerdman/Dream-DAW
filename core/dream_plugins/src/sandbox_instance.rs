@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 use crate::descriptor::PluginDescriptor;
-use crate::instance::{PluginError, PluginInstance, TransportContext};
+use crate::instance::{MidiEvent, PluginError, PluginInstance, TransportContext};
 use crate::shared_memory::{SharedAudioBufferLayout, SharedAudioBufferRegion};
 
 /// PluginInstance implementation backed by an out-of-process sandbox bridge.
@@ -92,6 +92,7 @@ impl PluginInstance for SandboxedPluginInstance {
         inputs: &[&[f32]],
         outputs: &mut [&mut [f32]],
         num_frames: usize,
+        _midi_events: &[MidiEvent],
     ) -> Result<(), PluginError> {
         if !self.active {
             return Err(PluginError::InvalidState(
@@ -115,7 +116,6 @@ impl PluginInstance for SandboxedPluginInstance {
         self.shared_region.set_requested_frames(num_frames as u32);
         self.request_seq = self.request_seq.wrapping_add(1);
         self.shared_region.set_request_seq(self.request_seq);
-        let _ = self.shared_region.flush();
 
         let processed_seq = self.shared_region.processed_seq();
         let has_new_block = processed_seq != 0 && processed_seq >= self.request_seq;
@@ -145,6 +145,7 @@ impl PluginInstance for SandboxedPluginInstance {
         sidechain_inputs: Option<&[&[f32]]>,
         outputs: &mut [&mut [f32]],
         num_frames: usize,
+        _midi_events: &[MidiEvent],
     ) -> Result<(), PluginError> {
         if !self.active {
             return Err(PluginError::InvalidState(
@@ -181,7 +182,6 @@ impl PluginInstance for SandboxedPluginInstance {
         self.shared_region.set_requested_frames(num_frames as u32);
         self.request_seq = self.request_seq.wrapping_add(1);
         self.shared_region.set_request_seq(self.request_seq);
-        let _ = self.shared_region.flush();
 
         let processed_seq = self.shared_region.processed_seq();
         let has_new_block = processed_seq != 0 && processed_seq >= self.request_seq;

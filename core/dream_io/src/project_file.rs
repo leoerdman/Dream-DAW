@@ -15,6 +15,7 @@
 use std::fs;
 use std::io::Write;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use dream_models::project::{PROJECT_FORMAT_VERSION, Project};
 use serde::{Deserialize, Serialize};
@@ -89,7 +90,11 @@ impl ProjectFile {
         }
 
         // ── Step 1: Write to temp file ──────────────────────────────
-        let tmp_path = path.with_extension("tmp");
+        let tmp_nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let tmp_path = path.with_extension(format!("tmp.{}", tmp_nonce));
         {
             let mut file = fs::File::create(&tmp_path)?;
             file.write_all(json.as_bytes())?;
@@ -97,17 +102,33 @@ impl ProjectFile {
             file.sync_all()?;
         }
 
+        // Verify temp file parses before touching destination.
+        let tmp_data = fs::read_to_string(&tmp_path)?;
+        let _ = Self::parse_project_document(&tmp_data)?;
+
         // ── Step 3: Backup existing file (non-fatal if fails) ──────
+        // Use copy (not move) so existing primary is preserved if anything fails.
         if path.exists() {
             let bak_path = path.with_extension("bak");
-            if let Err(e) = fs::rename(path, &bak_path) {
+            if let Err(e) = fs::copy(path, &bak_path) {
                 log::warn!("Could not create backup {}: {}", bak_path.display(), e);
                 // Fall through — still try to save
             }
         }
 
         // ── Step 4: Atomic rename temp → target ────────────────────
-        fs::rename(&tmp_path, path)?;
+        if let Err(rename_err) = fs::rename(&tmp_path, path) {
+            let _ = fs::remove_file(&tmp_path);
+            return Err(ProjectFileError::IoError(rename_err));
+        }
+
+        // Best-effort directory fsync for stronger durability guarantees.
+        #[cfg(unix)]
+        if let Some(parent) = path.parent()
+            && let Ok(dir) = fs::File::open(parent)
+        {
+            let _ = dir.sync_all();
+        }
 
         log::info!(
             "Project saved (atomic): {} ({} bytes)",

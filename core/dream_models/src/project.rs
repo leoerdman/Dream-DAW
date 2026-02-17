@@ -1203,11 +1203,25 @@ impl Track {
 
     /// End position of the last clip on this track.
     pub fn end_position(&self) -> AbsoluteTime {
-        self.clips
+        let audio_end = self
+            .clips
             .iter()
             .map(|c| c.end_position())
             .max_by_key(|t| t.sample_frame)
-            .unwrap_or(AbsoluteTime::ZERO)
+            .unwrap_or(AbsoluteTime::ZERO);
+
+        let midi_end = self
+            .midi_clips
+            .iter()
+            .map(|c| c.end_position())
+            .max_by_key(|t| t.sample_frame)
+            .unwrap_or(AbsoluteTime::ZERO);
+
+        if midi_end.sample_frame > audio_end.sample_frame {
+            midi_end
+        } else {
+            audio_end
+        }
     }
 }
 

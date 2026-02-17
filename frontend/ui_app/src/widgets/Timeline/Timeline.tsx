@@ -54,6 +54,7 @@ interface TimelineProps {
     onScrollTop?: (scrollTop: number) => void;
     followPlayhead?: boolean;
     automationVisible?: boolean;
+    fitHorizontalToken?: number;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -100,6 +101,7 @@ export const Timeline = (props: TimelineProps) => {
         onScrollTop,
         onClipResize,
         followPlayhead = false,
+        fitHorizontalToken = 0,
     } = props;
 
     const beatsPerBar = timeSignature[0];
@@ -377,6 +379,41 @@ export const Timeline = (props: TimelineProps) => {
 
         engine.setClips(clipData);
     }, [clips, engineRef]);
+
+    useEffect(() => {
+        const engine = engineRef.current;
+        if (!engine) return;
+        const viewport = engine.viewport;
+        const viewportWidth = viewport.viewportWidth;
+        if (viewportWidth <= 8) return;
+
+        let minBeat = 0;
+        let maxBeat = Math.max(4, beatsPerBar * 4);
+
+        if (clips.length > 0) {
+            minBeat = Infinity;
+            maxBeat = -Infinity;
+            for (const clip of clips) {
+                const start = clip.startBeat;
+                const end = clip.startBeat + Math.max(0.01, clip.durationBeats);
+                if (start < minBeat) minBeat = start;
+                if (end > maxBeat) maxBeat = end;
+            }
+            if (!Number.isFinite(minBeat) || !Number.isFinite(maxBeat)) {
+                minBeat = 0;
+                maxBeat = Math.max(4, beatsPerBar * 4);
+            }
+        }
+
+        const span = Math.max(1, maxBeat - minBeat);
+        const pad = Math.max(0.5, span * 0.05);
+        const paddedStart = Math.max(0, minBeat - pad);
+        const paddedEnd = Math.max(paddedStart + 1, maxBeat + pad);
+        const targetPpb = viewportWidth / (paddedEnd - paddedStart);
+
+        viewport.setZoom(targetPpb);
+        viewport.scrollTo(paddedStart * viewport.pixelsPerBeat, viewport.scrollY);
+    }, [fitHorizontalToken, clips, engineRef, beatsPerBar]);
 
     useEffect(() => {
         const engine = engineRef.current;

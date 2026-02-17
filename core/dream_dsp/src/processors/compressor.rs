@@ -110,8 +110,24 @@ impl CompressorProcessor {
     }
 
     #[inline]
+    fn sync_sample_rate(&mut self, sample_rate: f32) {
+        if sample_rate.is_finite()
+            && sample_rate > 1000.0
+            && (sample_rate - self.sample_rate).abs() > 0.5
+        {
+            self.sample_rate = sample_rate;
+            self.update_coefficients();
+            self.update_sc_hpf();
+        }
+    }
+
+    #[inline]
     fn linear_to_db(x: f32) -> f32 {
-        if x < 1e-10 { -96.0 } else { 20.0 * x.log10() }
+        if x < 1e-10 {
+            -96.0
+        } else {
+            20.0 * x.log10()
+        }
     }
 
     #[inline]
@@ -144,7 +160,8 @@ impl CompressorProcessor {
 }
 
 impl DspProcessor for CompressorProcessor {
-    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], _sample_rate: f32) {
+    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
+        self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
         let attack = self.attack_coeff;
         let release = self.release_coeff;
@@ -207,8 +224,9 @@ impl DspProcessor for CompressorProcessor {
         right: &mut [f32],
         sidechain_left: Option<&[f32]>,
         sidechain_right: Option<&[f32]>,
-        _sample_rate: f32,
+        sample_rate: f32,
     ) {
+        self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
         let attack = self.attack_coeff;
         let release = self.release_coeff;

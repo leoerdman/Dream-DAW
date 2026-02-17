@@ -39,6 +39,8 @@ interface TransportBarProps {
     onFollowPlayheadChange?: (enabled: boolean) => void;
     automationVisible?: boolean;
     onAutomationToggle?: () => void;
+    onFitTimelineHorizontally?: () => void;
+    onResetTrackHeights?: () => void;
 }
 
 export const TransportBar = ({
@@ -49,6 +51,8 @@ export const TransportBar = ({
     onFollowPlayheadChange,
     automationVisible = false,
     onAutomationToggle,
+    onFitTimelineHorizontally,
+    onResetTrackHeights,
 }: TransportBarProps) => {
     const isPlaying = useEngineStore((s) => s.transport.is_playing);
     const bpm = useEngineStore((s) => s.projectBpm || s.transport.bpm || 120);
@@ -405,7 +409,9 @@ export const TransportBar = ({
                             activeColor="var(--color-status-success)"
                             activeBackground={false}
                             onClick={() => {
-                                void engineApi.stopPreview().catch(() => { });
+                                void engineApi.stopPreview().catch((err) => {
+                                    console.warn('[TransportBar] stopPreview before play failed:', err);
+                                });
                                 togglePlay();
                             }}
                         />
@@ -477,6 +483,8 @@ export const TransportBar = ({
                             activeColor="var(--color-accent-primary)"
                             onClick={() => onAutomationToggle?.()}
                         />
+                        <ControlButton label="W" onClick={() => onFitTimelineHorizontally?.()} />
+                        <ControlButton label="H" onClick={() => onResetTrackHeights?.()} />
                         <span style={{ ...valueChipStyle, minWidth: 74, textAlign: 'right', display: 'inline-block', cursor: 'default' }}>
                             {posString}
                         </span>

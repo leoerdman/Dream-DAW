@@ -12,7 +12,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import * as engine from '@/shared/api/engine';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
@@ -29,6 +29,8 @@ export interface KeyboardShortcutsConfig {
 
     /** Current playhead position in sample frames. */
     playheadFrames: number;
+    /** Edit cursor beat in arrangement (negative means hidden/inactive). */
+    editCursorBeat?: number;
     timelineClips: TimelineClip[];
     marqueeSelection: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null;
 
@@ -63,8 +65,6 @@ function getScopedEditorElement(e: KeyboardEvent, scope: string): HTMLElement | 
     return null;
 }
 
-let clipboard: TimelineClip[] = [];
-
 // ── Hook Implementation ──────────────────────────────────────────────────
 
 /**
@@ -88,20 +88,27 @@ let clipboard: TimelineClip[] = [];
  * the `useProjectManager` hook.
  */
 export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
-    const {
-        selectedClipId,
-        selectedClipIds,
-        selectedTrackId,
-        projectTracks,
-        playheadFrames,
-        timelineClips,
-        marqueeSelection,
-        onProjectMutated,
-        onTogglePlayback,
-    } = config;
+    const configRef = useRef(config);
+    const clipboardRef = useRef<TimelineClip[]>([]);
+    useEffect(() => {
+        configRef.current = config;
+    }, [config]);
 
     const handleKeyDown = useCallback(
         async (e: KeyboardEvent) => {
+            const {
+                selectedClipId,
+                selectedClipIds,
+                selectedTrackId,
+                projectTracks,
+                playheadFrames,
+                editCursorBeat = -1,
+                timelineClips,
+                marqueeSelection,
+                onProjectMutated,
+                onTogglePlayback,
+            } = configRef.current;
+
             // Ignore if user is typing in an input
             const target = e.target as HTMLElement;
             if (
@@ -134,14 +141,16 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 e.stopPropagation();
 
                 // Space always stops browser preview first.
-                void engine.stopPreview().catch(() => { });
+                void engine.stopPreview().catch((err) => {
+                    console.warn('[Keyboard] stopPreview before playback failed:', err);
+                });
 
                 onTogglePlayback();
                 return;
             }
 
             // ── Cmd/Ctrl + Z: Undo ────────────────────────────────
-            if (isModKey(e) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+            if (isModKey(e) && !e.shiftKey && e.key.toLowerCase() === 'z' && !e.repeat) {
                 e.preventDefault();
                 e.stopPropagation();
                 try {
@@ -154,7 +163,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             }
 
             // ── Cmd/Ctrl + Shift + Z: Redo ────────────────────────
-            if (isModKey(e) && e.shiftKey && e.key.toLowerCase() === 'z') {
+            if (isModKey(e) && e.shiftKey && e.key.toLowerCase() === 'z' && !e.repeat) {
                 e.preventDefault();
                 e.stopPropagation();
                 try {
@@ -171,7 +180,12 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 e.preventDefault();
                 e.stopPropagation();
                 try {
-                    await engine.addTrackAdvanced('audio', insertAfterIndex);
+                    await engine.addTrackAdvanced(
+                        'audio',
+                        insertAfterIndex,
+                        undefined,
+                        selectedTrackId && selectedTrackId !== 'master' ? selectedTrackId : null,
+                    );
                     onProjectMutated();
                 } catch (err) {
                     console.error('[Shortcuts] New audio track failed:', err);
@@ -184,7 +198,12 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 e.preventDefault();
                 e.stopPropagation();
                 try {
-                    await engine.addTrackAdvanced('midi', insertAfterIndex);
+                    await engine.addTrackAdvanced(
+                        'midi',
+                        insertAfterIndex,
+                        undefined,
+                        selectedTrackId && selectedTrackId !== 'master' ? selectedTrackId : null,
+                    );
                     onProjectMutated();
                 } catch (err) {
                     console.error('[Shortcuts] New MIDI track failed:', err);
@@ -237,33 +256,68 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             }
 
             // ── Cmd/Ctrl + E: Split at Playhead ────────────────────
-            if (isModKey(e) && e.key.toLowerCase() === 'e') {
+            if (isModKey(e) && e.key.toLowerCase() === 'e' && !e.repeat) {
                 if (inPianoRoll || inDeviceRack) return;
                 e.preventDefault();
                 e.stopPropagation();
-
-                const targets = selectedClipIds.length > 0
-                    ? selectedClipIds
-                    : (selectedClipId ? [selectedClipId] : []);
-                if (targets.length === 0) return;
 
                 try {
                     const store = useEngineStore.getState();
                     const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
                     const sampleRate = store.projectSampleRate || store.transport.sample_rate || 44100;
-                    const playheadBeat = playheadFrames / ((60 / bpm) * sampleRate);
+                    const framesPerBeat = (60 / bpm) * sampleRate;
+                    const splitBeat = Number.isFinite(editCursorBeat) && editCursorBeat >= 0
+                        ? (editCursorBeat as number)
+                        : (playheadFrames / framesPerBeat);
+                    const splitFrame = Math.max(0, Math.round(splitBeat * framesPerBeat));
+                    const hasThinMultiCursor = Boolean(marqueeSelection)
+                        && Math.abs((marqueeSelection?.endBeat ?? 0) - (marqueeSelection?.startBeat ?? 0)) <= 1e-6
+                        && marqueeSelection != null
+                        && marqueeSelection.startTrack !== marqueeSelection.endTrack;
 
-                    const targetSet = new Set(targets);
-                    const clipsAtPlayhead = timelineClips
-                        .filter((clip) => targetSet.has(clip.id))
-                        .filter((clip) => {
-                            const start = clip.startBeat;
-                            const end = clip.startBeat + clip.durationBeats;
-                            return playheadBeat > start && playheadBeat < end;
-                        });
+                    const targets = selectedClipIds.length > 0
+                        ? selectedClipIds
+                        : (selectedClipId ? [selectedClipId] : []);
+                    const selectedTrackIndex = projectTracks.findIndex((t) => t.id === selectedTrackId);
+
+                    const EPS = 1e-6;
+                    const containsSplit = (clip: TimelineClip) => {
+                        const start = clip.startBeat;
+                        const end = clip.startBeat + clip.durationBeats;
+                        return splitBeat > start + EPS && splitBeat < end - EPS;
+                    };
+
+                    let clipsAtPlayhead = (targets.length > 0
+                        // Ableton-like: split ALL selected clips that intersect split cursor.
+                        ? timelineClips.filter((clip) => targets.includes(clip.id))
+                        // No explicit selection: split any clip intersecting cursor.
+                        : timelineClips)
+                        .filter(containsSplit);
+
+                    if (hasThinMultiCursor && marqueeSelection) {
+                        const minTrack = Math.min(marqueeSelection.startTrack, marqueeSelection.endTrack);
+                        const maxTrack = Math.max(marqueeSelection.startTrack, marqueeSelection.endTrack);
+                        const rangeFiltered = timelineClips
+                            .filter((clip) => clip.trackIndex >= minTrack && clip.trackIndex <= maxTrack)
+                            .filter(containsSplit);
+                        if (targets.length > 0) {
+                            const selectedInRange = rangeFiltered.filter((clip) => targets.includes(clip.id));
+                            clipsAtPlayhead = selectedInRange.length > 0 ? selectedInRange : rangeFiltered;
+                        } else {
+                            clipsAtPlayhead = rangeFiltered;
+                        }
+                    }
+
+                    // Legacy safety path: if caller provided only track selection and no clips,
+                    // keep selected-track preference before global split.
+                    if (clipsAtPlayhead.length === 0 && targets.length === 0 && selectedTrackIndex >= 0) {
+                        clipsAtPlayhead = timelineClips
+                            .filter((clip) => clip.trackIndex === selectedTrackIndex)
+                            .filter(containsSplit);
+                    }
 
                     if (clipsAtPlayhead.length === 0) return;
-                    await Promise.all(clipsAtPlayhead.map((clip) => engine.splitClip(clip.id, playheadFrames)));
+                    await Promise.all(clipsAtPlayhead.map((clip) => engine.splitClip(clip.id, splitFrame)));
                     onProjectMutated();
                 } catch (err) {
                     console.error('[Shortcuts] Split clip failed:', err);
@@ -346,7 +400,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                     .filter((c) => targets.includes(c.id))
                     .sort((a, b) => a.startBeat - b.startBeat);
                 if (selected.length === 0) return;
-                clipboard = selected;
+                clipboardRef.current = selected;
                 return;
             }
 
@@ -355,17 +409,18 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 if (inPianoRoll || inDeviceRack) return;
                 e.preventDefault();
                 e.stopPropagation();
-                if (clipboard.length === 0) return;
+                if (clipboardRef.current.length === 0) return;
 
                 const bpm = Math.max(1, useEngineStore.getState().projectBpm || useEngineStore.getState().transport.bpm || 120);
                 const sampleRate = useEngineStore.getState().projectSampleRate || 44100;
                 const framesPerBeat = (60 / bpm) * sampleRate;
-                const cursorBeat = playheadFrames / framesPerBeat;
-                const firstBeat = clipboard[0].startBeat;
+                const fallbackBeat = playheadFrames / framesPerBeat;
+                const cursorBeat = editCursorBeat >= 0 ? editCursorBeat : fallbackBeat;
+                const firstBeat = clipboardRef.current[0].startBeat;
 
                 try {
                     await Promise.all(
-                        clipboard.map((clip) => {
+                        clipboardRef.current.map((clip) => {
                             const relative = clip.startBeat - firstBeat;
                             const destBeat = cursorBeat + relative;
                             const destFrames = Math.max(0, Math.round(destBeat * framesPerBeat));
@@ -391,7 +446,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                     .filter((c) => targets.includes(c.id))
                     .sort((a, b) => a.startBeat - b.startBeat);
                 if (selected.length === 0) return;
-                clipboard = selected;
+                clipboardRef.current = selected;
                 try {
                     await Promise.all(selected.map((c) => engine.deleteClip(c.id)));
                     onProjectMutated();
@@ -401,8 +456,8 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 return;
             }
 
-            // ── Backspace / Delete: Delete Selected Clip ───────────
-            if (e.key === 'Backspace' || e.key === 'Delete') {
+            // ── Backspace / Delete: Delete Selected Clip/Track ─────
+            if ((e.key === 'Backspace' || e.key === 'Delete') && !e.repeat) {
                 if (inDeviceRack && selectedDeviceId.length > 0) {
                     // DeviceRack owns Delete when a plugin/device card is selected.
                     return;
@@ -421,13 +476,25 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 const targets = selectedClipIds.length > 0
                     ? selectedClipIds
                     : (selectedClipId ? [selectedClipId] : []);
-                if (targets.length === 0) return;
+                if (targets.length > 0) {
+                    try {
+                        await Promise.all(targets.map((id) => engine.deleteClip(id)));
+                        onProjectMutated();
+                    } catch (err) {
+                        console.error('[Shortcuts] Delete clip failed:', err);
+                    }
+                    return;
+                }
+
+                // No clip selected: delete selected track.
+                if (!selectedTrackId || selectedTrackId === 'master') return;
+                if (selectedTrackIndex < 0) return;
 
                 try {
-                    await Promise.all(targets.map((id) => engine.deleteClip(id)));
+                    await engine.deleteTrack(selectedTrackIndex);
                     onProjectMutated();
                 } catch (err) {
-                    console.error('[Shortcuts] Delete clip failed:', err);
+                    console.error('[Shortcuts] Delete track failed:', err);
                 }
                 return;
             }
@@ -452,7 +519,11 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 const newMutedState = anyUnmuted;
 
                 try {
-                    await Promise.all(targets.map((id) => engine.setClipMuted(id, newMutedState)));
+                    if (targets.length === 1) {
+                        await engine.setClipMuted(targets[0], newMutedState);
+                    } else {
+                        await engine.setClipsMuted(targets, newMutedState);
+                    }
                     onProjectMutated();
                 } catch (err) {
                     console.error('[Shortcuts] Toggle clip mute failed:', err);
@@ -614,17 +685,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 return;
             }
         },
-        [
-            selectedClipId,
-            selectedClipIds,
-            selectedTrackId,
-            projectTracks,
-            playheadFrames,
-            timelineClips,
-            marqueeSelection,
-            onProjectMutated,
-            onTogglePlayback,
-        ],
+        [],
     );
 
     useEffect(() => {

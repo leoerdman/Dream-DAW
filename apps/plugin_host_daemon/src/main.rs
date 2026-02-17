@@ -222,6 +222,24 @@ fn main() {
                             println!("{json}");
                         }
                     }
+                    PluginHostControlMessage::SendMidiEvents {
+                        instance_id,
+                        events,
+                    } => {
+                        // Store pending MIDI events for the next process cycle.
+                        // The daemon's shared-memory process loop will convert
+                        // these to format-specific events when driving the plugin.
+                        log::debug!(
+                            "[plugin_host_daemon] received {} MIDI events for instance {}",
+                            events.len(),
+                            instance_id
+                        );
+                        // Phase 1: MIDI events stored but not yet consumed by daemon
+                        // process loop (daemon runs as passthrough stub currently).
+                        // Full integration happens in Phase 2 when the daemon's
+                        // process loop calls PluginInstance::process() with real events.
+                        let _ = (instance_id, events);
+                    }
                     PluginHostControlMessage::Shutdown => {
                         running = false;
                     }

@@ -82,6 +82,16 @@ impl PluginSandboxConfig {
         if dev_candidate.exists() {
             return Some(dev_candidate);
         }
+        // 3) Common temp target dirs used in local dev tooling
+        let tmp_candidates = [
+            PathBuf::from("/tmp/dreamdaw-target/debug/plugin_host_daemon"),
+            PathBuf::from("/tmp/dream-daw-target/debug/plugin_host_daemon"),
+        ];
+        for candidate in tmp_candidates {
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
         None
     }
 }
@@ -234,6 +244,9 @@ impl PluginSandboxSupervisor {
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
+        if enabled && self.config.is_none() {
+            self.config = PluginSandboxConfig::from_env();
+        }
         self.enabled = enabled && self.config.is_some();
         if !self.enabled {
             for instance in self.instances.values_mut() {

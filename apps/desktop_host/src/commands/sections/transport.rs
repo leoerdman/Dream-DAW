@@ -261,32 +261,49 @@ fn set_loop(
     start_frames: i64,
     end_frames: i64,
     handle: tauri::State<'_, AudioEngineHandle>,
+    project_state: tauri::State<'_, ProjectState>,
 ) -> Result<(), String> {
+    let (beats_per_bar, sample_rate, bpm) = {
+        let project = project_state
+            .project
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        (
+            project.time_signature.numerator.max(1) as f64,
+            project.sample_rate.max(1.0),
+            project.pulse_map.initial_bpm().max(1.0),
+        )
+    };
+
+    let min_gap: i64 = ((beats_per_bar * 60.0 / bpm) * sample_rate).round() as i64;
+    let has_valid_range = end_frames > start_frames && (end_frames - start_frames) >= min_gap;
+
     // Update shared playback_state FIRST so telemetry reads correct values immediately
     {
         let mut state = handle
             .playback_state
             .lock()
             .map_err(|e| format!("Lock poisoned: {e}"))?;
-        state.loop_enabled = enabled;
 
-        // Enforce: end > start, and minimum gap of ~1 bar at current tempo/SR
-        // Min gap = 4 beats × (60/BPM) × SR  (1 bar in 4/4 at any tempo)
-        let min_gap = ((4.0 * 60.0 / state.bpm) * state.sample_rate) as i64;
-        if end_frames > start_frames && (end_frames - start_frames) >= min_gap {
+        if enabled && has_valid_range {
+            state.loop_enabled = true;
             state.loop_start = start_frames;
             state.loop_end = end_frames;
+        } else {
+            state.loop_enabled = false;
         }
     }
 
     // Push commands to the realtime audio thread
-    if end_frames > start_frames {
+    if enabled && has_valid_range {
         push_command(&handle, EngineCommand::SetLoopRegion {
             start: start_frames,
             end: end_frames,
         })?;
+        push_command(&handle, EngineCommand::SetLoopEnabled(true))?;
+    } else {
+        push_command(&handle, EngineCommand::SetLoopEnabled(false))?;
     }
-    push_command(&handle, EngineCommand::SetLoopEnabled(enabled))?;
 
     log::info!("[IPC] set_loop(enabled={enabled}, {start_frames}–{end_frames})");
     Ok(())

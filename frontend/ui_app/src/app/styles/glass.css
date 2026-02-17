@@ -127,7 +127,8 @@
 }
 
 .btn-control.active {
-    color: var(--color-text-on-color);
+    background: var(--color-accent-primary);
+    color: var(--color-text-on-accent);
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -273,15 +274,15 @@
 /* ── Glow Effects ────────────────────────────────────────────── */
 
 .glow-accent {
-    box-shadow: 0 0 16px rgba(74, 158, 255, 0.3);
+    box-shadow: 0 0 16px var(--glow-accent);
 }
 
 .glow-success {
-    box-shadow: 0 0 16px rgba(102, 204, 51, 0.3);
+    box-shadow: 0 0 16px var(--glow-success);
 }
 
 .glow-record {
-    box-shadow: 0 0 16px rgba(217, 64, 64, 0.3);
+    box-shadow: 0 0 16px var(--glow-record);
 }
 
 /* ── Scrollbar Hide ──────────────────────────────────────────── */

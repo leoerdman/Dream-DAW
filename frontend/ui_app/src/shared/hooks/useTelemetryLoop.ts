@@ -13,6 +13,7 @@
 //   4. Meter levels → `transform: scaleY(rms)` on meter bar refs
 //   5. Loop never touches React state — zero re-renders
 //
+import { secondsToBeat } from '@/shared/lib/audioMath';
 // Benefits over rAF + invoke():
 //   - Zero IPC invoke() overhead per frame (was 2 invokes × 60fps = 120 IPC/s)
 //   - Rust controls the tick rate (30fps), frontend is purely reactive
@@ -121,8 +122,7 @@ export function useTelemetryLoop(
                     const { bpm, pixelsPerBeat, scrollOffsetPx = 0 } = configRef.current;
 
                     // Convert seconds → beats → pixels
-                    const beatsPerSecond = bpm / 60;
-                    const positionBeats = transport.position_seconds * beatsPerSecond;
+                    const positionBeats = secondsToBeat(transport.position_seconds, bpm);
                     const positionPx = positionBeats * pixelsPerBeat - scrollOffsetPx;
 
                     playheadEl.style.transform = `translateX(${positionPx}px)`;

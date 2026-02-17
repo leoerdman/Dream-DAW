@@ -22,6 +22,7 @@
 import { ViewportMatrix, type ViewportConfig, type ViewportSnapshot } from './ViewportMatrix';
 import { CanvasClipRenderer, type TimelineClipData, type LoopRegion, type GhostClipData } from './CanvasClipRenderer';
 import { WaveformCache } from './WaveformCache';
+import { beatDurationToFrames } from './audioMath';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -1659,9 +1660,8 @@ export class TimelineEngine {
         if (clip.durationSamples && clip.durationSamples > 0) {
             return clip.durationSamples;
         }
-        const beatsPerSecond = this._bpm / 60;
-        if (beatsPerSecond <= 0 || this._sampleRate <= 0) return 1;
-        return Math.max(1, Math.round((clip.durationBeats / beatsPerSecond) * this._sampleRate));
+        if (this._bpm <= 0 || this._sampleRate <= 0) return 1;
+        return Math.max(1, beatDurationToFrames(clip.durationBeats, this._bpm, this._sampleRate));
     }
 
     // ═══════════════════════════════════════════════════════════════════

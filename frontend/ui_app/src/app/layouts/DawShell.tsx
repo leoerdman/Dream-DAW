@@ -19,7 +19,7 @@ import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import * as engineApi from '@/shared/api/engine';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
-import { beatToFrame, beatDurationToFrames } from '@/shared/lib/audioMath';
+import { beatToFrame, beatDurationToFrames, frameToBeat } from '@/shared/lib/audioMath';
 import { getContrastColor } from '@/shared/lib/colorUtils';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { ClipEditorShell } from '@/widgets/ClipEditor/ClipEditorShell';
@@ -1251,8 +1251,8 @@ export const DawShell = () => {
                                         recordingActive={recordingState.active}
                                         recordingTrackIndex={recordingState.trackIndex}
                                         trackIds={trackIds}
-                                        loopStart={(transportLoopStart / projectSampleRate) * ((projectBpm || transportBpm || 120) / 60)}
-                                        loopEnd={(transportLoopEnd / projectSampleRate) * ((projectBpm || transportBpm || 120) / 60)}
+                                        loopStart={frameToBeat(transportLoopStart, projectBpm || transportBpm || 120, projectSampleRate)}
+                                        loopEnd={frameToBeat(transportLoopEnd, projectBpm || transportBpm || 120, projectSampleRate)}
                                         loopEnabled={transportLoopEnabled}
                                         trackCount={trackCount}
                                         trackHeight={TRACK_HEIGHT_BASE}
@@ -1945,14 +1945,13 @@ const SampleClipEditor = ({
         const store = useEngineStore.getState();
         const sr = store.projectSampleRate || 44100;
         const projectTempo = store.projectBpm || store.transport.bpm || 120;
-        const beatsPerSecond = projectTempo / 60;
         const sourceFrames = Math.max(1, clip.warpSourceDurationFrames ?? clip.durationSamples ?? 1);
 
         const nextDurationBeats = next.enabled
-            ? (sourceFrames / sr) * (base / 60)
-            : (sourceFrames / sr) * beatsPerSecond;
+            ? frameToBeat(sourceFrames, base, sr)
+            : frameToBeat(sourceFrames, projectTempo, sr);
         const nextDurationSamples = next.enabled
-            ? Math.max(1, Math.round((nextDurationBeats / beatsPerSecond) * sr))
+            ? Math.max(1, beatDurationToFrames(nextDurationBeats, projectTempo, sr))
             : sourceFrames;
 
         const previousClips = useEngineStore.getState().timelineClips;
@@ -1988,8 +1987,7 @@ const SampleClipEditor = ({
     }, [clip.id, clip.durationSamples, clip.warpSourceDurationFrames]);
 
     const beatsPerBar = 4;
-    const beatsPerSecond = bpm / 60;
-    const clipDurationBeats = Math.max(0.25, clip.durationBeats || ((durationSamples / sampleRate) * beatsPerSecond));
+    const clipDurationBeats = Math.max(0.25, clip.durationBeats || frameToBeat(durationSamples, bpm, sampleRate));
     const gridStep = Math.max(0.0625, divisionToInterval(gridDivision, beatsPerBar, gridTriplet));
     const pxPerBeat = 82 * zoomX;
     const waveformWidth = Math.max(420, Math.round(clipDurationBeats * pxPerBeat));

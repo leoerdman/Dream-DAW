@@ -175,7 +175,7 @@ export const PluginKnob = ({
                         position: 'absolute',
                         inset: -2,
                         borderRadius: '50%',
-                        background: `conic-gradient(from -135deg, color-mix(in srgb, var(--color-accent-primary) 88%, #8fd5ff) ${Math.max(2, pct * 270)}deg, rgba(255,255,255,0.08) ${Math.max(2, pct * 270)}deg 270deg, transparent 270deg 360deg)`,
+                        background: `conic-gradient(from -135deg, var(--knob-arc-gradient-end) ${Math.max(2, pct * 270)}deg, rgba(255,255,255,0.08) ${Math.max(2, pct * 270)}deg 270deg, transparent 270deg 360deg)`,
                         opacity: 0.95,
                         pointerEvents: 'none',
                     }}
@@ -238,7 +238,7 @@ export const PluginKnob = ({
 const sliderLabelStyle: CSSProperties = {
     display: 'flex',
     flexDirection: 'column',
-    gap: 4,
+    gap: 'var(--space-1)',
     minWidth: 110,
 };
 
@@ -248,7 +248,7 @@ const sliderTextStyle: CSSProperties = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 8,
+    gap: 'var(--space-2)',
 };
 
 const sliderValueStyle: CSSProperties = {
@@ -260,7 +260,7 @@ const sliderInputStyle: CSSProperties = {
     width: '100%',
     accentColor: 'var(--color-accent-primary)',
     cursor: 'ew-resize',
-    height: 14,
+    height: 'var(--space-3-5)',
     borderRadius: 'var(--radius-full)',
     background: 'transparent',
 };
@@ -270,7 +270,7 @@ const knobLabelStyle = (compact: boolean): CSSProperties => ({
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'flex-start',
-    gap: compact ? 2 : 4,
+    gap: compact ? 'var(--space-0-5)' : 'var(--space-1)',
     minWidth: compact ? 58 : 92,
 });
 
@@ -291,11 +291,11 @@ const knobDialStyle = (dragging: boolean): CSSProperties => ({
     width: '100%',
     height: '100%',
     borderRadius: '50%',
-    background: 'radial-gradient(circle at 34% 24%, #4b5563 0%, #2b3440 42%, #141a24 100%)',
-    border: '1px solid color-mix(in srgb, var(--color-accent-primary) 24%, rgba(255,255,255,0.2))',
+    background: 'var(--knob-dial-gradient)',
+    border: 'var(--knob-dial-border)',
     boxShadow: dragging
-        ? 'inset 0 1px 2px rgba(255,255,255,0.16), inset 0 -3px 7px rgba(0,0,0,0.68), 0 0 0 1px rgba(10,14,18,0.72), 0 0 0 2px color-mix(in srgb, var(--color-accent-primary) 45%, transparent), 0 6px 12px rgba(0,0,0,0.35)'
-        : 'inset 0 1px 2px rgba(255,255,255,0.12), inset 0 -2px 6px rgba(0,0,0,0.58), 0 0 0 1px rgba(10,14,18,0.6), 0 4px 10px rgba(0,0,0,0.22)',
+        ? 'var(--knob-dial-shadow-active)'
+        : 'var(--knob-dial-shadow)',
     position: 'relative',
     cursor: 'ns-resize',
     touchAction: 'none',
@@ -305,15 +305,15 @@ const knobMarkerStyle: CSSProperties = {
     position: 'absolute',
     left: '50%',
     top: '50%',
-    width: 2,
+    width: 'var(--space-0-5)',
     background: 'var(--color-accent-primary)',
     transformOrigin: '50% 90%',
-    borderRadius: 999,
-    boxShadow: '0 0 5px color-mix(in srgb, var(--color-accent-primary) 68%, transparent)',
+    borderRadius: 'var(--radius-full)' as unknown as number,
+    boxShadow: 'var(--knob-marker-glow)',
 };
 
 const knobValueStyle = (compact: boolean): CSSProperties => ({
-    fontSize: compact ? 9 : 10,
+    fontSize: compact ? 'var(--font-size-2xs)' : 'var(--font-size-xs)',
     color: 'var(--color-text-primary)',
     fontFamily: 'var(--font-mono)',
     opacity: 0.92,
@@ -324,14 +324,14 @@ const knobValueStyle = (compact: boolean): CSSProperties => ({
 const knobValueInputStyle = (compact: boolean): CSSProperties => ({
     width: compact ? 52 : 62,
     height: compact ? 16 : 18,
-    border: '1px solid color-mix(in srgb, var(--color-accent-primary) 55%, rgba(255,255,255,0.2))',
+    border: 'var(--border-width-1) solid color-mix(in srgb, var(--color-accent-primary) 55%, rgba(255,255,255,0.2))',
     borderRadius: 'var(--radius-xs)',
     background: 'color-mix(in srgb, var(--surface-2) 88%, black)',
     color: 'var(--color-text-primary)',
     fontFamily: 'var(--font-mono)',
-    fontSize: compact ? 9 : 10,
+    fontSize: compact ? 'var(--font-size-2xs)' : 'var(--font-size-xs)',
     textAlign: 'center',
-    padding: '0 4px',
+    padding: '0 var(--space-1)',
     outline: 'none',
 });
 
@@ -342,11 +342,11 @@ const knobDragValueBadgeStyle: CSSProperties = {
     transform: 'translateX(-50%)',
     fontSize: 'var(--font-size-2xs)',
     fontFamily: 'var(--font-mono)',
-    color: '#eaf4ff',
-    background: 'rgba(8, 12, 18, 0.82)',
-    border: '1px solid rgba(120, 168, 220, 0.35)',
+    color: 'var(--badge-color)',
+    background: 'var(--badge-bg)',
+    border: 'var(--badge-border)',
     borderRadius: 'var(--radius-md)',
-    padding: '1px 4px',
+    padding: 'var(--space-px) var(--space-1)',
     whiteSpace: 'nowrap',
     pointerEvents: 'none',
 };

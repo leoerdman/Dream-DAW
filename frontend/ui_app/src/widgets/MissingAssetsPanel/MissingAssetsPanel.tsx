@@ -135,56 +135,57 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
             position: 'absolute',
             top: 'var(--daw-transport-height)',
             right: 0,
-            bottom: 20,
+            bottom: 'var(--daw-status-bar-height)',
             width: 380,
-            zIndex: 120,
-            borderLeft: '1px solid var(--color-divider)',
-            background: 'color-mix(in srgb, var(--color-bg-panel) 93%, #0b0f15)',
+            zIndex: 'var(--z-status-popup)' as unknown as number,
+            borderLeft: 'var(--border-width-1) solid var(--color-divider)',
+            background: 'color-mix(in srgb, var(--color-bg-panel) 93%, var(--color-bg-base))',
             display: 'grid',
             gridTemplateRows: 'auto 1fr',
         }}>
             <div style={{
-                padding: '10px 12px',
-                borderBottom: '1px solid var(--color-divider)',
+                padding: 'var(--space-2-5) var(--space-3)',
+                borderBottom: 'var(--border-width-1) solid var(--color-divider)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
             }}>
-                <div style={{ display: 'grid', gap: 2 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#ff8a8a' }}>Missing Media Manager</span>
-                    <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>
+                <div style={{ display: 'grid', gap: 'var(--space-0-5)' }}>
+                    <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-bold)' as unknown as number, color: 'var(--color-status-error)' }}>Missing Media Manager</span>
+                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>
                         {missingClips.length} files offline · {missingPlugins.length} plugins missing
                     </span>
                 </div>
                 <button onClick={onClose} style={{
-                    border: '1px solid var(--color-divider)',
+                    border: 'var(--border-width-1) solid var(--color-divider)',
                     background: 'var(--color-bg-header)',
                     color: 'var(--color-text-secondary)',
-                    borderRadius: 6,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    padding: '4px 8px',
+                    borderRadius: 'var(--radius-lg)',
+                    fontSize: 'var(--font-size-sm)',
+                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+                    padding: 'var(--space-1) var(--space-2)',
                     cursor: 'pointer',
+                    transition: `background var(--transition-fast)`,
                 }}>Close</button>
             </div>
 
-            <div style={{ overflowY: 'auto', padding: 10, display: 'grid', gap: 12 }}>
-                <section style={{ display: 'grid', gap: 8 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-primary)' }}>Missing Audio Files</div>
+            <div style={{ overflowY: 'auto', padding: 'var(--space-2-5)', display: 'grid', gap: 'var(--space-3)' }}>
+                <section style={{ display: 'grid', gap: 'var(--space-2)' }}>
+                    <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)' as unknown as number, color: 'var(--color-text-primary)' }}>Missing Audio Files</div>
                     {missingClips.length === 0 ? (
-                        <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>No offline audio clips.</div>
+                        <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)' }}>No offline audio clips.</div>
                     ) : missingClips.map((item) => (
                         <div key={item.clipId} style={{
-                            border: '1px solid var(--color-divider)',
-                            borderRadius: 8,
+                            border: 'var(--border-width-1) solid var(--color-divider)',
+                            borderRadius: 'var(--radius-xl)',
                             background: 'var(--color-bg-header)',
-                            padding: 8,
+                            padding: 'var(--space-2)',
                             display: 'grid',
-                            gap: 6,
+                            gap: 'var(--space-1-5)',
                         }}>
-                            <div style={{ fontSize: 11, color: 'var(--color-text-primary)' }}>{item.clipName}</div>
-                            <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>{item.trackName}</div>
-                            <div style={{ display: 'flex', gap: 6 }}>
+                            <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>{item.clipName}</div>
+                            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>{item.trackName}</div>
+                            <div style={{ display: 'flex', gap: 'var(--space-1-5)' }}>
                                 <button
                                     onClick={async () => {
                                         const picked = await open({
@@ -222,10 +223,10 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                     ))}
                 </section>
 
-                <section style={{ display: 'grid', gap: 8 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-primary)' }}>Missing Plugins</div>
+                <section style={{ display: 'grid', gap: 'var(--space-2)' }}>
+                    <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)' as unknown as number, color: 'var(--color-text-primary)' }}>Missing Plugins</div>
                     {missingPlugins.length === 0 ? (
-                        <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>No missing plugin placeholders.</div>
+                        <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)' }}>No missing plugin placeholders.</div>
                     ) : missingPlugins.map((item) => {
                         const query = item.wantedName.toLowerCase();
                         const matches = pluginEntries
@@ -233,18 +234,18 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                             .slice(0, 4);
                         return (
                             <div key={item.slotId} style={{
-                                border: '1px solid var(--color-divider)',
-                                borderRadius: 8,
+                                border: 'var(--border-width-1) solid var(--color-divider)',
+                                borderRadius: 'var(--radius-xl)',
                                 background: 'var(--color-bg-header)',
-                                padding: 8,
+                                padding: 'var(--space-2)',
                                 display: 'grid',
-                                gap: 6,
+                                gap: 'var(--space-1-5)',
                             }}>
-                                <div style={{ fontSize: 11, color: 'var(--color-text-primary)' }}>{item.displayName}</div>
-                                <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>{item.trackName}</div>
-                                <div style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>Wanted: {item.wantedName}</div>
+                                <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>{item.displayName}</div>
+                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>{item.trackName}</div>
+                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Wanted: {item.wantedName}</div>
 
-                                <div style={{ display: 'grid', gap: 4 }}>
+                                <div style={{ display: 'grid', gap: 'var(--space-1)' }}>
                                     {matches.length > 0 ? matches.map((p) => (
                                         <button
                                             key={`${item.slotId}:${p.path}`}
@@ -264,13 +265,13 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                                             <span style={{ opacity: 0.7 }}>Use</span>
                                         </button>
                                     )) : (
-                                        <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>
+                                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>
                                             {scanBusy ? 'Scanning plugins...' : 'No close VST3 match found'}
                                         </div>
                                     )}
                                 </div>
 
-                                <div style={{ display: 'flex', gap: 6 }}>
+                                <div style={{ display: 'flex', gap: 'var(--space-1-5)' }}>
                                     <button
                                         onClick={async () => {
                                             const picked = await open({
@@ -309,19 +310,20 @@ export const MissingAssetsPanel = ({ isOpen, onClose }: MissingAssetsPanelProps)
                     })}
                 </section>
 
-                {message && <div style={{ fontSize: 10, color: 'var(--color-text-secondary)' }}>{message}</div>}
+                {message && <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>{message}</div>}
             </div>
         </div>
     );
 };
 
 const actionBtnStyle: CSSProperties = {
-    border: '1px solid var(--color-divider)',
-    borderRadius: 6,
+    border: 'var(--border-width-1) solid var(--color-divider)',
+    borderRadius: 'var(--radius-lg)',
     background: 'var(--color-bg-panel)',
     color: 'var(--color-text-secondary)',
-    fontSize: 10,
-    fontWeight: 600,
-    padding: '5px 8px',
+    fontSize: 'var(--font-size-xs)',
+    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+    padding: 'var(--space-1) var(--space-2)',
     cursor: 'pointer',
+    transition: `background var(--transition-fast)`,
 };

@@ -174,11 +174,11 @@ body {
    0%,
    100% {
       opacity: 0.68;
-      box-shadow: 0 0 3px rgba(255, 255, 255, 0.55);
+      box-shadow: 0 0 3px var(--glow-cursor);
    }
 
    50% {
-      opacity: 0.22;
+      opacity: var(--glow-cursor-dim);
       box-shadow: none;
    }
 }
@@ -192,20 +192,20 @@ body {
    0%,
    100% {
       opacity: 0.92;
-      box-shadow: 0 0 7px rgba(255, 255, 255, 0.52);
+      box-shadow: 0 0 7px var(--glow-drop-line);
    }
 
    50% {
       opacity: 0.42;
-      box-shadow: 0 0 2px rgba(255, 255, 255, 0.28);
+      box-shadow: 0 0 2px var(--glow-cursor-dim);
    }
 }
 
 .track-drop-insert-line {
-   height: 3px;
-   margin: 0 3px;
-   border-radius: 999px;
-   background: rgba(255, 255, 255, 0.96);
+   height: var(--daw-color-stripe-width);
+   margin: 0 var(--space-sm, 3px);
+   border-radius: var(--radius-full);
+   background: var(--color-text-bright);
    animation: track-drop-line-pulse 1.5s ease-in-out infinite;
    pointer-events: none;
 }

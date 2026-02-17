@@ -7,7 +7,7 @@
 import { useRef, useEffect, useCallback } from 'react';
 import throttle from 'lodash.throttle';
 import { useTimelineEngine, type UseTimelineEngineConfig } from '@/shared/lib/useTimelineEngine';
-import { beatToFrame } from '@/shared/lib/audioMath';
+import { beatToFrame, secondsToBeat } from '@/shared/lib/audioMath';
 import type { TimelineClipData } from '@/shared/lib/CanvasClipRenderer';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
@@ -562,7 +562,7 @@ export const Timeline = (props: TimelineProps) => {
             const track = engine.viewport.screenToTrack(dragCursorY, rect);
             engine.setDropTarget(null);
             const widthBeats = draggingItem.durationSeconds
-                ? Math.max(0.25, draggingItem.durationSeconds * (bpm / 60))
+                ? Math.max(0.25, secondsToBeat(draggingItem.durationSeconds, bpm))
                 : 4;
             engine.setGhostClip({
                 trackIndex: track,

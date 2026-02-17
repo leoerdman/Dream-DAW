@@ -104,10 +104,10 @@ export const PluginWindow = memo(function PluginWindow({
     // ── Header colors ────────────────────────────────────────────────
 
     const headerGradient = pluginType === 'instrument'
-        ? 'linear-gradient(135deg, #2d1b69 0%, #1a1036 100%)'
-        : 'linear-gradient(135deg, #1b3a2d 0%, #0f2218 100%)';
+        ? 'var(--plugin-header-instrument)'
+        : 'var(--plugin-header-effect)';
 
-    const accentColor = pluginType === 'instrument' ? '#9b59b6' : '#2ecc71';
+    const accentColor = pluginType === 'instrument' ? 'var(--plugin-accent-instrument)' : 'var(--plugin-accent-effect)';
 
     return (
         <div
@@ -123,7 +123,7 @@ export const PluginWindow = memo(function PluginWindow({
                 flexDirection: 'column',
                 background: 'var(--color-bg-elevated)',
                 borderRadius: 'var(--radius-md)',
-                border: '1px solid color-mix(in srgb, var(--color-text-primary) 8%, transparent)',
+                border: 'var(--border-width-1) solid color-mix(in srgb, var(--color-text-primary) 8%, transparent)',
                 boxShadow: '0 16px 64px var(--color-overlay-dark), 0 0 0 1px color-mix(in srgb, var(--color-text-primary) 5%, transparent)',
                 overflow: 'hidden',
             }}
@@ -136,11 +136,11 @@ export const PluginWindow = memo(function PluginWindow({
                     background: headerGradient,
                     display: 'flex',
                     alignItems: 'center',
-                    padding: '0 8px',
-                    gap: 8,
+                    padding: '0 var(--space-2)',
+                    gap: 'var(--space-2)',
                     cursor: 'grab',
                     flexShrink: 0,
-                    borderBottom: `1px solid ${accentColor}33`,
+                    borderBottom: `var(--border-width-1) solid color-mix(in srgb, ${accentColor} 20%, transparent)`,
                     userSelect: 'none',
                 }}
             >
@@ -158,7 +158,7 @@ export const PluginWindow = memo(function PluginWindow({
                 <span style={{
                     flex: 1,
                     fontSize: 'var(--font-size-sm)',
-                    fontWeight: 600,
+                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                     color: isBypassed ? 'var(--color-text-tertiary)' : 'var(--color-text-primary)',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
@@ -168,7 +168,7 @@ export const PluginWindow = memo(function PluginWindow({
                 </span>
 
                 {/* Preset navigation */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-0-5)' }}>
                     <button
                         onClick={(e) => { e.stopPropagation(); onPrevPreset?.(); }}
                         style={presetBtnStyle}
@@ -176,7 +176,7 @@ export const PluginWindow = memo(function PluginWindow({
                         ◀
                     </button>
                     <span style={{
-                        fontSize: 9,
+                        fontSize: 'var(--font-size-2xs)',
                         color: 'var(--color-text-secondary)',
                         minWidth: 60,
                         textAlign: 'center',
@@ -206,7 +206,7 @@ export const PluginWindow = memo(function PluginWindow({
                         justifyContent: 'center',
                         background: isBypassed ? 'color-mix(in srgb, var(--color-status-error) 20%, transparent)' : 'transparent',
                         color: isBypassed ? 'var(--color-status-error)' : 'var(--color-text-tertiary)',
-                        border: '1px solid color-mix(in srgb, var(--color-text-primary) 10%, transparent)',
+                        border: 'var(--border-width-1) solid color-mix(in srgb, var(--color-text-primary) 10%, transparent)',
                         borderRadius: 'var(--radius-xs)',
                         fontSize: 'var(--font-size-2xs)',
                         cursor: 'pointer',
@@ -249,13 +249,13 @@ export const PluginWindow = memo(function PluginWindow({
                 overflow: 'auto',
             }}>
                 {children ? (
-                    <div style={{ padding: 12, height: '100%' }}>{children}</div>
+                    <div style={{ padding: 'var(--space-3)', height: '100%' }}>{children}</div>
                 ) : (
                     <div style={{
                         display: 'grid',
                         gridTemplateColumns: 'repeat(4, 1fr)',
-                        gap: 12,
-                        padding: 16,
+                        gap: 'var(--space-3)',
+                        padding: 'var(--space-4)',
                         alignContent: 'start',
                     }}>
                         {['Gain', 'Frequency', 'Resonance', 'Mix', 'Attack', 'Release', 'Threshold', 'Ratio'].map(param => (
@@ -263,14 +263,14 @@ export const PluginWindow = memo(function PluginWindow({
                                 display: 'flex',
                                 flexDirection: 'column',
                                 alignItems: 'center',
-                                gap: 4,
+                                gap: 'var(--space-1)',
                             }}>
                                 <div style={{
                                     width: 48,
                                     height: 48,
                                     borderRadius: '50%',
-                                    background: `conic-gradient(${accentColor} 0deg, ${accentColor} 200deg, #2a2a2a 200deg, #2a2a2a 360deg)`,
-                                    border: '2px solid color-mix(in srgb, var(--color-text-primary) 8%, transparent)',
+                                    background: `conic-gradient(${accentColor} 0deg, ${accentColor} 200deg, var(--color-bg-tertiary) 200deg, var(--color-bg-tertiary) 360deg)`,
+                                    border: 'var(--border-width-2) solid color-mix(in srgb, var(--color-text-primary) 8%, transparent)',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
@@ -284,14 +284,14 @@ export const PluginWindow = memo(function PluginWindow({
                                         alignItems: 'center',
                                         justifyContent: 'center',
                                         fontSize: 'var(--font-size-2xs)',
-                                        fontWeight: 600,
+                                        fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                                         color: 'var(--color-text-secondary)',
                                     }}>
                                         0.55
                                     </div>
                                 </div>
                                 <span style={{
-                                    fontSize: 9,
+                                    fontSize: 'var(--font-size-2xs)',
                                     color: 'var(--color-text-tertiary)',
                                     textAlign: 'center',
                                 }}>
@@ -317,8 +317,9 @@ const presetBtnStyle: React.CSSProperties = {
     background: 'transparent',
     color: 'var(--color-text-tertiary)',
     border: 'none',
-    fontSize: 6,
+    fontSize: 'var(--font-size-micro)',
     cursor: 'pointer',
+    transition: `color var(--transition-fast)`,
 };
 
 export default PluginWindow;

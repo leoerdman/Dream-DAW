@@ -1512,6 +1512,9 @@ struct HostComponentHandler {
     vtbl: *const IComponentHandlerVtbl,
 }
 
+// Safety: vtbl points to a static constant vtable. Singleton is immutable.
+unsafe impl Sync for HostComponentHandler {}
+
 unsafe extern "C" fn comp_handler_query_interface(
     this: *mut c_void,
     iid: *const Tuid,
@@ -1537,13 +1540,13 @@ unsafe extern "C" fn comp_handler_release(_this: *mut c_void) -> u32 {
 
 /// Called by plugin when user starts editing a parameter (e.g., mouse down on knob).
 unsafe extern "C" fn comp_handler_begin_edit(_this: *mut c_void, id: u32) -> Tresult {
-    debug!("[IComponentHandler] beginEdit param_id={}", id);
+    log::debug!("[IComponentHandler] beginEdit param_id={}", id);
     K_RESULT_OK
 }
 
 /// Called by plugin when a parameter value changes during editing.
 unsafe extern "C" fn comp_handler_perform_edit(_this: *mut c_void, id: u32, value: f64) -> Tresult {
-    debug!(
+    log::debug!(
         "[IComponentHandler] performEdit param_id={} value={:.4}",
         id, value
     );
@@ -1552,7 +1555,7 @@ unsafe extern "C" fn comp_handler_perform_edit(_this: *mut c_void, id: u32, valu
 
 /// Called by plugin when user finishes editing a parameter (e.g., mouse up).
 unsafe extern "C" fn comp_handler_end_edit(_this: *mut c_void, id: u32) -> Tresult {
-    debug!("[IComponentHandler] endEdit param_id={}", id);
+    log::debug!("[IComponentHandler] endEdit param_id={}", id);
     K_RESULT_OK
 }
 

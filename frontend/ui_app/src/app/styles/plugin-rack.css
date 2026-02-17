@@ -52,10 +52,15 @@
     height: var(--daw-color-stripe-width);
     background: var(--device-tint, var(--color-control-tint));
     border-radius: var(--node-border-radius) var(--node-border-radius) 0 0;
+    /* Hidden by default — shown when [data-effect] attribute is present */
     display: none;
 }
 
-/* Effect-type color stripes */
+/* Effect-type color stripes — display:block enables the stripe */
+.device-node[data-effect]::before {
+    display: block;
+}
+
 .device-node[data-effect="eq"]::before {
     --device-tint: var(--color-effect-eq);
 }

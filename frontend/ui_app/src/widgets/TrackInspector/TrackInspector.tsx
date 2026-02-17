@@ -4,6 +4,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import * as engineApi from '@/shared/api/engine';
 import { getContrastColor } from '@/shared/lib/colorUtils';
+import { vuNorm } from '@/shared/lib/audioMath';
 
 
 /**
@@ -94,14 +95,7 @@ function mapProjectTrack(
     };
 }
 
-// ── VU Meter Helpers ──
-
-/** Normalize a peak dB value (typically -60 to 0+) into 0..1 range for display. */
-function vuNorm(peakDb: number): number {
-    if (!isFinite(peakDb) || peakDb < -60) return 0;
-    const clamped = Math.min(peakDb, 6);
-    return (clamped + 60) / 66;
-}
+// vuNorm imported from '@/shared/lib/audioMath'
 
 
 
@@ -1093,7 +1087,7 @@ export const TrackInspector = ({
     return (
         <div data-testid="track-inspector" data-keyboard-scope="track-inspector" style={{
             display: 'flex', flexDirection: 'column', height: '100%',
-            background: 'var(--color-bg-panel)', fontSize: 10,
+            background: 'var(--color-bg-panel)', fontSize: 'var(--font-size-xs)',
         }}>
             {/* Ruler spacer */}
             <div style={{
@@ -1103,7 +1097,7 @@ export const TrackInspector = ({
                 display: 'flex', alignItems: 'center', paddingLeft: 8,
             }}>
                 <span style={{
-                    fontSize: 9, fontWeight: 600,
+                    fontSize: 'var(--font-size-2xs)', fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                     color: 'var(--color-text-secondary)',
                     letterSpacing: '0.5px', textTransform: 'uppercase',
                 }}>
@@ -1113,7 +1107,7 @@ export const TrackInspector = ({
                     <span style={{
                         marginLeft: 6,
                         fontSize: 'var(--font-size-micro)',
-                        fontWeight: 700,
+                        fontWeight: 'var(--font-weight-bold)' as unknown as number,
                         fontFamily: 'var(--font-mono)',
                         color: 'var(--color-accent-primary)',
                         background: 'color-mix(in srgb, var(--color-accent-primary) 14%, transparent)',
@@ -1277,41 +1271,41 @@ export const TrackInspector = ({
             {(() => {
                 const masterRowHeight = rowHeightsByTrackId.master ?? trackHeight;
                 return (
-            <TrackRow
-                track={masterTrack}
-                allTracks={tracks}
-                trackHeight={masterRowHeight}
-                isSelected={selectedTrackId === 'master'}
-                isPrimarySelected={selectedTrackId === 'master'}
-                isCollapsed={false}
-                depth={0}
-                isRenaming={false}
-                renameValue=""
-                onRenameChange={() => { }}
-                onRenameCommit={() => { }}
-                onRenameCancel={() => { }}
-                onClick={() => {
-                    applySelection([], 'master');
-                }}
-                onToggleMute={() => { }}
-                onToggleSolo={() => { }}
-                onToggleArm={() => { }}
-                onVolumeChange={(gain: number) => {
-                    void engineSetMasterVolume(gain);
-                }}
-                onPanChange={() => { }}
-                onOutputChange={() => { }}
-                onInputChange={() => { }}
-                onContextMenu={(e) => {
-                    e.preventDefault();
-                    setContextMenu({ trackId: 'master', trackIndex: -1, x: e.clientX, y: e.clientY });
-                }}
-                layout={rowLayout}
-                isResizing={resizingTrackId === 'master'}
-                onResizeStart={(startY) => beginRowResize('master', masterRowHeight, startY)}
-                isMasterFixed
-                mixerFocusMode={mixerFocusMode}
-            />
+                    <TrackRow
+                        track={masterTrack}
+                        allTracks={tracks}
+                        trackHeight={masterRowHeight}
+                        isSelected={selectedTrackId === 'master'}
+                        isPrimarySelected={selectedTrackId === 'master'}
+                        isCollapsed={false}
+                        depth={0}
+                        isRenaming={false}
+                        renameValue=""
+                        onRenameChange={() => { }}
+                        onRenameCommit={() => { }}
+                        onRenameCancel={() => { }}
+                        onClick={() => {
+                            applySelection([], 'master');
+                        }}
+                        onToggleMute={() => { }}
+                        onToggleSolo={() => { }}
+                        onToggleArm={() => { }}
+                        onVolumeChange={(gain: number) => {
+                            void engineSetMasterVolume(gain);
+                        }}
+                        onPanChange={() => { }}
+                        onOutputChange={() => { }}
+                        onInputChange={() => { }}
+                        onContextMenu={(e) => {
+                            e.preventDefault();
+                            setContextMenu({ trackId: 'master', trackIndex: -1, x: e.clientX, y: e.clientY });
+                        }}
+                        layout={rowLayout}
+                        isResizing={resizingTrackId === 'master'}
+                        onResizeStart={(startY) => beginRowResize('master', masterRowHeight, startY)}
+                        isMasterFixed
+                        mixerFocusMode={mixerFocusMode}
+                    />
                 );
             })()}
 
@@ -1435,8 +1429,8 @@ const ContextMenuPopup = ({
     const itemStyle: React.CSSProperties = {
         width: '100%', padding: '6px 12px',
         background: 'none', border: 'none',
-        color: 'var(--color-text-primary)', fontSize: 11, fontWeight: 400,
-        textAlign: 'left', cursor: 'pointer', borderRadius: 4,
+        color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-regular)' as unknown as number,
+        textAlign: 'left', cursor: 'pointer', borderRadius: 'var(--radius-md)',
         display: 'flex', alignItems: 'center', gap: 8,
     };
 
@@ -1444,73 +1438,73 @@ const ContextMenuPopup = ({
         <div ref={ref} style={{
             position: 'fixed', left: clampedX, top: clampedY, width: 188,
             background: 'var(--surface-2)', border: '1px solid var(--color-border-subtle)',
-            borderRadius: 8, padding: 4, zIndex: 'var(--z-menu)' as unknown as number,
+            borderRadius: 'var(--radius-xl)', padding: 4, zIndex: 'var(--z-menu)' as unknown as number,
             boxShadow: 'var(--shadow-panel)',
         }}>
             <button style={itemStyle} onClick={onAddAudioTrack}
                 onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
-                <span style={{ width: 14, fontSize: 12 }}>🎚</span> Add Audio Track
+                <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>🎚</span> Add Audio Track
             </button>
             <button style={itemStyle} onClick={onAddMidiTrack}
                 onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
-                <span style={{ width: 14, fontSize: 12 }}>🎹</span> Add MIDI Track
+                <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>🎹</span> Add MIDI Track
             </button>
             {!showTrackActions && null}
             {showTrackActions && (
                 <>
-            <div style={{ height: 1, background: 'var(--color-divider)', margin: '2px 8px' }} />
-            <button style={itemStyle} onClick={onRename}
-                onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
-                <span style={{ width: 14, fontSize: 12 }}>✏️</span> Rename
-            </button>
-            <button style={itemStyle} onClick={onChangeColor}
-                onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
-                <span style={{ width: 14, fontSize: 12 }}>🎨</span> Change Color
-            </button>
-            <button style={itemStyle} onClick={onPaintClips}
-                onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
-                <span style={{ width: 14, fontSize: 12 }}>🖌</span> Paint Clips As Track
-            </button>
-            <button style={itemStyle} onClick={onBounceTrack}
-                onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
-                <span style={{ width: 14, fontSize: 12 }}>📀</span> Bounce Track
-            </button>
-            {canBounceGroup && (
-                <button style={itemStyle} onClick={onBounceGroup}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
-                    <span style={{ width: 14, fontSize: 12 }}>📦</span> Bounce Group
-                </button>
-            )}
-            <button style={itemStyle} onClick={onSplitToStems}
-                onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
-                <span style={{ width: 14, fontSize: 12 }}>🧪</span> Split To 4 Stems
-            </button>
-            <button style={itemStyle} onClick={onGroup}
-                onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
-                <span style={{ width: 14, fontSize: 12 }}>🧩</span> Group Track
-            </button>
-            {canUngroup && (
-                <button style={itemStyle} onClick={onUngroup}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
-                    <span style={{ width: 14, fontSize: 12 }}>↗</span> Move To Top Level
-                </button>
-            )}
-            <div style={{ height: 1, background: 'var(--color-divider)', margin: '2px 8px' }} />
-            <button style={{ ...itemStyle, color: 'var(--color-status-error)' }} onClick={onDelete}
-                onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--color-status-error) 18%, transparent)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
-                <span style={{ width: 14, fontSize: 12 }}>🗑</span> Delete Track
-            </button>
+                    <div style={{ height: 1, background: 'var(--color-divider)', margin: '2px 8px' }} />
+                    <button style={itemStyle} onClick={onRename}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                        <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>✏️</span> Rename
+                    </button>
+                    <button style={itemStyle} onClick={onChangeColor}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                        <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>🎨</span> Change Color
+                    </button>
+                    <button style={itemStyle} onClick={onPaintClips}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                        <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>🖌</span> Paint Clips As Track
+                    </button>
+                    <button style={itemStyle} onClick={onBounceTrack}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                        <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>📀</span> Bounce Track
+                    </button>
+                    {canBounceGroup && (
+                        <button style={itemStyle} onClick={onBounceGroup}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                            <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>📦</span> Bounce Group
+                        </button>
+                    )}
+                    <button style={itemStyle} onClick={onSplitToStems}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                        <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>🧪</span> Split To 4 Stems
+                    </button>
+                    <button style={itemStyle} onClick={onGroup}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                        <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>🧩</span> Group Track
+                    </button>
+                    {canUngroup && (
+                        <button style={itemStyle} onClick={onUngroup}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                            <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>↗</span> Move To Top Level
+                        </button>
+                    )}
+                    <div style={{ height: 1, background: 'var(--color-divider)', margin: '2px 8px' }} />
+                    <button style={{ ...itemStyle, color: 'var(--color-status-error)' }} onClick={onDelete}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--color-status-error) 18%, transparent)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                        <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>🗑</span> Delete Track
+                    </button>
                 </>
             )}
         </div>
@@ -1701,7 +1695,7 @@ const VolumeFader = ({
                 {showZeroTick && (
                     <div style={{
                         position: 'absolute', left: `${zeroTickPos * 100}%`, top: 0, bottom: 0,
-                        width: 1, background: 'var(--color-divider-light)', zIndex: 1,
+                        width: 1, background: 'var(--color-divider-light)', zIndex: 'var(--z-local)' as unknown as number,
                     }} />
                 )}
                 {/* Fill */}
@@ -1722,7 +1716,7 @@ const VolumeFader = ({
                     justifyContent: 'center',
                     fontSize: compact ? 'var(--font-size-2xs)' : 'var(--font-size-xs)',
                     fontFamily: 'var(--font-mono)',
-                    fontWeight: 700,
+                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
                     color: 'var(--color-text-primary)',
                     textShadow: 'var(--text-shadow-subtle)',
                     pointerEvents: 'none',
@@ -1857,7 +1851,7 @@ const PanFader = ({
                     justifyContent: 'center',
                     fontSize: compact ? 'var(--font-size-2xs)' : 'var(--font-size-xs)',
                     fontFamily: 'var(--font-mono)',
-                    fontWeight: 700,
+                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
                     color: 'var(--color-text-primary)',
                     textShadow: 'var(--text-shadow-subtle)',
                     pointerEvents: 'none',
@@ -1916,7 +1910,7 @@ const TriColorVU = ({
                 height: 1,
                 background: 'var(--color-overlay-dark)',
                 pointerEvents: 'none',
-                zIndex: 2,
+                zIndex: 'var(--z-local)' as unknown as number,
             }} />
             <div style={{
                 position: 'absolute',
@@ -2350,81 +2344,81 @@ const TrackRow = ({
                     }}
                 >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                    {/* Collapse / Group icon */}
-                    {isGroup && onToggleCollapse ? (
-                        <button
-                            onClick={e => { e.stopPropagation(); onToggleCollapse(); }}
-                            style={{
-                                width: 12, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                background: 'none', border: 'none', color: headerTextColor,
-                                fontSize: 'var(--font-size-micro)', cursor: 'pointer', flexShrink: 0, padding: 0,
-                            }}
-                        >
-                            {isCollapsed ? '▶' : '▼'}
-                        </button>
-                    ) : null}
+                        {/* Collapse / Group icon */}
+                        {isGroup && onToggleCollapse ? (
+                            <button
+                                onClick={e => { e.stopPropagation(); onToggleCollapse(); }}
+                                style={{
+                                    width: 12, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    background: 'none', border: 'none', color: headerTextColor,
+                                    fontSize: 'var(--font-size-micro)', cursor: 'pointer', flexShrink: 0, padding: 0,
+                                }}
+                            >
+                                {isCollapsed ? '▶' : '▼'}
+                            </button>
+                        ) : null}
 
-                    {/* Track Name */}
-                    {isRenaming ? (
-                        <input
-                            ref={renameInputRef}
-                            value={renameValue}
-                            onChange={e => onRenameChange(e.target.value)}
-                            onKeyDown={e => {
-                                e.stopPropagation();
-                                if (e.key === 'Enter') onRenameCommit();
-                                if (e.key === 'Escape') onRenameCancel();
-                            }}
-                            onBlur={onRenameCommit}
-                            onClick={e => e.stopPropagation()}
-                            style={{
-                                fontSize: 'var(--font-size-xs)', fontWeight: 600,
-                                background: headerContrast === 'black'
-                                    ? 'rgba(255, 255, 255, 0.42)'
-                                    : 'rgba(0, 0, 0, 0.34)',
-                                border: `1px solid ${track.color}`,
-                                borderRadius: 'var(--radius-xs)', color: headerTextColor,
-                                padding: '1px 3px', outline: 'none', minWidth: 0,
-                            }}
-                        />
-                    ) : (
+                        {/* Track Name */}
+                        {isRenaming ? (
+                            <input
+                                ref={renameInputRef}
+                                value={renameValue}
+                                onChange={e => onRenameChange(e.target.value)}
+                                onKeyDown={e => {
+                                    e.stopPropagation();
+                                    if (e.key === 'Enter') onRenameCommit();
+                                    if (e.key === 'Escape') onRenameCancel();
+                                }}
+                                onBlur={onRenameCommit}
+                                onClick={e => e.stopPropagation()}
+                                style={{
+                                    fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-semibold)' as unknown as number,
+                                    background: headerContrast === 'black'
+                                        ? 'rgba(255, 255, 255, 0.42)'
+                                        : 'rgba(0, 0, 0, 0.34)',
+                                    border: `1px solid ${track.color}`,
+                                    borderRadius: 'var(--radius-xs)', color: headerTextColor,
+                                    padding: '1px 3px', outline: 'none', minWidth: 0,
+                                }}
+                            />
+                        ) : (
+                            <span style={{
+                                flex: 1, fontSize: 'var(--font-size-base)',
+                                fontWeight: isGroup || isMasterFixed ? 700 : 600,
+                                color: headerTextColor,
+                                whiteSpace: 'nowrap', overflow: 'hidden',
+                                textOverflow: 'ellipsis', minWidth: 0,
+                            }}>
+                                {track.name}
+                            </span>
+                        )}
+                    </div>
+
+                    {/* ── Type Icon (absolute top-right) ── */}
+                    {!isMasterFixed && !isGroup && (
                         <span style={{
-                            flex: 1, fontSize: 12,
-                            fontWeight: isGroup || isMasterFixed ? 700 : 600,
-                            color: headerTextColor,
-                            whiteSpace: 'nowrap', overflow: 'hidden',
-                            textOverflow: 'ellipsis', minWidth: 0,
+                            position: 'absolute',
+                            top: 3,
+                            right: 4,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            opacity: 0.55,
                         }}>
-                            {track.name}
+                            {track.type === 'midi' ? (
+                                <svg width="9" height="9" viewBox="0 0 12 12" fill="none">
+                                    <rect x="0" y="1" width="3" height="10" rx="0.5" fill={headerTextColor} />
+                                    <rect x="4.5" y="1" width="3" height="10" rx="0.5" fill={headerTextColor} />
+                                    <rect x="9" y="1" width="3" height="10" rx="0.5" fill={headerTextColor} />
+                                    <rect x="2" y="1" width="2" height="6" rx="0.3" fill={headerContrast === 'black' ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)'} />
+                                    <rect x="6.5" y="1" width="2" height="6" rx="0.3" fill={headerContrast === 'black' ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)'} />
+                                </svg>
+                            ) : (
+                                <svg width="9" height="9" viewBox="0 0 14 10" fill="none">
+                                    <path d="M1 5 L2.5 2 L4 7 L5.5 1 L7 9 L8.5 3 L10 6 L11.5 4 L13 5" stroke={headerTextColor} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                            )}
                         </span>
                     )}
-                </div>
-
-                {/* ── Type Icon (absolute top-right) ── */}
-                {!isMasterFixed && !isGroup && (
-                    <span style={{
-                        position: 'absolute',
-                        top: 3,
-                        right: 4,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        opacity: 0.55,
-                    }}>
-                        {track.type === 'midi' ? (
-                            <svg width="9" height="9" viewBox="0 0 12 12" fill="none">
-                                <rect x="0" y="1" width="3" height="10" rx="0.5" fill={headerTextColor} />
-                                <rect x="4.5" y="1" width="3" height="10" rx="0.5" fill={headerTextColor} />
-                                <rect x="9" y="1" width="3" height="10" rx="0.5" fill={headerTextColor} />
-                                <rect x="2" y="1" width="2" height="6" rx="0.3" fill={headerContrast === 'black' ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)'} />
-                                <rect x="6.5" y="1" width="2" height="6" rx="0.3" fill={headerContrast === 'black' ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)'} />
-                            </svg>
-                        ) : (
-                            <svg width="9" height="9" viewBox="0 0 14 10" fill="none">
-                                <path d="M1 5 L2.5 2 L4 7 L5.5 1 L7 9 L8.5 3 L10 6 L11.5 4 L13 5" stroke={headerTextColor} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                        )}
-                    </span>
-                )}
                 </div>
             </div>
 
@@ -2449,7 +2443,7 @@ const TrackRow = ({
                                 fontSize: 'var(--font-size-micro)',
                                 color: 'var(--color-text-tertiary)',
                                 pointerEvents: 'none',
-                                zIndex: 1,
+                                zIndex: 'var(--z-local)' as unknown as number,
                             }}>←</span>
                             <select
                                 onClick={e => e.stopPropagation()}
@@ -2460,7 +2454,7 @@ const TrackRow = ({
                                 }}
                                 title="Audio From"
                                 style={{
-                                    fontSize: 'var(--font-size-2xs)', fontWeight: 500,
+                                    fontSize: 'var(--font-size-2xs)', fontWeight: 'var(--font-weight-medium)' as unknown as number,
                                     color: 'var(--color-text-primary)',
                                     background: 'var(--color-control-bg)',
                                     border: '1px solid var(--color-control-border)',
@@ -2489,7 +2483,7 @@ const TrackRow = ({
                                 fontSize: 'var(--font-size-micro)',
                                 color: 'var(--color-text-tertiary)',
                                 pointerEvents: 'none',
-                                zIndex: 1,
+                                zIndex: 'var(--z-local)' as unknown as number,
                             }}>→</span>
                             <select
                                 onClick={e => e.stopPropagation()}
@@ -2500,7 +2494,7 @@ const TrackRow = ({
                                 }}
                                 title="Audio To"
                                 style={{
-                                    fontSize: 'var(--font-size-2xs)', fontWeight: 500,
+                                    fontSize: 'var(--font-size-2xs)', fontWeight: 'var(--font-weight-medium)' as unknown as number,
                                     color: 'var(--color-text-primary)',
                                     background: 'var(--color-control-bg)',
                                     border: '1px solid var(--color-control-border)',
@@ -2574,7 +2568,7 @@ const TrackRow = ({
                                 border: 'none',
                                 borderRadius: 'var(--radius-xs)',
                                 fontSize: 'var(--font-size-micro)',
-                                fontWeight: 700,
+                                fontWeight: 'var(--font-weight-bold)' as unknown as number,
                                 fontFamily: 'var(--font-mono)',
                                 cursor: 'pointer',
                                 padding: 0,
@@ -2599,7 +2593,7 @@ const TrackRow = ({
                                     : '1px solid color-mix(in srgb, var(--text-primary) 18%, transparent)',
                                 borderRadius: 'var(--radius-xs)',
                                 fontSize: 'var(--font-size-micro)',
-                                fontWeight: 700,
+                                fontWeight: 'var(--font-weight-bold)' as unknown as number,
                                 cursor: 'pointer',
                                 padding: 0,
                                 transition: 'background 0.1s ease',
@@ -2787,7 +2781,7 @@ const TrackRow = ({
                     bottom: -3,
                     height: 7,
                     cursor: 'ns-resize',
-                    zIndex: 5,
+                    zIndex: 'var(--z-local)' as unknown as number,
                 }}
             />
             {(resizeHot || isResizing) && (
@@ -2802,7 +2796,7 @@ const TrackRow = ({
                         background: 'color-mix(in srgb, var(--color-accent-primary) 76%, white)',
                         boxShadow: '0 0 6px color-mix(in srgb, var(--color-accent-primary) 35%, transparent)',
                         pointerEvents: 'none',
-                        zIndex: 4,
+                        zIndex: 'var(--z-local)' as unknown as number,
                     }}
                 />
             )}
@@ -2844,11 +2838,11 @@ const ColorPickerPopup = ({
         <div ref={ref} style={{
             position: 'fixed', left: clampedX, top: clampedY, width: popupWidth,
             background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border-subtle)',
-            borderRadius: 8, padding: 8, zIndex: 'var(--z-menu)' as unknown as number,
+            borderRadius: 'var(--radius-xl)', padding: 8, zIndex: 'var(--z-menu)' as unknown as number,
             boxShadow: '0 8px 32px var(--color-overlay-dark)',
         }}>
             <div style={{
-                fontSize: 'var(--font-size-2xs)', fontWeight: 600,
+                fontSize: 'var(--font-size-2xs)', fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                 color: 'var(--color-text-secondary)',
                 textTransform: 'uppercase', letterSpacing: '0.05em',
                 marginBottom: 6, textAlign: 'center',

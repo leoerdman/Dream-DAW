@@ -22,7 +22,7 @@ use dream_clip_engine::reader::{ClipReader, WarpResampleMode};
 use dream_clip_engine::scheduler::{ActiveClipInfo, ClipScheduler, LoopRegion as ClipLoopRegion};
 use dream_dsp::device_chain::DeviceChain;
 use dream_dsp::fades::FadeCache;
-use dream_ipc::metering::{compute_peak, compute_rms, linear_to_db, MeterBank};
+use dream_ipc::metering::{compute_peak, compute_rms, linear_to_db, peak_decay_for_block, MeterBank};
 use dream_mixer::{ChannelStrip, SummingBus};
 use dream_transport::Playhead;
 
@@ -481,11 +481,12 @@ impl RenderContext {
                 let rms_r = linear_to_db(compute_rms(&slot.buf_right[..frame_count]));
                 let peak_l = linear_to_db(compute_peak(&slot.buf_left[..frame_count]));
                 let peak_r = linear_to_db(compute_peak(&slot.buf_right[..frame_count]));
+                let decay = peak_decay_for_block(self.sample_rate, frame_count);
 
                 meter_l.store_rms(rms_l);
                 meter_r.store_rms(rms_r);
-                meter_l.store_peak_decay(peak_l, 0.99);
-                meter_r.store_peak_decay(peak_r, 0.99);
+                meter_l.store_peak_decay(peak_l, decay);
+                meter_r.store_peak_decay(peak_r, decay);
             }
         }
 
@@ -547,14 +548,15 @@ impl RenderContext {
         let m_peak_l = linear_to_db(compute_peak(master_l));
         let m_peak_r = linear_to_db(compute_peak(master_r));
 
+        let master_decay = peak_decay_for_block(self.sample_rate, frame_count);
         self.meter_bank.master_left().store_rms(m_rms_l);
         self.meter_bank.master_right().store_rms(m_rms_r);
         self.meter_bank
             .master_left()
-            .store_peak_decay(m_peak_l, 0.99);
+            .store_peak_decay(m_peak_l, master_decay);
         self.meter_bank
             .master_right()
-            .store_peak_decay(m_peak_r, 0.99);
+            .store_peak_decay(m_peak_r, master_decay);
 
         // Interleave into output [L, R, L, R, ...]
         for i in 0..frame_count {

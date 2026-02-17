@@ -166,15 +166,15 @@ impl DspProcessor for ChorusProcessor {
             // HP filter on wet signal (preserve bass clarity)
             // Standard one-pole HP: y[n] = alpha * (y[n-1] + x[n] - x[n-1])
             self.hp_state_l =
-                (self.hp_coeff * (self.hp_state_l + wet_l - self.hp_prev_l)).clamp(-4.0, 4.0);
+                (self.hp_coeff * (self.hp_state_l + wet_l - self.hp_prev_l)).clamp(-8.0, 8.0);
             self.hp_state_r =
-                (self.hp_coeff * (self.hp_state_r + wet_r - self.hp_prev_r)).clamp(-4.0, 4.0);
+                (self.hp_coeff * (self.hp_state_r + wet_r - self.hp_prev_r)).clamp(-8.0, 8.0);
             self.hp_prev_l = wet_l;
             self.hp_prev_r = wet_r;
 
             // Mix
-            left[i] = (dry_l * (1.0 - self.mix) + self.hp_state_l * self.mix).clamp(-4.0, 4.0);
-            right[i] = (dry_r * (1.0 - self.mix) + self.hp_state_r * self.mix).clamp(-4.0, 4.0);
+            left[i] = (dry_l * (1.0 - self.mix) + self.hp_state_l * self.mix).clamp(-8.0, 8.0);
+            right[i] = (dry_r * (1.0 - self.mix) + self.hp_state_r * self.mix).clamp(-8.0, 8.0);
 
             self.lfo_phase += phase_inc;
             if self.lfo_phase >= 1.0 {

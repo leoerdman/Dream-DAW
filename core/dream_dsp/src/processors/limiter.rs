@@ -40,6 +40,8 @@ pub struct LimiterProcessor {
     // Look-ahead buffers
     la_buf_l: [f32; MAX_LOOKAHEAD],
     la_buf_r: [f32; MAX_LOOKAHEAD],
+    /// Per-sample gain-reduction targets (ring buffer, same indexing as la_buf).
+    la_gain: [f32; MAX_LOOKAHEAD],
     la_pos: usize,
     la_samples: usize,
     // Adaptive release
@@ -63,6 +65,7 @@ impl LimiterProcessor {
             release_coeff: 0.0,
             la_buf_l: [0.0; MAX_LOOKAHEAD],
             la_buf_r: [0.0; MAX_LOOKAHEAD],
+            la_gain: [1.0; MAX_LOOKAHEAD],
             la_pos: 0,
             la_samples: 0,
             fast_release: 0.0,
@@ -103,45 +106,66 @@ impl DspProcessor for LimiterProcessor {
         let threshold = self.threshold_lin;
         let ceiling = self.ceiling_lin;
         let link = self.stereo_link;
+        let la_samples = self.la_samples;
 
         for i in 0..len {
-            // Store in look-ahead buffer
-            let la_read = (self.la_pos + MAX_LOOKAHEAD - self.la_samples) % MAX_LOOKAHEAD;
-            let out_l = self.la_buf_l[la_read];
-            let out_r = self.la_buf_r[la_read];
+            // Write incoming sample into the lookahead delay buffer
             self.la_buf_l[self.la_pos] = left[i];
             self.la_buf_r[self.la_pos] = right[i];
-            self.la_pos = (self.la_pos + 1) % MAX_LOOKAHEAD;
 
-            // Peak detection with stereo linking
+            // Peak detection from incoming sample (with stereo linking)
             let peak_l = left[i].abs();
             let peak_r = right[i].abs();
             let peak = peak_l.max(peak_r) * link + (peak_l + peak_r) * 0.5 * (1.0 - link);
 
-            // Target gain
+            // Target gain for this incoming sample
             let target_gain = if peak > threshold {
                 threshold / peak
             } else {
                 1.0
             };
 
-            // Smoothing (instant attack, smooth release)
-            if target_gain < self.gain {
-                self.gain = target_gain; // instant attack
+            // Store gain target at the current write position
+            self.la_gain[self.la_pos] = target_gain;
+
+            // Propagate gain reduction BACKWARDS through the lookahead window.
+            // If this sample requires attenuation, all samples that will be
+            // output before it must be pre-attenuated too (minimum wins).
+            if target_gain < 1.0 {
+                for j in 1..la_samples {
+                    let idx = (self.la_pos + MAX_LOOKAHEAD - j) % MAX_LOOKAHEAD;
+                    if self.la_gain[idx] > target_gain {
+                        self.la_gain[idx] = target_gain;
+                    } else {
+                        break; // earlier entries already have enough reduction
+                    }
+                }
+            }
+
+            // Read from the delayed position
+            let la_read = (self.la_pos + MAX_LOOKAHEAD - la_samples) % MAX_LOOKAHEAD;
+            let out_l = self.la_buf_l[la_read];
+            let out_r = self.la_buf_r[la_read];
+            let la_target = self.la_gain[la_read];
+
+            // Smooth gain (instant attack via lookahead, smooth release)
+            if la_target < self.gain {
+                self.gain = la_target;
             } else if self.auto_release {
-                // Adaptive: blend fast + slow release
-                let fast = self.fast_release * self.gain + (1.0 - self.fast_release) * target_gain;
-                let slow = self.slow_release * self.gain + (1.0 - self.slow_release) * target_gain;
+                let fast = self.fast_release * self.gain + (1.0 - self.fast_release) * la_target;
+                let slow = self.slow_release * self.gain + (1.0 - self.slow_release) * la_target;
                 self.gain = fast * 0.5 + slow * 0.5;
             } else {
                 self.gain =
-                    self.release_coeff * self.gain + (1.0 - self.release_coeff) * target_gain;
+                    self.release_coeff * self.gain + (1.0 - self.release_coeff) * la_target;
             }
 
             // Apply gain and ceiling
             let scale = self.gain * (ceiling / threshold);
             left[i] = out_l * scale;
             right[i] = out_r * scale;
+
+            self.la_pos = (self.la_pos + 1) % MAX_LOOKAHEAD;
         }
     }
 
@@ -173,6 +197,7 @@ impl DspProcessor for LimiterProcessor {
         self.gain = 1.0;
         self.la_buf_l = [0.0; MAX_LOOKAHEAD];
         self.la_buf_r = [0.0; MAX_LOOKAHEAD];
+        self.la_gain = [1.0; MAX_LOOKAHEAD];
         self.la_pos = 0;
     }
 }

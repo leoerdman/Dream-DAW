@@ -6,281 +6,283 @@
    ═════════════════════════════════════════════════════════════ */
 
 :root {
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      SPACING (base: 4px) — Theme Independent
      ───────────────────────────────────────────────────────────── */
-   --space-0: 0;
-   --space-px: 1px;
-   --space-0-5: 2px;
-   --space-1: 4px;
-   --space-1-5: 6px;
-   --space-2: 8px;
-   --space-2-5: 10px;
-   --space-3: 12px;
-   --space-3-5: 14px;
-   --space-4: 16px;
-   --space-5: 20px;
-   --space-6: 24px;
-   --space-7: 28px;
-   --space-8: 32px;
-   --space-10: 40px;
-   --space-12: 48px;
-   --space-16: 64px;
-   --space-20: 80px;
-   --space-24: 96px;
+  --space-0: 0;
+  --space-px: 1px;
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-2-5: 10px;
+  --space-3: 12px;
+  --space-3-5: 14px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      DAW LAYOUT DIMENSIONS (from DreamTheme.swift ThemeProtocol)
      ───────────────────────────────────────────────────────────── */
-   --daw-transport-height: 32px;
-   --daw-sidebar-width: 240px;
-   --daw-sidebar-min-width: 200px;
-   --daw-sidebar-max-width: 400px;
-   /* Wider by default to fit TrackInspector's 3-block layout without clipping.
+  --daw-transport-height: 32px;
+  --daw-sidebar-width: 240px;
+  --daw-sidebar-min-width: 200px;
+  --daw-sidebar-max-width: 400px;
+  /* Wider by default to fit TrackInspector's 3-block layout without clipping.
        Responsive clamp keeps the timeline usable on smaller windows. */
-   --daw-inspector-width: clamp(300px, 22vw, 360px);
-   --daw-device-rack-height: 24vh;
-   --daw-device-rack-min-height: 190px;
-   --daw-panel-gap: 0px;
-   --daw-ruler-height: 22px;
-   --daw-status-bar-height: 24px;
-   --daw-panel-header-height: 24px;
-   --daw-track-header-width: 220px;
-   --daw-default-track-height: 64px;
-   --daw-min-track-height: 32px;
-   --daw-max-track-height: 640px;
-   --daw-track-resize-step: 8px;
-   --daw-clip-corner-radius: 2px;
-   --daw-clip-title-height: 14px;
-   --daw-color-stripe-width: 3px;
-   --daw-browser-row-height: 22px;
-   --daw-bottom-panel-min-height: 100px;
-   --daw-playhead-width: 1px;
-   --daw-scrollbar-size: 10px;
-   --daw-divider-width: 1px;
+  --daw-inspector-width: clamp(300px, 22vw, 360px);
+  --daw-device-rack-height: 24vh;
+  --daw-device-rack-min-height: 190px;
+  --daw-panel-gap: 0px;
+  --daw-ruler-height: 22px;
+  --daw-status-bar-height: 24px;
+  --daw-panel-header-height: 24px;
+  --daw-track-header-width: 220px;
+  --daw-default-track-height: 64px;
+  --daw-min-track-height: 32px;
+  --daw-max-track-height: 640px;
+  --daw-track-resize-step: 8px;
+  --daw-clip-corner-radius: 2px;
+  --daw-clip-title-height: 14px;
+  --daw-color-stripe-width: 3px;
+  --daw-browser-row-height: 22px;
+  --daw-bottom-panel-min-height: 100px;
+  --daw-playhead-width: 1px;
+  --daw-scrollbar-size: 10px;
+  --daw-divider-width: 1px;
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      Z-INDICES (DAW Layer Stack — Enterprise 12-Level)
      ───────────────────────────────────────────────────────────── */
-   --z-canvas: 0;
-   --z-local: 1;
-   /* within-component layers (automation dots, resize handles) */
-   --z-local-raised: 5;
-   /* slightly elevated local elements */
-   --z-ui-overlay: 10;
-   --z-header: 20;
-   /* panel headers, sticky rows */
-   --z-sticky: 30;
-   /* piano-roll toolbar, ruler overlays */
-   --z-panels: 40;
-   --z-transport: 50;
-   --z-dropdown: 1000;
-   /* menus, tooltips, popups within panels */
-   --z-status-popup: 1200;
-   /* status bar flyouts */
-   --z-pdc-panel: 1400;
-   /* PDC dropdown in transport */
-   --z-modal: 9000;
-   --z-modal-content: 9001;
-   /* plugin windows, export modals */
-   --z-menu: 9999;
-   /* top-level menus (file, edit) */
-   --z-drag-overlay: 10000;
-   /* drag-and-drop ghost */
-   --z-splash: 99999;
-   /* splash screen — above everything */
-   --z-tooltip: 100000;
-   /* tooltips — absolute top */
+  --z-canvas: 0;
+  --z-local: 1;
+  /* within-component layers (automation dots, resize handles) */
+  --z-local-raised: 5;
+  /* slightly elevated local elements */
+  --z-ui-overlay: 10;
+  --z-header: 20;
+  /* panel headers, sticky rows */
+  --z-sticky: 30;
+  /* piano-roll toolbar, ruler overlays */
+  --z-panels: 40;
+  --z-transport: 50;
+  --z-dropdown: 1000;
+  /* menus, tooltips, popups within panels */
+  --z-status-popup: 1200;
+  /* status bar flyouts */
+  --z-pdc-panel: 1400;
+  /* PDC dropdown in transport */
+  --z-modal: 9000;
+  --z-modal-content: 9001;
+  /* plugin windows, export modals */
+  --z-menu: 9999;
+  /* top-level menus (file, edit) */
+  --z-drag-overlay: 10000;
+  /* drag-and-drop ghost */
+  --z-splash: 99999;
+  /* splash screen — above everything */
+  --z-tooltip: 100000;
+  /* tooltips — absolute top */
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      TYPOGRAPHY (from DreamTheme.swift fonts)
      ───────────────────────────────────────────────────────────── */
-   --font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-   --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', ui-monospace, monospace;
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', ui-monospace, monospace;
 
-   /* Matching Swift: fontMicro=8, fontSmall=9, fontBody=10, fontHeading=11, fontMono=11, fontMonoLarge=14 */
-   --font-size-micro: 8px;
-   --font-size-2xs: 9px;
-   --font-size-xs: 10px;
-   --font-size-sm: 11px;
-   --font-size-base: 12px;
-   --font-size-md: 13px;
-   --font-size-lg: 14px;
-   --font-size-xl: 16px;
-   --font-size-2xl: 18px;
-   --font-size-3xl: 24px;
+  /* Matching Swift: fontMicro=8, fontSmall=9, fontBody=10, fontHeading=11, fontMono=11, fontMonoLarge=14 */
+  --font-size-micro: 8px;
+  --font-size-2xs: 9px;
+  --font-size-xs: 10px;
+  --font-size-sm: 11px;
+  --font-size-base: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 14px;
+  --font-size-xl: 16px;
+  --font-size-2xl: 18px;
+  --font-size-3xl: 24px;
 
-   --font-weight-regular: 400;
-   --font-weight-medium: 500;
-   --font-weight-semibold: 600;
-   --font-weight-bold: 700;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
 
-   --line-height-tight: 1.2;
-   --line-height-normal: 1.5;
-   --line-height-relaxed: 1.625;
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.625;
 
-   --letter-spacing-tight: -0.025em;
-   --letter-spacing-normal: 0;
-   --letter-spacing-wide: 0.05em;
+  --letter-spacing-tight: -0.025em;
+  --letter-spacing-normal: 0;
+  --letter-spacing-wide: 0.05em;
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      RADII (from DreamTheme: radiusSmall=2, radiusCard=4)
      ───────────────────────────────────────────────────────────── */
-   --radius-xs: 2px;
-   --radius-sm: 3px;
-   --radius-md: 4px;
-   --radius-lg: 6px;
-   --radius-xl: 8px;
-   --radius-2xl: 12px;
-   --radius-full: 9999px;
+  --radius-2xs: 1px;
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --radius-2xl: 12px;
+  --radius-full: 9999px;
 
-   --node-border-radius: 4px;
-   --node-border-radius-inner: 3px;
+  --node-border-radius: 4px;
+  --node-border-radius-inner: 3px;
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      BLUR & EFFECTS
      ───────────────────────────────────────────────────────────── */
-   --blur-sm: 4px;
-   --blur-md: 10px;
-   --blur-lg: 20px;
-   --blur-xl: 40px;
+  --blur-sm: 4px;
+  --blur-md: 10px;
+  --blur-lg: 20px;
+  --blur-xl: 40px;
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      SHADOWS
      ───────────────────────────────────────────────────────────── */
-   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
-   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
-   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.25);
-   --shadow-xl: 0 12px 32px rgba(0, 0, 0, 0.35);
-   --shadow-panel: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.25);
+  --shadow-xl: 0 12px 32px rgba(0, 0, 0, 0.35);
+  --shadow-panel: 0 8px 32px rgba(0, 0, 0, 0.5);
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      TRANSITIONS & ANIMATION (from DreamTheme.swift)
      fast=0.15s, standard=0.25s, premium=0.4s
      ───────────────────────────────────────────────────────────── */
-   --transition-fast: 0.15s ease;
-   --transition-normal: 0.25s ease;
-   --transition-slow: 0.4s ease;
-   --ease-out: cubic-bezier(0.0, 0.0, 0.2, 1);
-   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
-   --animation-fast: 0.15s;
-   --animation-standard: 0.25s;
-   --animation-premium: 0.4s;
-   --spring-damping: 0.8;
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.25s ease;
+  --transition-slow: 0.4s ease;
+  --ease-out: cubic-bezier(0.0, 0.0, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --animation-fast: 0.15s;
+  --animation-standard: 0.25s;
+  --animation-premium: 0.4s;
+  --spring-damping: 0.8;
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      DIMENSIONS (from Swift: controlPadH=4, sectionPadH=8, icons)
      ───────────────────────────────────────────────────────────── */
-   --control-pad-h: 4px;
-   --section-pad-h: 8px;
-   --icon-micro: 6px;
-   --icon-small: 9px;
-   --icon-medium: 12px;
+  --control-pad-h: 4px;
+  --section-pad-h: 8px;
+  --icon-micro: 6px;
+  --icon-small: 9px;
+  --icon-medium: 12px;
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      OPACITY
      ───────────────────────────────────────────────────────────── */
-   --opacity-disabled: 0.5;
-   --opacity-dim: 0.6;
-   --opacity-medium: 0.8;
-   --opacity-hover: 0.9;
+  --opacity-disabled: 0.5;
+  --opacity-dim: 0.6;
+  --opacity-medium: 0.8;
+  --opacity-hover: 0.9;
 
-   --border-width-1: 1px;
-   --border-width-2: 2px;
+  --border-width-1: 1px;
+  --border-width-2: 2px;
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      DEVICE RACK / PLUGIN UI TOKENS
      ───────────────────────────────────────────────────────────── */
-   --plugin-card-radius: 8px;
-   --plugin-card-pad-y: 10px;
-   --plugin-card-pad-x: 12px;
-   --plugin-card-gap: 8px;
-   --plugin-grid-gap: 10px;
-   --plugin-card-border: color-mix(in srgb, var(--surface-3) 74%, #5f6f86);
-   --plugin-card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 6px 18px rgba(0, 0, 0, 0.24);
-   --plugin-card-bg-main: linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 88%, #172033) 0%, color-mix(in srgb, var(--surface-1) 92%, #0e1523) 100%);
-   --plugin-title-color: #d2e2ff;
-   --plugin-meta-color: color-mix(in srgb, var(--color-text-secondary) 82%, #8ab7ff);
+  --plugin-card-radius: 8px;
+  --plugin-card-pad-y: 10px;
+  --plugin-card-pad-x: 12px;
+  --plugin-card-gap: 8px;
+  --plugin-grid-gap: 10px;
+  --plugin-card-border: color-mix(in srgb, var(--surface-3) 74%, #5f6f86);
+  --plugin-card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 6px 18px rgba(0, 0, 0, 0.24);
+  --plugin-card-bg-main: linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 88%, #172033) 0%, color-mix(in srgb, var(--surface-1) 92%, #0e1523) 100%);
+  --plugin-title-color: #d2e2ff;
+  --plugin-meta-color: color-mix(in srgb, var(--color-text-secondary) 82%, #8ab7ff);
 
-   --plugin-bg-eq: linear-gradient(180deg, #1a2028 0%, #11161f 100%);
-   --plugin-bg-utility: linear-gradient(180deg, #1f232b 0%, #13171f 100%);
-   --plugin-bg-compressor: linear-gradient(180deg, #171f2a 0%, #10161f 100%);
-   --plugin-bg-delay: linear-gradient(180deg, #1a2230 0%, #0f1520 100%);
-   --plugin-bg-reverb: radial-gradient(circle at 30% 20%, rgba(137, 89, 194, 0.5) 0%, rgba(28, 24, 38, 0.92) 65%);
-   --plugin-bg-chorus: linear-gradient(180deg, #24172a 0%, #14111b 100%);
-   --plugin-bg-saturator: linear-gradient(180deg, #2d1d13 0%, #1a120d 100%);
-   --plugin-bg-limiter: linear-gradient(180deg, #152625 0%, #0f1616 100%);
-   --plugin-bg-gate: linear-gradient(180deg, #1a2415 0%, #101611 100%);
-   --plugin-bg-mod: linear-gradient(180deg, #151a24 0%, #0f141b 100%);
-   --plugin-bg-distortion: linear-gradient(180deg, #261a12 0%, #15100c 100%);
-   --plugin-bg-noise: linear-gradient(180deg, #17261a 0%, #0e150f 100%);
-   --plugin-bg-midi: linear-gradient(180deg, #1b1f2a 0%, #121521 100%);
+  --plugin-bg-eq: linear-gradient(180deg, #1a2028 0%, #11161f 100%);
+  --plugin-bg-utility: linear-gradient(180deg, #1f232b 0%, #13171f 100%);
+  --plugin-bg-compressor: linear-gradient(180deg, #171f2a 0%, #10161f 100%);
+  --plugin-bg-delay: linear-gradient(180deg, #1a2230 0%, #0f1520 100%);
+  --plugin-bg-reverb: radial-gradient(circle at 30% 20%, rgba(137, 89, 194, 0.5) 0%, rgba(28, 24, 38, 0.92) 65%);
+  --plugin-bg-chorus: linear-gradient(180deg, #24172a 0%, #14111b 100%);
+  --plugin-bg-saturator: linear-gradient(180deg, #2d1d13 0%, #1a120d 100%);
+  --plugin-bg-limiter: linear-gradient(180deg, #152625 0%, #0f1616 100%);
+  --plugin-bg-gate: linear-gradient(180deg, #1a2415 0%, #101611 100%);
+  --plugin-bg-mod: linear-gradient(180deg, #151a24 0%, #0f141b 100%);
+  --plugin-bg-distortion: linear-gradient(180deg, #261a12 0%, #15100c 100%);
+  --plugin-bg-noise: linear-gradient(180deg, #17261a 0%, #0e150f 100%);
+  --plugin-bg-midi: linear-gradient(180deg, #1b1f2a 0%, #121521 100%);
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      TEXT SHADOWS
      ───────────────────────────────────────────────────────────── */
-   --text-shadow-dark: 0 1px 2px rgba(0, 0, 0, 0.6);
-   --text-shadow-subtle: 0 1px 1px rgba(0, 0, 0, 0.55);
+  --text-shadow-dark: 0 1px 2px rgba(0, 0, 0, 0.6);
+  --text-shadow-subtle: 0 1px 1px rgba(0, 0, 0, 0.55);
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      ADDITIONAL TRANSITIONS
      ───────────────────────────────────────────────────────────── */
-   --transition-micro: 0.1s ease;
-   --transition-linear: 0.12s linear;
+  --transition-micro: 0.1s ease;
+  --transition-linear: 0.12s linear;
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      KNOB / DIAL COMPONENT TOKENS
      ───────────────────────────────────────────────────────────── */
-   --knob-dial-gradient: radial-gradient(circle at 34% 24%, #4b5563 0%, #2b3440 42%, #141a24 100%);
-   --knob-dial-border: 1px solid color-mix(in srgb, var(--color-accent-primary) 24%, rgba(255, 255, 255, 0.2));
-   --knob-dial-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.12), inset 0 -2px 6px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(10, 14, 18, 0.6), 0 4px 10px rgba(0, 0, 0, 0.22);
-   --knob-dial-shadow-active: inset 0 1px 2px rgba(255, 255, 255, 0.16), inset 0 -3px 7px rgba(0, 0, 0, 0.68), 0 0 0 1px rgba(10, 14, 18, 0.72), 0 0 0 2px color-mix(in srgb, var(--color-accent-primary) 45%, transparent), 0 6px 12px rgba(0, 0, 0, 0.35);
-   --knob-marker-glow: 0 0 5px color-mix(in srgb, var(--color-accent-primary) 68%, transparent);
-   --knob-arc-gradient-end: color-mix(in srgb, var(--color-accent-primary) 88%, #8fd5ff);
+  --knob-dial-gradient: radial-gradient(circle at 34% 24%, #4b5563 0%, #2b3440 42%, #141a24 100%);
+  --knob-dial-border: 1px solid color-mix(in srgb, var(--color-accent-primary) 24%, rgba(255, 255, 255, 0.2));
+  --knob-dial-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.12), inset 0 -2px 6px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(10, 14, 18, 0.6), 0 4px 10px rgba(0, 0, 0, 0.22);
+  --knob-dial-shadow-active: inset 0 1px 2px rgba(255, 255, 255, 0.16), inset 0 -3px 7px rgba(0, 0, 0, 0.68), 0 0 0 1px rgba(10, 14, 18, 0.72), 0 0 0 2px color-mix(in srgb, var(--color-accent-primary) 45%, transparent), 0 6px 12px rgba(0, 0, 0, 0.35);
+  --knob-marker-glow: 0 0 5px color-mix(in srgb, var(--color-accent-primary) 68%, transparent);
+  --knob-arc-gradient-end: color-mix(in srgb, var(--color-accent-primary) 88%, #8fd5ff);
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      PLUGIN WINDOW HEADER TOKENS
      ───────────────────────────────────────────────────────────── */
-   --plugin-header-instrument: linear-gradient(135deg, #2d1b69 0%, #1a1036 100%);
-   --plugin-header-effect: linear-gradient(135deg, #1b3a2d 0%, #0f2218 100%);
-   --plugin-accent-instrument: #9b59b6;
-   --plugin-accent-effect: #2ecc71;
+  --plugin-header-instrument: linear-gradient(135deg, #2d1b69 0%, #1a1036 100%);
+  --plugin-header-effect: linear-gradient(135deg, #1b3a2d 0%, #0f2218 100%);
+  --plugin-accent-instrument: #9b59b6;
+  --plugin-accent-effect: #2ecc71;
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      BADGE / TOOLTIP TOKENS
      ───────────────────────────────────────────────────────────── */
-   --badge-bg: rgba(8, 12, 18, 0.82);
-   --badge-color: #eaf4ff;
-   --badge-border: 1px solid rgba(120, 168, 220, 0.35);
+  --badge-bg: rgba(8, 12, 18, 0.82);
+  --badge-color: #eaf4ff;
+  --badge-border: 1px solid rgba(120, 168, 220, 0.35);
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      ANIMATION GLOW COLORS (CSS keyframes)
      ───────────────────────────────────────────────────────────── */
-   --glow-cursor: rgba(255, 255, 255, 0.55);
-   --glow-cursor-dim: rgba(255, 255, 255, 0.22);
-   --glow-drop-line: rgba(255, 255, 255, 0.52);
-   --glow-accent: rgba(74, 158, 255, 0.3);
-   --glow-success: rgba(102, 204, 51, 0.3);
-   --glow-record: rgba(217, 64, 64, 0.3);
-   --glow-record-strong: rgba(217, 64, 64, 0.4);
+  --glow-cursor: rgba(255, 255, 255, 0.55);
+  --glow-cursor-dim: rgba(255, 255, 255, 0.22);
+  --glow-drop-line: rgba(255, 255, 255, 0.52);
+  --glow-accent: rgba(74, 158, 255, 0.3);
+  --glow-success: rgba(102, 204, 51, 0.3);
+  --glow-record: rgba(217, 64, 64, 0.3);
+  --glow-record-strong: rgba(217, 64, 64, 0.4);
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      MODAL / PANEL DIMENSION TOKENS
      ───────────────────────────────────────────────────────────── */
-   --modal-width-sm: 360px;
-   --modal-width-md: 420px;
-   --modal-width-lg: 680px;
-   --settings-sidebar-width: 170px;
+  --modal-width-sm: 360px;
+  --modal-width-md: 420px;
+  --modal-width-lg: 680px;
+  --settings-sidebar-width: 170px;
 
-   /* ─────────────────────────────────────────────────────────────
+  /* ─────────────────────────────────────────────────────────────
      METER GRADIENT COLORS (Track Inspector VU)
      ───────────────────────────────────────────────────────────── */
-   --color-meter-low-audio: #36c95a;
-   --color-meter-low-midi: #3fcb6d;
-   --color-meter-mid-audio: #f2d33e;
-   --color-meter-mid-midi: #ffd34d;
-   --color-meter-green-start: #2fa64a;
-   --color-meter-green-end: #46d165;
+  --color-meter-low-audio: #36c95a;
+  --color-meter-low-midi: #3fcb6d;
+  --color-meter-mid-audio: #f2d33e;
+  --color-meter-mid-midi: #ffd34d;
+  --color-meter-green-start: #2fa64a;
+  --color-meter-green-end: #46d165;
 }
 
 
@@ -292,235 +294,235 @@
 :root,
 :root[data-theme="dark"] {
 
-   /* ── Backgrounds (9-level gray scale from DarkTheme) ──────── */
-   --color-bg-base: #141414;
-   /* bgBase:   white 0.08 */
-   --color-bg-app: #1e1e1e;
-   /* bgPrimary: white 0.12 */
-   --color-bg-canvas: #1e1e1e;
-   /* bgPrimary: main workspace */
-   --color-bg-secondary: #262626;
-   /* bgSecondary: white 0.15 (even rows) */
-   --color-bg-tertiary: #2a2a2a;
-   /* bgTertiary: white 0.165 (odd rows) */
-   --color-bg-panel: #303030;
-   /* bgSurface: white 0.19 */
-   --color-bg-elevated: #353535;
-   /* bgElevated: white 0.21 */
-   --color-bg-hover: #3a3a3a;
-   /* bgHover: white 0.23 */
-   --color-bg-selected: #1d3557;
-   /* bgSelected: blue tint */
-   --color-bg-input: #252525;
-   /* bgInput: white 0.145 */
-   --color-bg-header: #353535;
-   /* alias for bgElevated */
-   --color-bg-active: #3a3a3a;
-   /* alias for bgHover */
-   --color-bg-sidebar: #282828;
-   /* sidebar: slightly darker than panel */
-   --color-bg-surface: #303030;
-   /* surface: alias for panel */
+  /* ── Backgrounds (9-level gray scale from DarkTheme) ──────── */
+  --color-bg-base: #141414;
+  /* bgBase:   white 0.08 */
+  --color-bg-app: #1e1e1e;
+  /* bgPrimary: white 0.12 */
+  --color-bg-canvas: #1e1e1e;
+  /* bgPrimary: main workspace */
+  --color-bg-secondary: #262626;
+  /* bgSecondary: white 0.15 (even rows) */
+  --color-bg-tertiary: #2a2a2a;
+  /* bgTertiary: white 0.165 (odd rows) */
+  --color-bg-panel: #303030;
+  /* bgSurface: white 0.19 */
+  --color-bg-elevated: #353535;
+  /* bgElevated: white 0.21 */
+  --color-bg-hover: #3a3a3a;
+  /* bgHover: white 0.23 */
+  --color-bg-selected: #1d3557;
+  /* bgSelected: blue tint */
+  --color-bg-input: #252525;
+  /* bgInput: white 0.145 */
+  --color-bg-header: #353535;
+  /* alias for bgElevated */
+  --color-bg-active: #3a3a3a;
+  /* alias for bgHover */
+  --color-bg-sidebar: #282828;
+  /* sidebar: slightly darker than panel */
+  --color-bg-surface: #303030;
+  /* surface: alias for panel */
 
-   /* ── Semantic Tokens v2 (UI surface/text/accent) ── */
-   --surface-1: #1e1e1e;
-   --surface-2: #2a2a2a;
-   --surface-3: #303030;
-   --surface-elevated: #353535;
-   --text-primary: #e0e0e0;
-   --text-secondary: #999999;
-   --text-muted: #666666;
-   --accent: #4a9eff;
-   --accent-weak: rgba(74, 158, 255, 0.18);
-   --accent-strong: #57b4ff;
+  /* ── Semantic Tokens v2 (UI surface/text/accent) ── */
+  --surface-1: #1e1e1e;
+  --surface-2: #2a2a2a;
+  --surface-3: #303030;
+  --surface-elevated: #353535;
+  --text-primary: #e0e0e0;
+  --text-secondary: #999999;
+  --text-muted: #666666;
+  --accent: #4a9eff;
+  --accent-weak: rgba(74, 158, 255, 0.18);
+  --accent-strong: #57b4ff;
 
-   /* ── Node Backgrounds (Device Rack) ── */
-   --color-bg-node: #303030;
-   /* same as bgSurface */
-   --color-bg-node-header: #353535;
-   /* same as bgElevated */
-   --color-bg-node-body: #2a2a2a;
-   /* same as bgTertiary */
+  /* ── Node Backgrounds (Device Rack) ── */
+  --color-bg-node: #303030;
+  /* same as bgSurface */
+  --color-bg-node-header: #353535;
+  /* same as bgElevated */
+  --color-bg-node-body: #2a2a2a;
+  /* same as bgTertiary */
 
-   /* ── Text (from DarkTheme) ── */
-   --color-text-primary: rgba(255, 255, 255, 0.9);
-   /* primary text */
-   --color-text-secondary: rgba(255, 255, 255, 0.5);
-   /* secondary text */
-   --color-text-tertiary: rgba(255, 255, 255, 0.2);
-   /* disabled / low-emphasis text */
-   --color-text-bright: #f5f5f5;
-   /* white 0.96 */
-   --color-text-inverse: #0d0d0d;
-   /* near-black */
-   --color-text-on-accent: #ffffff;
-   --color-text-on-color: #0d0d0d;
-   /* dark text on bright track bg */
+  /* ── Text (from DarkTheme) ── */
+  --color-text-primary: rgba(255, 255, 255, 0.9);
+  /* primary text */
+  --color-text-secondary: rgba(255, 255, 255, 0.5);
+  /* secondary text */
+  --color-text-tertiary: rgba(255, 255, 255, 0.2);
+  /* disabled / low-emphasis text */
+  --color-text-bright: #f5f5f5;
+  /* white 0.96 */
+  --color-text-inverse: #0d0d0d;
+  /* near-black */
+  --color-text-on-accent: #ffffff;
+  --color-text-on-color: #0d0d0d;
+  /* dark text on bright track bg */
 
-   /* ── Accent (Blue — from DarkTheme) ──────────────────────── */
-   --color-accent-primary: #4a9eff;
-   /* accent: rgb(0.29, 0.62, 1.00) */
-   --color-accent-primary-hover: #5cadff;
-   /* accentHover */
-   --color-accent-primary-glow: rgba(74, 158, 255, 0.35);
-   --color-accent-primary-dim: rgba(74, 158, 255, 0.15);
-   /* accentMuted */
+  /* ── Accent (Blue — from DarkTheme) ──────────────────────── */
+  --color-accent-primary: #4a9eff;
+  /* accent: rgb(0.29, 0.62, 1.00) */
+  --color-accent-primary-hover: #5cadff;
+  /* accentHover */
+  --color-accent-primary-glow: rgba(74, 158, 255, 0.35);
+  --color-accent-primary-dim: rgba(74, 158, 255, 0.15);
+  /* accentMuted */
 
-   /* ── Semantic Colors (from DarkTheme) ─────────────────────── */
-   --color-status-success: #66cc33;
-   /* success: rgb(0.40, 0.80, 0.20) */
-   --color-status-warning: #d9a625;
-   /* warning: rgb(0.85, 0.65, 0.15) */
-   --color-status-error: #d94040;
-   /* danger: rgb(0.85, 0.25, 0.25) */
-   --color-status-info: #33a6d9;
-   /* info/solo: rgb(0.20, 0.65, 0.85) */
-   --color-status-record: #d94040;
-   /* same as danger */
+  /* ── Semantic Colors (from DarkTheme) ─────────────────────── */
+  --color-status-success: #66cc33;
+  /* success: rgb(0.40, 0.80, 0.20) */
+  --color-status-warning: #d9a625;
+  /* warning: rgb(0.85, 0.65, 0.15) */
+  --color-status-error: #d94040;
+  /* danger: rgb(0.85, 0.25, 0.25) */
+  --color-status-info: #33a6d9;
+  /* info/solo: rgb(0.20, 0.65, 0.85) */
+  --color-status-record: #d94040;
+  /* same as danger */
 
-   /* ── DAW Buttons (from DarkTheme semantic) ──────────────── */
-   --color-btn-mute: #d9a625;
-   /* mute = warning (orange/amber) */
-   --color-btn-solo: #33a6d9;
-   /* solo = info (blue) */
-   --color-btn-arm: #d94040;
-   /* record arm = danger (red) */
-   --color-midi-indicator: #d9a625;
-   /* MIDI = warning (amber) */
+  /* ── DAW Buttons (from DarkTheme semantic) ──────────────── */
+  --color-btn-mute: #d9a625;
+  /* mute = warning (orange/amber) */
+  --color-btn-solo: #33a6d9;
+  /* solo = info (blue) */
+  --color-btn-arm: #d94040;
+  /* record arm = danger (red) */
+  --color-midi-indicator: #d9a625;
+  /* MIDI = warning (amber) */
 
-   /* ── Borders (from DarkTheme) ── */
-   --color-border-subtle: rgba(255, 255, 255, 0.06);
-   --color-border-default: #383838;
-   /* white 0.22 — controlBorder */
-   --color-border-highlight: rgba(74, 158, 255, 0.5);
-   --color-border-selected: rgba(255, 255, 255, 0.85);
+  /* ── Borders (from DarkTheme) ── */
+  --color-border-subtle: rgba(255, 255, 255, 0.06);
+  --color-border-default: #383838;
+  /* white 0.22 — controlBorder */
+  --color-border-highlight: rgba(74, 158, 255, 0.5);
+  --color-border-selected: rgba(255, 255, 255, 0.85);
 
-   /* ── UI Elements (from DarkTheme) ─────────────────────────── */
-   --color-divider: #2e2e2e;
-   /* divider: white 0.18 */
-   --color-divider-light: #404040;
-   /* dividerLight: white 0.25 */
-   --color-grid-line: #404040;
-   /* gridLine: white 0.25 */
-   --color-grid-line-major: #595959;
-   /* gridLineMajor: white 0.35 */
-   --color-playhead: #d9d9d9;
-   /* playhead: white 0.85 */
-   --color-selection-border: rgba(89, 140, 230, 0.85);
-   /* selectionBorder */
-   --color-selection-fill: rgba(51, 89, 153, 0.25);
-   /* selectionFill */
-   --color-clip-highlight: rgba(255, 255, 255, 0.08);
-   --color-drop-target: rgba(51, 51, 51, 0.5);
+  /* ── UI Elements (from DarkTheme) ─────────────────────────── */
+  --color-divider: #2e2e2e;
+  /* divider: white 0.18 */
+  --color-divider-light: #404040;
+  /* dividerLight: white 0.25 */
+  --color-grid-line: #404040;
+  /* gridLine: white 0.25 */
+  --color-grid-line-major: #595959;
+  /* gridLineMajor: white 0.35 */
+  --color-playhead: #d9d9d9;
+  /* playhead: white 0.85 */
+  --color-selection-border: rgba(89, 140, 230, 0.85);
+  /* selectionBorder */
+  --color-selection-fill: rgba(51, 89, 153, 0.25);
+  /* selectionFill */
+  --color-clip-highlight: rgba(255, 255, 255, 0.08);
+  --color-drop-target: rgba(51, 51, 51, 0.5);
 
-   /* ── VU Meters (from DarkTheme — 4 states) ──────────────── */
-   --color-meter-bg: #1e1e1e;
-   /* meterBackground: white 0.12 */
-   --color-meter-normal: #66cc33;
-   /* meterNormal: green */
-   --color-meter-hot: #ffcc1a;
-   /* meterHot: yellow */
-   --color-meter-clip: #ff3333;
-   /* meterClip: red */
-   --color-meter-silent: #4d4d4d;
-   /* meterSilent: white 0.30 */
+  /* ── VU Meters (from DarkTheme — 4 states) ──────────────── */
+  --color-meter-bg: #1e1e1e;
+  /* meterBackground: white 0.12 */
+  --color-meter-normal: #66cc33;
+  /* meterNormal: green */
+  --color-meter-hot: #ffcc1a;
+  /* meterHot: yellow */
+  --color-meter-clip: #ff3333;
+  /* meterClip: red */
+  --color-meter-silent: #4d4d4d;
+  /* meterSilent: white 0.30 */
 
-   /* ── Controls (from DarkTheme) ────────────────────────────── */
-   --color-control-bg: #404040;
-   /* controlBg: white 0.25 */
-   --color-control-bg-active: #595959;
-   /* controlBgActive: white 0.35 */
-   --color-control-border: #383838;
-   /* controlBorder: white 0.22 */
-   --color-control-tint: #999999;
-   /* controlTint: white 0.60 */
+  /* ── Controls (from DarkTheme) ────────────────────────────── */
+  --color-control-bg: #404040;
+  /* controlBg: white 0.25 */
+  --color-control-bg-active: #595959;
+  /* controlBgActive: white 0.35 */
+  --color-control-border: #383838;
+  /* controlBorder: white 0.22 */
+  --color-control-tint: #999999;
+  /* controlTint: white 0.60 */
 
-   /* ── Effect Type Tints (from DarkTheme — 7 types) ─────── */
-   --color-effect-eq: #5a8cd9;
-   /* effectEQ: rgb(0.35, 0.55, 0.85) */
-   --color-effect-compressor: #b36640;
-   /* effectCompressor: rgb(0.70, 0.40, 0.25) */
-   --color-effect-delay: #66a673;
-   /* effectDelay: rgb(0.40, 0.65, 0.45) */
-   --color-effect-reverb: #8c66bf;
-   /* effectReverb: rgb(0.55, 0.40, 0.75) */
-   --color-effect-chorus: #a6804d;
-   /* effectChorus: rgb(0.65, 0.50, 0.30) */
-   --color-effect-utility: #808080;
-   /* effectUtility: white 0.50 */
-   --color-effect-vst: #339966;
-   /* effectVST: rgb(0.20, 0.60, 0.40) */
+  /* ── Effect Type Tints (from DarkTheme — 7 types) ─────── */
+  --color-effect-eq: #5a8cd9;
+  /* effectEQ: rgb(0.35, 0.55, 0.85) */
+  --color-effect-compressor: #b36640;
+  /* effectCompressor: rgb(0.70, 0.40, 0.25) */
+  --color-effect-delay: #66a673;
+  /* effectDelay: rgb(0.40, 0.65, 0.45) */
+  --color-effect-reverb: #8c66bf;
+  /* effectReverb: rgb(0.55, 0.40, 0.75) */
+  --color-effect-chorus: #a6804d;
+  /* effectChorus: rgb(0.65, 0.50, 0.30) */
+  --color-effect-utility: #808080;
+  /* effectUtility: white 0.50 */
+  --color-effect-vst: #339966;
+  /* effectVST: rgb(0.20, 0.60, 0.40) */
 
-   /* ── Browser Category Colors (from DarkTheme) ────────────── */
-   --color-browser-default: #8c8066;
-   /* browserDefault */
-   --color-browser-audio: #f2bf40;
-   /* browserAudio: gold */
-   --color-browser-midi: #59b3e6;
-   /* browserMIDI: blue */
-   --color-browser-plugin: #a680e6;
-   /* browserPlugin: purple */
-   --color-browser-preset: #33d98c;
-   /* browserPreset: green */
+  /* ── Browser Category Colors (from DarkTheme) ────────────── */
+  --color-browser-default: #8c8066;
+  /* browserDefault */
+  --color-browser-audio: #f2bf40;
+  /* browserAudio: gold */
+  --color-browser-midi: #59b3e6;
+  /* browserMIDI: blue */
+  --color-browser-plugin: #a680e6;
+  /* browserPlugin: purple */
+  --color-browser-preset: #33d98c;
+  /* browserPreset: green */
 
-   /* ── Knob / Fader (from DarkTheme) ──────────────────────── */
-   --color-knob-arc-inactive: #404040;
-   /* knobArcInactive: white 0.25 */
-   --color-knob-fill: #2e2e2e;
-   /* knobFill: white 0.18 */
-   --color-knob-value-text: #b3b3b3;
-   /* knobValueText: white 0.70 */
-   --color-fader-track-bg: #262626;
-   /* faderTrackBg: white 0.15 */
-   --color-fader-groove: #1e1e1e;
-   /* faderGroove: white 0.12 */
+  /* ── Knob / Fader (from DarkTheme) ──────────────────────── */
+  --color-knob-arc-inactive: #404040;
+  /* knobArcInactive: white 0.25 */
+  --color-knob-fill: #2e2e2e;
+  /* knobFill: white 0.18 */
+  --color-knob-value-text: #b3b3b3;
+  /* knobValueText: white 0.70 */
+  --color-fader-track-bg: #262626;
+  /* faderTrackBg: white 0.15 */
+  --color-fader-groove: #1e1e1e;
+  /* faderGroove: white 0.12 */
 
-   /* ── Port Colors (Audio Signal Types) ── */
-   --color-port-audio: #4a9eff;
-   --color-port-midi: #d9a625;
-   /* MIDI = amber (matching Swift midiIndicator) */
-   --color-port-sidechain: #ff8c00;
+  /* ── Port Colors (Audio Signal Types) ── */
+  --color-port-audio: #4a9eff;
+  --color-port-midi: #d9a625;
+  /* MIDI = amber (matching Swift midiIndicator) */
+  --color-port-sidechain: #ff8c00;
 
-   /* ── Piano Roll (from DarkTheme) ── */
-   --color-piano-white: #474747;
-   --color-piano-black: #2e2e2e;
-   --color-piano-grid: #262626;
-   --color-piano-c-line: #404040;
-   --color-piano-bar: #4d4d4d;
-   --color-piano-beat: #333333;
-   --color-piano-sub: rgba(36, 36, 36, 0.5);
+  /* ── Piano Roll (from DarkTheme) ── */
+  --color-piano-white: #474747;
+  --color-piano-black: #2e2e2e;
+  --color-piano-grid: #262626;
+  --color-piano-c-line: #404040;
+  --color-piano-bar: #4d4d4d;
+  --color-piano-beat: #333333;
+  --color-piano-sub: rgba(36, 36, 36, 0.5);
 
-   /* ── Timeline (Arrangement View) ── */
-   --color-timeline-bg: #141414;
-   --color-timeline-ruler-bg: #232323;
-   --color-timeline-grid-line: rgba(255, 255, 255, 0.07);
-   --color-timeline-grid-bar: rgba(255, 255, 255, 0.15);
-   --color-timeline-track-default: #1e1e1e;
-   --color-timeline-track-selected: #282828;
-   --color-timeline-playhead: #ffffff;
-   --color-timeline-playhead-glow: rgba(255, 255, 255, 0.25);
-   --color-timeline-edit-cursor: rgba(255, 255, 255, 0.8);
-   --color-timeline-loop-fill: rgba(255, 255, 255, 0.06);
-   --color-timeline-loop-border: rgba(255, 255, 255, 0.5);
-   --color-timeline-ruler-text: rgba(255, 255, 255, 0.6);
+  /* ── Timeline (Arrangement View) ── */
+  --color-timeline-bg: #141414;
+  --color-timeline-ruler-bg: #232323;
+  --color-timeline-grid-line: rgba(255, 255, 255, 0.07);
+  --color-timeline-grid-bar: rgba(255, 255, 255, 0.15);
+  --color-timeline-track-default: #1e1e1e;
+  --color-timeline-track-selected: #282828;
+  --color-timeline-playhead: #ffffff;
+  --color-timeline-playhead-glow: rgba(255, 255, 255, 0.25);
+  --color-timeline-edit-cursor: rgba(255, 255, 255, 0.8);
+  --color-timeline-loop-fill: rgba(255, 255, 255, 0.06);
+  --color-timeline-loop-border: rgba(255, 255, 255, 0.5);
+  --color-timeline-ruler-text: rgba(255, 255, 255, 0.6);
 
-   /* ── Glass (HUD — from DarkTheme) ─────────────────────────── */
-   --glass-bg: rgba(18, 18, 18, 0.92);
-   --glass-bg-hover: rgba(28, 28, 28, 0.95);
-   --glass-border: rgba(255, 255, 255, 0.05);
-   --glass-border-hover: rgba(255, 255, 255, 0.12);
-   --glass-blur: 12px;
-   --glass-radius: 4px;
+  /* ── Glass (HUD — from DarkTheme) ─────────────────────────── */
+  --glass-bg: rgba(18, 18, 18, 0.92);
+  --glass-bg-hover: rgba(28, 28, 28, 0.95);
+  --glass-border: rgba(255, 255, 255, 0.05);
+  --glass-border-hover: rgba(255, 255, 255, 0.12);
+  --glass-blur: 12px;
+  --glass-radius: 4px;
 
-   /* ── Overlays ── */
-   --color-overlay-light: rgba(0, 0, 0, 0.2);
-   --color-overlay-medium: rgba(0, 0, 0, 0.4);
-   --color-overlay-dark: rgba(0, 0, 0, 0.6);
-   --color-overlay-modal: rgba(0, 0, 0, 0.7);
+  /* ── Overlays ── */
+  --color-overlay-light: rgba(0, 0, 0, 0.2);
+  --color-overlay-medium: rgba(0, 0, 0, 0.4);
+  --color-overlay-dark: rgba(0, 0, 0, 0.6);
+  --color-overlay-modal: rgba(0, 0, 0, 0.7);
 
-   /* ── Gradients ── */
-   --gradient-primary: linear-gradient(135deg, #4a9eff 0%, #5cadff 100%);
-   --gradient-meter: linear-gradient(to top, #66cc33 0%, #ffcc1a 70%, #ff3333 100%);
+  /* ── Gradients ── */
+  --gradient-primary: linear-gradient(135deg, #4a9eff 0%, #5cadff 100%);
+  --gradient-meter: linear-gradient(to top, #66cc33 0%, #ffcc1a 70%, #ff3333 100%);
 }
 
 
@@ -529,162 +531,162 @@
    Complete 1:1 parity with dark theme.
    ═══════════════════════════════════════════════════════════════ */
 :root[data-theme="light"] {
-   --color-bg-base: #ffffff;
-   --color-bg-app: #f5f5f5;
-   --color-bg-canvas: #f5f5f5;
-   --color-bg-secondary: #ebebeb;
-   --color-bg-tertiary: #e3e3e3;
-   --color-bg-panel: #f0f0f0;
-   --color-bg-elevated: #ffffff;
-   --color-bg-hover: #e5e5e5;
-   --color-bg-selected: #d9ebff;
-   --color-bg-input: #ffffff;
-   --color-bg-header: #ffffff;
-   --color-bg-active: #e5e5e5;
-   --color-bg-sidebar: #eaeaea;
-   --color-bg-surface: #f0f0f0;
+  --color-bg-base: #ffffff;
+  --color-bg-app: #f5f5f5;
+  --color-bg-canvas: #f5f5f5;
+  --color-bg-secondary: #ebebeb;
+  --color-bg-tertiary: #e3e3e3;
+  --color-bg-panel: #f0f0f0;
+  --color-bg-elevated: #ffffff;
+  --color-bg-hover: #e5e5e5;
+  --color-bg-selected: #d9ebff;
+  --color-bg-input: #ffffff;
+  --color-bg-header: #ffffff;
+  --color-bg-active: #e5e5e5;
+  --color-bg-sidebar: #eaeaea;
+  --color-bg-surface: #f0f0f0;
 
-   /* ── Semantic Tokens v2 (light) ── */
-   --surface-1: #ffffff;
-   --surface-2: #f6f6f6;
-   --surface-3: #f0f0f0;
-   --surface-elevated: #e7e7e7;
-   --text-primary: #1f1f1f;
-   --text-secondary: #585858;
-   --text-muted: #777777;
-   --accent: #2a78ff;
-   --accent-weak: rgba(42, 120, 255, 0.16);
-   --accent-strong: #2e84ff;
+  /* ── Semantic Tokens v2 (light) ── */
+  --surface-1: #ffffff;
+  --surface-2: #f6f6f6;
+  --surface-3: #f0f0f0;
+  --surface-elevated: #e7e7e7;
+  --text-primary: #1f1f1f;
+  --text-secondary: #585858;
+  --text-muted: #777777;
+  --accent: #2a78ff;
+  --accent-weak: rgba(42, 120, 255, 0.16);
+  --accent-strong: #2e84ff;
 
-   --color-bg-node: #f0f0f0;
-   --color-bg-node-header: #e5e5e5;
-   --color-bg-node-body: #ebebeb;
+  --color-bg-node: #f0f0f0;
+  --color-bg-node-header: #e5e5e5;
+  --color-bg-node-body: #ebebeb;
 
-   --color-text-primary: #1a1a1a;
-   --color-text-secondary: #666666;
-   --color-text-tertiary: #999999;
-   --color-text-bright: #000000;
-   --color-text-inverse: #ffffff;
-   --color-text-on-accent: #ffffff;
-   --color-text-on-color: #ffffff;
+  --color-text-primary: #1a1a1a;
+  --color-text-secondary: #666666;
+  --color-text-tertiary: #999999;
+  --color-text-bright: #000000;
+  --color-text-inverse: #ffffff;
+  --color-text-on-accent: #ffffff;
+  --color-text-on-color: #ffffff;
 
-   --color-accent-primary: #007aff;
-   --color-accent-primary-hover: #0066e0;
-   --color-accent-primary-glow: rgba(0, 122, 255, 0.3);
-   --color-accent-primary-dim: rgba(0, 122, 255, 0.10);
+  --color-accent-primary: #007aff;
+  --color-accent-primary-hover: #0066e0;
+  --color-accent-primary-glow: rgba(0, 122, 255, 0.3);
+  --color-accent-primary-dim: rgba(0, 122, 255, 0.10);
 
-   --color-status-success: #33b326;
-   --color-status-warning: #cc9900;
-   --color-status-error: #cc2626;
-   --color-status-info: #1a80cc;
-   --color-status-record: #cc2626;
+  --color-status-success: #33b326;
+  --color-status-warning: #cc9900;
+  --color-status-error: #cc2626;
+  --color-status-info: #1a80cc;
+  --color-status-record: #cc2626;
 
-   /* ── DAW Buttons (light) ── */
-   --color-btn-mute: #cc9900;
-   --color-btn-solo: #1a80cc;
-   --color-btn-arm: #cc2626;
-   --color-midi-indicator: #cc9900;
+  /* ── DAW Buttons (light) ── */
+  --color-btn-mute: #cc9900;
+  --color-btn-solo: #1a80cc;
+  --color-btn-arm: #cc2626;
+  --color-midi-indicator: #cc9900;
 
-   --color-border-subtle: rgba(0, 0, 0, 0.08);
-   --color-border-default: #cccccc;
-   --color-border-highlight: rgba(0, 122, 255, 0.5);
-   --color-border-selected: #1a1a1a;
+  --color-border-subtle: rgba(0, 0, 0, 0.08);
+  --color-border-default: #cccccc;
+  --color-border-highlight: rgba(0, 122, 255, 0.5);
+  --color-border-selected: #1a1a1a;
 
-   --color-divider: #d1d1d1;
-   --color-divider-light: #e0e0e0;
+  --color-divider: #d1d1d1;
+  --color-divider-light: #e0e0e0;
 
-   /* ── UI Elements (light) ── */
-   --color-grid-line: #d5d5d5;
-   --color-grid-line-major: #bfbfbf;
-   --color-playhead: #1a1a1a;
-   --color-selection-border: rgba(0, 122, 255, 0.7);
-   --color-selection-fill: rgba(0, 122, 255, 0.12);
-   --color-clip-highlight: rgba(0, 0, 0, 0.06);
-   --color-drop-target: rgba(200, 200, 200, 0.5);
+  /* ── UI Elements (light) ── */
+  --color-grid-line: #d5d5d5;
+  --color-grid-line-major: #bfbfbf;
+  --color-playhead: #1a1a1a;
+  --color-selection-border: rgba(0, 122, 255, 0.7);
+  --color-selection-fill: rgba(0, 122, 255, 0.12);
+  --color-clip-highlight: rgba(0, 0, 0, 0.06);
+  --color-drop-target: rgba(200, 200, 200, 0.5);
 
-   --color-meter-bg: #e0e0e0;
-   --color-meter-normal: #33b326;
-   --color-meter-hot: #f2b30d;
-   --color-meter-clip: #e62626;
-   --color-meter-silent: #bfbfbf;
+  --color-meter-bg: #e0e0e0;
+  --color-meter-normal: #33b326;
+  --color-meter-hot: #f2b30d;
+  --color-meter-clip: #e62626;
+  --color-meter-silent: #bfbfbf;
 
-   --color-control-bg: #d9d9d9;
-   --color-control-bg-active: #c7c7c7;
-   --color-control-border: #cccccc;
-   --color-control-tint: #737373;
+  --color-control-bg: #d9d9d9;
+  --color-control-bg-active: #c7c7c7;
+  --color-control-border: #cccccc;
+  --color-control-tint: #737373;
 
-   /* ── Effect Type Tints (light) ── */
-   --color-effect-eq: #3a6cbf;
-   --color-effect-compressor: #995533;
-   --color-effect-delay: #4a8f5a;
-   --color-effect-reverb: #7a52a6;
-   --color-effect-chorus: #8f6a33;
-   --color-effect-utility: #666666;
-   --color-effect-vst: #267a4d;
+  /* ── Effect Type Tints (light) ── */
+  --color-effect-eq: #3a6cbf;
+  --color-effect-compressor: #995533;
+  --color-effect-delay: #4a8f5a;
+  --color-effect-reverb: #7a52a6;
+  --color-effect-chorus: #8f6a33;
+  --color-effect-utility: #666666;
+  --color-effect-vst: #267a4d;
 
-   /* ── Browser Category Colors (light) ── */
-   --color-browser-default: #6b6050;
-   --color-browser-audio: #cc9900;
-   --color-browser-midi: #4090bf;
-   --color-browser-plugin: #8060bf;
-   --color-browser-preset: #26b36d;
+  /* ── Browser Category Colors (light) ── */
+  --color-browser-default: #6b6050;
+  --color-browser-audio: #cc9900;
+  --color-browser-midi: #4090bf;
+  --color-browser-plugin: #8060bf;
+  --color-browser-preset: #26b36d;
 
-   --color-knob-arc-inactive: #c7c7c7;
-   --color-knob-fill: #ebebeb;
-   --color-knob-value-text: #4d4d4d;
-   --color-fader-track-bg: #e0e0e0;
-   --color-fader-groove: #e6e6e6;
+  --color-knob-arc-inactive: #c7c7c7;
+  --color-knob-fill: #ebebeb;
+  --color-knob-value-text: #4d4d4d;
+  --color-fader-track-bg: #e0e0e0;
+  --color-fader-groove: #e6e6e6;
 
-   /* ── Port Colors (light) ── */
-   --color-port-audio: #007aff;
-   --color-port-midi: #cc9900;
-   --color-port-sidechain: #e67300;
+  /* ── Port Colors (light) ── */
+  --color-port-audio: #007aff;
+  --color-port-midi: #cc9900;
+  --color-port-sidechain: #e67300;
 
-   /* ── Piano Roll (light) ── */
-   --color-piano-white: #e8e8e8;
-   --color-piano-black: #d0d0d0;
-   --color-piano-grid: #dcdcdc;
-   --color-piano-c-line: #c0c0c0;
-   --color-piano-bar: #b3b3b3;
-   --color-piano-beat: #d5d5d5;
-   --color-piano-sub: rgba(220, 220, 220, 0.5);
+  /* ── Piano Roll (light) ── */
+  --color-piano-white: #e8e8e8;
+  --color-piano-black: #d0d0d0;
+  --color-piano-grid: #dcdcdc;
+  --color-piano-c-line: #c0c0c0;
+  --color-piano-bar: #b3b3b3;
+  --color-piano-beat: #d5d5d5;
+  --color-piano-sub: rgba(220, 220, 220, 0.5);
 
-   /* ── Timeline (light) ── */
-   --color-timeline-bg: #f5f5f5;
-   --color-timeline-ruler-bg: #eaeaea;
-   --color-timeline-grid-line: rgba(0, 0, 0, 0.06);
-   --color-timeline-grid-bar: rgba(0, 0, 0, 0.12);
-   --color-timeline-track-default: #f0f0f0;
-   --color-timeline-track-selected: #e5e5e5;
-   --color-timeline-playhead: #1a1a1a;
-   --color-timeline-playhead-glow: rgba(0, 0, 0, 0.15);
-   --color-timeline-edit-cursor: rgba(0, 0, 0, 0.7);
-   --color-timeline-loop-fill: rgba(0, 122, 255, 0.06);
-   --color-timeline-loop-border: rgba(0, 122, 255, 0.4);
-   --color-timeline-ruler-text: rgba(0, 0, 0, 0.5);
+  /* ── Timeline (light) ── */
+  --color-timeline-bg: #f5f5f5;
+  --color-timeline-ruler-bg: #eaeaea;
+  --color-timeline-grid-line: rgba(0, 0, 0, 0.06);
+  --color-timeline-grid-bar: rgba(0, 0, 0, 0.12);
+  --color-timeline-track-default: #f0f0f0;
+  --color-timeline-track-selected: #e5e5e5;
+  --color-timeline-playhead: #1a1a1a;
+  --color-timeline-playhead-glow: rgba(0, 0, 0, 0.15);
+  --color-timeline-edit-cursor: rgba(0, 0, 0, 0.7);
+  --color-timeline-loop-fill: rgba(0, 122, 255, 0.06);
+  --color-timeline-loop-border: rgba(0, 122, 255, 0.4);
+  --color-timeline-ruler-text: rgba(0, 0, 0, 0.5);
 
-   /* ── Glass (light) ── */
-   --glass-bg: rgba(255, 255, 255, 0.92);
-   --glass-bg-hover: rgba(255, 255, 255, 0.97);
-   --glass-border: rgba(0, 0, 0, 0.08);
-   --glass-border-hover: rgba(0, 0, 0, 0.14);
-   --glass-blur: 12px;
-   --glass-radius: 4px;
+  /* ── Glass (light) ── */
+  --glass-bg: rgba(255, 255, 255, 0.92);
+  --glass-bg-hover: rgba(255, 255, 255, 0.97);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-border-hover: rgba(0, 0, 0, 0.14);
+  --glass-blur: 12px;
+  --glass-radius: 4px;
 
-   /* ── Overlays (light) ── */
-   --color-overlay-light: rgba(0, 0, 0, 0.1);
-   --color-overlay-medium: rgba(0, 0, 0, 0.25);
-   --color-overlay-dark: rgba(0, 0, 0, 0.4);
-   --color-overlay-modal: rgba(0, 0, 0, 0.5);
+  /* ── Overlays (light) ── */
+  --color-overlay-light: rgba(0, 0, 0, 0.1);
+  --color-overlay-medium: rgba(0, 0, 0, 0.25);
+  --color-overlay-dark: rgba(0, 0, 0, 0.4);
+  --color-overlay-modal: rgba(0, 0, 0, 0.5);
 
-   /* ── Gradients (light) ── */
-   --gradient-primary: linear-gradient(135deg, #007aff 0%, #0066e0 100%);
-   --gradient-meter: linear-gradient(to top, #33b326 0%, #f2b30d 70%, #e62626 100%);
+  /* ── Gradients (light) ── */
+  --gradient-primary: linear-gradient(135deg, #007aff 0%, #0066e0 100%);
+  --gradient-meter: linear-gradient(to top, #33b326 0%, #f2b30d 70%, #e62626 100%);
 
-   /* ── Plugin Tokens (light) ── */
-   --plugin-card-border: color-mix(in srgb, var(--surface-3) 74%, #8a97a8);
-   --plugin-card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px rgba(0, 0, 0, 0.08);
-   --plugin-card-bg-main: linear-gradient(180deg, #f4f6f8 0%, #ebeef2 100%);
-   --plugin-title-color: #1a2a44;
-   --plugin-meta-color: color-mix(in srgb, var(--color-text-secondary) 82%, #4a6a9a);
+  /* ── Plugin Tokens (light) ── */
+  --plugin-card-border: color-mix(in srgb, var(--surface-3) 74%, #8a97a8);
+  --plugin-card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px rgba(0, 0, 0, 0.08);
+  --plugin-card-bg-main: linear-gradient(180deg, #f4f6f8 0%, #ebeef2 100%);
+  --plugin-title-color: #1a2a44;
+  --plugin-meta-color: color-mix(in srgb, var(--color-text-secondary) 82%, #4a6a9a);
 }

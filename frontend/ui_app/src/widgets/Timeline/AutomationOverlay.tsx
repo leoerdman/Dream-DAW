@@ -139,7 +139,7 @@ export const AutomationOverlay = memo(function AutomationOverlay({
                                     top: 2,
                                     left: 8,
                                     fontSize: 'var(--font-size-2xs)',
-                                    fontWeight: 600,
+                                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                                     color: lane.color,
                                     opacity: 0.8,
                                     zIndex: 'var(--z-local-base)' as unknown as number,

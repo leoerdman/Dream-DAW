@@ -48,7 +48,7 @@ pub struct DistortionProcessor {
 }
 
 impl DistortionProcessor {
-    pub fn new() -> Self {
+    pub fn new(sample_rate: f32) -> Self {
         Self {
             drive: 0.5,
             tone: 0.5,
@@ -65,7 +65,7 @@ impl DistortionProcessor {
             tone_state_r: 0.0,
             cab_state_l: 0.0,
             cab_state_r: 0.0,
-            sample_rate: 44100.0,
+            sample_rate,
         }
     }
 
@@ -105,12 +105,19 @@ impl DistortionProcessor {
 
 impl Default for DistortionProcessor {
     fn default() -> Self {
-        Self::new()
+        Self::new(44100.0)
     }
 }
 
 impl DspProcessor for DistortionProcessor {
-    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], _sample_rate: f32) {
+    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
+        // Sync sample rate if changed
+        if sample_rate.is_finite()
+            && sample_rate > 1000.0
+            && (sample_rate - self.sample_rate).abs() > 0.5
+        {
+            self.sample_rate = sample_rate;
+        }
         let len = left.len().min(right.len());
         let gain = 1.0 + self.drive * 30.0; // up to 31x
         let mode = self.mode;
@@ -122,13 +129,13 @@ impl DspProcessor for DistortionProcessor {
         let hp_freq = 50.0 + self.tightness * 450.0;
         let hp_c = 1.0 / (1.0 + std::f32::consts::TAU * hp_freq / self.sample_rate);
 
-        // Tone: tilt EQ (LP amount)
+        // Tone: tilt EQ (LP amount) — exact one-pole coefficient
         let tone_c =
-            (std::f32::consts::TAU * (1000.0 + self.tone * 19000.0) / self.sample_rate).min(0.99);
+            (1.0 - (-std::f32::consts::TAU * (1000.0 + self.tone * 19000.0) / self.sample_rate).exp()).clamp(0.0, 1.0);
 
-        // Cabinet simulation LP (~4.5kHz)
+        // Cabinet simulation LP (~4.5kHz) — exact one-pole coefficient
         let cab_c = if self.cab_sim {
-            (std::f32::consts::TAU * 4500.0 / self.sample_rate).min(0.99)
+            (1.0 - (-std::f32::consts::TAU * 4500.0 / self.sample_rate).exp()).clamp(0.0, 1.0)
         } else {
             1.0 // passthrough
         };
@@ -202,7 +209,7 @@ mod tests {
 
     #[test]
     fn distortion_clips_loud_signal() {
-        let mut proc = DistortionProcessor::new();
+        let mut proc = DistortionProcessor::new(44100.0);
         proc.set_param(0, 100.0);
         proc.set_param(2, 100.0);
         let mut l = vec![0.5f32; 512];
@@ -216,7 +223,7 @@ mod tests {
     #[test]
     fn all_modes_work() {
         for m in 0..=4u8 {
-            let mut proc = DistortionProcessor::new();
+            let mut proc = DistortionProcessor::new(44100.0);
             proc.set_param(3, m as f32);
             proc.set_param(0, 75.0);
             let mut l = vec![0.3f32; 512];

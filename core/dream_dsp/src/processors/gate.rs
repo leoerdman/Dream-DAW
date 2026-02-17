@@ -55,6 +55,9 @@ pub struct GateProcessor {
     // SC HPF
     sc_state_l: f32,
     sc_state_r: f32,
+    /// Previous SC HPF input for first-order HP: y[n] = α*(y[n-1] + x[n] - x[n-1])
+    sc_prev_l: f32,
+    sc_prev_r: f32,
     sc_coeff: f32,
     sample_rate: f32,
 }
@@ -79,6 +82,8 @@ impl GateProcessor {
             release_coeff: 0.0,
             sc_state_l: 0.0,
             sc_state_r: 0.0,
+            sc_prev_l: 0.0,
+            sc_prev_r: 0.0,
             sc_coeff: 0.0,
             sample_rate,
         };
@@ -135,18 +140,18 @@ impl DspProcessor for GateProcessor {
         let range = self.range_lin;
 
         for i in 0..len {
-            // Sidechain HPF
+            // Sidechain HPF: standard first-order HP y[n] = α*(y[n-1] + x[n] - x[n-1])
             let sc_l = if self.sc_hpf_freq > 25.0 {
-                let p = self.sc_state_l;
-                self.sc_state_l = self.sc_coeff * (p + left[i]);
-                left[i] - self.sc_state_l + p * self.sc_coeff
+                self.sc_state_l = self.sc_coeff * (self.sc_state_l + left[i] - self.sc_prev_l);
+                self.sc_prev_l = left[i];
+                self.sc_state_l
             } else {
                 left[i]
             };
             let sc_r = if self.sc_hpf_freq > 25.0 {
-                let p = self.sc_state_r;
-                self.sc_state_r = self.sc_coeff * (p + right[i]);
-                right[i] - self.sc_state_r + p * self.sc_coeff
+                self.sc_state_r = self.sc_coeff * (self.sc_state_r + right[i] - self.sc_prev_r);
+                self.sc_prev_r = right[i];
+                self.sc_state_r
             } else {
                 right[i]
             };

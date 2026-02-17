@@ -46,6 +46,9 @@ pub struct CompressorProcessor {
     // Sidechain HPF state
     sc_hp_state_l: f32,
     sc_hp_state_r: f32,
+    /// Previous SC HPF input for first-order HP: y[n] = α*(y[n-1] + x[n] - x[n-1])
+    sc_hp_prev_l: f32,
+    sc_hp_prev_r: f32,
     sc_hp_coeff: f32,
     // Cached coefficients
     attack_coeff: f32,
@@ -71,6 +74,8 @@ impl CompressorProcessor {
             rms_state: 0.0,
             sc_hp_state_l: 0.0,
             sc_hp_state_r: 0.0,
+            sc_hp_prev_l: 0.0,
+            sc_hp_prev_r: 0.0,
             sc_hp_coeff: 0.0,
             attack_coeff: 0.0,
             release_coeff: 0.0,
@@ -174,18 +179,18 @@ impl DspProcessor for CompressorProcessor {
             let dry_l = left[i];
             let dry_r = right[i];
 
-            // Sidechain HPF
+            // Sidechain HPF: standard first-order HP y[n] = α*(y[n-1] + x[n] - x[n-1])
             let sc_l = if self.sc_hpf_freq > 25.0 {
-                let prev = self.sc_hp_state_l;
-                self.sc_hp_state_l = self.sc_hp_coeff * (prev + dry_l);
-                dry_l - self.sc_hp_state_l + prev * self.sc_hp_coeff
+                self.sc_hp_state_l = self.sc_hp_coeff * (self.sc_hp_state_l + dry_l - self.sc_hp_prev_l);
+                self.sc_hp_prev_l = dry_l;
+                self.sc_hp_state_l
             } else {
                 dry_l
             };
             let sc_r = if self.sc_hpf_freq > 25.0 {
-                let prev = self.sc_hp_state_r;
-                self.sc_hp_state_r = self.sc_hp_coeff * (prev + dry_r);
-                dry_r - self.sc_hp_state_r + prev * self.sc_hp_coeff
+                self.sc_hp_state_r = self.sc_hp_coeff * (self.sc_hp_state_r + dry_r - self.sc_hp_prev_r);
+                self.sc_hp_prev_r = dry_r;
+                self.sc_hp_state_r
             } else {
                 dry_r
             };

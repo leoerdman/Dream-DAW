@@ -125,7 +125,7 @@ impl BuiltinEffectType {
             Self::Delay => Box::new(super::processors::delay::DelayProcessor::new(sample_rate)),
             Self::Reverb => Box::new(super::processors::reverb::ReverbProcessor::new(sample_rate)),
             Self::Chorus => Box::new(super::processors::chorus::ChorusProcessor::new(sample_rate)),
-            Self::Saturator => Box::new(super::processors::saturator::SaturatorProcessor::new()),
+            Self::Saturator => Box::new(super::processors::saturator::SaturatorProcessor::new(sample_rate)),
             // Wave 1
             Self::Limiter => Box::new(super::processors::limiter::LimiterProcessor::new(
                 sample_rate,
@@ -138,8 +138,8 @@ impl BuiltinEffectType {
             Self::Flanger => Box::new(super::processors::flanger::FlangerProcessor::new(
                 sample_rate,
             )),
-            Self::Distortion => Box::new(super::processors::distortion::DistortionProcessor::new()),
-            Self::Bitcrusher => Box::new(super::processors::bitcrusher::BitcrusherProcessor::new()),
+            Self::Distortion => Box::new(super::processors::distortion::DistortionProcessor::new(sample_rate)),
+            Self::Bitcrusher => Box::new(super::processors::bitcrusher::BitcrusherProcessor::new(sample_rate)),
             Self::NoiseMachine => {
                 Box::new(super::processors::noise_machine::NoiseMachineProcessor::new(sample_rate))
             }

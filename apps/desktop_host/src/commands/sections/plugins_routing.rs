@@ -426,7 +426,7 @@ fn open_plugin_window(
             Err(err) => {
                 if !PluginHostState::allow_unsandboxed_vst3() {
                     return Err(format!(
-                        "Plugin sandbox failed for '{}': {}. In-process fallback is disabled for crash safety. Set DREAM_DAW_ALLOW_UNSANDBOXED_VST3=1 to override.",
+                        "Plugin sandbox failed for '{}': {}. In-process fallback is disabled (DREAM_DAW_FORCE_SANDBOX_ONLY is active).",
                         descriptor.name,
                         err
                     ));
@@ -439,7 +439,7 @@ fn open_plugin_window(
         }
     } else if !PluginHostState::allow_unsandboxed_vst3() {
         return Err(format!(
-            "Plugin sandbox is unavailable for '{}'. In-process fallback is disabled for crash safety. Build plugin_host_daemon or set DREAM_DAW_ALLOW_UNSANDBOXED_VST3=1.",
+            "Plugin sandbox is unavailable for '{}'. In-process fallback is disabled (DREAM_DAW_FORCE_SANDBOX_ONLY is active).",
             descriptor.name
         ));
     }

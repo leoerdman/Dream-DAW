@@ -4,6 +4,7 @@ import { useDragStore } from '@/shared/stores/useDragStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import * as engineApi from '@/shared/api/engine';
+import { vuNorm } from '@/shared/lib/audioMath';
 import {
     PluginKnob,
     type PluginParam,
@@ -342,15 +343,7 @@ const DEVICE_PARAM_PRESETS: Record<
     rack: [],
 };
 
-// ── VU Meter Helpers ──────────────────────────────────────
-
-/** Normalize a peak dB value (-60..0) to 0..1 for display. */
-function vuNorm(peakDb: number): number {
-    const minDb = -60;
-    const maxDb = 0;
-    const clamped = Math.max(minDb, Math.min(maxDb, peakDb));
-    return (clamped - minDb) / (maxDb - minDb);
-}
+// vuNorm imported from '@/shared/lib/audioMath'
 
 function normalizePickedPath(picked: unknown): string | null {
     const rawValue = Array.isArray(picked) ? picked[0] : picked;
@@ -1704,7 +1697,7 @@ export const DeviceRack = ({
                             background: 'color-mix(in srgb, var(--color-bg-panel) 72%, var(--color-accent-primary) 28%)',
                             color: 'var(--color-text-primary)',
                             fontSize: 'var(--font-size-xs)',
-                            fontWeight: 700,
+                            fontWeight: 'var(--font-weight-bold)' as unknown as number,
                             letterSpacing: '0.03em',
                             pointerEvents: 'none',
                             textTransform: 'uppercase',
@@ -1748,7 +1741,7 @@ export const DeviceRack = ({
                         fontSize: 'var(--font-size-xs)',
                         color: 'var(--color-text-tertiary)',
                         padding: '4px 8px',
-                        fontWeight: 600,
+                        fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                         textTransform: 'uppercase',
                         letterSpacing: '0.05em',
                     }}
@@ -2030,7 +2023,7 @@ const DeviceNode = ({
                 </div>
                 <span style={{
                     fontSize: 'var(--font-size-2xs)',
-                    fontWeight: 600,
+                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                     color: 'var(--color-text-primary)',
                     flex: 1,
                     textAlign: 'center',
@@ -2054,10 +2047,10 @@ const DeviceNode = ({
                             <span
                                 title={runtimeStatus.message ?? `Runtime: ${runtimeStatus.runtime}${runtimeStatus.latencyFrames != null ? ` | latency ${runtimeStatus.latencyFrames} fr` : ''}`}
                                 style={{
-                                    fontSize: 9,
+                                    fontSize: 'var(--font-size-2xs)',
                                     lineHeight: 1,
                                     padding: '2px 4px',
-                                    borderRadius: 4,
+                                    borderRadius: 'var(--radius-md)',
                                     border: '1px solid var(--color-divider)',
                                     color: runtimeStatus.loaded ? 'var(--color-text-secondary)' : '#ff9b9b',
                                     background: runtimeStatus.loaded
@@ -2107,7 +2100,7 @@ const DeviceNode = ({
                     color: showUiButton
                         ? (pluginFormat === 'VST3' ? '#2ecc71' : '#ffb36a')
                         : 'var(--color-text-tertiary)',
-                    fontWeight: 700,
+                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
                     minWidth: 28,
                     textAlign: 'right',
                 }}>
@@ -2219,7 +2212,7 @@ const DeviceNode = ({
                     {device.source === 'vst' && (
                         <div style={{
                             border: '1px solid var(--color-divider)',
-                            borderRadius: 6,
+                            borderRadius: 'var(--radius-lg)',
                             background: 'color-mix(in srgb, var(--color-bg-header) 84%, #0c1017)',
                             padding: 6,
                             minHeight: 0,
@@ -2236,7 +2229,7 @@ const DeviceNode = ({
                                     const step = Number.isFinite(rawStep) && rawStep > 0 ? rawStep : range / 120;
                                     return (
                                         <div key={p.name} style={{ display: 'grid', gridTemplateColumns: '70px 1fr auto', gap: 6, alignItems: 'center' }}>
-                                            <span style={{ fontSize: 9, color: 'var(--color-text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                 {p.name}
                                             </span>
                                             <input
@@ -2251,12 +2244,12 @@ const DeviceNode = ({
                                                     width: '100%',
                                                     height: 8,
                                                     margin: 0,
-                                                    borderRadius: 999,
+                                                    borderRadius: 'var(--radius-full)',
                                                     accentColor: '#6fb4ff',
                                                     background: `linear-gradient(90deg, #5aa9ff 0%, #8ec6ff ${(fill * 100).toFixed(1)}%, var(--color-bg-panel) ${(fill * 100).toFixed(1)}%, var(--color-bg-panel) 100%)`,
                                                 }}
                                             />
-                                            <span style={{ fontSize: 9, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                                            <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
                                                 {Number.isFinite(p.value) ? p.value.toFixed(2) : '-'}
                                             </span>
                                         </div>
@@ -2264,7 +2257,7 @@ const DeviceNode = ({
                                 })}
                             </div>
                             {!allowInlineParamEditing && (
-                                <div style={{ fontSize: 10, color: '#ff9b9b', lineHeight: 1.35 }}>
+                                <div style={{ fontSize: 'var(--font-size-xs)', color: '#ff9b9b', lineHeight: 1.35 }}>
                                     {runtimeHint || 'Plugin runtime is offline. Use a valid VST3 bundle to edit parameters.'}
                                 </div>
                             )}
@@ -2274,11 +2267,11 @@ const DeviceNode = ({
                                 style={{
                                     justifySelf: 'start',
                                     border: '1px solid var(--color-divider)',
-                                    borderRadius: 4,
+                                    borderRadius: 'var(--radius-md)',
                                     background: 'var(--color-bg-elevated)',
                                     color: 'var(--color-text-secondary)',
-                                    fontSize: 10,
-                                    fontWeight: 700,
+                                    fontSize: 'var(--font-size-xs)',
+                                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
                                     padding: '4px 8px',
                                     cursor: 'pointer',
                                 }}
@@ -2312,7 +2305,7 @@ const headerIconBtnStyle = (disabled: boolean, active = false) =>
                 ? 'var(--color-accent-primary)'
                 : 'var(--color-text-secondary)',
         fontSize: 'var(--font-size-2xs)',
-        fontWeight: 700,
+        fontWeight: 'var(--font-weight-bold)' as unknown as number,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.65 : 1,
         transition: 'all var(--transition-fast)',
@@ -2341,13 +2334,13 @@ const pluginPanelTitleStyle: React.CSSProperties = {
     color: 'var(--plugin-title-color)',
     letterSpacing: '0.05em',
     textTransform: 'uppercase',
-    fontWeight: 700,
+    fontWeight: 'var(--font-weight-bold)' as unknown as number,
 };
 
 const pluginPanelMetaStyle: React.CSSProperties = {
     display: 'flex',
     justifyContent: 'space-between',
-    fontSize: 10,
+    fontSize: 'var(--font-size-xs)',
     color: 'var(--plugin-meta-color)',
     fontFamily: 'var(--font-mono)',
 };
@@ -2811,11 +2804,11 @@ const PluginGuiSurface = ({
                     gap: 8,
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                        <span style={{ ...pluginPanelTitleStyle, fontSize: 10, color: '#d3efe3' }}>
+                        <span style={{ ...pluginPanelTitleStyle, fontSize: 'var(--font-size-xs)', color: '#d3efe3' }}>
                             Essence
                         </span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontSize: 10, color: '#80d7b0', fontFamily: 'var(--font-mono)' }}>
+                            <span style={{ fontSize: 'var(--font-size-xs)', color: '#80d7b0', fontFamily: 'var(--font-mono)' }}>
                                 OSC Blend {(mix * 100).toFixed(0)}%
                             </span>
                             <button
@@ -2827,7 +2820,7 @@ const PluginGuiSurface = ({
                                     background: 'rgba(24, 44, 37, 0.72)',
                                     color: '#c9f7df',
                                     fontSize: 'var(--font-size-2xs)',
-                                    fontWeight: 700,
+                                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
                                     letterSpacing: '0.03em',
                                     cursor: 'pointer',
                                     padding: '3px 7px',
@@ -2854,8 +2847,8 @@ const PluginGuiSurface = ({
                                     borderRadius: 'var(--radius-md)',
                                     background: 'linear-gradient(180deg, rgba(30, 52, 45, 0.85) 0%, rgba(20, 35, 31, 0.9) 100%)',
                                     color: '#c9f7df',
-                                    fontSize: 9,
-                                    fontWeight: 700,
+                                    fontSize: 'var(--font-size-2xs)',
+                                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
                                     letterSpacing: '0.03em',
                                     cursor: 'pointer',
                                     padding: '3px 7px',
@@ -2876,10 +2869,10 @@ const PluginGuiSurface = ({
                         </svg>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto auto', alignItems: 'center', gap: 6 }}>
-                        <div style={{ fontSize: 9, color: '#8fd6b4', fontFamily: 'var(--font-mono)' }}>OSC1 {waveformLabel(osc1)}</div>
-                        <div style={{ fontSize: 9, color: '#9bc6ff', fontFamily: 'var(--font-mono)' }}>OSC2 {waveformLabel(osc2)}</div>
-                        <div style={{ fontSize: 9, color: '#a4d5c0', fontFamily: 'var(--font-mono)' }}>Detune {detune.toFixed(1)}ct</div>
-                        <div style={{ fontSize: 9, color: '#a4d5c0', fontFamily: 'var(--font-mono)' }}>Sub {(sub * 100).toFixed(0)}%</div>
+                        <div style={{ fontSize: 'var(--font-size-2xs)', color: '#8fd6b4', fontFamily: 'var(--font-mono)' }}>OSC1 {waveformLabel(osc1)}</div>
+                        <div style={{ fontSize: 'var(--font-size-2xs)', color: '#9bc6ff', fontFamily: 'var(--font-mono)' }}>OSC2 {waveformLabel(osc2)}</div>
+                        <div style={{ fontSize: 'var(--font-size-2xs)', color: '#a4d5c0', fontFamily: 'var(--font-mono)' }}>Detune {detune.toFixed(1)}ct</div>
+                        <div style={{ fontSize: 'var(--font-size-2xs)', color: '#a4d5c0', fontFamily: 'var(--font-mono)' }}>Sub {(sub * 100).toFixed(0)}%</div>
                     </div>
                     <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height: 18, opacity: 0.85 }}>
                         <rect x="0" y="0" width="100" height="100" fill="rgba(8, 17, 14, 0.55)" />
@@ -2894,11 +2887,11 @@ const PluginGuiSurface = ({
                                 onClick={() => onParamChange('Osc1Wave', wf.idx)}
                                 style={{
                                     border: wf.idx === osc1 ? '1px solid #5ce0a6' : '1px solid #3e5d53',
-                                    borderRadius: 4,
+                                    borderRadius: 'var(--radius-md)',
                                     background: wf.idx === osc1 ? 'rgba(92, 224, 166, 0.18)' : 'rgba(24, 44, 37, 0.72)',
                                     color: wf.idx === osc1 ? '#d9ffee' : '#9ac4b2',
-                                    fontSize: 10,
-                                    fontWeight: 600,
+                                    fontSize: 'var(--font-size-xs)',
+                                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                                     cursor: 'pointer',
                                     padding: '6px 4px',
                                 }}
@@ -2913,11 +2906,11 @@ const PluginGuiSurface = ({
                                 onClick={() => onParamChange('Osc2Wave', wf.idx)}
                                 style={{
                                     border: wf.idx === osc2 ? '1px solid #7abfff' : '1px solid #3f5671',
-                                    borderRadius: 4,
+                                    borderRadius: 'var(--radius-md)',
                                     background: wf.idx === osc2 ? 'rgba(122, 191, 255, 0.18)' : 'rgba(26, 38, 53, 0.72)',
                                     color: wf.idx === osc2 ? '#e2f0ff' : '#a8bfd6',
-                                    fontSize: 10,
-                                    fontWeight: 600,
+                                    fontSize: 'var(--font-size-xs)',
+                                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                                     cursor: 'pointer',
                                     padding: '6px 4px',
                                 }}
@@ -2954,7 +2947,7 @@ const PluginGuiSurface = ({
                 height: '100%',
                 gap: 4,
                 border: pluginPanelCardBaseStyle.border,
-                borderRadius: 6,
+                borderRadius: 'var(--radius-lg)',
                 background: 'linear-gradient(180deg, color-mix(in srgb, var(--surface-3) 84%, #2f4058) 0%, color-mix(in srgb, var(--surface-2) 88%, #1c2735) 100%)',
                 overflow: 'hidden',
             }}>
@@ -3022,10 +3015,10 @@ const PluginGuiSurface = ({
                         left: 8,
                         top: 4,
                         color: '#d7dce7',
-                        fontSize: 9,
+                        fontSize: 'var(--font-size-2xs)',
                         letterSpacing: '0.04em',
                         textTransform: 'uppercase',
-                        fontWeight: 700,
+                        fontWeight: 'var(--font-weight-bold)' as unknown as number,
                     }}>
                         Sample
                     </div>
@@ -3035,7 +3028,7 @@ const PluginGuiSurface = ({
                         right: 88,
                         bottom: 3,
                         color: sampleName ? '#9fb6d9' : '#a8b0bd',
-                        fontSize: 9,
+                        fontSize: 'var(--font-size-2xs)',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
@@ -3050,10 +3043,10 @@ const PluginGuiSurface = ({
                             right: 8,
                             top: 4,
                             border: '1px solid #4f668a',
-                            borderRadius: 3,
+                            borderRadius: 'var(--radius-sm)',
                             background: 'linear-gradient(180deg, #33435b 0%, #27364b 100%)',
                             color: '#dce9ff',
-                            fontSize: 9,
+                            fontSize: 'var(--font-size-2xs)',
                             padding: '3px 7px',
                             cursor: 'pointer',
                         }}
@@ -3218,8 +3211,8 @@ const PluginGuiSurface = ({
                     {hasUtilityCoreParams ? (
                         <>
                             <div>
-                                <div style={{ fontSize: 9, color: '#9fa7b5', marginBottom: 4 }}>Pan</div>
-                                <div style={{ position: 'relative', height: 8, borderRadius: 999, background: '#2a2a2a' }}>
+                                <div style={{ fontSize: 'var(--font-size-2xs)', color: '#9fa7b5', marginBottom: 4 }}>Pan</div>
+                                <div style={{ position: 'relative', height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)' }}>
                                     <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'rgba(255,255,255,0.2)' }} />
                                     <div style={{
                                         position: 'absolute',
@@ -3227,15 +3220,15 @@ const PluginGuiSurface = ({
                                         left: `calc(${(panPct * 50 + 50).toFixed(3)}% - 5px)`,
                                         width: 10,
                                         height: 14,
-                                        borderRadius: 4,
+                                        borderRadius: 'var(--radius-md)',
                                         background: '#56a7ff',
                                         boxShadow: '0 0 6px rgba(86,167,255,0.45)',
                                     }} />
                                 </div>
                             </div>
                             <div>
-                                <div style={{ fontSize: 9, color: '#9fa7b5', marginBottom: 4 }}>Stereo Width</div>
-                                <div style={{ height: 8, borderRadius: 999, background: '#2a2a2a', overflow: 'hidden' }}>
+                                <div style={{ fontSize: 'var(--font-size-2xs)', color: '#9fa7b5', marginBottom: 4 }}>Stereo Width</div>
+                                <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'var(--color-bg-tertiary)', overflow: 'hidden' }}>
                                     <div style={{
                                         width: `${(widthPct * 100).toFixed(2)}%`,
                                         height: '100%',
@@ -3253,17 +3246,17 @@ const PluginGuiSurface = ({
                                 <button
                                     type="button"
                                     onClick={() => onApplyUtilityScene?.('center')}
-                                    style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '3px 8px', cursor: 'pointer' }}
+                                    style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '3px 8px', cursor: 'pointer' }}
                                 >Center</button>
                                 <button
                                     type="button"
                                     onClick={() => onApplyUtilityScene?.('mono')}
-                                    style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '3px 8px', cursor: 'pointer' }}
+                                    style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '3px 8px', cursor: 'pointer' }}
                                 >Mono</button>
                                 <button
                                     type="button"
                                     onClick={() => onApplyUtilityScene?.('wide')}
-                                    style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '3px 8px', cursor: 'pointer' }}
+                                    style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '3px 8px', cursor: 'pointer' }}
                                 >Wide</button>
                             </div>
                         </>
@@ -3272,20 +3265,20 @@ const PluginGuiSurface = ({
                             <div style={{ gridColumn: '1 / span 2', ...pluginPanelTitleStyle, color: '#d9e3f2' }}>{utilityTitle}</div>
                             {isTuner && (
                                 <div style={{ gridColumn: '1 / span 2', display: 'grid', gap: 4 }}>
-                                    <div style={{ fontSize: 24, color: '#a9d2ff', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>A</div>
-                                    <div style={{ height: 8, borderRadius: 999, background: '#1f2a36', position: 'relative' }}>
+                                    <div style={{ fontSize: 'var(--font-size-3xl)', color: '#a9d2ff', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>A</div>
+                                    <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: '#1f2a36', position: 'relative' }}>
                                         <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: '#7ab6ff' }} />
                                     </div>
                                 </div>
                             )}
                             {(isAutoShift || isShifter) && (
                                 <div style={{ gridColumn: '1 / span 2', display: 'grid', gap: 4 }}>
-                                    <div style={{ fontSize: 10, color: '#a5bed8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Shift</div>
-                                    <div style={{ fontSize: 20, color: '#dce9ff', fontFamily: 'var(--font-mono)' }}>{shiftAmount.toFixed(1)} st</div>
+                                    <div style={{ fontSize: 'var(--font-size-xs)', color: '#a5bed8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Shift</div>
+                                    <div style={{ fontSize: 'var(--font-size-2xl)', color: '#dce9ff', fontFamily: 'var(--font-mono)' }}>{shiftAmount.toFixed(1)} st</div>
                                 </div>
                             )}
                             {isExternalFx && (
-                                <div style={{ gridColumn: '1 / span 2', fontSize: 10, color: '#c2cfdb', lineHeight: 1.4 }}>
+                                <div style={{ gridColumn: '1 / span 2', fontSize: 'var(--font-size-xs)', color: '#c2cfdb', lineHeight: 1.4 }}>
                                     External routing host. Use device params below for send/return balance and compensation.
                                 </div>
                             )}
@@ -3336,10 +3329,10 @@ const PluginGuiSurface = ({
                     {isTransientShaper ? (
                         <div style={{ display: 'grid', gap: 6 }}>
                             <div style={{ ...pluginPanelTitleStyle, color: '#b9d7ff' }}>Transient Shaper</div>
-                            <div style={{ height: 8, borderRadius: 999, background: 'rgba(18,26,34,0.9)', overflow: 'hidden' }}>
+                            <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'rgba(18,26,34,0.9)', overflow: 'hidden' }}>
                                 <div style={{ width: `${(attackNorm * 100).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #53b0ff 0%, #8ecfff 100%)' }} />
                             </div>
-                            <div style={{ height: 8, borderRadius: 999, background: 'rgba(18,26,34,0.9)', overflow: 'hidden' }}>
+                            <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: 'rgba(18,26,34,0.9)', overflow: 'hidden' }}>
                                 <div style={{ width: `${(releaseNorm * 100).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #78d6ad 0%, #b5f0d5 100%)' }} />
                             </div>
                             <div style={pluginPanelMetaStyle}>
@@ -3355,7 +3348,7 @@ const PluginGuiSurface = ({
                             <line x1="14" y1="70" x2="260" y2="70" stroke="rgba(255,255,255,0.2)" />
                         </svg>
                     )}
-                    <div style={{ width: 46, height: 72, borderRadius: 4, background: '#1c1f24', border: '1px solid #3d434d', padding: 3 }}>
+                    <div style={{ width: 46, height: 72, borderRadius: 'var(--radius-md)', background: '#1c1f24', border: '1px solid #3d434d', padding: 3 }}>
                         <div style={{ width: '100%', height: `${(pseudoGr / 24) * 100}%`, marginTop: `${100 - (pseudoGr / 24) * 100}%`, background: 'linear-gradient(180deg, #66cc33 0%, #ffcc1a 60%, #ff3333 100%)', borderRadius: 2 }} />
                     </div>
                     {!isTransientShaper && (
@@ -3474,7 +3467,7 @@ const PluginGuiSurface = ({
                     ...pluginPanelCardBaseStyle,
                     background: 'var(--plugin-bg-reverb)',
                 }}>
-                    <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 4, background: 'rgba(10,10,12,0.45)' }}>
+                    <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 'var(--radius-md)', background: 'rgba(10,10,12,0.45)' }}>
                         {Array.from({ length: 5 }).map((_, i) => (
                             <div
                                 key={i}
@@ -3606,7 +3599,7 @@ const PluginGuiSurface = ({
             <div style={pluginPanelLayoutStyle}>
                 <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-limiter)' }}>
                     <div style={{ ...pluginPanelTitleStyle, color: '#a4d9d3' }}>Lookahead Limiter</div>
-                    <div style={{ height: 10, borderRadius: 999, background: '#222d2e', overflow: 'hidden' }}>
+                    <div style={{ height: 10, borderRadius: 'var(--radius-full)', background: '#222d2e', overflow: 'hidden' }}>
                         <div style={{ width: `${(safety * 100).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #4bc4b2 0%, #89f0de 100%)' }} />
                     </div>
                     <div style={pluginPanelMetaStyle}>
@@ -3641,7 +3634,7 @@ const PluginGuiSurface = ({
             <div style={pluginPanelLayoutStyle}>
                 <div style={{ ...pluginPanelCardBaseStyle, background: 'var(--plugin-bg-gate)' }}>
                     <div style={{ ...pluginPanelTitleStyle, color: '#b8dfad' }}>Noise Gate</div>
-                    <div style={{ height: 34, borderRadius: 4, background: '#1b2018', position: 'relative' }}>
+                    <div style={{ height: 34, borderRadius: 'var(--radius-md)', background: '#1b2018', position: 'relative' }}>
                         <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${(openness * 100).toFixed(1)}%`, background: 'linear-gradient(90deg, #6bc66e 0%, #d2f18b 100%)' }} />
                     </div>
                     <div style={pluginPanelMetaStyle}>
@@ -3901,7 +3894,7 @@ const PluginGuiSurface = ({
                     )}
                     {device.effectType === 'midiPitch' && (
                         <div style={{ display: 'grid', placeItems: 'center', height: 46 }}>
-                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 24, color: '#95bdff' }}>
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-3xl)', color: '#95bdff' }}>
                                 {semitones >= 0 ? '+' : ''}{semitones.toFixed(0)} st
                             </div>
                         </div>
@@ -3912,11 +3905,11 @@ const PluginGuiSurface = ({
                                 <div
                                     key={n}
                                     style={{
-                                        borderRadius: 3,
+                                        borderRadius: 'var(--radius-sm)',
                                         border: idx === activeRoot ? '1px solid #8bc27a' : '1px solid rgba(255,255,255,0.14)',
                                         background: idx === activeRoot ? 'rgba(139,194,122,0.22)' : 'rgba(160,180,210,0.1)',
                                         color: idx === activeRoot ? '#d9f3d1' : '#a8b7cd',
-                                        fontSize: 9,
+                                        fontSize: 'var(--font-size-2xs)',
                                         textAlign: 'center',
                                         padding: '3px 0',
                                     }}
@@ -3930,17 +3923,17 @@ const PluginGuiSurface = ({
                         <div style={{ display: 'grid', gap: 6, height: 46 }}>
                             {isNoteLength ? (
                                 <>
-                                    <div style={{ height: 8, borderRadius: 999, background: '#1e2430', overflow: 'hidden' }}>
+                                    <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: '#1e2430', overflow: 'hidden' }}>
                                         <div style={{ width: `${Math.max(0, Math.min(100, velGain * 50)).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #7ec8ff 0%, #a0e0ff 100%)' }} />
                                     </div>
-                                    <div style={{ fontSize: 10, color: '#c5d7ea', fontFamily: 'var(--font-mono)' }}>Gate {(velGain * 100).toFixed(0)}%</div>
+                                    <div style={{ fontSize: 'var(--font-size-xs)', color: '#c5d7ea', fontFamily: 'var(--font-mono)' }}>Gate {(velGain * 100).toFixed(0)}%</div>
                                 </>
                             ) : (
                                 <>
-                                    <div style={{ height: 8, borderRadius: 999, background: '#1e2430', overflow: 'hidden' }}>
+                                    <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: '#1e2430', overflow: 'hidden' }}>
                                         <div style={{ width: `${Math.max(0, Math.min(200, velGain * 100)).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #7ec8ff 0%, #a0e0ff 100%)' }} />
                                     </div>
-                                    <div style={{ height: 8, borderRadius: 999, background: '#1e2430', overflow: 'hidden', position: 'relative' }}>
+                                    <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: '#1e2430', overflow: 'hidden', position: 'relative' }}>
                                         <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'rgba(255,255,255,0.2)' }} />
                                         <div style={{
                                             position: 'absolute',
@@ -3948,7 +3941,7 @@ const PluginGuiSurface = ({
                                             top: -2,
                                             width: 10,
                                             height: 12,
-                                            borderRadius: 4,
+                                            borderRadius: 'var(--radius-md)',
                                             background: isCcControl || isExpressionControl ? '#8ecb7c' : '#d9a25c',
                                         }} />
                                     </div>
@@ -3958,10 +3951,10 @@ const PluginGuiSurface = ({
                     )}
                     {device.effectType === 'midiRandom' && (
                         <div style={{ display: 'grid', alignItems: 'center', gap: 4, height: 46 }}>
-                            <div style={{ height: 8, borderRadius: 999, background: '#1d1d2e', overflow: 'hidden' }}>
+                            <div style={{ height: 8, borderRadius: 'var(--radius-full)', background: '#1d1d2e', overflow: 'hidden' }}>
                                 <div style={{ width: `${Math.max(0, Math.min(100, chance * 100)).toFixed(1)}%`, height: '100%', background: 'linear-gradient(90deg, #c58bdd 0%, #ecb4ff 100%)' }} />
                             </div>
-                            <div style={{ fontSize: 10, color: '#cfa4e6', fontFamily: 'var(--font-mono)' }}>
+                            <div style={{ fontSize: 'var(--font-size-xs)', color: '#cfa4e6', fontFamily: 'var(--font-mono)' }}>
                                 {isArp
                                     ? `Arp Gate ${(chance * 100).toFixed(0)}% | Steps ${Math.max(1, Math.round(Math.abs(semitones) || 8))}`
                                     : `Chance ${(chance * 100).toFixed(0)}% | Range ±${Math.abs(semitones).toFixed(0)} st`}
@@ -4069,13 +4062,13 @@ const PluginSettingsPanel = ({
                     gap: 6,
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-secondary)' }}>
+                        <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-bold)' as unknown as number, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-secondary)' }}>
                             External Plugin
                         </span>
                         <span style={{
-                            fontSize: 10,
-                            fontWeight: 700,
-                            borderRadius: 999,
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                            borderRadius: 'var(--radius-full)',
                             border: '1px solid var(--color-divider)',
                             padding: '2px 7px',
                             color: runtimeStatus?.loaded ? '#7edb90' : '#ff9b9b',
@@ -4086,7 +4079,7 @@ const PluginSettingsPanel = ({
                             {runtimeStatus?.loaded ? (runtimeStatus.runtime || 'loaded') : 'offline'}
                         </span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--color-text-tertiary)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>
                         <span>{device.params.length} mapped params</span>
                         <span>
                             {runtimeStatus?.latencyFrames != null
@@ -4095,7 +4088,7 @@ const PluginSettingsPanel = ({
                         </span>
                     </div>
                     {editorReason && (
-                        <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>{editorReason}</div>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>{editorReason}</div>
                     )}
                     <input
                         value={paramSearch}
@@ -4103,11 +4096,11 @@ const PluginSettingsPanel = ({
                         placeholder="Find parameter..."
                         style={{
                             height: 24,
-                            borderRadius: 5,
+                            borderRadius: 'var(--radius-md)',
                             border: '1px solid var(--color-divider)',
                             background: 'var(--color-bg-panel)',
                             color: 'var(--color-text-primary)',
-                            fontSize: 11,
+                            fontSize: 'var(--font-size-sm)',
                             padding: '0 8px',
                             outline: 'none',
                         }}
@@ -4125,9 +4118,9 @@ const PluginSettingsPanel = ({
                 >
                     <span
                         style={{
-                            fontSize: 10,
+                            fontSize: 'var(--font-size-xs)',
                             color: 'var(--color-text-tertiary)',
-                            fontWeight: 700,
+                            fontWeight: 'var(--font-weight-bold)' as unknown as number,
                             letterSpacing: '0.04em',
                             textTransform: 'uppercase',
                         }}
@@ -4139,10 +4132,10 @@ const PluginSettingsPanel = ({
                         onChange={(e) => onSidechainSourceChange?.(e.target.value)}
                         style={{
                             border: '1px solid var(--color-divider)',
-                            borderRadius: 4,
+                            borderRadius: 'var(--radius-md)',
                             background: 'var(--color-bg-header)',
                             color: 'var(--color-text-primary)',
-                            fontSize: 11,
+                            fontSize: 'var(--font-size-sm)',
                             padding: '5px 7px',
                             outline: 'none',
                         }}
@@ -4157,9 +4150,9 @@ const PluginSettingsPanel = ({
             {quickPresets.length > 0 && (
                 <div style={{ display: 'grid', gap: 5 }}>
                     <span style={{
-                        fontSize: 10,
+                        fontSize: 'var(--font-size-xs)',
                         color: 'var(--color-text-tertiary)',
-                        fontWeight: 700,
+                        fontWeight: 'var(--font-weight-bold)' as unknown as number,
                         letterSpacing: '0.04em',
                         textTransform: 'uppercase',
                     }}>
@@ -4173,10 +4166,10 @@ const PluginSettingsPanel = ({
                                 onClick={() => onApplyQuickPreset?.(preset)}
                                 style={{
                                     border: '1px solid var(--color-divider)',
-                                    borderRadius: 4,
+                                    borderRadius: 'var(--radius-md)',
                                     background: 'var(--color-bg-header)',
                                     color: 'var(--color-text-secondary)',
-                                    fontSize: 10,
+                                    fontSize: 'var(--font-size-xs)',
                                     padding: '4px 8px',
                                     cursor: 'pointer',
                                 }}
@@ -4190,9 +4183,9 @@ const PluginSettingsPanel = ({
             {device.source === 'internal' && (
                 <div style={{ display: 'grid', gap: 5 }}>
                     <span style={{
-                        fontSize: 10,
+                        fontSize: 'var(--font-size-xs)',
                         color: 'var(--color-text-tertiary)',
-                        fontWeight: 700,
+                        fontWeight: 'var(--font-weight-bold)' as unknown as number,
                         letterSpacing: '0.04em',
                         textTransform: 'uppercase',
                     }}>
@@ -4202,40 +4195,40 @@ const PluginSettingsPanel = ({
                         <button
                             type="button"
                             onClick={() => onRandomize?.()}
-                            style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '4px 8px', cursor: 'pointer' }}
+                            style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '4px 8px', cursor: 'pointer' }}
                         >Random</button>
                         <button
                             type="button"
                             onClick={() => onReset?.()}
-                            style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '4px 8px', cursor: 'pointer' }}
+                            style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '4px 8px', cursor: 'pointer' }}
                         >Reset</button>
                         <button
                             type="button"
                             onClick={() => onStoreSnapshot?.('A')}
-                            style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: snapshotState?.active === 'A' ? 'color-mix(in srgb, var(--color-accent-primary) 25%, var(--color-bg-header))' : 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '4px 8px', cursor: 'pointer' }}
+                            style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: snapshotState?.active === 'A' ? 'color-mix(in srgb, var(--color-accent-primary) 25%, var(--color-bg-header))' : 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '4px 8px', cursor: 'pointer' }}
                         >Store A</button>
                         <button
                             type="button"
                             onClick={() => onStoreSnapshot?.('B')}
-                            style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: snapshotState?.active === 'B' ? 'color-mix(in srgb, var(--color-accent-primary) 25%, var(--color-bg-header))' : 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '4px 8px', cursor: 'pointer' }}
+                            style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: snapshotState?.active === 'B' ? 'color-mix(in srgb, var(--color-accent-primary) 25%, var(--color-bg-header))' : 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '4px 8px', cursor: 'pointer' }}
                         >Store B</button>
                         <button
                             type="button"
                             onClick={() => onRecallSnapshot?.('A')}
                             disabled={!snapshotState?.A}
-                            style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '4px 8px', cursor: snapshotState?.A ? 'pointer' : 'not-allowed', opacity: snapshotState?.A ? 1 : 0.55 }}
+                            style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '4px 8px', cursor: snapshotState?.A ? 'pointer' : 'not-allowed', opacity: snapshotState?.A ? 1 : 0.55 }}
                         >A</button>
                         <button
                             type="button"
                             onClick={() => onRecallSnapshot?.('B')}
                             disabled={!snapshotState?.B}
-                            style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '4px 8px', cursor: snapshotState?.B ? 'pointer' : 'not-allowed', opacity: snapshotState?.B ? 1 : 0.55 }}
+                            style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '4px 8px', cursor: snapshotState?.B ? 'pointer' : 'not-allowed', opacity: snapshotState?.B ? 1 : 0.55 }}
                         >B</button>
                         <button
                             type="button"
                             onClick={() => onToggleSnapshot?.()}
                             disabled={!snapshotState?.A || !snapshotState?.B}
-                            style={{ border: '1px solid var(--color-divider)', borderRadius: 4, background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 10, padding: '4px 8px', cursor: snapshotState?.A && snapshotState?.B ? 'pointer' : 'not-allowed', opacity: snapshotState?.A && snapshotState?.B ? 1 : 0.55 }}
+                            style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-header)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', padding: '4px 8px', cursor: snapshotState?.A && snapshotState?.B ? 'pointer' : 'not-allowed', opacity: snapshotState?.A && snapshotState?.B ? 1 : 0.55 }}
                         >A/B</button>
                     </div>
                 </div>
@@ -4247,10 +4240,10 @@ const PluginSettingsPanel = ({
                     style={{
                         width: 'fit-content',
                         border: '1px solid var(--color-divider)',
-                        borderRadius: 4,
+                        borderRadius: 'var(--radius-md)',
                         background: 'var(--color-bg-header)',
                         color: 'var(--color-text-secondary)',
-                        fontSize: 11,
+                        fontSize: 'var(--font-size-sm)',
                         padding: '6px 10px',
                         cursor: 'pointer',
                     }}
@@ -4277,10 +4270,10 @@ const PluginSettingsPanel = ({
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     border: '1px solid var(--color-divider)',
-                    borderRadius: 6,
+                    borderRadius: 'var(--radius-lg)',
                     padding: '8px 10px',
                     color: 'var(--color-text-secondary)',
-                    fontSize: 10,
+                    fontSize: 'var(--font-size-xs)',
                 }}>
                     <span>{device.params.length > 0 ? 'No parameters match filter' : 'No exported params'}</span>
                     <span style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>
@@ -4310,7 +4303,7 @@ const MeterBar = ({ level, isInput }: { level: number; isInput?: boolean }) => {
                 width: 6,
                 flex: 1,
                 background: 'var(--color-meter-bg)',
-                borderRadius: 1,
+                borderRadius: 'var(--radius-2xs)',
                 position: 'relative',
                 overflow: 'hidden',
             }}>
@@ -4321,7 +4314,7 @@ const MeterBar = ({ level, isInput }: { level: number; isInput?: boolean }) => {
                     width: '100%',
                     height: `${h}%`,
                     background: isInput ? 'var(--color-midi-indicator)' : meterColor,
-                    borderRadius: 1,
+                    borderRadius: 'var(--radius-2xs)',
                     transition: 'height 0.08s linear',
                 }} />
             </div>

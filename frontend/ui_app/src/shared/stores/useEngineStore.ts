@@ -16,7 +16,7 @@ import { create } from 'zustand';
 import throttle from 'lodash.throttle';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import * as engine from '@/shared/api/engine';
-import { frameToBeat } from '@/shared/lib/audioMath';
+import { frameToBeat, secondsToBeat } from '@/shared/lib/audioMath';
 import type {
     TransportState,
     MeteringSnapshot,
@@ -726,7 +726,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                         trackIndex: trackIdx,
                         startBeat: frameToBeat(posFrames, bpm, sr),
                         durationBeats: isWarped
-                            ? (sourceSeconds * warpBaseBpm) / 60
+                            ? secondsToBeat(sourceSeconds, warpBaseBpm)
                             : frameToBeat(durFrames, bpm, sr),
                         // Editor mode must follow track type:
                         // MIDI tracks -> piano roll, Audio tracks -> sample editor.

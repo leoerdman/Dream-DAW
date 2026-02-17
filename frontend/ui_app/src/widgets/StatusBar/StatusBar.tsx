@@ -16,6 +16,7 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
 import { ALL_DIVISIONS } from '@/shared/lib/gridSnap';
+import { secondsToBeat } from '@/shared/lib/audioMath';
 import { useState, useRef, useEffect } from 'react';
 
 interface StatusBarProps {
@@ -62,9 +63,10 @@ export const StatusBar = ({
     const historyRef = useRef<HTMLDivElement | null>(null);
 
     // Compute bar.beat.sub from live playhead
-    const bar = Math.floor((positionSeconds / 60) * bpm / 4) + 1;
-    const beat = Math.floor(((positionSeconds / 60) * bpm) % 4) + 1;
-    const sub = Math.floor((((positionSeconds / 60) * bpm) % 1) * 96);
+    const totalBeats = secondsToBeat(positionSeconds, bpm);
+    const bar = Math.floor(totalBeats / 4) + 1;
+    const beat = Math.floor(totalBeats % 4) + 1;
+    const sub = Math.floor((totalBeats % 1) * 96);
     const position = `${bar}.${beat}.${sub.toString().padStart(2, '0')}`;
     const gridLabel = gridDivision === 'ADAPTIVE' ? 'Auto' : gridTriplet ? `${gridDivision}T` : gridDivision;
 

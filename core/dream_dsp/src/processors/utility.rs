@@ -36,10 +36,13 @@ pub struct UtilityProcessor {
     mono: bool,
     /// Smoothing coefficient (per-sample)
     smooth_coeff: f32,
+    /// Cached sample rate
+    sample_rate: f32,
 }
 
 impl UtilityProcessor {
     pub fn new() -> Self {
+        let sr = 44100.0_f32;
         Self {
             gain_db: 0.0,
             current_gain: 1.0,
@@ -47,8 +50,9 @@ impl UtilityProcessor {
             pan: 0.0,
             width: 1.0,
             mono: false,
-            // ~5ms smoothing at 44.1kHz
-            smooth_coeff: 0.993,
+            // ~5ms smoothing derived from sample rate
+            smooth_coeff: (-1.0 / (0.005 * sr)).exp(),
+            sample_rate: sr,
         }
     }
 
@@ -69,7 +73,15 @@ impl Default for UtilityProcessor {
 }
 
 impl DspProcessor for UtilityProcessor {
-    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], _sample_rate: f32) {
+    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
+        // Sync sample rate & recalculate coefficient
+        if sample_rate.is_finite()
+            && sample_rate > 1000.0
+            && (sample_rate - self.sample_rate).abs() > 0.5
+        {
+            self.sample_rate = sample_rate;
+            self.smooth_coeff = (-1.0 / (0.005 * sample_rate)).exp();
+        }
         let len = left.len().min(right.len());
         let coeff = self.smooth_coeff;
 

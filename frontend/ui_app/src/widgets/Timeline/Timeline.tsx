@@ -692,7 +692,7 @@ export const Timeline = (props: TimelineProps) => {
                     background: 'transparent',
                     pointerEvents: 'none',
                     position: 'relative',
-                    zIndex: 2,
+                    zIndex: 'var(--z-local)' as unknown as number,
                 }}
             />
         </div>

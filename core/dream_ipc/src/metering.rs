@@ -33,6 +33,38 @@ pub const CLIP_THRESHOLD: f32 = 1.0;
 /// `0.99^30 ≈ 0.74`, `0.99^60 ≈ 0.545`.
 pub const DEFAULT_PEAK_DECAY: f32 = 0.99;
 
+/// Target meter fall time: ~300ms from 0dBFS to –60dB.
+/// Industry standard for professional DAW VU/peak meters (IEC 60268-18).
+const METER_FALL_TIME_SECS: f64 = 0.3;
+
+/// Computes the per-block peak decay factor for a given sample rate and block size.
+///
+/// This ensures consistent ~300ms fall time regardless of audio configuration.
+/// At 44.1kHz/512 blocks (~86 blocks/sec) → decay ≈ 0.923.
+/// At 96kHz/64 blocks  (~1500 blocks/sec) → decay ≈ 0.995.
+/// At 48kHz/256 blocks (~187 blocks/sec) → decay ≈ 0.963.
+///
+/// Formula: `decay = exp(-ln(1000) / (fall_time × blocks_per_sec))`
+/// where `ln(1000) ≈ 6.9078` ensures 60dB of fall in `fall_time` seconds.
+///
+/// # Real-Time Safety
+/// Pure arithmetic. Can be called per-buffer but ideally cached.
+#[inline]
+pub fn peak_decay_for_block(sample_rate: f64, block_size: usize) -> f32 {
+    if block_size == 0 || sample_rate <= 0.0 {
+        return DEFAULT_PEAK_DECAY;
+    }
+    let blocks_per_sec = sample_rate / block_size as f64;
+    let total_blocks_in_fall = METER_FALL_TIME_SECS * blocks_per_sec;
+    if total_blocks_in_fall < 1.0 {
+        return DEFAULT_PEAK_DECAY;
+    }
+    // decay^total_blocks = 0.001 (i.e., -60dB)
+    // decay = 0.001^(1/total_blocks) = exp(-ln(1000)/total_blocks)
+    let decay = (-6.907_755_278_982_137_f64 / total_blocks_in_fall).exp();
+    (decay as f32).clamp(0.9, 0.9999)
+}
+
 // ── LockFreeLevel ──────────────────────────────────────────────────────────
 
 /// Lock-free, wait-free audio level storage for a single channel or track.

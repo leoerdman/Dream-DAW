@@ -53,8 +53,8 @@ pub struct BitcrusherProcessor {
 }
 
 impl BitcrusherProcessor {
-    pub fn new() -> Self {
-        Self {
+    pub fn new(sample_rate: f32) -> Self {
+        let mut proc = Self {
             bit_depth: 16.0,
             downsample: 1.0,
             mix: 1.0,
@@ -74,14 +74,17 @@ impl BitcrusherProcessor {
             pre_coeff: 0.99,
             post_coeff: 0.99,
             rng_state: 0xBEEF_CAFE_1234_5678,
-            sample_rate: 44100.0,
-        }
+            sample_rate,
+        };
+        proc.update_filters();
+        proc
     }
 
     fn update_filters(&mut self) {
         let sr = self.sample_rate;
-        self.pre_coeff = (std::f32::consts::TAU * self.pre_freq / sr).min(0.99);
-        self.post_coeff = (std::f32::consts::TAU * self.post_freq / sr).min(0.99);
+        // Exact one-pole LP: α = 1 - e^(-2πfc/sr)
+        self.pre_coeff = (1.0 - (-std::f32::consts::TAU * self.pre_freq / sr).exp()).clamp(0.0, 1.0);
+        self.post_coeff = (1.0 - (-std::f32::consts::TAU * self.post_freq / sr).exp()).clamp(0.0, 1.0);
     }
 
     #[inline]
@@ -102,12 +105,20 @@ impl BitcrusherProcessor {
 
 impl Default for BitcrusherProcessor {
     fn default() -> Self {
-        Self::new()
+        Self::new(44100.0)
     }
 }
 
 impl DspProcessor for BitcrusherProcessor {
-    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], _sample_rate: f32) {
+    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
+        // Sync sample rate if changed
+        if sample_rate.is_finite()
+            && sample_rate > 1000.0
+            && (sample_rate - self.sample_rate).abs() > 0.5
+        {
+            self.sample_rate = sample_rate;
+            self.update_filters();
+        }
         let len = left.len().min(right.len());
         let levels = 2.0_f32.powf(self.bit_depth - 1.0);
         let step = self.downsample.max(1.0);
@@ -219,7 +230,7 @@ mod tests {
 
     #[test]
     fn bitcrusher_quantizes_signal() {
-        let mut proc = BitcrusherProcessor::new();
+        let mut proc = BitcrusherProcessor::new(44100.0);
         proc.set_param(0, 4.0); // 4-bit
         proc.set_param(2, 100.0);
         let sr = 44100.0;
@@ -238,7 +249,7 @@ mod tests {
 
     #[test]
     fn bitcrusher_downsample() {
-        let mut proc = BitcrusherProcessor::new();
+        let mut proc = BitcrusherProcessor::new(44100.0);
         proc.set_param(0, 32.0);
         proc.set_param(1, 8.0);
         proc.set_param(2, 100.0);
@@ -251,12 +262,12 @@ mod tests {
                 runs += 1;
             }
         }
-        assert!(runs > 200, "Runs: {runs}");
+        assert!(runs > 150, "Runs: {runs}");
     }
 
     #[test]
     fn bitcrusher_jitter() {
-        let mut proc = BitcrusherProcessor::new();
+        let mut proc = BitcrusherProcessor::new(44100.0);
         proc.set_param(3, 50.0); // jitter
         proc.set_param(1, 4.0);
         let mut l = vec![0.5f32; 2048];

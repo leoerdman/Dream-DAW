@@ -160,7 +160,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
             <div style={modalStyle} onClick={e => e.stopPropagation()}>
                 {/* ── Sidebar ── */}
                 <div style={sidebarStyle}>
-                    <div style={{ padding: '16px 12px 8px', fontSize: 'var(--font-size-sm)', fontWeight: 700, opacity: 0.5, letterSpacing: '0.05em' }}>
+                    <div style={{ padding: '16px 12px 8px', fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)' as unknown as number, opacity: 0.5, letterSpacing: '0.05em' }}>
                         SETTINGS
                     </div>
                     {TABS.map(t => (
@@ -239,7 +239,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                                         ...chipStyle,
                                         background: 'var(--color-bg-elevated)',
                                         color: 'var(--color-text-secondary)',
-                                        fontWeight: 600,
+                                        fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                                     }}
                                 >
                                     Refresh Devices
@@ -548,18 +548,18 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                                     width: 64, height: 64, borderRadius: 'var(--radius-xl)',
                                     background: 'var(--gradient-primary)',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    fontSize: 'var(--font-size-3xl)', color: 'var(--color-text-on-accent)', fontWeight: 800,
+                                    fontSize: 'var(--font-size-3xl)', color: 'var(--color-text-on-accent)', fontWeight: 'var(--font-weight-extrabold)' as unknown as number,
                                 }}>
                                     D
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 700 }}>Dream DAW</div>
+                                    <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 'var(--font-weight-bold)' as unknown as number }}>Dream DAW</div>
                                     <div style={{ fontSize: 'var(--font-size-base)', color: 'var(--color-text-tertiary)' }}>Version {__APP_VERSION__}</div>
                                     <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)' }}>© 2025-2026 Dream DAW Team</div>
                                 </div>
                             </div>
 
-                            <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-text-tertiary)', marginBottom: 8, letterSpacing: '0.04em' }}>
+                            <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)' as unknown as number, color: 'var(--color-text-tertiary)', marginBottom: 8, letterSpacing: '0.04em' }}>
                                 VERSION HISTORY
                             </div>
 
@@ -592,7 +592,7 @@ export const SettingsPanel = ({ isOpen, onClose }: SettingsPanelProps) => {
                             ].map(entry => (
                                 <div key={entry.version} style={{ marginBottom: 16 }}>
                                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
-                                        <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-accent-primary)' }}>{entry.version}</span>
+                                        <span style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-bold)' as unknown as number, color: 'var(--color-accent-primary)' }}>{entry.version}</span>
                                         <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>— {entry.date}</span>
                                     </div>
                                     <ul style={{ margin: 0, paddingLeft: 16, fontSize: 'var(--font-size-sm)', lineHeight: 1.7, color: 'var(--color-text-secondary)' }}>
@@ -626,7 +626,7 @@ const FolderRow = ({ label, path, onBrowse }: { label: string; path: string; onB
         padding: '10px 0', borderBottom: '1px solid var(--color-divider-light)',
     }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 500, color: 'var(--color-text-primary)' }}>{label}</div>
+            <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-medium)' as unknown as number, color: 'var(--color-text-primary)' }}>{label}</div>
             <div style={{
                 fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginTop: 2,
                 fontFamily: 'var(--font-mono)',
@@ -706,7 +706,7 @@ const tabBtnStyle: React.CSSProperties = {
     display: 'flex', alignItems: 'center', gap: 8,
     padding: '8px 12px', margin: '0 8px',
     borderRadius: 'var(--radius-lg)', border: 'none', cursor: 'pointer',
-    fontSize: 'var(--font-size-base)', fontWeight: 500, textAlign: 'left',
+    fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-medium)' as unknown as number, textAlign: 'left',
     transition: `background var(--transition-fast)`,
 };
 
@@ -721,12 +721,12 @@ const closeBtnStyle: React.CSSProperties = {
     border: 'none', cursor: 'pointer',
     background: 'var(--color-bg-elevated)',
     color: 'var(--color-text-tertiary)',
-    fontSize: 'var(--font-size-base)', fontWeight: 600,
+    fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-semibold)' as unknown as number,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
 
 const titleStyle: React.CSSProperties = {
-    fontSize: 'var(--font-size-xl)', fontWeight: 700, marginBottom: 16,
+    fontSize: 'var(--font-size-xl)', fontWeight: 'var(--font-weight-bold)' as unknown as number, marginBottom: 16,
     color: 'var(--color-text-primary)',
 };
 
@@ -753,7 +753,7 @@ const valueStyle: React.CSSProperties = {
 const chipStyle: React.CSSProperties = {
     padding: '5px 12px', borderRadius: 'var(--radius-lg)',
     border: 'none', cursor: 'pointer',
-    fontSize: 'var(--font-size-sm)', fontWeight: 600,
+    fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-semibold)' as unknown as number,
     transition: `all var(--transition-fast)`,
 };
 
@@ -761,7 +761,7 @@ const actionBtnStyle: React.CSSProperties = {
     padding: '8px 16px', borderRadius: 'var(--radius-lg)',
     background: 'var(--color-accent-primary)',
     color: 'var(--color-text-on-accent)', border: 'none', cursor: 'pointer',
-    fontSize: 'var(--font-size-sm)', fontWeight: 600,
+    fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-semibold)' as unknown as number,
 };
 
 const actionBtnSmStyle: React.CSSProperties = {
@@ -769,7 +769,7 @@ const actionBtnSmStyle: React.CSSProperties = {
     background: 'var(--color-bg-elevated)',
     color: 'var(--color-text-secondary)',
     border: '1px solid var(--color-divider)',
-    cursor: 'pointer', fontSize: 'var(--font-size-xs)', fontWeight: 500,
+    cursor: 'pointer', fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-medium)' as unknown as number,
 };
 
 const dividerStyle: React.CSSProperties = {

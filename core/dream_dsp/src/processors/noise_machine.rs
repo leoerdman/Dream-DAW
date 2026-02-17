@@ -123,6 +123,9 @@ pub struct NoiseMachineProcessor {
     lp_state_r: f32,
     hp_state_l: f32,
     hp_state_r: f32,
+    /// Previous HP input for first-order HP: y[n] = α*(y[n-1] + x[n] - x[n-1])
+    hp_prev_in_l: f32,
+    hp_prev_in_r: f32,
     lp_coeff: f32,
     hp_coeff: f32,
     sample_rate: f32,
@@ -152,6 +155,8 @@ impl NoiseMachineProcessor {
             lp_state_r: 0.0,
             hp_state_l: 0.0,
             hp_state_r: 0.0,
+            hp_prev_in_l: 0.0,
+            hp_prev_in_r: 0.0,
             lp_coeff: 0.0,
             hp_coeff: 0.0,
             sample_rate,
@@ -162,13 +167,27 @@ impl NoiseMachineProcessor {
 
     fn update_filters(&mut self) {
         let sr = self.sample_rate;
-        self.lp_coeff = (std::f32::consts::TAU * self.lp_freq / sr).min(0.99);
+        // Exact one-pole LP: α = 1 - e^(-2πfc/sr)
+        self.lp_coeff = (1.0 - (-std::f32::consts::TAU * self.lp_freq / sr).exp()).clamp(0.0, 1.0);
+        // First-order HP coefficient: α = 1 / (1 + 2πfc/sr)
         self.hp_coeff = 1.0 / (1.0 + std::f32::consts::TAU * self.hp_freq / sr);
+    }
+
+    #[inline]
+    fn sync_sample_rate(&mut self, sample_rate: f32) {
+        if sample_rate.is_finite()
+            && sample_rate > 1000.0
+            && (sample_rate - self.sample_rate).abs() > 0.5
+        {
+            self.sample_rate = sample_rate;
+            self.update_filters();
+        }
     }
 }
 
 impl DspProcessor for NoiseMachineProcessor {
-    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], _sample_rate: f32) {
+    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
+        self.sync_sample_rate(sample_rate);
         let len = left.len().min(right.len());
         let vol = self.volume_lin;
         let stereo = self.stereo;
@@ -180,9 +199,6 @@ impl DspProcessor for NoiseMachineProcessor {
         let pan_l = pan_angle.cos() * std::f32::consts::SQRT_2;
         let pan_r = pan_angle.sin() * std::f32::consts::SQRT_2;
 
-        // We need a copy of mutable borrows for left/right gen
-        // Since generate_sample needs &mut self and different state per channel,
-        // we split the state manually:
         for i in 0..len {
             // Generate L channel noise
             let raw_l = Self::generate_sample_static(
@@ -211,11 +227,14 @@ impl DspProcessor for NoiseMachineProcessor {
             self.lp_state_l += lp * (sig_l - self.lp_state_l);
             self.lp_state_r += lp * (sig_r - self.lp_state_r);
 
-            // HP filter (DC block style)
-            let prev_hp_l = self.hp_state_l;
-            let prev_hp_r = self.hp_state_r;
-            self.hp_state_l = hp * (prev_hp_l + self.lp_state_l - sig_l);
-            self.hp_state_r = hp * (prev_hp_r + self.lp_state_r - sig_r);
+            // HP filter: standard first-order y[n] = α * (y[n-1] + x[n] - x[n-1])
+            // Input to HP is LP output (cascade LP→HP)
+            let lp_out_l = self.lp_state_l;
+            let lp_out_r = self.lp_state_r;
+            self.hp_state_l = hp * (self.hp_state_l + lp_out_l - self.hp_prev_in_l);
+            self.hp_state_r = hp * (self.hp_state_r + lp_out_r - self.hp_prev_in_r);
+            self.hp_prev_in_l = lp_out_l;
+            self.hp_prev_in_r = lp_out_r;
 
             let out_l = self.hp_state_l * vol;
             let out_r = self.hp_state_r * vol;
@@ -252,6 +271,9 @@ impl DspProcessor for NoiseMachineProcessor {
     }
 
     fn reset(&mut self) {
+        // Reset PRNG to initial seeds (must match new() for deterministic output)
+        self.rng_l = Rng::new(0xA1B2C3D4_E5F6A7B8);
+        self.rng_r = Rng::new(0x1234_5678_9ABC_DEF0);
         self.pink_l.reset();
         self.pink_r.reset();
         self.brown_l = 0.0;
@@ -264,6 +286,8 @@ impl DspProcessor for NoiseMachineProcessor {
         self.lp_state_r = 0.0;
         self.hp_state_l = 0.0;
         self.hp_state_r = 0.0;
+        self.hp_prev_in_l = 0.0;
+        self.hp_prev_in_r = 0.0;
     }
 }
 

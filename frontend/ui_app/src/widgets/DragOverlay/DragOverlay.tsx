@@ -37,7 +37,7 @@ export const DragOverlay = () => {
                 background: 'var(--color-accent-primary)',
                 color: 'var(--color-text-on-accent)',
                 fontSize: 'var(--font-size-sm)',
-                fontWeight: 600,
+                fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                 fontFamily: 'var(--font-mono)',
                 whiteSpace: 'nowrap',
                 pointerEvents: 'none',

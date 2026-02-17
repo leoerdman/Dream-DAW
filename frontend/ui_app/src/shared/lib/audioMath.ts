@@ -60,3 +60,15 @@ export function beatDurationToFrames(durationBeats: number, bpm: number, sampleR
 export function clampFramePosition(frame: number): number {
     return Math.max(0, frame);
 }
+
+/**
+ * Normalize a peak dB value to 0..1 for VU meter display.
+ *
+ * Range: −60 dB → 0, 0 dB → 0.909, +6 dB → 1.0.
+ * Handles non-finite values (NaN, ±Infinity) gracefully.
+ */
+export function vuNorm(peakDb: number): number {
+    if (!isFinite(peakDb) || peakDb < -60) return 0;
+    const clamped = Math.min(peakDb, 6);
+    return (clamped + 60) / 66;
+}

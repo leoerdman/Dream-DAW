@@ -230,15 +230,14 @@ impl StereoSvf {
     /// Processes interleaved stereo samples in-place `[L, R, L, R, ...]`.
     pub fn process_interleaved(&mut self, buffer: &mut [f32]) {
         for chunk in buffer.chunks_exact_mut(2) {
-            chunk[0] = self.process_channel(&mut self.left.clone(), chunk[0]);
-            chunk[1] = self.process_channel(&mut self.right.clone(), chunk[1]);
+            chunk[0] = Self::process_sample(&self.coeffs, &mut self.left, self.mode, chunk[0]);
+            chunk[1] = Self::process_sample(&self.coeffs, &mut self.right, self.mode, chunk[1]);
         }
     }
 
-    /// Process one sample through one channel's state.
+    /// Process one sample through one channel's state (static to avoid borrow conflicts).
     #[inline(always)]
-    fn process_channel(&self, state: &mut SvfState, input: f32) -> f32 {
-        let c = &self.coeffs;
+    fn process_sample(c: &SvfCoeffs, state: &mut SvfState, mode: SvfMode, input: f32) -> f32 {
         let v3 = input - state.ic2eq;
         let v1 = c.a1 * state.ic1eq + c.a2 * v3;
         let v2 = state.ic2eq + c.a2 * state.ic1eq + c.a3 * v3;
@@ -246,7 +245,7 @@ impl StereoSvf {
         state.ic1eq = 2.0 * v1 - state.ic1eq;
         state.ic2eq = 2.0 * v2 - state.ic2eq;
 
-        match self.mode {
+        match mode {
             SvfMode::Lowpass => v2,
             SvfMode::Highpass => input - c.k * v1 - v2,
             SvfMode::Bandpass => v1,

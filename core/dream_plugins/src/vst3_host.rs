@@ -1909,6 +1909,15 @@ impl Vst3Instance {
         let mut controller_ptr: *mut c_void = ptr::null_mut();
         if !component_ptr.is_null() {
             let component = component_ptr as *mut IComponent;
+
+            // VST3 spec: IComponent::initialize() MUST be called before
+            // getControllerClassId(). Without this, many plugins (Serum2,
+            // FabFilter, Kontakt, etc.) return kNotImplemented because
+            // their internal state is not yet configured.
+            unsafe {
+                let _ = ((*(*component).vtbl).initialize)(component, host_application_ptr());
+            }
+
             let mut controller_cid: Tuid = [0; 16];
             let cid_ok = unsafe {
                 ((*(*component).vtbl).get_controller_class_id)(component, &mut controller_cid)
@@ -1918,6 +1927,20 @@ impl Vst3Instance {
                     ((*(*factory).vtbl).create_instance)(
                         factory,
                         &controller_cid,
+                        IID_IEDIT_CONTROLLER.as_ptr() as *const c_char,
+                        &mut controller_ptr,
+                    )
+                };
+            }
+
+            // Single-component fallback: many VST3 plugins implement both
+            // IComponent and IEditController in the same class. If we
+            // couldn't create a separate controller, query the component
+            // itself for the IEditController interface.
+            if controller_ptr.is_null() {
+                let _ = unsafe {
+                    ((*(*component).vtbl).query_interface)(
+                        component,
                         IID_IEDIT_CONTROLLER.as_ptr() as *const c_char,
                         &mut controller_ptr,
                     )

@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { beatToFrame } from '../../shared/lib/audioMath';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
@@ -195,7 +196,7 @@ export const TransportBar = ({
     const valueChipStyle: React.CSSProperties = {
         fontFamily: 'var(--font-mono)',
         fontSize: 'var(--font-size-sm)',
-        fontWeight: 700,
+        fontWeight: 'var(--font-weight-bold)' as unknown as number,
         color: 'var(--color-text-primary)',
         background: 'var(--color-bg-input)',
         borderRadius: 'var(--radius-xs)',
@@ -448,9 +449,8 @@ export const TransportBar = ({
                                 if (newEnabled && loopStartFrames === 0 && loopEndFrames === 0) {
                                     const sr = sampleRate || 44100;
                                     const currentBpm = bpm || 120;
-                                    const framesPerBeat = sr * 60 / currentBpm;
-                                    const startF = Math.round(posBeats * framesPerBeat);
-                                    const endF = Math.round((posBeats + timeSigNum) * framesPerBeat);
+                                    const startF = beatToFrame(posBeats, currentBpm, sr);
+                                    const endF = beatToFrame(posBeats + timeSigNum, currentBpm, sr);
                                     void engineSetLoop(true, startF, endF);
                                 } else {
                                     void engineSetLoop(newEnabled, loopStartFrames, loopEndFrames);
@@ -506,7 +506,7 @@ export const TransportBar = ({
                                 transition: 'opacity 40ms linear',
                             }}
                         />
-                        <span style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 600, color: 'var(--color-midi-indicator)' }}>MIDI</span>
+                        <span style={{ fontSize: 'var(--font-size-2xs)', fontWeight: 'var(--font-weight-semibold)' as unknown as number, color: 'var(--color-midi-indicator)' }}>MIDI</span>
                         <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
                             {projectTracks.length} Tracks
                         </span>
@@ -580,7 +580,7 @@ export const TransportBar = ({
                                 userSelect: 'none',
                             }}
                         >
-                            <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                            <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'var(--font-weight-bold)' as unknown as number, color: 'var(--color-text-primary)' }}>
                                 Debug Panel
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -724,10 +724,10 @@ const miniButtonStyle: React.CSSProperties = {
 const sectionHeaderStyle: React.CSSProperties = {
     position: 'sticky',
     top: 0,
-    zIndex: 1,
+    zIndex: 'var(--z-local)' as unknown as number,
     padding: '6px 8px',
     fontSize: 'var(--font-size-xs)',
-    fontWeight: 700,
+    fontWeight: 'var(--font-weight-bold)' as unknown as number,
     color: 'var(--color-text-primary)',
     background: 'color-mix(in srgb, var(--color-bg-panel) 92%, #000 8%)',
     borderBottom: '1px solid var(--color-divider)',
@@ -752,7 +752,7 @@ const debugTabBtnStyle = (active: boolean): React.CSSProperties => ({
         : 'transparent',
     color: active ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)',
     fontSize: 'var(--font-size-xs)',
-    fontWeight: 700,
+    fontWeight: 'var(--font-weight-bold)' as unknown as number,
     cursor: 'pointer',
 });
 

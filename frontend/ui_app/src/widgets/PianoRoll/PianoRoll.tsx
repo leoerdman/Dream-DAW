@@ -1456,7 +1456,7 @@ export const PianoRoll = memo(function PianoRoll({
                     color: 'var(--color-text-tertiary)',
                     textTransform: 'uppercase',
                     letterSpacing: 'var(--letter-spacing-wide)',
-                    fontWeight: 600,
+                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                     marginRight: 2,
                 }}>
                     Grid
@@ -1474,7 +1474,7 @@ export const PianoRoll = memo(function PianoRoll({
                             fontSize: 'var(--font-size-2xs)',
                             fontFamily: 'var(--font-mono)',
                             cursor: 'pointer',
-                            fontWeight: 600,
+                            fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                         }}
                         title={`Set MIDI grid to ${preset.label}`}
                     >
@@ -1546,7 +1546,7 @@ export const PianoRoll = memo(function PianoRoll({
                     borderRadius: 'var(--radius-sm)',
                     fontSize: 'var(--font-size-2xs)',
                     color: color,
-                    fontWeight: 600,
+                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                     fontFamily: 'var(--font-mono)',
                     letterSpacing: '0.3px',
                 }}>
@@ -1584,7 +1584,7 @@ export const PianoRoll = memo(function PianoRoll({
                 <button onClick={humanizeSelection} style={actionBtnStyle} title="Humanize selected notes (H)">
                     Humanize
                 </button>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--color-text-tertiary)', fontSize: 10 }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)' }}>
                     <span>Ratchet</span>
                     <select
                         value={ratchetCount}
@@ -1680,7 +1680,7 @@ export const PianoRoll = memo(function PianoRoll({
                         borderRadius: 'var(--radius-sm)',
                         fontSize: 'var(--font-size-2xs)',
                         fontFamily: 'var(--font-family)',
-                        fontWeight: 700,
+                        fontWeight: 'var(--font-weight-bold)' as unknown as number,
                         cursor: !onGenerateVariation || aiVariationBusy ? 'not-allowed' : 'pointer',
                         opacity: !onGenerateVariation ? 0.6 : 1,
                         display: 'flex',
@@ -1855,7 +1855,7 @@ export const PianoRoll = memo(function PianoRoll({
                                             <span style={{
                                                 fontSize: Math.min(9, noteHeight - 2),
                                                 color: 'var(--color-text-secondary)',
-                                                fontWeight: 600,
+                                                fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                                                 fontFamily: 'var(--font-mono)',
                                                 letterSpacing: '-0.02em',
                                             }}>
@@ -2119,7 +2119,7 @@ export const PianoRoll = memo(function PianoRoll({
                                     background: 'color-mix(in srgb, var(--color-bg-header) 85%, #0b1525)',
                                     boxShadow: 'var(--shadow-lg)',
                                 }}>
-                                    <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)', fontWeight: 700, marginBottom: 2 }}>
+                                    <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)', fontWeight: 'var(--font-weight-bold)' as unknown as number, marginBottom: 2 }}>
                                         Draw notes to start
                                     </div>
                                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
@@ -2220,7 +2220,7 @@ export const PianoRoll = memo(function PianoRoll({
                                 left: 4,
                                 fontSize: 'var(--font-size-micro)',
                                 color: 'var(--color-text-tertiary)',
-                                fontWeight: 600,
+                                fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                                 textTransform: 'uppercase',
                                 letterSpacing: 'var(--letter-spacing-wide)',
                                 fontFamily: 'var(--font-family)',
@@ -2253,7 +2253,7 @@ const actionBtnStyle: React.CSSProperties = {
     color: 'var(--color-text-secondary)',
     fontSize: 'var(--font-size-2xs)',
     fontFamily: 'var(--font-family)',
-    fontWeight: 600,
+    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
     padding: '3px 8px',
     cursor: 'pointer',
 };

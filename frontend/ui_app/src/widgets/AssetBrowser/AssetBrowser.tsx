@@ -268,7 +268,7 @@ function renderHighlightedMatch(name: string, query: string) {
         return (
             <>
                 {before}
-                <span style={{ color: 'var(--color-accent-primary)', fontWeight: 700 }}>{match}</span>
+                <span style={{ color: 'var(--color-accent-primary)', fontWeight: 'var(--font-weight-bold)' as unknown as number }}>{match}</span>
                 {after}
             </>
         );
@@ -289,7 +289,7 @@ function renderHighlightedMatch(name: string, query: string) {
         <>
             {name.split('').map((ch, idx) => (
                 hitPositions.has(idx)
-                    ? <span key={`${ch}-${idx}`} style={{ color: 'var(--color-accent-primary)', fontWeight: 700 }}>{ch}</span>
+                    ? <span key={`${ch}-${idx}`} style={{ color: 'var(--color-accent-primary)', fontWeight: 'var(--font-weight-bold)' as unknown as number }}>{ch}</span>
                     : <span key={`${ch}-${idx}`}>{ch}</span>
             ))}
         </>
@@ -1299,7 +1299,7 @@ export const AssetBrowser = () => {
                                             border: 'none',
                                             color: '#ffffff',
                                             fontSize: 'var(--font-size-sm)',
-                                            fontWeight: 700,
+                                            fontWeight: 'var(--font-weight-bold)' as unknown as number,
                                             textTransform: 'uppercase',
                                             letterSpacing: '0.04em',
                                             cursor: isBrowserSection ? 'default' : 'pointer',
@@ -1364,7 +1364,7 @@ export const AssetBrowser = () => {
                                         border: 'none',
                                         color: '#ffffff',
                                         fontSize: 'var(--font-size-base)',
-                                        fontWeight: 600,
+                                        fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                                         textAlign: 'left',
                                         cursor: 'pointer',
                                         transition: 'background var(--transition-fast)',
@@ -1481,7 +1481,7 @@ export const AssetBrowser = () => {
                                     padding: '2px 6px',
                                     fontSize: 'var(--font-size-2xs)',
                                     cursor: 'pointer',
-                                    fontWeight: 600,
+                                    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                                 }}
                             >
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -1612,7 +1612,7 @@ export const AssetBrowser = () => {
                                             ? 'var(--color-text-primary)'
                                             : 'var(--color-text-secondary)',
                                         fontSize: 'var(--font-size-2xs)',
-                                        fontWeight: 700,
+                                        fontWeight: 'var(--font-weight-bold)' as unknown as number,
                                         fontFamily: 'var(--font-mono)',
                                         cursor: 'pointer',
                                         padding: 0,
@@ -1672,7 +1672,7 @@ export const AssetBrowser = () => {
                                 background: 'var(--color-bg-header)',
                                 color: 'var(--color-text-tertiary)',
                                 fontSize: 'var(--font-size-xs)',
-                                fontWeight: 700,
+                                fontWeight: 'var(--font-weight-bold)' as unknown as number,
                                 textTransform: 'uppercase',
                                 letterSpacing: '0.04em',
                                 position: 'sticky',
@@ -1863,7 +1863,7 @@ export const AssetBrowser = () => {
                                             <span style={{
                                                 color: 'var(--color-text-primary)',
                                                 fontSize: 'var(--font-size-base)',
-                                                fontWeight: 500,
+                                                fontWeight: 'var(--font-weight-medium)' as unknown as number,
                                                 overflow: 'hidden',
                                                 textOverflow: 'ellipsis',
                                                 whiteSpace: 'nowrap',
@@ -1942,7 +1942,7 @@ export const AssetBrowser = () => {
                                                 <span style={{
                                                     color: 'var(--color-text-primary)',
                                                     fontSize: 'var(--font-size-xs)',
-                                                    fontWeight: 700,
+                                                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
                                                     textTransform: 'uppercase',
                                                     letterSpacing: '0.04em',
                                                 }}>
@@ -2041,7 +2041,7 @@ export const AssetBrowser = () => {
                                             <span style={{
                                                 color: 'var(--color-text-primary)',
                                                 fontSize: 'var(--font-size-base)',
-                                                fontWeight: 500,
+                                                fontWeight: 'var(--font-weight-medium)' as unknown as number,
                                                 overflow: 'hidden',
                                                 textOverflow: 'ellipsis',
                                                 whiteSpace: 'nowrap',
@@ -2262,7 +2262,7 @@ const TypeIcon = ({ type, item }: { type: BrowserItem['type']; item?: BrowserIte
                     border: '1px solid var(--color-divider)',
                     color: 'var(--color-text-secondary)',
                     fontSize: 'var(--font-size-micro)',
-                    fontWeight: 700,
+                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
                     lineHeight: '9px',
                     textAlign: 'center',
                     fontFamily: 'var(--font-mono)',
@@ -2385,7 +2385,7 @@ const pluginActionButtonStyle: React.CSSProperties = {
     padding: '3px 7px',
     fontSize: 'var(--font-size-xs)',
     cursor: 'pointer',
-    fontWeight: 600,
+    fontWeight: 'var(--font-weight-semibold)' as unknown as number,
     whiteSpace: 'nowrap',
 };
 
@@ -2406,7 +2406,7 @@ const FilterPill = ({
             padding: '3px 6px',
             fontSize: 'var(--font-size-xs)',
             cursor: 'pointer',
-            fontWeight: 600,
+            fontWeight: 'var(--font-weight-semibold)' as unknown as number,
             whiteSpace: 'nowrap',
         }}
     >

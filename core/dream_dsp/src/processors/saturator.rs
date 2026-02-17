@@ -38,7 +38,8 @@ impl OnePole {
         }
     }
     fn calc(cutoff: f32, sr: f32) -> f32 {
-        (std::f32::consts::TAU * cutoff / sr).min(0.99)
+        // Exact one-pole LP: α = 1 - e^(-2πfc/sr)
+        (1.0 - (-std::f32::consts::TAU * cutoff / sr).exp()).clamp(0.0, 1.0)
     }
     #[inline]
     fn process(&mut self, input: f32) -> f32 {
@@ -76,8 +77,8 @@ pub struct SaturatorProcessor {
 }
 
 impl SaturatorProcessor {
-    pub fn new() -> Self {
-        let sr = 44100.0;
+    pub fn new(sample_rate: f32) -> Self {
+        let sr = sample_rate;
         let cutoff = Self::tone_to_cutoff(50.0);
         Self {
             drive_db: 6.0,
@@ -158,7 +159,7 @@ impl SaturatorProcessor {
 
 impl Default for SaturatorProcessor {
     fn default() -> Self {
-        Self::new()
+        Self::new(44100.0)
     }
 }
 
@@ -250,7 +251,7 @@ mod tests {
 
     #[test]
     fn saturator_clips_loud_signal() {
-        let mut proc = SaturatorProcessor::new();
+        let mut proc = SaturatorProcessor::new(44100.0);
         proc.set_param(0, 24.0);
         proc.set_param(2, 100.0);
         let mut l = vec![1.0f32; 256];
@@ -263,7 +264,7 @@ mod tests {
 
     #[test]
     fn saturator_zero_drive_passthrough() {
-        let mut proc = SaturatorProcessor::new();
+        let mut proc = SaturatorProcessor::new(44100.0);
         proc.set_param(0, 0.0);
         proc.set_param(1, 100.0);
         proc.set_param(2, 100.0);
@@ -282,7 +283,7 @@ mod tests {
     #[test]
     fn all_modes_work() {
         for m in 0..=4u8 {
-            let mut proc = SaturatorProcessor::new();
+            let mut proc = SaturatorProcessor::new(44100.0);
             proc.set_param(3, m as f32);
             proc.set_param(0, 12.0);
             let mut l = vec![0.5f32; 512];

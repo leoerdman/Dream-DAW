@@ -2359,14 +2359,21 @@ struct PluginHostState {
 }
 
 impl PluginHostState {
+    /// Returns `true` when in-process (unsandboxed) VST3 loading is permitted.
+    ///
+    /// Default: **true** — in-process loading is the primary path for native
+    /// plugin editors. Set `DREAM_DAW_FORCE_SANDBOX_ONLY=1` to disable
+    /// in-process loading (useful for crash-isolation testing with the
+    /// sandbox daemon).
     fn allow_unsandboxed_vst3() -> bool {
-        std::env::var("DREAM_DAW_ALLOW_UNSANDBOXED_VST3")
+        let force_sandbox = std::env::var("DREAM_DAW_FORCE_SANDBOX_ONLY")
             .ok()
             .map(|v| {
                 let s = v.trim().to_ascii_lowercase();
                 matches!(s.as_str(), "1" | "true" | "yes" | "on")
             })
-            .unwrap_or(false)
+            .unwrap_or(false);
+        !force_sandbox
     }
 
     fn try_enable_sandbox_if_available(&self) {
@@ -2531,7 +2538,7 @@ impl PluginHostState {
                 Err(err) => {
                     if !Self::allow_unsandboxed_vst3() {
                         return Err(format!(
-                            "Plugin sandbox failed for '{}': {}. In-process VST3 loading is disabled for crash safety. Set DREAM_DAW_ALLOW_UNSANDBOXED_VST3=1 to override.",
+                            "Plugin sandbox failed for '{}': {}. In-process VST3 loading is disabled (DREAM_DAW_FORCE_SANDBOX_ONLY is active).",
                             descriptor.name,
                             err
                         ));
@@ -2547,7 +2554,7 @@ impl PluginHostState {
 
         if !Self::allow_unsandboxed_vst3() {
             return Err(format!(
-                "Plugin sandbox is unavailable for '{}'. In-process VST3 loading is disabled for crash safety. Build plugin_host_daemon or set DREAM_DAW_ALLOW_UNSANDBOXED_VST3=1 to override.",
+                "Plugin sandbox is unavailable for '{}'. In-process VST3 loading is disabled (DREAM_DAW_FORCE_SANDBOX_ONLY is active).",
                 descriptor.name
             ));
         }
@@ -2760,10 +2767,24 @@ impl PluginHostState {
             .copied();
         let Some(id) = maybe_id else { return Ok(false) };
         let mut supervisor = self.sandbox_supervisor.lock().map_err(|e| e.to_string())?;
-        supervisor
-            .send_open_editor(id)
-            .map_err(|e| format!("Sandbox open editor failed: {e}"))?;
-        Ok(true)
+        match supervisor.send_open_editor(id) {
+            Ok(()) => Ok(true),
+            Err(err) => {
+                // Sandbox daemon is unhealthy or crashed — evict the stale
+                // entry so the caller can fall through to in-process loading.
+                log::warn!(
+                    "[PluginSandbox] open_sandbox_editor failed for '{}' (instance={}): {}. Evicting stale sandbox entry.",
+                    plugin_key,
+                    id,
+                    err
+                );
+                drop(supervisor);
+                if let Ok(mut map) = self.loaded_sandbox_by_key.lock() {
+                    map.remove(plugin_key);
+                }
+                Ok(false)
+            }
+        }
     }
 
     fn set_sandbox_parameter(

@@ -1480,7 +1480,7 @@ export const DawShell = () => {
                             gap: 10,
                         }}
                     >
-                        <span style={{ fontSize: 11, fontWeight: 700, color: '#ffb3b3', letterSpacing: '0.02em' }}>
+                        <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-bold)' as unknown as number, color: 'var(--color-status-error)', letterSpacing: '0.02em' }}>
                             Missing media detected: {missingMediaSummary.offlineClipCount} files, {missingMediaSummary.missingPluginCount} plugins
                         </span>
                         <div style={{ display: 'flex', gap: 6 }}>
@@ -1490,9 +1490,9 @@ export const DawShell = () => {
                                     border: '1px solid color-mix(in srgb, #ff9b9b 45%, transparent)',
                                     background: 'color-mix(in srgb, #ff6b6b 20%, transparent)',
                                     color: '#ffd5d5',
-                                    borderRadius: 6,
-                                    fontSize: 10,
-                                    fontWeight: 700,
+                                    borderRadius: 'var(--radius-lg)',
+                                    fontSize: 'var(--font-size-xs)',
+                                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
                                     padding: '3px 8px',
                                     cursor: 'pointer',
                                 }}
@@ -1617,7 +1617,7 @@ const SessionWorkspace = ({
                                             background: track.color,
                                             color: contrast,
                                             fontSize: 'var(--font-size-sm)',
-                                            fontWeight: 700,
+                                            fontWeight: 'var(--font-weight-bold)' as unknown as number,
                                             textAlign: 'left',
                                             padding: '0 8px',
                                             boxShadow: isSelectedTrack ? 'inset 0 0 0 2px color-mix(in srgb, var(--color-accent-primary) 64%, transparent)' : 'none',
@@ -1741,7 +1741,7 @@ const SessionWorkspace = ({
                         const peakLabel = `${peakDb >= 0 ? '+' : ''}${peakDb.toFixed(1)} dB`;
                         return (
                             <div key={`mix-${track.id}`} style={{ width: SESSION_TRACK_WIDTH, borderRight: '1px solid #2d2d2d', padding: '8px 8px 6px', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6 }}>
-                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>
+                                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 'var(--font-weight-bold)' as unknown as number, textTransform: 'uppercase' }}>
                                     {track.track_type}
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'stretch', gap: 6 }}>
@@ -1818,7 +1818,7 @@ const sessionMixerBtnStyle = (active: boolean): CSSProperties => ({
     background: active ? 'var(--color-accent-primary-dim)' : 'var(--color-bg-header)',
     color: active ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
     fontSize: 'var(--font-size-xs)',
-    fontWeight: 700,
+    fontWeight: 'var(--font-weight-bold)' as unknown as number,
     cursor: 'default',
 });
 
@@ -1830,7 +1830,7 @@ const sessionClipTransportBtnStyle = (active: boolean): CSSProperties => ({
     background: active ? 'color-mix(in srgb, var(--color-text-bright) 25%, transparent)' : 'var(--color-overlay-dark)',
     color: active ? 'var(--color-text-bright)' : 'color-mix(in srgb, var(--color-text-bright) 90%, transparent)',
     fontSize: 'var(--font-size-2xs)',
-    fontWeight: 700,
+    fontWeight: 'var(--font-weight-bold)' as unknown as number,
     lineHeight: 1,
     padding: 0,
     cursor: 'pointer',
@@ -1858,7 +1858,7 @@ const EmptyClipEditor = () => (
             <div style={{
                 color: 'var(--color-text-primary)',
                 fontSize: 'var(--font-size-2xl)',
-                fontWeight: 700,
+                fontWeight: 'var(--font-weight-bold)' as unknown as number,
                 letterSpacing: '0.03em',
                 marginBottom: 6,
             }}>
@@ -2010,7 +2010,7 @@ const SampleClipEditor = ({
                 borderBottom: '1px solid var(--color-divider)',
                 color: 'var(--color-text-secondary)',
                 fontSize: 'var(--font-size-xs)',
-                fontWeight: 700,
+                fontWeight: 'var(--font-weight-bold)' as unknown as number,
                 letterSpacing: '0.05em',
                 textTransform: 'uppercase',
             }}>
@@ -2195,5 +2195,5 @@ const editorMetaTextStyle: CSSProperties = {
     color: 'var(--color-text-tertiary)',
     textTransform: 'uppercase',
     letterSpacing: '0.04em',
-    fontWeight: 700,
+    fontWeight: 'var(--font-weight-bold)' as unknown as number,
 };

@@ -37,7 +37,7 @@ use dream_clip_engine::pool::ClipAudio;
 use dream_clip_engine::pool::ClipPool;
 use dream_clip_engine::scheduler::LoopRegion;
 use dream_dsp::dsp_processor::BuiltinEffectType;
-use dream_ipc::metering::{METER_FLOOR_DB, MeterBank, compute_peak, compute_rms, linear_to_db};
+use dream_ipc::metering::{METER_FLOOR_DB, MeterBank, compute_peak, compute_rms, linear_to_db, peak_decay_for_block};
 use dream_ipc::{EngineCommand, MasterClock};
 use dream_models::midi::MidiClip;
 use dream_models::project::AudioClip;
@@ -1455,12 +1455,13 @@ pub fn start_audio_thread_on_device(
                         // Baseline all track meters to silence each callback, with
                         // peak-decay persistence. Active signal paths below will lift
                         // meters back up for tracks that actually output audio.
+                        let baseline_decay = peak_decay_for_block(sample_rate_f64, frame_count);
                         for track_idx in 0..render_ctx.meter_bank.track_count() {
                             if let Some((meter_l, meter_r)) = render_ctx.meter_bank.track(track_idx) {
                                 meter_l.store_rms(METER_FLOOR_DB);
                                 meter_r.store_rms(METER_FLOOR_DB);
-                                meter_l.store_peak_decay(METER_FLOOR_DB, 0.99);
-                                meter_r.store_peak_decay(METER_FLOOR_DB, 0.99);
+                                meter_l.store_peak_decay(METER_FLOOR_DB, baseline_decay);
+                                meter_r.store_peak_decay(METER_FLOOR_DB, baseline_decay);
                             }
                         }
 
@@ -2772,11 +2773,11 @@ pub fn start_audio_thread_on_device(
                                 render_ctx
                                     .meter_bank
                                     .master_left()
-                                    .store_peak_decay(linear_to_db(peak_l), 0.99);
+                                    .store_peak_decay(linear_to_db(peak_l), peak_decay_for_block(sample_rate_f64, frames));
                                 render_ctx
                                     .meter_bank
                                     .master_right()
-                                    .store_peak_decay(linear_to_db(peak_r), 0.99);
+                                    .store_peak_decay(linear_to_db(peak_r), peak_decay_for_block(sample_rate_f64, frames));
                             }
                         }
 

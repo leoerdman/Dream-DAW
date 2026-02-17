@@ -2377,11 +2377,11 @@ impl PluginHostState {
     }
 
     fn try_enable_sandbox_if_available(&self) {
-        if let Ok(mut supervisor) = self.sandbox_supervisor.lock()
-            && !supervisor.enabled()
-        {
-            supervisor.set_enabled(true);
-        }
+        // TEMPORARILY DISABLED: Force in-process loading to diagnose
+        // whether the crash originates in the sandbox daemon or
+        // in the main-process VST3 loading code.
+        // TODO: Re-enable after fixing the root cause.
+        log::info!("[PluginHost] Sandbox auto-enable DISABLED for diagnostic purposes");
     }
 
     fn new() -> Self {

@@ -444,7 +444,9 @@ fn open_plugin_window(
         ));
     }
 
-    let descriptor = plugin_host_state.resolve_descriptor(&plugin_id)?;
+    // BUG-11 FIX: Reuse the descriptor from the first resolve call above.
+    // Previously there was a second `resolve_descriptor` call here, which
+    // wasted I/O and introduced a TOCTOU race if the bundle was modified.
     let instance_id = if let Some(existing) = plugin_host_state
         .loaded_by_key
         .lock()
@@ -469,6 +471,20 @@ fn open_plugin_window(
             );
         }
         drop(host);
+
+        // BUG-12 FIX: Insert into loaded_by_key BEFORE scheduling the editor
+        // open. This prevents a second concurrent IPC call from loading a
+        // duplicate instance during the race window between load_vst3() and
+        // the original map insertion (which was after editor open).
+        plugin_host_state
+            .loaded_by_key
+            .lock()
+            .map_err(|e| e.to_string())?
+            .insert(plugin_id.clone(), loaded);
+        if let Ok(project) = project_state.project.lock() {
+            bind_runtime_instance_for_plugin_slots(&project, &plugin_id, loaded, &plugin_host_state);
+        }
+
         loaded
     };
     let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
@@ -482,18 +498,25 @@ fn open_plugin_window(
         let _ = tx.send(result);
     })
     .map_err(|e| format!("Failed to schedule GUI open on main thread: {e}"))?;
-    rx.recv()
-        .map_err(|e| format!("Failed to receive GUI open result: {e}"))??;
 
-    plugin_host_state
-        .loaded_by_key
-        .lock()
-        .map_err(|e| e.to_string())?
-        .insert(plugin_id.clone(), instance_id);
-    if let Ok(project) = project_state.project.lock() {
-        bind_runtime_instance_for_plugin_slots(&project, &plugin_id, instance_id, &plugin_host_state);
+    let editor_result = rx.recv()
+        .map_err(|e| format!("Failed to receive GUI open result: {e}"))?;
+
+    // BUG-12 FIX: If editor open fails, clean up the loaded_by_key entry
+    // and unload the instance. This prevents phantom entries that block
+    // future load attempts.
+    if let Err(ref err) = editor_result {
+        log::warn!(
+            "[IPC] open_plugin_window({plugin_id}) editor open failed, cleaning up: {err}"
+        );
+        if let Ok(mut map) = plugin_host_state.loaded_by_key.lock() {
+            map.remove(&plugin_id);
+        }
+        if let Ok(mut host) = plugin_host_state.host.lock() {
+            let _ = host.remove(instance_id);
+        }
     }
-
+    editor_result?;
     log::info!(
         "[IPC] open_plugin_window({plugin_id}) -> loaded VST instance {} ({})",
         instance_id,
@@ -628,15 +651,31 @@ fn open_plugin_window_for_slot(
             }
         }
 
-        // Hard recovery path: drop stale instance, reload fresh, retry once.
+        // Hard recovery path: drop stale instance, reload FRESH in-process
+        // (bypassing sandbox entirely — if the sandbox was healthy we would
+        // not be here), then retry the editor open once.
         {
             let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
             let _ = host.remove(instance_id);
         }
         plugin_host_state.unbind_slot_instance(slot.id);
 
-        let recovered_instance = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)?;
+        // Load the plugin in-process — this runs init_vst3_com which
+        // acquires the real COM pointers (IComponent, IAudioProcessor,
+        // IEditController) needed for the native editor.
+        let descriptor = plugin_host_state.resolve_descriptor(&slot.plugin_id)?;
+        let recovered_instance = {
+            let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
+            host.load_vst3(descriptor)
+                .map_err(|e| format!("In-process reload failed for '{}': {e}", slot.plugin_id))?
+        };
         plugin_host_state.bind_slot_instance(slot.id, recovered_instance);
+        plugin_host_state
+            .loaded_by_key
+            .lock()
+            .map_err(|e| e.to_string())?
+            .insert(slot.plugin_id.clone(), recovered_instance);
+
         {
             let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
             let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
@@ -1041,6 +1080,11 @@ fn replace_missing_plugin_slot_cmd(
 }
 
 /// Close plugin native GUI window.
+///
+/// BUG-8 FIX: Only closes the editor window — does NOT destroy the plugin
+/// instance. Instance lifetime is managed by `unload_plugin_slot_cmd` or
+/// project close. Destroying the instance here would cause data loss and
+/// silent audio dropouts when multiple slots share the same plugin_id.
 #[tauri::command]
 fn close_plugin_window(
     plugin_id: String,
@@ -1052,7 +1096,8 @@ fn close_plugin_window(
         .loaded_by_key
         .lock()
         .map_err(|e| e.to_string())?
-        .remove(&plugin_id);
+        .get(&plugin_id)
+        .copied();
 
     if let Some(instance_id) = maybe_instance {
         let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
@@ -1061,9 +1106,7 @@ fn close_plugin_window(
                 "[IPC] close_plugin_window({plugin_id}) editor close failed for {instance_id}: {err}"
             );
         }
-        host.remove(instance_id)
-            .map_err(|e| format!("Failed to unload plugin instance {instance_id}: {e}"))?;
-        log::info!("[IPC] close_plugin_window({plugin_id}) -> removed instance {instance_id}");
+        log::info!("[IPC] close_plugin_window({plugin_id}) -> closed editor for instance {instance_id}");
     } else {
         log::info!("[IPC] close_plugin_window({plugin_id}) -> no loaded instance");
     }

@@ -62,6 +62,10 @@ pub struct TransportContext {
     pub is_playing: bool,
     /// Whether recording is active.
     pub is_recording: bool,
+    /// BUG-A7 FIX: Time signature numerator (e.g., 3 for 3/4). Default: 4.
+    pub time_sig_numerator: i32,
+    /// BUG-A7 FIX: Time signature denominator (e.g., 4 for 3/4). Default: 4.
+    pub time_sig_denominator: i32,
 }
 
 impl Default for TransportContext {
@@ -72,6 +76,8 @@ impl Default for TransportContext {
             tempo: 120.0,
             is_playing: false,
             is_recording: false,
+            time_sig_numerator: 4,
+            time_sig_denominator: 4,
         }
     }
 }

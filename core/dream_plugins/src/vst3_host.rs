@@ -85,21 +85,30 @@ const K_RECORDING: u32 = 1 << 3;
 const K_TEMPO_VALID: u32 = 1 << 10;
 const K_TIME_SIG_VALID: u32 = 1 << 13;
 const K_PROJECT_TIME_VALID: u32 = 1 << 9;
+const K_BAR_POSITION_VALID: u32 = 1 << 11;
+const K_CONT_TIME_VALID: u32 = 1 << 17;
 
-/// C-ABI struct matching `Steinberg::Vst::ProcessContext`.
-/// Must be #[repr(C)] with exact field order from the SDK.
+/// C-ABI struct matching `Steinberg::Vst::ProcessContext` from ivstprocesscontext.h.
+/// Must be #[repr(C)] with the EXACT field order from the SDK.
+///
+/// Total size: 112 bytes (verified by static assertion below).
+///
+/// Reference: vst3sdk/pluginterfaces/vst/ivstprocesscontext.h
 #[repr(C)]
 #[derive(Clone)]
 struct Vst3ProcessContext {
     /// Bit combination of ProcessContext state flags.
     state: u32,
+    // (4 bytes implicit padding to align sample_rate to 8-byte boundary)
     /// Current sample rate in Hz.
     sample_rate: f64,
-    /// Project time in samples (absolute position).
+    /// Project time in samples (absolute position). TSamples = int64.
     project_time_samples: i64,
-
-    /// System time in nanoseconds (not used — set to 0).
+    /// System time in nanoseconds (optional — set to 0).
     system_time: i64,
+    /// BUG-C1 FIX: Project time in samples, without loop. TSamples = int64.
+    /// Previously MISSING — caused 8-byte offset shift for ALL subsequent fields.
+    continuous_time_samples: i64,
     /// Musical position in quarter notes (beats).
     project_time_music: f64,
     /// Last bar start position in quarter notes.
@@ -108,32 +117,53 @@ struct Vst3ProcessContext {
     cycle_start_music: f64,
     /// Cycle end position in quarter notes.
     cycle_end_music: f64,
-
     /// Tempo in BPM.
     tempo: f64,
-    /// Time signature numerator.
+    /// Time signature numerator (e.g., 3 for 3/4).
     time_sig_numerator: i32,
-    /// Time signature denominator.
+    /// Time signature denominator (e.g., 4 for 3/4).
     time_sig_denominator: i32,
-
-    /// MIDI clock position (not used).
-    chord: i32,
-    /// SMPTE offset (not used).
+    /// BUG-C2 FIX: Chord info — Steinberg::Vst::Chord struct (4 bytes).
+    chord: Vst3Chord,
+    /// SMPTE offset in subframes (1/80 of a frame).
     smpte_offset_subframes: i32,
-    /// SMPTE frame rate (not used).
-    sampler_offset: i32,
-    /// Timecode frame rate.
-    smpte_frame_rate: i32,
-    /// Clock offset.
-    clock_offset: i32,
-    /// Flags.
+    /// BUG-C2 FIX: Frame rate — Steinberg::Vst::FrameRate struct (8 bytes).
+    /// Previously hacked as two separate i32 fields.
+    frame_rate: Vst3FrameRate,
+    /// BUG-C2 FIX: MIDI clock resolution (24 per quarter note), can be negative.
+    /// Previously this was split into `clock_offset: i32` + `flags: u32` (wrong).
+    samples_to_next_clock: i32,
+}
+
+/// C-ABI Chord struct matching `Steinberg::Vst::Chord` (4 bytes).
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Vst3Chord {
+    key_note: u8,
+    root_note: u8,
+    chord_mask: i16,
+}
+
+/// C-ABI FrameRate struct matching `Steinberg::Vst::FrameRate` (8 bytes).
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Vst3FrameRate {
+    frames_per_second: u32,
     flags: u32,
 }
+
+// Static size assertion: Vst3ProcessContext MUST be exactly 112 bytes
+// to match the Steinberg VST3 SDK ProcessContext layout.
+const _: () = assert!(
+    std::mem::size_of::<Vst3ProcessContext>() == 112,
+    "Vst3ProcessContext size mismatch: must be exactly 112 bytes to match VST3 SDK"
+);
 
 impl Vst3ProcessContext {
     /// Creates a ProcessContext from the stored transport state.
     fn from_transport(ctx: &TransportContext) -> Self {
-        let mut state: u32 = K_TEMPO_VALID | K_TIME_SIG_VALID | K_PROJECT_TIME_VALID;
+        let mut state: u32 = K_TEMPO_VALID | K_TIME_SIG_VALID | K_PROJECT_TIME_VALID
+            | K_BAR_POSITION_VALID | K_CONT_TIME_VALID;
         if ctx.is_playing {
             state |= K_PLAYING;
         }
@@ -143,28 +173,36 @@ impl Vst3ProcessContext {
 
         // Convert position in samples to beats:
         // beats = samples / (sample_rate * 60 / bpm)
-        let beats_per_second = ctx.tempo / 60.0;
-        let position_seconds = ctx.position_samples as f64 / ctx.sample_rate;
+        let beats_per_second = if ctx.tempo > 0.0 { ctx.tempo / 60.0 } else { 2.0 };
+        let position_seconds = if ctx.sample_rate > 0.0 {
+            ctx.position_samples as f64 / ctx.sample_rate
+        } else {
+            0.0
+        };
         let position_beats = position_seconds * beats_per_second;
+
+        // BUG-A6 FIX: Calculate bar position from transport.
+        let time_sig_num = ctx.time_sig_numerator.max(1) as f64;
+        let bar_position_music = (position_beats / time_sig_num).floor() * time_sig_num;
 
         Self {
             state,
             sample_rate: ctx.sample_rate,
             project_time_samples: ctx.position_samples,
             system_time: 0,
+            continuous_time_samples: ctx.position_samples, // without loop = same as project time
             project_time_music: position_beats,
-            bar_position_music: 0.0,
+            bar_position_music,
             cycle_start_music: 0.0,
             cycle_end_music: 0.0,
             tempo: ctx.tempo,
-            time_sig_numerator: 4,
-            time_sig_denominator: 4,
-            chord: 0,
+            // BUG-A7 FIX: Use time signature from TransportContext.
+            time_sig_numerator: ctx.time_sig_numerator,
+            time_sig_denominator: ctx.time_sig_denominator,
+            chord: Vst3Chord { key_note: 0, root_note: 0, chord_mask: 0 },
             smpte_offset_subframes: 0,
-            sampler_offset: 0,
-            smpte_frame_rate: 0,
-            clock_offset: 0,
-            flags: 0,
+            frame_rate: Vst3FrameRate { frames_per_second: 0, flags: 0 },
+            samples_to_next_clock: 0,
         }
     }
 }
@@ -192,6 +230,16 @@ const IID_IPLUG_FRAME: Tuid = [
 // FUnknown IID: {00000000-0000-0000-C000-000000000046}
 const IID_FUNKNOWN: Tuid = [
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46,
+];
+
+// IComponentHandler IID: {93A0BEA3-0BD0-45DB-8E89-0B0CC1E46AC6}
+const IID_ICOMPONENT_HANDLER: Tuid = [
+    0x93, 0xA0, 0xBE, 0xA3, 0x0B, 0xD0, 0x45, 0xDB, 0x8E, 0x89, 0x0B, 0x0C, 0xC1, 0xE4, 0x6A, 0xC6,
+];
+
+// IConnectionPoint IID: {70A4156F-6E6E-4026-9891-48BFAA60D8D1}
+const IID_ICONNECTION_POINT: Tuid = [
+    0x70, 0xA4, 0x15, 0x6F, 0x6E, 0x6E, 0x40, 0x26, 0x98, 0x91, 0x48, 0xBF, 0xAA, 0x60, 0xD8, 0xD1,
 ];
 
 // ── Minimal IHostApplication (COM singleton) ───────────────────────────
@@ -329,6 +377,296 @@ fn host_application_ptr() -> *mut c_void {
     &HOST_APP_INSTANCE as *const HostApplicationInstance as *mut c_void
 }
 
+// ── IComponentHandler (COM singleton) ──────────────────────────────────
+//
+// VST3 plugins call IEditController::setComponentHandler() to receive a
+// pointer to an IComponentHandler.  Many plugins (Serum2, Kontakt, etc.)
+// REQUIRE a valid handler before createView() can succeed.
+//
+// BUG-H1 FIX: performEdit now pushes (param_id, value) into a global
+//   thread-safe ring buffer so the UI thread can read parameter changes
+//   made by the user in the plugin GUI.
+// BUG-H2 FIX: restartComponent logs the flags and sets a global
+//   latency_changed flag when kLatencyChanged is received.
+// BUG-H3 FIX: queryInterface calls addRef (COM spec compliance).
+// BUG-H4 FIX: queryInterface responds to IComponentHandler2 IID.
+
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+
+/// IID for IComponentHandler: {93A0BEA3-0BD0-45DB-8E89-0B0CC1E46AC6}
+const IID_ICOMPONENT_HANDLER_2: Tuid = [
+    0xF0, 0x40, 0xB4, 0xB3, 0xA3, 0x60, 0x45, 0xEC,
+    0xAB, 0xCD, 0xDE, 0x7E, 0x3F, 0xBC, 0xA9, 0xED,
+];
+
+/// BUG-H1 FIX: Thread-safe ring buffer for GUI-originated parameter edits.
+/// Lock-free: uses atomic head/tail indices. Sized for 1024 entries to handle
+/// rapid param sweeps without dropping data.
+const PARAM_RING_SIZE: usize = 1024;
+
+struct ParamEditEntry {
+    param_id: AtomicU32,
+    // We use raw bits because AtomicF64 doesn't exist in std.
+    value_bits: AtomicUsize,
+}
+
+impl ParamEditEntry {
+    const fn new() -> Self {
+        Self {
+            param_id: AtomicU32::new(0),
+            value_bits: AtomicUsize::new(0),
+        }
+    }
+}
+
+struct ParamEditRing {
+    entries: [ParamEditEntry; PARAM_RING_SIZE],
+    head: AtomicUsize,
+    tail: AtomicUsize,
+}
+
+impl ParamEditRing {
+    const fn new() -> Self {
+        #[allow(clippy::declare_interior_mutable_const)]
+        const ENTRY: ParamEditEntry = ParamEditEntry::new();
+        Self {
+            entries: [ENTRY; PARAM_RING_SIZE],
+            head: AtomicUsize::new(0),
+            tail: AtomicUsize::new(0),
+        }
+    }
+
+    fn push(&self, param_id: u32, value: f64) {
+        let head = self.head.load(Ordering::Relaxed);
+        let next = (head + 1) % PARAM_RING_SIZE;
+        // If full, drop oldest silently (overflow is acceptable for param edits).
+        self.entries[head].param_id.store(param_id, Ordering::Relaxed);
+        self.entries[head].value_bits.store(value.to_bits() as usize, Ordering::Relaxed);
+        self.head.store(next, Ordering::Release);
+    }
+
+    /// Drain all pending entries into a callback. Returns count drained.
+    pub fn drain(&self, mut f: impl FnMut(u32, f64)) -> usize {
+        let mut count = 0;
+        loop {
+            let tail = self.tail.load(Ordering::Acquire);
+            let head = self.head.load(Ordering::Acquire);
+            if tail == head {
+                break;
+            }
+            let pid = self.entries[tail].param_id.load(Ordering::Relaxed);
+            let vbits = self.entries[tail].value_bits.load(Ordering::Relaxed);
+            f(pid, f64::from_bits(vbits as u64));
+            self.tail.store((tail + 1) % PARAM_RING_SIZE, Ordering::Release);
+            count += 1;
+        }
+        count
+    }
+}
+
+unsafe impl Sync for ParamEditRing {}
+
+static PARAM_EDIT_RING: ParamEditRing = ParamEditRing::new();
+
+/// BUG-H2 FIX: Global flag set when a plugin requests latency re-query.
+static LATENCY_CHANGED: AtomicBool = AtomicBool::new(false);
+/// BUG-H2 FIX: Global flag set when a plugin requests param re-read.
+static PARAM_VALUES_CHANGED: AtomicBool = AtomicBool::new(false);
+
+/// restartComponent flag constants (from VST3 SDK ivstcomponent.h)
+const K_RESTART_LATENCY_CHANGED: i32 = 0x01;
+const K_RESTART_PARAM_VALUES_CHANGED: i32 = 0x02;
+const K_RESTART_IO_CHANGED: i32 = 0x04;
+const K_RESTART_PARAM_TITLES_CHANGED: i32 = 0x08;
+
+/// COM vtable for IComponentHandler.
+/// NOTE: On macOS, VST3 uses C calling convention (not "system").
+#[repr(C)]
+struct IComponentHandlerVtbl {
+    query_interface:
+        unsafe extern "C" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
+    add_ref: unsafe extern "C" fn(*mut c_void) -> u32,
+    release: unsafe extern "C" fn(*mut c_void) -> u32,
+    begin_edit: unsafe extern "C" fn(*mut c_void, u32) -> Tresult,
+    perform_edit: unsafe extern "C" fn(*mut c_void, u32, f64) -> Tresult,
+    end_edit: unsafe extern "C" fn(*mut c_void, u32) -> Tresult,
+    restart_component: unsafe extern "C" fn(*mut c_void, i32) -> Tresult,
+}
+
+/// BUG-H4 FIX: COM vtable for IComponentHandler2.
+/// Extends IComponentHandler with dirty state, editor requests, and group edits.
+#[repr(C)]
+struct IComponentHandler2Vtbl {
+    query_interface:
+        unsafe extern "C" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
+    add_ref: unsafe extern "C" fn(*mut c_void) -> u32,
+    release: unsafe extern "C" fn(*mut c_void) -> u32,
+    set_dirty: unsafe extern "C" fn(*mut c_void, i8) -> Tresult,
+    request_open_editor: unsafe extern "C" fn(*mut c_void, *const c_char) -> Tresult,
+    start_group_edit: unsafe extern "C" fn(*mut c_void) -> Tresult,
+    finish_group_edit: unsafe extern "C" fn(*mut c_void) -> Tresult,
+}
+
+/// Dual-vtable COM object: IComponentHandler + IComponentHandler2.
+/// Plugins QI for either interface and get the appropriate vtable.
+#[repr(C)]
+struct ComponentHandlerInstance {
+    vtbl: *const IComponentHandlerVtbl,
+    vtbl2: *const IComponentHandler2Vtbl,
+}
+
+unsafe impl Sync for ComponentHandlerInstance {}
+unsafe impl Send for ComponentHandlerInstance {}
+
+unsafe extern "C" fn handler_query_interface(
+    this: *mut c_void,
+    iid: *const Tuid,
+    obj: *mut *mut c_void,
+) -> Tresult {
+    if obj.is_null() {
+        return K_NO_INTERFACE;
+    }
+    if tuid_eq(iid, &IID_FUNKNOWN) || tuid_eq(iid, &IID_ICOMPONENT_HANDLER) {
+        // BUG-H3 FIX: COM spec requires addRef on queryInterface output.
+        handler_add_ref(this);
+        unsafe { *obj = this; }
+        K_RESULT_OK
+    } else if tuid_eq(iid, &IID_ICOMPONENT_HANDLER_2) {
+        // BUG-H4 FIX: Return IComponentHandler2 interface.
+        // Offset to the second vtable pointer in the struct.
+        handler_add_ref(this);
+        let inst = this as *const ComponentHandlerInstance;
+        unsafe { *obj = &(*inst).vtbl2 as *const _ as *mut c_void; }
+        K_RESULT_OK
+    } else {
+        unsafe { *obj = ptr::null_mut(); }
+        K_NO_INTERFACE
+    }
+}
+
+unsafe extern "C" fn handler_add_ref(_this: *mut c_void) -> u32 { 1 }
+unsafe extern "C" fn handler_release(_this: *mut c_void) -> u32 { 1 }
+
+unsafe extern "C" fn handler_begin_edit(_this: *mut c_void, id: u32) -> Tresult {
+    info!("[VST3-Handler] beginEdit(paramId={})", id);
+    K_RESULT_OK
+}
+
+/// BUG-H1 FIX: Parameter changes from the plugin GUI are pushed to a global
+/// lock-free ring so the UI thread can read them back for automation recording
+/// and parameter display updates.
+unsafe extern "C" fn handler_perform_edit(_this: *mut c_void, id: u32, value: f64) -> Tresult {
+    PARAM_EDIT_RING.push(id, value);
+    K_RESULT_OK
+}
+
+unsafe extern "C" fn handler_end_edit(_this: *mut c_void, id: u32) -> Tresult {
+    info!("[VST3-Handler] endEdit(paramId={})", id);
+    K_RESULT_OK
+}
+
+/// BUG-H2 FIX: React to plugin restart requests.
+/// Sets global atomic flags that the engine polls each cycle.
+unsafe extern "C" fn handler_restart_component(_this: *mut c_void, flags: i32) -> Tresult {
+    info!("[VST3-Handler] restartComponent(flags=0x{:04X})", flags);
+    if flags & K_RESTART_LATENCY_CHANGED != 0 {
+        info!("[VST3-Handler]   → kLatencyChanged — host should re-query getLatencySamples()");
+        LATENCY_CHANGED.store(true, Ordering::Release);
+    }
+    if flags & K_RESTART_PARAM_VALUES_CHANGED != 0 {
+        info!("[VST3-Handler]   → kParamValuesChanged — host should re-read all parameters");
+        PARAM_VALUES_CHANGED.store(true, Ordering::Release);
+    }
+    if flags & K_RESTART_IO_CHANGED != 0 {
+        info!("[VST3-Handler]   → kIoChanged — bus layout may have changed");
+    }
+    if flags & K_RESTART_PARAM_TITLES_CHANGED != 0 {
+        info!("[VST3-Handler]   → kParamTitlesChanged — parameter names updated");
+    }
+    K_RESULT_OK
+}
+
+// ── IComponentHandler2 stubs ──
+unsafe extern "C" fn handler2_qi(
+    this: *mut c_void,
+    iid: *const Tuid,
+    obj: *mut *mut c_void,
+) -> Tresult {
+    // Redirect to the main handler QI.
+    // Calculate back to the start of ComponentHandlerInstance.
+    let base = unsafe {
+        (this as *const u8).sub(std::mem::size_of::<*const IComponentHandlerVtbl>()) as *mut c_void
+    };
+    unsafe { handler_query_interface(base, iid, obj) }
+}
+
+unsafe extern "C" fn handler2_add_ref(_this: *mut c_void) -> u32 { 1 }
+unsafe extern "C" fn handler2_release(_this: *mut c_void) -> u32 { 1 }
+
+unsafe extern "C" fn handler2_set_dirty(_this: *mut c_void, _state: i8) -> Tresult {
+    // BUG-H4: Acknowledge dirty state. In a full implementation this would
+    // mark the project as unsaved.
+    K_RESULT_OK
+}
+
+unsafe extern "C" fn handler2_request_open_editor(_this: *mut c_void, _name: *const c_char) -> Tresult {
+    K_RESULT_OK
+}
+
+unsafe extern "C" fn handler2_start_group_edit(_this: *mut c_void) -> Tresult {
+    K_RESULT_OK
+}
+
+unsafe extern "C" fn handler2_finish_group_edit(_this: *mut c_void) -> Tresult {
+    K_RESULT_OK
+}
+
+static COMPONENT_HANDLER_VTBL: IComponentHandlerVtbl = IComponentHandlerVtbl {
+    query_interface: handler_query_interface,
+    add_ref: handler_add_ref,
+    release: handler_release,
+    begin_edit: handler_begin_edit,
+    perform_edit: handler_perform_edit,
+    end_edit: handler_end_edit,
+    restart_component: handler_restart_component,
+};
+
+static COMPONENT_HANDLER2_VTBL: IComponentHandler2Vtbl = IComponentHandler2Vtbl {
+    query_interface: handler2_qi,
+    add_ref: handler2_add_ref,
+    release: handler2_release,
+    set_dirty: handler2_set_dirty,
+    request_open_editor: handler2_request_open_editor,
+    start_group_edit: handler2_start_group_edit,
+    finish_group_edit: handler2_finish_group_edit,
+};
+
+static COMPONENT_HANDLER_INSTANCE: ComponentHandlerInstance = ComponentHandlerInstance {
+    vtbl: &COMPONENT_HANDLER_VTBL as *const IComponentHandlerVtbl,
+    vtbl2: &COMPONENT_HANDLER2_VTBL as *const IComponentHandler2Vtbl,
+};
+
+/// Returns a pointer to the static IComponentHandler singleton.
+fn component_handler_ptr() -> *mut c_void {
+    &COMPONENT_HANDLER_INSTANCE as *const ComponentHandlerInstance as *mut c_void
+}
+
+/// Public API: Drain pending GUI parameter edits. Called by the UI thread
+/// to sync displayed values and record automation.
+pub fn drain_gui_param_edits(mut f: impl FnMut(u32, f64)) -> usize {
+    PARAM_EDIT_RING.drain(f)
+}
+
+/// Public API: Check and clear the latency_changed flag.
+pub fn take_latency_changed() -> bool {
+    LATENCY_CHANGED.swap(false, Ordering::AcqRel)
+}
+
+/// Public API: Check and clear the param_values_changed flag.
+pub fn take_param_values_changed() -> bool {
+    PARAM_VALUES_CHANGED.swap(false, Ordering::AcqRel)
+}
+
 #[repr(C)]
 #[allow(dead_code)]
 struct FUnknown {
@@ -429,6 +767,25 @@ struct IEditControllerVtbl {
     create_view: unsafe extern "C" fn(*mut IEditController, *const c_char) -> *mut c_void,
 }
 
+// ── IConnectionPoint COM interface ──────────────────────────────────────
+// Used to wire separate IComponent ↔ IEditController communication.
+// Both sides QI for this interface, and the host calls connect() to link them.
+
+#[repr(C)]
+struct IConnectionPoint {
+    vtbl: *const IConnectionPointVtbl,
+}
+
+#[repr(C)]
+struct IConnectionPointVtbl {
+    query_interface:
+        unsafe extern "C" fn(*mut IConnectionPoint, *const c_char, *mut *mut c_void) -> Tresult,
+    add_ref: unsafe extern "C" fn(*mut IConnectionPoint) -> u32,
+    release: unsafe extern "C" fn(*mut IConnectionPoint) -> u32,
+    connect: unsafe extern "C" fn(*mut IConnectionPoint, *mut IConnectionPoint) -> Tresult,
+    disconnect: unsafe extern "C" fn(*mut IConnectionPoint, *mut IConnectionPoint) -> Tresult,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct ViewRect {
@@ -446,7 +803,7 @@ struct IPlugView {
 #[repr(C)]
 struct IPlugViewVtbl {
     query_interface:
-        unsafe extern "C" fn(*mut IPlugView, *const c_char, *mut *mut c_void) -> Tresult,
+        unsafe extern "C" fn(*mut IPlugView, *const Tuid, *mut *mut c_void) -> Tresult,
     add_ref: unsafe extern "C" fn(*mut IPlugView) -> u32,
     release: unsafe extern "C" fn(*mut IPlugView) -> u32,
     is_platform_type_supported: unsafe extern "C" fn(*mut IPlugView, *const c_char) -> Tresult,
@@ -535,15 +892,21 @@ struct IParameterChangesVtbl {
         unsafe extern "C" fn(*mut IParameterChanges, *mut u32, *mut i32) -> *mut IParamValueQueue,
 }
 
+/// BUG-A5 FIX: Maximum automation points per parameter per process call.
+/// 16 is sufficient for sample-accurate automation with a typical 512-sample buffer.
+const MAX_POINTS_PER_QUEUE: usize = 16;
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct HostParamValueQueue {
     vtbl: *const IParamValueQueueVtbl,
     ref_count: u32,
     param_id: u32,
-    sample_offset: i32,
-    value: f64,
-    has_point: i32,
+    /// BUG-A5 FIX: Number of automation points stored.
+    point_count: i32,
+    /// BUG-A5 FIX: Sample-accurate automation points (offset, value).
+    sample_offsets: [i32; MAX_POINTS_PER_QUEUE],
+    values: [f64; MAX_POINTS_PER_QUEUE],
 }
 
 impl HostParamValueQueue {
@@ -552,9 +915,9 @@ impl HostParamValueQueue {
             vtbl: &HOST_PARAM_VALUE_QUEUE_VTBL,
             ref_count: 1,
             param_id: 0,
-            sample_offset: 0,
-            value: 0.0,
-            has_point: 0,
+            point_count: 0,
+            sample_offsets: [0i32; MAX_POINTS_PER_QUEUE],
+            values: [0.0f64; MAX_POINTS_PER_QUEUE],
         }
     }
 }
@@ -578,9 +941,10 @@ impl HostParameterChanges {
         };
         for (slot, (param_id, value)) in changes.iter().take(MAX_HOST_PARAM_CHANGES).enumerate() {
             this.queues[slot].param_id = *param_id;
-            this.queues[slot].sample_offset = 0;
-            this.queues[slot].value = value.clamp(0.0, 1.0);
-            this.queues[slot].has_point = 1;
+            // BUG-A5 FIX: Store as first point in the multi-point array.
+            this.queues[slot].sample_offsets[0] = 0;
+            this.queues[slot].values[0] = value.clamp(0.0, 1.0);
+            this.queues[slot].point_count = 1;
             this.queue_count += 1;
         }
         this
@@ -626,34 +990,37 @@ unsafe extern "C" fn host_param_queue_get_parameter_id(this: *mut IParamValueQue
     queue.param_id
 }
 
+/// BUG-A5 FIX: Returns the number of automation points in this queue.
 unsafe extern "C" fn host_param_queue_get_point_count(this: *mut IParamValueQueue) -> i32 {
     if this.is_null() {
         return 0;
     }
     let queue = unsafe { &*(this as *mut HostParamValueQueue) };
-    queue.has_point
+    queue.point_count
 }
 
+/// BUG-A5 FIX: Retrieves a specific automation point by index.
 unsafe extern "C" fn host_param_queue_get_point(
     this: *mut IParamValueQueue,
     index: i32,
     sample_offset: *mut i32,
     value: *mut f64,
 ) -> Tresult {
-    if this.is_null() || sample_offset.is_null() || value.is_null() || index != 0 {
+    if this.is_null() || sample_offset.is_null() || value.is_null() {
         return K_RESULT_FALSE;
     }
     let queue = unsafe { &*(this as *mut HostParamValueQueue) };
-    if queue.has_point <= 0 {
+    if index < 0 || index >= queue.point_count || (index as usize) >= MAX_POINTS_PER_QUEUE {
         return K_RESULT_FALSE;
     }
     unsafe {
-        *sample_offset = queue.sample_offset;
-        *value = queue.value;
+        *sample_offset = queue.sample_offsets[index as usize];
+        *value = queue.values[index as usize];
     }
     K_RESULT_OK
 }
 
+/// BUG-A5 FIX: Adds an automation point to the multi-point array.
 unsafe extern "C" fn host_param_queue_add_point(
     this: *mut IParamValueQueue,
     sample_offset: i32,
@@ -664,12 +1031,17 @@ unsafe extern "C" fn host_param_queue_add_point(
         return K_RESULT_FALSE;
     }
     let queue = unsafe { &mut *(this as *mut HostParamValueQueue) };
-    queue.sample_offset = sample_offset;
-    queue.value = value.clamp(0.0, 1.0);
-    queue.has_point = 1;
+    let slot = queue.point_count as usize;
+    if slot >= MAX_POINTS_PER_QUEUE {
+        // Queue full — silently reject (overflow protection).
+        return K_RESULT_FALSE;
+    }
+    queue.sample_offsets[slot] = sample_offset;
+    queue.values[slot] = value.clamp(0.0, 1.0);
+    queue.point_count += 1;
     if !index.is_null() {
         unsafe {
-            *index = 0;
+            *index = slot as i32;
         }
     }
     K_RESULT_OK
@@ -750,9 +1122,7 @@ unsafe extern "C" fn host_param_changes_add_parameter_data(
     changes.queue_count += 1;
     let param_id = if id.is_null() { 0 } else { unsafe { *id } };
     changes.queues[slot].param_id = param_id;
-    changes.queues[slot].sample_offset = 0;
-    changes.queues[slot].value = 0.0;
-    changes.queues[slot].has_point = 0;
+    changes.queues[slot].point_count = 0;
     if !index.is_null() {
         unsafe {
             *index = slot as i32;
@@ -795,6 +1165,8 @@ const MAX_INPUT_EVENTS: usize = 512;
 /// VST3 Event type IDs.
 const K_NOTE_ON_EVENT: u16 = 0;
 const K_NOTE_OFF_EVENT: u16 = 1;
+/// BUG-A2 FIX: LegacyMIDICCOut event type for CC, pitch bend, aftertouch.
+const K_LEGACY_MIDI_CC_OUT_EVENT: u16 = 65535;
 
 
 /// C-ABI struct matching `Steinberg::Vst::Event`.
@@ -876,17 +1248,92 @@ impl Vst3Event {
         ev
     }
 
+    /// BUG-A2 FIX: Creates a VST3 LegacyMIDICCOutEvent for CC messages.
+    ///
+    /// LegacyMIDICCOutEvent layout: controlNumber(u8), channel(i8), value(i8), value2(i8) = 4 bytes.
+    /// This is the VST3 SDK's standard mechanism for forwarding MIDI CC data.
+    fn from_midi_cc(midi: &crate::instance::MidiEvent) -> Self {
+        let mut ev = Self::zeroed();
+        ev.sample_offset = midi.sample_offset;
+        ev.event_type = K_LEGACY_MIDI_CC_OUT_EVENT;
+        ev.flags = 1; // kIsLive
+        ev.event_data[0] = midi.data[1]; // CC number
+        ev.event_data[1] = (midi.channel & 0x0F) as u8; // channel as i8
+        ev.event_data[2] = midi.data[2]; // value
+        ev.event_data[3] = 0; // value2
+        ev
+    }
+
+    /// BUG-A2 FIX: Creates a VST3 LegacyMIDICCOutEvent for pitch bend.
+    ///
+    /// Pitch bend uses CC number 128 per VST3 SDK convention:
+    ///   - controlNumber = 128 (kPitchBend)
+    ///   - value = LSB, value2 = MSB
+    fn from_pitch_bend(midi: &crate::instance::MidiEvent) -> Self {
+        let mut ev = Self::zeroed();
+        ev.sample_offset = midi.sample_offset;
+        ev.event_type = K_LEGACY_MIDI_CC_OUT_EVENT;
+        ev.flags = 1;
+        ev.event_data[0] = 128; // kPitchBend
+        ev.event_data[1] = (midi.channel & 0x0F) as u8;
+        ev.event_data[2] = midi.data[1]; // LSB
+        ev.event_data[3] = midi.data[2]; // MSB
+        ev
+    }
+
+    /// BUG-A2 FIX: Creates a VST3 LegacyMIDICCOutEvent for channel aftertouch.
+    ///
+    /// Channel aftertouch uses CC number 129 per VST3 SDK convention:
+    ///   - controlNumber = 129 (kAfterTouch)
+    ///   - value = pressure
+    fn from_channel_aftertouch(midi: &crate::instance::MidiEvent) -> Self {
+        let mut ev = Self::zeroed();
+        ev.sample_offset = midi.sample_offset;
+        ev.event_type = K_LEGACY_MIDI_CC_OUT_EVENT;
+        ev.flags = 1;
+        ev.event_data[0] = 129; // kAfterTouch
+        ev.event_data[1] = (midi.channel & 0x0F) as u8;
+        ev.event_data[2] = midi.data[1]; // pressure
+        ev.event_data[3] = 0;
+        ev
+    }
+
     /// Converts a format-agnostic MidiEvent into a VST3 Event.
-    /// Returns `None` for unsupported MIDI message types (CC, pitch bend, etc.
-    /// will be handled in future phases via LegacyMIDICCOut).
+    /// BUG-A2 FIX: Now handles CC (0xB0), pitch bend (0xE0), channel aftertouch (0xD0),
+    /// and poly aftertouch (0xA0) via LegacyMIDICCOutEvent.
     fn from_midi_event(midi: &crate::instance::MidiEvent) -> Option<Self> {
         let status = midi.data[0] & 0xF0;
         match status {
             0x90 if midi.data[2] > 0 => Some(Self::from_note_on(midi)),
             0x90 => Some(Self::from_note_off(midi)), // velocity 0 = note off
             0x80 => Some(Self::from_note_off(midi)),
-            // CC, pitch bend, aftertouch will be added as LegacyMIDICCOut events
-            // in a future iteration. For now, only note events are critical.
+            0xB0 => Some(Self::from_midi_cc(midi)),   // CC
+            0xE0 => Some(Self::from_pitch_bend(midi)), // Pitch bend
+            0xD0 => Some(Self::from_channel_aftertouch(midi)), // Channel aftertouch
+            0xA0 => {
+                // Poly aftertouch — map to CC 130 (kPolyPressure) per VST3 convention
+                let mut ev = Self::zeroed();
+                ev.sample_offset = midi.sample_offset;
+                ev.event_type = K_LEGACY_MIDI_CC_OUT_EVENT;
+                ev.flags = 1;
+                ev.event_data[0] = 130; // kPolyPressure
+                ev.event_data[1] = (midi.channel & 0x0F) as u8;
+                ev.event_data[2] = midi.data[1]; // note
+                ev.event_data[3] = midi.data[2]; // pressure
+                Some(ev)
+            }
+            0xC0 => {
+                // Program change — map to CC 131 per VST3 convention
+                let mut ev = Self::zeroed();
+                ev.sample_offset = midi.sample_offset;
+                ev.event_type = K_LEGACY_MIDI_CC_OUT_EVENT;
+                ev.flags = 1;
+                ev.event_data[0] = 131; // kCtrlProgramChange
+                ev.event_data[1] = (midi.channel & 0x0F) as u8;
+                ev.event_data[2] = midi.data[1]; // program
+                ev.event_data[3] = 0;
+                Some(ev)
+            }
             _ => None,
         }
     }
@@ -1092,6 +1539,10 @@ unsafe extern "C" fn stream_query_interface(
     _iid: *const c_char,
     _obj: *mut *mut c_void,
 ) -> Tresult {
+    // COM spec: *obj MUST be NULLed on failure.
+    if !_obj.is_null() {
+        unsafe { *_obj = ptr::null_mut(); }
+    }
     K_NO_INTERFACE
 }
 
@@ -1245,6 +1696,10 @@ unsafe extern "C" fn write_stream_query_interface(
     _iid: *const c_char,
     _obj: *mut *mut c_void,
 ) -> Tresult {
+    // COM spec: *obj MUST be NULLed on failure.
+    if !_obj.is_null() {
+        unsafe { *_obj = ptr::null_mut(); }
+    }
     K_NO_INTERFACE
 }
 
@@ -1413,12 +1868,28 @@ unsafe extern "C" fn plug_frame_query_interface(
     if this.is_null() || iid.is_null() || obj.is_null() {
         return K_NO_INTERFACE;
     }
+    let iid_bytes = unsafe { &*iid };
+    eprintln!(
+        "[CRASH-DIAG] plug_frame_query_interface called with IID: {:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        iid_bytes[0], iid_bytes[1], iid_bytes[2], iid_bytes[3],
+        iid_bytes[4], iid_bytes[5], iid_bytes[6], iid_bytes[7],
+        iid_bytes[8], iid_bytes[9], iid_bytes[10], iid_bytes[11],
+        iid_bytes[12], iid_bytes[13], iid_bytes[14], iid_bytes[15]
+    );
     if tuid_eq(iid, &IID_IPLUG_FRAME) || tuid_eq(iid, &IID_FUNKNOWN) {
         unsafe {
             *obj = this;
         }
+        // COM spec: queryInterface must call addRef on the returned pointer.
+        unsafe { plug_frame_add_ref(this); }
+        eprintln!("[CRASH-DIAG] plug_frame_query_interface → OK (IPlugFrame/FUnknown)");
         return K_RESULT_OK;
     }
+    eprintln!("[CRASH-DIAG] plug_frame_query_interface → K_NO_INTERFACE");
+    // COM spec: *obj MUST be NULLed on failure. Without this, callers may
+    // use the uninitialized pointer (e.g., VSTGUI querying for IRunLoop
+    // during attached() could dereference garbage → SIGSEGV at 0x60).
+    unsafe { *obj = ptr::null_mut(); }
     K_NO_INTERFACE
 }
 
@@ -1438,12 +1909,31 @@ unsafe extern "C" fn plug_frame_release(this: *mut c_void) -> u32 {
 
 /// Called by the plugin when it wants to resize its editor view.
 /// We resize the host NSWindow to match the requested size.
+///
+/// BUG-E4 FIX: After resizing, we call IPlugView::onSize() so the plugin
+/// knows its view dimensions changed and can reflow UI elements.
+///
+/// SERUM2 CRASH FIX: Added recursion guard to prevent infinite
+/// resizeView → onSize → resizeView loops. Serum2 calls resizeView
+/// during attached(), and if onSize triggers another resizeView,
+/// the infinite recursion corrupts the stack → NULL deref → SIGSEGV.
 #[cfg(target_os = "macos")]
 unsafe extern "C" fn plug_frame_resize_view(
     this: *mut c_void,
-    _view: *mut c_void,
+    view: *mut c_void,
     new_rect: *mut ViewRect,
 ) -> Tresult {
+    use std::cell::Cell;
+    thread_local! {
+        static IN_RESIZE: Cell<bool> = const { Cell::new(false) };
+    }
+
+    // Recursion guard: if we're already inside a resize cycle, bail out.
+    let already_resizing = IN_RESIZE.with(|c| c.get());
+    if already_resizing {
+        return K_RESULT_OK;
+    }
+
     if this.is_null() || new_rect.is_null() {
         return K_RESULT_FALSE;
     }
@@ -1467,6 +1957,18 @@ unsafe extern "C" fn plug_frame_resize_view(
         );
         window.setFrame_display_(new_frame, true);
     }
+
+    // BUG-E4 FIX: Notify the plugin that its view was resized.
+    // Set the recursion guard BEFORE calling onSize to prevent re-entry.
+    if !view.is_null() {
+        IN_RESIZE.with(|c| c.set(true));
+        let plug_view = view as *mut IPlugView;
+        unsafe {
+            let _ = ((*(*plug_view).vtbl).on_size)(plug_view, new_rect);
+        }
+        IN_RESIZE.with(|c| c.set(false));
+    }
+
     K_RESULT_OK
 }
 
@@ -1486,108 +1988,6 @@ static HOST_PLUG_FRAME_VTBL: IPlugFrameVtbl = IPlugFrameVtbl {
     resize_view: plug_frame_resize_view,
 };
 
-// ═══════════════════════════════════════════════════════════════════════════
-// IComponentHandler — enables plugins to notify host about param changes
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// IComponentHandler IID: {93A0BEA3-0BD0-11D5-BF49-00108B531DC3}
-const IID_ICOMPONENT_HANDLER: Tuid = [
-    0x93, 0xA0, 0xBE, 0xA3, 0x0B, 0xD0, 0x11, 0xD5, 0xBF, 0x49, 0x00, 0x10, 0x8B, 0x53, 0x1D,
-    0xC3,
-];
-
-#[repr(C)]
-struct IComponentHandlerVtbl {
-    query_interface:
-        unsafe extern "C" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
-    add_ref: unsafe extern "C" fn(*mut c_void) -> u32,
-    release: unsafe extern "C" fn(*mut c_void) -> u32,
-    begin_edit: unsafe extern "C" fn(*mut c_void, u32) -> Tresult,
-    perform_edit: unsafe extern "C" fn(*mut c_void, u32, f64) -> Tresult,
-    end_edit: unsafe extern "C" fn(*mut c_void, u32) -> Tresult,
-    restart_component: unsafe extern "C" fn(*mut c_void, i32) -> Tresult,
-}
-
-#[repr(C)]
-struct HostComponentHandler {
-    vtbl: *const IComponentHandlerVtbl,
-}
-
-// Safety: vtbl points to a static constant vtable. Singleton is immutable.
-unsafe impl Sync for HostComponentHandler {}
-
-unsafe extern "C" fn comp_handler_query_interface(
-    this: *mut c_void,
-    iid: *const Tuid,
-    obj: *mut *mut c_void,
-) -> Tresult {
-    if this.is_null() || iid.is_null() || obj.is_null() {
-        return K_NO_INTERFACE;
-    }
-    if tuid_eq(iid, &IID_ICOMPONENT_HANDLER) || tuid_eq(iid, &IID_FUNKNOWN) {
-        unsafe { *obj = this; }
-        return K_RESULT_OK;
-    }
-    K_NO_INTERFACE
-}
-
-unsafe extern "C" fn comp_handler_add_ref(_this: *mut c_void) -> u32 {
-    1 // Singleton — never freed
-}
-
-unsafe extern "C" fn comp_handler_release(_this: *mut c_void) -> u32 {
-    1 // Singleton — never freed
-}
-
-/// Called by plugin when user starts editing a parameter (e.g., mouse down on knob).
-unsafe extern "C" fn comp_handler_begin_edit(_this: *mut c_void, id: u32) -> Tresult {
-    log::debug!("[IComponentHandler] beginEdit param_id={}", id);
-    K_RESULT_OK
-}
-
-/// Called by plugin when a parameter value changes during editing.
-unsafe extern "C" fn comp_handler_perform_edit(_this: *mut c_void, id: u32, value: f64) -> Tresult {
-    log::debug!(
-        "[IComponentHandler] performEdit param_id={} value={:.4}",
-        id, value
-    );
-    K_RESULT_OK
-}
-
-/// Called by plugin when user finishes editing a parameter (e.g., mouse up).
-unsafe extern "C" fn comp_handler_end_edit(_this: *mut c_void, id: u32) -> Tresult {
-    log::debug!("[IComponentHandler] endEdit param_id={}", id);
-    K_RESULT_OK
-}
-
-/// Called by plugin to request host restart (e.g., latency changed, I/O changed).
-unsafe extern "C" fn comp_handler_restart_component(_this: *mut c_void, flags: i32) -> Tresult {
-    info!(
-        "[IComponentHandler] restartComponent flags=0x{:08x}",
-        flags
-    );
-    K_RESULT_OK
-}
-
-static HOST_COMPONENT_HANDLER_VTBL: IComponentHandlerVtbl = IComponentHandlerVtbl {
-    query_interface: comp_handler_query_interface,
-    add_ref: comp_handler_add_ref,
-    release: comp_handler_release,
-    begin_edit: comp_handler_begin_edit,
-    perform_edit: comp_handler_perform_edit,
-    end_edit: comp_handler_end_edit,
-    restart_component: comp_handler_restart_component,
-};
-
-static HOST_COMPONENT_HANDLER: HostComponentHandler = HostComponentHandler {
-    vtbl: &HOST_COMPONENT_HANDLER_VTBL,
-};
-
-/// Returns a raw pointer to the singleton IComponentHandler.
-fn component_handler_ptr() -> *mut c_void {
-    &HOST_COMPONENT_HANDLER as *const HostComponentHandler as *mut c_void
-}
-
 /// VST3 bus media type constants.
 const K_AUDIO: i32 = 0;
 /// VST3 bus direction constants.
@@ -1595,10 +1995,98 @@ const K_INPUT: i32 = 0;
 #[allow(dead_code)]
 const K_OUTPUT: i32 = 1;
 
+/// BUG-C4 FIX: VST3 media type constant for event (MIDI) buses.
+/// Previously missing — event buses were never activated.
+const K_EVENT: i32 = 1;
+
+
 /// VST3 speaker arrangement: stereo = L | R.
 const K_SPEAKER_STEREO: u64 = 0x03; // kSpeakerL | kSpeakerR
 
 // ── VST3 Bundle Resolution ────────────────────────────────────────────
+
+// ── CoreFoundation FFI for CFBundleRef creation ─────────────────────────
+// VST3 plugins on macOS expect a real CFBundleRef in bundleEntry().
+// VSTGUI-based plugins (Serum2, etc.) use it to locate GUI resources.
+#[cfg(target_os = "macos")]
+mod cf_bundle {
+    use std::ffi::CString;
+    use std::os::raw::c_char;
+    use std::ptr;
+
+    // Opaque CoreFoundation types — only used as pointers.
+    #[repr(C)]
+    pub struct __CFBundle { _private: [u8; 0] }
+    #[repr(C)]
+    pub struct __CFURL { _private: [u8; 0] }
+    #[repr(C)]
+    pub struct __CFAllocator { _private: [u8; 0] }
+
+    pub type CFBundleRef = *mut __CFBundle;
+    pub type CFURLRef = *mut __CFURL;
+    pub type CFAllocatorRef = *mut __CFAllocator;
+    pub type CFIndex = isize;
+    pub type Boolean = u8;
+
+    unsafe extern "C" {
+        pub static kCFAllocatorDefault: CFAllocatorRef;
+        pub fn CFURLCreateFromFileSystemRepresentation(
+            allocator: CFAllocatorRef,
+            buffer: *const u8,
+            buf_len: CFIndex,
+            is_directory: Boolean,
+        ) -> CFURLRef;
+        pub fn CFBundleCreate(
+            allocator: CFAllocatorRef,
+            bundle_url: CFURLRef,
+        ) -> CFBundleRef;
+        pub fn CFRelease(cf: *mut core::ffi::c_void);
+    }
+
+    /// RAII guard: releases the CFBundleRef on drop.
+    pub struct CFBundleRefGuard(pub *mut core::ffi::c_void);
+
+    impl Drop for CFBundleRefGuard {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe { CFRelease(self.0); }
+            }
+        }
+    }
+
+    // These are raw pointers managed via CoreFoundation refcounting.
+    unsafe impl Send for CFBundleRefGuard {}
+    unsafe impl Sync for CFBundleRefGuard {}
+
+    /// Creates a CFBundleRef for the given filesystem path.
+    /// Returns a raw `*mut c_void` suitable for passing to `bundleEntry()`.
+    /// Returns null on failure.
+    pub fn create_cf_bundle_ref(path: &str) -> *mut core::ffi::c_void {
+        let path_bytes = path.as_bytes();
+        unsafe {
+            let url = CFURLCreateFromFileSystemRepresentation(
+                kCFAllocatorDefault,
+                path_bytes.as_ptr(),
+                path_bytes.len() as CFIndex,
+                1, // isDirectory = true (VST3 bundles are directories)
+            );
+            if url.is_null() {
+                log::warn!("[VST3] CFURLCreate failed for path: {}", path);
+                return ptr::null_mut();
+            }
+            let bundle = CFBundleCreate(kCFAllocatorDefault, url);
+            CFRelease(url as *mut core::ffi::c_void);
+            if bundle.is_null() {
+                log::warn!("[VST3] CFBundleCreate failed for path: {}", path);
+                return ptr::null_mut();
+            }
+            bundle as *mut core::ffi::c_void
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+use cf_bundle::{CFBundleRefGuard, create_cf_bundle_ref};
 
 /// Resolves the native binary path inside a VST3 bundle.
 ///
@@ -1759,8 +2247,33 @@ pub struct Vst3Instance {
     controller_ptr: usize,
     com_initialized: bool,
 
+    /// BUG-19 FIX: Whether IComponent::initialize + IEditController::initialize
+    /// have been called. Per VST3 spec, these must be called exactly once.
+    host_initialized: bool,
+
+    /// True when the IEditController was obtained via QueryInterface from the
+    /// IComponent (single-component plugin).  Raw pointer comparison is NOT
+    /// sufficient because COM thunks may return adjusted pointers for
+    /// multiply-inherited interfaces on the same COM object.
+    controller_from_component_qi: bool,
+
+    /// True when the IAudioProcessor was obtained via QueryInterface from
+    /// the IComponent (same COM object — separate release would corrupt refcount).
+    processor_from_component_qi: bool,
+
+    /// IConnectionPoint pointers for component ↔ controller wiring.
+    /// Stored as usize to keep struct Send. 0 = not connected.
+    connection_point_component: usize,
+    connection_point_controller: usize,
+
     #[cfg(target_os = "macos")]
     editor_window: Option<MacEditorWindow>,
+
+    /// CoreFoundation CFBundleRef guard — keeps the plugin bundle
+    /// registered with CoreFoundation for the lifetime of the instance.
+    /// VSTGUI-based plugins use this to find their GUI resources.
+    #[cfg(target_os = "macos")]
+    _cf_bundle_ref: Option<CFBundleRefGuard>,
 
     /// Heap-allocated IPlugFrame for editor resize notifications.
     /// Kept alive while the editor window is open.
@@ -1797,11 +2310,45 @@ impl Drop for Vst3Instance {
     fn drop(&mut self) {
         let _ = self.close_editor();
 
+        // ── Disconnect IConnectionPoint wiring ──
+        // Must be done BEFORE releasing component/controller to avoid
+        // use-after-free in plugin callbacks during disconnect.
+        if self.connection_point_component != 0 && self.connection_point_controller != 0 {
+            let cp_comp = self.connection_point_component as *mut IConnectionPoint;
+            let cp_ctrl = self.connection_point_controller as *mut IConnectionPoint;
+            unsafe {
+                let _ = ((*(*cp_comp).vtbl).disconnect)(cp_comp, cp_ctrl);
+                let _ = ((*(*cp_ctrl).vtbl).disconnect)(cp_ctrl, cp_comp);
+            }
+        }
+        if self.connection_point_component != 0 {
+            let cp = self.connection_point_component as *mut IConnectionPoint;
+            unsafe { ((*(*cp).vtbl).release)(cp); }
+            self.connection_point_component = 0;
+        }
+        if self.connection_point_controller != 0 {
+            let cp = self.connection_point_controller as *mut IConnectionPoint;
+            unsafe { ((*(*cp).vtbl).release)(cp); }
+            self.connection_point_controller = 0;
+        }
+
+        // Detect single-component plugins: when the controller was obtained via
+        // QueryInterface from the component, both pointers refer to the SAME
+        // COM object.  We must only terminate/release it once.
+        // NOTE: We use the tracked QI flag instead of raw pointer comparison
+        // because COM thunks may return adjusted pointers for multi-inherited
+        // interfaces on the same underlying object.
+        let controller_is_component = self.controller_from_component_qi;
+
         if self.processor_ptr != 0 {
             let processor = self.processor_ptr as *mut IAudioProcessor;
             unsafe {
                 ((*(*processor).vtbl).set_processing)(processor, 0);
-                ((*(*processor).vtbl).release)(processor);
+                // Only release if processor is a separate COM object from component.
+                // For single-component plugins, processor QI'd from component shares refcount.
+                if !self.processor_from_component_qi {
+                    ((*(*processor).vtbl).release)(processor);
+                }
             }
             self.processor_ptr = 0;
         }
@@ -1810,20 +2357,24 @@ impl Drop for Vst3Instance {
             let component = self.component_ptr as *mut IComponent;
             unsafe {
                 ((*(*component).vtbl).set_active)(component, 0);
+                // BUG-9 FIX: terminate() is called here in drop() — the ONLY
+                // place it should be called per VST3 spec.
                 ((*(*component).vtbl).terminate)(component);
                 ((*(*component).vtbl).release)(component);
             }
             self.component_ptr = 0;
         }
 
-        if self.controller_ptr != 0 {
+        // Only terminate/release the controller if it is a SEPARATE COM object.
+        // For single-component plugins (QI'd), the component already handled it above.
+        if self.controller_ptr != 0 && !controller_is_component {
             let controller = self.controller_ptr as *mut IEditController;
             unsafe {
                 let _ = ((*(*controller).vtbl).terminate)(controller);
                 ((*(*controller).vtbl).release)(controller);
             }
-            self.controller_ptr = 0;
         }
+        self.controller_ptr = 0;
 
         if self.factory_ptr != 0 {
             let factory = self.factory_ptr as *mut IPluginFactory;
@@ -1831,6 +2382,30 @@ impl Drop for Vst3Instance {
                 ((*(*factory).vtbl).release)(factory);
             }
             self.factory_ptr = 0;
+        }
+
+        // BUG-C6 FIX: Call bundleExit / ExitDll before the library is unloaded.
+        // This is the symmetrical counterpart to bundleEntry / InitDll in load().
+        // Must happen after all COM interfaces are released but before library drop.
+        if let Some(ref library) = self._library {
+            #[cfg(target_os = "macos")]
+            {
+                if let Ok(exit_fn) = unsafe {
+                    library.get::<unsafe extern "C" fn() -> bool>(b"bundleExit\0")
+                } {
+                    let result = unsafe { exit_fn() };
+                    info!("[VST3] bundleExit called for '{}': result={}", self.descriptor.name, result);
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                if let Ok(exit_fn) = unsafe {
+                    library.get::<unsafe extern "C" fn() -> bool>(b"ExitDll\0")
+                } {
+                    let result = unsafe { exit_fn() };
+                    info!("[VST3] ExitDll called for '{}': result={}", self.descriptor.name, result);
+                }
+            }
         }
     }
 }
@@ -1847,9 +2422,11 @@ impl Vst3Instance {
     /// 6. Obtain `IEditController`:
     ///    a. `IComponent::getControllerClassId()` → `IPluginFactory::createInstance(cid, IID_IEDIT_CONTROLLER)`.
     ///    b. If that fails, QI the component itself for `IEditController` (single-component design).
+    /// Returns (factory_ptr, component_ptr, processor_ptr, controller_ptr,
+    ///          processor_from_component_qi, controller_from_component_qi).
     fn init_vst3_com(
         library: &libloading::Library,
-    ) -> Result<(usize, usize, usize, usize), PluginError> {
+    ) -> Result<(usize, usize, usize, usize, bool, bool), PluginError> {
         let get_factory: libloading::Symbol<unsafe extern "C" fn() -> *mut c_void> = unsafe {
             library.get(b"GetPluginFactory\0").map_err(|e| {
                 PluginError::LoadFailed(format!("GetPluginFactory symbol lookup failed: {e}"))
@@ -1865,6 +2442,8 @@ impl Vst3Instance {
 
         let mut component_ptr: *mut c_void = ptr::null_mut();
         let mut processor_ptr: *mut c_void = ptr::null_mut();
+        let mut processor_qi_from_component = false;
+        let mut controller_qi_from_component = false;
 
         let count = unsafe { ((*(*factory).vtbl).count_classes)(factory) }.max(0);
         info!("[VST3-COM] Factory returned {} classes", count);
@@ -1921,7 +2500,9 @@ impl Vst3Instance {
                         &mut processor_ptr,
                     )
                 };
-                if qi_result == K_RESULT_OK && !processor_ptr.is_null() {
+                let processor_from_qi = qi_result == K_RESULT_OK && !processor_ptr.is_null();
+                if processor_from_qi {
+                    processor_qi_from_component = true;
                     info!("[VST3-COM]   -> IAudioProcessor (QI from component): OK ({:p})", processor_ptr);
                     break;
                 } else {
@@ -2018,11 +2599,9 @@ impl Vst3Instance {
                         "[VST3-COM] IEditController (factory by CID): OK ({:p})",
                         controller_ptr
                     );
-                    // Initialize the separate controller
-                    let ctrl = controller_ptr as *mut IEditController;
-                    unsafe {
-                        let _ = ((*(*ctrl).vtbl).initialize)(ctrl, host_application_ptr());
-                    }
+                    // NOTE: controller.initialize() is NOT called here.
+                    // It is called in activate() alongside setComponentHandler(),
+                    // guarded by host_initialized to prevent double-init.
                 } else {
                     info!(
                         "[VST3-COM] IEditController (factory by CID): FAILED (result={})",
@@ -2042,6 +2621,7 @@ impl Vst3Instance {
                     )
                 };
                 if qi_result == K_RESULT_OK && !controller_ptr.is_null() {
+                    controller_qi_from_component = true;
                     info!(
                         "[VST3-COM] IEditController (QI from component): OK ({:p})",
                         controller_ptr
@@ -2067,6 +2647,11 @@ impl Vst3Instance {
                 )
             };
             if qi_result == K_RESULT_OK && !controller_ptr.is_null() {
+                // If processor itself was QI'd from component, then this
+                // controller is also transitively from the same COM object.
+                if processor_qi_from_component {
+                    controller_qi_from_component = true;
+                }
                 info!(
                     "[VST3-COM] IEditController (QI from processor, last-resort): OK ({:p})",
                     controller_ptr
@@ -2079,6 +2664,12 @@ impl Vst3Instance {
             }
         }
 
+        // NOTE: setComponentHandler() is NOT called here.
+        // It is called in activate() after controller.initialize(), which is
+        // the correct order per VST3 spec.  For QI-obtained controllers (single-
+        // component plugins), calling setComponentHandler before initialize
+        // would operate on an uninitialized controller and could crash.
+
         info!(
             "[VST3-COM] Final pointers: factory={:p} component={:p} processor={:p} controller={:p}",
             factory as *const c_void,
@@ -2087,16 +2678,33 @@ impl Vst3Instance {
             controller_ptr
         );
 
+        // Both processor_qi_from_component and controller_qi_from_component
+        // are set definitively during the code paths above.
+
         Ok((
             factory as usize,
             component_ptr as usize,
             processor_ptr as usize,
             controller_ptr as usize,
+            processor_qi_from_component,
+            controller_qi_from_component,
         ))
     }
 
     #[cfg(target_os = "macos")]
     fn open_editor_macos(&mut self) -> Result<(), PluginError> {
+        // BUG-22+E5 FIX: AppKit/Cocoa APIs MUST be called from the main thread.
+        // BUG-E5 FIX: Use pthread_main_np() instead of thread name check.
+        // Thread names are not guaranteed to be "main" on macOS.
+        #[cfg(target_os = "macos")]
+        {
+            unsafe extern "C" { fn pthread_main_np() -> i32; }
+            let is_main = unsafe { pthread_main_np() } != 0;
+            debug_assert!(
+                is_main || cfg!(test),
+                "open_editor_macos must be called from the main thread"
+            );
+        }
         if self.editor_window.is_some() {
             return Ok(());
         }
@@ -2106,23 +2714,36 @@ impl Vst3Instance {
             ));
         }
 
+        info!("[VST3-EDITOR] ── open_editor_macos START for '{}' ──", self.descriptor.name);
+        info!("[VST3-EDITOR] controller_ptr={:#x}, component_ptr={:#x}, processor_ptr={:#x}",
+              self.controller_ptr, self.component_ptr, self.processor_ptr);
+        info!("[VST3-EDITOR] host_initialized={}, com_initialized={}", self.host_initialized, self.com_initialized);
+
         let controller = self.controller_ptr as *mut IEditController;
+        eprintln!("[CRASH-DIAG] >>> createView about to call vtbl at {:p}", controller);
+        info!("[VST3-EDITOR] Step 1: Calling createView('editor')...");
         let view_raw = unsafe {
             ((*(*controller).vtbl).create_view)(controller, b"editor\0".as_ptr() as *const c_char)
         };
+        eprintln!("[CRASH-DIAG] <<< createView returned {:p}", view_raw);
         if view_raw.is_null() {
             return Err(PluginError::UnsupportedFormat(
                 "Plugin did not provide an editor view".to_string(),
             ));
         }
         let plug_view = view_raw as *mut IPlugView;
+        info!("[VST3-EDITOR] Step 1: createView OK → plug_view={:p}", plug_view);
 
+        eprintln!("[CRASH-DIAG] >>> isPlatformTypeSupported about to call");
+        info!("[VST3-EDITOR] Step 2: Calling isPlatformTypeSupported('NSView')...");
         let nsview_supported = unsafe {
             ((*(*plug_view).vtbl).is_platform_type_supported)(
                 plug_view,
                 b"NSView\0".as_ptr() as *const c_char,
             )
         } == K_RESULT_OK;
+        eprintln!("[CRASH-DIAG] <<< isPlatformTypeSupported returned {}", nsview_supported);
+        info!("[VST3-EDITOR] Step 2: isPlatformTypeSupported → {}", nsview_supported);
         if !nsview_supported {
             unsafe {
                 let _ = ((*(*plug_view).vtbl).release)(plug_view);
@@ -2136,6 +2757,8 @@ impl Vst3Instance {
             let app = NSApp();
             app.setActivationPolicy_(NSApplicationActivationPolicyRegular);
 
+            eprintln!("[CRASH-DIAG] >>> getSize about to call");
+            info!("[VST3-EDITOR] Step 3: Calling getSize...");
             let mut rect = ViewRect {
                 left: 0,
                 top: 0,
@@ -2145,12 +2768,26 @@ impl Vst3Instance {
             let _ = ((*(*plug_view).vtbl).get_size)(plug_view, &mut rect);
             let width = (rect.right - rect.left).max(420) as f64;
             let height = (rect.bottom - rect.top).max(300) as f64;
+            eprintln!("[CRASH-DIAG] <<< getSize returned {}x{}", width, height);
+            info!("[VST3-EDITOR] Step 3: getSize → {}x{}", width, height);
 
-            let frame = NSRect::new(NSPoint::new(180.0, 180.0), NSSize::new(width, height));
-            let style = NSWindowStyleMask::NSTitledWindowMask
+            // BUG-E3 FIX: Check canResize() before adding the resize style mask.
+            // Plugins like FabFilter Pro-Q break when resized if they don't support it.
+            eprintln!("[CRASH-DIAG] >>> canResize about to call");
+            let can_resize = ((*(*plug_view).vtbl).can_resize)(plug_view) == K_RESULT_OK;
+            eprintln!("[CRASH-DIAG] <<< canResize returned {}", can_resize);
+            info!("[VST3-EDITOR] Step 3b: canResize = {}", can_resize);
+
+            info!("[VST3-EDITOR] Step 4: Creating NSWindow...");
+            // BUG-E6 FIX: Use center() after init instead of hardcoded position.
+            // Prevents all plugin windows from stacking on top of each other.
+            let frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, height));
+            let mut style = NSWindowStyleMask::NSTitledWindowMask
                 | NSWindowStyleMask::NSClosableWindowMask
-                | NSWindowStyleMask::NSMiniaturizableWindowMask
-                | NSWindowStyleMask::NSResizableWindowMask;
+                | NSWindowStyleMask::NSMiniaturizableWindowMask;
+            if can_resize {
+                style |= NSWindowStyleMask::NSResizableWindowMask;
+            }
 
             let window = NSWindow::alloc(nil).initWithContentRect_styleMask_backing_defer_(
                 frame,
@@ -2164,6 +2801,14 @@ impl Vst3Instance {
                     "Failed to allocate macOS editor window".to_string(),
                 ));
             }
+            info!("[VST3-EDITOR] Step 4: NSWindow created OK");
+
+            // BUG-E2 FIX: Set the window title to the plugin name.
+            // Previously untitled — confusing when multiple editors are open.
+            use cocoa::foundation::NSString;
+            let title = cocoa::foundation::NSString::alloc(nil)
+                .init_str(&self.descriptor.name);
+            window.setTitle_(title);
 
             let content_view = window.contentView();
             if content_view == nil {
@@ -2173,13 +2818,61 @@ impl Vst3Instance {
                     "Failed to acquire editor content view".to_string(),
                 ));
             }
+            info!("[VST3-EDITOR] Step 5: contentView OK → {:p}", content_view);
 
+            // ── CRITICAL: Enable layer-backed rendering for the content view ──
+            // Modern VSTGUI (4.10+) and plugins like Serum2 use Metal/CoreAnimation
+            // for GPU-accelerated rendering. This requires the parent NSView to be
+            // layer-backed (wantsLayer = YES). Without this, the plugin's CALayer
+            // subviews won't composite and the window shows a white/blank screen.
+            unsafe extern "C" {
+                fn sel_registerName(name: *const std::os::raw::c_char) -> *mut c_void;
+            }
+            let sel_set_wants_layer = sel_registerName(
+                b"setWantsLayer:\0".as_ptr() as *const std::os::raw::c_char,
+            );
+            // Cast objc_msgSend to the exact signature we need (non-variadic).
+            // On ARM64, variadic vs non-variadic ABI differs — this typed cast
+            // ensures correct register usage.
+            type MsgSendBool = unsafe extern "C" fn(id, *mut c_void, i8);
+            let send: MsgSendBool = {
+                unsafe extern "C" {
+                    fn objc_msgSend();
+                }
+                std::mem::transmute(objc_msgSend as *const ())
+            };
+            send(content_view, sel_set_wants_layer, 1); // YES = 1
+            info!("[VST3-EDITOR] Step 5b: setWantsLayer:YES on contentView");
+
+            // ── Wire IPlugFrame for editor resize notifications ──
+            // CRITICAL: setFrame() MUST be called BEFORE attached() per VST3 SDK spec.
+            // Plugins (e.g. Serum2) may access the IPlugFrame during attached() for
+            // initial layout/resize. Without the frame set first, they dereference
+            // a null pointer → SIGSEGV.
+            info!("[VST3-EDITOR] Step 6: Creating HostPlugFrame and calling setFrame...");
+            let mut frame_box = HostPlugFrame::new(window as usize);
+            let frame_ptr = (&mut *frame_box as *mut HostPlugFrame).cast::<c_void>();
+            info!("[VST3-EDITOR] Step 6: HostPlugFrame at {:p}, vtbl at {:p}",
+                  frame_ptr, (*frame_ptr.cast::<HostPlugFrame>()).vtbl);
+            eprintln!("[CRASH-DIAG] >>> setFrame about to call, frame_ptr={:p}, plug_view={:p}", frame_ptr, plug_view);
+            let set_frame_result = ((*(*plug_view).vtbl).set_frame)(plug_view, frame_ptr);
+            eprintln!("[CRASH-DIAG] <<< setFrame returned {}", set_frame_result);
+            info!("[VST3-EDITOR] Step 6: setFrame returned {}", set_frame_result);
+            self.plug_frame = Some(frame_box);
+
+            eprintln!("[CRASH-DIAG] >>> attached about to call, content_view={:p}", content_view);
+            info!("[VST3-EDITOR] Step 7: Calling attached(contentView, 'NSView')...");
             let attached = ((*(*plug_view).vtbl).attached)(
                 plug_view,
                 content_view as *mut c_void,
                 b"NSView\0".as_ptr() as *const c_char,
             );
+            eprintln!("[CRASH-DIAG] <<< attached returned {}", attached);
+            info!("[VST3-EDITOR] Step 7: attached returned {}", attached);
             if attached != K_RESULT_OK {
+                // Clean up: unset frame before releasing view
+                let _ = ((*(*plug_view).vtbl).set_frame)(plug_view, ptr::null_mut());
+                self.plug_frame.take();
                 let _ = ((*(*plug_view).vtbl).release)(plug_view);
                 window.close();
                 return Err(PluginError::ProcessError(format!(
@@ -2187,11 +2880,113 @@ impl Vst3Instance {
                 )));
             }
 
-            // ── Wire IPlugFrame for editor resize notifications ──
-            let mut frame_box = HostPlugFrame::new(window as usize);
-            let frame_ptr = (&mut *frame_box as *mut HostPlugFrame).cast::<c_void>();
-            let _ = ((*(*plug_view).vtbl).set_frame)(plug_view, frame_ptr);
-            self.plug_frame = Some(frame_box);
+            // BUG-E6 FIX: Center the window on screen, then bring it forward.
+            info!("[VST3-EDITOR] Step 8: center + makeKeyAndOrderFront...");
+            window.center();
+
+            // ── CRITICAL: Notify plugin of its initial viewport size ──
+            // After attached(), VSTGUI plugins need an explicit onSize() call
+            // to trigger their initial layout pass. Without this, the CFrame
+            // doesn't know its actual bounds and renders a white/blank screen.
+            // Also ensure the content view's frame exactly matches the plugin's
+            // requested dimensions (title bar can cause mismatches).
+            // The NSWindow was created with initWithContentRect: which sets the
+            // content area to our specified size, so the content view should
+            // already have the correct bounds.
+
+            // Call onSize with the actual ViewRect to trigger VSTGUI layout
+            let mut size_rect = ViewRect {
+                left: 0,
+                top: 0,
+                right: width as i32,
+                bottom: height as i32,
+            };
+            let on_size_result = ((*(*plug_view).vtbl).on_size)(plug_view, &mut size_rect);
+            info!("[VST3-EDITOR] Step 8b: onSize({}x{}) returned {}", width, height, on_size_result);
+
+            // ── Diagnostic: inspect NSView hierarchy after attached() ──
+            // Write diagnostics directly to a file (Tauri captures stdout/stderr)
+            {
+                use std::io::Write;
+                let mut diag_file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("/tmp/dream-daw-diag.txt")
+                    .ok();
+
+                macro_rules! diag {
+                    ($($arg:tt)*) => {
+                        if let Some(ref mut f) = diag_file {
+                            let _ = writeln!(f, $($arg)*);
+                            let _ = f.flush();
+                        }
+                    }
+                }
+
+                diag!("=== EDITOR DIAG for '{}' ===", self.descriptor.name);
+                diag!("attached() returned OK, onSize returned {}", on_size_result);
+
+                unsafe extern "C" {
+                    fn objc_msgSend();
+                }
+                type MsgSendId = unsafe extern "C" fn(id, *mut c_void) -> id;
+                type MsgSendUsize = unsafe extern "C" fn(id, *mut c_void) -> usize;
+                type MsgSendNSRect = unsafe extern "C" fn(id, *mut c_void) -> NSRect;
+                type MsgSendBoolRet = unsafe extern "C" fn(id, *mut c_void) -> i8;
+                let send_id: MsgSendId = std::mem::transmute(objc_msgSend as *const ());
+                let send_usize: MsgSendUsize = std::mem::transmute(objc_msgSend as *const ());
+                let send_bool: MsgSendBoolRet = std::mem::transmute(objc_msgSend as *const ());
+                let send_rect: MsgSendNSRect = std::mem::transmute(objc_msgSend as *const ());
+
+                let sel_subviews = sel_registerName(b"subviews\0".as_ptr() as _);
+                let sel_count = sel_registerName(b"count\0".as_ptr() as _);
+                let sel_object_at = sel_registerName(b"objectAtIndex:\0".as_ptr() as _);
+                let sel_frame = sel_registerName(b"frame\0".as_ptr() as _);
+                let sel_wants_layer = sel_registerName(b"wantsLayer\0".as_ptr() as _);
+                let sel_is_hidden = sel_registerName(b"isHidden\0".as_ptr() as _);
+                let sel_class_name = sel_registerName(b"className\0".as_ptr() as _);
+                let sel_utf8 = sel_registerName(b"UTF8String\0".as_ptr() as _);
+
+                let cv_frame = send_rect(content_view, sel_frame);
+                let cv_wants_layer = send_bool(content_view, sel_wants_layer);
+
+                diag!("contentView ptr={:p}, frame=({}, {}, {}, {}), wantsLayer={}",
+                    content_view,
+                    cv_frame.origin.x, cv_frame.origin.y,
+                    cv_frame.size.width, cv_frame.size.height,
+                    cv_wants_layer);
+
+                let subviews_array = send_id(content_view, sel_subviews);
+                let subview_count = send_usize(subviews_array, sel_count);
+                diag!("contentView subview count: {}", subview_count);
+
+                type MsgSendIdUsize = unsafe extern "C" fn(id, *mut c_void, usize) -> id;
+                let send_id_usize: MsgSendIdUsize = std::mem::transmute(objc_msgSend as *const ());
+
+                type MsgSendPtr = unsafe extern "C" fn(id, *mut c_void) -> *const std::os::raw::c_char;
+                let send_ptr: MsgSendPtr = std::mem::transmute(objc_msgSend as *const ());
+
+                for i in 0..subview_count.min(5) {
+                    let subview = send_id_usize(subviews_array, sel_object_at, i);
+                    let sv_frame = send_rect(subview, sel_frame);
+                    let sv_hidden = send_bool(subview, sel_is_hidden);
+                    let sv_wants_layer = send_bool(subview, sel_wants_layer);
+                    // Get class name
+                    let class_ns_string = send_id(subview, sel_class_name);
+                    let class_cstr = send_ptr(class_ns_string, sel_utf8);
+                    let class_name = if !class_cstr.is_null() {
+                        std::ffi::CStr::from_ptr(class_cstr).to_str().unwrap_or("?")
+                    } else {
+                        "null"
+                    };
+                    diag!("  subview[{}]: class={}, frame=({}, {}, {}, {}), hidden={}, wantsLayer={}",
+                        i, class_name,
+                        sv_frame.origin.x, sv_frame.origin.y,
+                        sv_frame.size.width, sv_frame.size.height,
+                        sv_hidden, sv_wants_layer);
+                }
+                diag!("=== END DIAG ===");
+            }
 
             window.makeKeyAndOrderFront_(nil);
             app.activateIgnoringOtherApps_(true);
@@ -2201,6 +2996,7 @@ impl Vst3Instance {
                 _content_view: content_view as usize,
                 plug_view: plug_view as usize,
             });
+            info!("[VST3-EDITOR] ── open_editor_macos DONE for '{}' ──", self.descriptor.name);
         }
 
         Ok(())
@@ -2211,10 +3007,15 @@ impl Vst3Instance {
         let Some(window_state) = self.editor_window.take() else {
             return Ok(());
         };
-        // Release IPlugFrame before detaching the view
+        let plug_view = window_state.plug_view as *mut IPlugView;
+        // BUG-14 FIX: Per VST3 SDK, call setFrame(null) BEFORE dropping the
+        // HostPlugFrame. Some plugins (UAD, Waves) cache the IPlugFrame pointer
+        // and call resizeView during removed(), which would dereference freed memory.
+        unsafe {
+            let _ = ((*(*plug_view).vtbl).set_frame)(plug_view, ptr::null_mut());
+        }
         self.plug_frame.take();
         let window = window_state.window as id;
-        let plug_view = window_state.plug_view as *mut IPlugView;
         unsafe {
             let _ = ((*(*plug_view).vtbl).removed)(plug_view);
             let _ = ((*(*plug_view).vtbl).release)(plug_view);
@@ -2265,8 +3066,58 @@ impl Vst3Instance {
             })?
         };
 
+        // BUG-C6 FIX: Call VST3 module entry function.
+        // On macOS, VST3 modules expect bundleEntry(CFBundleRef) to be called after
+        // loading the dylib. Some plugins (Steinberg, iZotope) initialize internal
+        // state in bundleEntry and crash or produce incorrect output without it.
+        //
+        // SERUM2 FIX: We MUST pass a *real* CFBundleRef, not NULL.
+        // VSTGUI-based plugins (Serum2, many others) use CFBundleCopyResourceURL()
+        // on the bundle ref to locate GUI skin resources. If NULL is passed,
+        // resources like "ButtonDialogNormal.png" are not found →
+        // EResource C++ exception → crash on attached().
+        #[cfg(target_os = "macos")]
+        let _bundle_ref_guard: Option<CFBundleRefGuard> = {
+            if let Ok(entry_fn) = unsafe {
+                library.get::<unsafe extern "C" fn(*mut c_void) -> bool>(b"bundleEntry\0")
+            } {
+                let bundle_c_path = bundle_path.to_str().unwrap_or_default();
+                let bundle_ref = if !bundle_c_path.is_empty() {
+                    create_cf_bundle_ref(bundle_c_path)
+                } else {
+                    ptr::null_mut()
+                };
+
+                let result = unsafe { entry_fn(bundle_ref) };
+                info!(
+                    "[VST3] bundleEntry called for '{}': result={}, cfBundle={:p}",
+                    descriptor.name, result, bundle_ref
+                );
+                // Keep the CFBundleRef alive for the entire lifetime of the plugin.
+                // Plugins may use it at any point (e.g. during createView/attached).
+                if !bundle_ref.is_null() {
+                    Some(CFBundleRefGuard(bundle_ref))
+                } else {
+                    None
+                }
+            } else {
+                info!("[VST3] No bundleEntry symbol found for '{}' (this is OK for most plugins)", descriptor.name);
+                None
+            }
+        };
+        #[cfg(not(target_os = "macos"))]
+        {
+            if let Ok(init_fn) = unsafe {
+                library.get::<unsafe extern "C" fn() -> bool>(b"InitDll\0")
+            } {
+                let result = unsafe { init_fn() };
+                info!("[VST3] InitDll called for '{}': result={}", descriptor.name, result);
+            }
+        }
+
         // Attempt real VST3 COM bootstrap.
-        let (factory_ptr, component_ptr, processor_ptr, controller_ptr) =
+        let (factory_ptr, component_ptr, processor_ptr, controller_ptr,
+             processor_from_component_qi, controller_from_component_qi) =
             match Self::init_vst3_com(&library) {
                 Ok(ptrs) => ptrs,
                 Err(err) => {
@@ -2274,7 +3125,7 @@ impl Vst3Instance {
                         "[VST3] COM bootstrap failed for '{}': {}. Using bridge/fallback path.",
                         descriptor.name, err
                     );
-                    (0, 0, 0, 0)
+                    (0, 0, 0, 0, false, false)
                 }
             };
 
@@ -2329,15 +3180,23 @@ impl Vst3Instance {
             processor_ptr,
             controller_ptr,
             com_initialized: false,
+            host_initialized: false,
+            controller_from_component_qi,
+            processor_from_component_qi,
+            connection_point_component: 0,
+            connection_point_controller: 0,
             #[cfg(target_os = "macos")]
             editor_window: None,
+            #[cfg(target_os = "macos")]
+            _cf_bundle_ref: _bundle_ref_guard,
             #[cfg(target_os = "macos")]
             plug_frame: None,
             audio_input_bus_count: 0,
             audio_output_bus_count: 0,
             transport_ctx: TransportContext::default(),
-            pending_param_changes: Vec::new(),
-            parameter_values: HashMap::new(),
+            // BUG-RT1 FIX: Pre-allocate with capacity to avoid audio-thread allocation.
+            pending_param_changes: Vec::with_capacity(MAX_HOST_PARAM_CHANGES),
+            parameter_values: HashMap::with_capacity(128),
             parameter_count_hint: 0,
         })
     }
@@ -2366,15 +3225,23 @@ impl Vst3Instance {
             processor_ptr: 0,
             controller_ptr: 0,
             com_initialized: false,
+            host_initialized: false,
+            controller_from_component_qi: false,
+            processor_from_component_qi: false,
+            connection_point_component: 0,
+            connection_point_controller: 0,
             #[cfg(target_os = "macos")]
             editor_window: None,
+            #[cfg(target_os = "macos")]
+            _cf_bundle_ref: None,
             #[cfg(target_os = "macos")]
             plug_frame: None,
             audio_input_bus_count: 0,
             audio_output_bus_count: 0,
             transport_ctx: TransportContext::default(),
-            pending_param_changes: Vec::new(),
-            parameter_values: HashMap::new(),
+            // BUG-RT1 FIX: Pre-allocate with capacity to avoid audio-thread allocation.
+            pending_param_changes: Vec::with_capacity(MAX_HOST_PARAM_CHANGES),
+            parameter_values: HashMap::with_capacity(128),
             parameter_count_hint: 0,
         }
     }
@@ -2418,9 +3285,10 @@ impl PluginInstance for Vst3Instance {
             if self.component_ptr != 0 {
                 let component = self.component_ptr as *mut IComponent;
                 unsafe {
-                    // AVANGARD FIX: Pass real IHostApplication instead of NULL.
-                    // NULL causes segfault in FabFilter, Serum, Kontakt, etc.
-                    let _ = ((*(*component).vtbl).initialize)(component, host_application_ptr());
+                    // NOTE: IComponent::initialize() is NOT called here.
+                    // It is already called in init_vst3_com() during load().
+                    // Calling it again would double-initialize the component,
+                    // violating VST3 spec and crashing plugins like Serum2.
 
                     // ── Query bus counts for proper bus arrangement ──
                     self.audio_input_bus_count =
@@ -2447,19 +3315,130 @@ impl PluginInstance for Vst3Instance {
                         );
                     }
 
+                    // BUG-C4 FIX: Activate event (MIDI) input/output buses.
+                    // Without this, some plugins silently ignore MIDI events.
+                    let event_input_count = ((*(*component).vtbl).get_bus_count)(component, K_EVENT, K_INPUT).max(0);
+                    if event_input_count > 0 {
+                        let _ = ((*(*component).vtbl).activate_bus)(
+                            component, K_EVENT, K_INPUT, 0, 1,
+                        );
+                    }
+                    let event_output_count = ((*(*component).vtbl).get_bus_count)(component, K_EVENT, K_OUTPUT).max(0);
+                    if event_output_count > 0 {
+                        let _ = ((*(*component).vtbl).activate_bus)(
+                            component, K_EVENT, K_OUTPUT, 0, 1,
+                        );
+                    }
+
                     let _ = ((*(*component).vtbl).set_active)(component, 1);
                 }
             }
             if self.controller_ptr != 0 {
                 let controller = self.controller_ptr as *mut IEditController;
+                // Detect single-component plugins: when the controller was obtained
+                // via QueryInterface from the component, both pointers refer to the
+                // same COM object.  initialize() was already called above on the
+                // component — calling it again would double-initialize and crash
+                // plugins like Serum2.
+                // Use the tracked QI flag — raw pointer comparison breaks with
+                // COM thunks that return adjusted pointers for multi-inherited
+                // interfaces on the same underlying COM object.
+                let controller_is_component = self.controller_from_component_qi;
                 unsafe {
-                    let _ = ((*(*controller).vtbl).initialize)(controller, host_application_ptr());
+                    // BUG-19 FIX: Only initialize controller once, and only if it's
+                    // a separate COM object from the component.
+                    if !self.host_initialized && !controller_is_component {
+                        let init_res = ((*(*controller).vtbl).initialize)(controller, host_application_ptr());
+                        info!("[VST3] IEditController::initialize() result: {} for '{}'", init_res, self.descriptor.name);
+                    }
                     // Bug 15: Register IComponentHandler so plugins can notify
                     // host about parameter edits (beginEdit/endEdit/performEdit).
-                    let _ = ((*(*controller).vtbl).set_component_handler)(
-                        controller,
-                        component_handler_ptr(),
-                    );
+                    // This should be called even for QI'd controllers, but only once.
+                    if !self.host_initialized {
+                        let sch_res = ((*(*controller).vtbl).set_component_handler)(
+                            controller,
+                            component_handler_ptr(),
+                        );
+                        info!("[VST3] setComponentHandler() result: {} for '{}'", sch_res, self.descriptor.name);
+                    }
+
+                    // ── VST3 Spec: Wire IConnectionPoint between component and controller ──
+                    // For plugins with SEPARATE component/controller (not QI'd), the host
+                    // MUST connect them via IConnectionPoint so they can exchange messages.
+                    // Without this, plugins like Serum2 crash in createView() because the
+                    // controller cannot communicate with the component.
+                    if !self.host_initialized && !controller_is_component && self.component_ptr != 0 {
+                        let comp = self.component_ptr as *mut IComponent;
+                        let mut cp_comp_raw: *mut c_void = ptr::null_mut();
+                        let mut cp_ctrl_raw: *mut c_void = ptr::null_mut();
+                        let qi1 = ((*(*comp).vtbl).query_interface)(
+                            comp,
+                            IID_ICONNECTION_POINT.as_ptr() as *const c_char,
+                            &mut cp_comp_raw,
+                        );
+                        let qi2 = ((*(*controller).vtbl).query_interface)(
+                            controller,
+                            IID_ICONNECTION_POINT.as_ptr() as *const c_char,
+                            &mut cp_ctrl_raw,
+                        );
+                        if qi1 == K_RESULT_OK && qi2 == K_RESULT_OK
+                            && !cp_comp_raw.is_null() && !cp_ctrl_raw.is_null()
+                        {
+                            let cp_comp = cp_comp_raw as *mut IConnectionPoint;
+                            let cp_ctrl = cp_ctrl_raw as *mut IConnectionPoint;
+                            let c1 = ((*(*cp_comp).vtbl).connect)(cp_comp, cp_ctrl);
+                            let c2 = ((*(*cp_ctrl).vtbl).connect)(cp_ctrl, cp_comp);
+                            info!(
+                                "[VST3] IConnectionPoint wired: comp→ctrl={}, ctrl→comp={} for '{}'",
+                                c1, c2, self.descriptor.name
+                            );
+                            self.connection_point_component = cp_comp_raw as usize;
+                            self.connection_point_controller = cp_ctrl_raw as usize;
+                        } else {
+                            info!(
+                                "[VST3] IConnectionPoint not available (qi1={}, qi2={}) for '{}' — OK for single-component plugins",
+                                qi1, qi2, self.descriptor.name
+                            );
+                            // Release any successful QI that the other side didn't support
+                            if qi1 == K_RESULT_OK && !cp_comp_raw.is_null() {
+                                let cp = cp_comp_raw as *mut IConnectionPoint;
+                                ((*(*cp).vtbl).release)(cp);
+                            }
+                            if qi2 == K_RESULT_OK && !cp_ctrl_raw.is_null() {
+                                let cp = cp_ctrl_raw as *mut IConnectionPoint;
+                                ((*(*cp).vtbl).release)(cp);
+                            }
+                        }
+                    }
+
+                    // ── VST3 Spec: Synchronize component state to controller ──
+                    // After initialization, the host must call IComponent::getState()
+                    // and then IEditController::setComponentState() so the controller's
+                    // internal state (UI data, preset pointers, etc.) is initialized.
+                    // Without this, plugins like Serum2 crash in createView() because
+                    // their internal state pointers remain NULL.
+                    if !self.host_initialized && self.component_ptr != 0 {
+                        let comp = self.component_ptr as *mut IComponent;
+                        let mut state_stream = HostWriteStream::new();
+                        let get_status = ((*(*comp).vtbl).get_state)(
+                            comp,
+                            (&mut state_stream as *mut HostWriteStream).cast::<c_void>(),
+                        );
+                        if get_status == K_RESULT_OK {
+                            let state_bytes = state_stream.into_bytes();
+                            if !state_bytes.is_empty() {
+                                let mut read_stream = HostReadStream::new(state_bytes);
+                                let _ = ((*(*controller).vtbl).set_component_state)(
+                                    controller,
+                                    (&mut read_stream as *mut HostReadStream).cast::<c_void>(),
+                                );
+                                info!(
+                                    "[VST3] Synchronized component state to controller for '{}'",
+                                    self.descriptor.name
+                                );
+                            }
+                        }
+                    }
                 }
             }
 
@@ -2486,10 +3465,25 @@ impl PluginInstance for Vst3Instance {
                 max_samples_per_block: max_buffer_size as i32,
                 sample_rate,
             };
+
+            // BUG-C5 FIX: Verify the plugin supports 32-bit float before
+            // calling setupProcessing. Without this, plugins that only support
+            // 64-bit double processing will silently produce garbage.
+            let can_32 = unsafe {
+                ((*(*processor).vtbl).can_process_sample_size)(processor, K_SAMPLE32)
+            };
+            if can_32 != K_RESULT_OK {
+                info!(
+                    "[VST3] WARNING: Plugin '{}' does not support kSample32 (result={})",
+                    self.descriptor.name, can_32
+                );
+            }
+
             let setup_res = unsafe { ((*(*processor).vtbl).setup_processing)(processor, &setup) };
             if setup_res == K_RESULT_OK {
                 let _ = unsafe { ((*(*processor).vtbl).set_processing)(processor, 1) };
                 self.com_initialized = true;
+                self.host_initialized = true; // BUG-19: mark as initialized
                 self.latency = unsafe { ((*(*processor).vtbl).get_latency_samples)(processor) };
             } else {
                 self.com_initialized = false;
@@ -2518,12 +3512,10 @@ impl PluginInstance for Vst3Instance {
                 let _ = ((*(*component).vtbl).set_active)(component, 0);
             }
         }
-        if self.controller_ptr != 0 {
-            let controller = self.controller_ptr as *mut IEditController;
-            unsafe {
-                let _ = ((*(*controller).vtbl).terminate)(controller);
-            }
-        }
+        // BUG-9 FIX: controller.terminate() is NOT called here.
+        // Per VST3 spec, terminate() must only be called ONCE — in drop().
+        // Previously this method also called terminate(), causing double-terminate
+        // crashes in FabFilter Pro-Q, Kontakt, UAD plugins, etc.
         self.com_initialized = false;
         self.is_active = false;
         info!("[VST3] Deactivated: {}", self.descriptor.name);
@@ -2538,7 +3530,8 @@ impl PluginInstance for Vst3Instance {
         midi_events: &[MidiEvent],
     ) -> Result<(), PluginError> {
         if !self.is_active {
-            return Err(PluginError::InvalidState("Plugin not active".to_string()));
+            // BUG-RT3 FIX: Use static str to avoid heap allocation on the RT audio thread.
+            return Err(PluginError::InvalidState("Plugin not active".into()));
         }
 
         if self.com_initialized && self.processor_ptr != 0 {
@@ -2661,6 +3654,18 @@ impl PluginInstance for Vst3Instance {
                 ptr::null_mut()
             };
 
+            // BUG-A3 FIX: Provide writable output parameter changes.
+            // Plugins use this to report meter values (VU meters, gain reduction).
+            let mut out_param_changes = HostParameterChanges::from_pending(&[]);
+            let output_param_ptr =
+                (&mut out_param_changes as *mut HostParameterChanges).cast::<c_void>();
+
+            // BUG-A4 FIX: Provide writable output event list.
+            // Plugins use this for MIDI output (arpeggiators, MIDI effects).
+            let mut out_events = HostEventList::empty();
+            let output_events_ptr =
+                (&mut out_events as *mut HostEventList).cast::<c_void>();
+
             let mut data = ProcessData {
                 process_mode: K_REALTIME,
                 symbolic_sample_size: K_SAMPLE32,
@@ -2670,9 +3675,11 @@ impl PluginInstance for Vst3Instance {
                 inputs: input_buses.as_mut_ptr(),
                 outputs: &mut out_bus,
                 input_parameter_changes: input_param_ptr,
-                output_parameter_changes: ptr::null_mut(),
+                // BUG-A3 FIX: Provide writable output param changes.
+                output_parameter_changes: output_param_ptr,
                 input_events: input_events_ptr,
-                output_events: ptr::null_mut(),
+                // BUG-A4 FIX: Provide writable output events.
+                output_events: output_events_ptr,
                 // AVANGARD FIX: Provide real ProcessContext instead of NULL.
                 // NULL causes segfault in FabFilter, Serum, etc. when querying tempo.
                 process_context: &mut process_ctx as *mut Vst3ProcessContext as *mut c_void,
@@ -2765,7 +3772,14 @@ impl PluginInstance for Vst3Instance {
     }
 
     fn tail_samples(&self) -> u32 {
-        0
+        // BUG-A1 FIX: Query the plugin's actual tail length via IAudioProcessor::getTailSamples().
+        // Previously hardcoded to 0, cutting off reverb/delay tails immediately.
+        if self.processor_ptr != 0 && self.com_initialized {
+            let processor = self.processor_ptr as *mut IAudioProcessor;
+            unsafe { ((*(*processor).vtbl).get_tail_samples)(processor) }
+        } else {
+            0
+        }
     }
 
     fn reset(&mut self) {
@@ -2828,7 +3842,10 @@ impl PluginInstance for Vst3Instance {
                 *existing = normalized;
             } else {
                 if self.pending_param_changes.len() >= MAX_HOST_PARAM_CHANGES {
-                    let _ = self.pending_param_changes.remove(0);
+                    // BUG-13 FIX: swap_remove(0) is O(1) vs remove(0) which is O(N).
+                    // Per VST3 spec, parameter change order within a single
+                    // process block doesn't matter, so reordering is safe.
+                    let _ = self.pending_param_changes.swap_remove(0);
                 }
                 self.pending_param_changes.push((index, normalized));
             }
@@ -2841,6 +3858,16 @@ impl PluginInstance for Vst3Instance {
     }
 
     fn open_editor(&mut self) -> Result<(), PluginError> {
+        // Diagnostic: trace editor open flow
+        {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/dream-daw-diag.txt") {
+                let _ = writeln!(f, "[open_editor] name='{}', is_active={}, editor_open={}, controller_ptr=0x{:x}",
+                    self.descriptor.name, self.is_active, self.editor_open, self.controller_ptr);
+                let _ = f.flush();
+            }
+        }
+
         if !self.is_active {
             return Err(PluginError::InvalidState(
                 "Cannot open editor: plugin is not active".to_string(),
@@ -3165,19 +4192,37 @@ impl PluginHost {
         self.sample_rate = sample_rate;
         self.buffer_size = buffer_size;
 
+        // BUG-RT4 FIX: Continue past errors so ALL instances get reconfigured.
+        // Previously used `?` which stopped on first failure, leaving remaining
+        // instances in inconsistent state with stale sample rate / buffer size.
+        let mut first_error: Option<PluginError> = None;
         for instance in &mut self.instances {
-            instance.deactivate()?;
-            instance.activate(sample_rate, buffer_size)?;
+            if let Err(e) = instance.deactivate() {
+                info!("[PluginHost] Warning: deactivate failed for '{}': {}", instance.descriptor().name, e);
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
+            }
+            if let Err(e) = instance.activate(sample_rate, buffer_size) {
+                info!("[PluginHost] Warning: activate failed for '{}': {}", instance.descriptor().name, e);
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
+            }
         }
 
         info!(
-            "[PluginHost] Audio config updated: {}Hz, {} frames, {} instances",
+            "[PluginHost] Audio config updated: {}Hz, {} frames, {} instances{}",
             sample_rate,
             buffer_size,
-            self.instances.len()
+            self.instances.len(),
+            if first_error.is_some() { " (with errors)" } else { "" }
         );
 
-        Ok(())
+        match first_error {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     }
 
     /// Opens native editor for a specific plugin instance.

@@ -555,9 +555,36 @@ impl PluginSandboxSupervisor {
                 );
                 let _ = Self::send_control_message(stdin, &PluginHostControlMessage::Shutdown);
             }
+            // Drop stdin to signal EOF to child — this unblocks its stdin reader.
+            instance.control_stdin.take();
+
+            // BUG-10 FIX: Wait up to 2 seconds for graceful exit before killing.
+            // The child needs time to process UnloadPlugin (state serialization)
+            // and Shutdown messages. Previously, kill() was called immediately,
+            // causing plugin state loss and potential file corruption.
             if let Some(mut child) = instance.process.take() {
-                let _ = child.kill();
-                let _ = child.wait();
+                let deadline = std::time::Instant::now() + Duration::from_secs(2);
+                loop {
+                    match child.try_wait() {
+                        Ok(Some(_)) => break, // exited gracefully
+                        Ok(None) => {
+                            if std::time::Instant::now() >= deadline {
+                                log::warn!(
+                                    "[PluginSandbox] Instance {instance_id} did not exit within 2s, killing"
+                                );
+                                let _ = child.kill();
+                                let _ = child.wait();
+                                break;
+                            }
+                            std::thread::sleep(Duration::from_millis(50));
+                        }
+                        Err(_) => {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            break;
+                        }
+                    }
+                }
             }
             let _ = fs::remove_file(instance.heartbeat_file);
             let _ = fs::remove_file(instance.shared_region.map_name);

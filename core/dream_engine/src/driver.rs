@@ -2061,6 +2061,8 @@ pub fn start_audio_thread_on_device(
                                                                 tempo: _bpm,
                                                                 is_playing,
                                                                 is_recording: false,
+                                                                time_sig_numerator: 4,
+                                                                time_sig_denominator: 4,
                                                             };
                                                             let _ = host.set_transport_context(
                                                                 instance_id,
@@ -2575,6 +2577,8 @@ pub fn start_audio_thread_on_device(
                                                     tempo: _bpm,
                                                     is_playing,
                                                     is_recording: false,
+                                                    time_sig_numerator: 4,
+                                                    time_sig_denominator: 4,
                                                 };
                                                 let _ = host
                                                     .set_transport_context(instance_id, transport);

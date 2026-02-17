@@ -924,33 +924,24 @@ export class TimelineEngine {
                 const clip = this._clips.find(c => c.id === hit.clipId);
                 if (!clip) break;
 
-                // Body click behavior (requested):
-                // - place edit cursor at click beat
-                // - do NOT select clip
-                // - do NOT start clip drag
+                // Body click: select clip and arm drag-to-move (same as header click).
+                // Standard DAW behavior — clicking anywhere on a clip selects it.
                 if (hit.region === 'body' && !hit.edge && !hit.fadeHandle && !hit.fadeCurveHandle) {
-                    const snapped = this._snapBeat(hit.beat);
-                    this.onEditCursorChange?.(snapped, hit.trackIndex);
+                    this.onClipClick?.(hit.clipId, e.shiftKey || e.metaKey);
                     this.onTrackSelect?.(hit.trackIndex);
                     this._drag = {
-                        mode: DragMode.MultiCursorSelect,
-                        clipId: null,
-                        startBeat: snapped,
+                        mode: DragMode.ClipMoveArmed,
+                        clipId: hit.clipId,
+                        startBeat: hit.beat,
                         startTrack: hit.trackIndex,
-                        currentBeat: snapped,
+                        currentBeat: hit.beat,
                         currentTrack: hit.trackIndex,
-                        clipOriginalBeat: 0,
-                        clipOriginalTrack: 0,
-                        clipOriginalDuration: 0,
+                        clipOriginalBeat: clip.startBeat,
+                        clipOriginalTrack: clip.trackIndex,
+                        clipOriginalDuration: clip.durationBeats,
                         startClientX: e.clientX,
                         startClientY: e.clientY,
                     };
-                    this._setMarquee({
-                        startBeat: snapped,
-                        endBeat: snapped,
-                        startTrack: hit.trackIndex,
-                        endTrack: hit.trackIndex,
-                    }, false);
                     break;
                 }
 

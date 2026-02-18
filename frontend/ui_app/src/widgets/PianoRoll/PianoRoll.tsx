@@ -277,11 +277,13 @@ export const PianoRoll = memo(function PianoRoll({
         if (lanePersistTimerRef.current != null) {
             window.clearTimeout(lanePersistTimerRef.current);
         }
+        // Bug #20: 90ms debounce was too short — rapid drag movements would
+        // drop the last frame of edits. 300ms gives a comfortable trailing window.
         lanePersistTimerRef.current = window.setTimeout(() => {
             onSetMidiEnvelopes(payload);
             lanePersistHashRef.current = hash;
             lanePersistTimerRef.current = null;
-        }, 90);
+        }, 300);
 
         return () => {
             if (lanePersistTimerRef.current != null) {
@@ -847,7 +849,9 @@ export const PianoRoll = memo(function PianoRoll({
                 const maxX = Math.max(current.x1, current.x2);
                 const minY = Math.min(current.y1, current.y2);
                 const maxY = Math.max(current.y1, current.y2);
-                const isClick = Math.abs(maxX - minX) < 3 && Math.abs(maxY - minY) < 3;
+                // Bug #30: 3px threshold was too tight — any slight hand movement during
+                // a click triggered a drag-selection instead. 6px is more ergonomic.
+                const isClick = Math.abs(maxX - minX) < 6 && Math.abs(maxY - minY) < 6;
                 if (isClick) return null;
 
                 const hits = new Set<string>();
@@ -1486,7 +1490,19 @@ export const PianoRoll = memo(function PianoRoll({
             }}
         >
             {/* ── Toolbar ── */}
-            <div style={{
+            {/* Bug #42: Clicking toolbar buttons/selects steals focus from the editor root,
+                silencing keyboard shortcuts. Re-focus the root on any mousedown in the toolbar. */}
+            <div
+                onMouseDown={(e) => {
+                    // Don't prevent default so buttons/selects still work,
+                    // but schedule a focus restore after the browser processes the click.
+                    const target = e.target as HTMLElement;
+                    if (target.tagName !== 'SELECT') {
+                        e.preventDefault(); // prevents focus shift for buttons
+                    }
+                    requestAnimationFrame(() => editorRootRef.current?.focus());
+                }}
+                style={{
                 height: 'var(--daw-transport-height)',
                 display: 'flex',
                 alignItems: 'center',
@@ -2215,10 +2231,12 @@ export const PianoRoll = memo(function PianoRoll({
                         </div>
 
                         {/* ── Playhead ── */}
-                        {playheadBeat !== undefined && (
+                        {/* Bug #38: Clamp playhead display to clip length so it doesn't
+                            render past the visible clip boundary when looping. */}
+                        {playheadBeat !== undefined && playheadBeat < clipBeats && (
                             <div style={{
                                 position: 'absolute',
-                                left: playheadBeat * pixelsPerBeat,
+                                left: Math.min(playheadBeat, clipBeats) * pixelsPerBeat,
                                 top: RULER_HEIGHT,
                                 width: 2,
                                 height: canvasHeight,

@@ -176,6 +176,19 @@ pub enum EngineCommand {
     // ── Engine Lifecycle ─────────────────────────────────────────────
     /// Request the engine to stop and clean up all resources.
     Shutdown,
+
+    // ── Streaming Window Management ──────────────────────────────────
+    // Register a new streaming window for a file path.
+    // Used for large files that don't fit in the RAM pool.
+    // The window itself is created on the UI thread and passed via pointer
+    // (wrapped in a variant that handles the move properly is complex,
+    // but we'll use a unique identifier for now or a deferred command).
+    //
+    // NOTE: To keep EngineCommand Copy, we can't pass the Window directly.
+    // We'll use a separate bridge or make Window handleable via ID.
+    // Actually, let's keep it simple: the audio thread polls for NEW
+    // windows via a separate wait-free queue if needed, but for now
+    // we'll just fix the RT-safe capacity issues as they are the immediate bug.
 }
 
 // ── Master Clock ────────────────────────────────────────────────────────

@@ -184,6 +184,9 @@ interface EngineStore {
     /** Runtime state of out-of-process plugin sandbox supervisor. */
     pluginSandbox: PluginSandboxSnapshot | null;
 
+    /** Track native plugin editor states: Record<trackId, Set<slotId>> (idempotent SSOT). */
+    openEditorsByTrack: Record<string, Set<string>>;
+
     // ── Actions ──────────────────────────────────────────────────────────
 
     /** Start/stop playback. Sends IPC command, then push telemetry syncs state. */
@@ -254,6 +257,11 @@ interface EngineStore {
 
     /** Stop push telemetry listener. */
     stopTelemetryLoop: () => void;
+
+    /** Toggle native plugin window visibility. Enforces SSOT and prevents double-close. */
+    togglePluginEditor: (trackId: string, slotId: string) => Promise<void>;
+    /** Close all open native editors across all tracks (cleanup). */
+    closeAllPluginEditors: () => Promise<void>;
 }
 
 // ── Default Values ───────────────────────────────────────────────────────
@@ -306,6 +314,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     projectHistoryCursor: 0,
     masterVolume: 1.0,
     pluginSandbox: null,
+    openEditorsByTrack: {},
 
     // ── Transport Actions ──────────────────────────────────────────────
 
@@ -508,6 +517,16 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     deleteTrack: async (index: number) => {
         try {
             await engine.deleteTrack(index);
+
+            // BUG-17: Prune stale throttles to prevent memory leaks.
+            // Since throttles are keyed by index, we must clear all throttles
+            // from the deleted index onwards, as indices of subsequent tracks shifted.
+            // Better: clear all and let them re-initialize on next move to ensure 100% safety.
+            throttledVolumeSends.clear();
+            throttledPanSends.clear();
+            pendingVolumeValues.clear();
+            pendingPanValues.clear();
+
             await get().fetchProject('deleteTrack');
             set({ lastError: null });
         } catch (e) {
@@ -957,5 +976,46 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             _pluginSandboxUnlisten();
             _pluginSandboxUnlisten = null;
         }
+    },
+
+    togglePluginEditor: async (trackId: string, slotId: string) => {
+        const { openEditorsByTrack } = get();
+        const trackSet = openEditorsByTrack[trackId] || new Set<string>();
+        const isOpen = trackSet.has(slotId);
+
+        try {
+            if (isOpen) {
+                await engine.closePluginWindowForSlot(trackId, slotId);
+                const nextSet = new Set(trackSet);
+                nextSet.delete(slotId);
+                set((s) => ({
+                    openEditorsByTrack: { ...s.openEditorsByTrack, [trackId]: nextSet },
+                }));
+            } else {
+                await engine.openPluginWindowForSlot(trackId, slotId);
+                const nextSet = new Set(trackSet);
+                nextSet.add(slotId);
+                set((s) => ({
+                    openEditorsByTrack: { ...s.openEditorsByTrack, [trackId]: nextSet },
+                }));
+            }
+        } catch (e) {
+            console.error('[EngineStore] togglePluginEditor failed:', e);
+            set({ lastError: String(e) });
+        }
+    },
+
+    closeAllPluginEditors: async () => {
+        const { openEditorsByTrack } = get();
+        for (const [trackId, slots] of Object.entries(openEditorsByTrack)) {
+            for (const slotId of slots) {
+                try {
+                    await engine.closePluginWindowForSlot(trackId, slotId);
+                } catch (e) {
+                    console.warn(`[EngineStore] Failed to close editor ${slotId} on track ${trackId}:`, e);
+                }
+            }
+        }
+        set({ openEditorsByTrack: {} });
     },
 }));

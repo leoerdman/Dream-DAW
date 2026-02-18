@@ -434,7 +434,9 @@ export const DeviceRack = ({
     const [inlineSettingsOpen, setInlineSettingsOpen] = useState<Record<string, boolean>>({});
     const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
     // ── Plugin editor window persistence per track ──
-    const [openEditorsByTrack, setOpenEditorsByTrack] = useState<Record<string, Set<string>>>({});
+    const openEditorsByTrack = useEngineStore((s) => s.openEditorsByTrack);
+    const togglePluginEditor = useEngineStore((s) => s.togglePluginEditor);
+    const closeAllPluginEditors = useEngineStore((s) => s.closeAllPluginEditors);
     const prevTrackIdRef = useRef<string>(selectedTrackId);
     const [paramSnapshotsByDevice, setParamSnapshotsByDevice] = useState<
         Record<string, { A?: Record<string, number>; B?: Record<string, number>; active?: 'A' | 'B' }>
@@ -579,6 +581,15 @@ export const DeviceRack = ({
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedTrackId]);
+
+    // BUG-012: Ensure all native windows are closed when DeviceRack unmounts.
+    // This prevents "double-terminate" issues when the project is closed or 
+    // the rack is removed/hidden.
+    useEffect(() => {
+        return () => {
+            void closeAllPluginEditors();
+        };
+    }, [closeAllPluginEditors]);
     const chain = useMemo((): DeviceSlot[] => {
         if (!selectedTrack) return [];
 
@@ -1634,74 +1645,28 @@ export const DeviceRack = ({
                                     onOpenGUI={async () => {
                                         console.log('[DeviceRack] onOpenGUI clicked device:', device.id, 'name:', device.name, 'source:', device.source, 'pluginId:', device.pluginId);
                                         selectDevice(device.id, false);
-                                        if (device.source === 'internal') {
-                                            console.log('[DeviceRack] onOpenGUI: toggling inline (internal device)');
-                                            setInlineSettingsOpen((prev) => ({
-                                                ...prev,
-                                                [device.id]: !prev[device.id],
-                                            }));
-                                            statusClear();
-                                            return;
-                                        }
                                         if (!selectedTrack) {
                                             console.warn('[DeviceRack] onOpenGUI: no selectedTrack, aborting');
                                             return;
                                         }
                                         const trackId = selectedTrack.id;
-                                        const isCurrentlyOpen = openEditorsByTrack[trackId]?.has(device.id) ?? false;
 
-                                        if (isCurrentlyOpen) {
-                                            // Toggle OFF → close native editor
-                                            console.log('[DeviceRack] onOpenGUI: closing native editor');
-                                            setOpenEditorsByTrack((prev) => {
-                                                const next = { ...prev };
-                                                const set = new Set(prev[trackId] ?? []);
-                                                set.delete(device.id);
-                                                next[trackId] = set;
-                                                return next;
-                                            });
-                                            engineApi.closePluginWindowForSlot(trackId, device.id).catch((err) =>
-                                                console.warn('[DeviceRack] close native editor failed:', err),
-                                            );
-                                            statusClear();
-                                            return;
-                                        }
-
-                                        // Toggle ON → open native editor
+                                        // BUG-012: Centralize editor toggling in useEngineStore to maintain 
+                                        // Single Source of Truth (SSOT) and prevent double-terminate race conditions.
                                         try {
-                                            console.log('[DeviceRack] onOpenGUI: ensuring slot runtime active...');
-                                            const status = await ensureSlotRuntimeActive(device.id);
-                                            console.log('[DeviceRack] onOpenGUI: ensureSlotRuntimeActive result:', status);
-                                            if (!status) {
-                                                console.warn('[DeviceRack] onOpenGUI: ensureSlotRuntimeActive returned null/false, aborting');
-                                                return;
+                                            if (device.source !== 'internal') {
+                                                await ensureSlotRuntimeActive(device.id);
+                                                await togglePluginEditor(trackId, device.id);
+                                            } else {
+                                                setInlineSettingsOpen((prev) => ({
+                                                    ...prev,
+                                                    [device.id]: !prev[device.id],
+                                                }));
                                             }
-                                            try {
-                                                console.log('[DeviceRack] onOpenGUI: calling openPluginWindowForSlot...');
-                                                await engineApi.openPluginWindowForSlot(trackId, device.id);
-                                                console.log('[DeviceRack] onOpenGUI: openPluginWindowForSlot SUCCESS');
-                                            } catch (slotErr) {
-                                                console.warn('[DeviceRack] slot-scoped plugin UI open failed, retrying by plugin key:', slotErr);
-                                                await engineApi.openPluginWindow(device.pluginId);
-                                                console.log('[DeviceRack] onOpenGUI: openPluginWindow (fallback by key) SUCCESS');
-                                            }
-                                            // Mark this slot as open in our persistence map
-                                            setOpenEditorsByTrack((prev) => {
-                                                const next = { ...prev };
-                                                const set = new Set(prev[trackId] ?? []);
-                                                set.add(device.id);
-                                                next[trackId] = set;
-                                                return next;
-                                            });
                                             statusClear();
                                         } catch (err) {
-                                            console.error('[DeviceRack] Failed to open native plugin UI:', err);
-                                            // Native editor failed — fall back to inline controls
-                                            setInlineSettingsOpen((prev) => ({
-                                                ...prev,
-                                                [device.id]: true,
-                                            }));
-                                            statusError(`Failed to open native plugin UI, inline controls opened: ${errorMessage(err)}`);
+                                            console.error('[DeviceRack] togglePluginEditor failed:', err);
+                                            statusError(`Failed to open native plugin UI: ${errorMessage(err)}`);
                                         }
                                     }}
                                 />

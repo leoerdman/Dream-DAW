@@ -365,12 +365,37 @@ fn track_is_descendant_of(project: &Project, candidate_id: Uuid, ancestor_id: Uu
 }
 
 fn collect_block_track_ids(project: &Project, root_id: Uuid) -> Vec<Uuid> {
-    project
+    use std::collections::HashMap;
+    let parent_map: HashMap<Uuid, Option<Uuid>> = project
         .tracks
         .iter()
-        .filter(|t| t.id == root_id || track_is_descendant_of(project, t.id, root_id))
-        .map(|t| t.id)
-        .collect()
+        .map(|t| (t.id, t.parent_track_id))
+        .collect();
+
+    let mut descendants = Vec::new();
+    let max_depth = project.tracks.len();
+
+    for track in &project.tracks {
+        if track.id == root_id {
+            descendants.push(track.id);
+            continue;
+        }
+
+        let mut depth = 0;
+        let mut current = track.parent_track_id;
+        while let Some(parent_id) = current {
+            if parent_id == root_id {
+                descendants.push(track.id);
+                break;
+            }
+            depth += 1;
+            if depth > max_depth {
+                break;
+            }
+            current = parent_map.get(&parent_id).and_then(|&p| p);
+        }
+    }
+    descendants
 }
 
 fn refresh_runtime_after_track_topology_change(

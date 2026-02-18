@@ -83,9 +83,8 @@ interface AutomationState {
     getLanesForTrack: (trackId: string) => AutomationLane[];
 }
 
-let nextId = 1;
-const genId = () => `auto_${nextId++}`;
-const genBpId = () => `bp_${nextId++}`;
+const genId = () => `auto_${crypto.randomUUID().slice(0, 8)}`;
+const genBpId = () => `bp_${crypto.randomUUID().slice(0, 8)}`;
 
 export const useAutomationStore = create<AutomationState>((set, get) => ({
     lanes: {},

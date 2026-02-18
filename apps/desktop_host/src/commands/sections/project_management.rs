@@ -185,13 +185,17 @@ fn normalize_internal_plugins_for_import(project: &mut Project) {
             }
         }
         for fx in &mut track.effects {
-            normalize_effect_node(fx);
+            normalize_effect_node(fx, 0);
         }
     }
 }
 
 /// Recursively normalize a single `DeviceNode` and all children inside racks.
-fn normalize_effect_node(node: &mut DeviceNode) {
+fn normalize_effect_node(node: &mut DeviceNode, depth: usize) {
+    if depth > 16 {
+        log::warn!("[normalize_effect_node] Recursion depth limit reached, skipping nested rack");
+        return;
+    }
     match node {
         DeviceNode::Single(slot) => {
             let pid = slot.plugin_id.clone();
@@ -210,7 +214,7 @@ fn normalize_effect_node(node: &mut DeviceNode) {
         DeviceNode::Rack(rack) => {
             for chain in &mut rack.chains {
                 for device in &mut chain.devices {
-                    normalize_effect_node(device);
+                    normalize_effect_node(device, depth + 1);
                 }
             }
         }

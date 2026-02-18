@@ -193,8 +193,8 @@ impl RenderContext {
             meter_bank,
             loop_region: None,
             streaming_windows: std::collections::HashMap::new(),
-            scratch_active_clips: Vec::with_capacity(256),
-            scratch_post_wrap_clips: Vec::with_capacity(256),
+            scratch_active_clips: Vec::with_capacity(1024),
+            scratch_post_wrap_clips: Vec::with_capacity(1024),
         }
     }
 

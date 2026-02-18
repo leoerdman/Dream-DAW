@@ -430,8 +430,14 @@ pub fn handle_overlaps(track: &mut crate::project::Track, target: &AudioClip) {
         let clip_start = track.clips[i].position.sample_frame;
         let clip_end = track.clips[i].end_position().sample_frame;
 
+        // Optimization: track.clips is sorted by position. If current clip starts
+        // after the target ends, no subsequent clips can overlap.
+        if clip_start >= target_end {
+            break;
+        }
+
         // Check for overlap
-        if clip_start < target_end && clip_end > target_start {
+        if clip_end > target_start {
             // Case 1: Clip is completely covered by target
             if clip_start >= target_start && clip_end <= target_end {
                 track.clips.remove(i);
@@ -497,7 +503,12 @@ pub fn handle_midi_overlaps(track: &mut crate::project::Track, target: &crate::m
         let clip_start = track.midi_clips[i].position.sample_frame;
         let clip_end = track.midi_clips[i].end_position().sample_frame;
 
-        if clip_start < target_end && clip_end > target_start {
+        // Optimization: sorted clip list
+        if clip_start >= target_end {
+            break;
+        }
+
+        if clip_end > target_start {
             if clip_start >= target_start && clip_end <= target_end {
                 track.midi_clips.remove(i);
                 continue;

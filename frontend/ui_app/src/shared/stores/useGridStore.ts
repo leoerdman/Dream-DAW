@@ -222,7 +222,7 @@ export const useGridStore = create<GridStore>((set, get) => ({
     snapBeat: (rawBeat: number, beatsPerBar: number = 4, ppb?: number) => {
         const { division, triplet, snapEnabled } = get();
         if (!snapEnabled) return Math.max(0, rawBeat);
-        const interval = divisionToInterval(division, beatsPerBar, triplet, ppb);
+        const interval = Math.max(0.001, divisionToInterval(division, beatsPerBar, triplet, ppb));
         return snapToGrid(rawBeat, interval);
     },
 

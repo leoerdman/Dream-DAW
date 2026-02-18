@@ -90,6 +90,8 @@ const MissingAssetsPanel = lazy(async () => ({
  * - Clicking a track in TrackInspector updates the selected track
  * - DeviceRack shows the device chain for the currently selected track
  */
+const DEFAULT_BOTTOM_PANEL_HEIGHT = 220;
+
 export const DawShell = () => {
     type BottomPanelMode = 'rack' | 'clip';
     type MainViewMode = 'arrangement' | 'session';
@@ -122,7 +124,6 @@ export const DawShell = () => {
     const [missingAssetsOpen, setMissingAssetsOpen] = useState(false);
     const [browserWidth, setBrowserWidth] = useState(320);
     const [fitTimelineToken, setFitTimelineToken] = useState(0);
-    const DEFAULT_BOTTOM_PANEL_HEIGHT = 220;
     const [bottomPanelHeightPx, setBottomPanelHeightPx] = useState(DEFAULT_BOTTOM_PANEL_HEIGHT);
     const recoveringAudioRef = useRef(false);
     const lastAudioRecoverAtRef = useRef(0);
@@ -251,7 +252,7 @@ export const DawShell = () => {
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [setBottomPanelModeForActiveTrack]);
+    }, [setBottomPanelModeForActiveTrack, setSettingsOpen, setExportOpen, setMainViewMode]);
 
     // ── Tauri Drag & Drop → Import Audio ───────────────────────────
     useEffect(() => {

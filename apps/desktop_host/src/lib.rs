@@ -125,6 +125,9 @@ struct AudioEngineHandle {
 
     /// Event channel for RT stream errors (device disconnect, backend failures).
     stream_error_tx: std::sync::mpsc::Sender<String>,
+
+    /// Global shutdown flag (BUG-14)
+    pub is_shutting_down: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl AudioEngineHandle {
@@ -1390,7 +1393,10 @@ fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
         || key.contains("eq8")
         || key.contains("eq3")
         || key.contains("channel eq")
-        || key.contains("eq")
+        || key == "eq"
+        || key.contains(" equalizer ")
+        || key.starts_with("equalizer ")
+        || key.ends_with(" equalizer")
     {
         return Some(FX_EQ);
     }
@@ -3672,6 +3678,7 @@ pub fn run() {
         rt_debug_stats: rt_debug_stats_for_handle,
         output_latency_frames,
         stream_error_tx,
+        is_shutting_down: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
 
     tauri::Builder::default()
@@ -3696,6 +3703,14 @@ pub fn run() {
                 .name("telemetry-push".into())
                 .spawn(move || {
                     loop {
+                        // BUG-14: Graceful shutdown check
+                        {
+                            let handle: tauri::State<'_, AudioEngineHandle> = telemetry_app.state();
+                            if handle.is_shutting_down.load(std::sync::atomic::Ordering::Relaxed) {
+                                log::info!("[Telemetry] Shutdown signal received, exiting thread.");
+                                break;
+                            }
+                        }
                         std::thread::sleep(Duration::from_millis(33)); // ~30fps
 
                         // Access managed state via cloned AppHandle
@@ -3774,6 +3789,14 @@ pub fn run() {
                 .name("plugin-sandbox-watchdog".into())
                 .spawn(move || {
                     loop {
+                        // BUG-14: Graceful shutdown check
+                        {
+                            let sandbox_app_state: tauri::State<'_, AudioEngineHandle> = sandbox_app.state();
+                            if sandbox_app_state.is_shutting_down.load(std::sync::atomic::Ordering::Relaxed) {
+                                log::info!("[Watchdog] Shutdown signal received, exiting thread.");
+                                break;
+                            }
+                        }
                         std::thread::sleep(Duration::from_millis(75));
                         let plugin_host_state: tauri::State<'_, PluginHostState> = sandbox_app.state();
                         let snapshot = match plugin_host_state.tick_sandbox_watchdog() {

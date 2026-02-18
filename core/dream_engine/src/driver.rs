@@ -1499,12 +1499,12 @@ pub fn start_audio_thread_on_device(
         },
     }
     let mut deferred_topology: VecDeque<DeferredTopologyCmd> = VecDeque::with_capacity(1024);
-    let mut midi_schedule_scratch: Vec<ScheduledNote> = Vec::with_capacity(512);
-    let mut midi_schedule_tmp: Vec<ScheduledNote> = Vec::with_capacity(512);
+    let mut midi_schedule_scratch: Vec<ScheduledNote> = Vec::with_capacity(2048);
+    let mut midi_schedule_tmp: Vec<ScheduledNote> = Vec::with_capacity(2048);
     let mut midi_events_scratch: Vec<(usize, u8, u8, u8, u64)> = Vec::with_capacity(16384);
     // Pre-allocated scratch buffer for converting scheduled MIDI events to MidiEvent
     // objects that external VST3 plugins receive.
-    let mut vst3_midi_scratch: Vec<MidiEvent> = Vec::with_capacity(1024);
+    let mut vst3_midi_scratch: Vec<MidiEvent> = Vec::with_capacity(4096);
     // Per-track active-note tracking for VST3 plugins (flush on stop/seek).
     let mut vst3_note_trackers: Vec<Vst3NoteTracker> =
         vec![Vst3NoteTracker::default(); MAX_TRACKS];

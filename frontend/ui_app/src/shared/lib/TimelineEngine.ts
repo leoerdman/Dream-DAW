@@ -134,6 +134,11 @@ interface DragState {
     clipOriginalFadeInCurve?: number;
     /** Original clip fade-out curve (0.05..0.95). */
     clipOriginalFadeOutCurve?: number;
+    /**
+     * Original positions of OTHER selected clips that should move together.
+     * Maps clipId → { beat, track }. Populated when a group-move starts.
+     */
+    coMoverOrigins?: Map<string, { beat: number; track: number }>;
 }
 
 // ── Engine Class ──────────────────────────────────────────────────────────
@@ -197,6 +202,13 @@ export class TimelineEngine {
     private _boundMouseUp: (e: MouseEvent) => void;
     private _boundDblClick: (e: MouseEvent) => void;
     private _boundContextMenu: (e: MouseEvent) => void;
+    private _boundKeyDown: (e: KeyboardEvent) => void;
+
+    // ── Waveform prefetch cancel handles ──────────────────────────────
+    /** requestIdleCallback handle for deferred waveform redraw. */
+    private _prefetchIdleId: number = 0;
+    /** setTimeout handle for browsers without requestIdleCallback. */
+    private _prefetchTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
     // ── Callbacks (to React shell) ────────────────────────────────────
     onClipClick?: (clipId: string, addToSelection: boolean) => void;
@@ -249,6 +261,7 @@ export class TimelineEngine {
         this._boundMouseUp = this._onMouseUp.bind(this);
         this._boundDblClick = this._onDoubleClick.bind(this);
         this._boundContextMenu = this._onContextMenu.bind(this);
+        this._boundKeyDown = this._onKeyDown.bind(this);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -283,6 +296,8 @@ export class TimelineEngine {
         // Global listeners for drag (must work even when cursor leaves canvas)
         window.addEventListener('mousemove', this._boundMouseMove);
         window.addEventListener('mouseup', this._boundMouseUp);
+        // Escape key cancels active drag operations.
+        window.addEventListener('keydown', this._boundKeyDown, { capture: true });
 
         // Start render loop
         this._tick();
@@ -312,6 +327,19 @@ export class TimelineEngine {
 
         window.removeEventListener('mousemove', this._boundMouseMove);
         window.removeEventListener('mouseup', this._boundMouseUp);
+        window.removeEventListener('keydown', this._boundKeyDown, { capture: true });
+
+        // Cancel any in-flight waveform prefetch redraw timers.
+        if (this._prefetchIdleId) {
+            if (typeof cancelIdleCallback === 'function') {
+                cancelIdleCallback(this._prefetchIdleId);
+            }
+            this._prefetchIdleId = 0;
+        }
+        if (this._prefetchTimeoutId !== null) {
+            clearTimeout(this._prefetchTimeoutId);
+            this._prefetchTimeoutId = null;
+        }
 
         this._canvas = null;
         this._ctx = null;
@@ -1132,6 +1160,15 @@ export class TimelineEngine {
                 }
                 this._drag.mode = DragMode.ClipMove;
                 canvas.style.cursor = 'grabbing';
+                // Snapshot original positions of all other selected clips so we can
+                // move them together with the dragged clip (multi-select group move).
+                const coMoverOrigins = new Map<string, { beat: number; track: number }>();
+                for (const c of this._clips) {
+                    if (c.selected && c.id !== this._drag.clipId) {
+                        coMoverOrigins.set(c.id, { beat: c.startBeat, track: c.trackIndex });
+                    }
+                }
+                this._drag.coMoverOrigins = coMoverOrigins;
                 // Apply first drag frame immediately.
                 const deltaBeat = beat - this._drag.startBeat;
                 const deltaTrack = track - this._drag.startTrack;
@@ -1146,8 +1183,16 @@ export class TimelineEngine {
                 if (clip) {
                     clip.startBeat = newBeat;
                     clip.trackIndex = newTrack;
-                    this._requestRedraw();
                 }
+                // Move all co-movers by the raw (unsnapped) delta too.
+                for (const [id, origin] of coMoverOrigins) {
+                    const co = this._clips.find(c => c.id === id);
+                    if (co) {
+                        co.startBeat = this._snapBeat(Math.max(0, origin.beat + deltaBeat));
+                        co.trackIndex = Math.max(0, Math.min(this._viewport.trackCount - 1, origin.track + deltaTrack));
+                    }
+                }
+                this._requestRedraw();
                 break;
             }
 
@@ -1171,13 +1216,23 @@ export class TimelineEngine {
                     Math.min(this._viewport.trackCount - 1, this._drag.clipOriginalTrack + deltaTrack),
                 );
 
-                // Update clip position in local array for visual feedback
+                // Update dragged clip position in local array for visual feedback
                 const clip = this._clips.find(c => c.id === this._drag.clipId);
                 if (clip) {
                     clip.startBeat = newBeat;
                     clip.trackIndex = newTrack;
-                    this._requestRedraw();
                 }
+                // Update co-mover positions (other selected clips move together).
+                if (this._drag.coMoverOrigins) {
+                    for (const [id, origin] of this._drag.coMoverOrigins) {
+                        const co = this._clips.find(c => c.id === id);
+                        if (co) {
+                            co.startBeat = this._snapBeat(Math.max(0, origin.beat + deltaBeat));
+                            co.trackIndex = Math.max(0, Math.min(this._viewport.trackCount - 1, origin.track + deltaTrack));
+                        }
+                    }
+                }
+                this._requestRedraw();
                 break;
             }
 
@@ -1702,11 +1757,21 @@ export class TimelineEngine {
         if (paths.length > 0) {
             this._waveformCache.prefetch(paths);
             // Re-request draw when waveforms load — use requestIdleCallback
-            // to avoid blocking the main thread during scroll/zoom
+            // to avoid blocking the main thread during scroll/zoom.
+            // Bug fix: store handle so detach() can cancel the callback and
+            // avoid use-after-detach redraws.
             if (typeof requestIdleCallback === 'function') {
-                requestIdleCallback(() => this._requestRedraw(), { timeout: 300 });
+                if (this._prefetchIdleId) cancelIdleCallback(this._prefetchIdleId);
+                this._prefetchIdleId = requestIdleCallback(() => {
+                    this._prefetchIdleId = 0;
+                    this._requestRedraw();
+                }, { timeout: 300 });
             } else {
-                setTimeout(() => this._requestRedraw(), 200);
+                if (this._prefetchTimeoutId !== null) clearTimeout(this._prefetchTimeoutId);
+                this._prefetchTimeoutId = setTimeout(() => {
+                    this._prefetchTimeoutId = null;
+                    this._requestRedraw();
+                }, 200);
             }
         }
     }

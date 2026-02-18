@@ -1060,6 +1060,17 @@ export class TimelineEngine {
                     // Header click/drag path: arm drag, start moving only after threshold.
                     this.onClipClick?.(hit.clipId, e.shiftKey || e.metaKey);
 
+                    // Bug #100: Initialize co-movers if multiple clips are selected.
+                    const selectedClipIds = this._clips.filter(c => c.selected).map(c => c.id);
+                    const coMovers = new Map<string, { beat: number; track: number }>();
+                    if (selectedClipIds.length > 1 && selectedClipIds.includes(hit.clipId)) {
+                        for (const sc of this._clips) {
+                            if (sc.selected && sc.id !== hit.clipId) {
+                                coMovers.set(sc.id, { beat: sc.startBeat, track: sc.trackIndex });
+                            }
+                        }
+                    }
+
                     this._drag = {
                         mode: DragMode.ClipMoveArmed,
                         clipId: hit.clipId,
@@ -1072,6 +1083,7 @@ export class TimelineEngine {
                         clipOriginalDuration: clip.durationBeats,
                         startClientX: e.clientX,
                         startClientY: e.clientY,
+                        coMoverOrigins: coMovers.size > 0 ? coMovers : undefined,
                     };
                 }
                 break;
@@ -1205,55 +1217,38 @@ export class TimelineEngine {
 
             case DragMode.ClipMove: {
                 canvas.style.cursor = 'grabbing';
-                // Compute delta from drag start and apply to original position
                 const deltaBeat = beat - this._drag.startBeat;
                 const deltaTrack = track - this._drag.startTrack;
-                const newBeat = this._snapBeat(
-                    Math.max(0, this._drag.clipOriginalBeat + deltaBeat),
-                );
-                const newTrack = Math.max(
-                    0,
-                    Math.min(this._viewport.trackCount - 1, this._drag.clipOriginalTrack + deltaTrack),
-                );
 
-                // Update dragged clip position in local array for visual feedback
-                const clip = this._clips.find(c => c.id === this._drag.clipId);
-                if (clip) {
-                    clip.startBeat = newBeat;
-                    clip.trackIndex = newTrack;
-                }
-                // Update co-mover positions (other selected clips move together).
-                if (this._drag.coMoverOrigins) {
-                    for (const [id, origin] of this._drag.coMoverOrigins) {
-                        const co = this._clips.find(c => c.id === id);
-                        if (co) {
-                            co.startBeat = this._snapBeat(Math.max(0, origin.beat + deltaBeat));
-                            co.trackIndex = Math.max(0, Math.min(this._viewport.trackCount - 1, origin.track + deltaTrack));
+                const primaryClip = this._clips.find(c => c.id === this._drag.clipId);
+                if (primaryClip) {
+                    primaryClip.startBeat = this._snapBeat(Math.max(0, this._drag.clipOriginalBeat + deltaBeat));
+                    primaryClip.trackIndex = Math.max(0, Math.min(this._viewport.trackCount - 1, this._drag.clipOriginalTrack + deltaTrack));
+
+                    if (this._drag.coMoverOrigins) {
+                        for (const [id, origin] of this._drag.coMoverOrigins) {
+                            const co = this._clips.find(c => c.id === id);
+                            if (co) {
+                                co.startBeat = this._snapBeat(Math.max(0, origin.beat + deltaBeat));
+                                co.trackIndex = Math.max(0, Math.min(this._viewport.trackCount - 1, origin.track + deltaTrack));
+                            }
                         }
                     }
+                    this._requestRedraw();
                 }
-                this._requestRedraw();
                 break;
             }
 
             case DragMode.ClipResizeLeft: {
                 canvas.style.cursor = 'ew-resize';
                 if (!this._drag.clipId) break;
-
                 const deltaBeat = beat - this._drag.startBeat;
                 const rawNewStart = this._drag.clipOriginalBeat + deltaBeat;
-                // Bug #85: clamp newStart so the clip can't be collapsed to < 0.25 beats.
                 const clipEnd = this._drag.clipOriginalBeat + this._drag.clipOriginalDuration;
                 const maxNewStart = clipEnd - 0.25;
                 const newStart = this._snapBeat(Math.max(0, Math.min(maxNewStart, rawNewStart)));
-                // Duration adjusts inversely — clip end stays fixed
                 const newDuration = Math.max(0.25, clipEnd - newStart);
-
-                this._trimPreview = {
-                    clipId: this._drag.clipId,
-                    startBeat: newStart,
-                    durationBeats: newDuration,
-                };
+                this._trimPreview = { clipId: this._drag.clipId, startBeat: newStart, durationBeats: newDuration };
                 this._requestRedraw();
                 break;
             }
@@ -1261,16 +1256,10 @@ export class TimelineEngine {
             case DragMode.ClipResizeRight: {
                 canvas.style.cursor = 'ew-resize';
                 if (!this._drag.clipId) break;
-
                 const rawNewEnd = beat;
                 const snappedEnd = this._snapBeat(Math.max(this._drag.clipOriginalBeat + 0.25, rawNewEnd));
                 const newDuration = Math.max(0.25, snappedEnd - this._drag.clipOriginalBeat);
-
-                this._trimPreview = {
-                    clipId: this._drag.clipId,
-                    startBeat: this._drag.clipOriginalBeat,
-                    durationBeats: newDuration,
-                };
+                this._trimPreview = { clipId: this._drag.clipId, startBeat: this._drag.clipOriginalBeat, durationBeats: newDuration };
                 this._requestRedraw();
                 break;
             }
@@ -1278,12 +1267,10 @@ export class TimelineEngine {
             case DragMode.ClipFadeIn: {
                 canvas.style.cursor = 'ew-resize';
                 if (!this._drag.clipId) break;
-                this._syncHoveredClip(this._drag.clipId);
-                const clip = this._clips.find((c) => c.id === this._drag.clipId);
+                const clip = this._clips.find(c => c.id === this._drag.clipId);
                 if (!clip || clip.durationBeats <= 0) break;
-                const deltaBeats = beat - this._drag.startBeat;
-                const deltaFraction = deltaBeats / clip.durationBeats;
-                const fineFactor = e.altKey && e.shiftKey ? 0.08 : e.altKey ? 0.14 : e.shiftKey ? 0.28 : 1;
+                const deltaFraction = (beat - this._drag.startBeat) / clip.durationBeats;
+                const fineFactor = e.altKey ? (e.shiftKey ? 0.08 : 0.14) : (e.shiftKey ? 0.28 : 1);
                 clip.fadeIn = this._clampFadeFraction((this._drag.clipOriginalFadeIn ?? 0) + deltaFraction * fineFactor);
                 this._requestRedraw();
                 break;
@@ -1292,12 +1279,10 @@ export class TimelineEngine {
             case DragMode.ClipFadeOut: {
                 canvas.style.cursor = 'ew-resize';
                 if (!this._drag.clipId) break;
-                this._syncHoveredClip(this._drag.clipId);
-                const clip = this._clips.find((c) => c.id === this._drag.clipId);
+                const clip = this._clips.find(c => c.id === this._drag.clipId);
                 if (!clip || clip.durationBeats <= 0) break;
-                const deltaBeats = beat - this._drag.startBeat;
-                const deltaFraction = deltaBeats / clip.durationBeats;
-                const fineFactor = e.altKey && e.shiftKey ? 0.08 : e.altKey ? 0.14 : e.shiftKey ? 0.28 : 1;
+                const deltaFraction = (beat - this._drag.startBeat) / clip.durationBeats;
+                const fineFactor = e.altKey ? (e.shiftKey ? 0.08 : 0.14) : (e.shiftKey ? 0.28 : 1);
                 clip.fadeOut = this._clampFadeFraction((this._drag.clipOriginalFadeOut ?? 0) - deltaFraction * fineFactor);
                 this._requestRedraw();
                 break;
@@ -1307,7 +1292,6 @@ export class TimelineEngine {
             case DragMode.ClipFadeOutCurve: {
                 canvas.style.cursor = 'pointer';
                 if (!this._drag.clipId || !canvas) break;
-                this._syncHoveredClip(this._drag.clipId);
                 const clip = this._clips.find((c) => c.id === this._drag.clipId);
                 if (!clip) break;
                 const rect = canvas.getBoundingClientRect();
@@ -1315,8 +1299,7 @@ export class TimelineEngine {
                 const localY = e.clientY - rect.top;
                 const clipLeftPx = this._viewport.beatsToScreenX(clip.startBeat);
                 const clipRightPx = this._viewport.beatsToScreenX(clip.startBeat + clip.durationBeats);
-                const clipTopPx =
-                    this._viewport.rulerHeight + this._viewport.trackOffsetY(clip.trackIndex) - this._viewport.scrollY;
+                const clipTopPx = this._viewport.rulerHeight + this._viewport.trackOffsetY(clip.trackIndex) - this._viewport.scrollY;
                 const body = this._getFadeBodyBounds(clipTopPx, this._viewport.trackHeightAt(clip.trackIndex));
                 const bodyHeight = Math.max(6, body.bottom - body.top);
                 const yCurveIn = this._clampFadeCurve((body.bottom - localY) / bodyHeight);
@@ -1327,14 +1310,14 @@ export class TimelineEngine {
                     const xCurve = this._clampFadeCurve((localX - clipLeftPx) / Math.max(1, fadeWidth));
                     const target = this._clampFadeCurve((xCurve * 0.7) + (yCurveIn * 0.3));
                     const origin = this._drag.clipOriginalFadeInCurve ?? 0.5;
-                    const fineFactor = e.altKey && e.shiftKey ? 0.08 : e.altKey ? 0.12 : e.shiftKey ? 0.22 : 1;
+                    const fineFactor = e.altKey ? (e.shiftKey ? 0.08 : 0.12) : (e.shiftKey ? 0.22 : 1);
                     clip.fadeInCurve = this._clampFadeCurve(origin + (target - origin) * fineFactor);
                 } else {
                     const fadeWidth = Math.max(8, (clipRightPx - clipLeftPx) * this._clampFadeFraction(clip.fadeOut ?? 0));
                     const xCurve = this._clampFadeCurve((clipRightPx - localX) / Math.max(1, fadeWidth));
                     const target = this._clampFadeCurve((xCurve * 0.7) + (yCurveOut * 0.3));
                     const origin = this._drag.clipOriginalFadeOutCurve ?? 0.5;
-                    const fineFactor = e.altKey && e.shiftKey ? 0.08 : e.altKey ? 0.12 : e.shiftKey ? 0.22 : 1;
+                    const fineFactor = e.altKey ? (e.shiftKey ? 0.08 : 0.12) : (e.shiftKey ? 0.22 : 1);
                     clip.fadeOutCurve = this._clampFadeCurve(origin + (target - origin) * fineFactor);
                 }
                 this._requestRedraw();
@@ -1343,11 +1326,8 @@ export class TimelineEngine {
 
             case DragMode.LoopStartMove: {
                 canvas.style.cursor = 'ew-resize';
-                // Bug #74: removed magic 1_000_000 clamp; use a reasonable max.
-                const clampedBeat = Math.max(0, beat);
-                const snapped = this._snapBeat(clampedBeat);
+                const snapped = this._snapBeat(Math.max(0, beat));
                 if (this._loop) {
-                    // Right marker minus minimum loop length (1 bar). Bug #73.
                     const minLoop = this._beatsPerBar > 0 ? this._beatsPerBar : MIN_LOOP_BEATS;
                     const newStart = Math.max(0, Math.min(snapped, this._loop.end - minLoop));
                     if (newStart !== this._loop.start) {
@@ -1361,10 +1341,8 @@ export class TimelineEngine {
 
             case DragMode.LoopEndMove: {
                 canvas.style.cursor = 'ew-resize';
-                const clampedBeat = Math.max(0, beat);
-                const snapped = this._snapBeat(clampedBeat);
+                const snapped = this._snapBeat(Math.max(0, beat));
                 if (this._loop) {
-                    // Left marker plus minimum loop length (1 bar). Bug #73.
                     const minLoop = this._beatsPerBar > 0 ? this._beatsPerBar : MIN_LOOP_BEATS;
                     const newEnd = Math.max(this._loop.start + minLoop, snapped);
                     if (newEnd !== this._loop.end) {
@@ -1380,49 +1358,30 @@ export class TimelineEngine {
                 const dx = Math.abs(e.clientX - (this._drag.startClientX ?? e.clientX));
                 const verticalLineMode = dx <= 6;
                 canvas.style.cursor = verticalLineMode ? 'ns-resize' : 'default';
-                const snappedBeat = verticalLineMode
-                    ? this._drag.startBeat
-                    : this._snapBeat(Math.max(0, beat));
+                const snappedBeat = verticalLineMode ? this._drag.startBeat : this._snapBeat(Math.max(0, beat));
                 const clampedTrack = Math.max(0, Math.min(this._viewport.trackCount - 1, track));
                 this._drag.currentBeat = snappedBeat;
                 this._drag.currentTrack = clampedTrack;
-                this._setMarquee({
-                    startBeat: this._drag.startBeat,
-                    endBeat: snappedBeat,
-                    startTrack: this._drag.startTrack,
-                    endTrack: clampedTrack,
-                }, false);
+                this._setMarquee({ startBeat: this._drag.startBeat, endBeat: snappedBeat, startTrack: this._drag.startTrack, endTrack: clampedTrack }, false);
                 break;
             }
 
             case DragMode.MultiCursorSelect: {
                 const dx = Math.abs(e.clientX - (this._drag.startClientX ?? e.clientX));
                 if (dx > 6) {
-                    // User moved sideways: promote to classic 2D marquee.
                     this._drag.mode = DragMode.MarqueeSelect;
                     const snappedBeat = this._snapBeat(Math.max(0, beat));
                     const clampedTrack = Math.max(0, Math.min(this._viewport.trackCount - 1, track));
                     this._drag.currentBeat = snappedBeat;
                     this._drag.currentTrack = clampedTrack;
-                    this._setMarquee({
-                        startBeat: this._drag.startBeat,
-                        endBeat: snappedBeat,
-                        startTrack: this._drag.startTrack,
-                        endTrack: clampedTrack,
-                    }, false);
-                    break;
+                    this._setMarquee({ startBeat: this._drag.startBeat, endBeat: snappedBeat, startTrack: this._drag.startTrack, endTrack: clampedTrack }, false);
+                } else {
+                    canvas.style.cursor = 'ns-resize';
+                    const clampedTrack = Math.max(0, Math.min(this._viewport.trackCount - 1, track));
+                    this._drag.currentTrack = clampedTrack;
+                    this._drag.currentBeat = this._drag.startBeat;
+                    this._setMarquee({ startBeat: this._drag.startBeat, endBeat: this._drag.startBeat, startTrack: this._drag.startTrack, endTrack: clampedTrack }, false);
                 }
-
-                canvas.style.cursor = 'ns-resize';
-                const clampedTrack = Math.max(0, Math.min(this._viewport.trackCount - 1, track));
-                this._drag.currentTrack = clampedTrack;
-                this._drag.currentBeat = this._drag.startBeat;
-                this._setMarquee({
-                    startBeat: this._drag.startBeat,
-                    endBeat: this._drag.startBeat,
-                    startTrack: this._drag.startTrack,
-                    endTrack: clampedTrack,
-                }, false);
                 break;
             }
         }
@@ -1708,55 +1667,9 @@ export class TimelineEngine {
         }
     }
 
-    private _onKeyDown(e: KeyboardEvent): void {
-        // Escape cancels any active drag without committing changes.
-        if (e.key === 'Escape' && this._drag.mode !== DragMode.None) {
-            const canvas = this._canvas;
-
-            // Restore the primary dragged clip to its original position.
-            if (this._drag.clipId) {
-                const clip = this._clips.find(c => c.id === this._drag.clipId);
-                if (clip) {
-                    clip.startBeat = this._drag.clipOriginalBeat;
-                    clip.trackIndex = this._drag.clipOriginalTrack;
-                }
-            }
-            // Restore co-movers.
-            if (this._drag.coMoverOrigins) {
-                for (const [id, origin] of this._drag.coMoverOrigins) {
-                    const co = this._clips.find(c => c.id === id);
-                    if (co) {
-                        co.startBeat = origin.beat;
-                        co.trackIndex = origin.track;
-                    }
-                }
-            }
-            // Clear trim preview (resize cancel).
-            this._trimPreview = null;
-
-            if (canvas) canvas.style.cursor = 'default';
-            this._drag = {
-                mode: DragMode.None,
-                clipId: null,
-                startBeat: 0,
-                startTrack: 0,
-                currentBeat: 0,
-                currentTrack: 0,
-                clipOriginalBeat: 0,
-                clipOriginalTrack: 0,
-                clipOriginalDuration: 0,
-            };
-            this._setMarquee(null);
-            this._requestRedraw();
-            e.stopPropagation();
-        }
-    }
-
     private _onContextMenu(e: MouseEvent): void {
         const hit = this.hitTest(e.clientX, e.clientY);
         // Bug #79: only intercept right-click on fade zone/curve handles.
-        // All other right-clicks should pass through to the native context menu
-        // (or React's onContextMenu handler on the canvas parent).
         if (hit.type !== 'clip' || !hit.clipId) {
             return; // let native menu show
         }
@@ -1826,10 +1739,6 @@ export class TimelineEngine {
 
         if (paths.length > 0) {
             this._waveformCache.prefetch(paths);
-            // Re-request draw when waveforms load — use requestIdleCallback
-            // to avoid blocking the main thread during scroll/zoom.
-            // Bug fix: store handle so detach() can cancel the callback and
-            // avoid use-after-detach redraws.
             if (typeof requestIdleCallback === 'function') {
                 if (this._prefetchIdleId) cancelIdleCallback(this._prefetchIdleId);
                 this._prefetchIdleId = requestIdleCallback(() => {
@@ -1855,5 +1764,35 @@ export class TimelineEngine {
         if (this._metaKeyHeld) return beat;
         if (!this._snapEnabled || this._snapBeats <= 0) return beat;
         return Math.round(beat / this._snapBeats) * this._snapBeats;
+    }
+
+    private _onKeyDown(e: KeyboardEvent): void {
+        this._metaKeyHeld = e.metaKey || e.ctrlKey;
+
+        if (e.key === 'Escape') {
+            if (this._drag.mode !== DragMode.None) {
+                // Cancel drag: restore positions and end drag.
+                if (this._drag.clipId) {
+                    const c = this._clips.find(cl => cl.id === this._drag.clipId);
+                    if (c) {
+                        c.startBeat = this._drag.clipOriginalBeat;
+                        c.trackIndex = this._drag.clipOriginalTrack;
+                    }
+                    if (this._drag.coMoverOrigins) {
+                        for (const [id, origin] of this._drag.coMoverOrigins) {
+                            const co = this._clips.find(cl => cl.id === id);
+                            if (co) {
+                                co.startBeat = origin.beat;
+                                co.trackIndex = origin.track;
+                            }
+                        }
+                    }
+                }
+                this._drag = { mode: DragMode.None, clipId: null, startBeat: 0, startTrack: 0, currentBeat: 0, currentTrack: 0, clipOriginalBeat: 0, clipOriginalTrack: 0, clipOriginalDuration: 0 };
+                this._requestRedraw();
+            } else if (this._marquee) {
+                this._setMarquee(null);
+            }
+        }
     }
 }

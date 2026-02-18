@@ -96,8 +96,13 @@ export const DawShell = () => {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [selectedTrackId, setSelectedTrackId] = useState('');
     const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
-    const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
     const [selectedClipIds, setSelectedClipIds] = useState<string[]>([]);
+    // selectedClipId is always the last element of selectedClipIds — derived synchronously
+    // via useMemo to eliminate the 1-render stale window that the old useEffect pattern had.
+    const selectedClipId = useMemo(
+        () => selectedClipIds.length > 0 ? selectedClipIds[selectedClipIds.length - 1] : null,
+        [selectedClipIds],
+    );
     const [editCursorBeat, setEditCursorBeat] = useState(0);
     const [editCursorTrackIndex, setEditCursorTrackIndex] = useState(0);
     const [editCursorTrackIndexEnd, setEditCursorTrackIndexEnd] = useState(0);
@@ -251,6 +256,8 @@ export const DawShell = () => {
     // ── Tauri Drag & Drop → Import Audio ───────────────────────────
     useEffect(() => {
         let unlisten: (() => void) | undefined;
+        // Guard against listener leak when component unmounts before setup() resolves.
+        let cancelled = false;
 
         const setup = async () => {
             // Listen for drag hover (visual feedback) — only for OS file drops, not in-app drags
@@ -292,15 +299,25 @@ export const DawShell = () => {
                 }
             });
 
-            unlisten = () => {
+            const combinedUnlisten = () => {
                 unlistenHover();
                 unlistenLeave();
                 unlistenDrop();
             };
+
+            if (cancelled) {
+                // Component unmounted before this resolved — clean up immediately.
+                combinedUnlisten();
+            } else {
+                unlisten = combinedUnlisten;
+            }
         };
 
-        setup();
-        return () => unlisten?.();
+        void setup();
+        return () => {
+            cancelled = true;
+            unlisten?.();
+        };
     }, [importFile]);
 
     const openSettings = useCallback(() => setSettingsOpen(true), []);
@@ -314,7 +331,6 @@ export const DawShell = () => {
         }
         // Track selection should never auto-select clips.
         setSelectedClipIds([]);
-        setSelectedClipId(null);
     }, []);
 
     const handleSelectTracks = useCallback((ids: string[], primaryId: string) => {
@@ -328,19 +344,9 @@ export const DawShell = () => {
         }
         // Multi-track selection should never auto-select clips.
         setSelectedClipIds([]);
-        setSelectedClipId(null);
     }, []);
 
-    // Canonicalize clip selection source-of-truth:
-    // selectedClipId is always derived from selectedClipIds tail.
-    useEffect(() => {
-        const derivedPrimary = selectedClipIds.length > 0
-            ? selectedClipIds[selectedClipIds.length - 1]
-            : null;
-        if (selectedClipId !== derivedPrimary) {
-            setSelectedClipId(derivedPrimary);
-        }
-    }, [selectedClipIds, selectedClipId]);
+    // selectedClipId is now a useMemo derived from selectedClipIds — no useEffect needed.
 
     // Keep selectedTrackId consistent with selectedTrackIds when multi-select changes.
     useEffect(() => {
@@ -600,6 +606,18 @@ export const DawShell = () => {
         () => timelineClipsForView.find((c) => c.id === selectedClipId) ?? null,
         [timelineClipsForView, selectedClipId],
     );
+    // Memoize loop region beat values to avoid recomputing inline in JSX on every render
+    // (which would trigger spurious downstream effects during playback position updates).
+    const _loopBpm = projectBpm || transportBpm || 120;
+    const loopStartBeat = useMemo(
+        () => frameToBeat(transportLoopStart, _loopBpm, projectSampleRate),
+        [transportLoopStart, _loopBpm, projectSampleRate],
+    );
+    const loopEndBeat = useMemo(
+        () => frameToBeat(transportLoopEnd, _loopBpm, projectSampleRate),
+        [transportLoopEnd, _loopBpm, projectSampleRate],
+    );
+
     const missingMediaSummary = useMemo(() => {
         const offlineClipCount = timelineClipsForView.filter((c) => c.type === 'audio' && c.isOffline).length;
         let missingPluginCount = 0;
@@ -985,7 +1003,6 @@ export const DawShell = () => {
     const handleMarqueeSelectionStart = useCallback(() => {
         // Selection-box mode is mutually exclusive with cursor and clip selection.
         setEditCursorBeat(-1);
-        setSelectedClipId(null);
         setSelectedClipIds([]);
         setMarqueeSelection(null);
     }, []);
@@ -1028,7 +1045,6 @@ export const DawShell = () => {
 
     // Clip selection callback
     const handleClipSelect = useCallback((clipId: string) => {
-        setSelectedClipId(clipId);
         setSelectedClipIds([clipId]);
         // Mutual exclusivity: clip selection ⇒ hide edit cursor. (DEPRECATED: We want cursor to stay when clicking body)
         // setEditCursorBeat(-1);
@@ -1160,7 +1176,7 @@ export const DawShell = () => {
     }, [scheduleProjectRefresh]);
 
     const handleOpenMidiClip = useCallback((clipId: string) => {
-        setSelectedClipId(clipId);
+        setSelectedClipIds([clipId]);
         setBottomPanelModeForActiveTrack('clip');
     }, [setBottomPanelModeForActiveTrack]);
 
@@ -1286,8 +1302,8 @@ export const DawShell = () => {
                                         recordingActive={recordingState.active}
                                         recordingTrackIndex={recordingState.trackIndex}
                                         trackIds={trackIds}
-                                        loopStart={frameToBeat(transportLoopStart, projectBpm || transportBpm || 120, projectSampleRate)}
-                                        loopEnd={frameToBeat(transportLoopEnd, projectBpm || transportBpm || 120, projectSampleRate)}
+                                        loopStart={loopStartBeat}
+                                        loopEnd={loopEndBeat}
                                         loopEnabled={transportLoopEnabled}
                                         trackCount={trackCount}
                                         trackHeight={TRACK_HEIGHT_BASE}
@@ -1300,7 +1316,6 @@ export const DawShell = () => {
                                         selectedClipIds={selectedClipIds}
                                         onClipSelectionChange={(ids) => {
                                             setSelectedClipIds(ids);
-                                            setSelectedClipId(ids[ids.length - 1] ?? null);
                                             // Mutual exclusivity: clip selection ⇒ hide edit cursor. (DEPRECATED)
                                             // if (ids.length > 0) setEditCursorBeat(-1);
                                             // Select tracks that own the selected clips.

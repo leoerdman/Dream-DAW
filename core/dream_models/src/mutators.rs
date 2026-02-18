@@ -285,6 +285,111 @@ pub fn split_clip(
     Ok(result)
 }
 
+// ── Split MIDI Clip ──────────────────────────────────────────────────────
+
+/// Splits a MIDI clip at the given sample frame position.
+///
+/// The split produces two MIDI clips:
+/// - **Left half**: keeps the original UUID, spans [clip_start, split_frame).
+///   Notes that start before the split point are kept. Notes spanning the
+///   split boundary are truncated (duration reduced to end at split point).
+/// - **Right half**: gets a new UUID, spans [split_frame, clip_end).
+///   Notes that start at or after the split point are moved, with their
+///   `start_frame` adjusted relative to the new clip start.
+///
+/// Both halves preserve all clip metadata (envelopes, groove, loop, etc.).
+pub fn split_midi_clip(
+    project: &mut Project,
+    clip_id: Uuid,
+    split_frame: i64,
+) -> Result<SplitResult, MutatorError> {
+    let (track_idx, clip_idx) = find_midi_clip_location(project, clip_id)?;
+
+    let clip = &project.tracks[track_idx].midi_clips[clip_idx];
+    let clip_start = clip.position.sample_frame;
+    let clip_end = clip.end_position().sample_frame;
+
+    // Validate split position is strictly inside the clip
+    if split_frame <= clip_start || split_frame >= clip_end {
+        return Err(MutatorError::SplitOutOfBounds {
+            clip_start,
+            clip_end,
+            split_frame,
+        });
+    }
+
+    let left_duration = split_frame - clip_start;
+    let right_duration = clip_end - split_frame;
+
+    if left_duration < MIN_CLIP_FRAMES || right_duration < MIN_CLIP_FRAMES {
+        return Err(MutatorError::ClipTooShort {
+            clip_duration: clip.duration.sample_frame,
+            min_duration: MIN_CLIP_FRAMES * 2,
+        });
+    }
+
+    // ── Partition notes ───────────────────────────────────────────────
+    // Notes are relative to clip start. The split boundary in clip-local
+    // coordinates is: split_local = split_frame - clip_start.
+    let split_local = split_frame - clip_start;
+
+    let original = &project.tracks[track_idx].midi_clips[clip_idx];
+
+    let mut left_notes: Vec<crate::midi::MidiNote> = Vec::new();
+    let mut right_notes: Vec<crate::midi::MidiNote> = Vec::new();
+
+    for note in &original.notes {
+        if note.start_frame >= split_local {
+            // Note starts at or after split → goes to right half
+            right_notes.push(crate::midi::MidiNote {
+                start_frame: note.start_frame - split_local,
+                ..*note
+            });
+        } else if note.end_frame() <= split_local {
+            // Note ends before or at split → goes entirely to left half
+            left_notes.push(*note);
+        } else {
+            // Note spans the split boundary → truncate in left half
+            left_notes.push(crate::midi::MidiNote {
+                duration_frames: split_local - note.start_frame,
+                ..*note
+            });
+        }
+    }
+
+    // ── Create the two halves ─────────────────────────────────────────
+
+    let left = MidiClip {
+        id: original.id,
+        duration: AbsoluteTime::new(left_duration),
+        fade_out_frames: 0,
+        notes: left_notes,
+        ..original.clone()
+    };
+
+    let right = MidiClip {
+        id: Uuid::new_v4(),
+        name: format!("{} (split)", original.name),
+        position: AbsoluteTime::new(split_frame),
+        duration: AbsoluteTime::new(right_duration),
+        fade_in_frames: 0,
+        is_selected: false,
+        notes: right_notes,
+        ..original.clone()
+    };
+
+    let result = SplitResult {
+        left_id: left.id,
+        right_id: right.id,
+    };
+
+    let track = &mut project.tracks[track_idx];
+    track.midi_clips[clip_idx] = left;
+    track.midi_clips.insert(clip_idx + 1, right);
+
+    Ok(result)
+}
+
 // ── Delete Clip ───────────────────────────────────────────────────────────
 
 /// Removes a clip from the project by UUID.

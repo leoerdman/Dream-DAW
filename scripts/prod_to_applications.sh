@@ -3,8 +3,8 @@
 # Dream DAW — Production Build → Install to /Applications
 #
 # Usage:
-#   ./scripts/production_to_app.sh          # build + install
-#   ./scripts/production_to_app.sh --skip-install   # build only, no copy
+#   ./scripts/prod_to_applications.sh          # build + install
+#   ./scripts/prod_to_applications.sh --skip-install   # build only, no copy
 ###############################################################################
 set -euo pipefail
 

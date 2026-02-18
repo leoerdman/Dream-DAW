@@ -691,12 +691,14 @@ async fn resize_clip_cmd(
 ///
 /// Returns the UUIDs of the two resulting clips (left keeps original UUID).
 /// Both halves preserve correct source_offset for seamless playback.
+/// Handles both audio and MIDI clips — tries audio first, falls back to MIDI.
 #[tauri::command]
 async fn split_clip_cmd(
     clip_id: String,
     split_frame: i64,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<SplitClipResponse, String> {
     let uuid = Uuid::parse_str(&clip_id)
@@ -707,11 +709,18 @@ async fn split_clip_cmd(
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
 
-    let result = mutators::split_clip(&mut project, uuid, split_frame)
-        .map_err(mutator_err_to_string)?;
+    // Try audio clip split first, fall back to MIDI clip split
+    let result = match mutators::split_clip(&mut project, uuid, split_frame) {
+        Ok(r) => r,
+        Err(_audio_err) => {
+            mutators::split_midi_clip(&mut project, uuid, split_frame)
+                .map_err(mutator_err_to_string)?
+        }
+    };
 
     let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
+    rebuild_midi_snapshot_from_project(&project, &handle);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
 

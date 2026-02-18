@@ -906,9 +906,13 @@ export const PianoRoll = memo(function PianoRoll({
 
             const target = e.currentTarget as HTMLElement;
             const edgeGripPx = 6;
-            const mode = e.nativeEvent.offsetX >= target.clientWidth - edgeGripPx
+            // Bug #26: use getBoundingClientRect for reliable edge detection
+            // instead of offsetX which can be relative to a child element.
+            const targetRect = target.getBoundingClientRect();
+            const localX = e.clientX - targetRect.left;
+            const mode = localX >= targetRect.width - edgeGripPx
                 ? 'resize-right'
-                : e.nativeEvent.offsetX <= edgeGripPx
+                : localX <= edgeGripPx
                     ? 'resize-left'
                     : 'move';
 
@@ -974,7 +978,21 @@ export const PianoRoll = memo(function PianoRoll({
                     const rawStart = original.startBeat + beatDelta;
                     // Clamp to clipBeats (actual clip length), not totalBeats (zoom-derived).
                     const newBeat = Math.max(0, Math.min(clipBeats - MIN_NOTE_BEATS, shouldSnap ? snapBeat(rawStart, beatsPerBar, pixelsPerBeat) : rawStart));
-                    const newPitch = Math.max(LOWEST_PITCH, Math.min(LOWEST_PITCH + TOTAL_KEYS - 1, original.pitch + pitchDelta));
+                    // Bug #14: In drum mode, constrain pitch transposition to the defined
+                    // drum lane pitches so notes don't become invisible (off-lane).
+                    let newPitch: number;
+                    if (drumMode && pitchDelta !== 0) {
+                        const drumPitches = visiblePitches; // already sorted high→low
+                        const currentRow = drumPitches.indexOf(original.pitch);
+                        if (currentRow < 0) {
+                            newPitch = original.pitch; // unknown pitch, keep it
+                        } else {
+                            const newRow = Math.max(0, Math.min(drumPitches.length - 1, currentRow - pitchDelta));
+                            newPitch = drumPitches[newRow];
+                        }
+                    } else {
+                        newPitch = Math.max(LOWEST_PITCH, Math.min(LOWEST_PITCH + TOTAL_KEYS - 1, original.pitch + pitchDelta));
+                    }
                     return { ...n, startBeat: newBeat, pitch: newPitch };
                 });
                 onNotesChange(enforceNoOverlap(updated, selectedIds));
@@ -995,15 +1013,19 @@ export const PianoRoll = memo(function PianoRoll({
             window.addEventListener('mousemove', onMove);
             window.addEventListener('mouseup', onUp);
         },
-        [tool, notes, onNotesChange, pixelsPerBeat, noteHeight, snapBeat, beatsPerBar, totalBeats, selectedNotes, snapEnabled, auditionNote, enforceNoOverlap],
+        [tool, notes, onNotesChange, pixelsPerBeat, noteHeight, snapBeat, beatsPerBar, clipBeats, selectedNotes, snapEnabled, auditionNote, enforceNoOverlap, drumMode, visiblePitches],
     );
 
     const [hoveredNoteEdge, setHoveredNoteEdge] = useState<string | null>(null);
 
     const handleNoteMouseMove = (e: React.MouseEvent, noteId: string) => {
-        const target = e.currentTarget as HTMLElement;
+        // Bug #26: offsetX is relative to the event target which may be a child element,
+        // not the note div itself. Use getBoundingClientRect for reliable edge detection.
+        const noteDiv = e.currentTarget as HTMLElement;
+        const rect = noteDiv.getBoundingClientRect();
+        const localX = e.clientX - rect.left;
         const edgeGripPx = 6;
-        const isEdge = e.nativeEvent.offsetX >= target.clientWidth - edgeGripPx || e.nativeEvent.offsetX <= edgeGripPx;
+        const isEdge = localX >= rect.width - edgeGripPx || localX <= edgeGripPx;
         setHoveredNoteEdge(isEdge ? noteId : null);
     };
 

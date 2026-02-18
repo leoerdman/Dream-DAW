@@ -298,10 +298,26 @@ export const PianoRoll = memo(function PianoRoll({
     // the global `useKeyboardShortcuts` hook → `engine.undo()` / `engine.redo()`.
     const clipboardRef = useRef<MidiNote[]>([]);
 
+    // Bug #33: Prune selectedNotes whenever the notes array is replaced externally
+    // (e.g. after undo/redo from the backend). Stale IDs cause invisible phantom
+    // selections that confuse operations like delete, transpose, etc.
+    useEffect(() => {
+        const noteIdSet = new Set(notes.map((n) => n.id));
+        setSelectedNotes((prev) => {
+            const pruned = new Set<string>();
+            for (const id of prev) {
+                if (noteIdSet.has(id)) pruned.add(id);
+            }
+            return pruned.size === prev.size ? prev : pruned;
+        });
+    }, [notes]);
+
     const copySelection = useCallback(() => {
         const targets = notes.filter((n) => selectedNotes.has(n.id));
         if (targets.length === 0) return;
-        clipboardRef.current = targets;
+        // Bug #28: Store a deep-cloned snapshot so later mutations to live notes
+        // don't silently corrupt the clipboard contents.
+        clipboardRef.current = targets.map((n) => ({ ...n }));
     }, [notes, selectedNotes]);
 
 
@@ -336,6 +352,7 @@ export const PianoRoll = memo(function PianoRoll({
     const enforceNoOverlap = useCallback((input: MidiNote[], aggressorIds: Set<string>): MidiNote[] => {
         if (input.length <= 1 || aggressorIds.size === 0) return input;
 
+        // Work on mutable copies keyed by id.
         const byId = new Map<string, MidiNote>(input.map((n) => [n.id, { ...n }]));
         const deleted = new Set<string>();
 
@@ -350,7 +367,7 @@ export const PianoRoll = memo(function PianoRoll({
             const aEnd = a.startBeat + a.durationBeats;
 
             for (const [id, b] of byId) {
-                if (id === a.id || deleted.has(id)) continue;
+                if (id === a.id || deleted.has(id) || aggressorIds.has(id)) continue;
                 if (b.pitch !== a.pitch) continue;
 
                 const bStart = b.startBeat;
@@ -358,31 +375,36 @@ export const PianoRoll = memo(function PianoRoll({
                 const overlaps = aEnd > bStart + EPS && bEnd > aStart + EPS;
                 if (!overlaps) continue;
 
+                // Aggressor starts at or before victim: trim victim's tail so it
+                // ends where the aggressor begins. Only delete if too short to keep.
                 if (aStart <= bStart + EPS) {
+                    // Aggressor completely covers victim start — delete victim.
                     deleted.add(id);
                     continue;
                 }
 
+                // Victim starts before aggressor: trim victim's tail.
                 const trimmedDuration = aStart - bStart;
-                if (trimmedDuration <= EPS) {
+                if (trimmedDuration < MIN_NOTE_BEATS) {
                     deleted.add(id);
                 } else {
-                    b.durationBeats = Math.max(EPS, trimmedDuration);
+                    b.durationBeats = trimmedDuration;
                 }
             }
         }
 
+        // Clamp all notes to clipBeats (actual clip length), not totalBeats
+        // (which is zoom-derived and can exceed the clip's real duration).
+        const maxBeat = clipBeats;
         return input
             .filter((n) => !deleted.has(n.id))
             .map((n) => {
                 const next = byId.get(n.id) ?? n;
-                return {
-                    ...next,
-                    durationBeats: Math.max(EPS, Math.min(totalBeats - next.startBeat, next.durationBeats)),
-                };
+                const clampedDur = Math.min(next.durationBeats, maxBeat - next.startBeat);
+                return { ...next, durationBeats: Math.max(MIN_NOTE_BEATS, clampedDur) };
             })
-            .filter((n) => n.durationBeats > EPS);
-    }, [totalBeats]);
+            .filter((n) => n.durationBeats >= MIN_NOTE_BEATS && n.startBeat < maxBeat);
+    }, [clipBeats]);
 
     const pasteClipboard = useCallback(() => {
         if (clipboardRef.current.length === 0) return;
@@ -743,10 +765,9 @@ export const PianoRoll = memo(function PianoRoll({
         (e: React.MouseEvent, noteId: string) => {
             e.stopPropagation();
             editorRootRef.current?.focus();
-            if (tool === 'draw') {
-                onNotesChange(notes.filter((n) => n.id !== noteId));
-                return;
-            }
+            // In draw mode, clicking a note selects it (like paint mode).
+            // Deletion is intentional only via the Delete/Backspace key,
+            // not on accidental click-up after a drag.
             const target = notes.find((n) => n.id === noteId);
             if (target) auditionNote(target.pitch, target.velocity, 120);
             setSelectedNotes((prev) => {
@@ -761,7 +782,7 @@ export const PianoRoll = memo(function PianoRoll({
                 return next;
             });
         },
-        [tool, notes, onNotesChange, auditionNote],
+        [notes, auditionNote],
     );
 
     const handleGridSelectionStart = useCallback((e: React.MouseEvent) => {
@@ -891,11 +912,15 @@ export const PianoRoll = memo(function PianoRoll({
                     if (mode === 'resize-left') {
                         if (n.id !== noteId) return n;
                         const rawStart = original.startBeat + beatDelta;
-                        const snappedBeat = Math.max(0, Math.min(totalBeats - MIN_NOTE_BEATS, shouldSnap ? snapBeat(rawStart, beatsPerBar, pixelsPerBeat) : rawStart));
+                        // Clamp new start: must be >= 0 and <= (note end - MIN_NOTE_BEATS)
+                        // so note can never collapse past zero or flip direction.
+                        const noteEnd = original.startBeat + original.durationBeats;
+                        const maxStart = noteEnd - MIN_NOTE_BEATS;
+                        const snappedBeat = Math.max(0, Math.min(maxStart, shouldSnap ? snapBeat(rawStart, beatsPerBar, pixelsPerBeat) : rawStart));
                         return {
                             ...n,
                             startBeat: snappedBeat,
-                            durationBeats: Math.max(MIN_NOTE_BEATS, original.durationBeats + (original.startBeat - snappedBeat)),
+                            durationBeats: Math.max(MIN_NOTE_BEATS, noteEnd - snappedBeat),
                         };
                     }
 
@@ -1017,8 +1042,10 @@ export const PianoRoll = memo(function PianoRoll({
     }, [notes, onNotesChange, selectedNotes, activeLane, readLaneValue, auditionNote]);
 
     const transposeNotes = useCallback((delta: number) => {
-        if (delta === 0 || notes.length === 0) return;
-        const targets = selectedNotes.size > 0 ? selectedNotes : new Set(notes.map((n) => n.id));
+        // Bug #34: Only transpose selected notes. If nothing selected, do nothing
+        // to avoid accidentally transposing the entire clip.
+        if (delta === 0 || notes.length === 0 || selectedNotes.size === 0) return;
+        const targets = selectedNotes;
         const next = notes.map((n) => {
             if (!targets.has(n.id)) return n;
             return { ...n, pitch: Math.max(LOWEST_PITCH, Math.min(HIGHEST_PITCH, n.pitch + delta)) };
@@ -1030,21 +1057,23 @@ export const PianoRoll = memo(function PianoRoll({
     const quantizeAllNotesToGrid = useCallback((amountPct = quantizeAmount) => {
         const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
         const amt = Math.max(0, Math.min(1, amountPct / 100));
-        const targetIds = selectedNotes.size > 0 ? selectedNotes : null;
+        // Bug #35: Only quantize selected notes. Require an explicit selection.
+        if (selectedNotes.size === 0) return;
+        const targetIds = selectedNotes;
         const next = notes.map((n) => {
-            if (targetIds && !targetIds.has(n.id)) return n;
+            if (!targetIds.has(n.id)) return n;
             const snappedStart = snapBeat(n.startBeat, beatsPerBar, pixelsPerBeat);
             const snappedDur = Math.max(step, Math.round(n.durationBeats / step) * step);
             const blendedStart = n.startBeat + (snappedStart - n.startBeat) * amt;
             const blendedDur = n.durationBeats + (snappedDur - n.durationBeats) * amt;
             return {
                 ...n,
-                startBeat: Math.max(0, Math.min(totalBeats - step, blendedStart)),
-                durationBeats: Math.max(step, blendedDur),
+                startBeat: Math.max(0, Math.min(clipBeats - step, blendedStart)),
+                durationBeats: Math.max(step, Math.min(clipBeats - blendedStart, blendedDur)),
             };
         });
-        onNotesChange(enforceNoOverlap(next, targetIds ?? new Set(next.map((n) => n.id))));
-    }, [notes, onNotesChange, currentGridInterval, snapBeat, beatsPerBar, pixelsPerBeat, totalBeats, selectedNotes, quantizeAmount, enforceNoOverlap]);
+        onNotesChange(enforceNoOverlap(next, targetIds));
+    }, [notes, onNotesChange, currentGridInterval, snapBeat, beatsPerBar, pixelsPerBeat, clipBeats, selectedNotes, quantizeAmount, enforceNoOverlap]);
 
     const duplicateSelection = useCallback(() => {
         const targets = selectedNotes.size > 0 ? notes.filter((n) => selectedNotes.has(n.id)) : notes;
@@ -1071,7 +1100,9 @@ export const PianoRoll = memo(function PianoRoll({
     }, [selectedNotes, notes]);
 
     const humanizeSelection = useCallback(() => {
-        const targets = selectedNotes.size > 0 ? selectedNotes : new Set(notes.map((n) => n.id));
+        // Bug #36: Only humanize selected notes. Require an explicit selection.
+        if (selectedNotes.size === 0) return;
+        const targets = selectedNotes;
         const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
         const next = notes.map((n) => {
             if (!targets.has(n.id)) return n;
@@ -1079,15 +1110,17 @@ export const PianoRoll = memo(function PianoRoll({
             const velocity = Math.round((Math.random() - 0.5) * 10);
             return {
                 ...n,
-                startBeat: Math.max(0, Math.min(totalBeats - MIN_NOTE_BEATS, n.startBeat + timing)),
+                startBeat: Math.max(0, Math.min(clipBeats - MIN_NOTE_BEATS, n.startBeat + timing)),
                 velocity: Math.max(1, Math.min(127, n.velocity + velocity)),
             };
         });
         onNotesChange(enforceNoOverlap(next, targets));
-    }, [selectedNotes, notes, currentGridInterval, totalBeats, onNotesChange, enforceNoOverlap]);
+    }, [selectedNotes, notes, currentGridInterval, clipBeats, onNotesChange, enforceNoOverlap]);
 
     const applyLegato = useCallback(() => {
-        const targets = selectedNotes.size > 0 ? selectedNotes : new Set(notes.map((n) => n.id));
+        // Bug #37: Only apply legato to selected notes. Require an explicit selection.
+        if (selectedNotes.size === 0) return;
+        const targets = selectedNotes;
         const byPitch = new Map<number, MidiNote[]>();
         notes.forEach((n) => {
             if (!targets.has(n.id)) return;

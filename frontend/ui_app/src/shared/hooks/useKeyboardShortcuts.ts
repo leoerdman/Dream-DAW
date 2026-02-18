@@ -163,8 +163,11 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 return;
             }
 
-            // ── Cmd/Ctrl + Shift + Z: Redo ────────────────────────
-            if (isModKey(e) && e.shiftKey && e.key.toLowerCase() === 'z' && !e.repeat) {
+            // ── Cmd/Ctrl + Shift + Z  OR  Ctrl + Y: Redo ─────────
+            const isRedo =
+                (isModKey(e) && e.shiftKey && e.key.toLowerCase() === 'z') ||
+                (e.ctrlKey && !e.shiftKey && !e.metaKey && e.key.toLowerCase() === 'y');
+            if (isRedo && !e.repeat) {
                 e.preventDefault();
                 e.stopPropagation();
                 try {

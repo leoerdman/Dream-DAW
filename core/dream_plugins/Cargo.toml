@@ -18,6 +18,7 @@ dream_models = { path = "../dream_models" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.25"
+objc = "0.2"
 
 [dev-dependencies]
 env_logger = { workspace = true }

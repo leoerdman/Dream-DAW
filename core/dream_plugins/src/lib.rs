@@ -26,6 +26,10 @@ pub mod sandbox_ipc;
 pub mod scanner;
 pub mod shared_memory;
 pub mod vst2_host;
+#[cfg(target_os = "macos")]
+#[macro_use]
+extern crate objc;
+
 pub mod vst3_host;
 
 pub use descriptor::PluginDescriptor;

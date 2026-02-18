@@ -2717,6 +2717,214 @@ struct MacEditorWindow {
     plug_view: usize,
 }
 
+// ── NSWindowDelegate for plugin editor windows ─────────────────────────────
+//
+// Prevents crashes when the user clicks the red close button. Without a
+// delegate, macOS closes the window without performing the VST3-required
+// cleanup: setFrame(null) → removed() → release(). This leaves Serum's
+// internal timers pointing at freed NSView memory → crash on next click.
+//
+// Implementation uses raw ObjC runtime C API to avoid objc crate trait
+// limitations with MethodImplementation generics.
+
+#[cfg(target_os = "macos")]
+static DELEGATE_CLASS_INIT: std::sync::Once = std::sync::Once::new();
+
+#[cfg(target_os = "macos")]
+static mut DELEGATE_CLASS: *const std::os::raw::c_char = std::ptr::null();
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn objc_allocateClassPair(
+        superclass: *const std::os::raw::c_void,
+        name: *const std::os::raw::c_char,
+        extra_bytes: usize,
+    ) -> *mut std::os::raw::c_void;
+    fn objc_registerClassPair(cls: *mut std::os::raw::c_void);
+    fn objc_getClass(name: *const std::os::raw::c_char) -> *const std::os::raw::c_void;
+    fn class_addIvar(
+        cls: *mut std::os::raw::c_void,
+        name: *const std::os::raw::c_char,
+        size: usize,
+        alignment: u8,
+        types: *const std::os::raw::c_char,
+    ) -> bool;
+    fn class_addMethod(
+        cls: *mut std::os::raw::c_void,
+        sel: *mut std::os::raw::c_void,
+        imp: *const std::os::raw::c_void,
+        types: *const std::os::raw::c_char,
+    ) -> bool;
+    fn object_getInstanceVariable(
+        obj: id,
+        name: *const std::os::raw::c_char,
+        out_value: *mut *mut std::os::raw::c_void,
+    ) -> *mut std::os::raw::c_void;
+    fn object_setInstanceVariable(
+        obj: id,
+        name: *const std::os::raw::c_char,
+        value: *mut std::os::raw::c_void,
+    ) -> *mut std::os::raw::c_void;
+}
+
+/// ObjC: `- (void)windowWillClose:(NSNotification *)notification`
+///
+/// Performs the full VST3 cleanup sequence before the window closes.
+#[cfg(target_os = "macos")]
+extern "C" fn plugin_window_will_close(this: id, _cmd: *mut c_void, _notification: id) {
+    unsafe {
+        // Retrieve stored IPlugView pointer from ivar
+        let mut plug_view_raw: *mut c_void = std::ptr::null_mut();
+        object_getInstanceVariable(
+            this,
+            b"_plugView\0".as_ptr() as _,
+            &mut plug_view_raw,
+        );
+
+        let mut cleaned_raw: *mut c_void = std::ptr::null_mut();
+        object_getInstanceVariable(
+            this,
+            b"_cleaned\0".as_ptr() as _,
+            &mut cleaned_raw,
+        );
+        let already_cleaned = cleaned_raw as usize != 0;
+
+        if already_cleaned || plug_view_raw.is_null() {
+            return;
+        }
+
+        let plug_view = plug_view_raw as *mut IPlugView;
+
+        info!("[VST3-Delegate] windowWillClose: performing VST3 cleanup for plug_view={:p}", plug_view);
+
+        // Per VST3 SDK: setFrame(null) → removed() → release()
+        let _ = ((*(*plug_view).vtbl).set_frame)(plug_view, std::ptr::null_mut());
+        let _ = ((*(*plug_view).vtbl).removed)(plug_view);
+        let _ = ((*(*plug_view).vtbl).release)(plug_view);
+
+        // Mark as cleaned so close_editor_macos doesn't double-free
+        object_setInstanceVariable(
+            this,
+            b"_cleaned\0".as_ptr() as _,
+            1usize as *mut c_void,
+        );
+    }
+}
+
+/// Registers the ObjC delegate class once and installs an instance on the window.
+#[cfg(target_os = "macos")]
+unsafe fn install_plugin_window_delegate(window: id, plug_view: *mut IPlugView) {
+    use std::os::raw::c_char;
+
+    let class_name = b"DreamDAWPluginWindowDelegate\0".as_ptr() as *const c_char;
+
+    DELEGATE_CLASS_INIT.call_once(|| {
+        let ns_object_class = objc_getClass(b"NSObject\0".as_ptr() as _);
+        let new_class = objc_allocateClassPair(ns_object_class, class_name, 0);
+        assert!(!new_class.is_null(), "Failed to create ObjC delegate class");
+
+        // Add ivars: _plugView (pointer) and _cleaned (usize used as bool)
+        class_addIvar(
+            new_class,
+            b"_plugView\0".as_ptr() as _,
+            std::mem::size_of::<*mut c_void>(),
+            std::mem::align_of::<*mut c_void>() as u8,
+            b"^v\0".as_ptr() as _,
+        );
+        class_addIvar(
+            new_class,
+            b"_cleaned\0".as_ptr() as _,
+            std::mem::size_of::<usize>(),
+            std::mem::align_of::<usize>() as u8,
+            b"Q\0".as_ptr() as _,
+        );
+
+        // Register windowWillClose:
+        unsafe extern "C" {
+            fn sel_registerName(name: *const c_char) -> *mut c_void;
+        }
+        let sel = sel_registerName(b"windowWillClose:\0".as_ptr() as _);
+        class_addMethod(
+            new_class,
+            sel,
+            plugin_window_will_close as *const c_void,
+            b"v@:@\0".as_ptr() as _,  // void, self, SEL, NSNotification*
+        );
+
+        objc_registerClassPair(new_class);
+        DELEGATE_CLASS = class_name;
+    });
+
+    // Allocate and init the delegate
+    unsafe extern "C" {
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+        fn objc_msgSend() -> id;
+    }
+    type MsgSendAlloc = unsafe extern "C" fn(*const c_void, *mut c_void) -> id;
+    type MsgSendInit = unsafe extern "C" fn(id, *mut c_void) -> id;
+    type MsgSendSetDelegate = unsafe extern "C" fn(id, *mut c_void, id);
+
+    let delegate_class = objc_getClass(class_name);
+    let sel_alloc = sel_registerName(b"alloc\0".as_ptr() as _);
+    let sel_init = sel_registerName(b"init\0".as_ptr() as _);
+    let sel_set_delegate = sel_registerName(b"setDelegate:\0".as_ptr() as _);
+
+    let send_alloc: MsgSendAlloc = std::mem::transmute(objc_msgSend as *const ());
+    let send_init: MsgSendInit = std::mem::transmute(objc_msgSend as *const ());
+    let send_set_delegate: MsgSendSetDelegate = std::mem::transmute(objc_msgSend as *const ());
+
+    let delegate = send_alloc(delegate_class, sel_alloc);
+    let delegate = send_init(delegate, sel_init);
+
+    // Store the plug_view pointer and cleaned flag
+    object_setInstanceVariable(
+        delegate,
+        b"_plugView\0".as_ptr() as _,
+        plug_view as *mut c_void,
+    );
+    object_setInstanceVariable(
+        delegate,
+        b"_cleaned\0".as_ptr() as _,
+        0usize as *mut c_void,
+    );
+
+    // Set as the window's delegate
+    send_set_delegate(window, sel_set_delegate, delegate);
+
+    info!(
+        "[VST3-Delegate] Installed window delegate {:p} with plug_view={:p}",
+        delegate, plug_view
+    );
+}
+
+/// Checks whether the delegate's `windowWillClose:` already performed cleanup.
+#[cfg(target_os = "macos")]
+unsafe fn plugin_window_delegate_already_cleaned(window: id) -> bool {
+    unsafe extern "C" {
+        fn sel_registerName(name: *const std::os::raw::c_char) -> *mut c_void;
+        fn objc_msgSend() -> id;
+    }
+    type MsgSendGetDelegate = unsafe extern "C" fn(id, *mut c_void) -> id;
+
+    let sel_delegate = sel_registerName(b"delegate\0".as_ptr() as _);
+    let send_delegate: MsgSendGetDelegate = std::mem::transmute(objc_msgSend as *const ());
+    let delegate = send_delegate(window, sel_delegate);
+
+    if delegate.is_null() {
+        return false;
+    }
+
+    let mut cleaned_raw: *mut c_void = std::ptr::null_mut();
+    object_getInstanceVariable(
+        delegate,
+        b"_cleaned\0".as_ptr() as _,
+        &mut cleaned_raw,
+    );
+    cleaned_raw as usize != 0
+}
+
+
+
 impl Drop for Vst3Instance {
     fn drop(&mut self) {
         let _ = self.close_editor();
@@ -3101,6 +3309,19 @@ impl Vst3Instance {
             controller_qi_from_component,
         ))
     }
+
+    // ── NSWindowDelegate for plugin editor cleanup ────────────────────────
+    //
+    // When the user clicks the red close button on a plugin editor window,
+    // macOS calls `windowWillClose:` on the delegate. Without this, the
+    // window closes without performing the VST3-required cleanup sequence
+    // (setFrame(null) → removed() → release()), leaving dangling pointers
+    // that crash on the next click.
+    //
+    // We dynamically create an ObjC class at runtime with:
+    //   - An ivar `_plugView` storing the IPlugView pointer
+    //   - An ivar `_cleaned` flag to prevent double-cleanup
+    //   - A `windowWillClose:` method that performs cleanup
 
     #[cfg(target_os = "macos")]
     fn open_editor_macos(&mut self) -> Result<(), PluginError> {
@@ -3513,6 +3734,28 @@ impl Vst3Instance {
                 diag!("=== END DIAG ===");
             }
 
+            // ── Install NSWindowDelegate for proper VST3 cleanup on close ──
+            // When the user clicks the red close button, macOS calls
+            // windowWillClose: on the delegate. We perform the full VST3
+            // cleanup sequence there (setFrame(null) → removed() → release())
+            // to prevent dangling pointers and crashes.
+            unsafe {
+                install_plugin_window_delegate(window, plug_view);
+            }
+
+            // Prevent NSWindow from auto-releasing on close, since our
+            // delegate needs the window to remain valid during cleanup.
+            unsafe {
+                unsafe extern "C" {
+                    fn sel_registerName(name: *const std::os::raw::c_char) -> *mut c_void;
+                    fn objc_msgSend() -> id;
+                }
+                type MsgSendSetBool = unsafe extern "C" fn(id, *mut c_void, i8);
+                let sel_set_released = sel_registerName(b"setReleasedWhenClosed:\0".as_ptr() as _);
+                let send: MsgSendSetBool = std::mem::transmute(objc_msgSend as *const ());
+                send(window, sel_set_released, 0); // NO = 0
+            }
+
             window.makeKeyAndOrderFront_(nil);
             app.activateIgnoringOtherApps_(true);
 
@@ -3533,17 +3776,33 @@ impl Vst3Instance {
             return Ok(());
         };
         let plug_view = window_state.plug_view as *mut IPlugView;
-        // BUG-14 FIX: Per VST3 SDK, call setFrame(null) BEFORE dropping the
-        // HostPlugFrame. Some plugins (UAD, Waves) cache the IPlugFrame pointer
-        // and call resizeView during removed(), which would dereference freed memory.
-        unsafe {
-            let _ = ((*(*plug_view).vtbl).set_frame)(plug_view, ptr::null_mut());
+
+        // Check if the delegate already performed cleanup (user clicked red X).
+        // The delegate sets the associated plug_view to null after cleanup.
+        let already_cleaned = unsafe {
+            let window = window_state.window as id;
+            plugin_window_delegate_already_cleaned(window)
+        };
+
+        if !already_cleaned {
+            // BUG-14 FIX: Per VST3 SDK, call setFrame(null) BEFORE dropping the
+            // HostPlugFrame. Some plugins (UAD, Waves) cache the IPlugFrame pointer
+            // and call resizeView during removed(), which would dereference freed memory.
+            unsafe {
+                let _ = ((*(*plug_view).vtbl).set_frame)(plug_view, ptr::null_mut());
+            }
+            self.plug_frame.take();
+            unsafe {
+                let _ = ((*(*plug_view).vtbl).removed)(plug_view);
+                let _ = ((*(*plug_view).vtbl).release)(plug_view);
+            }
+        } else {
+            // Delegate already cleaned up the plug_view, just drop our plug_frame
+            self.plug_frame.take();
         }
-        self.plug_frame.take();
+
         let window = window_state.window as id;
         unsafe {
-            let _ = ((*(*plug_view).vtbl).removed)(plug_view);
-            let _ = ((*(*plug_view).vtbl).release)(plug_view);
             window.close();
         }
         Ok(())
@@ -4499,14 +4758,8 @@ impl PluginInstance for Vst3Instance {
         );
         Ok(())
     }
-}
 
-impl Vst3Instance {
-    /// Serializes the plugin's current state (component + controller).
-    ///
-    /// Returns a byte blob suitable for `load_state_blob` or session persistence.
-    /// Calls `IComponent::getState` to capture the processor state.
-    pub fn save_state(&self) -> Result<Vec<u8>, PluginError> {
+    fn save_state(&self) -> Result<Vec<u8>, PluginError> {
         if self.component_ptr == 0 {
             return Err(PluginError::InvalidState(
                 "Cannot save state: VST3 component pointer is null".to_string(),
@@ -4535,6 +4788,7 @@ impl Vst3Instance {
         Ok(bytes)
     }
 }
+
 
 // ── Plugin Host (Instance Registry) ───────────────────────────────────
 

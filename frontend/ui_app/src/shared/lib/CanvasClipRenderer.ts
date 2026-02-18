@@ -111,6 +111,11 @@ export class CanvasClipRenderer {
     private _theme: TimelineTheme | null = null;
     private _lastThemeSync = 0;
 
+    /** Timestamp (ms) when the edit cursor was last repositioned. */
+    private _editCursorPlacedMs = 0;
+    /** Previous edit cursor beat for change detection. */
+    private _prevEditCursorBeat = -999;
+
     constructor(waveformCache: WaveformCache) {
         this._waveformCache = waveformCache;
     }
@@ -866,9 +871,17 @@ export class CanvasClipRenderer {
         const yEnd = vp.rulerHeight + vp.trackOffsetY(Math.max(trackStart, trackEnd)) - vp.scrollY + vp.trackHeightAt(Math.max(trackStart, trackEnd));
         const cursorX = Math.round(x) + 0.5;
 
+        // Track cursor placement so blink always starts at full brightness.
+        if (Math.abs(beat - this._prevEditCursorBeat) > 0.0001) {
+            this._editCursorPlacedMs = performance.now();
+            this._prevEditCursorBeat = beat;
+        }
+
         // Solid bright white line with slow, smooth breathing alpha.
-        const t = performance.now() / 1000;
-        const blink = 0.22 + 0.68 * (0.5 + 0.5 * Math.sin(t * Math.PI * 0.34));
+        // Phase is offset by placement time so the sine wave always
+        // starts at its peak (full brightness) when the cursor is moved.
+        const elapsed = (performance.now() - this._editCursorPlacedMs) / 1000;
+        const blink = 0.22 + 0.68 * (0.5 + 0.5 * Math.cos(elapsed * Math.PI * 0.34));
         ctx.save();
         ctx.setLineDash([]);
         ctx.globalCompositeOperation = 'screen';

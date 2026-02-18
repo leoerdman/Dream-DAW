@@ -136,6 +136,10 @@ pub enum EngineCommand {
     /// Turn off all active notes on a track's sampler.
     SamplerAllNotesOff { track_index: u16 },
 
+    /// Bypass or un-bypass the instrument (sampler) on a track.
+    /// When bypassed, MIDI is still received but the sampler produces silence.
+    BypassInstrument { track_index: u16, bypassed: bool },
+
     // ── Test / Legacy ────────────────────────────────────────────────
     /// Smoothly transition the test tone to a new frequency (Hz).
     /// The audio callback applies per-sample exponential smoothing

@@ -2757,6 +2757,8 @@ fn eager_activate_external_plugins(
 /// Set the bypass state for any plugin slot (instrument or effect) on a track.
 /// Updates the project model `is_bypassed` flag and rebuilds the external FX
 /// snapshot so bypassed plugins are excluded from the audio processing pipeline.
+/// For instrument slots, also sends a `BypassInstrument` engine command so the
+/// internal sampler on the real-time thread stops producing audio immediately.
 #[tauri::command]
 fn set_slot_bypass_cmd(
     track_id: String,
@@ -2765,20 +2767,39 @@ fn set_slot_bypass_cmd(
     project_state: tauri::State<'_, ProjectState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|e| format!("Invalid slot id: {e}"))?;
 
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    // Find the track index for engine commands (0-based).
+    let track_index = project
+        .tracks
+        .iter()
+        .position(|t| t.id == track_uuid);
+
+    // Check whether this slot is the track's instrument (not an effect).
+    let is_instrument = if let Some(ti) = track_index {
+        project.tracks[ti]
+            .instrument
+            .as_ref()
+            .and_then(|inst| find_slot_in_node_by_id(inst, slot_uuid))
+            .is_some()
+    } else {
+        false
+    };
+
     let slot = find_slot_on_track_mut(&mut project, track_uuid, slot_uuid).ok_or_else(|| {
         format!("Plugin slot not found: track={track_id}, slot={slot_id}")
     })?;
 
     slot.is_bypassed = bypassed;
     log::info!(
-        "[IPC] set_slot_bypass_cmd(track={}, slot={}, bypassed={}) plugin={}",
-        track_id, slot_id, bypassed, slot.plugin_id
+        "[IPC] set_slot_bypass_cmd(track={}, slot={}, bypassed={}, is_instrument={}) plugin={}",
+        track_id, slot_id, bypassed, is_instrument, slot.plugin_id
     );
 
     let project_name = project.name.clone();
@@ -2787,5 +2808,20 @@ fn set_slot_bypass_cmd(
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
+
+    // For instrument slots, send BypassInstrument to the real-time audio thread
+    // so the internal sampler stops producing audio immediately.
+    if is_instrument {
+        if let Some(ti) = track_index {
+            let _ = push_command(
+                &handle,
+                EngineCommand::BypassInstrument {
+                    track_index: ti as u16,
+                    bypassed,
+                },
+            );
+        }
+    }
+
     Ok(())
 }

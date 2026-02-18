@@ -1733,6 +1733,19 @@ pub fn start_audio_thread_on_device(
                                         sampler_engines[idx].all_notes_off();
                                     }
                                 }
+                                EngineCommand::BypassInstrument {
+                                    track_index,
+                                    bypassed,
+                                } => {
+                                    let idx = track_index as usize;
+                                    if idx < render_ctx.track_slots.len() {
+                                        render_ctx.track_slots[idx].instrument_bypassed = bypassed;
+                                    }
+                                    // Kill active voices when bypassing so sound stops immediately.
+                                    if bypassed && idx < sampler_engines.len() {
+                                        sampler_engines[idx].all_notes_off();
+                                    }
+                                }
                                 EngineCommand::Shutdown => {
                                     is_playing = false;
                                     test_tone_phase = 0.0;
@@ -1977,6 +1990,14 @@ pub fn start_audio_thread_on_device(
                         // This happens BEFORE the FX graph, so FX apply to sampler voices.
                         for track_idx in 0..track_count {
                             if track_idx >= midi_snap.len() || track_idx >= sampler_engines.len() {
+                                continue;
+                            }
+
+                            // Skip sampler render entirely when instrument is bypassed.
+                            // Buffers stay zeroed → no audio leaks to group bus.
+                            if track_idx < render_ctx.track_slots.len()
+                                && render_ctx.track_slots[track_idx].instrument_bypassed
+                            {
                                 continue;
                             }
 

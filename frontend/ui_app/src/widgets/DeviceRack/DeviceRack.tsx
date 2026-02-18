@@ -1986,7 +1986,7 @@ const DeviceNode = ({
                                 ? 320
                                 : device.effectType === 'gate'
                                     ? 340
-                                    : 420; // Increased default VST width to 420 for better visibility
+                                    : 160; // Compact square for external VSTs by default
     const settingsWidth = Math.min(1460, Math.max(baseWidth, 280 + device.params.length * 110));
     const rackWidth = showSettings ? settingsWidth : baseWidth;
     const supportsSettingsToggle = device.source === 'vst' || (device.source === 'internal' && device.effectType !== 'utility');
@@ -2000,16 +2000,7 @@ const DeviceNode = ({
                 : 'INT';
     const showUiButton = device.source === 'vst' || pluginFormat === 'VST3';
     const nativeEditorOpen = isNativeEditorOpen ?? false;
-    const nativeEditorUnavailable = showUiButton && editorSupported === false;
-    const runtimeMessage = (runtimeStatus?.message || '').toLowerCase();
-    const hasHardRuntimeError = runtimeMessage.includes('vst2 runtime is not supported')
-        || runtimeMessage.includes('supports vst3 only')
-        || runtimeMessage.includes('cannot find native binary');
     const showRecoverAction = !!runtimeStatus && !runtimeStatus.loaded;
-    const allowInlineParamEditing = device.source !== 'vst' || !!runtimeStatus?.loaded;
-    const runtimeHint = hasHardRuntimeError
-        ? (runtimeStatus?.message || 'Plugin runtime is offline.')
-        : (!runtimeStatus?.loaded ? 'Plugin runtime is offline. Click Fix/UI to retry activation.' : '');
 
     return (
         <div
@@ -2104,30 +2095,6 @@ const DeviceNode = ({
                 </span>
                 {showUiButton ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        {runtimeStatus && (
-                            <span
-                                title={runtimeStatus.message ?? `Runtime: ${runtimeStatus.runtime}${runtimeStatus.latencyFrames != null ? ` | latency ${runtimeStatus.latencyFrames} fr` : ''}`}
-                                style={{
-                                    fontSize: 'var(--font-size-2xs)',
-                                    lineHeight: 1,
-                                    padding: '2px 4px',
-                                    borderRadius: 'var(--radius-md)',
-                                    border: '1px solid var(--color-divider)',
-                                    color: runtimeStatus.loaded ? 'var(--color-text-secondary)' : '#ff9b9b',
-                                    background: runtimeStatus.loaded
-                                        ? 'color-mix(in srgb, var(--color-bg-header) 80%, #6fd38b33)'
-                                        : 'color-mix(in srgb, var(--color-bg-header) 75%, #ff5a5a33)',
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.03em',
-                                }}
-                            >
-                                {runtimeStatus.loaded
-                                    ? (runtimeStatus.latencyFrames != null
-                                        ? `${runtimeStatus.runtime} ${runtimeStatus.latencyFrames}f`
-                                        : runtimeStatus.runtime)
-                                    : 'offline'}
-                            </span>
-                        )}
                         {showRecoverAction && (
                             <button
                                 onClick={(e) => { e.stopPropagation(); onEnsureActive?.(); }}
@@ -2252,93 +2219,50 @@ const DeviceNode = ({
                 </div>
             ) : (
                 <div style={{
-                    display: 'grid',
-                    gridTemplateRows: 'auto 1fr auto',
-                    gap: 6,
-                    padding: '8px',
+                    padding: device.source === 'vst' ? 8 : 0,
                     flex: 1,
                     minHeight: 0,
-                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: device.source === 'vst' ? 'flex-start' : 'center',
+                    alignItems: 'center',
+                    gap: 6,
                 }}>
-                    <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                            {device.source === 'vst'
-                                ? (nativeEditorUnavailable ? 'Plugin Controls' : 'Native GUI')
-                                : 'Internal GUI'}
-                        </span>
-                        <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-tertiary)' }}>
-                            {device.params.length} params
-                        </span>
-                    </div>
+                    {/* Sidechain dropdown — shown for all external VST plugins */}
                     {device.source === 'vst' && (
                         <div style={{
-                            border: '1px solid var(--color-divider)',
-                            borderRadius: 'var(--radius-lg)',
-                            background: 'color-mix(in srgb, var(--color-bg-header) 84%, #0c1017)',
-                            padding: 6,
-                            minHeight: 0,
-                            overflow: 'hidden',
                             display: 'grid',
-                            gridTemplateRows: '1fr auto',
-                            gap: 6,
+                            gap: 4,
+                            width: '100%',
                         }}>
-                            <div style={{ display: 'grid', gap: 4, alignContent: 'start' }}>
-                                {device.params.slice(0, 6).map((p) => {
-                                    const range = Math.max(1e-9, p.max - p.min);
-                                    const fill = Math.max(0, Math.min(1, (p.value - p.min) / range));
-                                    const rawStep = p.step ?? 0;
-                                    const step = Number.isFinite(rawStep) && rawStep > 0 ? rawStep : range / 120;
-                                    return (
-                                        <div key={p.name} style={{ display: 'grid', gridTemplateColumns: '70px 1fr auto', gap: 6, alignItems: 'center' }}>
-                                            <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                {p.name}
-                                            </span>
-                                            <input
-                                                type="range"
-                                                min={p.min}
-                                                max={p.max}
-                                                step={step}
-                                                value={p.value}
-                                                disabled={!allowInlineParamEditing}
-                                                onChange={(e) => onParamChange(p.name, Number(e.target.value))}
-                                                style={{
-                                                    width: '100%',
-                                                    height: 8,
-                                                    margin: 0,
-                                                    borderRadius: 'var(--radius-full)',
-                                                    accentColor: '#6fb4ff',
-                                                    background: `linear-gradient(90deg, #5aa9ff 0%, #8ec6ff ${(fill * 100).toFixed(1)}%, var(--color-bg-panel) ${(fill * 100).toFixed(1)}%, var(--color-bg-panel) 100%)`,
-                                                }}
-                                            />
-                                            <span style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
-                                                {Number.isFinite(p.value) ? p.value.toFixed(2) : '-'}
-                                            </span>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                            {!allowInlineParamEditing && (
-                                <div style={{ fontSize: 'var(--font-size-xs)', color: '#ff9b9b', lineHeight: 1.35 }}>
-                                    {runtimeHint || 'Plugin runtime is offline. Use a valid VST3 bundle to edit parameters.'}
-                                </div>
-                            )}
-                            <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); onOpenGUI?.(); }}
+                            <span style={{
+                                fontSize: 'var(--font-size-2xs)',
+                                color: 'var(--color-text-tertiary)',
+                                fontWeight: 'var(--font-weight-bold)' as unknown as number,
+                                letterSpacing: '0.04em',
+                                textTransform: 'uppercase',
+                            }}>
+                                Side Chain
+                            </span>
+                            <select
+                                value={sidechainSourceTrackId || 'none'}
+                                onChange={(e) => onSidechainSourceChange?.(e.target.value)}
                                 style={{
-                                    justifySelf: 'start',
                                     border: '1px solid var(--color-divider)',
                                     borderRadius: 'var(--radius-md)',
-                                    background: 'var(--color-bg-elevated)',
-                                    color: 'var(--color-text-secondary)',
-                                    fontSize: 'var(--font-size-xs)',
-                                    fontWeight: 'var(--font-weight-bold)' as unknown as number,
-                                    padding: '4px 8px',
-                                    cursor: 'pointer',
+                                    background: 'var(--color-bg-header)',
+                                    color: 'var(--color-text-primary)',
+                                    fontSize: 'var(--font-size-2xs)',
+                                    padding: '4px 6px',
+                                    outline: 'none',
+                                    width: '100%',
                                 }}
                             >
-                                Open Inline Editor
-                            </button>
+                                <option value="none">None</option>
+                                {(sidechainOptions ?? []).map((track) => (
+                                    <option key={track.id} value={track.id}>{track.name}</option>
+                                ))}
+                            </select>
                         </div>
                     )}
                 </div>

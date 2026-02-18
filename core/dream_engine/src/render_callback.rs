@@ -54,6 +54,8 @@ pub struct TrackSlot {
     pub device_chain: DeviceChain,
     /// Was this slot active (had clips rendered) in the current buffer?
     pub active: bool,
+    /// When `true`, the internal sampler on this track is bypassed and produces silence.
+    pub instrument_bypassed: bool,
 }
 
 impl TrackSlot {
@@ -65,6 +67,7 @@ impl TrackSlot {
             strip: ChannelStrip::new(),
             device_chain: DeviceChain::new(sample_rate as f32),
             active: false,
+            instrument_bypassed: false,
         }
     }
 

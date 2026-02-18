@@ -4724,6 +4724,11 @@ impl PluginHost {
     /// prevent other instances from being captured.
     pub fn save_all_states(&self) -> HashMap<Uuid, Vec<u8>> {
         let mut states = HashMap::new();
+        log::info!(
+            "[PluginHost] save_all_states called — {} instances in host, index has {} entries",
+            self.instances.len(),
+            self.instance_index.len()
+        );
         for instance in &self.instances {
             match instance.save_state() {
                 Ok(bytes) if !bytes.is_empty() => {
@@ -4747,6 +4752,15 @@ impl PluginHost {
             }
         }
         states
+    }
+
+    /// Saves the state of a single plugin instance by UUID.
+    /// Returns None if the instance is not found or has no state.
+    pub fn save_instance_state(&self, id: Uuid) -> Option<Vec<u8>> {
+        self.instances.iter()
+            .find(|inst| inst.id() == id)
+            .and_then(|inst| inst.save_state().ok())
+            .filter(|bytes| !bytes.is_empty())
     }
 
     /// Updates the audio configuration for all instances.

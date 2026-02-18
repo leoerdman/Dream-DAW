@@ -2546,21 +2546,33 @@ impl PluginHostState {
         Ok(())
     }
 
-    /// Captures the current state of all loaded VST3 plugin instances and
-    /// writes the state blobs back into the project model.
-    ///
-    /// This ensures that knob positions, preset selections, and any other
-    /// plugin-internal state is persisted across save/load cycles.
-    ///
-    /// Called just before project serialization (save_project / save_project_as).
     fn capture_plugin_states_into_project(&self, project: &mut dream_models::project::Project) -> Result<(), String> {
         use base64::Engine;
 
         let slot_map = self.slot_instance_snapshot();
+        log::info!(
+            "[PluginState-Capture] slot_instance_map has {} entries: {:?}",
+            slot_map.len(),
+            slot_map.as_ref()
+        );
+
         let host = self.host.lock().map_err(|e| format!("PluginHost lock: {e}"))?;
         let instance_states = host.save_all_states();
 
+        log::info!(
+            "[PluginState-Capture] save_all_states returned {} instance states",
+            instance_states.len()
+        );
+        for (id, bytes) in &instance_states {
+            log::info!(
+                "[PluginState-Capture]   instance {} → {} bytes",
+                id,
+                bytes.len()
+            );
+        }
+
         if instance_states.is_empty() {
+            log::warn!("[PluginState-Capture] No instance states to save — returning early!");
             return Ok(());
         }
 
@@ -2579,6 +2591,10 @@ impl PluginHostState {
 
         for (instance_id, state_bytes) in &instance_states {
             let Some(slot_ids) = instance_to_slots.get(instance_id) else {
+                log::warn!(
+                    "[PluginState-Capture] Instance {} has state but NO slot mapping — skipping!",
+                    instance_id
+                );
                 continue;
             };
 
@@ -2586,6 +2602,7 @@ impl PluginHostState {
 
             for slot_id in slot_ids {
                 // Find the slot in the project's device trees and update its state blob
+                let mut found = false;
                 for track in &mut project.tracks {
                     // Walk effects chain (Vec<DeviceNode>)
                     for device in &mut track.effects {
@@ -2594,6 +2611,11 @@ impl PluginHostState {
                                 slot.external_state_blob = Some(b64.clone());
                                 slot.external_state_blob_kind = Some("ProcessorState".to_string());
                                 updated_count += 1;
+                                found = true;
+                                log::info!(
+                                    "[PluginState-Capture] Updated effect slot '{}' (id={}) on track '{}' ({} bytes b64)",
+                                    slot.name, slot_id, track.name, b64.len()
+                                );
                             }
                         }
                     }
@@ -2604,9 +2626,35 @@ impl PluginHostState {
                                 slot.external_state_blob = Some(b64.clone());
                                 slot.external_state_blob_kind = Some("ProcessorState".to_string());
                                 updated_count += 1;
+                                found = true;
+                                log::info!(
+                                    "[PluginState-Capture] Updated instrument slot '{}' (id={}) on track '{}' ({} bytes b64)",
+                                    slot.name, slot_id, track.name, b64.len()
+                                );
                             }
                         }
                     }
+                }
+                // Also check master_track effects
+                for device in &mut project.master_track.effects {
+                    for slot in device.collect_plugin_slots_mut() {
+                        if slot.id == *slot_id {
+                            slot.external_state_blob = Some(b64.clone());
+                            slot.external_state_blob_kind = Some("ProcessorState".to_string());
+                            updated_count += 1;
+                            found = true;
+                            log::info!(
+                                "[PluginState-Capture] Updated master track slot '{}' (id={}) ({} bytes b64)",
+                                slot.name, slot_id, b64.len()
+                            );
+                        }
+                    }
+                }
+                if !found {
+                    log::warn!(
+                        "[PluginState-Capture] Slot {} mapped to instance {} but NOT found in any project track!",
+                        slot_id, instance_id
+                    );
                 }
             }
         }
@@ -2615,6 +2663,11 @@ impl PluginHostState {
             log::info!(
                 "[PluginHost] Captured live state for {} plugin slot(s) ({} instances)",
                 updated_count,
+                instance_states.len()
+            );
+        } else {
+            log::warn!(
+                "[PluginState-Capture] 0 slots updated despite {} instance states! Check slot mapping.",
                 instance_states.len()
             );
         }

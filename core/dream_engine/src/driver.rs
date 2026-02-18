@@ -1413,8 +1413,6 @@ pub fn start_audio_thread_on_device(
     let mut midi_note_states: Vec<MidiNoteMapState> =
         vec![MidiNoteMapState::default(); MAX_TRACKS];
     // Scratch buffers for sampler output (reused each buffer, zero-alloc)
-    let mut sampler_left = vec![0.0f32; 8192];
-    let mut sampler_right = vec![0.0f32; 8192];
     let mut external_left = vec![0.0f32; 8192];
     let mut external_right = vec![0.0f32; 8192];
     #[derive(Clone, Copy)]
@@ -1941,18 +1939,6 @@ pub fn start_audio_thread_on_device(
                             }
                         }
 
-                        // Sync ADSR parameters from SharedSamplerAdsr
-                        let adsr_snap = sampler_adsr.load();
-                        for (idx, params) in adsr_snap.iter().enumerate() {
-                            if idx < sampler_engines.len() {
-                                sampler_engines[idx].set_adsr(AdsrParams {
-                                    attack: params.attack,
-                                    decay: params.decay,
-                                    sustain: params.sustain,
-                                    release: params.release,
-                                });
-                            }
-                        }
 
                         let midi_snap = midi_snapshot.load();
 
@@ -1981,10 +1967,176 @@ pub fn start_audio_thread_on_device(
                             playhead_advanced_in_render = true;
                         } else {
                             // When stopped or no clips, ensure track buffers start clean.
-                            // Real-time MIDI samplers and external plugins may fill these later in the callback.
                             for slot in render_ctx.track_slots.iter_mut() {
-                                slot.buf_left[..frame_count].fill(0.0);
-                                slot.buf_right[..frame_count].fill(0.0);
+                                slot.clear(frame_count);
+                            }
+                        }
+
+                        // ── B1. Sampler Render Pass (Source Generation) ──
+                        // This renders internal samplers directly into slot buffers.
+                        // This happens BEFORE the FX graph, so FX apply to sampler voices.
+                        for track_idx in 0..track_count {
+                            if track_idx >= midi_snap.len() || track_idx >= sampler_engines.len() {
+                                continue;
+                            }
+
+                            let midi_track = &midi_snap[track_idx];
+                            let engine = &mut sampler_engines[track_idx];
+                            let slot = &mut render_ctx.track_slots[track_idx];
+
+                            // Schedule MIDI clips for this track (gated by transport)
+                            let midi_loop_region = render_ctx
+                                .loop_region
+                                .as_ref()
+                                .map(|r| dream_clip_engine::LoopRegion::new(r.start, r.end));
+
+                            midi_schedule_scratch.clear();
+                            if is_playing {
+                                MidiScheduler::fill_active_looped_with_tmp(
+                                    &midi_track.clips,
+                                    midi_playhead_pos,
+                                    frame_count,
+                                    midi_loop_region.as_ref(),
+                                    &mut midi_schedule_scratch,
+                                    &mut midi_schedule_tmp,
+                                );
+                            }
+
+                            // TODO: Add real-time monitored MIDI here (bypass transport gate)
+
+                            if midi_schedule_scratch.is_empty() && !engine.has_active_voices() {
+                                continue;
+                            }
+
+                            let fc = frame_count.min(slot.buf_left.len());
+                            let mut cursor = 0usize;
+                            let fx = &midi_track.fx;
+                            let note_state = &mut midi_note_states[track_idx];
+
+                            // Convert scheduled notes to instantaneous events (NoteOn and NoteOff)
+                            midi_events_scratch.clear();
+                            for event in &midi_schedule_scratch {
+                                if event.is_note_off {
+                                    midi_events_scratch.push((
+                                        event.buffer_offset_end.min(fc),
+                                        0, // Note Off
+                                        event.pitch,
+                                        event.velocity,
+                                        event.note_uid,
+                                    ));
+                                }
+                                if event.is_note_on {
+                                    midi_events_scratch.push((
+                                        event.buffer_onset.min(fc),
+                                        1, // Note On
+                                        event.pitch,
+                                        event.velocity,
+                                        event.note_uid,
+                                    ));
+                                }
+                            }
+                            midi_events_scratch.sort_by(|a, b| {
+                                a.0.cmp(&b.0)
+                                    .then_with(|| a.1.cmp(&b.1))
+                                    .then_with(|| a.2.cmp(&b.2))
+                                    .then_with(|| a.4.cmp(&b.4))
+                            });
+
+                            for &(frame, kind, pitch, velocity, event_uid) in &midi_events_scratch {
+                                let seg = frame.saturating_sub(cursor).min(fc - cursor);
+                                if seg > 0 && engine.has_active_voices() {
+                                    engine.render(
+                                        &mut slot.buf_left[cursor..cursor + seg],
+                                        &mut slot.buf_right[cursor..cursor + seg],
+                                        seg,
+                                    );
+                                    cursor += seg;
+                                } else if frame > cursor {
+                                    cursor = frame;
+                                }
+
+                                if kind == 0 {
+                                    // Note Off: Find the mapped pitch for this UID
+                                    let off_pitch = if let Some(pos) = note_state
+                                        .active_notes
+                                        .iter()
+                                        .rposition(|n| n.uid == event_uid)
+                                    {
+                                        let mapped = note_state.active_notes[pos].mapped_pitch;
+                                        note_state.active_notes.swap_remove(pos);
+                                        mapped
+                                    } else {
+                                        pitch
+                                    };
+                                    engine.note_off(off_pitch);
+                                } else {
+                                    // Note On: Apply MIDI FX
+                                    let mut pitch_i16 = pitch as i16;
+                                    let mut velocity_i16 = velocity as i16;
+
+                                    if fx.pitch_enabled {
+                                        pitch_i16 += fx.pitch_semitones as i16;
+                                    }
+                                    let mut mapped_pitch = clamp_midi_pitch(pitch_i16);
+
+                                    if fx.scale_enabled {
+                                        mapped_pitch = quantize_to_scale(
+                                            mapped_pitch,
+                                            fx.scale_root,
+                                            fx.scale_mask,
+                                        );
+                                    }
+
+                                    if fx.random_enabled && fx.random_semitones != 0 {
+                                        let mut x = note_state.rng_state;
+                                        x ^= x << 13;
+                                        x ^= x >> 17;
+                                        x ^= x << 5;
+                                        note_state.rng_state = x;
+                                        let rnd01 = (x as f32) / (u32::MAX as f32);
+                                        if rnd01 <= fx.random_chance.clamp(0.0, 1.0) {
+                                            let span = fx.random_semitones.abs().max(1) as i16;
+                                            let signed =
+                                                ((x >> 8) % ((span as u32) * 2 + 1)) as i16 - span;
+                                            mapped_pitch =
+                                                clamp_midi_pitch(mapped_pitch as i16 + signed);
+                                        }
+                                    }
+
+                                    if fx.velocity_enabled {
+                                        velocity_i16 = ((velocity_i16 as f32) * fx.velocity_gain)
+                                            .round()
+                                            as i16
+                                            + fx.velocity_offset as i16;
+                                    }
+                                    let mapped_velocity = velocity_i16.clamp(1, 127) as u8;
+
+                                    // Guard against duplicate note-on (release previous if same UID)
+                                    if let Some(pos) = note_state
+                                        .active_notes
+                                        .iter()
+                                        .rposition(|n| n.uid == event_uid)
+                                    {
+                                        let previous = note_state.active_notes.swap_remove(pos);
+                                        engine.note_off(previous.mapped_pitch);
+                                    }
+
+                                    note_state.active_notes.push(ActiveMappedNote {
+                                        uid: event_uid,
+                                        src_pitch: pitch,
+                                        mapped_pitch,
+                                    });
+                                    engine.note_on(mapped_pitch, mapped_velocity);
+                                }
+                            }
+
+                            if cursor < fc && engine.has_active_voices() {
+                                let rem = fc - cursor;
+                                engine.render(
+                                    &mut slot.buf_left[cursor..fc],
+                                    &mut slot.buf_right[cursor..fc],
+                                    rem,
+                                );
                             }
                         }
 
@@ -2117,8 +2269,46 @@ pub fn start_audio_thread_on_device(
                                                     transport,
                                                 );
 
-                                                // ENTERPRISE MIDI: Clear scratch, populated later if playing.
+                                                // ENTERPRISE MIDI: Populate scratch with scheduled events for this track.
                                                 vst3_midi_scratch.clear();
+                                                if is_playing {
+                                                    if let Some(midi_track) = midi_snap.get(track_idx) {
+                                                        let midi_loop_region = render_ctx
+                                                            .loop_region
+                                                            .as_ref()
+                                                            .map(|r| dream_clip_engine::LoopRegion::new(r.start, r.end));
+                                                        midi_schedule_scratch.clear();
+                                                        MidiScheduler::fill_active_looped_with_tmp(
+                                                            &midi_track.clips,
+                                                            midi_playhead_pos,
+                                                            frame_count,
+                                                            midi_loop_region.as_ref(),
+                                                            &mut midi_schedule_scratch,
+                                                            &mut midi_schedule_tmp,
+                                                        );
+                                                        for event in &midi_schedule_scratch {
+                                                            let offset_on = event.buffer_onset as i32;
+                                                            let offset_off = event.buffer_offset_end as i32;
+                                                            if event.is_note_on {
+                                                                vst3_midi_scratch.push(
+                                                                    MidiEvent::note_on(
+                                                                        offset_on,
+                                                                        0,
+                                                                        event.pitch,
+                                                                        event.velocity,
+                                                                    ),
+                                                                );
+                                                            }
+                                                            if event.is_note_off {
+                                                                vst3_midi_scratch.push(
+                                                                    MidiEvent::note_off(
+                                                                        offset_off, 0, event.pitch, 0,
+                                                                    ),
+                                                                );
+                                                            }
+                                                        }
+                                                    }
+                                                }
 
                                                 let mut out_slices: [&mut [f32]; 2] = [
                                                     &mut external_left[..c],
@@ -2232,492 +2422,6 @@ pub fn start_audio_thread_on_device(
                                 if test_tone_phase >= 1.0 { test_tone_phase -= 1.0; }
                             }
                         }
-                        // ── B2. MIDI → Sampler render pass ───────────────
-                        // Sync loaded samples from SharedSamplerSamples
-                        let samples_snapshot = sampler_samples.load();
-                        for (idx, sample_opt) in samples_snapshot.iter().enumerate() {
-                            if idx < sampler_engines.len() {
-                                // Only update if the sample reference changed
-                                let engine = &mut sampler_engines[idx];
-                                match (sample_opt, &engine.sample) {
-                                    (Some(new_sample), Some(existing)) => {
-                                        if !Arc::ptr_eq(new_sample, existing) {
-                                            engine.sample = Some(Arc::clone(new_sample));
-                                            engine.all_notes_off();
-                                            midi_note_states[idx] = MidiNoteMapState::default();
-                                        }
-                                    }
-                                    (Some(new_sample), None) => {
-                                        engine.sample = Some(Arc::clone(new_sample));
-                                    }
-                                    (None, Some(_)) => {
-                                        engine.sample = None;
-                                        engine.all_notes_off();
-                                        midi_note_states[idx] = MidiNoteMapState::default();
-                                    }
-                                    (None, None) => {}
-                                }
-                            }
-                        }
-                        for idx in samples_snapshot.len()..sampler_engines.len() {
-                            let engine = &mut sampler_engines[idx];
-                            if engine.sample.is_some() || engine.has_active_voices() {
-                                engine.sample = None;
-                                engine.all_notes_off();
-                            }
-                            midi_note_states[idx] = MidiNoteMapState::default();
-                        }
-
-                        // Load MIDI snapshot and schedule notes
-                        // ▸ Use the pre-advance position so MIDI and audio
-                        //   share the same timeline window for this buffer.
-                        let midi_snap = midi_snapshot.load();
-
-                        for (track_idx, midi_track) in midi_snap.iter().enumerate() {
-                            if track_idx >= sampler_engines.len() {
-                                continue;
-                            }
-
-                            // If track is effectively inaudible (mute/solo routing),
-                            // ensure voices are stopped to avoid hidden accumulation.
-                            let track_enabled = if track_idx < MAX_TRACKS {
-                                !track_disabled[track_idx] && (!any_solo || track_soloed[track_idx])
-                            } else {
-                                true
-                            };
-                            if !track_enabled {
-                                let engine = &mut sampler_engines[track_idx];
-                                if engine.has_active_voices() {
-                                    engine.all_notes_off();
-                                }
-                                midi_note_states[track_idx] = MidiNoteMapState::default();
-                                continue;
-                            }
-
-                            if midi_track.clips.is_empty() {
-                                let engine = &mut sampler_engines[track_idx];
-                                if engine.has_active_voices() {
-                                    engine.all_notes_off();
-                                }
-                                midi_note_states[track_idx] = MidiNoteMapState::default();
-                                continue;
-                            }
-
-                            let engine = &mut sampler_engines[track_idx];
-                            let note_state = &mut midi_note_states[track_idx];
-                            let fx = &midi_track.fx;
-
-                            // If every clip on this MIDI track is muted, force-stop
-                            // any currently sounding voices so mute is immediate.
-                            if midi_track.clips.iter().all(|c| c.is_muted) {
-                                if engine.has_active_voices() {
-                                    engine.all_notes_off();
-                                }
-                                *note_state = MidiNoteMapState::default();
-                                continue;
-                            }
-
-                            // Schedule active notes for this buffer
-                            // ▸ Loop-aware: splits the buffer at the loop
-                            //   boundary so MIDI notes at beat 1 of the
-                            //   loop are correctly triggered after wrap.
-                            let midi_loop_region = render_ctx
-                                .loop_region
-                                .as_ref()
-                                .map(|r| dream_clip_engine::LoopRegion::new(r.start, r.end));
-
-                            if is_playing {
-                                MidiScheduler::fill_active_looped_with_tmp(
-                                    &midi_track.clips,
-                                    midi_playhead_pos,
-                                    frame_count,
-                                    midi_loop_region.as_ref(),
-                                    &mut midi_schedule_scratch,
-                                    &mut midi_schedule_tmp,
-                                );
-                            } else {
-                                midi_schedule_scratch.clear();
-                            }
-
-                            let fc = frame_count.min(sampler_left.len());
-                            if fc == 0 {
-                                continue;
-                            }
-                            sampler_left[..fc].fill(0.0);
-                            sampler_right[..fc].fill(0.0);
-
-                            // Convert scheduled note windows into instantaneous events
-                            // and process them at exact sample offsets in this buffer.
-                            // kind: 0 = note-off, 1 = note-on (off first at same frame).
-                            midi_events_scratch.clear();
-                            // Keep callback zero-alloc: fixed scratch capacity only.
-                            for event in &midi_schedule_scratch {
-                                if event.is_note_off {
-                                    midi_events_scratch.push((
-                                        event.buffer_offset_end.min(fc),
-                                        0,
-                                        event.pitch,
-                                        event.velocity,
-                                        event.note_uid,
-                                    ));
-                                }
-                                if event.is_note_on {
-                                    midi_events_scratch.push((
-                                        event.buffer_onset.min(fc),
-                                        1,
-                                        event.pitch,
-                                        event.velocity,
-                                        event.note_uid,
-                                    ));
-                                }
-                            }
-
-                            midi_events_scratch.sort_by(|a, b| {
-                                a.0.cmp(&b.0)
-                                    .then_with(|| a.1.cmp(&b.1))
-                                    .then_with(|| a.2.cmp(&b.2))
-                                    .then_with(|| a.4.cmp(&b.4))
-                            });
-
-                            let mut cursor = 0usize;
-                            for (event_frame, kind, pitch, velocity, event_uid) in midi_events_scratch.iter().copied() {
-                                let frame = event_frame.min(fc);
-                                if frame > cursor && engine.has_active_voices() {
-                                    let seg = frame - cursor;
-                                    engine.render(
-                                        &mut sampler_left[cursor..frame],
-                                        &mut sampler_right[cursor..frame],
-                                        seg,
-                                    );
-                                    cursor = frame;
-                                } else if frame > cursor {
-                                    cursor = frame;
-                                }
-
-                                if kind == 0 {
-                                    let off_pitch = if let Some(pos) = note_state
-                                        .active_notes
-                                        .iter()
-                                        .rposition(|n| n.uid == event_uid)
-                                    {
-                                        let mapped = note_state.active_notes[pos].mapped_pitch;
-                                        note_state.active_notes.swap_remove(pos);
-                                        mapped
-                                    } else if let Some(pos) = note_state
-                                        .active_notes
-                                        .iter()
-                                        .rposition(|n| n.src_pitch == pitch)
-                                    {
-                                        let mapped = note_state.active_notes[pos].mapped_pitch;
-                                        note_state.active_notes.swap_remove(pos);
-                                        mapped
-                                    } else {
-                                        pitch
-                                    };
-                                    engine.note_off(off_pitch);
-                                    continue;
-                                }
-
-                                let mut pitch_i16 = pitch as i16;
-                                let mut velocity_i16 = velocity as i16;
-
-                                if fx.pitch_enabled {
-                                    pitch_i16 += fx.pitch_semitones as i16;
-                                }
-                                let mut mapped_pitch = clamp_midi_pitch(pitch_i16);
-
-                                if fx.scale_enabled {
-                                    mapped_pitch = quantize_to_scale(
-                                        mapped_pitch,
-                                        fx.scale_root,
-                                        fx.scale_mask,
-                                    );
-                                }
-
-                                if fx.random_enabled && fx.random_semitones != 0 {
-                                    // Xorshift32 deterministic PRNG (RT-safe, no allocations).
-                                    let mut x = note_state.rng_state;
-                                    x ^= x << 13;
-                                    x ^= x >> 17;
-                                    x ^= x << 5;
-                                    note_state.rng_state = x;
-                                    let rnd01 = (x as f32) / (u32::MAX as f32);
-                                    if rnd01 <= fx.random_chance.clamp(0.0, 1.0) {
-                                        let span = fx.random_semitones.abs().max(1) as i16;
-                                        let signed =
-                                            ((x >> 8) % ((span as u32) * 2 + 1)) as i16 - span;
-                                        mapped_pitch =
-                                            clamp_midi_pitch(mapped_pitch as i16 + signed);
-                                    }
-                                }
-
-                                if fx.velocity_enabled {
-                                    velocity_i16 = ((velocity_i16 as f32) * fx.velocity_gain)
-                                        .round()
-                                        as i16
-                                        + fx.velocity_offset as i16;
-                                }
-                                let mapped_velocity = velocity_i16.clamp(1, 127) as u8;
-
-                                // Guard against rare duplicate note-on delivery for the same
-                                // logical note (same UID) within/around loop boundaries or
-                                // transport jitter. If the note is already active, release the
-                                // previous voice first so hats don't stack/phase.
-                                if let Some(pos) = note_state
-                                    .active_notes
-                                    .iter()
-                                    .rposition(|n| n.uid == event_uid)
-                                {
-                                    let previous = note_state.active_notes.swap_remove(pos);
-                                    engine.note_off(previous.mapped_pitch);
-                                }
-
-                                note_state.active_notes.push(ActiveMappedNote {
-                                    uid: event_uid,
-                                    src_pitch: pitch,
-                                    mapped_pitch,
-                                });
-                                if note_state.active_notes.len() > 1024 {
-                                    // Keep bounded state without linear-time front drains.
-                                    let _ = note_state.active_notes.swap_remove(0);
-                                }
-                                engine.note_on(mapped_pitch, mapped_velocity);
-                            }
-
-                            if cursor < fc && engine.has_active_voices() {
-                                let seg = fc - cursor;
-                                engine.render(
-                                    &mut sampler_left[cursor..fc],
-                                    &mut sampler_right[cursor..fc],
-                                    seg,
-                                );
-                            }
-
-                            if track_idx < render_ctx.track_slots.len() {
-                                let (left_tracks, right_tracks) =
-                                    render_ctx.track_slots.split_at_mut(track_idx);
-                                let Some((slot, right_tracks_rest)) =
-                                    right_tracks.split_first_mut()
-                                else {
-                                    continue;
-                                };
-                                slot.strip.process_stereo(
-                                    &mut sampler_left[..fc],
-                                    &mut sampler_right[..fc],
-                                );
-
-                                if let Some(runtime_slots) = external_fx_map.get(track_idx) {
-                                    for (runtime_slot_idx, runtime_slot) in runtime_slots.iter().enumerate() {
-                                        let source_slot = runtime_slot
-                                            .sidechain_track_index
-                                            .and_then(|src_idx| {
-                                                if src_idx < track_idx {
-                                                    left_tracks.get(src_idx)
-                                                } else if src_idx == track_idx {
-                                                    None
-                                                } else {
-                                                    right_tracks_rest
-                                                        .get(src_idx - track_idx - 1)
-                                                }
-                                            });
-                                        let (sc_l, sc_r) = source_slot
-                                            .map(|src_slot| {
-                                                (
-                                                    Some(&src_slot.buf_left[..fc]),
-                                                    Some(&src_slot.buf_right[..fc]),
-                                                )
-                                            })
-                                            .unwrap_or((None, None));
-
-                                        if let Some(internal_idx) =
-                                            runtime_slot.internal_slot_index
-                                        {
-                                            slot.device_chain.process_slot_with_sidechain(
-                                                internal_idx,
-                                                &mut sampler_left[..fc],
-                                                &mut sampler_right[..fc],
-                                                sc_l,
-                                                sc_r,
-                                                sample_rate_f64 as f32,
-                                            );
-                                            continue;
-                                        }
-
-                                        if let Some(instance_id) = runtime_slot.instance_id
-                                            && let Some(host) = plugin_host_guard.as_deref_mut()
-                                        {
-                                            apply_external_plugin_param_automation_block(
-                                                host,
-                                                automation.get(track_idx),
-                                                runtime_slot,
-                                                runtime_slot_idx,
-                                                playhead_pos,
-                                            );
-                                            external_left[..fc]
-                                                .copy_from_slice(&sampler_left[..fc]);
-                                            external_right[..fc]
-                                                .copy_from_slice(&sampler_right[..fc]);
-                                            let main_inputs: [&[f32]; 2] =
-                                                [&sampler_left[..fc], &sampler_right[..fc]];
-                                            let sc_pair = source_slot.map(|src| {
-                                                [&src.buf_left[..fc], &src.buf_right[..fc]]
-                                            });
-                                            let transport = TransportContext {
-                                                sample_rate: sample_rate_f64,
-                                                position_samples: playhead_pos,
-                                                tempo: _bpm,
-                                                is_playing,
-                                                is_recording: false,
-                                                time_sig_numerator: 4,
-                                                time_sig_denominator: 4,
-                                            };
-                                            let _ = host
-                                                .set_transport_context(instance_id, transport);
-                                            let mut out_slices: [&mut [f32]; 2] = [
-                                                &mut external_left[..fc],
-                                                &mut external_right[..fc],
-                                            ];
-                                            // Convert scheduled MIDI events to MidiEvent for the VST3 plugin.
-                                            // midi_events_scratch contains sorted (frame, kind, pitch, velocity, uid)
-                                            // tuples — kind=0 is note-off, kind=1 is note-on.
-                                            vst3_midi_scratch.clear();
-                                            for &(frame, kind, pitch, velocity, _uid) in &midi_events_scratch {
-                                                let offset = frame.min(fc) as i32;
-                                                if kind == 1 {
-                                                    // Note On
-                                                    vst3_midi_scratch.push(
-                                                        MidiEvent::note_on(offset, 0, pitch, velocity),
-                                                    );
-                                                } else {
-                                                    // Note Off
-                                                    vst3_midi_scratch.push(
-                                                        MidiEvent::note_off(offset, 0, pitch, 0),
-                                                    );
-                                                }
-                                            }
-                                            let _ = host.process_with_sidechain(
-                                                instance_id,
-                                                &main_inputs,
-                                                sc_pair.as_ref().map(|pair| pair.as_slice()),
-                                                &mut out_slices,
-                                                fc,
-                                                &vst3_midi_scratch,
-                                            );
-                                            sampler_left[..fc]
-                                                .copy_from_slice(&external_left[..fc]);
-                                            sampler_right[..fc]
-                                                .copy_from_slice(&external_right[..fc]);
-                                        }
-                                    }
-                                } else if !slot.device_chain.is_empty() {
-                                    let slot_count = slot.device_chain.slot_count();
-                                    for device_slot_idx in 0..slot_count {
-                                        let source_track_idx = sidechain_map
-                                            .get(track_idx)
-                                            .and_then(|slots| slots.get(device_slot_idx))
-                                            .and_then(|v| *v);
-                                        let source_slot =
-                                            source_track_idx.and_then(|src_idx| {
-                                                if src_idx < track_idx {
-                                                    left_tracks.get(src_idx)
-                                                } else if src_idx == track_idx {
-                                                    None
-                                                } else {
-                                                    right_tracks_rest
-                                                        .get(src_idx - track_idx - 1)
-                                                }
-                                            });
-                                        let (sc_l, sc_r) = source_slot
-                                            .map(|src_slot| {
-                                                (
-                                                    Some(&src_slot.buf_left[..fc]),
-                                                    Some(&src_slot.buf_right[..fc]),
-                                                )
-                                            })
-                                            .unwrap_or((None, None));
-                                        slot.device_chain.process_slot_with_sidechain(
-                                            device_slot_idx,
-                                            &mut sampler_left[..fc],
-                                            &mut sampler_right[..fc],
-                                            sc_l,
-                                            sc_r,
-                                            sample_rate_f64 as f32,
-                                        );
-                                    }
-                                }
-
-                                if let Some(lane) = automation.get(track_idx) {
-                                    apply_track_mixer_automation_sample_accurate(
-                                        &mut sampler_left[..fc],
-                                        &mut sampler_right[..fc],
-                                        playhead_pos,
-                                        (!lane.volume.is_empty())
-                                            .then_some(lane.volume.as_slice()),
-                                        (!lane.pan.is_empty()).then_some(lane.pan.as_slice()),
-                                    );
-
-                                    apply_plugin_automation_sample_accurate(
-                                        &mut sampler_left[..fc],
-                                        &mut sampler_right[..fc],
-                                        playhead_pos,
-                                        lane.plugin_params
-                                            .get("__plugin_gain__")
-                                            .map(|v| v.as_slice()),
-                                        lane.plugin_params
-                                            .get("__plugin_pan__")
-                                            .map(|v| v.as_slice()),
-                                    );
-                                }
-                            }
-
-                            if let Some((meter_l, meter_r)) =
-                                render_ctx.meter_bank.track(track_idx)
-                            {
-                                let sampler_rms_l =
-                                    linear_to_db(compute_rms(&sampler_left[..fc]));
-                                let sampler_rms_r =
-                                    linear_to_db(compute_rms(&sampler_right[..fc]));
-                                let sampler_peak_l =
-                                    linear_to_db(compute_peak(&sampler_left[..fc]));
-                                let sampler_peak_r =
-                                    linear_to_db(compute_peak(&sampler_right[..fc]));
-
-                                meter_l.store_rms(meter_l.load_rms().max(sampler_rms_l));
-                                meter_r.store_rms(meter_r.load_rms().max(sampler_rms_r));
-                                meter_l.store_peak(meter_l.load_peak().max(sampler_peak_l));
-                                meter_r.store_peak(meter_r.load_peak().max(sampler_peak_r));
-                            }
-
-                            let route_to_output = render_ctx
-                                .track_slots
-                                .get(track_idx)
-                                .map(|slot| slot.strip.is_output_enabled())
-                                .unwrap_or(true);
-
-                            if route_to_output {
-                                // Mix sampler output into interleaved data
-                                for i in 0..fc {
-                                    let base = i * channels;
-                                    if base + 1 < data.len() {
-                                        data[base] += sampler_left[i];
-                                        data[base + 1] += sampler_right[i];
-                                    }
-                                }
-                            }
-                        }
-
-                        // Any sampler tracks with no MIDI runtime track attached
-                        // must not keep stale active notes.
-                        for idx in midi_snap.len()..sampler_engines.len() {
-                            if sampler_engines[idx].has_active_voices() {
-                                sampler_engines[idx].all_notes_off();
-                            }
-                            midi_note_states[idx] = MidiNoteMapState::default();
-                        }
-
-                        // When there are no audio clips, RenderContext isn't called and
-                        // therefore doesn't advance playhead internally. Advance it here
-                        // so MIDI scheduling and transport telemetry stay aligned.
                         if is_playing && !playhead_advanced_in_render {
                             let transport_loop = render_ctx.loop_region.as_ref().map(|r| {
                                 dream_transport::LoopRegion {

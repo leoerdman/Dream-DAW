@@ -3197,6 +3197,16 @@ impl Vst3Instance {
                     "Failed to allocate macOS editor window".to_string(),
                 ));
             }
+
+            // ENTERPRISE WINDOWING: Match Ableton/Bitwig behavior.
+            // 1. NSWindowCollectionBehaviorTransient: Hides window from Mission Control (Exposé).
+            // 2. NSWindowCollectionBehaviorIgnoresCycle: Excludes from Cmd+` cycle.
+            use cocoa::appkit::NSWindowCollectionBehavior;
+            window.setCollectionBehavior_(
+                NSWindowCollectionBehavior::NSWindowCollectionBehaviorTransient
+                    | NSWindowCollectionBehavior::NSWindowCollectionBehaviorIgnoresCycle,
+            );
+
             diag_step!("[open_editor:{}] Step 4: NSWindow created at {:p}", self.descriptor.name, window);
             info!("[VST3-EDITOR] Step 4: NSWindow created OK");
 

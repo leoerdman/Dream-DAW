@@ -100,6 +100,7 @@ export const DawShell = () => {
     const [selectedClipIds, setSelectedClipIds] = useState<string[]>([]);
     const [editCursorBeat, setEditCursorBeat] = useState(0);
     const [editCursorTrackIndex, setEditCursorTrackIndex] = useState(0);
+    const [editCursorTrackIndexEnd, setEditCursorTrackIndexEnd] = useState(0);
     const [isDragOver, setIsDragOver] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
     const [bottomPanelMode, setBottomPanelMode] = useState<BottomPanelMode>('rack');
@@ -971,13 +972,12 @@ export const DawShell = () => {
         engineApi.seekToBeat(Math.max(0, beat));
     }, []);
 
-    const handleEditCursorChange = useCallback((beat: number, trackIndex: number) => {
+    const handleEditCursorChange = useCallback((beat: number, trackStart: number, trackEnd: number) => {
         const clampedBeat = Math.max(0, beat);
         setEditCursorBeat(clampedBeat);
-        setEditCursorTrackIndex(Math.max(0, trackIndex));
-        // Mutual exclusivity: edit cursor ⇒ deselect clips.
-        setSelectedClipId(null);
-        setSelectedClipIds([]);
+        setEditCursorTrackIndex(Math.max(0, trackStart));
+        setEditCursorTrackIndexEnd(Math.max(0, trackEnd));
+        // Breaking mutual exclusivity: edit cursor and clip selection can coexist.
         // Queue the position — playhead jumps here when transport starts.
         queuedStartBeatRef.current = clampedBeat;
     }, []);
@@ -1030,8 +1030,8 @@ export const DawShell = () => {
     const handleClipSelect = useCallback((clipId: string) => {
         setSelectedClipId(clipId);
         setSelectedClipIds([clipId]);
-        // Mutual exclusivity: clip selection ⇒ hide edit cursor.
-        setEditCursorBeat(-1);
+        // Mutual exclusivity: clip selection ⇒ hide edit cursor. (DEPRECATED: We want cursor to stay when clicking body)
+        // setEditCursorBeat(-1);
         // Derive parent track from clip and select it alongside the clip.
         const clip = timelineClipsForView.find(c => c.id === clipId);
         if (clip) {
@@ -1279,6 +1279,7 @@ export const DawShell = () => {
                                         playheadBeat={playheadBeat}
                                         editCursorBeat={editCursorBeat}
                                         editCursorTrackIndex={editCursorTrackIndex}
+                                        editCursorTrackIndexEnd={editCursorTrackIndexEnd}
                                         selectedTrackIndex={selectedTrackIndex}
                                         selectedTrackIndices={selectedTrackIndices}
                                         isPlaying={transportIsPlaying}
@@ -1300,8 +1301,8 @@ export const DawShell = () => {
                                         onClipSelectionChange={(ids) => {
                                             setSelectedClipIds(ids);
                                             setSelectedClipId(ids[ids.length - 1] ?? null);
-                                            // Mutual exclusivity: clip selection ⇒ hide edit cursor.
-                                            if (ids.length > 0) setEditCursorBeat(-1);
+                                            // Mutual exclusivity: clip selection ⇒ hide edit cursor. (DEPRECATED)
+                                            // if (ids.length > 0) setEditCursorBeat(-1);
                                             // Select tracks that own the selected clips.
                                             if (ids.length > 0) {
                                                 const idSet = new Set(ids);

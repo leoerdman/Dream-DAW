@@ -29,6 +29,7 @@ interface TimelineProps {
     playheadBeat?: number;
     editCursorBeat?: number;
     editCursorTrackIndex?: number;
+    editCursorTrackIndexEnd?: number;
     selectedTrackIndex?: number;
     selectedTrackIndices?: number[];
     isPlaying?: boolean;
@@ -39,7 +40,7 @@ interface TimelineProps {
     loopEnd?: number;
     loopEnabled?: boolean;
     onPlayheadChange?: (beat: number) => void;
-    onEditCursorChange?: (beat: number, trackIndex: number) => void;
+    onEditCursorChange?: (beat: number, trackStart: number, trackEnd: number) => void;
     onClipSelect?: (clipId: string) => void;
     selectedClipIds?: string[];
     onClipSelectionChange?: (clipIds: string[]) => void;
@@ -79,6 +80,7 @@ export const Timeline = (props: TimelineProps) => {
         playheadBeat = 0,
         editCursorBeat = 0,
         editCursorTrackIndex = 0,
+        editCursorTrackIndexEnd = 0,
         selectedTrackIndex = -1,
         selectedTrackIndices,
         isPlaying = false,
@@ -181,7 +183,7 @@ export const Timeline = (props: TimelineProps) => {
                     callbacksRef.current.onPlayheadChange?.(command.beat);
                     break;
                 case 'edit-cursor':
-                    callbacksRef.current.onEditCursorChange?.(command.beat, command.trackIndex);
+                    callbacksRef.current.onEditCursorChange?.(command.beat, command.trackIndex, command.trackIndex);
                     break;
                 case 'clip-select':
                     if (command.additive) {
@@ -239,13 +241,11 @@ export const Timeline = (props: TimelineProps) => {
         if (!engine) return;
 
         engine.onPlayheadSeek = (beat) => {
-            commandBusRef.current.emit({ type: 'seek', beat });
+            callbacksRef.current.onPlayheadChange?.(beat);
         };
-
-        engine.onEditCursorChange = (beat, track) => {
-            commandBusRef.current.emit({ type: 'edit-cursor', beat, trackIndex: track });
+        engine.onEditCursorChange = (beat, trackStart, trackEnd) => {
+            callbacksRef.current.onEditCursorChange?.(beat, trackStart, trackEnd);
         };
-
         engine.onClipClick = (clipId, addToSelection) => {
             commandBusRef.current.emit({ type: 'clip-select', clipId, additive: addToSelection });
         };
@@ -440,8 +440,8 @@ export const Timeline = (props: TimelineProps) => {
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
-        engine.setEditCursor(editCursorBeat, editCursorTrackIndex);
-    }, [editCursorBeat, editCursorTrackIndex, engineRef]);
+        engine.setEditCursor(editCursorBeat, editCursorTrackIndex, editCursorTrackIndexEnd ?? editCursorTrackIndex);
+    }, [editCursorBeat, editCursorTrackIndex, editCursorTrackIndexEnd, engineRef]);
 
     // ── Feed selected track highlight ─────────────────────────────────
     useEffect(() => {

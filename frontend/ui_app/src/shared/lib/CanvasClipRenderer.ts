@@ -148,7 +148,8 @@ export class CanvasClipRenderer {
         clips: TimelineClipData[],
         playheadBeat: number,
         editCursorBeat: number,
-        editCursorTrack: number,
+        editCursorTrackStart: number,
+        editCursorTrackEnd: number,
         selectedTrack: number,
         selectedTracks: number[],
         loop: LoopRegion | null,
@@ -196,7 +197,7 @@ export class CanvasClipRenderer {
         this._drawDropTarget(ctx, vp, dropTarget);
         this._drawGhostClip(ctx, vp, ghost);
         this._drawPlayhead(ctx, vp, playheadBeat, h, theme);
-        this._drawEditCursor(ctx, vp, editCursorBeat, editCursorTrack);
+        this._drawEditCursor(ctx, vp, editCursorBeat, editCursorTrackStart, editCursorTrackEnd);
 
         ctx.restore();
 
@@ -846,13 +847,15 @@ export class CanvasClipRenderer {
         ctx: CanvasRenderingContext2D,
         vp: ViewportMatrix,
         beat: number,
-        track: number,
+        trackStart: number,
+        trackEnd: number,
     ): void {
         if (beat < 0) return; // Hidden when clip is selected (mutual exclusivity)
         const x = vp.beatsToScreenX(beat);
         if (x < -2 || x > vp.viewportWidth + 2) return;
 
-        const y = vp.rulerHeight + vp.trackOffsetY(track) - vp.scrollY;
+        const yStart = vp.rulerHeight + vp.trackOffsetY(Math.min(trackStart, trackEnd)) - vp.scrollY;
+        const yEnd = vp.rulerHeight + vp.trackOffsetY(Math.max(trackStart, trackEnd)) - vp.scrollY + vp.trackHeightAt(Math.max(trackStart, trackEnd));
         const cursorX = Math.round(x) + 0.5;
 
         // Solid bright white line with slow, smooth breathing alpha.
@@ -866,8 +869,8 @@ export class CanvasClipRenderer {
         ctx.strokeStyle = `rgba(255, 255, 255, ${blink.toFixed(3)})`;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(cursorX, Math.max(vp.rulerHeight, y));
-        ctx.lineTo(cursorX, y + vp.trackHeightAt(track));
+        ctx.moveTo(cursorX, Math.max(vp.rulerHeight, yStart));
+        ctx.lineTo(cursorX, Math.max(vp.rulerHeight, yEnd));
         ctx.stroke();
         ctx.restore();
     }

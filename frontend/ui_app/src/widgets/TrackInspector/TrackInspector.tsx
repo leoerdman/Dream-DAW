@@ -34,6 +34,8 @@ interface TrackData {
     isSoloed: boolean;
     isArmed: boolean;
     vuLevel: number;
+    vuLevelL: number;
+    vuLevelR: number;
     routing: string;
     groupId?: string;
     sends: { name: string; amount: number; color: string }[];
@@ -66,9 +68,9 @@ function mapProjectTrack(
     _index: number,
     meterPair?: [{ peak: number }, { peak: number }],
 ): TrackData {
-    const vuLevel = meterPair
-        ? Math.max(meterPair[0].peak, meterPair[1].peak)
-        : -Infinity;
+    const vuLevelL = meterPair ? meterPair[0].peak : -Infinity;
+    const vuLevelR = meterPair ? meterPair[1].peak : -Infinity;
+    const vuLevel = Math.max(vuLevelL, vuLevelR);
     const typeMap: Record<string, TrackData['type']> = {
         audio: 'audio', Audio: 'audio',
         midi: 'midi', Midi: 'midi',
@@ -86,6 +88,8 @@ function mapProjectTrack(
         isSoloed: pt.is_solo,
         isArmed: pt.is_armed,
         vuLevel,
+        vuLevelL,
+        vuLevelR,
         routing: pt.output || 'master',
         sends: [],
         input: pt.input || 'none',
@@ -171,11 +175,15 @@ export const TrackInspector = ({
     }, [projectTracks, meters]);
 
     const masterTrack = useMemo((): TrackData => {
-        const masterVu = Math.max(meters.master_left.peak, meters.master_right.peak);
+        const masterVuL = meters.master_left.peak;
+        const masterVuR = meters.master_right.peak;
         return {
             id: 'master', name: 'Master', type: 'master', color: masterColor,
             volume: masterVolume, pan: 0, isMuted: false, isSoloed: false, isArmed: false,
-            vuLevel: masterVu, routing: '', sends: [], input: '', output: 'Main',
+            vuLevel: Math.max(masterVuL, masterVuR),
+            vuLevelL: masterVuL,
+            vuLevelR: masterVuR,
+            routing: '', sends: [], input: '', output: 'Main',
             height: trackHeight,
         };
     }, [meters, masterVolume, masterColor, trackHeight]);
@@ -1868,32 +1876,39 @@ const PanFader = ({
     );
 };
 
-// ── Tri-Color VU Meter (vertical) ──────────────────────────
+// ── Tri-Color Stereo VU Meter (vertical, L+R) ──────────────────────────
 
 const TriColorVU = ({
     peakDb,
+    peakDbL,
+    peakDbR,
     isMidi,
     compact = false,
     isEnabled = true,
     trackHeight,
 }: {
     peakDb: number;
+    peakDbL?: number;
+    peakDbR?: number;
     isMidi: boolean;
     compact?: boolean;
     isEnabled?: boolean;
     trackHeight?: number;
 }) => {
-    const normalizedLevel = vuNorm(peakDb);
+    const lDb = peakDbL ?? peakDb;
+    const rDb = peakDbR ?? peakDb;
+    const normL = vuNorm(lDb);
+    const normR = vuNorm(rDb);
     const meterHeight = trackHeight ? Math.max(14, trackHeight - 6) : (compact ? 28 : 32);
-    const minus2Norm = vuNorm(-2);
-    const zeroNorm = vuNorm(0);
 
     const lowColor = isMidi ? 'var(--color-meter-low-midi)' : 'var(--color-meter-low-audio)';
     const midColor = isMidi ? 'var(--color-meter-mid-midi)' : 'var(--color-meter-mid-audio)';
+    const grad = `linear-gradient(to top, ${lowColor} 0%, ${midColor} 70%, var(--color-status-record) 100%)`;
 
+    // 2px left bar + 1px gap + 2px right bar = 5px inner
     return (
         <div style={{
-            width: compact ? 10 : 10,
+            width: 7,
             height: meterHeight,
             background: 'color-mix(in srgb, var(--surface-elevated) 84%, #000)',
             borderRadius: 'var(--radius-xs)',
@@ -1906,23 +1921,24 @@ const TriColorVU = ({
             opacity: isEnabled ? 1 : 0.5,
             transition: `filter var(--transition-fast), opacity var(--transition-fast)`,
         }}>
+            {/* Left channel */}
             <div style={{
                 position: 'absolute',
                 left: 0,
-                right: 0,
-                bottom: `${zeroNorm * 100}%`,
-                height: 1,
-                background: 'var(--color-overlay-dark)',
-                pointerEvents: 'none',
-                zIndex: 'var(--z-local)' as unknown as number,
-            }} />
-            <div style={{
-                position: 'absolute',
-                left: 0,
-                right: 0,
+                width: 2,
                 bottom: 0,
-                height: `${normalizedLevel * 100}%`,
-                background: `linear-gradient(to top, ${lowColor} 0%, ${lowColor} ${minus2Norm * 100}%, ${midColor} ${zeroNorm * 100}%, var(--color-status-record) 100%)`,
+                height: `${normL * 100}%`,
+                background: grad,
+                transition: 'height 70ms linear',
+            }} />
+            {/* Right channel */}
+            <div style={{
+                position: 'absolute',
+                right: 0,
+                width: 2,
+                bottom: 0,
+                height: `${normR * 100}%`,
+                background: grad,
                 transition: 'height 70ms linear',
             }} />
         </div>
@@ -1935,6 +1951,8 @@ const VerticalMixerStrip = ({
     volumeLinear,
     pan,
     peakDb,
+    peakDbL,
+    peakDbR,
     isMidi,
     onVolumeChange,
     onPanChange,
@@ -1942,6 +1960,8 @@ const VerticalMixerStrip = ({
     volumeLinear: number;
     pan: number;
     peakDb: number;
+    peakDbL?: number;
+    peakDbR?: number;
     isMidi: boolean;
     onVolumeChange: (gain: number) => void;
     onPanChange: (pan: number) => void;
@@ -1951,7 +1971,8 @@ const VerticalMixerStrip = ({
     const activePointerId = useRef<number | null>(null);
 
     const volNorm = Math.max(0, Math.min(1, dbToFader(gainToDb(volumeLinear))));
-    const meterNorm = Math.max(0, Math.min(1, vuNorm(peakDb)));
+    const meterNormL = Math.max(0, Math.min(1, vuNorm(peakDbL ?? peakDb)));
+    const meterNormR = Math.max(0, Math.min(1, vuNorm(peakDbR ?? peakDb)));
     const panNorm = Math.max(0, Math.min(1, (pan + 1) / 2));
     const [peakHoldNorm, setPeakHoldNorm] = useState(0);
     const [clipLatched, setClipLatched] = useState(false);
@@ -1960,6 +1981,7 @@ const VerticalMixerStrip = ({
     useEffect(() => {
         let rafId: number | null = null;
         let clipLatchTimer: number | null = null;
+        const meterNorm = Math.max(meterNormL, meterNormR);
         if (meterNorm > peakHoldNorm) {
             rafId = window.requestAnimationFrame(() => {
                 setPeakHoldNorm(meterNorm);
@@ -1980,7 +2002,7 @@ const VerticalMixerStrip = ({
                 holdTimerRef.current = null;
             }
         };
-    }, [meterNorm, peakDb, peakHoldNorm]);
+    }, [meterNormL, meterNormR, peakDb, peakHoldNorm]);
 
     const applyVolumeFromY = useCallback((clientY: number) => {
         const el = stripRef.current;
@@ -2034,7 +2056,7 @@ const VerticalMixerStrip = ({
                 onClick={(e) => {
                     e.stopPropagation();
                     setClipLatched(false);
-                    setPeakHoldNorm(meterNorm);
+                    setPeakHoldNorm(Math.max(meterNormL, meterNormR));
                 }}
                 onWheel={(e) => {
                     e.stopPropagation();
@@ -2059,10 +2081,20 @@ const VerticalMixerStrip = ({
             >
                 <div style={{
                     position: 'absolute',
-                    left: 0,
-                    right: 0,
+                    left: 2,
+                    width: 2,
                     bottom: 0,
-                    height: `${meterNorm * 100}%`,
+                    height: `${meterNormL * 100}%`,
+                    background: isMidi ? 'color-mix(in srgb, var(--color-btn-mute) 50%, transparent)' : 'color-mix(in srgb, var(--color-meter-normal) 50%, transparent)',
+                    pointerEvents: 'none',
+                    filter: 'inherit',
+                }} />
+                <div style={{
+                    position: 'absolute',
+                    right: 2,
+                    width: 2,
+                    bottom: 0,
+                    height: `${meterNormR * 100}%`,
                     background: isMidi ? 'color-mix(in srgb, var(--color-btn-mute) 50%, transparent)' : 'color-mix(in srgb, var(--color-meter-normal) 50%, transparent)',
                     pointerEvents: 'none',
                     filter: 'inherit',
@@ -2676,6 +2708,8 @@ const TrackRow = ({
                         volumeLinear={track.volume}
                         pan={track.pan}
                         peakDb={track.vuLevel}
+                        peakDbL={track.vuLevelL}
+                        peakDbR={track.vuLevelR}
                         isMidi={track.type === 'midi'}
                         onVolumeChange={onVolumeChange}
                         onPanChange={onPanChange}
@@ -2794,6 +2828,8 @@ const TrackRow = ({
                 {/* Column 4: VU */}
                 <TriColorVU
                     peakDb={track.vuLevel}
+                    peakDbL={track.vuLevelL}
+                    peakDbR={track.vuLevelR}
                     isMidi={track.type === 'midi' && !isGroup}
                     compact
                     isEnabled={isMaster ? true : isEnabled}

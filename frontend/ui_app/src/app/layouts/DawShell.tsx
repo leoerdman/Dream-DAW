@@ -1652,8 +1652,10 @@ const SessionWorkspace = ({
     const [selectedSessionClipId, setSelectedSessionClipId] = useState<string | null>(null);
     const [playingSessionClipId, setPlayingSessionClipId] = useState<string | null>(null);
 
-    const masterMeter = meters.master_left;
-    const masterLevel = Math.max(0, Math.min(1, ((masterMeter?.peak ?? -60) + 60) / 60));
+    const masterMeterL = meters.master_left;
+    const masterMeterR = meters.master_right;
+    const masterLevelL = Math.max(0, Math.min(1, ((masterMeterL?.peak ?? -60) + 60) / 60));
+    const masterLevelR = Math.max(0, Math.min(1, ((masterMeterR?.peak ?? -60) + 60) / 60));
 
     return (
         <div style={{
@@ -1802,8 +1804,11 @@ const SessionWorkspace = ({
                 <div style={{ display: 'flex', minHeight: 0, overflowX: 'auto' }}>
                     {tracks.map((track, trackIndex) => {
                         const meterPair = meters.tracks[trackIndex];
-                        const peakDb = meterPair ? Math.max(meterPair[0].peak, meterPair[1].peak) : -60;
-                        const trackMeterLevel = Math.max(0, Math.min(1, (peakDb + 60) / 60));
+                        const peakDbL = meterPair ? meterPair[0].peak : -60;
+                        const peakDbR = meterPair ? meterPair[1].peak : -60;
+                        const trackMeterL = Math.max(0, Math.min(1, (peakDbL + 60) / 60));
+                        const trackMeterR = Math.max(0, Math.min(1, (peakDbR + 60) / 60));
+                        const peakDb = Math.max(peakDbL, peakDbR);
                         const peakLabel = `${peakDb >= 0 ? '+' : ''}${peakDb.toFixed(1)} dB`;
                         return (
                             <div key={`mix-${track.id}`} style={{ width: SESSION_TRACK_WIDTH, borderRight: '1px solid #2d2d2d', padding: '8px 8px 6px', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6 }}>
@@ -1835,24 +1840,25 @@ const SessionWorkspace = ({
                                         position: 'relative',
                                         overflow: 'hidden',
                                     }}>
+                                        {/* Stereo meter: 2px L + 1px gap + 2px R */}
                                         <div style={{
                                             position: 'absolute',
-                                            left: '50%',
-                                            transform: 'translateX(-50%)',
-                                            top: 4,
+                                            left: 'calc(50% - 3px)',
                                             bottom: 4,
-                                            width: 18,
-                                            background: 'var(--color-overlay-dark)',
+                                            width: 2,
+                                            height: `${Math.max(2, trackMeterL * 100)}%`,
+                                            background: 'linear-gradient(180deg, #8cff73 0%, #5ee162 45%, #30c451 100%)',
+                                            boxShadow: '0 0 6px color-mix(in srgb, var(--color-status-success) 30%, transparent)',
+                                            transition: `height var(--transition-linear)`,
                                         }} />
                                         <div style={{
                                             position: 'absolute',
-                                            left: '50%',
-                                            transform: 'translateX(-50%)',
+                                            left: 'calc(50% + 1px)',
                                             bottom: 4,
-                                            width: 18,
-                                            height: `${Math.max(2, trackMeterLevel * 100)}%`,
+                                            width: 2,
+                                            height: `${Math.max(2, trackMeterR * 100)}%`,
                                             background: 'linear-gradient(180deg, #8cff73 0%, #5ee162 45%, #30c451 100%)',
-                                            boxShadow: '0 0 10px color-mix(in srgb, var(--color-status-success) 40%, transparent)',
+                                            boxShadow: '0 0 6px color-mix(in srgb, var(--color-status-success) 30%, transparent)',
                                             transition: `height var(--transition-linear)`,
                                         }} />
                                     </div>
@@ -1867,7 +1873,9 @@ const SessionWorkspace = ({
                 <div style={{ width: SESSION_MASTER_WIDTH, padding: '8px 8px 6px', borderLeft: '1px solid #3b3b3b', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6 }}>
                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 700 }}>MASTER</div>
                     <div style={{ position: 'relative', border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-base)' }}>
-                        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: `${Math.max(4, Math.min(100, masterLevel * 100))}%`, background: 'linear-gradient(180deg, #92ff73 0%, #3ac95b 80%, #ffe35e 100%)' }} />
+                        {/* Stereo master: 2px L + 1px gap + 2px R */}
+                        <div style={{ position: 'absolute', left: 'calc(50% - 3px)', bottom: 0, width: 2, height: `${Math.max(4, Math.min(100, masterLevelL * 100))}%`, background: 'linear-gradient(180deg, #92ff73 0%, #3ac95b 80%, #ffe35e 100%)' }} />
+                        <div style={{ position: 'absolute', left: 'calc(50% + 1px)', bottom: 0, width: 2, height: `${Math.max(4, Math.min(100, masterLevelR * 100))}%`, background: 'linear-gradient(180deg, #92ff73 0%, #3ac95b 80%, #ffe35e 100%)' }} />
                     </div>
                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>Out</div>
                 </div>

@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { resolvePlugin, formatBadgeColor } from '@/shared/config/pluginManifest';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useDragStore } from '@/shared/stores/useDragStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
@@ -1963,42 +1964,21 @@ const DeviceNode = ({
     onSidechainSourceChange?: (sourceTrackId: string) => void;
     onEnsureActive?: () => void;
 }) => {
-    // Color per device type (matching Ableton's device categories)
-    const baseWidth = device.source === 'internal'
-        ? device.effectType === 'waveSynth'
-            ? 980
-            : device.effectType === 'eq'
-                ? 860
-                : device.effectType === 'utility'
-                    ? 360
-                    : 720
-        : device.effectType === 'sampler'
-            ? 520
-            : device.effectType === 'waveSynth'
-                ? 560
-                : device.effectType === 'instrument'
-                    ? 420
-                    : device.effectType === 'eq'
-                        ? 420
-                        : device.effectType === 'autoFilter' || device.effectType === 'autoPan' || device.effectType === 'phaser' || device.effectType === 'flanger'
-                            ? 360
-                            : device.effectType === 'midiPitch' || device.effectType === 'midiScale' || device.effectType === 'midiVelocity' || device.effectType === 'midiRandom'
-                                ? 320
-                                : device.effectType === 'gate'
-                                    ? 340
-                                    : 160; // Compact square for external VSTs by default
+    // Resolve plugin metadata from centralized manifest (SSOT)
+    const isInstrumentSlot = device.effectType === 'instrument' || device.effectType === 'sampler' || device.effectType === 'waveSynth';
+    const manifest = resolvePlugin(device.pluginId, device.name, device.source, isInstrumentSlot);
+
+    // Card dimensions — manifest provides the default, expand for settings
+    const baseWidth = device.source === 'internal' && device.effectType === 'waveSynth'
+        ? 980
+        : device.source === 'internal' && device.effectType === 'eq'
+            ? 860
+            : manifest.cardWidth;
     const settingsWidth = Math.min(1460, Math.max(baseWidth, 280 + device.params.length * 110));
     const rackWidth = showSettings ? settingsWidth : baseWidth;
-    const supportsSettingsToggle = device.source === 'vst' || (device.source === 'internal' && device.effectType !== 'utility');
-    const pluginIdLower = (device.pluginId || '').toLowerCase();
-    const pluginFormat = pluginIdLower.includes('.vst3') || pluginIdLower.includes('vst3')
-        ? 'VST3'
-        : pluginIdLower.includes('.vst') || pluginIdLower.includes('vst2')
-            ? 'VST2'
-            : device.source === 'vst'
-                ? 'VST'
-                : 'INT';
-    const showUiButton = device.source === 'vst' || pluginFormat === 'VST3';
+    const supportsSettingsToggle = manifest.supportsSettings;
+    const pluginFormat = manifest.format;
+    const showUiButton = manifest.hasEditor;
     const nativeEditorOpen = isNativeEditorOpen ?? false;
     const showRecoverAction = !!runtimeStatus && !runtimeStatus.loaded;
 
@@ -2036,11 +2016,11 @@ const DeviceNode = ({
                 }
             }}
         >
-            {/* Header */}
+            {/* ── Unified Header: Enable → UI → Wrench → Name → Format ── */}
             <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
+                gap: 5,
                 padding: '3px 6px',
                 borderBottom: '1px solid var(--color-divider)',
                 background: 'var(--color-bg-header)',
@@ -2048,91 +2028,74 @@ const DeviceNode = ({
             }}
                 onClick={(e) => { e.stopPropagation(); onSelect(e); }}
             >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                {/* ● Enable toggle */}
+                <button
+                    onClick={onToggle}
+                    title={device.isEnabled ? 'Disable' : 'Enable'}
+                    style={{
+                        width: 11, height: 11,
+                        borderRadius: '50%',
+                        background: device.isEnabled ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
+                        border: 'none',
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                    }}
+                />
+                {/* UI button — only for plugins with a native editor */}
+                {showUiButton && (
                     <button
-                        onClick={onToggle}
-                        title={device.isEnabled ? 'Disable' : 'Enable'}
-                        style={{
-                            width: 11, height: 11,
-                            borderRadius: '50%',
-                            background: device.isEnabled ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
-                            border: 'none',
-                            cursor: 'pointer',
-                            flexShrink: 0,
-                        }}
-                    />
-                    {showUiButton && (
-                        <button
-                            onClick={(e) => { e.stopPropagation(); onOpenGUI?.(); }}
-                            title={editorSupported === false
-                                ? (editorReason ?? 'Native plugin editor is unavailable; opening inline controls')
-                                : 'Open Native Plugin UI'}
-                            style={headerIconBtnStyle(false, showSettings || nativeEditorOpen)}
-                        >
-                            UI
-                        </button>
-                    )}
-                </div>
+                        onClick={(e) => { e.stopPropagation(); onOpenGUI?.(); }}
+                        title={editorSupported === false
+                            ? (editorReason ?? 'Native plugin editor is unavailable; opening inline controls')
+                            : 'Open Native Plugin UI'}
+                        style={headerIconBtnStyle(false, showSettings || nativeEditorOpen)}
+                    >
+                        UI
+                    </button>
+                )}
+                {/* Fix button — only when plugin runtime is dead */}
+                {showRecoverAction && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onEnsureActive?.(); }}
+                        title="Recover plugin runtime"
+                        style={headerIconBtnStyle(false)}
+                    >
+                        Fix
+                    </button>
+                )}
+                {/* 🔧 Wrench — settings / params panel */}
+                {supportsSettingsToggle && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
+                        title="Plugin Settings / Automatable Params"
+                        style={headerIconBtnStyle(false, showSettings)}
+                    >
+                        🔧
+                    </button>
+                )}
+                {/* Name — fills remaining space */}
                 <span style={{
                     fontSize: 'var(--font-size-2xs)',
                     fontWeight: 'var(--font-weight-semibold)' as unknown as number,
                     color: 'var(--color-text-primary)',
                     flex: 1,
-                    textAlign: 'center',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
+                    textAlign: 'center',
                 }}>
                     {device.name}
                 </span>
-                <span style={{
-                    fontSize: 'var(--font-size-2xs)',
-                    color: 'var(--color-text-tertiary)',
-                    fontFamily: 'var(--font-mono)',
-                    marginRight: 4,
-                }}>
-                    {order}
-                </span>
-                {showUiButton ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        {showRecoverAction && (
-                            <button
-                                onClick={(e) => { e.stopPropagation(); onEnsureActive?.(); }}
-                                title="Recover plugin runtime"
-                                style={headerIconBtnStyle(false)}
-                            >
-                                Fix
-                            </button>
-                        )}
-                        <button
-                            onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
-                            title="Plugin Settings / Automatable Params"
-                            style={headerIconBtnStyle(false, showSettings)}
-                        >
-                            🔧
-                        </button>
-                    </div>
-                ) : supportsSettingsToggle ? (
-                    <button
-                        onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
-                        title="Inline Controls"
-                        style={headerIconBtnStyle(false, showSettings)}
-                    >
-                        🔧
-                    </button>
-                ) : (
-                    <span style={{ width: 24, display: 'inline-block' }} />
-                )}
+                {/* Format badge */}
                 <span style={{
                     fontSize: 'var(--font-size-micro)',
-                    color: showUiButton
-                        ? (pluginFormat === 'VST3' ? '#2ecc71' : '#ffb36a')
-                        : 'var(--color-text-tertiary)',
+                    color: formatBadgeColor(pluginFormat),
                     fontWeight: 'var(--font-weight-bold)' as unknown as number,
                     minWidth: 28,
                     textAlign: 'right',
+                    flexShrink: 0,
                 }}>
-                    {showUiButton ? pluginFormat : 'INT'}
+                    {pluginFormat}
                 </span>
             </div>
 

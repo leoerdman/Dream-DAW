@@ -579,7 +579,7 @@ export const TrackInspector = ({
         const resolvedInsertAfter = Number.isInteger(insertAfterIndex) && (insertAfterIndex ?? -1) >= 0
             ? (insertAfterIndex as number)
             : null;
-        void engineApi.addTrackAdvanced(trackType, resolvedInsertAfter)
+        void engineApi.addTrackAdvanced(trackType, resolvedInsertAfter, undefined, contextMenu?.trackId ?? null)
             .then(() => useEngineStore.getState().fetchProject(`track-context:add-${trackType}`))
             .catch((err) => {
                 console.error(`[TrackInspector] add ${trackType} track failed:`, err);
@@ -694,6 +694,23 @@ export const TrackInspector = ({
             });
         setContextMenu(null);
     }, []);
+
+    /** Paint all children of a group track with the group's color. */
+    const handlePaintGroupColor = useCallback((groupTrackId: string) => {
+        const group = tracks.find((t) => t.id === groupTrackId);
+        if (!group || group.type !== 'group') return;
+        const groupColor = group.color;
+        const children = tracks.filter((t) => t.groupId === groupTrackId);
+        if (children.length === 0) return;
+        void Promise.all(
+            children.map((child) => engineApi.setTrackColor(child.id, groupColor)),
+        )
+            .then(() => useEngineStore.getState().fetchProject('track-context:paint-group-color'))
+            .catch((err) => {
+                console.error('[TrackInspector] paintGroupColor failed:', err);
+            });
+        setContextMenu(null);
+    }, [tracks]);
 
     const handleBounceTrack = useCallback((trackId: string) => {
         void engineApi.bounceTrack(trackId)
@@ -1394,6 +1411,10 @@ export const TrackInspector = ({
                         if (!contextMenu.trackId) return;
                         handleBounceGroup(contextMenu.trackId);
                     }}
+                    onPaintGroupColor={() => {
+                        if (!contextMenu.trackId) return;
+                        handlePaintGroupColor(contextMenu.trackId);
+                    }}
                     onSplitToStems={() => {
                         if (!contextMenu.trackId) return;
                         handleSplitTrackToStems(contextMenu.trackId);
@@ -1421,7 +1442,7 @@ export const TrackInspector = ({
 const ContextMenuPopup = ({
     x, y, showTrackActions,
     onAddAudioTrack, onAddMidiTrack,
-    onRename, onGroup, onUngroup, canUngroup, canBounceGroup, onDelete, onChangeColor, onPaintClips, onBounceTrack, onBounceGroup, onSplitToStems, onDismiss,
+    onRename, onGroup, onUngroup, canUngroup, canBounceGroup, onDelete, onChangeColor, onPaintClips, onBounceTrack, onBounceGroup, onPaintGroupColor, onSplitToStems, onDismiss,
 }: {
     x: number; y: number;
     showTrackActions: boolean;
@@ -1437,6 +1458,7 @@ const ContextMenuPopup = ({
     onPaintClips: () => void;
     onBounceTrack: () => void;
     onBounceGroup: () => void;
+    onPaintGroupColor: () => void;
     onSplitToStems: () => void;
     onDismiss: () => void;
 }) => {
@@ -1457,7 +1479,7 @@ const ContextMenuPopup = ({
 
     const clampedX = Math.min(x, window.innerWidth - 196);
     const menuHeight = showTrackActions
-        ? (canBounceGroup ? 348 : 314)
+        ? (canBounceGroup ? 382 : 314)
         : 82;
     const clampedY = Math.min(y, window.innerHeight - menuHeight);
 
@@ -1515,6 +1537,13 @@ const ContextMenuPopup = ({
                             onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
                             onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
                             <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>📦</span> Bounce Group
+                        </button>
+                    )}
+                    {canBounceGroup && (
+                        <button style={itemStyle} onClick={onPaintGroupColor}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                            <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>🎨</span> Paint Group Color
                         </button>
                     )}
                     <button style={itemStyle} onClick={onSplitToStems}

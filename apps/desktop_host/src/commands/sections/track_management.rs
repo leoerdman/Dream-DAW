@@ -12,6 +12,7 @@ async fn add_track_cmd(
     inherit_from_track_id: Option<String>,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -89,7 +90,7 @@ async fn add_track_cmd(
 
     let project_name = project.name.clone();
     let track_count = project.tracks.len();
-    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &handle)?;
+    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
@@ -109,6 +110,7 @@ async fn delete_track_cmd(
     index: usize,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -138,7 +140,7 @@ async fn delete_track_cmd(
 
     let project_name = project.name.clone();
     let track_count = project.tracks.len();
-    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &handle)?;
+    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!("[IPC] delete_track_cmd: index={} name='{}' (now {} tracks)", index, removed_name, track_count);
@@ -150,6 +152,7 @@ async fn delete_tracks_cmd(
     track_ids: Vec<String>,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -203,7 +206,7 @@ async fn delete_tracks_cmd(
     }
 
     let project_name = project.name.clone();
-    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &handle)?;
+    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!("[IPC] delete_tracks_cmd(count={})", track_ids.len());
@@ -343,10 +346,15 @@ fn collect_block_track_ids(project: &Project, root_id: Uuid) -> Vec<Uuid> {
 fn refresh_runtime_after_track_topology_change(
     project: &mut Project,
     clip_pool_state: &ClipPoolState,
+    plugin_host_state: &PluginHostState,
     handle: &AudioEngineHandle,
 ) -> Result<(), String> {
     rebuild_group_children(project);
     clip_pool_state.rebuild_snapshot(project);
+    // Rebuild external FX snapshot so plugin-to-track index mappings stay correct
+    // after topology changes (add, delete, move, group, ungroup, duplicate).
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(project, slot_instance_map.as_ref());
     rebuild_midi_snapshot_from_project(project, handle);
     rebuild_sampler_snapshot_from_project(project, clip_pool_state, handle);
     rebuild_runtime_device_chains_from_project(project, handle)
@@ -371,6 +379,7 @@ async fn create_group_cmd(
     group_name: Option<String>,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
@@ -448,7 +457,7 @@ async fn create_group_cmd(
     }
 
     let project_name = project.name.clone();
-    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &handle)?;
+    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
@@ -487,6 +496,7 @@ async fn move_track_to_index_cmd(
     target_index: usize,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -512,7 +522,7 @@ async fn move_track_to_index_cmd(
     project.move_track(from_index, to_index);
 
     let project_name = project.name.clone();
-    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &handle)?;
+    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!("[IPC] move_track_to_index_cmd({track_id}: {from_index} -> {to_index})");
@@ -526,6 +536,7 @@ async fn move_track_with_parent_cmd(
     target_parent_group_id: Option<String>,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -580,7 +591,7 @@ async fn move_track_with_parent_cmd(
     project.tracks.insert(insert_index, moving_track);
 
     let project_name = project.name.clone();
-    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &handle)?;
+    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
@@ -596,6 +607,7 @@ async fn set_track_group_cmd(
     group_id: Option<String>,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -642,7 +654,7 @@ async fn set_track_group_cmd(
     }
 
     let project_name = project.name.clone();
-    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &handle)?;
+    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!("[IPC] set_track_group_cmd({track_id} -> {:?})", target_group);
@@ -654,6 +666,7 @@ async fn ungroup_track_cmd(
     group_id: String,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -681,7 +694,7 @@ async fn ungroup_track_cmd(
 
     project.tracks.remove(group_index);
     let project_name = project.name.clone();
-    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &handle)?;
+    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!("[IPC] ungroup_track_cmd({group_id})");
@@ -694,6 +707,7 @@ async fn move_track_block_to_index_cmd(
     target_index: usize,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -734,7 +748,7 @@ async fn move_track_block_to_index_cmd(
     }
 
     let project_name = project.name.clone();
-    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &handle)?;
+    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
@@ -751,6 +765,7 @@ async fn duplicate_tracks_cmd(
     track_ids: Vec<String>,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -818,7 +833,7 @@ async fn duplicate_tracks_cmd(
     }
 
     let project_name = project.name.clone();
-    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &handle)?;
+    refresh_runtime_after_track_topology_change(&mut project, &clip_pool_state, &plugin_host_state, &handle)?;
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(

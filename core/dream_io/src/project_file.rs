@@ -108,11 +108,21 @@ impl ProjectFile {
 
         // ── Step 3: Backup existing file (non-fatal if fails) ──────
         // Use copy (not move) so existing primary is preserved if anything fails.
+        // Store the .bak in the Backup/ subdirectory to keep the project root clean.
         if path.exists() {
-            let bak_path = path.with_extension("bak");
-            if let Err(e) = fs::copy(path, &bak_path) {
-                log::warn!("Could not create backup {}: {}", bak_path.display(), e);
-                // Fall through — still try to save
+            if let Some(parent) = path.parent() {
+                let backup_dir = parent.join("Backup");
+                let _ = fs::create_dir_all(&backup_dir);
+                let file_name = path.file_name().unwrap_or_default();
+                let bak_name = format!(
+                    "{}.bak",
+                    file_name.to_str().unwrap_or("project").trim_end_matches(".json")
+                );
+                let bak_path = backup_dir.join(bak_name);
+                if let Err(e) = fs::copy(path, &bak_path) {
+                    log::warn!("Could not create backup {}: {}", bak_path.display(), e);
+                    // Fall through — still try to save
+                }
             }
         }
 
@@ -145,7 +155,23 @@ impl ProjectFile {
     /// - `path`: Path to the project file (`.dream.json`).
     pub fn load(path: impl AsRef<Path>) -> Result<Project, ProjectFileError> {
         let path = path.as_ref();
-        let bak_path = path.with_extension("bak");
+
+        // Look for .bak in the Backup/ subdirectory first, then fall back to legacy
+        // location next to the project file for backward compatibility.
+        let bak_path = {
+            let file_name = path.file_name().unwrap_or_default();
+            let bak_name = format!(
+                "{}.bak",
+                file_name.to_str().unwrap_or("project").trim_end_matches(".json")
+            );
+            let backup_dir_bak = path.parent().map(|p| p.join("Backup").join(&bak_name));
+            let legacy_bak = path.with_extension("bak");
+            // Prefer new Backup/ location, fall back to legacy .bak next to project file
+            match backup_dir_bak {
+                Some(ref p) if p.exists() => p.clone(),
+                _ => legacy_bak,
+            }
+        };
 
         let project = match fs::read_to_string(path) {
             Ok(data) => match Self::parse_project_document(&data) {

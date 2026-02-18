@@ -103,7 +103,7 @@ export const DawShell = () => {
         () => selectedClipIds.length > 0 ? selectedClipIds[selectedClipIds.length - 1] : null,
         [selectedClipIds],
     );
-    const [editCursorBeat, setEditCursorBeat] = useState(0);
+    const [editCursorBeat, setEditCursorBeat] = useState(-1);
     const [editCursorTrackIndex, setEditCursorTrackIndex] = useState(0);
     const [editCursorTrackIndexEnd, setEditCursorTrackIndexEnd] = useState(0);
     const [isDragOver, setIsDragOver] = useState(false);

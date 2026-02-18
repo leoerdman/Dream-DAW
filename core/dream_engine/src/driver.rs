@@ -1099,6 +1099,68 @@ impl Default for MidiNoteMapState {
     }
 }
 
+/// Per-track active note tracker for VST3 plugins.
+///
+/// Unlike the sampler engine which has its own voice management,
+/// VST3 plugins need explicit note-off tracking so we can flush
+/// all active notes on transport stop/seek.
+#[derive(Clone)]
+struct Vst3NoteTracker {
+    /// Active notes: (mapped_pitch, channel) pairs currently held.
+    active: Vec<(u8, u8)>,
+    /// RNG state for random MIDI FX (xorshift32, same algorithm as sampler path).
+    rng_state: u32,
+}
+
+impl Default for Vst3NoteTracker {
+    fn default() -> Self {
+        Self {
+            active: Vec::with_capacity(128),
+            rng_state: 0xB7B7_CAFE,
+        }
+    }
+}
+
+impl Vst3NoteTracker {
+    /// Register an active note-on. Prevents duplicates by
+    /// releasing the previous instance of the same pitch first.
+    /// Returns an optional note-off event if a duplicate was found.
+    fn note_on(&mut self, pitch: u8, channel: u8) -> Option<MidiEvent> {
+        // Duplicate protection: if same pitch is already active, release it first.
+        if let Some(pos) = self.active.iter().position(|&(p, c)| p == pitch && c == channel) {
+            self.active.swap_remove(pos);
+            // Return a note-off for the duplicate so the plugin can clean up.
+            Some(MidiEvent::note_off(0, channel, pitch, 0))
+        } else {
+            None
+        }
+        // Push is done by the caller after sending the note-on.
+    }
+
+    /// Register a note-off — remove from active tracking.
+    fn note_off(&mut self, pitch: u8, channel: u8) {
+        if let Some(pos) = self.active.iter().position(|&(p, c)| p == pitch && c == channel) {
+            self.active.swap_remove(pos);
+        }
+    }
+
+    /// Flush all active notes: generates note-off events for every
+    /// currently active note + CC 123 (All Notes Off) on channel 0.
+    fn flush_all(&mut self, out: &mut Vec<MidiEvent>) {
+        for &(pitch, channel) in &self.active {
+            out.push(MidiEvent::note_off(0, channel, pitch, 0));
+        }
+        self.active.clear();
+        // CC 123 = All Notes Off on channel 0 — universal panic message.
+        out.push(MidiEvent::cc(0, 0, 123, 0));
+    }
+
+    #[allow(dead_code)]
+    fn clear(&mut self) {
+        self.active.clear();
+    }
+}
+
 #[inline]
 fn clamp_midi_pitch(v: i16) -> u8 {
     v.clamp(0, 127) as u8
@@ -1434,6 +1496,12 @@ pub fn start_audio_thread_on_device(
     // Pre-allocated scratch buffer for converting scheduled MIDI events to MidiEvent
     // objects that external VST3 plugins receive.
     let mut vst3_midi_scratch: Vec<MidiEvent> = Vec::with_capacity(1024);
+    // Per-track active-note tracking for VST3 plugins (flush on stop/seek).
+    let mut vst3_note_trackers: Vec<Vst3NoteTracker> =
+        vec![Vst3NoteTracker::default(); MAX_TRACKS];
+    // Flag: when true the next graph-render pass injects All-Notes-Off
+    // into every VST3 instrument slot before any new events.
+    let mut vst3_flush_all_notes = false;
     // Track which samples were last loaded per-track to avoid re-assigning
     let _last_sample_generation: u64 = 0;
 
@@ -1510,6 +1578,8 @@ pub fn start_audio_thread_on_device(
                                             sampler_engines[idx].all_notes_off();
                                             midi_note_states[idx] = MidiNoteMapState::default();
                                         }
+                                        // BUG-1 FIX: Flush VST3 plugin notes on transport stop.
+                                        vst3_flush_all_notes = true;
                                         test_tone_phase = 0.0;
                                         test_tone_enabled = false;
                                         // Reset all meters to silence when transport stops
@@ -1529,6 +1599,8 @@ pub fn start_audio_thread_on_device(
                                         sampler_engines[idx].all_notes_off();
                                         midi_note_states[idx] = MidiNoteMapState::default();
                                     }
+                                    // BUG-1 FIX: Flush VST3 plugin notes on seek.
+                                    vst3_flush_all_notes = true;
                                 }
                                 EngineCommand::SetBpm(bpm) => {
                                     _bpm = bpm.clamp(20.0, 999.0);
@@ -1745,6 +1817,10 @@ pub fn start_audio_thread_on_device(
                                     if bypassed && idx < sampler_engines.len() {
                                         sampler_engines[idx].all_notes_off();
                                     }
+                                    // BUG-1 FIX: Also flush VST3 instruments when bypassing.
+                                    if bypassed {
+                                        vst3_flush_all_notes = true;
+                                    }
                                 }
                                 EngineCommand::Shutdown => {
                                     is_playing = false;
@@ -1753,6 +1829,8 @@ pub fn start_audio_thread_on_device(
                                     for engine in sampler_engines.iter_mut() {
                                         engine.all_notes_off();
                                     }
+                                    // BUG-1 FIX: Flush VST3 plugin notes on shutdown.
+                                    vst3_flush_all_notes = true;
                                 }
                                 // ── Device Chain Commands ────────────────────
                                 EngineCommand::AddDevice {
@@ -2295,9 +2373,20 @@ pub fn start_audio_thread_on_device(
                                                 );
 
                                                 // ENTERPRISE MIDI: Populate scratch with scheduled events for this track.
+                                                // BUG-1/2/3 FIX: VST3 path now has:
+                                                //   - All-Notes-Off flush on stop/seek/bypass
+                                                //   - MIDI FX parity with sampler path
+                                                //   - Active note tracking with duplicate protection
                                                 vst3_midi_scratch.clear();
+
+                                                // BUG-1 FIX: Flush all active notes on transport stop/seek.
+                                                if vst3_flush_all_notes && track_idx < vst3_note_trackers.len() {
+                                                    vst3_note_trackers[track_idx].flush_all(&mut vst3_midi_scratch);
+                                                }
+
                                                 if is_playing {
                                                     if let Some(midi_track) = midi_snap.get(track_idx) {
+                                                        let fx = &midi_track.fx;
                                                         let midi_loop_region = render_ctx
                                                             .loop_region
                                                             .as_ref()
@@ -2311,23 +2400,102 @@ pub fn start_audio_thread_on_device(
                                                             &mut midi_schedule_scratch,
                                                             &mut midi_schedule_tmp,
                                                         );
+                                                        let mut tracker = if track_idx < vst3_note_trackers.len() {
+                                                            Some(&mut vst3_note_trackers[track_idx])
+                                                        } else {
+                                                            None
+                                                        };
                                                         for event in &midi_schedule_scratch {
                                                             let offset_on = event.buffer_onset as i32;
                                                             let offset_off = event.buffer_offset_end as i32;
+
+                                                            if event.is_note_off {
+                                                                // BUG-2 FIX: Apply same pitch mapping for note-off
+                                                                // so the off matches the mapped on.
+                                                                let mut off_pitch_i16 = event.pitch as i16;
+                                                                if fx.pitch_enabled {
+                                                                    off_pitch_i16 += fx.pitch_semitones as i16;
+                                                                }
+                                                                let off_pitch = clamp_midi_pitch(off_pitch_i16);
+                                                                let off_pitch = if fx.scale_enabled {
+                                                                    quantize_to_scale(off_pitch, fx.scale_root, fx.scale_mask)
+                                                                } else {
+                                                                    off_pitch
+                                                                };
+                                                                vst3_midi_scratch.push(
+                                                                    MidiEvent::note_off(offset_off, 0, off_pitch, 0),
+                                                                );
+                                                                // BUG-3 FIX: Deregister from tracker.
+                                                                if let Some(ref mut t) = tracker {
+                                                                    t.note_off(off_pitch, 0);
+                                                                }
+                                                            }
+
                                                             if event.is_note_on {
+                                                                // BUG-2 FIX: Apply MIDI FX (pitch, velocity, scale, random)
+                                                                // — same pipeline as sampler path.
+                                                                let mut pitch_i16 = event.pitch as i16;
+                                                                let mut velocity_i16 = event.velocity as i16;
+
+                                                                if fx.pitch_enabled {
+                                                                    pitch_i16 += fx.pitch_semitones as i16;
+                                                                }
+                                                                let mut mapped_pitch = clamp_midi_pitch(pitch_i16);
+
+                                                                if fx.scale_enabled {
+                                                                    mapped_pitch = quantize_to_scale(
+                                                                        mapped_pitch,
+                                                                        fx.scale_root,
+                                                                        fx.scale_mask,
+                                                                    );
+                                                                }
+
+                                                                if fx.random_enabled && fx.random_semitones != 0 {
+                                                                    if let Some(ref mut t) = tracker {
+                                                                        let mut x = t.rng_state;
+                                                                        x ^= x << 13;
+                                                                        x ^= x >> 17;
+                                                                        x ^= x << 5;
+                                                                        t.rng_state = x;
+                                                                        let rnd01 = (x as f32) / (u32::MAX as f32);
+                                                                        if rnd01 <= fx.random_chance.clamp(0.0, 1.0) {
+                                                                            let span = fx.random_semitones.abs().max(1) as i16;
+                                                                            let signed =
+                                                                                ((x >> 8) % ((span as u32) * 2 + 1)) as i16 - span;
+                                                                            mapped_pitch =
+                                                                                clamp_midi_pitch(mapped_pitch as i16 + signed);
+                                                                        }
+                                                                    }
+                                                                }
+
+                                                                if fx.velocity_enabled {
+                                                                    velocity_i16 = ((velocity_i16 as f32) * fx.velocity_gain)
+                                                                        .round()
+                                                                        as i16
+                                                                        + fx.velocity_offset as i16;
+                                                                }
+                                                                let mapped_velocity = velocity_i16.clamp(1, 127) as u8;
+
+                                                                // BUG-3 FIX: Duplicate protection + tracking.
+                                                                if let Some(ref mut t) = tracker {
+                                                                    if let Some(dup_off) = t.note_on(mapped_pitch, 0) {
+                                                                        vst3_midi_scratch.push(MidiEvent::note_off(
+                                                                            offset_on.saturating_sub(1).max(0),
+                                                                            0,
+                                                                            mapped_pitch,
+                                                                            0,
+                                                                        ));
+                                                                        let _ = dup_off; // already handled via note_on return
+                                                                    }
+                                                                    t.active.push((mapped_pitch, 0));
+                                                                }
+
                                                                 vst3_midi_scratch.push(
                                                                     MidiEvent::note_on(
                                                                         offset_on,
                                                                         0,
-                                                                        event.pitch,
-                                                                        event.velocity,
-                                                                    ),
-                                                                );
-                                                            }
-                                                            if event.is_note_off {
-                                                                vst3_midi_scratch.push(
-                                                                    MidiEvent::note_off(
-                                                                        offset_off, 0, event.pitch, 0,
+                                                                        mapped_pitch,
+                                                                        mapped_velocity,
                                                                     ),
                                                                 );
                                                             }
@@ -2420,6 +2588,9 @@ pub fn start_audio_thread_on_device(
                             },
                             |_node, _left, _right, _count| {},
                         );
+                        // BUG-1 FIX: Clear the flush flag after all tracks have been
+                        // processed — each VST3 slot received its note-off events.
+                        vst3_flush_all_notes = false;
 
                         for i in 0..n {
                             let base = i * channels;

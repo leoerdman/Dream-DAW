@@ -649,10 +649,11 @@ export const PianoRoll = memo(function PianoRoll({
     // ── Note Actions ──
     const snapToCellStart = useCallback((rawBeat: number) => {
         const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
-        const clamped = Math.max(0, Math.min(totalBeats - MIN_NOTE_BEATS, rawBeat));
+        // Bug #44: clamp to clipBeats (actual clip boundary), not totalBeats (zoom-derived).
+        const clamped = Math.max(0, Math.min(clipBeats - MIN_NOTE_BEATS, rawBeat));
         const cell = Math.floor((clamped + EPS) / step);
-        return Math.max(0, Math.min(totalBeats - MIN_NOTE_BEATS, cell * step));
-    }, [currentGridInterval, totalBeats]);
+        return Math.max(0, Math.min(clipBeats - MIN_NOTE_BEATS, cell * step));
+    }, [currentGridInterval, clipBeats]);
 
     const insertNoteFromPointer = useCallback((clientX: number, clientY: number, target: HTMLElement) => {
         const rect = target.getBoundingClientRect();
@@ -661,10 +662,11 @@ export const PianoRoll = memo(function PianoRoll({
         const pitch = yToPitch(y);
         const rawBeat = x / pixelsPerBeat;
         const beat = snapToCellStart(rawBeat);
-        if (beat >= totalBeats) return;
+        // Bug #44: refuse insertion at or beyond the clip boundary.
+        if (beat >= clipBeats) return;
 
         const gridStep = currentGridInterval > 0 ? currentGridInterval : 0.25;
-        const duration = Math.max(MIN_NOTE_BEATS, Math.min(gridStep, totalBeats - beat));
+        const duration = Math.max(MIN_NOTE_BEATS, Math.min(gridStep, clipBeats - beat));
         const newNote: MidiNote = {
             id: genNoteId(),
             pitch,
@@ -716,7 +718,7 @@ export const PianoRoll = memo(function PianoRoll({
             const x = clientX - rect.left;
             const y = clientY - rect.top;
             const drawPitch = yToPitch(y);
-            const beat = Math.max(0, Math.min(totalBeats - duration, snapToCellStart(x / pixelsPerBeat)));
+            const beat = Math.max(0, Math.min(clipBeats - duration, snapToCellStart(x / pixelsPerBeat)));
             const key = `${drawPitch}:${beat.toFixed(6)}`;
             if (occupied.has(key)) return;
             occupied.add(key);
@@ -771,9 +773,11 @@ export const PianoRoll = memo(function PianoRoll({
             }
         }
 
-        onNotesChange(next);
+        // Bug #13: ratchet sub-notes must go through enforceNoOverlap to avoid
+        // collisions with other notes at the same pitch.
+        onNotesChange(enforceNoOverlap(next, newSelected));
         setSelectedNotes(newSelected);
-    }, [ratchetCount, selectedNotes, notes, onNotesChange]);
+    }, [ratchetCount, selectedNotes, notes, onNotesChange, enforceNoOverlap]);
 
     const handleNoteClick = useCallback(
         (e: React.MouseEvent, noteId: string) => {
@@ -907,8 +911,13 @@ export const PianoRoll = memo(function PianoRoll({
                 const beatDelta = dx / pixelsPerBeat;
                 const pitchDelta = -Math.round(dy / noteHeight);
 
-                // Check for snap override (metaKey/Command)
-                const shouldSnap = snapEnabled && !ev.metaKey;
+                // Check for snap override: on macOS hold ⌘, on Win/Linux hold Ctrl
+                // to temporarily bypass grid snap while dragging.
+                // Bug #5: was checking only metaKey, so Ctrl-override didn't work on Windows/Linux.
+                const snapOverrideHeld = /mac/i.test(navigator.userAgent) && !/iphone|ipad/i.test(navigator.userAgent)
+                    ? ev.metaKey
+                    : ev.ctrlKey;
+                const shouldSnap = snapEnabled && !snapOverrideHeld;
 
                 const updated = notes.map((n) => {
                     if (!selectedIds.has(n.id)) return n;
@@ -917,7 +926,8 @@ export const PianoRoll = memo(function PianoRoll({
 
                     if (mode === 'resize-right') {
                         if (n.id !== noteId) return n;
-                        const maxDur = Math.max(MIN_NOTE_BEATS, totalBeats - original.startBeat);
+                        // Clamp to clipBeats (actual clip length), not totalBeats (zoom-derived).
+                        const maxDur = Math.max(MIN_NOTE_BEATS, clipBeats - original.startBeat);
                         const rawDur = original.durationBeats + beatDelta;
                         const finalDur = shouldSnap ? snapBeat(rawDur, beatsPerBar, pixelsPerBeat) : rawDur;
                         return {
@@ -941,7 +951,8 @@ export const PianoRoll = memo(function PianoRoll({
                     }
 
                     const rawStart = original.startBeat + beatDelta;
-                    const newBeat = Math.max(0, Math.min(totalBeats - MIN_NOTE_BEATS, shouldSnap ? snapBeat(rawStart, beatsPerBar, pixelsPerBeat) : rawStart));
+                    // Clamp to clipBeats (actual clip length), not totalBeats (zoom-derived).
+                    const newBeat = Math.max(0, Math.min(clipBeats - MIN_NOTE_BEATS, shouldSnap ? snapBeat(rawStart, beatsPerBar, pixelsPerBeat) : rawStart));
                     const newPitch = Math.max(LOWEST_PITCH, Math.min(LOWEST_PITCH + TOTAL_KEYS - 1, original.pitch + pitchDelta));
                     return { ...n, startBeat: newBeat, pitch: newPitch };
                 });
@@ -1348,17 +1359,18 @@ export const PianoRoll = memo(function PianoRoll({
                     const semitone = keyToSemitone[e.code];
                     const pitch = Math.max(LOWEST_PITCH, Math.min(HIGHEST_PITCH, stepInputOctave * 12 + semitone));
                     const step = currentGridInterval > 0 ? currentGridInterval : 0.25;
-                    const beat = Math.max(0, Math.min(totalBeats - step, snapBeat(stepInputCursorBeat, beatsPerBar, pixelsPerBeat)));
+                    const beat = Math.max(0, Math.min(clipBeats - step, snapBeat(stepInputCursorBeat, beatsPerBar, pixelsPerBeat)));
+                    if (beat >= clipBeats) return; // cursor past clip end
                     const newNote: MidiNote = {
                         id: genNoteId(),
                         pitch,
                         startBeat: beat,
-                        durationBeats: step,
+                        durationBeats: Math.min(step, clipBeats - beat),
                         velocity: 100,
                     };
                     onNotesChange(enforceNoOverlap([...notes, newNote], new Set([newNote.id])));
                     setSelectedNotes(new Set([newNote.id]));
-                    setStepInputCursorBeat((prev) => Math.min(totalBeats, prev + step));
+                    setStepInputCursorBeat((prev) => Math.min(clipBeats, prev + step));
                     auditionNote(pitch, 100, 170);
                     return;
                 }
@@ -1383,7 +1395,8 @@ export const PianoRoll = memo(function PianoRoll({
                 if (e.key === 'ArrowLeft') {
                     return { ...n, startBeat: Math.max(0, n.startBeat - beatStep) };
                 }
-                return { ...n, startBeat: Math.min(totalBeats - MIN_NOTE_BEATS, n.startBeat + beatStep) };
+                // Bug #8: clamp to clipBeats (actual clip length), not totalBeats (zoom-derived).
+                return { ...n, startBeat: Math.min(clipBeats - MIN_NOTE_BEATS, n.startBeat + beatStep) };
             });
             onNotesChange(enforceNoOverlap(moved, selectedNotes));
         };

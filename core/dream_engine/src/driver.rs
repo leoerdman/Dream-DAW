@@ -1511,6 +1511,12 @@ pub fn start_audio_thread_on_device(
     // Flag: when true the next graph-render pass injects All-Notes-Off
     // into every VST3 instrument slot before any new events.
     let mut vst3_flush_all_notes = false;
+    // Per-track real-time MIDI queue: keyboard/preview NoteOn/Off events
+    // are pushed here in the command loop and drained into vst3_midi_scratch
+    // during the graph pass so external VST3 instruments (Serum, etc.)
+    // receive real-time MIDI alongside clip events.
+    let mut vst3_rt_midi_queue: Vec<Vec<MidiEvent>> =
+        (0..MAX_TRACKS).map(|_| Vec::with_capacity(32)).collect();
     // Track which samples were last loaded per-track to avoid re-assigning
     let _last_sample_generation: u64 = 0;
 
@@ -1674,11 +1680,24 @@ pub fn start_audio_thread_on_device(
                                     if idx < sampler_engines.len() {
                                         sampler_engines[idx].note_on(pitch, velocity);
                                     }
+                                    // Also queue for VST3 instruments on this track.
+                                    // The graph pass will drain this into vst3_midi_scratch.
+                                    if idx < vst3_rt_midi_queue.len() {
+                                        vst3_rt_midi_queue[idx].push(
+                                            MidiEvent::note_on(0, 0, pitch, velocity),
+                                        );
+                                    }
                                 }
                                 EngineCommand::SamplerNoteOff { track_index, pitch } => {
                                     let idx = track_index as usize;
                                     if idx < sampler_engines.len() {
                                         sampler_engines[idx].note_off(pitch);
+                                    }
+                                    // Also queue for VST3 instruments on this track.
+                                    if idx < vst3_rt_midi_queue.len() {
+                                        vst3_rt_midi_queue[idx].push(
+                                            MidiEvent::note_off(0, 0, pitch, 0),
+                                        );
                                     }
                                 }
                                 EngineCommand::SetSamplerRootNote {
@@ -2387,6 +2406,15 @@ pub fn start_audio_thread_on_device(
                                                 //   - MIDI FX parity with sampler path
                                                 //   - Active note tracking with duplicate protection
                                                 vst3_midi_scratch.clear();
+
+                                                // Drain real-time keyboard/preview MIDI into the
+                                                // VST3 scratch buffer so instruments receive
+                                                // live note events alongside clip MIDI.
+                                                if track_idx < vst3_rt_midi_queue.len() {
+                                                    vst3_midi_scratch.extend(
+                                                        vst3_rt_midi_queue[track_idx].drain(..),
+                                                    );
+                                                }
 
                                                 // BUG-1 FIX: Flush all active notes on transport stop/seek.
                                                 if vst3_flush_all_notes && track_idx < vst3_note_trackers.len() {

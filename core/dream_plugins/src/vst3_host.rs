@@ -1506,13 +1506,25 @@ const K_LEGACY_MIDI_CC_OUT_EVENT: u16 = 65535;
 
 /// C-ABI struct matching `Steinberg::Vst::Event`.
 ///
-/// Layout must match the SDK exactly:
-///   - bus_index (i32)
-///   - sample_offset (i32)
-///   - ppq_position (f64)
-///   - flags (u16)
-///   - type (u16)
-///   - union payload (variable, but we use EVENT_UNION_SIZE bytes)
+/// The VST3 SDK uses `#pragma pack(push, 16)` on macOS 64-bit (see
+/// `pluginterfaces/base/falignpush.h`).  The Event union contains members
+/// with pointer fields (DataEvent, ChordEvent, ScaleEvent), giving the
+/// union 8-byte alignment.  After the two `uint16` fields (`flags` +
+/// `type`) at offsets 16–19, the compiler inserts **4 bytes of padding**
+/// so the union starts at offset 24.  The union's size is padded from
+/// NoteOnEvent's 20 raw bytes to **24 bytes** (next multiple of 8).
+///
+/// Total SDK `sizeof(Event)` = 4 + 4 + 8 + 2 + 2 + 4(pad) + 24 = **48**.
+///
+/// Layout:
+///   offset  0: bus_index      (i32,  4 bytes)
+///   offset  4: sample_offset  (i32,  4 bytes)
+///   offset  8: ppq_position   (f64,  8 bytes)
+///   offset 16: flags          (u16,  2 bytes)
+///   offset 18: type           (u16,  2 bytes)
+///   offset 20: _pad           (4 bytes — alignment padding)
+///   offset 24: union payload  (24 bytes)
+///   total = 48 bytes
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct Vst3Event {
@@ -1521,10 +1533,13 @@ struct Vst3Event {
     ppq_position: f64,
     flags: u16,
     event_type: u16,
-    /// Union payload — covers NoteOnEvent, NoteOffEvent, etc.
-    /// NoteOnEvent layout: channel(i16) + pitch(i16) + tuning(f32) + velocity(f32) + length(i32) + noteId(i32) = 20 bytes
-    /// We use 20 bytes to cover NoteOn (the largest common event).
-    event_data: [u8; 20],
+    /// 4-byte padding inserted by the C compiler to align the union to
+    /// an 8-byte boundary (the union contains pointer-size members).
+    _pad: [u8; 4],
+    /// Union payload — sized to 24 bytes to match the SDK's 8-byte-aligned
+    /// union.  NoteOnEvent (the largest common member) is 20 raw bytes;
+    /// the extra 4 bytes are trailing padding.
+    event_data: [u8; 24],
 }
 
 impl Vst3Event {
@@ -1535,7 +1550,8 @@ impl Vst3Event {
             ppq_position: 0.0,
             flags: 0,
             event_type: 0,
-            event_data: [0; 20],
+            _pad: [0; 4],
+            event_data: [0; 24],
         }
     }
 
@@ -1569,16 +1585,21 @@ impl Vst3Event {
         ev.event_type = K_NOTE_OFF_EVENT;
         ev.flags = 1; // kIsLive
 
-        // NoteOffEvent layout: channel(i16), pitch(i16), tuning(f32), velocity(f32), noteId(i32)
+        // NoteOffEvent layout (per VST3 SDK ivstevents.h):
+        //   channel  (i16)  offset 0
+        //   pitch    (i16)  offset 2
+        //   velocity (f32)  offset 4
+        //   noteId   (i32)  offset 8
+        //   tuning   (f32)  offset 12
         let channel = (midi.channel & 0x0F) as i16;
         let pitch = midi.data[1] as i16;
         let velocity = midi.data[2] as f32 / 127.0;
 
         ev.event_data[0..2].copy_from_slice(&channel.to_ne_bytes());
         ev.event_data[2..4].copy_from_slice(&pitch.to_ne_bytes());
-        ev.event_data[4..8].copy_from_slice(&0.0_f32.to_ne_bytes()); // tuning
-        ev.event_data[8..12].copy_from_slice(&velocity.to_ne_bytes());
-        ev.event_data[12..16].copy_from_slice(&(-1_i32).to_ne_bytes()); // noteId = -1
+        ev.event_data[4..8].copy_from_slice(&velocity.to_ne_bytes());
+        ev.event_data[8..12].copy_from_slice(&(-1_i32).to_ne_bytes()); // noteId = -1
+        ev.event_data[12..16].copy_from_slice(&0.0_f32.to_ne_bytes()); // tuning
 
         ev
     }

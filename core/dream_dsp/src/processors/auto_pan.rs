@@ -63,7 +63,14 @@ impl AutoPanProcessor {
 }
 
 impl DspProcessor for AutoPanProcessor {
-    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], _sample_rate: f32) {
+    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
+        // Sync sample rate
+        if sample_rate.is_finite()
+            && sample_rate > 1000.0
+            && (sample_rate - self.sample_rate).abs() > 0.5
+        {
+            self.sample_rate = sample_rate;
+        }
         let len = left.len().min(right.len());
         if len == 0 {
             return;

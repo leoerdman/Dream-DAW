@@ -221,6 +221,7 @@ impl DspProcessor for BitcrusherProcessor {
         self.pre_state_r = 0.0;
         self.post_state_l = 0.0;
         self.post_state_r = 0.0;
+        self.rng_state = 0xBEEF_CAFE_1234_5678;
     }
 }
 

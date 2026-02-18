@@ -749,9 +749,9 @@ fn can_open_plugin_editor(
     }
 
     let descriptor = plugin_host_state.resolve_descriptor(&plugin_id)?;
-    if descriptor.format != PluginFormat::VST3 {
+    if descriptor.format != PluginFormat::VST3 && descriptor.format != PluginFormat::VST2 {
         let reason = match descriptor.format {
-            PluginFormat::VST3 => None,
+            PluginFormat::VST2 | PluginFormat::VST3 => None,
             PluginFormat::CLAP => Some("CLAP plugin editor is not supported by this host build.".to_string()),
             PluginFormat::AudioUnit => Some("AudioUnit editor is not supported by this host build.".to_string()),
         };
@@ -857,7 +857,7 @@ fn get_plugin_slot_runtime_status_cmd(
             });
         }
     };
-    if descriptor.format != PluginFormat::VST3 {
+    if descriptor.format != PluginFormat::VST3 && descriptor.format != PluginFormat::VST2 {
         return Ok(PluginSlotRuntimeStatus {
             loaded: false,
             editor_supported: false,
@@ -865,7 +865,7 @@ fn get_plugin_slot_runtime_status_cmd(
             sidechain_ready: false,
             latency_frames: None,
             message: Some(format!(
-                "{} is detected but runtime currently supports VST3 only.",
+                "{} is detected but runtime currently supports VST2/VST3 only.",
                 descriptor.format
             )),
         });
@@ -948,9 +948,9 @@ fn ensure_plugin_slot_active_cmd(
                 .map(|diag| format!("{err}. {diag}"))
                 .unwrap_or(err)
         })?;
-    if descriptor.format != PluginFormat::VST3 {
+    if descriptor.format != PluginFormat::VST3 && descriptor.format != PluginFormat::VST2 {
         return Err(format!(
-            "Unsupported plugin runtime format: {}. Dream DAW runtime currently supports VST3 only.",
+            "Unsupported plugin runtime format: {}. Dream DAW runtime currently supports VST2/VST3 only.",
             descriptor.format
         ));
     }
@@ -1027,9 +1027,9 @@ fn replace_missing_plugin_slot_cmd(
     }
 
     let descriptor = plugin_host_state.resolve_descriptor(&replacement_plugin_id)?;
-    if descriptor.format != PluginFormat::VST3 {
+    if descriptor.format != PluginFormat::VST3 && descriptor.format != PluginFormat::VST2 {
         return Err(format!(
-            "Replacement plugin format '{}' is not supported in runtime. Use VST3.",
+            "Replacement plugin format '{}' is not supported in runtime. Use VST2 or VST3.",
             descriptor.format
         ));
     }

@@ -101,10 +101,25 @@ impl EqProcessor {
             output_gain_lin: 1.0,
         }
     }
+
+    #[inline]
+    fn sync_sample_rate(&mut self, sample_rate: f32) {
+        let sr = sample_rate as f64;
+        if sr.is_finite()
+            && sr > 1000.0
+            && (sr - self.sample_rate).abs() > 0.5
+        {
+            self.sample_rate = sr;
+            for band in &mut self.bands {
+                band.update(sr);
+            }
+        }
+    }
 }
 
 impl DspProcessor for EqProcessor {
-    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], _sample_rate: f32) {
+    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
+        self.sync_sample_rate(sample_rate);
         // Process each enabled band in series
         for band in &mut self.bands {
             if !band.enabled {

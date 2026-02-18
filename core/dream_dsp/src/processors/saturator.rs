@@ -165,7 +165,10 @@ impl Default for SaturatorProcessor {
 
 impl DspProcessor for SaturatorProcessor {
     fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
-        if (sample_rate - self.sample_rate).abs() > 1.0 {
+        if sample_rate.is_finite()
+            && sample_rate > 1000.0
+            && (sample_rate - self.sample_rate).abs() > 0.5
+        {
             self.sample_rate = sample_rate;
             let cutoff = Self::tone_to_cutoff(self.tone_pct);
             self.tone_l.set_cutoff(cutoff, sample_rate);

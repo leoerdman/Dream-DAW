@@ -169,8 +169,8 @@ impl NoiseMachineProcessor {
         let sr = self.sample_rate;
         // Exact one-pole LP: α = 1 - e^(-2πfc/sr)
         self.lp_coeff = (1.0 - (-std::f32::consts::TAU * self.lp_freq / sr).exp()).clamp(0.0, 1.0);
-        // First-order HP coefficient: α = 1 / (1 + 2πfc/sr)
-        self.hp_coeff = 1.0 / (1.0 + std::f32::consts::TAU * self.hp_freq / sr);
+        // First-order HP coefficient: α = e^(-2πfc/sr)
+        self.hp_coeff = (-std::f32::consts::TAU * self.hp_freq / sr).exp();
     }
 
     #[inline]

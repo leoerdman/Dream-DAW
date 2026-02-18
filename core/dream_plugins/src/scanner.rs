@@ -20,6 +20,7 @@ use crate::format::{PluginCategory, PluginFormat};
 /// Discovers plugins installed on the system.
 ///
 /// Scans standard platform directories for plugin bundles:
+/// - macOS VST2: `/Library/Audio/Plug-Ins/VST/`, `~/Library/Audio/Plug-Ins/VST/`
 /// - macOS VST3: `/Library/Audio/Plug-Ins/VST3/`, `~/Library/Audio/Plug-Ins/VST3/`
 /// - macOS CLAP: `/Library/Audio/Plug-Ins/CLAP/`, `~/Library/Audio/Plug-Ins/CLAP/`
 /// - macOS AU:   `/Library/Audio/Plug-Ins/Components/`, `~/Library/Audio/Plug-Ins/Components/`
@@ -47,6 +48,7 @@ impl PluginScanner {
     fn standard_paths(format: PluginFormat) -> Vec<PathBuf> {
         let mut paths = Vec::new();
         let subdir = match format {
+            PluginFormat::VST2 => "VST",
             PluginFormat::VST3 => "VST3",
             PluginFormat::CLAP => "CLAP",
             PluginFormat::AudioUnit => "Components",
@@ -102,6 +104,7 @@ impl PluginScanner {
     /// Scans ALL supported formats and returns a combined list.
     pub fn scan_all(&self) -> Vec<PluginDescriptor> {
         let mut all = Vec::new();
+        all.extend(self.scan_format(PluginFormat::VST2));
         all.extend(self.scan_format(PluginFormat::VST3));
         all.extend(self.scan_format(PluginFormat::CLAP));
         all.extend(self.scan_format(PluginFormat::AudioUnit));
@@ -150,7 +153,7 @@ impl PluginScanner {
             let parent_name = parent.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
             // If parent is not a standard directory, it's likely the vendor
-            let standard_dirs = ["VST3", "CLAP", "Components", "Plug-Ins"];
+            let standard_dirs = ["VST", "VST3", "CLAP", "Components", "Plug-Ins"];
             if !standard_dirs.contains(&parent_name) && !parent_name.is_empty() {
                 return parent_name.to_string();
             }
@@ -284,6 +287,9 @@ mod tests {
 
     #[test]
     fn standard_paths_exist_for_all_formats() {
+        let vst2 = PluginScanner::standard_paths(PluginFormat::VST2);
+        assert!(vst2.iter().any(|p| p.to_str().unwrap().contains("/VST")));
+
         let vst3 = PluginScanner::standard_paths(PluginFormat::VST3);
         assert!(vst3.iter().any(|p| p.to_str().unwrap().contains("VST3")));
 

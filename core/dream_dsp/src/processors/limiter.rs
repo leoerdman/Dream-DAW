@@ -168,10 +168,13 @@ impl DspProcessor for LimiterProcessor {
             let scale = if self.gain < 1.0 {
                 self.gain * (ceiling / threshold)
             } else {
-                // No gain reduction — just enforce ceiling as max output.
-                // For signals below ceiling this is a slight attenuation;
-                // for signals between ceiling and threshold it caps them.
-                ceiling
+                // No gain reduction — only enforce ceiling if out_peak > ceiling.
+                let out_peak = out_l.abs().max(out_r.abs());
+                if out_peak > ceiling {
+                    ceiling / out_peak
+                } else {
+                    1.0
+                }
             };
             left[i] = out_l * scale;
             right[i] = out_r * scale;

@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // This crate provides the cross-platform plugin hosting infrastructure:
-//   - Format-agnostic plugin interface (VST3, CLAP, AU)
+//   - Format-agnostic plugin interface (VST2, VST3, CLAP, AU)
 //   - Plugin scanner for discovering installed plugins
 //   - Plugin descriptor model for the UI
 //   - Instance lifecycle management
@@ -25,6 +25,7 @@ pub mod sandbox_instance;
 pub mod sandbox_ipc;
 pub mod scanner;
 pub mod shared_memory;
+pub mod vst2_host;
 pub mod vst3_host;
 
 pub use descriptor::PluginDescriptor;
@@ -34,4 +35,6 @@ pub use sandbox_host::{
     PluginSandboxConfig, PluginSandboxSnapshot, PluginSandboxStatus, PluginSandboxSupervisor,
 };
 pub use scanner::PluginScanner;
+pub use vst2_host::Vst2Instance;
 pub use vst3_host::{PluginHost, Vst3Instance};
+

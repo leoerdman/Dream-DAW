@@ -4409,12 +4409,18 @@ impl PluginInstance for Vst3Instance {
                 (&mut stream as *mut HostReadStream).cast::<c_void>(),
             )
         };
-        if status != K_RESULT_OK {
+        if status < 0 {
             return Err(PluginError::ProcessError(format!(
                 "set_state failed for '{}' (kind={}, status={status})",
                 self.descriptor.name,
                 kind.unwrap_or("unknown")
             )));
+        }
+        if status != K_RESULT_OK {
+            info!(
+                "[VST3] set_state returned non-zero status {} for '{}' (kind={}) — treating as soft warning",
+                status, self.descriptor.name, kind.unwrap_or("unknown")
+            );
         }
         // Per VST3 spec: after IComponent::setState, call
         // IEditController::setComponentState so the editor reflects the loaded state.

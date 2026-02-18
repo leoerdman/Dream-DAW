@@ -101,7 +101,7 @@ impl GateProcessor {
             };
             self.release_coeff = (-1.0 / (self.release_ms * 0.001 * sr)).exp();
             self.hold_samples = self.hold_ms * 0.001 * sr;
-            self.sc_coeff = 1.0 / (1.0 + std::f32::consts::TAU * self.sc_hpf_freq / sr);
+            self.sc_coeff = (-std::f32::consts::TAU * self.sc_hpf_freq / sr).exp();
         }
         self.range_lin = if self.range_db <= -96.0 {
             0.0

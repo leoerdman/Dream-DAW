@@ -86,8 +86,9 @@ impl DelayProcessor {
     }
 
     fn update_filter(&mut self) {
-        let w = std::f32::consts::TAU * self.filter_freq / self.sample_rate;
-        self.fb_filter_coeff = w.clamp(0.01, 0.99);
+        // Correct one-pole LP: α = 1 - e^(-2πfc/sr)
+        let w = (-std::f32::consts::TAU * self.filter_freq / self.sample_rate).exp();
+        self.fb_filter_coeff = (1.0 - w).clamp(0.001, 0.999);
     }
 
     fn update_delay_l(&mut self) {

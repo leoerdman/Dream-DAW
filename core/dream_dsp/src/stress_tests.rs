@@ -48,7 +48,7 @@ mod stress_suite {
 
     #[test]
     fn t001_all_effects_silence_integrity() {
-        for id in 0..=14u8 {
+        for id in 0..=15u8 {
             let ty = BuiltinEffectType::from_u8(id).unwrap();
             let mut proc = ty.create_processor(SR);
             let mut l = vec![0.0f32; BUF];
@@ -61,7 +61,7 @@ mod stress_suite {
 
     #[test]
     fn t002_all_effects_sine_integrity() {
-        for id in 0..=14u8 {
+        for id in 0..=15u8 {
             let ty = BuiltinEffectType::from_u8(id).unwrap();
             let mut proc = ty.create_processor(SR);
             let mut l = sine_buffer(BUF, 440.0, SR);
@@ -74,7 +74,7 @@ mod stress_suite {
 
     #[test]
     fn t003_all_effects_impulse_integrity() {
-        for id in 0..=14u8 {
+        for id in 0..=15u8 {
             let ty = BuiltinEffectType::from_u8(id).unwrap();
             let mut proc = ty.create_processor(SR);
             let mut l = vec![0.0f32; BUF];
@@ -89,7 +89,7 @@ mod stress_suite {
 
     #[test]
     fn t004_all_effects_dc_integrity() {
-        for id in 0..=14u8 {
+        for id in 0..=15u8 {
             let ty = BuiltinEffectType::from_u8(id).unwrap();
             let mut proc = ty.create_processor(SR);
             let mut l = vec![0.8f32; BUF];
@@ -102,7 +102,7 @@ mod stress_suite {
 
     #[test]
     fn t005_all_effects_hot_signal_integrity() {
-        for id in 0..=14u8 {
+        for id in 0..=15u8 {
             let ty = BuiltinEffectType::from_u8(id).unwrap();
             let mut proc = ty.create_processor(SR);
             let mut l = vec![2.0f32; BUF]; // clipping level
@@ -283,6 +283,14 @@ mod stress_suite {
                 (4, 20.0, 100.0, 5000.0),    // hp freq
                 (5, -100.0, 0.0, 100.0),     // pan
             ],
+            // Auto Pan
+            15 => vec![
+                (0, 0.01, 1.0, 20.0),       // rate
+                (1, 0.0, 70.0, 100.0),      // depth
+                (2, 0.0, 90.0, 180.0),      // phase
+                (3, 0.0, 2.0, 4.0),         // shape
+                (4, 0.0, 50.0, 100.0),      // mix
+            ],
             _ => vec![],
         }
     }
@@ -290,7 +298,7 @@ mod stress_suite {
     /// This generates ~(15 effects × ~8 params × 3 values) ≈ 360 sub-tests
     #[test]
     fn t010_parameter_sweep_all_effects() {
-        for id in 0..=14u8 {
+        for id in 0..=15u8 {
             let ranges = get_param_ranges(id);
             let ty = BuiltinEffectType::from_u8(id).unwrap();
             for (param_idx, min, mid, max) in &ranges {
@@ -309,7 +317,7 @@ mod stress_suite {
     /// Set ALL params to MIN, then MAX, then process
     #[test]
     fn t011_all_params_extreme_min() {
-        for id in 0..=14u8 {
+        for id in 0..=15u8 {
             let ty = BuiltinEffectType::from_u8(id).unwrap();
             let ranges = get_param_ranges(id);
             let mut proc = ty.create_processor(SR);
@@ -325,7 +333,7 @@ mod stress_suite {
 
     #[test]
     fn t012_all_params_extreme_max() {
-        for id in 0..=14u8 {
+        for id in 0..=15u8 {
             let ty = BuiltinEffectType::from_u8(id).unwrap();
             let ranges = get_param_ranges(id);
             let mut proc = ty.create_processor(SR);
@@ -345,7 +353,7 @@ mod stress_suite {
 
     #[test]
     fn t020_all_2effect_chains() {
-        for a in 0..=14u8 {
+        for a in 0..=15u8 {
             for b in (a + 1)..=14u8 {
                 let ty_a = BuiltinEffectType::from_u8(a).unwrap();
                 let ty_b = BuiltinEffectType::from_u8(b).unwrap();
@@ -367,7 +375,7 @@ mod stress_suite {
     /// Reversed chains (b→a) to catch order-dependent bugs
     #[test]
     fn t021_all_2effect_chains_reversed() {
-        for a in 0..=14u8 {
+        for a in 0..=15u8 {
             for b in (a + 1)..=14u8 {
                 let ty_a = BuiltinEffectType::from_u8(a).unwrap();
                 let ty_b = BuiltinEffectType::from_u8(b).unwrap();
@@ -510,7 +518,7 @@ mod stress_suite {
 
     #[test]
     fn t040_reset_produces_same_output() {
-        for id in 0..=14u8 {
+        for id in 0..=15u8 {
             let ty = BuiltinEffectType::from_u8(id).unwrap();
             let mut proc = ty.create_processor(SR);
 
@@ -546,7 +554,7 @@ mod stress_suite {
     #[test]
     fn t050_sample_rates() {
         for sr in [22050.0, 44100.0, 48000.0, 96000.0] {
-            for id in 0..=14u8 {
+            for id in 0..=15u8 {
                 let ty = BuiltinEffectType::from_u8(id).unwrap();
                 let mut proc = ty.create_processor(sr);
                 let mut l = sine_buffer(1024, 440.0, sr);
@@ -563,7 +571,7 @@ mod stress_suite {
 
     #[test]
     fn t060_rapid_automation() {
-        for id in 0..=14u8 {
+        for id in 0..=15u8 {
             let ty = BuiltinEffectType::from_u8(id).unwrap();
             let mut proc = ty.create_processor(SR);
             let ranges = get_param_ranges(id);
@@ -589,7 +597,7 @@ mod stress_suite {
 
     #[test]
     fn t070_long_running_stability() {
-        for id in 0..=14u8 {
+        for id in 0..=15u8 {
             let ty = BuiltinEffectType::from_u8(id).unwrap();
             let mut proc = ty.create_processor(SR);
             let total_samples = (SR * 10.0) as usize; // 10 seconds
@@ -624,7 +632,7 @@ mod stress_suite {
     #[test]
     fn t080_multi_frequency_signals() {
         let freqs = [20.0, 100.0, 440.0, 1000.0, 5000.0, 10000.0, 20000.0];
-        for id in 0..=14u8 {
+        for id in 0..=15u8 {
             let ty = BuiltinEffectType::from_u8(id).unwrap();
             for &freq in &freqs {
                 let mut proc = ty.create_processor(SR);
@@ -831,7 +839,7 @@ mod stress_suite {
 
     #[test]
     fn t110_invalid_param_indices() {
-        for id in 0..=14u8 {
+        for id in 0..=15u8 {
             let ty = BuiltinEffectType::from_u8(id).unwrap();
             let mut proc = ty.create_processor(SR);
             // Try setting params beyond valid range — should not panic
@@ -854,7 +862,7 @@ mod stress_suite {
 
     #[test]
     fn t120_asymmetric_stereo() {
-        for id in 0..=14u8 {
+        for id in 0..=15u8 {
             let ty = BuiltinEffectType::from_u8(id).unwrap();
             let mut proc = ty.create_processor(SR);
             let mut l = sine_buffer(BUF, 440.0, SR);
@@ -871,7 +879,7 @@ mod stress_suite {
 
     #[test]
     fn t130_empty_buffers() {
-        for id in 0..=14u8 {
+        for id in 0..=15u8 {
             let ty = BuiltinEffectType::from_u8(id).unwrap();
             let mut proc = ty.create_processor(SR);
             let mut l: Vec<f32> = vec![];
@@ -887,7 +895,7 @@ mod stress_suite {
 
     #[test]
     fn t131_single_sample() {
-        for id in 0..=14u8 {
+        for id in 0..=15u8 {
             let ty = BuiltinEffectType::from_u8(id).unwrap();
             let mut proc = ty.create_processor(SR);
             let mut l = vec![0.5f32; 1];

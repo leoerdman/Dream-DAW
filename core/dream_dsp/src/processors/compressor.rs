@@ -95,8 +95,7 @@ impl CompressorProcessor {
     }
 
     fn update_sc_hpf(&mut self) {
-        self.sc_hp_coeff =
-            1.0 / (1.0 + std::f32::consts::TAU * self.sc_hpf_freq / self.sample_rate);
+        self.sc_hp_coeff = (-std::f32::consts::TAU * self.sc_hpf_freq / self.sample_rate).exp();
     }
 
     fn compute_auto_makeup(&self) -> f32 {

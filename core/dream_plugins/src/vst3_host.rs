@@ -2756,6 +2756,23 @@ impl Vst3Instance {
               self.controller_ptr, self.component_ptr, self.processor_ptr);
         info!("[VST3-EDITOR] host_initialized={}, com_initialized={}", self.host_initialized, self.com_initialized);
 
+        // ── File-based step-by-step diagnostics ──
+        // Each step writes to diag file with flush, so the last written line
+        // pinpoints exactly where the crash occurs.
+        macro_rules! diag_step {
+            ($($arg:tt)*) => {{
+                use std::io::Write;
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true)
+                    .open("/tmp/dream-daw-diag.txt") {
+                    let _ = writeln!(f, $($arg)*);
+                    let _ = f.flush();
+                }
+            }}
+        }
+
+        diag_step!("[open_editor:{}] Step 1: createView about to call, controller={:#x}",
+            self.descriptor.name, self.controller_ptr);
+
         let controller = self.controller_ptr as *mut IEditController;
         eprintln!("[CRASH-DIAG] >>> createView about to call vtbl at {:p}", controller);
         info!("[VST3-EDITOR] Step 1: Calling createView('editor')...");
@@ -2763,6 +2780,7 @@ impl Vst3Instance {
             ((*(*controller).vtbl).create_view)(controller, b"editor\0".as_ptr() as *const c_char)
         };
         eprintln!("[CRASH-DIAG] <<< createView returned {:p}", view_raw);
+        diag_step!("[open_editor:{}] Step 1: createView returned {:p}", self.descriptor.name, view_raw);
         if view_raw.is_null() {
             return Err(PluginError::UnsupportedFormat(
                 "Plugin did not provide an editor view".to_string(),
@@ -2780,6 +2798,7 @@ impl Vst3Instance {
             )
         } == K_RESULT_OK;
         eprintln!("[CRASH-DIAG] <<< isPlatformTypeSupported returned {}", nsview_supported);
+        diag_step!("[open_editor:{}] Step 2: isPlatformTypeSupported={}", self.descriptor.name, nsview_supported);
         info!("[VST3-EDITOR] Step 2: isPlatformTypeSupported → {}", nsview_supported);
         if !nsview_supported {
             unsafe {
@@ -2806,6 +2825,7 @@ impl Vst3Instance {
             let width = (rect.right - rect.left).max(420) as f64;
             let height = (rect.bottom - rect.top).max(300) as f64;
             eprintln!("[CRASH-DIAG] <<< getSize returned {}x{}", width, height);
+            diag_step!("[open_editor:{}] Step 3: getSize={}x{}", self.descriptor.name, width, height);
             info!("[VST3-EDITOR] Step 3: getSize → {}x{}", width, height);
 
             // BUG-E3 FIX: Check canResize() before adding the resize style mask.
@@ -2838,6 +2858,7 @@ impl Vst3Instance {
                     "Failed to allocate macOS editor window".to_string(),
                 ));
             }
+            diag_step!("[open_editor:{}] Step 4: NSWindow created at {:p}", self.descriptor.name, window);
             info!("[VST3-EDITOR] Step 4: NSWindow created OK");
 
             // BUG-E2 FIX: Set the window title to the plugin name.
@@ -2888,6 +2909,7 @@ impl Vst3Instance {
             // frame pointer is NULL → Serum2 dereferences offset 0x60 → SIGSEGV.
             window.center();
             window.makeKeyAndOrderFront_(nil);
+            diag_step!("[open_editor:{}] Step 5c: window visible", self.descriptor.name);
             info!("[VST3-EDITOR] Step 5c: window centered + makeKeyAndOrderFront");
 
             // ── Wire IPlugFrame for editor resize notifications ──
@@ -2903,6 +2925,7 @@ impl Vst3Instance {
             eprintln!("[CRASH-DIAG] >>> setFrame about to call, frame_ptr={:p}, plug_view={:p}", frame_ptr, plug_view);
             let set_frame_result = ((*(*plug_view).vtbl).set_frame)(plug_view, frame_ptr);
             eprintln!("[CRASH-DIAG] <<< setFrame returned {}", set_frame_result);
+            diag_step!("[open_editor:{}] Step 6: setFrame returned {}", self.descriptor.name, set_frame_result);
             info!("[VST3-EDITOR] Step 6: setFrame returned {}", set_frame_result);
             self.plug_frame = Some(frame_box);
 
@@ -2972,6 +2995,8 @@ impl Vst3Instance {
             info!("[VST3-EDITOR] Step 6b: Created plugin host NSView {:p} ({}x{}), added to contentView {:p}",
                   plugin_host_view, width, height, content_view);
 
+            diag_step!("[open_editor:{}] Step 6b: pluginHostView {:p} ({}x{})", self.descriptor.name, plugin_host_view, width, height);
+            diag_step!("[open_editor:{}] Step 7: attached() about to call", self.descriptor.name);
             eprintln!("[CRASH-DIAG] >>> attached about to call, plugin_host_view={:p} (child of content_view={:p})", plugin_host_view, content_view);
             info!("[VST3-EDITOR] Step 7: Calling attached(pluginHostView, 'NSView')...");
 
@@ -2984,6 +3009,7 @@ impl Vst3Instance {
                 b"NSView\0".as_ptr() as *const c_char,
             );
             EDITOR_IN_ATTACHED.with(|c| c.set(false));
+            diag_step!("[open_editor:{}] Step 7: attached returned {}", self.descriptor.name, attached);
             eprintln!("[CRASH-DIAG] <<< attached returned {}", attached);
             info!("[VST3-EDITOR] Step 7: attached returned {}", attached);
             if attached != K_RESULT_OK {

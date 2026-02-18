@@ -1,0 +1,151 @@
+#!/bin/bash
+###############################################################################
+# Dream DAW — Production Build → Install to /Applications
+#
+# Usage:
+#   ./scripts/production_to_app.sh          # build + install
+#   ./scripts/production_to_app.sh --skip-install   # build only, no copy
+###############################################################################
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+APP_NAME="Dream DAW"
+BUNDLE_DIR="/tmp/dream-daw-target/release/bundle"
+APP_PATH="$BUNDLE_DIR/macos/$APP_NAME.app"
+DMG_PATH="$BUNDLE_DIR/dmg"
+INSTALL_DIR="/Applications"
+
+# ── Colors ───────────────────────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+info()    { echo -e "${CYAN}[INFO]${NC}  $*"; }
+success() { echo -e "${GREEN}[OK]${NC}    $*"; }
+warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+error()   { echo -e "${RED}[ERR]${NC}   $*" >&2; }
+
+# ── Parse flags ──────────────────────────────────────────────────────────────
+SKIP_INSTALL=false
+for arg in "$@"; do
+  case "$arg" in
+    --skip-install) SKIP_INSTALL=true ;;
+    --help|-h)
+      echo "Usage: $0 [--skip-install] [--help]"
+      echo ""
+      echo "  --skip-install   Build .app and .dmg but do not copy to /Applications"
+      echo "  --help, -h       Show this help"
+      exit 0
+      ;;
+    *)
+      error "Unknown flag: $arg"
+      exit 1
+      ;;
+  esac
+done
+
+# ── Pre-flight checks ───────────────────────────────────────────────────────
+info "Pre-flight checks..."
+
+if ! command -v cargo &>/dev/null; then
+  error "cargo not found. Install Rust: https://rustup.rs"
+  exit 1
+fi
+
+if ! cargo tauri --version &>/dev/null; then
+  error "cargo-tauri CLI not found. Install: cargo install tauri-cli"
+  exit 1
+fi
+
+TAURI_VERSION=$(cargo tauri --version 2>/dev/null || echo "unknown")
+success "cargo-tauri $TAURI_VERSION"
+
+# ── Read version from tauri.conf.json ────────────────────────────────────────
+TAURI_CONF="$PROJECT_ROOT/apps/desktop_host/tauri.conf.json"
+if [ -f "$TAURI_CONF" ]; then
+  APP_VERSION=$(grep '"version"' "$TAURI_CONF" | head -1 | sed 's/.*: *"\(.*\)".*/\1/')
+  info "Building ${BOLD}$APP_NAME v$APP_VERSION${NC}"
+else
+  warn "tauri.conf.json not found at $TAURI_CONF"
+  APP_VERSION="unknown"
+fi
+
+# ── Build ────────────────────────────────────────────────────────────────────
+echo ""
+echo -e "${BOLD}════════════════════════════════════════════════════════════${NC}"
+echo -e "${BOLD}  🔨  Building $APP_NAME (Release)${NC}"
+echo -e "${BOLD}════════════════════════════════════════════════════════════${NC}"
+echo ""
+
+BUILD_START=$(date +%s)
+
+cd "$PROJECT_ROOT"
+cargo tauri build
+
+BUILD_END=$(date +%s)
+BUILD_DURATION=$((BUILD_END - BUILD_START))
+BUILD_MIN=$((BUILD_DURATION / 60))
+BUILD_SEC=$((BUILD_DURATION % 60))
+
+echo ""
+success "Build completed in ${BUILD_MIN}m ${BUILD_SEC}s"
+
+# ── Verify output ────────────────────────────────────────────────────────────
+if [ ! -d "$APP_PATH" ]; then
+  error "Build succeeded but .app not found at: $APP_PATH"
+  exit 1
+fi
+
+APP_SIZE=$(du -sh "$APP_PATH" | cut -f1)
+success ".app bundle: $APP_PATH ($APP_SIZE)"
+
+DMG_FILE=$(find "$DMG_PATH" -name "*.dmg" -type f 2>/dev/null | head -1)
+if [ -n "$DMG_FILE" ]; then
+  DMG_SIZE=$(du -sh "$DMG_FILE" | cut -f1)
+  success ".dmg installer: $DMG_FILE ($DMG_SIZE)"
+fi
+
+# ── Install to /Applications ────────────────────────────────────────────────
+if [ "$SKIP_INSTALL" = true ]; then
+  warn "Skipping install (--skip-install flag)"
+else
+  echo ""
+  info "Installing to $INSTALL_DIR..."
+
+  # Remove old version if present
+  if [ -d "$INSTALL_DIR/$APP_NAME.app" ]; then
+    warn "Removing previous installation..."
+    rm -rf "$INSTALL_DIR/$APP_NAME.app"
+  fi
+
+  cp -R "$APP_PATH" "$INSTALL_DIR/"
+
+  if [ -d "$INSTALL_DIR/$APP_NAME.app" ]; then
+    success "Installed to $INSTALL_DIR/$APP_NAME.app"
+  else
+    error "Failed to copy to $INSTALL_DIR"
+    exit 1
+  fi
+
+  # Clear quarantine attribute so macOS doesn't block it
+  xattr -cr "$INSTALL_DIR/$APP_NAME.app" 2>/dev/null || true
+  success "Cleared quarantine attributes"
+fi
+
+# ── Summary ──────────────────────────────────────────────────────────────────
+echo ""
+echo -e "${BOLD}════════════════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}${BOLD}  ✅  $APP_NAME v$APP_VERSION — Ready!${NC}"
+echo -e "${BOLD}════════════════════════════════════════════════════════════${NC}"
+echo ""
+echo -e "  ${CYAN}.app${NC}  $APP_PATH"
+[ -n "$DMG_FILE" ] && echo -e "  ${CYAN}.dmg${NC}  $DMG_FILE"
+[ "$SKIP_INSTALL" = false ] && echo -e "  ${CYAN}installed${NC}  $INSTALL_DIR/$APP_NAME.app"
+echo ""
+echo -e "  Launch:  ${BOLD}open \"$INSTALL_DIR/$APP_NAME.app\"${NC}"
+echo ""

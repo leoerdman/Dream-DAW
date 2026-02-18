@@ -1005,12 +1005,17 @@ export const DawShell = () => {
         setSelectedClipIds([clipId]);
         // Mutual exclusivity: clip selection ⇒ hide edit cursor.
         setEditCursorBeat(-1);
-        // Queue playhead to clip start — next Space starts from here.
+        // Derive parent track from clip and select it alongside the clip.
         const clip = timelineClipsForView.find(c => c.id === clipId);
         if (clip) {
             queuedStartBeatRef.current = clip.startBeat;
+            const trackId = projectTracks[clip.trackIndex]?.id;
+            if (trackId && trackId !== 'master') {
+                setSelectedTrackId(trackId);
+                setSelectedTrackIds([trackId]);
+            }
         }
-    }, [timelineClipsForView]);
+    }, [timelineClipsForView, projectTracks]);
 
     // Drop from AssetBrowser → Timeline
     const {
@@ -1270,6 +1275,22 @@ export const DawShell = () => {
                                             setSelectedClipId(ids[ids.length - 1] ?? null);
                                             // Mutual exclusivity: clip selection ⇒ hide edit cursor.
                                             if (ids.length > 0) setEditCursorBeat(-1);
+                                            // Select tracks that own the selected clips.
+                                            if (ids.length > 0) {
+                                                const idSet = new Set(ids);
+                                                const trackIdSet = new Set<string>();
+                                                for (const c of timelineClipsForView) {
+                                                    if (idSet.has(c.id)) {
+                                                        const tid = projectTracks[c.trackIndex]?.id;
+                                                        if (tid && tid !== 'master') trackIdSet.add(tid);
+                                                    }
+                                                }
+                                                if (trackIdSet.size > 0) {
+                                                    const arr = Array.from(trackIdSet);
+                                                    setSelectedTrackIds(arr);
+                                                    setSelectedTrackId(arr[arr.length - 1]);
+                                                }
+                                            }
                                             // Queue playhead to leftmost selected clip.
                                             if (ids.length > 0) {
                                                 let minBeat = Infinity;

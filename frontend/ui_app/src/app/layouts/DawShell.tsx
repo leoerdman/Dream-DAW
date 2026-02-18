@@ -1658,30 +1658,7 @@ export const DawShell = () => {
                 <MissingAssetsPanel isOpen={missingAssetsOpen && missingMediaSummary.total > 0} onClose={() => setMissingAssetsOpen(false)} />
             </Suspense>
 
-            {/* ═══ DRAG-OVER OVERLAY ═══ */}
-            {isDragOver && (
-                <div
-                    className="absolute inset-0 z-[999] flex items-center justify-center pointer-events-none"
-                    style={{
-                        background: 'color-mix(in srgb, var(--color-accent-primary) 12%, transparent)',
-                        border: '3px dashed color-mix(in srgb, var(--color-accent-primary) 60%, transparent)',
-                        borderRadius: '12px',
-                        margin: '8px',
-                    }}
-                >
-                    <div style={{
-                        background: 'color-mix(in srgb, var(--color-bg-elevated) 88%, transparent)',
-                        color: 'var(--color-text-primary)',
-                        padding: '12px 24px',
-                        borderRadius: '8px',
-                        fontSize: '14px',
-                        fontWeight: 600,
-                        backdropFilter: 'blur(8px)',
-                    }}>
-                        🎵 Drop audio file to import
-                    </div>
-                </div>
-            )}
+            {/* Drop overlay removed — asset drops handled directly by Timeline/AssetBrowser */}
             {/* ── Export Modal ── */}
             <Suspense fallback={null}>
                 <ExportModal

@@ -1546,21 +1546,6 @@ export const DeviceRack = ({
                         visibleChain.map((device, deviceIndex) => (
                             <div
                                 key={device.id}
-                                draggable
-                                onDragStart={(e) => {
-                                    e.dataTransfer.setData('application/x-dream-device-id', device.id);
-                                    e.dataTransfer.setData('application/x-dream-device-index', String(deviceIndex));
-                                    e.dataTransfer.effectAllowed = 'move';
-                                    (e.currentTarget as HTMLElement).style.opacity = '0.4';
-                                }}
-                                onDragEnd={(e) => {
-                                    (e.currentTarget as HTMLElement).style.opacity = '1';
-                                    // Clear all drop indicators
-                                    document.querySelectorAll('.dream-device-drop-indicator').forEach((el) => {
-                                        (el as HTMLElement).style.borderLeft = '';
-                                        (el as HTMLElement).style.borderRight = '';
-                                    });
-                                }}
                                 onDragOver={(e) => {
                                     e.preventDefault();
                                     e.dataTransfer.dropEffect = 'move';
@@ -1595,8 +1580,39 @@ export const DeviceRack = ({
                                     }
                                 }}
                                 className="dream-device-drop-indicator"
-                                style={{ display: 'flex', flexShrink: 0, height: '100%', transition: 'border 0.1s ease' }}
+                                style={{ display: 'flex', flexShrink: 0, height: '100%', transition: 'border 0.1s ease', position: 'relative' }}
                             >
+                                {/* ── Drag Handle: only this small grip area initiates device reorder ── */}
+                                {/* This prevents draggable from capturing EQ band/plugin UI interactions */}
+                                <div
+                                    draggable
+                                    onDragStart={(e) => {
+                                        e.dataTransfer.setData('application/x-dream-device-id', device.id);
+                                        e.dataTransfer.setData('application/x-dream-device-index', String(deviceIndex));
+                                        e.dataTransfer.effectAllowed = 'move';
+                                        // Find the closest device-drop-indicator parent and dim it
+                                        const slot = (e.target as HTMLElement).closest('.dream-device-drop-indicator') as HTMLElement | null;
+                                        if (slot) slot.style.opacity = '0.4';
+                                    }}
+                                    onDragEnd={(e) => {
+                                        const slot = (e.target as HTMLElement).closest('.dream-device-drop-indicator') as HTMLElement | null;
+                                        if (slot) slot.style.opacity = '1';
+                                        document.querySelectorAll('.dream-device-drop-indicator').forEach((el) => {
+                                            (el as HTMLElement).style.borderLeft = '';
+                                            (el as HTMLElement).style.borderRight = '';
+                                        });
+                                    }}
+                                    title="Drag to reorder"
+                                    style={{
+                                        position: 'absolute',
+                                        top: 0,
+                                        left: 0,
+                                        right: 0,
+                                        height: 18,
+                                        cursor: 'grab',
+                                        zIndex: 10,
+                                    }}
+                                />
                                 <DeviceNode
                                     device={device}
                                     isSelected={selectedDeviceIds.includes(device.id)}

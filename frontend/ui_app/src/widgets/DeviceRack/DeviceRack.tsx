@@ -1494,7 +1494,9 @@ export const DeviceRack = ({
                 }}>
 
                 {/* ── Device Chain (horizontal scroll) ── */}
-                <div className="scrollbar-hide" style={{
+                <div className="scrollbar-hide" onClick={(e) => {
+                    if (e.target === e.currentTarget) setSelectedDeviceIds([]);
+                }} style={{
                     display: 'flex',
                     alignItems: 'stretch',
                     gap: 6,
@@ -2005,7 +2007,7 @@ const DeviceNode = ({
                 flexDirection: 'column',
                 background: 'var(--color-bg-node)',
                 borderRadius: 'var(--radius-sm)',
-                border: isSelected ? '1px solid color-mix(in srgb, var(--color-text-primary) 90%, transparent)' : '1px solid var(--color-border-subtle)',
+                border: isSelected ? '2px solid #ffffff' : '2px solid var(--color-bg-header)',
                 overflow: 'hidden',
                 opacity: device.isEnabled ? 1 : 0.5,
                 transition: 'opacity var(--transition-fast)',

@@ -210,11 +210,15 @@ export const PianoRoll = memo(function PianoRoll({
     const readLaneValue = useCallback((note: MidiNote, lane: PianoLaneType) => {
         if (lane === 'velocity') return note.velocity;
         const cached = laneValuesByNote[lane][note.id];
-        return Number.isFinite(cached) ? cached : 96;
+        // Bug #22: fall back to 0, not 96 — no stored CC value means no modulation.
+        return Number.isFinite(cached) ? cached : 0;
     }, [laneValuesByNote]);
 
     const sampleEnvelopeAtBeat = useCallback((points: Array<{ beat: number; value: number }>, beat: number): number => {
-        if (points.length === 0) return 96;
+        // Bug #22: empty envelope used to return 96 (75% of 127), which caused an
+        // unexpected CC spike on lanes that were never drawn. Return 0 instead —
+        // no lane data means no modulation.
+        if (points.length === 0) return 0;
         if (points.length === 1) return Math.round(points[0].value * 127);
         const sorted = [...points].sort((a, b) => a.beat - b.beat);
         if (beat <= sorted[0].beat) return Math.round(sorted[0].value * 127);
@@ -342,10 +346,10 @@ export const PianoRoll = memo(function PianoRoll({
     const clipBeats = Math.max(0.25, clipLengthBeats ?? (totalBars * beatsPerBar));
 
     // Auto-fit horizontal: scale so the entire clip fills the available width.
-    // Only apply MIN_PPB/MAX_PPB clamping to user-driven zoom overrides,
-    // so auto-fit always shows the clip's exact natural length.
+    // Bug #32: MIN_PPB clamp was applied to auto-fit, which prevented very long
+    // clips from shrinking to fit. Only clamp user-driven zoom overrides.
     const gridAreaWidth = Math.max(100, containerWidth);
-    const autoFitPPB = Math.max(MIN_PPB, gridAreaWidth / clipBeats);
+    const autoFitPPB = gridAreaWidth / clipBeats; // no min clamp — show exact clip width
     const pixelsPerBeat = zoomOverrideH != null
         ? Math.max(MIN_PPB, Math.min(MAX_PPB, zoomOverrideH))
         : autoFitPPB;
@@ -521,6 +525,9 @@ export const PianoRoll = memo(function PianoRoll({
     // Bug #24: debounce note insertion in pencil-click mode to prevent double-notes
     // when a double-click fires two onClick events at nearly the same position.
     const lastInsertPosRef = useRef<{ x: number; y: number; t: number } | null>(null);
+    // Bug #40: track whether a drag-selection is currently in progress, to prevent
+    // note insertion from firing on the click-up that ends a selection drag.
+    const isDragSelectingRef = useRef(false);
 
     const auditionOffTimersRef = useRef<Map<number, number>>(new Map());
 
@@ -689,6 +696,8 @@ export const PianoRoll = memo(function PianoRoll({
         (e: React.MouseEvent) => {
             editorRootRef.current?.focus();
             if (tool === 'draw' && pianoPencilMode) {
+                // Bug #40: if this click ended a drag-selection, don't insert a note.
+                if (isDragSelectingRef.current) return;
                 // Bug #24: debounce — ignore click if a note was just inserted
                 // at nearly the same position (double-click protection).
                 const now = Date.now();
@@ -726,11 +735,14 @@ export const PianoRoll = memo(function PianoRoll({
         const duration = Math.max(MIN_NOTE_BEATS, step);
         const pitch = yToPitch(e.clientY - rect.top);
 
+        // Bug #41: toFixed(6) can produce different strings for equal floats due to
+        // rounding artifacts on long timelines. Round to 4 decimal places instead.
+        const beatKey = (b: number) => Math.round(b * 10000);
         let workingNotes = notes;
         const occupied = new Set(
             notes
                 .filter((n) => n.pitch === pitch)
-                .map((n) => `${n.pitch}:${n.startBeat.toFixed(6)}`),
+                .map((n) => `${n.pitch}:${beatKey(n.startBeat)}`),
         );
 
         const paintAt = (clientX: number, clientY: number) => {
@@ -738,7 +750,7 @@ export const PianoRoll = memo(function PianoRoll({
             const y = clientY - rect.top;
             const drawPitch = yToPitch(y);
             const beat = Math.max(0, Math.min(clipBeats - duration, snapToCellStart(x / pixelsPerBeat)));
-            const key = `${drawPitch}:${beat.toFixed(6)}`;
+            const key = `${drawPitch}:${beatKey(beat)}`;
             if (occupied.has(key)) return;
             occupied.add(key);
             const newNote: MidiNote = {
@@ -830,11 +842,15 @@ export const PianoRoll = memo(function PianoRoll({
         const startX = e.clientX - rect.left;
         const startY = e.clientY - rect.top;
         setSelectionRect({ x1: startX, y1: startY, x2: startX, y2: startY });
+        // Bug #40: signal that a drag-selection is now in progress so onClick
+        // (which fires after mouseup) won't also trigger a note insertion.
+        isDragSelectingRef.current = false; // reset; set true once we actually move
 
         const keepExisting = e.shiftKey;
         if (!keepExisting) setSelectedNotes(new Set());
 
         const onMove = (ev: MouseEvent) => {
+            isDragSelectingRef.current = true; // we moved — this is a real drag
             const x = Math.max(0, Math.min(canvasWidth, ev.clientX - rect.left));
             const y = Math.max(0, Math.min(canvasHeight, ev.clientY - rect.top));
             setSelectionRect({ x1: startX, y1: startY, x2: x, y2: y });
@@ -843,6 +859,8 @@ export const PianoRoll = memo(function PianoRoll({
         const onUp = () => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
+            // Reset after a brief delay so the click handler has a chance to check it.
+            setTimeout(() => { isDragSelectingRef.current = false; }, 0);
             setSelectionRect((current) => {
                 if (!current) return null;
                 const minX = Math.min(current.x1, current.x2);
@@ -1451,7 +1469,7 @@ export const PianoRoll = memo(function PianoRoll({
         notes,
         onNotesChange,
         currentGridInterval,
-        totalBeats,
+        clipBeats, // Bug #31: was totalBeats (zoom-derived), use actual clip length
         duplicateSelection,
         quantizeAllNotesToGrid,
         quantizeAmount,

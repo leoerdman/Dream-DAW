@@ -224,7 +224,11 @@ impl MidiScheduler {
         };
 
         let buffer_end = playhead_pos + frame_count as i64;
-        if buffer_end <= lr.end {
+        // If the cursor is already at or past the loop end, play freely
+        // without wrapping — the user has seeked outside the loop region.
+        // Without this guard, the scheduler would erroneously wrap back
+        // to loop start every callback, re-triggering notes (stuck sound).
+        if playhead_pos >= lr.end || buffer_end <= lr.end {
             Self::fill_active(clips, playhead_pos, frame_count, out);
             return;
         }

@@ -119,7 +119,9 @@ impl ClipScheduler {
         };
 
         let buffer_end = playhead_pos + buffer_size as i64;
-        if buffer_end <= loop_region.end {
+        // If the cursor is already at or past the loop end, play freely
+        // without wrapping — the user has seeked outside the loop region.
+        if playhead_pos >= loop_region.end || buffer_end <= loop_region.end {
             Self::fill_active(clips, playhead_pos, buffer_size, out);
             return;
         }

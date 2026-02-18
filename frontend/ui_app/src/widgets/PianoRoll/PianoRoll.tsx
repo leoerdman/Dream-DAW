@@ -162,6 +162,12 @@ const isBlackKey = (pitch: number) => {
 
 const genNoteId = () => crypto.randomUUID();
 
+// ── Per-track vertical scroll persistence ────────────────────────────
+// Module-level map survives React remounts (Shift+Tab panel switches).
+// Keyed by trackIndex — stores scrollTop so each track remembers its
+// Piano Roll vertical position instead of resetting to C3 every time.
+const _scrollTopByTrack = new Map<number, number>();
+
 // ── Component ────────────────────────────────────────────────────────────
 
 export const PianoRoll = memo(function PianoRoll({
@@ -488,15 +494,27 @@ export const PianoRoll = memo(function PianoRoll({
         Promise.resolve().then(() => setZoomOverrideH(null));
     }, [clipLengthBeats, totalBars]);
 
-    // Sync keyboard scroll with grid
+    // Sync keyboard scroll with grid + persist scroll position per track
     useEffect(() => {
         const gridEl = scrollRef.current;
         const kbEl = keyboardScrollRef.current;
         if (!gridEl || !kbEl) return;
-        const onScroll = () => { kbEl.scrollTop = gridEl.scrollTop; };
+        const onScroll = () => {
+            kbEl.scrollTop = gridEl.scrollTop;
+            // Persist vertical scroll position for this track
+            if (trackIndex != null) {
+                _scrollTopByTrack.set(trackIndex, gridEl.scrollTop);
+            }
+        };
         gridEl.addEventListener('scroll', onScroll);
-        return () => gridEl.removeEventListener('scroll', onScroll);
-    }, []);
+        return () => {
+            gridEl.removeEventListener('scroll', onScroll);
+            // Save final scroll position on unmount (panel switch)
+            if (trackIndex != null && gridEl) {
+                _scrollTopByTrack.set(trackIndex, gridEl.scrollTop);
+            }
+        };
+    }, [trackIndex]);
 
     // Bidirectional zoom: Ctrl/⌘ = H, Alt = V
     useEffect(() => {
@@ -602,21 +620,26 @@ export const PianoRoll = memo(function PianoRoll({
         if (!gridEl) return;
         const nh = noteHeightRef.current;
         requestAnimationFrame(() => {
-            const focusPitch = visiblePitches.includes(DEFAULT_FOCUS_PITCH)
-                ? DEFAULT_FOCUS_PITCH
-                : visiblePitches[Math.floor(visiblePitches.length / 2)] ?? DEFAULT_FOCUS_PITCH;
-            const targetY = pitchToY(focusPitch);
-            if (targetY < 0) return; // pitch not visible
-            const centered = Math.max(0, targetY - gridEl.clientHeight * 0.5 + nh * 0.5);
-            gridEl.scrollTop = centered;
-            if (kbEl) kbEl.scrollTop = centered;
+            // Restore saved scroll position for this track, or center on C3
+            const saved = trackIndex != null ? _scrollTopByTrack.get(trackIndex) : undefined;
+            if (saved != null) {
+                gridEl.scrollTop = saved;
+                if (kbEl) kbEl.scrollTop = saved;
+            } else {
+                const focusPitch = visiblePitches.includes(DEFAULT_FOCUS_PITCH)
+                    ? DEFAULT_FOCUS_PITCH
+                    : visiblePitches[Math.floor(visiblePitches.length / 2)] ?? DEFAULT_FOCUS_PITCH;
+                const targetY = pitchToY(focusPitch);
+                if (targetY < 0) return; // pitch not visible
+                const centered = Math.max(0, targetY - gridEl.clientHeight * 0.5 + nh * 0.5);
+                gridEl.scrollTop = centered;
+                if (kbEl) kbEl.scrollTop = centered;
+            }
         });
-        // Bug fix: only re-center when the clip changes, not when pitchToY/visiblePitches change
-        // (which happens on every note add/delete in fold mode, causing jarring scroll resets).
-        // pitchToY and visiblePitches are accessed inside the RAF callback — stale values are fine
-        // for a one-time centering pass.
+        // Re-run when the track or clip changes. Stale pitchToY/visiblePitches
+        // accessed inside the RAF callback are fine for a one-time centering pass.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [clipLengthBeats]);
+    }, [clipLengthBeats, trackIndex]);
 
     // Scale membership
     const scaleSet = useMemo(() => {

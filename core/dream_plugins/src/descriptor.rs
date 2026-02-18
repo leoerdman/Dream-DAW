@@ -83,7 +83,7 @@ impl PluginDescriptor {
             audio_outputs: 2,
             accepts_midi: category == PluginCategory::Instrument,
             is_validated: false,
-            runtime_supported: format == PluginFormat::VST3,
+            runtime_supported: format == PluginFormat::VST3 || format == PluginFormat::VST2,
         }
     }
 

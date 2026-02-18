@@ -12,6 +12,9 @@ use serde::{Deserialize, Serialize};
 /// - **AU (AudioUnit)**: Apple's macOS/iOS plugin standard
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PluginFormat {
+    /// Steinberg VST2 — `.vst` bundles (legacy, widely installed).
+    VST2,
+
     /// Steinberg VST3 — `.vst3` bundles.
     VST3,
 
@@ -26,6 +29,7 @@ impl PluginFormat {
     /// Returns the file extension used by this format.
     pub fn extension(&self) -> &'static str {
         match self {
+            Self::VST2 => "vst",
             Self::VST3 => "vst3",
             Self::CLAP => "clap",
             Self::AudioUnit => "component",
@@ -35,6 +39,7 @@ impl PluginFormat {
     /// Returns a human-readable label for the format.
     pub fn label(&self) -> &'static str {
         match self {
+            Self::VST2 => "VST2",
             Self::VST3 => "VST3",
             Self::CLAP => "CLAP",
             Self::AudioUnit => "Audio Unit",
@@ -85,6 +90,7 @@ mod tests {
 
     #[test]
     fn format_extensions() {
+        assert_eq!(PluginFormat::VST2.extension(), "vst");
         assert_eq!(PluginFormat::VST3.extension(), "vst3");
         assert_eq!(PluginFormat::CLAP.extension(), "clap");
         assert_eq!(PluginFormat::AudioUnit.extension(), "component");
@@ -92,6 +98,7 @@ mod tests {
 
     #[test]
     fn format_labels() {
+        assert_eq!(PluginFormat::VST2.label(), "VST2");
         assert_eq!(PluginFormat::VST3.label(), "VST3");
         assert_eq!(PluginFormat::CLAP.label(), "CLAP");
         assert_eq!(PluginFormat::AudioUnit.label(), "Audio Unit");
@@ -99,6 +106,7 @@ mod tests {
 
     #[test]
     fn format_display() {
+        assert_eq!(format!("{}", PluginFormat::VST2), "VST2");
         assert_eq!(format!("{}", PluginFormat::VST3), "VST3");
         assert_eq!(format!("{}", PluginCategory::Effect), "Effect");
     }

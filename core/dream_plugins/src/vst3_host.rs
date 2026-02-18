@@ -275,16 +275,8 @@ struct IHostApplicationVtbl {
     ) -> Tresult,
 }
 
-/// The singleton IHostApplication object.
-/// Contains only a vtable pointer — minimal COM object.
-#[repr(C)]
-struct HostApplicationInstance {
-    vtbl: *const IHostApplicationVtbl,
-}
+// HostApplicationInstance struct moved below HOST_APP_VTBL (dual-vtable version).
 
-// Safety: HostApplicationInstance is a read-only singleton with no mutable state.
-unsafe impl Sync for HostApplicationInstance {}
-unsafe impl Send for HostApplicationInstance {}
 
 fn tuid_eq(a: *const Tuid, b: &Tuid) -> bool {
     if a.is_null() {
@@ -305,6 +297,12 @@ unsafe extern "system" fn host_query_interface(
     if tuid_eq(iid, &IID_FUNKNOWN) || tuid_eq(iid, &IID_IHOST_APPLICATION) {
         unsafe {
             *obj = this;
+        }
+        K_RESULT_OK
+    } else if tuid_eq(iid, &IID_IPLUG_INTERFACE_SUPPORT) {
+        // Return pointer to the IPlugInterfaceSupport vtable (at offset 8 in HostApplicationInstance)
+        unsafe {
+            *obj = (this as *mut u8).add(std::mem::size_of::<*const c_void>()) as *mut c_void;
         }
         K_RESULT_OK
     } else {
@@ -348,18 +346,332 @@ unsafe extern "system" fn host_get_name(_this: *mut c_void, name: *mut u16) -> T
     K_RESULT_OK
 }
 
+// ── IMessage IID: {936F033B-C6C0-47DB-BB08-82F813C1E613} ──
+const IID_IMESSAGE: Tuid = [
+    0x93, 0x6F, 0x03, 0x3B, 0xC6, 0xC0, 0x47, 0xDB,
+    0xBB, 0x08, 0x82, 0xF8, 0x13, 0xC1, 0xE6, 0x13,
+];
+
+// ── IAttributeList IID: {1E5F0AEB-CC7F-4533-A254-401138AD5EE4} ──
+const IID_IATTRIBUTE_LIST: Tuid = [
+    0x1E, 0x5F, 0x0A, 0xEB, 0xCC, 0x7F, 0x45, 0x33,
+    0xA2, 0x54, 0x40, 0x11, 0x38, 0xAD, 0x5E, 0xE4,
+];
+
+// ── IPlugInterfaceSupport IID: {A3B8C6C5-C095-4688-B091-6F0BB697AA44} ──
+const IID_IPLUG_INTERFACE_SUPPORT: Tuid = [
+    0xA3, 0xB8, 0xC6, 0xC5, 0xC0, 0x95, 0x46, 0x88,
+    0xB0, 0x91, 0x6F, 0x0B, 0xB6, 0x97, 0xAA, 0x44,
+];
+
+// ── Real IAttributeList with Vec-backed storage ──
+//
+// Plugins (especially Serum2) create IMessage objects via host_create_instance
+// and set attributes (int, float, string, binary) on them during
+// setComponentState(). These attributes MUST be stored so the controller
+// can read them back later during createView()/attached().
+
+enum HostAttrValue {
+    Int(i64),
+    Float(f64),
+    String(Vec<u16>),
+    Binary(Vec<u8>),
+}
+
+#[repr(C)]
+struct HostAttrListVtbl {
+    query_interface: unsafe extern "C" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
+    add_ref: unsafe extern "C" fn(*mut c_void) -> u32,
+    release: unsafe extern "C" fn(*mut c_void) -> u32,
+    set_int: unsafe extern "C" fn(*mut c_void, *const c_char, i64) -> Tresult,
+    get_int: unsafe extern "C" fn(*mut c_void, *const c_char, *mut i64) -> Tresult,
+    set_float: unsafe extern "C" fn(*mut c_void, *const c_char, f64) -> Tresult,
+    get_float: unsafe extern "C" fn(*mut c_void, *const c_char, *mut f64) -> Tresult,
+    set_string: unsafe extern "C" fn(*mut c_void, *const c_char, *const u16) -> Tresult,
+    get_string: unsafe extern "C" fn(*mut c_void, *const c_char, *mut u16, u32) -> Tresult,
+    set_binary: unsafe extern "C" fn(*mut c_void, *const c_char, *const c_void, u32) -> Tresult,
+    get_binary: unsafe extern "C" fn(*mut c_void, *const c_char, *mut *const c_void, *mut u32) -> Tresult,
+}
+
+#[repr(C)]
+struct HostAttrList {
+    vtbl: *const HostAttrListVtbl,
+    ref_count: u32,
+    attrs: Vec<(String, HostAttrValue)>,
+}
+
+impl HostAttrList {
+    fn find(&self, key: &str) -> Option<&HostAttrValue> {
+        self.attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+    }
+    fn set(&mut self, key: String, val: HostAttrValue) {
+        if let Some(entry) = self.attrs.iter_mut().find(|(k, _)| *k == key) {
+            entry.1 = val;
+        } else {
+            self.attrs.push((key, val));
+        }
+    }
+}
+
+fn cstr_to_string_safe(p: *const c_char) -> String {
+    if p.is_null() { return String::new(); }
+    unsafe { std::ffi::CStr::from_ptr(p) }.to_str().unwrap_or("").to_string()
+}
+
+unsafe extern "C" fn host_attr_qi(this: *mut c_void, iid: *const Tuid, obj: *mut *mut c_void) -> Tresult {
+    if !obj.is_null() { unsafe { *obj = ptr::null_mut(); } }
+    if tuid_eq(iid, &IID_FUNKNOWN) || tuid_eq(iid, &IID_IATTRIBUTE_LIST) {
+        unsafe { *obj = this; }
+        host_attr_add_ref(this);
+        return K_RESULT_OK;
+    }
+    K_NO_INTERFACE
+}
+unsafe extern "C" fn host_attr_add_ref(this: *mut c_void) -> u32 {
+    if this.is_null() { return 0; }
+    let a = unsafe { &mut *(this as *mut HostAttrList) };
+    a.ref_count += 1;
+    a.ref_count
+}
+unsafe extern "C" fn host_attr_release(this: *mut c_void) -> u32 {
+    if this.is_null() { return 0; }
+    let a = unsafe { &mut *(this as *mut HostAttrList) };
+    a.ref_count = a.ref_count.saturating_sub(1);
+    let rc = a.ref_count;
+    if rc == 0 { unsafe { let _ = Box::from_raw(this as *mut HostAttrList); } }
+    rc
+}
+unsafe extern "C" fn host_attr_set_int(this: *mut c_void, key: *const c_char, val: i64) -> Tresult {
+    if this.is_null() { return K_RESULT_FALSE; }
+    let a = unsafe { &mut *(this as *mut HostAttrList) };
+    a.set(cstr_to_string_safe(key), HostAttrValue::Int(val));
+    K_RESULT_OK
+}
+unsafe extern "C" fn host_attr_get_int(this: *mut c_void, key: *const c_char, out: *mut i64) -> Tresult {
+    if this.is_null() || out.is_null() { return K_RESULT_FALSE; }
+    let a = unsafe { &*(this as *const HostAttrList) };
+    match a.find(&cstr_to_string_safe(key)) {
+        Some(HostAttrValue::Int(v)) => { unsafe { *out = *v; } K_RESULT_OK }
+        _ => K_RESULT_FALSE
+    }
+}
+unsafe extern "C" fn host_attr_set_float(this: *mut c_void, key: *const c_char, val: f64) -> Tresult {
+    if this.is_null() { return K_RESULT_FALSE; }
+    let a = unsafe { &mut *(this as *mut HostAttrList) };
+    a.set(cstr_to_string_safe(key), HostAttrValue::Float(val));
+    K_RESULT_OK
+}
+unsafe extern "C" fn host_attr_get_float(this: *mut c_void, key: *const c_char, out: *mut f64) -> Tresult {
+    if this.is_null() || out.is_null() { return K_RESULT_FALSE; }
+    let a = unsafe { &*(this as *const HostAttrList) };
+    match a.find(&cstr_to_string_safe(key)) {
+        Some(HostAttrValue::Float(v)) => { unsafe { *out = *v; } K_RESULT_OK }
+        _ => K_RESULT_FALSE
+    }
+}
+unsafe extern "C" fn host_attr_set_string(this: *mut c_void, key: *const c_char, val: *const u16) -> Tresult {
+    if this.is_null() || val.is_null() { return K_RESULT_FALSE; }
+    let a = unsafe { &mut *(this as *mut HostAttrList) };
+    let mut buf = Vec::new();
+    let mut i = 0;
+    loop {
+        let ch = unsafe { *val.add(i) };
+        buf.push(ch);
+        if ch == 0 { break; }
+        i += 1;
+        if i > 10000 { buf.push(0); break; }
+    }
+    a.set(cstr_to_string_safe(key), HostAttrValue::String(buf));
+    K_RESULT_OK
+}
+unsafe extern "C" fn host_attr_get_string(this: *mut c_void, key: *const c_char, out: *mut u16, size: u32) -> Tresult {
+    if this.is_null() || out.is_null() { return K_RESULT_FALSE; }
+    let a = unsafe { &*(this as *const HostAttrList) };
+    match a.find(&cstr_to_string_safe(key)) {
+        Some(HostAttrValue::String(v)) => {
+            let copy_len = v.len().min(size as usize);
+            unsafe { ptr::copy_nonoverlapping(v.as_ptr(), out, copy_len); }
+            K_RESULT_OK
+        }
+        _ => K_RESULT_FALSE
+    }
+}
+unsafe extern "C" fn host_attr_set_binary(this: *mut c_void, key: *const c_char, data: *const c_void, size: u32) -> Tresult {
+    if this.is_null() || data.is_null() { return K_RESULT_FALSE; }
+    let a = unsafe { &mut *(this as *mut HostAttrList) };
+    let slice = unsafe { std::slice::from_raw_parts(data as *const u8, size as usize) };
+    a.set(cstr_to_string_safe(key), HostAttrValue::Binary(slice.to_vec()));
+    K_RESULT_OK
+}
+unsafe extern "C" fn host_attr_get_binary(this: *mut c_void, key: *const c_char, out: *mut *const c_void, size: *mut u32) -> Tresult {
+    if this.is_null() || out.is_null() || size.is_null() { return K_RESULT_FALSE; }
+    let a = unsafe { &*(this as *const HostAttrList) };
+    match a.find(&cstr_to_string_safe(key)) {
+        Some(HostAttrValue::Binary(v)) => {
+            unsafe { *out = v.as_ptr() as *const c_void; }
+            unsafe { *size = v.len() as u32; }
+            K_RESULT_OK
+        }
+        _ => K_RESULT_FALSE
+    }
+}
+
+static HOST_ATTR_LIST_VTBL: HostAttrListVtbl = HostAttrListVtbl {
+    query_interface: host_attr_qi, add_ref: host_attr_add_ref, release: host_attr_release,
+    set_int: host_attr_set_int, get_int: host_attr_get_int,
+    set_float: host_attr_set_float, get_float: host_attr_get_float,
+    set_string: host_attr_set_string, get_string: host_attr_get_string,
+    set_binary: host_attr_set_binary, get_binary: host_attr_get_binary,
+};
+
+// ── Real IMessage — heap-allocated, with embedded IAttributeList ──
+
+#[repr(C)]
+struct HostMsgVtbl {
+    query_interface: unsafe extern "C" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
+    add_ref: unsafe extern "C" fn(*mut c_void) -> u32,
+    release: unsafe extern "C" fn(*mut c_void) -> u32,
+    get_message_id: unsafe extern "C" fn(*mut c_void) -> *const c_char,
+    set_message_id: unsafe extern "C" fn(*mut c_void, *const c_char),
+    get_attributes: unsafe extern "C" fn(*mut c_void) -> *mut c_void,
+}
+
+#[repr(C)]
+struct HostMsg {
+    vtbl: *const HostMsgVtbl,
+    ref_count: u32,
+    message_id: [u8; 256],
+    attr_list: *mut HostAttrList,
+}
+
+unsafe extern "C" fn host_msg_qi(this: *mut c_void, iid: *const Tuid, obj: *mut *mut c_void) -> Tresult {
+    if !obj.is_null() { unsafe { *obj = ptr::null_mut(); } }
+    if tuid_eq(iid, &IID_FUNKNOWN) || tuid_eq(iid, &IID_IMESSAGE) {
+        unsafe { *obj = this; }
+        host_msg_add_ref(this);
+        return K_RESULT_OK;
+    }
+    K_NO_INTERFACE
+}
+unsafe extern "C" fn host_msg_add_ref(this: *mut c_void) -> u32 {
+    if this.is_null() { return 0; }
+    let m = unsafe { &mut *(this as *mut HostMsg) };
+    m.ref_count += 1;
+    m.ref_count
+}
+unsafe extern "C" fn host_msg_release(this: *mut c_void) -> u32 {
+    if this.is_null() { return 0; }
+    let m = unsafe { &mut *(this as *mut HostMsg) };
+    m.ref_count = m.ref_count.saturating_sub(1);
+    let rc = m.ref_count;
+    if rc == 0 {
+        if !m.attr_list.is_null() {
+            host_attr_release(m.attr_list as *mut c_void);
+        }
+        unsafe { let _ = Box::from_raw(this as *mut HostMsg); }
+    }
+    rc
+}
+unsafe extern "C" fn host_msg_get_id(this: *mut c_void) -> *const c_char {
+    let m = unsafe { &*(this as *const HostMsg) };
+    m.message_id.as_ptr() as *const c_char
+}
+unsafe extern "C" fn host_msg_set_id(this: *mut c_void, id: *const c_char) {
+    let m = unsafe { &mut *(this as *mut HostMsg) };
+    if !id.is_null() {
+        let mut i = 0;
+        loop {
+            let b = unsafe { *id.add(i) } as u8;
+            if b == 0 || i >= 255 { break; }
+            m.message_id[i] = b;
+            i += 1;
+        }
+        m.message_id[i] = 0;
+    }
+}
+unsafe extern "C" fn host_msg_get_attrs(this: *mut c_void) -> *mut c_void {
+    let m = unsafe { &*(this as *const HostMsg) };
+    m.attr_list as *mut c_void
+}
+
+static HOST_MSG_VTBL: HostMsgVtbl = HostMsgVtbl {
+    query_interface: host_msg_qi,
+    add_ref: host_msg_add_ref,
+    release: host_msg_release,
+    get_message_id: host_msg_get_id,
+    set_message_id: host_msg_set_id,
+    get_attributes: host_msg_get_attrs,
+};
+
+/// Create a new heap-allocated IMessage object with an embedded IAttributeList.
+fn host_create_message() -> *mut c_void {
+    let attr_list = Box::into_raw(Box::new(HostAttrList {
+        vtbl: &HOST_ATTR_LIST_VTBL,
+        ref_count: 1,
+        attrs: Vec::new(),
+    }));
+    let msg = Box::into_raw(Box::new(HostMsg {
+        vtbl: &HOST_MSG_VTBL,
+        ref_count: 1,
+        message_id: [0u8; 256],
+        attr_list,
+    }));
+    msg as *mut c_void
+}
+
+// ── IPlugInterfaceSupport ──
+//
+// Plugins (Serum2) query the host for this interface during initialize().
+// We report that all VST3 interfaces are supported.
+
+#[repr(C)]
+struct IPlugInterfaceSupportVtbl {
+    query_interface: unsafe extern "C" fn(*mut c_void, *const Tuid, *mut *mut c_void) -> Tresult,
+    add_ref: unsafe extern "C" fn(*mut c_void) -> u32,
+    release: unsafe extern "C" fn(*mut c_void) -> u32,
+    is_plug_interface_supported: unsafe extern "C" fn(*mut c_void, *const Tuid) -> Tresult,
+}
+
+unsafe extern "C" fn host_iface_support_qi(this: *mut c_void, iid: *const Tuid, obj: *mut *mut c_void) -> Tresult {
+    if !obj.is_null() { unsafe { *obj = ptr::null_mut(); } }
+    if tuid_eq(iid, &IID_FUNKNOWN) || tuid_eq(iid, &IID_IPLUG_INTERFACE_SUPPORT) {
+        unsafe { *obj = this; }
+        // Static singleton, no addRef needed
+        return K_RESULT_OK;
+    }
+    K_NO_INTERFACE
+}
+unsafe extern "C" fn host_iface_support_add_ref(_: *mut c_void) -> u32 { 1 }
+unsafe extern "C" fn host_iface_support_release(_: *mut c_void) -> u32 { 1 }
+unsafe extern "C" fn host_is_plug_interface_supported(_: *mut c_void, _iid: *const Tuid) -> Tresult {
+    K_RESULT_OK // We support all standard VST3 interfaces
+}
+
+static HOST_IFACE_SUPPORT_VTBL: IPlugInterfaceSupportVtbl = IPlugInterfaceSupportVtbl {
+    query_interface: host_iface_support_qi,
+    add_ref: host_iface_support_add_ref,
+    release: host_iface_support_release,
+    is_plug_interface_supported: host_is_plug_interface_supported,
+};
+
+/// Host create_instance: provides IMessage objects for plugin messaging.
+/// Serum2 creates 15+ IMessage objects during setComponentState() to sync
+/// wavetable/preset data between component and controller.
 unsafe extern "system" fn host_create_instance(
     _this: *mut c_void,
-    _cid: *const Tuid,
-    _iid: *const Tuid,
-    _obj: *mut *mut c_void,
+    cid: *const Tuid,
+    iid: *const Tuid,
+    obj: *mut *mut c_void,
 ) -> Tresult {
-    // We don't provide any additional host services (e.g. IMessage).
-    // This is valid — most plugins handle this gracefully.
-    if !_obj.is_null() {
-        unsafe {
-            *_obj = ptr::null_mut();
-        }
+    if obj.is_null() {
+        return K_RESULT_FALSE;
+    }
+    unsafe { *obj = ptr::null_mut(); }
+
+    // Check if plugin is requesting an IMessage
+    if tuid_eq(cid, &IID_IMESSAGE) && tuid_eq(iid, &IID_IMESSAGE) {
+        unsafe { *obj = host_create_message(); }
+        return K_RESULT_OK;
     }
     K_NO_INTERFACE
 }
@@ -373,9 +685,22 @@ static HOST_APP_VTBL: IHostApplicationVtbl = IHostApplicationVtbl {
     create_instance: host_create_instance,
 };
 
-/// Static singleton IHostApplication instance.
+/// Dual-vtable host: IHostApplication + IPlugInterfaceSupport.
+/// The second vtable is at offset 8 (size_of::<*const>()).
+#[repr(C)]
+struct HostApplicationInstance {
+    vtbl: *const IHostApplicationVtbl,
+    vtbl_iface_support: *const IPlugInterfaceSupportVtbl,
+}
+
+// Safety: HostApplicationInstance is a read-only singleton with no mutable state.
+unsafe impl Sync for HostApplicationInstance {}
+unsafe impl Send for HostApplicationInstance {}
+
+/// Static singleton IHostApplication instance with IPlugInterfaceSupport.
 static HOST_APP_INSTANCE: HostApplicationInstance = HostApplicationInstance {
     vtbl: &HOST_APP_VTBL as *const IHostApplicationVtbl,
+    vtbl_iface_support: &HOST_IFACE_SUPPORT_VTBL as *const IPlugInterfaceSupportVtbl,
 };
 
 /// Returns a pointer to the static IHostApplication singleton.

@@ -928,7 +928,6 @@ export class TimelineEngine {
                 // Standard DAW behavior — clicking anywhere on a clip selects it.
                 if (hit.region === 'body' && !hit.edge && !hit.fadeHandle && !hit.fadeCurveHandle) {
                     this.onClipClick?.(hit.clipId, e.shiftKey || e.metaKey);
-                    this.onTrackSelect?.(hit.trackIndex);
                     this._drag = {
                         mode: DragMode.ClipMoveArmed,
                         clipId: hit.clipId,
@@ -947,7 +946,6 @@ export class TimelineEngine {
 
                 if (hit.fadeCurveHandle === 'in' || hit.fadeCurveHandle === 'out') {
                     this.onClipClick?.(hit.clipId, false);
-                    this.onTrackSelect?.(hit.trackIndex);
                     this._drag = {
                         mode: hit.fadeCurveHandle === 'in' ? DragMode.ClipFadeInCurve : DragMode.ClipFadeOutCurve,
                         clipId: hit.clipId,
@@ -968,7 +966,6 @@ export class TimelineEngine {
 
                 if (hit.fadeHandle === 'in' || hit.fadeHandle === 'out') {
                     this.onClipClick?.(hit.clipId, false);
-                    this.onTrackSelect?.(hit.trackIndex);
                     this._drag = {
                         mode: hit.fadeHandle === 'in' ? DragMode.ClipFadeIn : DragMode.ClipFadeOut,
                         clipId: hit.clipId,
@@ -985,7 +982,7 @@ export class TimelineEngine {
                 } else if (hit.edge === 'left') {
                     // Determine drag mode based on edge detection
                     // Start left-edge resize
-                    this.onTrackSelect?.(hit.trackIndex);
+                    this.onClipClick?.(hit.clipId, false);
                     this._drag = {
                         mode: DragMode.ClipResizeLeft,
                         clipId: hit.clipId,
@@ -1004,7 +1001,7 @@ export class TimelineEngine {
                     };
                 } else if (hit.edge === 'right') {
                     // Start right-edge resize
-                    this.onTrackSelect?.(hit.trackIndex);
+                    this.onClipClick?.(hit.clipId, false);
                     this._drag = {
                         mode: DragMode.ClipResizeRight,
                         clipId: hit.clipId,
@@ -1024,7 +1021,6 @@ export class TimelineEngine {
                 } else {
                     // Header click/drag path: arm drag, start moving only after threshold.
                     this.onClipClick?.(hit.clipId, e.shiftKey || e.metaKey);
-                    this.onTrackSelect?.(hit.trackIndex);
 
                     this._drag = {
                         mode: DragMode.ClipMoveArmed,

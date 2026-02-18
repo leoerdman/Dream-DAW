@@ -733,6 +733,25 @@ impl DeviceNode {
             slot.plugin_id = plugin_id.into();
         }
     }
+
+    /// Recursively regenerates all IDs within this device node.
+    /// Used when duplicating tracks to ensure independent plugin instances.
+    pub fn regenerate_ids(&mut self) {
+        match self {
+            Self::Single(slot) => {
+                slot.id = Uuid::new_v4();
+            }
+            Self::Rack(rack) => {
+                rack.id = Uuid::new_v4();
+                for chain in &mut rack.chains {
+                    chain.id = Uuid::new_v4();
+                    for device in &mut chain.devices {
+                        device.regenerate_ids();
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl From<PluginSlot> for DeviceNode {

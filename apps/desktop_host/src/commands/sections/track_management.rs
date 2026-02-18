@@ -221,6 +221,7 @@ async fn rename_track_cmd(
     project_state: tauri::State<'_, ProjectState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
+    push_undo(&project_state)?;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     if index >= project.tracks.len() {
         return Err(format!("Track index {} out of range ({})", index, project.tracks.len()));
@@ -244,17 +245,26 @@ async fn set_track_height_cmd(
     let parsed_id = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
     let clamped_height = height.clamp(24.0, 120.0);
 
+    // Check if mutation is a no-op BEFORE taking undo snapshot
+    {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let track = project
+            .tracks
+            .iter()
+            .find(|t| t.id == parsed_id)
+            .ok_or_else(|| format!("Track not found: {track_id}"))?;
+        if (track.height - clamped_height).abs() < f64::EPSILON {
+            return Ok(());
+        }
+    }
+
+    push_undo(&project_state)?;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let track = project
         .tracks
         .iter_mut()
         .find(|t| t.id == parsed_id)
         .ok_or_else(|| format!("Track not found: {track_id}"))?;
-
-    if (track.height - clamped_height).abs() < f64::EPSILON {
-        return Ok(());
-    }
-
     track.height = clamped_height;
     let project_name = project.name.clone();
     drop(project);
@@ -281,17 +291,26 @@ async fn set_track_color_cmd(
         return Err(format!("Invalid color format: {color_hex}"));
     }
 
+    // Check if mutation is a no-op BEFORE taking undo snapshot
+    {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let track = project
+            .tracks
+            .iter()
+            .find(|t| t.id == parsed_id)
+            .ok_or_else(|| format!("Track not found: {track_id}"))?;
+        if track.color_hex.as_deref() == Some(normalized.as_str()) {
+            return Ok(());
+        }
+    }
+
+    push_undo(&project_state)?;
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let track = project
         .tracks
         .iter_mut()
         .find(|t| t.id == parsed_id)
         .ok_or_else(|| format!("Track not found: {track_id}"))?;
-
-    if track.color_hex.as_deref() == Some(normalized.as_str()) {
-        return Ok(());
-    }
-
     track.color_hex = Some(normalized.to_ascii_uppercase());
     let project_name = project.name.clone();
     drop(project);
@@ -316,6 +335,10 @@ fn rebuild_group_children(project: &mut Project) {
 }
 
 fn track_is_descendant_of(project: &Project, candidate_id: Uuid, ancestor_id: Uuid) -> bool {
+    // Guard against circular parent references: the longest valid parent chain
+    // can never exceed the total number of tracks in the project.
+    let max_depth = project.tracks.len();
+    let mut depth = 0usize;
     let mut current = project
         .tracks
         .iter()
@@ -324,6 +347,13 @@ fn track_is_descendant_of(project: &Project, candidate_id: Uuid, ancestor_id: Uu
     while let Some(parent_id) = current {
         if parent_id == ancestor_id {
             return true;
+        }
+        depth += 1;
+        if depth > max_depth {
+            log::warn!(
+                "[track_is_descendant_of] Cycle detected! candidate={candidate_id}, ancestor={ancestor_id}, depth={depth}"
+            );
+            return false;
         }
         current = project
             .tracks
@@ -364,6 +394,14 @@ fn duplicate_track_with_new_ids(source: &Track) -> Track {
     let mut cloned = source.clone();
     cloned.id = Uuid::new_v4();
     cloned.child_track_ids.clear();
+    // Regenerate plugin slot IDs so duplicated track gets independent
+    // plugin instances instead of sharing the original's runtime state.
+    if let Some(ref mut instrument) = cloned.instrument {
+        regenerate_device_node_ids(instrument);
+    }
+    for fx in &mut cloned.effects {
+        regenerate_device_node_ids(fx);
+    }
     for clip in &mut cloned.clips {
         clip.id = Uuid::new_v4();
     }
@@ -371,6 +409,25 @@ fn duplicate_track_with_new_ids(source: &Track) -> Track {
         midi_clip.id = Uuid::new_v4();
     }
     cloned
+}
+
+/// Recursively regenerate all UUIDs within a DeviceNode tree,
+/// ensuring duplicated tracks get independent plugin instances.
+fn regenerate_device_node_ids(node: &mut DeviceNode) {
+    match node {
+        DeviceNode::Single(slot) => {
+            slot.id = Uuid::new_v4();
+        }
+        DeviceNode::Rack(rack) => {
+            rack.id = Uuid::new_v4();
+            for chain in &mut rack.chains {
+                chain.id = Uuid::new_v4();
+                for device in &mut chain.devices {
+                    regenerate_device_node_ids(device);
+                }
+            }
+        }
+    }
 }
 
 #[tauri::command]

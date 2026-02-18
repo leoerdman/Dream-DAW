@@ -582,6 +582,9 @@ export class TimelineEngine {
             if ((a.fadeOutCurve ?? 0.5) !== (b.fadeOutCurve ?? 0.5)) return true;
             if ((a.muted ?? false) !== (b.muted ?? false)) return true;
             if ((a.isOffline ?? false) !== (b.isOffline ?? false)) return true;
+            // Detect color/name changes so canvas redraws on track color or clip rename
+            if ((a.color ?? '') !== (b.color ?? '')) return true;
+            if ((a.name ?? '') !== (b.name ?? '')) return true;
         }
         return false;
     }
@@ -1438,6 +1441,9 @@ export class TimelineEngine {
                                 }
                             }
                         }
+                        // Clear ghost/trim preview to prevent stale visual artifacts.
+                        this._trimPreview = null;
+                        this._ghost = null;
                         this._requestRedraw();
                         break;
                     }
@@ -1752,7 +1758,7 @@ export class TimelineEngine {
                 this._prefetchIdleId = requestIdleCallback(() => {
                     this._prefetchIdleId = 0;
                     this._requestRedraw();
-                }, { timeout: 300 });
+                }, { timeout: 150 });
             } else {
                 if (this._prefetchTimeoutId !== null) clearTimeout(this._prefetchTimeoutId);
                 this._prefetchTimeoutId = setTimeout(() => {

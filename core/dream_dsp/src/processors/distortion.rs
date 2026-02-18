@@ -40,6 +40,9 @@ pub struct DistortionProcessor {
     // Filter states
     hp_state_l: f32,
     hp_state_r: f32,
+    /// Previous HP input — required for first-order HP: y[n] = α*(y[n-1] + x[n] - x[n-1])
+    hp_prev_in_l: f32,
+    hp_prev_in_r: f32,
     tone_state_l: f32,
     tone_state_r: f32,
     cab_state_l: f32,
@@ -61,6 +64,8 @@ impl DistortionProcessor {
             bias: 0.0,
             hp_state_l: 0.0,
             hp_state_r: 0.0,
+            hp_prev_in_l: 0.0,
+            hp_prev_in_r: 0.0,
             tone_state_l: 0.0,
             tone_state_r: 0.0,
             cab_state_l: 0.0,
@@ -126,8 +131,10 @@ impl DspProcessor for DistortionProcessor {
         let mix = self.mix;
 
         // HP coefficient for tightness (50–500Hz based on tightness)
+        // BUG-4 FIX: Use exact exponential coefficient for first-order HP:
+        //   α = e^(-2πf/sr)  →  y[n] = α * (y[n-1] + x[n] - x[n-1])
         let hp_freq = 50.0 + self.tightness * 450.0;
-        let hp_c = 1.0 / (1.0 + std::f32::consts::TAU * hp_freq / self.sample_rate);
+        let hp_c = (-std::f32::consts::TAU * hp_freq / self.sample_rate).exp();
 
         // Tone: tilt EQ (LP amount) — exact one-pole coefficient
         let tone_c =
@@ -144,13 +151,15 @@ impl DspProcessor for DistortionProcessor {
             let dry_l = left[i];
             let dry_r = right[i];
 
-            // HP filter (remove sub-bass before drive for tightness)
-            let prev_l = self.hp_state_l;
-            let prev_r = self.hp_state_r;
-            self.hp_state_l = hp_c * (prev_l + dry_l);
-            self.hp_state_r = hp_c * (prev_r + dry_r);
-            let hp_l = dry_l - self.hp_state_l + prev_l * hp_c;
-            let hp_r = dry_r - self.hp_state_r + prev_r * hp_c;
+            // BUG-4 FIX: Correct first-order HP filter for bass tightness.
+            // Standard form: y[n] = α * (y[n-1] + x[n] - x[n-1])
+            // This properly blocks DC and sub-bass before the drive stage.
+            self.hp_state_l = hp_c * (self.hp_state_l + dry_l - self.hp_prev_in_l);
+            self.hp_state_r = hp_c * (self.hp_state_r + dry_r - self.hp_prev_in_r);
+            self.hp_prev_in_l = dry_l;
+            self.hp_prev_in_r = dry_r;
+            let hp_l = self.hp_state_l;
+            let hp_r = self.hp_state_r;
 
             // Drive + waveshape
             let shaped_l = Self::waveshape(hp_l * gain, mode, bias);
@@ -170,9 +179,9 @@ impl DspProcessor for DistortionProcessor {
                 wet_r = self.cab_state_r;
             }
 
-            // Output gain + mix
-            left[i] = dry_l * (1.0 - mix) + wet_l * out * mix;
-            right[i] = dry_r * (1.0 - mix) + wet_r * out * mix;
+            // BUG-5 FIX: Output gain + mix with safety clamp
+            left[i] = (dry_l * (1.0 - mix) + wet_l * out * mix).clamp(-8.0, 8.0);
+            right[i] = (dry_r * (1.0 - mix) + wet_r * out * mix).clamp(-8.0, 8.0);
         }
     }
 
@@ -196,6 +205,8 @@ impl DspProcessor for DistortionProcessor {
     fn reset(&mut self) {
         self.hp_state_l = 0.0;
         self.hp_state_r = 0.0;
+        self.hp_prev_in_l = 0.0;
+        self.hp_prev_in_r = 0.0;
         self.tone_state_l = 0.0;
         self.tone_state_r = 0.0;
         self.cab_state_l = 0.0;

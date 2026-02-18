@@ -23,7 +23,8 @@
 
 use crate::dsp_processor::DspProcessor;
 
-const MAX_LOOKAHEAD: usize = 256; // ~5ms @ 48kHz
+/// 5ms at 192kHz = 960 samples. Previous value (256) only covered up to 48kHz.
+const MAX_LOOKAHEAD: usize = 960;
 
 pub struct LimiterProcessor {
     threshold_db: f32,

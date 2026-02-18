@@ -718,16 +718,21 @@ impl SharedProjectSnapshot {
 }
 
 /// Undo/Redo history backed by structural-sharing snapshots.
+///
+/// Uses `VecDeque` for O(1) front eviction when the undo depth
+/// exceeds `MAX_UNDO_DEPTH`. `Vec::remove(0)` was previously used
+/// here, which is O(n) due to element shifting — unacceptable for
+/// a hot path that fires on every user mutation.
 struct UndoState {
-    undo_stack: Vec<SharedProjectSnapshot>,
-    redo_stack: Vec<SharedProjectSnapshot>,
+    undo_stack: VecDeque<SharedProjectSnapshot>,
+    redo_stack: VecDeque<SharedProjectSnapshot>,
 }
 
 impl UndoState {
     fn new() -> Self {
         Self {
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
+            undo_stack: VecDeque::new(),
+            redo_stack: VecDeque::new(),
         }
     }
 }
@@ -897,13 +902,13 @@ impl ProjectState {
 fn push_undo(project_state: &ProjectState) -> Result<(), String> {
     let project = project_state.project.lock().map_err(|e| e.to_string())?;
     let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
-    let previous = undo.undo_stack.last();
+    let previous = undo.undo_stack.back();
     let snapshot = SharedProjectSnapshot::from_project(&project, previous);
     drop(project);
-    undo.undo_stack.push(snapshot);
+    undo.undo_stack.push_back(snapshot);
     let depth = undo.undo_stack.len();
     if undo.undo_stack.len() > MAX_UNDO_DEPTH {
-        undo.undo_stack.remove(0);
+        undo.undo_stack.pop_front(); // O(1) eviction via VecDeque ring buffer
     }
     undo.redo_stack.clear();
     drop(undo);
@@ -2431,8 +2436,9 @@ impl PluginHostState {
     /// Invalidates the cached plugin scan results, forcing a fresh
     /// filesystem scan on the next `resolve_descriptor` call.
     #[allow(dead_code)]
-    fn clear_scan_cache(&self) {
-        *self.cached_scan.lock().unwrap() = None;
+    fn clear_scan_cache(&self) -> Result<(), String> {
+        *self.cached_scan.lock().map_err(|e| format!("cached_scan lock poisoned: {e}"))? = None;
+        Ok(())
     }
 
     /// Reactivates all loaded plugin instances with a new sample rate
@@ -2660,14 +2666,14 @@ impl PluginHostState {
         }
 
         // Use cached scan results to avoid expensive filesystem traversal on every call.
-        let cached = self.cached_scan.lock().unwrap();
+        let cached = self.cached_scan.lock().map_err(|e| format!("cached_scan lock poisoned: {e}"))?;
         let scan_result = if let Some(ref cached_list) = *cached {
             cached_list.clone()
         } else {
             drop(cached);
             let scanner = PluginScanner::new();
             let all = scanner.scan_all();
-            *self.cached_scan.lock().unwrap() = Some(all.clone());
+            *self.cached_scan.lock().map_err(|e| format!("cached_scan lock poisoned: {e}"))? = Some(all.clone());
             all
         };
         scan_result
@@ -3172,13 +3178,41 @@ impl RecentProjects {
     }
 }
 
-/// Returns current UTC time as ISO 8601 string (no chrono dependency).
+/// Returns current UTC time as ISO 8601 / RFC 3339 string.
+///
+/// Format: `2026-02-18T14:30:00Z` — human-readable, lexicographically
+/// sortable, and universally parseable.
 fn chrono_now() -> String {
     use std::time::SystemTime;
     let since_epoch = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default();
-    format!("{}s", since_epoch.as_secs())
+    let secs = since_epoch.as_secs();
+    // Manual UTC decomposition — no external dependency required.
+    let days = secs / 86400;
+    let time_of_day = secs % 86400;
+    let hours = time_of_day / 3600;
+    let minutes = (time_of_day % 3600) / 60;
+    let seconds = time_of_day % 60;
+    // Civil date from days since epoch (1970-01-01).
+    let (year, month, day) = civil_from_days(days as i64);
+    format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}Z")
+}
+
+/// Converts days since 1970-01-01 to (year, month, day).
+/// Algorithm from Howard Hinnant's `chrono`-compatible date library.
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u32;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d)
 }
 
 // ── IPC Response Types ─────────────────────────────────────────────────

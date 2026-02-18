@@ -153,7 +153,8 @@ fn soft_clip(sample: f32) -> f32 {
     } else {
         // Soft-knee: 1.0 + 0.5 * tanh(excess)
         // Uses the identity tanh(x) = 1 - 2/(e^(2x)+1) to avoid libm dependency.
-        let excess = abs - 1.0;
+        // Clamp excess to prevent exp() overflow → NaN at extreme signal levels.
+        let excess = (abs - 1.0).min(20.0);
         let e2x = (2.0 * excess).exp();
         let tanh_val = (e2x - 1.0) / (e2x + 1.0);
         sample.signum() * (1.0 + 0.5 * tanh_val)
@@ -523,7 +524,7 @@ impl RenderContext {
         clips_per_track: &[Vec<dream_models::project::AudioClip>],
         clip_pool: &ClipPool,
     ) {
-        let frame_count = output.len() / self.channels;
+        let frame_count = output.len() / self.channels.max(1);
 
         // Phase 1: Fill track slots
         self.render_tracks(frame_count, clips_per_track, clip_pool);

@@ -1127,13 +1127,13 @@ export const DawShell = () => {
             const deltaTrack = newTrackIndex - dragged.trackIndex;
 
             const selectedClips = timelineClipsForView.filter((c) => selectedSet.has(c.id));
-            await Promise.all(
-                selectedClips.map((clip) => {
-                    const targetBeat = Math.max(0, clip.startBeat + deltaBeat);
-                    const targetTrack = Math.max(0, Math.min(trackCount - 1, clip.trackIndex + deltaTrack));
-                    return moveOne(clip.id, targetBeat, targetTrack);
-                }),
-            );
+            // Sequential moves to avoid race conditions: each moveOne reads the current
+            // clip state, so parallel moves would each see stale positions for other clips.
+            for (const clip of selectedClips) {
+                const targetBeat = Math.max(0, clip.startBeat + deltaBeat);
+                const targetTrack = Math.max(0, Math.min(trackCount - 1, clip.trackIndex + deltaTrack));
+                await moveOne(clip.id, targetBeat, targetTrack);
+            }
         };
 
         run()

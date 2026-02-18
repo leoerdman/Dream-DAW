@@ -117,7 +117,7 @@ impl BuiltinEffectType {
     /// All processors are pre-allocated with maximum buffer sizes.
     pub fn create_processor(&self, sample_rate: f32) -> Box<dyn DspProcessor> {
         match self {
-            Self::Utility => Box::new(super::processors::utility::UtilityProcessor::new()),
+            Self::Utility => Box::new(super::processors::utility::UtilityProcessor::new(sample_rate)),
             Self::Eq => Box::new(super::processors::eq::EqProcessor::new(sample_rate as f64)),
             Self::Compressor => Box::new(super::processors::compressor::CompressorProcessor::new(
                 sample_rate,

@@ -48,9 +48,10 @@ pub struct AutoFilterProcessor {
     ic2eq_l: f32,
     ic1eq_r: f32,
     ic2eq_r: f32,
-    // Random S&H state
+    // Random S&H state — xorshift32 PRNG for deterministic, high-quality randomness
     sh_value: f32,
     sh_phase: f32,
+    sh_rng_state: u32,
     sample_rate: f32,
 }
 
@@ -78,8 +79,34 @@ impl AutoFilterProcessor {
             ic2eq_r: 0.0,
             sh_value: 0.0,
             sh_phase: 0.0,
+            sh_rng_state: 0xDEAD_BEEF,
             sample_rate,
         }
+    }
+
+    /// Synchronize with the actual audio device sample rate.
+    /// Recalculates all SR-dependent coefficients when the rate changes.
+    #[inline]
+    fn sync_sample_rate(&mut self, sample_rate: f32) {
+        if sample_rate.is_finite()
+            && sample_rate > 1000.0
+            && (sample_rate - self.sample_rate).abs() > 0.5
+        {
+            self.sample_rate = sample_rate;
+            self.update_env_coeff();
+        }
+    }
+
+    /// xorshift32 PRNG — deterministic, fast, zero-alloc.
+    #[inline]
+    fn next_sh_random(&mut self) -> f32 {
+        let mut x = self.sh_rng_state;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.sh_rng_state = x;
+        // Map to [-1, 1)
+        (x as i32 as f64 / i32::MAX as f64) as f32
     }
 
     fn update_env_coeff(&mut self) {
@@ -101,16 +128,11 @@ impl AutoFilterProcessor {
                 }
             } // Square
             5 => {
-                // Random Sample & Hold
+                // Random Sample & Hold — xorshift32 PRNG for high-quality randomness
                 self.sh_phase += 1.0;
                 if self.sh_phase >= self.sample_rate / self.lfo_rate.max(0.01) {
                     self.sh_phase = 0.0;
-                    // Simple hash for pseudo-random
-                    let seed = (phase * 1000000.0) as u32;
-                    self.sh_value = ((seed.wrapping_mul(1103515245).wrapping_add(12345)) as f32
-                        / u32::MAX as f32)
-                        * 2.0
-                        - 1.0;
+                    self.sh_value = self.next_sh_random();
                 }
                 self.sh_value
             }
@@ -153,7 +175,11 @@ impl AutoFilterProcessor {
 }
 
 impl DspProcessor for AutoFilterProcessor {
-    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], _sample_rate: f32) {
+    fn process_stereo(&mut self, left: &mut [f32], right: &mut [f32], sample_rate: f32) {
+        // BUG-1 FIX: Sync sample rate from the audio driver — recalculates
+        // env_coeff and ensures SVF cutoff uses the correct SR.
+        self.sync_sample_rate(sample_rate);
+
         let len = left.len().min(right.len());
         let sr = self.sample_rate;
         let lfo_inc = self.lfo_rate as f64 / sr as f64;
@@ -214,8 +240,10 @@ impl DspProcessor for AutoFilterProcessor {
                 ft,
             );
 
-            left[i] = dry_l * (1.0 - mix) + wet_l * mix;
-            right[i] = dry_r * (1.0 - mix) + wet_r * mix;
+            // BUG-3 FIX: Clamp output to prevent runaway levels from
+            // high resonance + drive combinations (self-oscillation guard).
+            left[i] = (dry_l * (1.0 - mix) + wet_l * mix).clamp(-8.0, 8.0);
+            right[i] = (dry_r * (1.0 - mix) + wet_r * mix).clamp(-8.0, 8.0);
         }
     }
 
@@ -250,6 +278,7 @@ impl DspProcessor for AutoFilterProcessor {
         self.ic2eq_r = 0.0;
         self.sh_value = 0.0;
         self.sh_phase = 0.0;
+        self.sh_rng_state = 0xDEAD_BEEF;
     }
 }
 

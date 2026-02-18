@@ -70,9 +70,13 @@ pub struct SaturatorProcessor {
     dc_y_l: f32,
     dc_x_r: f32,
     dc_y_r: f32,
+    /// DC blocker coefficient — SR-dependent: R = 1 - (2π × 10Hz / sr)
+    dc_coeff: f32,
     // Pre-emphasis filter
     pre_state_l: f32,
     pre_state_r: f32,
+    /// Pre-emphasis LP coefficient — SR-dependent for consistent cutoff
+    pre_coeff: f32,
     sample_rate: f32,
 }
 
@@ -80,6 +84,11 @@ impl SaturatorProcessor {
     pub fn new(sample_rate: f32) -> Self {
         let sr = sample_rate;
         let cutoff = Self::tone_to_cutoff(50.0);
+        // BUG-18 FIX: SR-dependent DC blocker coefficient.
+        // 10 Hz cutoff: R = 1 - (2π × 10 / sr)
+        let dc_coeff = 1.0 - (std::f32::consts::TAU * 10.0 / sr);
+        // ~2kHz pre-emphasis LP for consistent "color" across SRs
+        let pre_coeff = (1.0 - (-std::f32::consts::TAU * 2000.0 / sr).exp()).clamp(0.01, 0.99);
         Self {
             drive_db: 6.0,
             drive_lin: 10.0_f32.powf(6.0 / 20.0),
@@ -95,8 +104,10 @@ impl SaturatorProcessor {
             dc_y_l: 0.0,
             dc_x_r: 0.0,
             dc_y_r: 0.0,
+            dc_coeff,
             pre_state_l: 0.0,
             pre_state_r: 0.0,
+            pre_coeff,
             sample_rate: sr,
         }
     }
@@ -106,19 +117,21 @@ impl SaturatorProcessor {
     }
 
     /// DC blocker (removes DC offset introduced by asymmetric clipping).
+    /// BUG-18 FIX: Uses SR-dependent coefficient instead of hardcoded 0.9975.
     #[inline]
-    fn dc_block(x: f32, prev_x: &mut f32, prev_y: &mut f32) -> f32 {
-        let y = x - *prev_x + 0.9975 * *prev_y;
+    fn dc_block(x: f32, prev_x: &mut f32, prev_y: &mut f32, coeff: f32) -> f32 {
+        let y = x - *prev_x + coeff * *prev_y;
         *prev_x = x;
         *prev_y = y;
         y
     }
 
     /// Pre-emphasis: adds treble before saturation for "color".
+    /// Uses SR-dependent LP coefficient for consistent frequency response.
     #[inline]
-    fn pre_emphasis(sample: f32, state: &mut f32, amount: f32) -> f32 {
+    fn pre_emphasis(sample: f32, state: &mut f32, amount: f32, coeff: f32) -> f32 {
         let hp = sample - *state;
-        *state += 0.3 * (sample - *state);
+        *state += coeff * (sample - *state);
         sample + hp * amount * 2.0
     }
 
@@ -173,6 +186,9 @@ impl DspProcessor for SaturatorProcessor {
             let cutoff = Self::tone_to_cutoff(self.tone_pct);
             self.tone_l.set_cutoff(cutoff, sample_rate);
             self.tone_r.set_cutoff(cutoff, sample_rate);
+            // BUG-18 FIX: Recalculate SR-dependent coefficients
+            self.dc_coeff = 1.0 - (std::f32::consts::TAU * 10.0 / sample_rate);
+            self.pre_coeff = (1.0 - (-std::f32::consts::TAU * 2000.0 / sample_rate).exp()).clamp(0.01, 0.99);
         }
 
         let len = left.len().min(right.len());
@@ -180,14 +196,16 @@ impl DspProcessor for SaturatorProcessor {
         let out = self.output_lin;
         let mode = self.mode;
         let color = self.color;
+        let dc_c = self.dc_coeff;
+        let pre_c = self.pre_coeff;
 
         for i in 0..len {
             let dry_l = left[i];
             let dry_r = right[i];
 
             // Pre-emphasis (color)
-            let pre_l = Self::pre_emphasis(dry_l, &mut self.pre_state_l, color);
-            let pre_r = Self::pre_emphasis(dry_r, &mut self.pre_state_r, color);
+            let pre_l = Self::pre_emphasis(dry_l, &mut self.pre_state_l, color, pre_c);
+            let pre_r = Self::pre_emphasis(dry_r, &mut self.pre_state_r, color, pre_c);
 
             // Drive
             let driven_l = pre_l * drive;
@@ -197,9 +215,9 @@ impl DspProcessor for SaturatorProcessor {
             let shaped_l = Self::waveshape(driven_l, mode);
             let shaped_r = Self::waveshape(driven_r, mode);
 
-            // DC block
-            let dc_l = Self::dc_block(shaped_l, &mut self.dc_x_l, &mut self.dc_y_l);
-            let dc_r = Self::dc_block(shaped_r, &mut self.dc_x_r, &mut self.dc_y_r);
+            // DC block (SR-dependent coefficient)
+            let dc_l = Self::dc_block(shaped_l, &mut self.dc_x_l, &mut self.dc_y_l, dc_c);
+            let dc_r = Self::dc_block(shaped_r, &mut self.dc_x_r, &mut self.dc_y_r, dc_c);
 
             // Tone filter
             let toned_l = self.tone_l.process(dc_l);

@@ -41,8 +41,13 @@ pub struct UtilityProcessor {
 }
 
 impl UtilityProcessor {
-    pub fn new() -> Self {
-        let sr = 44100.0_f32;
+    /// BUG-28 FIX: Accept `sample_rate` parameter instead of hardcoding 44100 Hz.
+    pub fn new(sample_rate: f32) -> Self {
+        let sr = if sample_rate.is_finite() && sample_rate > 1000.0 {
+            sample_rate
+        } else {
+            44100.0
+        };
         Self {
             gain_db: 0.0,
             current_gain: 1.0,
@@ -50,7 +55,7 @@ impl UtilityProcessor {
             pan: 0.0,
             width: 1.0,
             mono: false,
-            // ~5ms smoothing derived from sample rate
+            // ~5ms smoothing derived from actual sample rate
             smooth_coeff: (-1.0 / (0.005 * sr)).exp(),
             sample_rate: sr,
         }
@@ -68,7 +73,7 @@ impl UtilityProcessor {
 
 impl Default for UtilityProcessor {
     fn default() -> Self {
-        Self::new()
+        Self::new(44100.0)
     }
 }
 
@@ -154,7 +159,7 @@ mod tests {
 
     #[test]
     fn utility_unity_passthrough() {
-        let mut proc = UtilityProcessor::new();
+        let mut proc = UtilityProcessor::new(44100.0);
         proc.current_gain = 1.0; // Skip smoothing
         let mut left = vec![0.5f32; 64];
         let mut right = vec![0.5f32; 64];
@@ -167,7 +172,7 @@ mod tests {
 
     #[test]
     fn utility_mute_at_minus_60() {
-        let mut proc = UtilityProcessor::new();
+        let mut proc = UtilityProcessor::new(44100.0);
         proc.set_param(0, -60.0);
         proc.current_gain = proc.target_gain; // Skip smoothing
         let mut left = vec![1.0f32; 64];
@@ -180,7 +185,7 @@ mod tests {
 
     #[test]
     fn utility_mono_collapses_stereo() {
-        let mut proc = UtilityProcessor::new();
+        let mut proc = UtilityProcessor::new(44100.0);
         proc.set_param(3, 1.0); // Mono ON
         proc.current_gain = 1.0;
         let mut left = vec![1.0f32; 64];

@@ -102,7 +102,7 @@ fn seek_seconds(
     let sample_rate = state.sample_rate;
     drop(state);
 
-    let frames = (seconds * sample_rate) as i64;
+    let frames = (seconds * sample_rate).round() as i64;
     push_command(&handle, EngineCommand::Seek(frames))?;
     log::info!("[IPC] seek_seconds({seconds}s → {frames} frames)");
     Ok(())
@@ -315,6 +315,24 @@ fn set_loop(
         push_command(&handle, EngineCommand::SetLoopEnabled(true))?;
     } else {
         push_command(&handle, EngineCommand::SetLoopEnabled(false))?;
+    }
+
+    // Persist loop region to project model so it survives save/load.
+    {
+        let mut project = project_state
+            .project
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        if enabled && has_valid_range {
+            project.is_looping = true;
+            project.loop_start_frames = Some(start_frames);
+            project.loop_end_frames = Some(end_frames);
+        } else {
+            project.is_looping = false;
+        }
+        let project_name = project.name.clone();
+        drop(project);
+        let _ = project_state.mark_dirty(&project_name, None);
     }
 
     log::info!("[IPC] set_loop(enabled={enabled}, {start_frames}–{end_frames})");

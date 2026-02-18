@@ -27,11 +27,20 @@ use crate::dsp_processor::DspProcessor;
 
 const MAX_DELAY_SECONDS: f32 = 2.0;
 
+/// Maximum sample rate we pre-allocate for — covers 192kHz studio setups.
+/// Buffers are allocated once at this ceiling and never resized at runtime,
+/// guaranteeing zero heap allocations on the audio thread.
+const MAX_SAMPLE_RATE: f32 = 192_000.0;
+
 pub struct DelayProcessor {
     buf_l: Vec<f32>,
     buf_r: Vec<f32>,
     write_pos: usize,
+    /// Logical buffer size for the current sample rate.
+    /// Always <= physical Vec capacity (pre-allocated at MAX_SAMPLE_RATE).
     buf_size: usize,
+    /// Physical allocation size — never changes after construction.
+    buf_capacity: usize,
     sample_rate: f32,
     // Params
     time_l_ms: f32,
@@ -57,12 +66,16 @@ pub struct DelayProcessor {
 
 impl DelayProcessor {
     pub fn new(sample_rate: f32) -> Self {
+        // BUG-8 FIX: Pre-allocate at maximum possible size so we NEVER
+        // resize on the audio thread. This covers SR up to 192kHz.
+        let max_buf_size = (MAX_SAMPLE_RATE * MAX_DELAY_SECONDS) as usize + 1;
         let buf_size = (sample_rate * MAX_DELAY_SECONDS) as usize + 1;
         let mut proc = Self {
-            buf_l: vec![0.0; buf_size],
-            buf_r: vec![0.0; buf_size],
+            buf_l: vec![0.0; max_buf_size],
+            buf_r: vec![0.0; max_buf_size],
             write_pos: 0,
             buf_size,
+            buf_capacity: max_buf_size,
             sample_rate,
             time_l_ms: 250.0,
             time_r_ms: 375.0,
@@ -108,14 +121,12 @@ impl DelayProcessor {
             && (sample_rate - self.sample_rate).abs() > 0.5
         {
             self.sample_rate = sample_rate;
-            // Resize buffers if the new rate requires more space.
-            let required_size = (sample_rate * MAX_DELAY_SECONDS) as usize + 1;
-            if required_size > self.buf_size {
-                self.buf_l.resize(required_size, 0.0);
-                self.buf_r.resize(required_size, 0.0);
-                self.buf_size = required_size;
-                self.write_pos = self.write_pos % self.buf_size;
-            }
+            // BUG-8 FIX: Update logical buf_size without resizing.
+            // Physical allocation already covers up to MAX_SAMPLE_RATE.
+            let required_size = ((sample_rate * MAX_DELAY_SECONDS) as usize + 1)
+                .min(self.buf_capacity);
+            self.buf_size = required_size;
+            self.write_pos = self.write_pos % self.buf_size;
             self.update_filter();
             self.update_delay_l();
             self.update_delay_r();

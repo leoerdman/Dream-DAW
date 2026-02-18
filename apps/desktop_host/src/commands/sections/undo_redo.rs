@@ -15,12 +15,12 @@ async fn undo_cmd(
     // Keep lock order consistent with push_undo(): project -> undo
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
-    let previous = undo.undo_stack.pop()
+    let previous = undo.undo_stack.pop_back()
         .ok_or_else(|| "Nothing to undo".to_string())?;
 
     // Save current state to redo stack
-    let current_snapshot = SharedProjectSnapshot::from_project(&project, undo.redo_stack.last());
-    undo.redo_stack.push(current_snapshot);
+    let current_snapshot = SharedProjectSnapshot::from_project(&project, undo.redo_stack.back());
+    undo.redo_stack.push_back(current_snapshot);
     *project = previous.to_project();
     drop(undo);
 
@@ -51,12 +51,12 @@ async fn redo_cmd(
     // Keep lock order consistent with push_undo(): project -> undo
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let mut undo = project_state.undo.lock().map_err(|e| e.to_string())?;
-    let next = undo.redo_stack.pop()
+    let next = undo.redo_stack.pop_back()
         .ok_or_else(|| "Nothing to redo".to_string())?;
 
     // Save current state to undo stack
-    let current_snapshot = SharedProjectSnapshot::from_project(&project, undo.undo_stack.last());
-    undo.undo_stack.push(current_snapshot);
+    let current_snapshot = SharedProjectSnapshot::from_project(&project, undo.undo_stack.back());
+    undo.undo_stack.push_back(current_snapshot);
     *project = next.to_project();
     drop(undo);
 

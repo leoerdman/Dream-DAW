@@ -26,7 +26,8 @@ pub struct AutoPanProcessor {
     phase_offset_norm: f32,
     shape: u8,
     mix: f32,
-    lfo_phase: f32,
+    /// BUG-25 FIX: f64 phase accumulator prevents precision loss in long sessions.
+    lfo_phase: f64,
     sample_rate: f32,
 }
 
@@ -75,7 +76,7 @@ impl DspProcessor for AutoPanProcessor {
         if len == 0 {
             return;
         }
-        let phase_inc = self.rate_hz / self.sample_rate.max(1.0);
+        let phase_inc = self.rate_hz as f64 / self.sample_rate.max(1.0) as f64;
         let depth = self.depth.clamp(0.0, 1.0);
         let mix = self.mix.clamp(0.0, 1.0);
         let shape = self.shape;
@@ -85,8 +86,9 @@ impl DspProcessor for AutoPanProcessor {
             let dry_l = left[i];
             let dry_r = right[i];
 
-            let mod_l = Self::wave(shape, self.lfo_phase);
-            let mod_r = Self::wave(shape, self.lfo_phase + phase_offset);
+            let phase_f32 = self.lfo_phase as f32;
+            let mod_l = Self::wave(shape, phase_f32);
+            let mod_r = Self::wave(shape, phase_f32 + phase_offset);
 
             // Convert bipolar LFO to constant-power gains.
             let pan_l = (mod_l * depth).clamp(-1.0, 1.0);

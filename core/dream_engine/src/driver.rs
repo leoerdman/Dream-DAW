@@ -482,7 +482,8 @@ fn soft_clip(sample: f32) -> f32 {
     } else {
         // Soft-knee: 1.0 + 0.5 * tanh(excess)
         // Uses the identity tanh(x) = 1 - 2/(e^(2x)+1) to avoid libm dependency.
-        let excess = abs - 1.0;
+        // Clamp excess to prevent exp() overflow → inf/inf = NaN at extreme levels.
+        let excess = (abs - 1.0).min(20.0);
         let e2x = (2.0 * excess).exp();
         let tanh_val = (e2x - 1.0) / (e2x + 1.0);
         sample.signum() * (1.0 + 0.5 * tanh_val)
@@ -504,6 +505,14 @@ fn eval_automation_with_cursor(
     if at_frame <= points[0].sample_frame {
         *cursor = 0;
         return Some(points[0].value);
+    }
+
+    // Reset cursor on backward seek / loop wrap — the cursor only advances
+    // forward, so if the requested frame is before the current cursor's segment,
+    // we must restart. This is the canonical fix for stale cursors after transport
+    // loop-back or manual seek-backward.
+    if *cursor > 0 && at_frame < points[*cursor].sample_frame {
+        *cursor = 0;
     }
 
     let last_pair = points.len().saturating_sub(2);
@@ -1540,7 +1549,7 @@ pub fn start_audio_thread_on_device(
                             std::arch::asm!("msr fpcr, {}", in(reg) fpcr);
                         }
 
-                        let frame_count = data.len() / channels;
+                        let frame_count = data.len() / channels.max(1);
 
                         // Baseline all track meters to silence each callback, with
                         // peak-decay persistence. Active signal paths below will lift

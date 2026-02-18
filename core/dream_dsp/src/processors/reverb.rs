@@ -225,6 +225,40 @@ impl ReverbProcessor {
             && (sample_rate - self.sample_rate).abs() > 0.5
         {
             self.sample_rate = sample_rate;
+
+            // BUG-10 FIX: Rebuild comb and allpass filter sizes for the new SR.
+            // The Freeverb topology's delay lengths are tuned to 44100 Hz —
+            // they must be rescaled proportionally for correct room character.
+            let ratio = sample_rate / REF_SAMPLE_RATE;
+            let scale = |s: usize| ((s as f32 * ratio) as usize).max(1);
+
+            for (idx, c) in self.combs_l.iter_mut().enumerate() {
+                let new_size = scale(COMB_SIZES_L[idx]);
+                c.buffer.resize(new_size, 0.0);
+                c.buf_size = new_size;
+                c.index = c.index % new_size;
+                c.filter_store = 0.0;
+            }
+            for (idx, c) in self.combs_r.iter_mut().enumerate() {
+                let new_size = scale(COMB_SIZES_L[idx] + COMB_SPREAD);
+                c.buffer.resize(new_size, 0.0);
+                c.buf_size = new_size;
+                c.index = c.index % new_size;
+                c.filter_store = 0.0;
+            }
+            for (idx, a) in self.allpasses_l.iter_mut().enumerate() {
+                let new_size = scale(AP_SIZES[idx]);
+                a.buffer.resize(new_size, 0.0);
+                a.buf_size = new_size;
+                a.index = a.index % new_size;
+            }
+            for (idx, a) in self.allpasses_r.iter_mut().enumerate() {
+                let new_size = scale(AP_SIZES[idx] + COMB_SPREAD);
+                a.buffer.resize(new_size, 0.0);
+                a.buf_size = new_size;
+                a.index = a.index % new_size;
+            }
+
             self.update_combs();
             self.update_predelay();
         }

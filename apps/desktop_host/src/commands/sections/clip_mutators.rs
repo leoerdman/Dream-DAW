@@ -295,6 +295,29 @@ fn build_local_pool_for_project(
                 });
             }
         }
+
+        // Load sampler samples for MIDI tracks (needed for offline MIDI pre-rendering).
+        if let Some(ref sampler_cfg) = track.sampler {
+            if !sampler_cfg.sample_path.is_empty()
+                && local_pool.get(&sampler_cfg.sample_path).is_none()
+            {
+                let path = PathBuf::from(&sampler_cfg.sample_path);
+                if path.exists() {
+                    if let Ok(decoded) = AudioReader::read(path) {
+                        local_pool.insert(ClipAudio {
+                            source_path: sampler_cfg.sample_path.clone(),
+                            channels: decoded.channels,
+                            sample_rate: decoded.sample_rate,
+                            num_frames: decoded.num_frames,
+                        });
+                        log::info!(
+                            "[ExportPool] Loaded sampler sample '{}' for track '{}'",
+                            sampler_cfg.sample_path, track.name
+                        );
+                    }
+                }
+            }
+        }
     }
     Ok(local_pool)
 }
@@ -1658,8 +1681,10 @@ async fn export_mix_cmd(
     tauri::async_runtime::spawn_blocking(move || {
         let mut bouncer = OfflineBouncer::new(cfg);
         bouncer.cancel_flag = std::sync::Arc::clone(&cancel_flag);
+        let mut project = project;
+        let mut local_pool = local_pool;
         let result = bouncer
-            .bounce(&project, &local_pool, None, move |progress| {
+            .bounce(&mut project, &mut local_pool, None, move |progress| {
                 let payload = serde_json::json!({
                     "jobId": &job_id_for_progress,
                     "progress": (progress * 100.0).clamp(0.0, 100.0),
@@ -1899,7 +1924,9 @@ async fn bounce_selection_to_track_cmd(
     let bounce_res = tauri::async_runtime::spawn_blocking(move || {
         let mut bouncer = OfflineBouncer::new(cfg);
         bouncer.cancel_flag = cancel_flag;
-        bouncer.bounce(&bounce_project, &local_pool, None, move |progress| {
+        let mut bounce_project = bounce_project;
+        let mut local_pool = local_pool;
+        bouncer.bounce(&mut bounce_project, &mut local_pool, None, move |progress| {
             let _ = set_job_progress(
                 &app_for_progress,
                 &job_id_for_progress,
@@ -2011,7 +2038,9 @@ async fn bounce_track_cmd(
     let bounce_res = tauri::async_runtime::spawn_blocking(move || {
         let mut bouncer = OfflineBouncer::new(cfg);
         bouncer.cancel_flag = cancel_flag;
-        bouncer.bounce(&bounce_project, &local_pool, None, move |progress| {
+        let mut bounce_project = bounce_project;
+        let mut local_pool = local_pool;
+        bouncer.bounce(&mut bounce_project, &mut local_pool, None, move |progress| {
             let _ = set_job_progress(
                 &app_for_progress,
                 &job_id_for_progress,
@@ -2148,7 +2177,9 @@ async fn bounce_group_cmd(
     let bounce_res = tauri::async_runtime::spawn_blocking(move || {
         let mut bouncer = OfflineBouncer::new(cfg);
         bouncer.cancel_flag = cancel_flag;
-        bouncer.bounce(&bounce_project, &local_pool, None, move |progress| {
+        let mut bounce_project = bounce_project;
+        let mut local_pool = local_pool;
+        bouncer.bounce(&mut bounce_project, &mut local_pool, None, move |progress| {
             let _ = set_job_progress(
                 &app_for_progress,
                 &job_id_for_progress,
@@ -2290,7 +2321,9 @@ async fn split_track_to_stems_cmd(
     let bounce_res = tauri::async_runtime::spawn_blocking(move || {
         let mut bouncer = OfflineBouncer::new(cfg);
         bouncer.cancel_flag = cancel_flag;
-        bouncer.bounce(&bounce_project, &local_pool, None, move |progress| {
+        let mut bounce_project = bounce_project;
+        let mut local_pool = local_pool;
+        bouncer.bounce(&mut bounce_project, &mut local_pool, None, move |progress| {
             let p = (progress * 45.0).clamp(0.0, 45.0);
             let _ = set_job_progress(&app_for_progress, &job_id_for_progress, p, "Rendering source mix");
         })

@@ -30,14 +30,17 @@ use std::sync::Arc;
 
 use log::info;
 
-use dream_clip_engine::pool::ClipPool;
+use dream_clip_engine::midi_scheduler::MidiScheduler;
+use dream_clip_engine::pool::{ClipAudio, ClipPool};
 use dream_clip_engine::scheduler::LoopRegion as ClipLoopRegion;
 use dream_io::mp3_writer::Mp3Writer;
 use dream_io::wav_writer::WavWriter;
 use dream_ipc::metering::MeterBank;
 use dream_models::project::{AudioClip, Project};
+use dream_models::time::AbsoluteTime;
 
 use crate::render_callback::RenderContext;
+use crate::sampler::{AdsrParams, SamplerEngine, Waveform};
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -156,6 +159,266 @@ impl OfflineBouncer {
         }
     }
 
+    // ── MIDI Pre-Rendering ────────────────────────────────────────────
+    //
+    // Pre-renders MIDI tracks through the built-in SamplerEngine, producing
+    // synthetic AudioClip data that the existing render pipeline mixes normally.
+    //
+    // This replicates the core of driver.rs:2102-2277 in an offline context:
+    //   1. MidiScheduler::fill_active() → schedule events per buffer
+    //   2. Sort events, dispatch note_on/note_off to SamplerEngine
+    //   3. SamplerEngine::render() → produce audio samples
+    //   4. Accumulate into L/R buffers → wrap as ClipAudio + AudioClip
+    //
+    // Limitations:
+    //   - Only built-in sampler/synth instruments. External VST3 not available.
+    //   - MIDI FX (pitch shift, scale quantize, random) not applied offline.
+
+    /// Pre-renders all MIDI tracks with built-in sampler instruments.
+    ///
+    /// For each track that has MIDI clips AND a SamplerConfig, this method:
+    /// 1. Creates a SamplerEngine configured from the track's SamplerConfig
+    /// 2. Loads the sample from the ClipPool (or uses oscillator mode)
+    /// 3. Iterates buffer-by-buffer, scheduling MIDI events and rendering audio
+    /// 4. Creates a synthetic AudioClip from the rendered audio
+    /// 5. Adds the AudioClip to the project and registers the ClipAudio in the pool
+    ///
+    /// Returns the number of tracks that were pre-rendered.
+    fn pre_render_midi_tracks(
+        &self,
+        project: &mut Project,
+        clip_pool: &mut ClipPool,
+    ) -> usize {
+        let sample_rate = self.config.sample_rate as f64;
+        let start_frame = self.config.start_frame;
+        let end_frame = self.config.end_frame;
+        let total_frames = (end_frame - start_frame).max(0) as usize;
+
+        if total_frames == 0 {
+            return 0;
+        }
+
+        let mut rendered_count = 0usize;
+
+        // Iterate by index so we can mutate project.tracks[i] later.
+        for track_idx in 0..project.tracks.len() {
+            let track = &project.tracks[track_idx];
+
+            // Skip tracks without MIDI clips.
+            if track.midi_clips.is_empty() {
+                continue;
+            }
+
+            // Skip tracks without a sampler config.
+            let sampler_cfg = match &track.sampler {
+                Some(cfg) => cfg.clone(),
+                None => {
+                    log::warn!(
+                        "[Bounce/MIDI] Track '{}' has {} MIDI clips but no sampler config — skipping.",
+                        track.name, track.midi_clips.len()
+                    );
+                    continue;
+                }
+            };
+
+            // ── Configure SamplerEngine ──────────────────────────
+            let mut engine = SamplerEngine::new(sample_rate);
+            engine.set_root_note(sampler_cfg.root_note);
+            engine.volume = sampler_cfg.volume.clamp(0.0, 2.0) as f32;
+            engine.set_adsr(AdsrParams {
+                attack: sampler_cfg.attack,
+                decay: sampler_cfg.decay,
+                sustain: sampler_cfg.sustain,
+                release: sampler_cfg.release,
+            });
+
+            // Configure oscillator/synth if osc2_waveform is set.
+            if sampler_cfg.osc2_waveform > 0 {
+                engine.set_waveform(Waveform::Sine); // OSC1 = sine by default
+                engine.set_waveform2(Waveform::from_u8(sampler_cfg.osc2_waveform));
+            }
+            engine.set_osc_mix(sampler_cfg.osc_mix as f32);
+            engine.set_detune_cents(sampler_cfg.detune_cents as f32);
+            engine.set_sub_level(sampler_cfg.sub_level as f32);
+
+            // Configure filter.
+            engine.set_filter_cutoff(sampler_cfg.filter_cutoff as f32);
+            engine.set_filter_resonance(sampler_cfg.filter_resonance as f32);
+            engine.set_filter_type(sampler_cfg.filter_type);
+
+            // Configure LFO.
+            engine.set_lfo_rate(sampler_cfg.lfo_rate as f32);
+            engine.set_lfo_depth(sampler_cfg.lfo_depth as f32);
+            engine.set_lfo_target(sampler_cfg.lfo_target);
+            engine.set_pulse_width(sampler_cfg.pulse_width as f32);
+
+            // ── Load Sample ─────────────────────────────────────
+            let has_sample = if sampler_cfg.has_sample() {
+                if let Some(clip_audio) = clip_pool.get(&sampler_cfg.sample_path) {
+                    engine.set_sample(clip_audio);
+                    true
+                } else {
+                    log::warn!(
+                        "[Bounce/MIDI] Track '{}': sample '{}' not in pool — using oscillator mode.",
+                        track.name, sampler_cfg.sample_path
+                    );
+                    false
+                }
+            } else {
+                false
+            };
+
+            // If no sample and no oscillator configured, skip.
+            if !has_sample && sampler_cfg.osc2_waveform == 0 {
+                // Enable basic sine oscillator as fallback for MIDI-only tracks.
+                engine.set_waveform(Waveform::Sine);
+            }
+
+            // ── Pre-render buffer by buffer ──────────────────────
+            let midi_clips = track.midi_clips.clone();
+            let track_name = track.name.clone();
+            let total_midi_notes: usize = midi_clips.iter().map(|c| c.notes.len()).sum();
+
+            info!(
+                "[Bounce/MIDI] Pre-rendering track '{}': {} clips, {} notes, {} frames",
+                track_name, midi_clips.len(), total_midi_notes, total_frames
+            );
+
+            // Allocate output buffers for the full render range.
+            let mut out_left = vec![0.0f32; total_frames];
+            let mut out_right = vec![0.0f32; total_frames];
+
+            // Scratch buffers for per-chunk rendering.
+            let mut chunk_left = vec![0.0f32; OFFLINE_BUFFER_FRAMES];
+            let mut chunk_right = vec![0.0f32; OFFLINE_BUFFER_FRAMES];
+            let mut schedule_scratch: Vec<dream_clip_engine::midi_scheduler::ScheduledNote> = Vec::new();
+
+            let mut frames_done = 0usize;
+            let mut playhead = start_frame;
+
+            while frames_done < total_frames {
+                let remaining = total_frames - frames_done;
+                let chunk_frames = remaining.min(OFFLINE_BUFFER_FRAMES);
+
+                // Clear chunk buffers.
+                chunk_left[..chunk_frames].fill(0.0);
+                chunk_right[..chunk_frames].fill(0.0);
+
+                // Schedule MIDI events for this buffer window (no loop region for offline).
+                MidiScheduler::fill_active(
+                    &midi_clips,
+                    playhead,
+                    chunk_frames,
+                    &mut schedule_scratch,
+                );
+
+                if !schedule_scratch.is_empty() || engine.has_active_voices() {
+                    // Convert scheduled notes to instantaneous events (same logic as driver.rs).
+                    let mut events: Vec<(usize, u8, u8, u8)> = Vec::new(); // (frame, kind, pitch, velocity)
+                    for event in &schedule_scratch {
+                        if event.is_note_off {
+                            events.push((
+                                event.buffer_offset_end.min(chunk_frames),
+                                0, // Note Off
+                                event.pitch,
+                                event.velocity,
+                            ));
+                        }
+                        if event.is_note_on {
+                            events.push((
+                                event.buffer_onset.min(chunk_frames),
+                                1, // Note On
+                                event.pitch,
+                                event.velocity,
+                            ));
+                        }
+                    }
+                    events.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)).then_with(|| a.2.cmp(&b.2)));
+
+                    // Render segments between events.
+                    let mut cursor = 0usize;
+                    for &(frame, kind, pitch, velocity) in &events {
+                        let seg = frame.saturating_sub(cursor).min(chunk_frames - cursor);
+                        if seg > 0 && engine.has_active_voices() {
+                            engine.render(
+                                &mut chunk_left[cursor..cursor + seg],
+                                &mut chunk_right[cursor..cursor + seg],
+                                seg,
+                            );
+                            cursor += seg;
+                        } else if frame > cursor {
+                            cursor = frame;
+                        }
+
+                        if kind == 0 {
+                            engine.note_off(pitch);
+                        } else {
+                            engine.note_on(pitch, velocity);
+                        }
+                    }
+
+                    // Render tail after last event.
+                    if cursor < chunk_frames && engine.has_active_voices() {
+                        let rem = chunk_frames - cursor;
+                        engine.render(
+                            &mut chunk_left[cursor..cursor + rem],
+                            &mut chunk_right[cursor..cursor + rem],
+                            rem,
+                        );
+                    }
+                }
+
+                // Copy chunk into output buffers.
+                out_left[frames_done..frames_done + chunk_frames]
+                    .copy_from_slice(&chunk_left[..chunk_frames]);
+                out_right[frames_done..frames_done + chunk_frames]
+                    .copy_from_slice(&chunk_right[..chunk_frames]);
+
+                frames_done += chunk_frames;
+                playhead += chunk_frames as i64;
+            }
+
+            // ── Check if anything was actually rendered ──────────
+            let peak = out_left.iter().chain(out_right.iter())
+                .fold(0.0f32, |acc, &s| acc.max(s.abs()));
+
+            if peak < 1e-7 {
+                log::warn!(
+                    "[Bounce/MIDI] Track '{}': pre-render produced silence (peak={:.2e}). \
+                     Possible causes: no sample loaded, notes outside render range, or zero velocity.",
+                    track_name, peak
+                );
+                continue;
+            }
+
+            info!(
+                "[Bounce/MIDI] Track '{}': pre-render complete, peak={:.4}, {} frames",
+                track_name, peak, total_frames
+            );
+
+            // ── Create synthetic ClipAudio + AudioClip ───────────
+            let synth_path = format!("__midi_prerender__/track_{}", track_idx);
+            let clip_audio = ClipAudio::new(
+                synth_path.clone(),
+                vec![out_left, out_right],
+                self.config.sample_rate,
+            );
+            clip_pool.insert(clip_audio);
+
+            let synth_clip = AudioClip::new(
+                format!("{} (MIDI Pre-render)", track_name),
+                synth_path,
+                AbsoluteTime::new(start_frame),
+                AbsoluteTime::new(total_frames as i64),
+            );
+
+            project.tracks[track_idx].clips.push(synth_clip);
+            rendered_count += 1;
+        }
+
+        rendered_count
+    }
+
     /// Creates a new bouncer with the given configuration.
     pub fn new(config: BounceConfig) -> Self {
         Self {
@@ -210,8 +473,8 @@ impl OfflineBouncer {
     /// `Ok(())` on success. The WAV file is written to `config.output_path`.
     pub fn bounce<F>(
         &self,
-        project: &Project,
-        clip_pool: &ClipPool,
+        project: &mut Project,
+        clip_pool: &mut ClipPool,
         loop_region: Option<&ClipLoopRegion>,
         mut progress_callback: F,
     ) -> Result<(), BounceError>
@@ -241,8 +504,35 @@ impl OfflineBouncer {
             total_frames, self.config.sample_rate, self.config.bit_depth, self.config.output_path
         );
 
+        // ── Diagnostic: clip inventory ──────────────────────────
+        let total_audio_clips: usize = project.tracks.iter().map(|t| t.clips.len()).sum();
+        let total_midi_clips: usize = project.tracks.iter().map(|t| t.midi_clips.len()).sum();
+        info!(
+            "[Bounce] Clip inventory: {} audio clips, {} MIDI clips across {} tracks",
+            total_audio_clips,
+            total_midi_clips,
+            project.tracks.len()
+        );
+
+        if total_audio_clips == 0 && total_midi_clips == 0 {
+            return Err(BounceError::InvalidConfig(
+                "Project is empty — no audio or MIDI clips to export.".to_string(),
+            ));
+        }
+
+        // ── Pre-render MIDI tracks ──────────────────────────────
+        if total_midi_clips > 0 {
+            let midi_rendered = self.pre_render_midi_tracks(project, clip_pool);
+            info!(
+                "[Bounce] Pre-rendered {} MIDI tracks into audio clips",
+                midi_rendered
+            );
+        }
+
         // ── Prepare per-track clip slices ────────────────────────
         // Build the same structure that driver.rs uses for RenderContext::render().
+        // After MIDI pre-rendering, synthetic audio clips have been injected
+        // into the project tracks, so they are included here automatically.
         let clips_per_track: Vec<Vec<AudioClip>> = project
             .tracks
             .iter()
@@ -509,9 +799,18 @@ mod tests {
     use dream_models::project::{Project, Track, TrackType};
 
     fn make_test_project() -> Project {
+        use dream_models::time::AbsoluteTime;
         let mut project = Project::default();
         let mut track = Track::new("Test Track");
         track.track_type = TrackType::Audio;
+        // Add a dummy clip so the project isn't considered empty.
+        // The clip references a non-existent file, producing silence.
+        track.clips.push(AudioClip::new(
+            "Dummy Clip",
+            "__test_dummy__/silence.wav",
+            AbsoluteTime::new(0),
+            AbsoluteTime::new(4096),
+        ));
         project.tracks.push(track);
         project
     }
@@ -545,10 +844,10 @@ mod tests {
         };
 
         let bouncer = OfflineBouncer::new(config);
-        let project = make_test_project();
-        let pool = ClipPool::new();
+        let mut project = make_test_project();
+        let mut pool = ClipPool::new();
 
-        let result = bouncer.bounce(&project, &pool, None, |_| {});
+        let result = bouncer.bounce(&mut project, &mut pool, None, |_| {});
         assert!(matches!(result, Err(BounceError::InvalidConfig(_))));
     }
 
@@ -566,10 +865,10 @@ mod tests {
         };
 
         let bouncer = OfflineBouncer::new(config);
-        let project = make_test_project();
-        let pool = ClipPool::new();
+        let mut project = make_test_project();
+        let mut pool = ClipPool::new();
 
-        let result = bouncer.bounce(&project, &pool, None, |_| {});
+        let result = bouncer.bounce(&mut project, &mut pool, None, |_| {});
         assert!(matches!(result, Err(BounceError::InvalidConfig(_))));
     }
 
@@ -588,11 +887,11 @@ mod tests {
         };
 
         let bouncer = OfflineBouncer::new(config);
-        let project = make_test_project();
-        let pool = ClipPool::new();
+        let mut project = make_test_project();
+        let mut pool = ClipPool::new();
 
         let mut progress_values: Vec<f32> = Vec::new();
-        let result = bouncer.bounce(&project, &pool, None, |p| {
+        let result = bouncer.bounce(&mut project, &mut pool, None, |p| {
             progress_values.push(p);
         });
 
@@ -622,10 +921,10 @@ mod tests {
         };
 
         let bouncer = OfflineBouncer::new(config);
-        let project = make_test_project();
-        let pool = ClipPool::new();
+        let mut project = make_test_project();
+        let mut pool = ClipPool::new();
 
-        let result = bouncer.bounce(&project, &pool, None, |_| {});
+        let result = bouncer.bounce(&mut project, &mut pool, None, |_| {});
         assert!(result.is_ok());
 
         let _ = std::fs::remove_file(&out_path);

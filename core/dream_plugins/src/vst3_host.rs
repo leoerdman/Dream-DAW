@@ -2795,6 +2795,17 @@ extern "C" fn plugin_window_will_close(this: id, _cmd: *mut c_void, _notificatio
 
         let plug_view = plug_view_raw as *mut IPlugView;
 
+        // Defensive: bail if the vtable pointer is null (plug_view was freed elsewhere)
+        if (*plug_view).vtbl.is_null() {
+            info!("[VST3-Delegate] windowWillClose: plug_view vtbl is null, skipping cleanup");
+            object_setInstanceVariable(
+                this,
+                b"_cleaned\0".as_ptr() as _,
+                1usize as *mut c_void,
+            );
+            return;
+        }
+
         info!("[VST3-Delegate] windowWillClose: performing VST3 cleanup for plug_view={:p}", plug_view);
 
         // Per VST3 SDK: setFrame(null) → removed() → release()
@@ -2921,6 +2932,40 @@ unsafe fn plugin_window_delegate_already_cleaned(window: id) -> bool {
         &mut cleaned_raw,
     );
     cleaned_raw as usize != 0
+}
+
+/// Marks the delegate as cleaned and nulls the plug_view pointer.
+/// Must be called BEFORE freeing the plug_view in close_editor_macos
+/// to prevent the delegate from using a dangling pointer when
+/// macOS fires windowWillClose: during window.close().
+#[cfg(target_os = "macos")]
+unsafe fn mark_delegate_cleaned(window: id) {
+    unsafe extern "C" {
+        fn sel_registerName(name: *const std::os::raw::c_char) -> *mut c_void;
+        fn objc_msgSend() -> id;
+    }
+    type MsgSendGetDelegate = unsafe extern "C" fn(id, *mut c_void) -> id;
+
+    let sel_delegate = sel_registerName(b"delegate\0".as_ptr() as _);
+    let send_delegate: MsgSendGetDelegate = std::mem::transmute(objc_msgSend as *const ());
+    let delegate = send_delegate(window, sel_delegate);
+
+    if delegate.is_null() {
+        return;
+    }
+
+    // Set _cleaned = 1 so windowWillClose: becomes a no-op
+    object_setInstanceVariable(
+        delegate,
+        b"_cleaned\0".as_ptr() as _,
+        1usize as *mut c_void,
+    );
+    // Null out the plug_view pointer for extra safety
+    object_setInstanceVariable(
+        delegate,
+        b"_plugView\0".as_ptr() as _,
+        std::ptr::null_mut(),
+    );
 }
 
 
@@ -3776,15 +3821,22 @@ impl Vst3Instance {
             return Ok(());
         };
         let plug_view = window_state.plug_view as *mut IPlugView;
+        let window = window_state.window as id;
 
         // Check if the delegate already performed cleanup (user clicked red X).
-        // The delegate sets the associated plug_view to null after cleanup.
         let already_cleaned = unsafe {
-            let window = window_state.window as id;
             plugin_window_delegate_already_cleaned(window)
         };
 
         if !already_cleaned {
+            // CRITICAL: Mark the delegate as cleaned BEFORE doing VST3 cleanup.
+            // When we call window.close() below, macOS fires windowWillClose:
+            // on the delegate. If we don't mark it first, the delegate will try
+            // to use the plug_view pointer that we're about to free → crash.
+            unsafe {
+                mark_delegate_cleaned(window);
+            }
+
             // BUG-14 FIX: Per VST3 SDK, call setFrame(null) BEFORE dropping the
             // HostPlugFrame. Some plugins (UAD, Waves) cache the IPlugFrame pointer
             // and call resizeView during removed(), which would dereference freed memory.
@@ -3801,7 +3853,6 @@ impl Vst3Instance {
             self.plug_frame.take();
         }
 
-        let window = window_state.window as id;
         unsafe {
             window.close();
         }
@@ -4716,7 +4767,25 @@ impl PluginInstance for Vst3Instance {
                 "Cannot restore state: VST3 component pointer is null".to_string(),
             ));
         }
-        let mut stream = HostReadStream::new(data.to_vec());
+
+        // Parse the combined blob format:
+        // New format: [4-byte magic 'DDS1'][4-byte component_len (LE)][component_data][controller_data]
+        // Old format: raw component-only data (no magic header)
+        let magic = b"DDS1";
+        let (component_data, controller_data): (&[u8], &[u8]) = if data.len() >= 8 && &data[..4] == magic {
+            let comp_len = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as usize;
+            if 8 + comp_len <= data.len() {
+                (&data[8..8 + comp_len], &data[8 + comp_len..])
+            } else {
+                // Corrupted header, treat entire blob as component data
+                (data, &[] as &[u8])
+            }
+        } else {
+            // Old format: component-only data
+            (data, &[] as &[u8])
+        };
+
+        let mut stream = HostReadStream::new(component_data.to_vec());
         let component = self.component_ptr as *mut IComponent;
         let status = unsafe {
             ((*(*component).vtbl).set_state)(
@@ -4741,20 +4810,44 @@ impl PluginInstance for Vst3Instance {
         // IEditController::setComponentState so the editor reflects the loaded state.
         if self.controller_ptr != 0 {
             let controller = self.controller_ptr as *mut IEditController;
-            let mut controller_stream = HostReadStream::new(data.to_vec());
+            let mut controller_stream = HostReadStream::new(component_data.to_vec());
             let _ = unsafe {
                 ((*(*controller).vtbl).set_component_state)(
                     controller,
                     (&mut controller_stream as *mut HostReadStream).cast::<c_void>(),
                 )
             };
+
+            // If we have controller state (from the combined blob), also call
+            // IEditController::setState to restore preset name, UI state, etc.
+            if !controller_data.is_empty() {
+                let mut ctrl_state_stream = HostReadStream::new(controller_data.to_vec());
+                let ctrl_status = unsafe {
+                    ((*(*controller).vtbl).set_state)(
+                        controller,
+                        (&mut ctrl_state_stream as *mut HostReadStream).cast::<c_void>(),
+                    )
+                };
+                if ctrl_status < 0 {
+                    info!(
+                        "[VST3] IEditController::setState failed for '{}' (status={}), continuing",
+                        self.descriptor.name, ctrl_status
+                    );
+                } else {
+                    info!(
+                        "[VST3] IEditController::setState OK for '{}' ({} bytes)",
+                        self.descriptor.name, controller_data.len()
+                    );
+                }
+            }
         }
 
         info!(
-            "[VST3] Applied state blob for '{}' (kind={}, bytes={})",
+            "[VST3] Applied state blob for '{}' (kind={}, component_bytes={}, controller_bytes={})",
             self.descriptor.name,
             kind.unwrap_or("unknown"),
-            data.len()
+            component_data.len(),
+            controller_data.len()
         );
         Ok(())
     }
@@ -4765,27 +4858,65 @@ impl PluginInstance for Vst3Instance {
                 "Cannot save state: VST3 component pointer is null".to_string(),
             ));
         }
+
+        // 1. Save IComponent state (DSP parameters)
         let component = self.component_ptr as *mut IComponent;
-        let mut stream = HostWriteStream::new();
+        let mut comp_stream = HostWriteStream::new();
         let status = unsafe {
             ((*(*component).vtbl).get_state)(
                 component,
-                (&mut stream as *mut HostWriteStream).cast::<c_void>(),
+                (&mut comp_stream as *mut HostWriteStream).cast::<c_void>(),
             )
         };
         if status != K_RESULT_OK {
             return Err(PluginError::ProcessError(format!(
-                "getState failed for '{}' (status={status})",
+                "IComponent::getState failed for '{}' (status={status})",
                 self.descriptor.name
             )));
         }
-        let bytes = stream.into_bytes();
+        let comp_bytes = comp_stream.into_bytes();
+
+        // 2. Save IEditController state (preset name, UI state, etc.)
+        let ctrl_bytes = if self.controller_ptr != 0 {
+            let controller = self.controller_ptr as *mut IEditController;
+            let mut ctrl_stream = HostWriteStream::new();
+            let ctrl_status = unsafe {
+                ((*(*controller).vtbl).get_state)(
+                    controller,
+                    (&mut ctrl_stream as *mut HostWriteStream).cast::<c_void>(),
+                )
+            };
+            if ctrl_status == K_RESULT_OK {
+                ctrl_stream.into_bytes()
+            } else {
+                info!(
+                    "[VST3] IEditController::getState returned {} for '{}', skipping controller state",
+                    ctrl_status, self.descriptor.name
+                );
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+
+        // 3. Combine into DDS1 format: [magic][comp_len_le32][comp_data][ctrl_data]
+        let magic = b"DDS1";
+        let comp_len = comp_bytes.len() as u32;
+        let total_len = 4 + 4 + comp_bytes.len() + ctrl_bytes.len();
+        let mut combined = Vec::with_capacity(total_len);
+        combined.extend_from_slice(magic);
+        combined.extend_from_slice(&comp_len.to_le_bytes());
+        combined.extend_from_slice(&comp_bytes);
+        combined.extend_from_slice(&ctrl_bytes);
+
         info!(
-            "[VST3] Saved state for '{}' ({} bytes)",
+            "[VST3] Saved state for '{}' (component={} bytes, controller={} bytes, total={} bytes)",
             self.descriptor.name,
-            bytes.len()
+            comp_bytes.len(),
+            ctrl_bytes.len(),
+            combined.len()
         );
-        Ok(bytes)
+        Ok(combined)
     }
 }
 

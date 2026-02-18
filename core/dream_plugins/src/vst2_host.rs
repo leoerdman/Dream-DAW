@@ -42,7 +42,9 @@ type VstIntPtr = isize;
 
 const EFF_OPEN: i32 = 0;
 const EFF_CLOSE: i32 = 1;
+#[allow(dead_code)]
 const EFF_SET_PROGRAM: i32 = 2;
+#[allow(dead_code)]
 const EFF_GET_PROGRAM: i32 = 3;
 #[allow(dead_code)]
 const EFF_SET_PROGRAM_NAME: i32 = 4;
@@ -69,6 +71,7 @@ const EFF_PROCESS_EVENTS: i32 = 25;
 const EFF_CAN_BE_AUTOMATED: i32 = 26;
 const EFF_GET_VENDOR_STRING: i32 = 47;
 const EFF_GET_PRODUCT_STRING: i32 = 48;
+#[allow(dead_code)]
 const EFF_GET_VENDOR_VERSION: i32 = 49;
 const EFF_CAN_DO: i32 = 51;
 const EFF_GET_TAIL_SIZE: i32 = 52;
@@ -109,6 +112,7 @@ const AUDIO_MASTER_UPDATE_DISPLAY: i32 = 42;
 // ── AEffect Flags ──
 
 const EFF_FLAGS_CAN_REPLACING: i32 = 1 << 4;
+#[allow(dead_code)]
 const EFF_FLAGS_CAN_DOUBLE_REPLACING: i32 = 1 << 12;
 const EFF_FLAGS_HAS_EDITOR: i32 = 1;
 const EFF_FLAGS_IS_SYNTH: i32 = 1 << 8;

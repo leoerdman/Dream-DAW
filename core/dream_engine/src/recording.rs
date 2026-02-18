@@ -198,8 +198,10 @@ impl RecordingSession {
             .default_input_device()
             .ok_or(RecordingError::NoInputDevice)?;
 
-        // BUG-4 fix: cpal::Device exposes `.name()` → Result<String>,
-        // not `.description()`. Use the correct API.
+        // BUG-4 fix: cpal::Device exposes `.name()` → Result<String>.
+        // Newer cpal versions deprecate it in favour of `.description()`,
+        // but for compatibility we suppress the warning and use `.name()`.
+        #[allow(deprecated)]
         let device_name = device
             .name()
             .unwrap_or_else(|_| "Unknown".to_string());

@@ -1086,7 +1086,7 @@ struct MidiNoteMapState {
 #[derive(Clone, Copy)]
 struct ActiveMappedNote {
     uid: u64,
-    src_pitch: u8,
+    _src_pitch: u8,
     mapped_pitch: u8,
 }
 
@@ -1877,7 +1877,7 @@ pub fn start_audio_thread_on_device(
                         // strip mixer controls here and apply absolute sample-accurate
                         // mixer automation later on graph output buffers.
                         let automation = automation_snapshot.load();
-                        let sidechain_map = sidechain_snapshot.load();
+                        let _sidechain_map = sidechain_snapshot.load();
                         let external_fx_map = external_fx_snapshot.load();
                         let needs_plugin_host = external_fx_map
                             .iter()
@@ -2144,7 +2144,7 @@ pub fn start_audio_thread_on_device(
 
                                     note_state.active_notes.push(ActiveMappedNote {
                                         uid: event_uid,
-                                        src_pitch: pitch,
+                                        _src_pitch: pitch,
                                         mapped_pitch,
                                     });
                                     engine.note_on(mapped_pitch, mapped_velocity);

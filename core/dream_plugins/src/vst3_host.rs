@@ -232,10 +232,10 @@ const IID_FUNKNOWN: Tuid = [
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46,
 ];
 
-/// Module-level thread-local guard: prevents `plug_frame_resize_view` from
-/// calling `onSize()` back into the plugin while `attached()` is still running.
-/// Without this, Serum2 crashes (SIGSEGV) because `attached()` → `resizeView`
-/// → `onSize()` corrupts its internal state during initialization.
+// Module-level thread-local guard: prevents `plug_frame_resize_view` from
+// calling `onSize()` back into the plugin while `attached()` is still running.
+// Without this, Serum2 crashes (SIGSEGV) because `attached()` → `resizeView`
+// → `onSize()` corrupts its internal state during initialization.
 thread_local! {
     static EDITOR_IN_ATTACHED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -422,7 +422,7 @@ unsafe extern "C" fn host_attr_qi(this: *mut c_void, iid: *const Tuid, obj: *mut
     if !obj.is_null() { unsafe { *obj = ptr::null_mut(); } }
     if tuid_eq(iid, &IID_FUNKNOWN) || tuid_eq(iid, &IID_IATTRIBUTE_LIST) {
         unsafe { *obj = this; }
-        host_attr_add_ref(this);
+        unsafe { host_attr_add_ref(this); }
         return K_RESULT_OK;
     }
     K_NO_INTERFACE
@@ -548,7 +548,7 @@ unsafe extern "C" fn host_msg_qi(this: *mut c_void, iid: *const Tuid, obj: *mut 
     if !obj.is_null() { unsafe { *obj = ptr::null_mut(); } }
     if tuid_eq(iid, &IID_FUNKNOWN) || tuid_eq(iid, &IID_IMESSAGE) {
         unsafe { *obj = this; }
-        host_msg_add_ref(this);
+        unsafe { host_msg_add_ref(this); }
         return K_RESULT_OK;
     }
     K_NO_INTERFACE
@@ -566,7 +566,7 @@ unsafe extern "C" fn host_msg_release(this: *mut c_void) -> u32 {
     let rc = m.ref_count;
     if rc == 0 {
         if !m.attr_list.is_null() {
-            host_attr_release(m.attr_list as *mut c_void);
+            unsafe { host_attr_release(m.attr_list as *mut c_void); }
         }
         unsafe { let _ = Box::from_raw(this as *mut HostMsg); }
     }
@@ -861,13 +861,13 @@ unsafe extern "C" fn handler_query_interface(
     }
     if tuid_eq(iid, &IID_FUNKNOWN) || tuid_eq(iid, &IID_ICOMPONENT_HANDLER) {
         // BUG-H3 FIX: COM spec requires addRef on queryInterface output.
-        handler_add_ref(this);
+        unsafe { handler_add_ref(this); }
         unsafe { *obj = this; }
         K_RESULT_OK
     } else if tuid_eq(iid, &IID_ICOMPONENT_HANDLER_2) {
         // BUG-H4 FIX: Return IComponentHandler2 interface.
         // Offset to the second vtable pointer in the struct.
-        handler_add_ref(this);
+        unsafe { handler_add_ref(this); }
         let inst = this as *const ComponentHandlerInstance;
         unsafe { *obj = &(*inst).vtbl2 as *const _ as *mut c_void; }
         K_RESULT_OK
@@ -986,7 +986,7 @@ fn component_handler_ptr() -> *mut c_void {
 
 /// Public API: Drain pending GUI parameter edits. Called by the UI thread
 /// to sync displayed values and record automation.
-pub fn drain_gui_param_edits(mut f: impl FnMut(u32, f64)) -> usize {
+pub fn drain_gui_param_edits(f: impl FnMut(u32, f64)) -> usize {
     PARAM_EDIT_RING.drain(f)
 }
 
@@ -2386,8 +2386,6 @@ const K_SPEAKER_STEREO: u64 = 0x03; // kSpeakerL | kSpeakerR
 // VSTGUI-based plugins (Serum2, etc.) use it to locate GUI resources.
 #[cfg(target_os = "macos")]
 mod cf_bundle {
-    use std::ffi::CString;
-    use std::os::raw::c_char;
     use std::ptr;
 
     // Opaque CoreFoundation types — only used as pointers.

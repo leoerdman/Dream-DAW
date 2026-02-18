@@ -2430,12 +2430,14 @@ impl PluginHostState {
 
     /// Invalidates the cached plugin scan results, forcing a fresh
     /// filesystem scan on the next `resolve_descriptor` call.
+    #[allow(dead_code)]
     fn clear_scan_cache(&self) {
         *self.cached_scan.lock().unwrap() = None;
     }
 
     /// Reactivates all loaded plugin instances with a new sample rate
     /// and buffer size. Used when the audio device configuration changes.
+    #[allow(dead_code)]
     fn reactivate_all(&self, sample_rate: f64, buffer_size: usize) -> Result<(), String> {
         let mut host = self.host.lock().map_err(|e| e.to_string())?;
         host.reactivate_all(sample_rate, buffer_size);

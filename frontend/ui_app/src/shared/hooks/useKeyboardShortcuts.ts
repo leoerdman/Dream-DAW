@@ -17,7 +17,7 @@ import * as engine from '@/shared/api/engine';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
-import { beatToFrame, frameToBeat } from '@/shared/lib/audioMath';
+import { beatToFrame, beatDurationToFrames, frameToBeat } from '@/shared/lib/audioMath';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -249,7 +249,9 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 const endBeat = Math.max(marqueeSelection.startBeat, marqueeSelection.endBeat);
                 const durationBeats = Math.max(0.25, endBeat - startBeat);
                 const positionFrames = Math.max(0, beatToFrame(startBeat, bpm, sampleRate));
-                const durationFrames = Math.max(1, beatToFrame(durationBeats, bpm, sampleRate));
+                // Bug fix: use beatDurationToFrames (duration conversion) not beatToFrame
+                // (position conversion) to get the correct frame count for the clip duration.
+                const durationFrames = Math.max(1, beatDurationToFrames(durationBeats, bpm, sampleRate));
 
                 const midiTrackIndices: number[] = [];
                 for (let i = minTrack; i <= maxTrack; i++) {
@@ -365,8 +367,13 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
 
                 const store = useEngineStore.getState();
                 const bpm = Math.max(1, store.projectBpm || store.transport.bpm || 120);
-                const minStart = Math.min(...selected.map((c) => c.startBeat));
-                const maxEnd = Math.max(...selected.map((c) => c.startBeat + c.durationBeats));
+                // Bug fix: avoid Math.min/max with spread on large arrays (stack overflow risk).
+                let minStart = Infinity, maxEnd = -Infinity;
+                for (const c of selected) {
+                    if (c.startBeat < minStart) minStart = c.startBeat;
+                    const end = c.startBeat + c.durationBeats;
+                    if (end > maxEnd) maxEnd = end;
+                }
                 const spanBeats = Math.max(0.0001, maxEnd - minStart);
                 const sampleRate = store.projectSampleRate || 44100;
 

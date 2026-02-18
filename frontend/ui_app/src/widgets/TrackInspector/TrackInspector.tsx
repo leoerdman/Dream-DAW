@@ -139,6 +139,10 @@ interface TrackInspectorProps {
     /** Fires when the user scrolls the track header list (reverse sync to Timeline). */
     onScrollTop?: (scrollTop: number) => void;
     mixerFocusMode?: boolean;
+    /** Controlled collapsed groups (owned by DawShell for Timeline sync). */
+    collapsedGroups?: Set<string>;
+    /** Callback to toggle a group's collapsed state (owned by DawShell). */
+    onToggleGroupCollapse?: (groupId: string) => void;
 }
 
 export const TrackInspector = ({
@@ -151,6 +155,8 @@ export const TrackInspector = ({
     scrollTop: externalScrollTop,
     onScrollTop,
     mixerFocusMode = false,
+    collapsedGroups: collapsedGroupsProp,
+    onToggleGroupCollapse: onToggleGroupCollapseProp,
 }: TrackInspectorProps) => {
     const projectTracks = useEngineStore((s) => s.projectTracks);
     const engineSetTrackMute = useEngineStore((s) => s.setTrackMute);
@@ -200,7 +206,6 @@ export const TrackInspector = ({
 
     // Local overrides
     const [localOverrides, setLocalOverrides] = useState<Record<string, Partial<TrackData>>>({});
-    const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
     const [localSelectedTrackIds, setLocalSelectedTrackIds] = useState<Set<string>>(
         () => new Set(selectedTrackId && selectedTrackId !== 'master' ? [selectedTrackId] : []),
     );
@@ -397,7 +402,13 @@ export const TrackInspector = ({
         }
     }, []);
 
+    // ── Collapse state: prefer controlled props from parent (DawShell sync) ──
+    const [localCollapsedGroups, setLocalCollapsedGroups] = useState<Set<string>>(new Set());
+    const collapsedGroups = collapsedGroupsProp ?? localCollapsedGroups;
+
+    // Sync from backend only when uncontrolled
     useEffect(() => {
+        if (collapsedGroupsProp) return; // Parent owns the state
         const collapsed = new Set<string>();
         for (const pt of projectTracks) {
             const normalized = (pt.track_type ?? '').toLowerCase();
@@ -405,11 +416,16 @@ export const TrackInspector = ({
                 collapsed.add(pt.id);
             }
         }
-        setCollapsedGroups(collapsed);
-    }, [projectTracks]);
+        setLocalCollapsedGroups(collapsed);
+    }, [projectTracks, collapsedGroupsProp]);
 
     const toggleGroupCollapse = useCallback((groupId: string) => {
-        setCollapsedGroups(prev => {
+        if (onToggleGroupCollapseProp) {
+            onToggleGroupCollapseProp(groupId);
+            return;
+        }
+        // Fallback: local state management
+        setLocalCollapsedGroups(prev => {
             const next = new Set(prev);
             let expanded = true;
             if (next.has(groupId)) {
@@ -424,7 +440,7 @@ export const TrackInspector = ({
             });
             return next;
         });
-    }, []);
+    }, [onToggleGroupCollapseProp]);
 
     const isAncestorCollapsed = useCallback((track: TrackData): boolean => {
         let groupId = track.groupId;
@@ -1373,6 +1389,15 @@ export const TrackInspector = ({
                         if (!contextMenu.trackId) return;
                         handleRenameStart(contextMenu.trackId);
                     }}
+                    onDuplicate={() => {
+                        if (!contextMenu.trackId) return;
+                        void engineApi.duplicateTracks([contextMenu.trackId]).then(() => {
+                            return useEngineStore.getState().fetchProject();
+                        }).catch((err) => {
+                            console.error('[TrackInspector] duplicate track (context menu) failed:', err);
+                        });
+                        setContextMenu(null);
+                    }}
                     onGroup={() => {
                         if (!contextMenu.trackId) return;
                         handleGroupTrack(contextMenu.trackId);
@@ -1442,13 +1467,14 @@ export const TrackInspector = ({
 const ContextMenuPopup = ({
     x, y, showTrackActions,
     onAddAudioTrack, onAddMidiTrack,
-    onRename, onGroup, onUngroup, canUngroup, canBounceGroup, onDelete, onChangeColor, onPaintClips, onBounceTrack, onBounceGroup, onPaintGroupColor, onSplitToStems, onDismiss,
+    onRename, onDuplicate, onGroup, onUngroup, canUngroup, canBounceGroup, onDelete, onChangeColor, onPaintClips, onBounceTrack, onBounceGroup, onPaintGroupColor, onSplitToStems, onDismiss,
 }: {
     x: number; y: number;
     showTrackActions: boolean;
     onAddAudioTrack: () => void;
     onAddMidiTrack: () => void;
     onRename: () => void;
+    onDuplicate: () => void;
     onGroup: () => void;
     onUngroup: () => void;
     canUngroup: boolean;
@@ -1479,7 +1505,7 @@ const ContextMenuPopup = ({
 
     const clampedX = Math.min(x, window.innerWidth - 196);
     const menuHeight = showTrackActions
-        ? (canBounceGroup ? 382 : 314)
+        ? (canBounceGroup ? 414 : 346)
         : 82;
     const clampedY = Math.min(y, window.innerHeight - menuHeight);
 
@@ -1516,6 +1542,11 @@ const ContextMenuPopup = ({
                         onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
                         onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
                         <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>✏️</span> Rename
+                    </button>
+                    <button style={itemStyle} onClick={onDuplicate}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                        <span style={{ width: 14, fontSize: 'var(--font-size-base)' }}>📋</span> Duplicate Track
                     </button>
                     <button style={itemStyle} onClick={onChangeColor}
                         onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 8%, transparent)'; }}

@@ -173,6 +173,11 @@ interface EngineStore {
     /** Authoritative project BPM from PulseMap (race-safe — not from telemetry). */
     projectBpm: number;
 
+    /** Key signature state from project. */
+    keySigEnabled: boolean;
+    keySigTonic: string;
+    keySigMode: string;
+
     /** Last IPC error (for error boundary / status bar display). */
     lastError: string | null;
     /** Recent event-sourcing journal entries from backend. */
@@ -309,6 +314,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     projectTracks: [],
     projectSampleRate: 44100,
     projectBpm: 120,
+    keySigEnabled: false,
+    keySigTonic: 'C',
+    keySigMode: 'Major',
     lastError: null,
     projectHistory: [],
     projectHistoryCursor: 0,
@@ -834,6 +842,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     projectTracks,
                     projectSampleRate: sr,
                     projectBpm: bpm,
+                    keySigEnabled: project.key_sig_enabled ?? false,
+                    keySigTonic: project.key_sig_tonic || 'C',
+                    keySigMode: project.key_sig_mode || 'Major',
                     // Keep transport.bpm in sync so TransportBar/StatusBar
                     // show correct BPM immediately, even before next telemetry tick.
                     transport: { ...s.transport, bpm },

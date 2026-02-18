@@ -125,6 +125,8 @@ export const DawShell = () => {
     const [browserWidth, setBrowserWidth] = useState(320);
     const [fitTimelineToken, setFitTimelineToken] = useState(0);
     const [bottomPanelHeightPx, setBottomPanelHeightPx] = useState(DEFAULT_BOTTOM_PANEL_HEIGHT);
+    // ── Group collapse state (lifted from TrackInspector for Timeline sync) ──
+    const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
     const recoveringAudioRef = useRef(false);
     const lastAudioRecoverAtRef = useRef(0);
     const projectRefreshTimerRef = useRef<number | null>(null);
@@ -590,6 +592,57 @@ export const DawShell = () => {
 
     const trackCount = Math.max(projectTracks.length, 1);
     const trackIds = useMemo(() => projectTracks.map((t) => t.id), [projectTracks]);
+
+    // ── Sync collapsed groups from backend is_expanded field ──
+    useEffect(() => {
+        const collapsed = new Set<string>();
+        for (const pt of projectTracks) {
+            const normalized = (pt.track_type ?? '').toLowerCase();
+            if (normalized === 'group' && pt.is_expanded === false) {
+                collapsed.add(pt.id);
+            }
+        }
+        setCollapsedGroups(collapsed);
+    }, [projectTracks]);
+
+    const toggleGroupCollapse = useCallback((groupId: string) => {
+        setCollapsedGroups(prev => {
+            const next = new Set(prev);
+            let expanded = true;
+            if (next.has(groupId)) {
+                next.delete(groupId);
+                expanded = true;
+            } else {
+                next.add(groupId);
+                expanded = false;
+            }
+            void engineApi.setGroupExpanded(groupId, expanded).catch((err) => {
+                console.error('[DawShell] setGroupExpanded failed:', err);
+            });
+            return next;
+        });
+    }, []);
+
+    // ── Compute which track indices are hidden due to group collapse ──
+    const hiddenTrackIndices = useMemo(() => {
+        const hidden = new Set<number>();
+        if (collapsedGroups.size === 0) return hidden;
+        const trackById = new Map(projectTracks.map(t => [t.id, t]));
+        const isAncestorCollapsed = (trackId: string): boolean => {
+            let parentId = trackById.get(trackId)?.parent_track_id;
+            while (parentId) {
+                if (collapsedGroups.has(parentId)) return true;
+                parentId = trackById.get(parentId)?.parent_track_id;
+            }
+            return false;
+        };
+        for (let i = 0; i < projectTracks.length; i++) {
+            if (isAncestorCollapsed(projectTracks[i].id)) {
+                hidden.add(i);
+            }
+        }
+        return hidden;
+    }, [projectTracks, collapsedGroups]);
     const selectedTrackIndex = useMemo(() => {
         if (!selectedTrackId || selectedTrackId === 'master') return -1;
         return projectTracks.findIndex((t) => t.id === selectedTrackId);
@@ -975,11 +1028,13 @@ export const DawShell = () => {
     // Keep timeline hit-test geometry identical to TrackInspector rows.
     const timelineTrackHeights = useMemo(() => {
         const clamp = (h: number) => Math.max(TRACK_HEIGHT_MIN, Math.min(TRACK_HEIGHT_MAX, Math.round(h)));
-        return projectTracksSnapshot.map((t) => {
+        return projectTracksSnapshot.map((t, idx) => {
+            // Collapsed group children → 0 height in Timeline
+            if (hiddenTrackIndices.has(idx)) return 0;
             const persisted = Number.isFinite(t.height) ? t.height : TRACK_HEIGHT_BASE;
             return clamp(persisted);
         });
-    }, [projectTracksSnapshot, TRACK_HEIGHT_BASE, TRACK_HEIGHT_MIN, TRACK_HEIGHT_MAX]);
+    }, [projectTracksSnapshot, TRACK_HEIGHT_BASE, TRACK_HEIGHT_MIN, TRACK_HEIGHT_MAX, hiddenTrackIndices]);
 
     const handleFitTimelineHorizontally = useCallback(() => {
         setFitTimelineToken((v) => v + 1);
@@ -1404,6 +1459,8 @@ export const DawShell = () => {
                                             scrollTop={timelineScrollTop}
                                             onScrollTop={handleInspectorScrollTop}
                                             mixerFocusMode={false}
+                                            collapsedGroups={collapsedGroups}
+                                            onToggleGroupCollapse={toggleGroupCollapse}
                                         />
                                     </Suspense>
                                 </ErrorBoundary>
@@ -1520,6 +1577,7 @@ export const DawShell = () => {
                                         playheadBeat={playheadBeat}
                                         totalBars={selectedMidiTotalBars}
                                         clipLengthBeats={selectedTimelineClip.durationBeats}
+                                        color={selectedTimelineClip.color || projectTracks.find((t) => t.id === selectedTrackId)?.color || '#4a9eff'}
                                     />
                                 </Suspense>
                             ) : selectedTimelineClip?.type === 'audio' ? (

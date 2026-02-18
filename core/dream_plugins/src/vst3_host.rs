@@ -3695,6 +3695,50 @@ impl Vst3Instance {
             let on_size_result = ((*(*plug_view).vtbl).on_size)(plug_view, &mut size_rect);
             info!("[VST3-EDITOR] Step 8b: onSize({}x{}) returned {}", width, height, on_size_result);
 
+            // ── FEATURE-2 FIX: Re-query getSize() after attached() ──
+            // Some plugins (e.g. Serum2) report different sizes before and after
+            // attached(). Re-query and resize the window to match the actual
+            // preferred dimensions. This gives consistent, nearly-square windows.
+            let mut post_rect = ViewRect {
+                left: 0,
+                top: 0,
+                right: width as i32,
+                bottom: height as i32,
+            };
+            let post_size_ok = ((*(*plug_view).vtbl).get_size)(plug_view, &mut post_rect);
+            if post_size_ok == K_RESULT_OK {
+                let post_w = ((post_rect.right - post_rect.left).max(420) as f64).min(960.0);
+                let post_h = ((post_rect.bottom - post_rect.top).max(300) as f64).min(720.0);
+                if (post_w - width).abs() > 1.0 || (post_h - height).abs() > 1.0 {
+                    info!(
+                        "[VST3-EDITOR] Step 8c: post-attached getSize differs: {}x{} → {}x{}, resizing window",
+                        width, height, post_w, post_h
+                    );
+                    let new_content_rect = NSRect::new(
+                        NSPoint::new(0.0, 0.0),
+                        NSSize::new(post_w, post_h),
+                    );
+                    window.setContentSize_(NSSize::new(post_w, post_h));
+                    window.center();
+
+                    // Update pluginHostView frame to match
+                    type MsgSendSetFrame = unsafe extern "C" fn(id, *mut c_void, NSRect);
+                    let sel_set_frame_fn = sel_registerName(b"setFrame:\0".as_ptr() as _);
+                    let send_set_frame: MsgSendSetFrame =
+                        std::mem::transmute(objc_msgSend as *const ());
+                    send_set_frame(plugin_host_view, sel_set_frame_fn, new_content_rect);
+
+                    // Notify plugin of new size
+                    let mut new_size_rect = ViewRect {
+                        left: 0,
+                        top: 0,
+                        right: post_w as i32,
+                        bottom: post_h as i32,
+                    };
+                    let _ = ((*(*plug_view).vtbl).on_size)(plug_view, &mut new_size_rect);
+                }
+            }
+
             // ── Diagnostic: inspect NSView hierarchy after attached() ──
             // Write diagnostics directly to a file (Tauri captures stdout/stderr)
             {

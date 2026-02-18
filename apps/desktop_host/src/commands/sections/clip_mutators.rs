@@ -904,6 +904,10 @@ async fn merge_clips_cmd(
             fade_out_frames: 0,
             is_selected: false,
             is_muted: false,
+            // BUG-6 FIX: Reset source_offset to ZERO for merged clips.
+            // Previously inherited from first.clone(), causing the playback
+            // cursor inside merged clips to start at the wrong position.
+            source_offset: AbsoluteTime::ZERO,
             ..first.clone()
         };
         let insert_at = track

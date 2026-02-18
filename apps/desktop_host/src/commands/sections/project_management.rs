@@ -7502,3 +7502,22 @@ fn set_arrangement_grid_cmd(
     project_state.mark_dirty(&name, Some(&app))?;
     Ok(())
 }
+
+#[tauri::command]
+fn set_key_signature_cmd(
+    enabled: bool,
+    tonic: String,
+    mode: String,
+    project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    project.key_sig_enabled = enabled;
+    project.key_sig_tonic = tonic;
+    project.key_sig_mode = mode;
+    let name = project.name.clone();
+    drop(project);
+
+    project_state.mark_dirty(&name, Some(&app))?;
+    Ok(())
+}

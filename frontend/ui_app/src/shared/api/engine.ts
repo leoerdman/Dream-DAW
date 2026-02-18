@@ -635,6 +635,10 @@ export const setArrangementGrid = (
         fixed,
     });
 
+/** Persist key signature to the project file. */
+export const setKeySignature = (enabled: boolean, tonic: string, mode: string) =>
+    invoke<void>('set_key_signature_cmd', { enabled, tonic, mode });
+
 // ── Settings ─────────────────────────────────────────────────────────────
 
 /** Get current application settings. */

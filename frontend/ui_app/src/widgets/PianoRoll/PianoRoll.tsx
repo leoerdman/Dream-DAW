@@ -569,6 +569,9 @@ export const PianoRoll = memo(function PianoRoll({
     // Bug #40: track whether a drag-selection is currently in progress, to prevent
     // note insertion from firing on the click-up that ends a selection drag.
     const isDragSelectingRef = useRef(false);
+    // BUG-3 FIX: Track whether a note drag/resize is in progress to prevent
+    // the subsequent click event from inserting a ghost note at the grid level.
+    const isDragInProgressRef = useRef(false);
 
     const auditionOffTimersRef = useRef<Map<number, number>>(new Map());
 
@@ -748,6 +751,8 @@ export const PianoRoll = memo(function PianoRoll({
             if (tool === 'draw' && pianoPencilMode) {
                 // Bug #40: if this click ended a drag-selection, don't insert a note.
                 if (isDragSelectingRef.current) return;
+                // BUG-3 FIX: if this click follows a note drag/resize, don't insert.
+                if (isDragInProgressRef.current) return;
                 // Bug #24: debounce — ignore click if a note was just inserted
                 // at nearly the same position (double-click protection).
                 const now = Date.now();
@@ -767,6 +772,8 @@ export const PianoRoll = memo(function PianoRoll({
     const handleGridDoubleClick = useCallback((e: React.MouseEvent) => {
         editorRootRef.current?.focus();
         if (tool !== 'draw' || pianoPencilMode) return;
+        // BUG-3 FIX: if this double-click follows a note drag/resize, don't insert.
+        if (isDragInProgressRef.current) return;
         // In non-pencil draw mode, double-click inserts. Single-click does not.
         // Record timestamp so a follow-up onClick (if any) won't re-insert.
         lastInsertPosRef.current = { x: e.clientX, y: e.clientY, t: Date.now() };
@@ -972,6 +979,8 @@ export const PianoRoll = memo(function PianoRoll({
             e.stopPropagation();
             e.preventDefault();
             editorRootRef.current?.focus();
+            // BUG-3 FIX: Flag that a note drag/resize is starting.
+            isDragInProgressRef.current = true;
 
             const startX = e.clientX;
             const startY = e.clientY;
@@ -1083,6 +1092,11 @@ export const PianoRoll = memo(function PianoRoll({
             const onUp = () => {
                 window.removeEventListener('mousemove', onMove);
                 window.removeEventListener('mouseup', onUp);
+                // BUG-3 FIX: Clear drag flag after rAF so any trailing click
+                // event from this mouseup doesn't trigger note insertion.
+                requestAnimationFrame(() => {
+                    isDragInProgressRef.current = false;
+                });
             };
             window.addEventListener('mousemove', onMove);
             window.addEventListener('mouseup', onUp);

@@ -194,5 +194,6 @@ pub(crate) fn invoke_handler(
         create_backup_cmd,
         mark_dirty_cmd,
         sync_title_cmd,
+        set_key_signature_cmd,
     ]
 }

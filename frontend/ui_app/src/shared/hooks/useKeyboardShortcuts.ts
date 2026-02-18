@@ -318,34 +318,24 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                     let clipsAtPlayhead = (targets.length > 0
                         // Ableton-like: split ALL selected clips that intersect split cursor.
                         ? timelineClips.filter((clip) => targets.includes(clip.id))
-                        // No explicit selection: split any clip intersecting cursor.
-                        : timelineClips)
+                        // No explicit selection: split only on the selected track.
+                        : timelineClips.filter((clip) => clip.trackIndex === selectedTrackIndex))
                         .filter(containsSplit);
 
                     if (hasThinMultiCursor && marqueeSelection) {
                         const minTrack = Math.min(marqueeSelection.startTrack, marqueeSelection.endTrack);
                         const maxTrack = Math.max(marqueeSelection.startTrack, marqueeSelection.endTrack);
-                        const rangeFiltered = timelineClips
-                            .filter((clip) => clip.trackIndex >= minTrack && clip.trackIndex <= maxTrack)
-                            .filter(containsSplit);
-                        if (targets.length > 0) {
-                            const selectedInRange = rangeFiltered.filter((clip) => targets.includes(clip.id));
-                            clipsAtPlayhead = selectedInRange.length > 0 ? selectedInRange : rangeFiltered;
-                        } else {
-                            clipsAtPlayhead = rangeFiltered;
-                        }
-                    }
-
-                    // Legacy safety path: if caller provided only track selection and no clips,
-                    // keep selected-track preference before global split.
-                    if (clipsAtPlayhead.length === 0 && targets.length === 0 && selectedTrackIndex >= 0) {
+                        // Multi-cursor: override to only tracks within the marquee range
                         clipsAtPlayhead = timelineClips
-                            .filter((clip) => clip.trackIndex === selectedTrackIndex)
+                            .filter((clip) => clip.trackIndex >= minTrack && clip.trackIndex <= maxTrack)
                             .filter(containsSplit);
                     }
 
                     if (clipsAtPlayhead.length === 0) return;
-                    await Promise.all(clipsAtPlayhead.map((clip) => engine.splitClip(clip.id, splitFrame)));
+                    // Sequential split: prevents stale-state races from parallel backend calls
+                    for (const clip of clipsAtPlayhead) {
+                        await engine.splitClip(clip.id, splitFrame);
+                    }
                     onProjectMutated();
                 } catch (err) {
                     console.error('[Shortcuts] Split clip failed:', err);

@@ -2546,6 +2546,82 @@ impl PluginHostState {
         Ok(())
     }
 
+    /// Captures the current state of all loaded VST3 plugin instances and
+    /// writes the state blobs back into the project model.
+    ///
+    /// This ensures that knob positions, preset selections, and any other
+    /// plugin-internal state is persisted across save/load cycles.
+    ///
+    /// Called just before project serialization (save_project / save_project_as).
+    fn capture_plugin_states_into_project(&self, project: &mut dream_models::project::Project) -> Result<(), String> {
+        use base64::Engine;
+
+        let slot_map = self.slot_instance_snapshot();
+        let host = self.host.lock().map_err(|e| format!("PluginHost lock: {e}"))?;
+        let instance_states = host.save_all_states();
+
+        if instance_states.is_empty() {
+            return Ok(());
+        }
+
+        // Build reverse map: instance_id → Vec<slot_id>
+        // (multiple slots can share the same instance)
+        let mut instance_to_slots: std::collections::HashMap<uuid::Uuid, Vec<uuid::Uuid>> =
+            std::collections::HashMap::new();
+        for (slot_id, instance_id) in slot_map.iter() {
+            instance_to_slots
+                .entry(*instance_id)
+                .or_default()
+                .push(*slot_id);
+        }
+
+        let mut updated_count = 0usize;
+
+        for (instance_id, state_bytes) in &instance_states {
+            let Some(slot_ids) = instance_to_slots.get(instance_id) else {
+                continue;
+            };
+
+            let b64 = base64::engine::general_purpose::STANDARD.encode(state_bytes);
+
+            for slot_id in slot_ids {
+                // Find the slot in the project's device trees and update its state blob
+                for track in &mut project.tracks {
+                    // Walk effects chain (Vec<DeviceNode>)
+                    for device in &mut track.effects {
+                        for slot in device.collect_plugin_slots_mut() {
+                            if slot.id == *slot_id {
+                                slot.external_state_blob = Some(b64.clone());
+                                slot.external_state_blob_kind = Some("ProcessorState".to_string());
+                                updated_count += 1;
+                            }
+                        }
+                    }
+                    // Walk instrument (Option<DeviceNode>)
+                    if let Some(inst) = &mut track.instrument {
+                        for slot in inst.collect_plugin_slots_mut() {
+                            if slot.id == *slot_id {
+                                slot.external_state_blob = Some(b64.clone());
+                                slot.external_state_blob_kind = Some("ProcessorState".to_string());
+                                updated_count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if updated_count > 0 {
+            log::info!(
+                "[PluginHost] Captured live state for {} plugin slot(s) ({} instances)",
+                updated_count,
+                instance_states.len()
+            );
+        }
+
+        Ok(())
+    }
+
     fn ensure_loaded_instance_for_slot(
         &self,
         slot_id: Uuid,

@@ -701,6 +701,18 @@ impl DeviceNode {
         }
     }
 
+    /// Collects all `PluginSlot` mutable references recursively (flattened).
+    pub fn collect_plugin_slots_mut(&mut self) -> Vec<&mut PluginSlot> {
+        match self {
+            Self::Single(slot) => vec![slot],
+            Self::Rack(rack) => rack
+                .chains
+                .iter_mut()
+                .flat_map(|chain| chain.devices.iter_mut().flat_map(|d| d.collect_plugin_slots_mut()))
+                .collect(),
+        }
+    }
+
     // ── Mutable Accessors ─────────────────────────────────────────────
 
     /// Returns a mutable reference to the inner `PluginSlot`, if this is `Single`.

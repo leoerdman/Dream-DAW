@@ -300,6 +300,14 @@ pub trait PluginInstance: Send {
         ))
     }
 
+    /// Serializes the plugin's current state (all knob positions, preset data).
+    ///
+    /// Returns the raw byte blob suitable for `load_state_blob` or project persistence.
+    /// Default: returns empty Vec (no state for built-in effects).
+    fn save_state(&self) -> Result<Vec<u8>, PluginError> {
+        Ok(Vec::new())
+    }
+
     /// Opens the plugin editor window (native GUI), if supported.
     ///
     /// Called from the UI thread. Implementations may return an error

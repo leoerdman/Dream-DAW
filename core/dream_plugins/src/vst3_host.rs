@@ -4695,6 +4695,44 @@ impl PluginHost {
         self.instances.len()
     }
 
+    /// Returns an immutable reference to a plugin instance by its ID.
+    pub fn get(&self, id: Uuid) -> Option<&Box<dyn PluginInstance>> {
+        let idx = *self.instance_index.get(&id)?;
+        self.instances.get(idx)
+    }
+
+    /// Captures the current state of all loaded plugin instances.
+    ///
+    /// Returns a map of instance_id → raw state bytes for each instance
+    /// that successfully serializes its state. Errors are logged but do not
+    /// prevent other instances from being captured.
+    pub fn save_all_states(&self) -> HashMap<Uuid, Vec<u8>> {
+        let mut states = HashMap::new();
+        for instance in &self.instances {
+            match instance.save_state() {
+                Ok(bytes) if !bytes.is_empty() => {
+                    info!(
+                        "[PluginHost] Captured state for '{}' ({} bytes)",
+                        instance.descriptor().name,
+                        bytes.len()
+                    );
+                    states.insert(instance.id(), bytes);
+                }
+                Ok(_) => {
+                    // Empty state — built-in effect or no state to save
+                }
+                Err(e) => {
+                    log::warn!(
+                        "[PluginHost] Failed to capture state for '{}': {}",
+                        instance.descriptor().name,
+                        e
+                    );
+                }
+            }
+        }
+        states
+    }
+
     /// Updates the audio configuration for all instances.
     pub fn set_audio_config(
         &mut self,

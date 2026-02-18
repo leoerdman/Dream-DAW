@@ -436,7 +436,7 @@ export const DeviceRack = ({
     // ── Plugin editor window persistence per track ──
     const openEditorsByTrack = useEngineStore((s) => s.openEditorsByTrack);
     const togglePluginEditor = useEngineStore((s) => s.togglePluginEditor);
-    const closeAllPluginEditors = useEngineStore((s) => s.closeAllPluginEditors);
+    // closeAllPluginEditors removed — see cleanup notes at former BUG-012 block
     const prevTrackIdRef = useRef<string>(selectedTrackId);
     const [paramSnapshotsByDevice, setParamSnapshotsByDevice] = useState<
         Record<string, { A?: Record<string, number>; B?: Record<string, number>; active?: 'A' | 'B' }>
@@ -582,14 +582,13 @@ export const DeviceRack = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedTrackId]);
 
-    // BUG-012: Ensure all native windows are closed when DeviceRack unmounts.
-    // This prevents "double-terminate" issues when the project is closed or 
-    // the rack is removed/hidden.
-    useEffect(() => {
-        return () => {
-            void closeAllPluginEditors();
-        };
-    }, [closeAllPluginEditors]);
+    // NOTE: We intentionally do NOT close all plugin editors on DeviceRack
+    // unmount. The panel switch (Shift+Tab: rack ↔ clip) unmounts/remounts
+    // DeviceRack, and closing editors here would crash because the audio
+    // thread is simultaneously calling process() on those plugin instances.
+    // Editors are cleaned up by:
+    //   - Track switch (useEffect above at line 558)
+    //   - Project close (handled by PluginHostState::unload_all_instances)
     const chain = useMemo((): DeviceSlot[] => {
         if (!selectedTrack) return [];
 

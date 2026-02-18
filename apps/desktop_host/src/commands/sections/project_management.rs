@@ -7201,10 +7201,19 @@ fn new_project(
 #[tauri::command]
 async fn save_project(
     project_state: tauri::State<'_, ProjectState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let (snapshot, path, project_name) = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+        // ── Capture live plugin state into the project model ──
+        // This ensures all knob positions, preset selections, and internal
+        // plugin state are persisted before serialization.
+        if let Err(e) = plugin_host_state.capture_plugin_states_into_project(&mut project) {
+            log::warn!("[Save] Plugin state capture failed (non-fatal): {e}");
+        }
+
         let file_path_guard = project_state.file_path.lock().map_err(|e| e.to_string())?;
         let path = file_path_guard
             .as_ref()
@@ -7252,12 +7261,19 @@ async fn save_project(
 async fn save_project_as(
     path: String,
     project_state: tauri::State<'_, ProjectState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let file_path = PathBuf::from(&path);
     log::info!("[SaveAs] Received path: {:?}", file_path);
     let (snapshot, project_name) = {
-        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+        // ── Capture live plugin state ──
+        if let Err(e) = plugin_host_state.capture_plugin_states_into_project(&mut project) {
+            log::warn!("[SaveAs] Plugin state capture failed (non-fatal): {e}");
+        }
+
         let computed_name = file_path
             .file_stem()
             .and_then(|s| s.to_str())

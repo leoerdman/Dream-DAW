@@ -1154,13 +1154,18 @@ impl Vst3NoteTracker {
     }
 
     /// Flush all active notes: generates note-off events for every
-    /// currently active note + CC 123 (All Notes Off) on channel 0.
+    /// currently active note + CC 120 (All Sound Off) + CC 123 (All Notes Off)
+    /// on channel 0. CC120 immediately kills ALL audio output including reverb
+    /// and delay tails — essential for synths like Serum with internal FX.
     fn flush_all(&mut self, out: &mut Vec<MidiEvent>) {
         for &(pitch, channel) in &self.active {
             out.push(MidiEvent::note_off(0, channel, pitch, 0));
         }
         self.active.clear();
-        // CC 123 = All Notes Off on channel 0 — universal panic message.
+        // CC 120 = All Sound Off — immediately silences all audio,
+        // including synth tails, reverbs, and delays (enterprise standard).
+        out.push(MidiEvent::cc(0, 0, 120, 0));
+        // CC 123 = All Notes Off — releases all held notes.
         out.push(MidiEvent::cc(0, 0, 123, 0));
     }
 

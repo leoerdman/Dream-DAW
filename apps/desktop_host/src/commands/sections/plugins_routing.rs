@@ -2753,3 +2753,39 @@ fn eager_activate_external_plugins(
         "skipped": skipped,
     }))
 }
+
+/// Set the bypass state for any plugin slot (instrument or effect) on a track.
+/// Updates the project model `is_bypassed` flag and rebuilds the external FX
+/// snapshot so bypassed plugins are excluded from the audio processing pipeline.
+#[tauri::command]
+fn set_slot_bypass_cmd(
+    track_id: String,
+    slot_id: String,
+    bypassed: bool,
+    project_state: tauri::State<'_, ProjectState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track id: {e}"))?;
+    let slot_uuid = Uuid::parse_str(&slot_id).map_err(|e| format!("Invalid slot id: {e}"))?;
+
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let slot = find_slot_on_track_mut(&mut project, track_uuid, slot_uuid).ok_or_else(|| {
+        format!("Plugin slot not found: track={track_id}, slot={slot_id}")
+    })?;
+
+    slot.is_bypassed = bypassed;
+    log::info!(
+        "[IPC] set_slot_bypass_cmd(track={}, slot={}, bypassed={}) plugin={}",
+        track_id, slot_id, bypassed, slot.plugin_id
+    );
+
+    let project_name = project.name.clone();
+    clip_pool_state.rebuild_snapshot(&project);
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+    Ok(())
+}

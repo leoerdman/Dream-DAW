@@ -177,6 +177,7 @@ pub(crate) fn invoke_handler(
         set_external_plugin_param_for_slot_cmd,
         set_sampler_sample_cmd,
         eager_activate_external_plugins,
+        set_slot_bypass_cmd,
         // Device Chain
         add_device_cmd,
         remove_device_cmd,

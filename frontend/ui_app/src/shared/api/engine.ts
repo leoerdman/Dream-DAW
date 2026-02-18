@@ -279,6 +279,11 @@ export const removeDevice = (trackIndex: number, slotIndex: number) =>
 export const bypassDevice = (trackIndex: number, slotIndex: number, bypassed: boolean) =>
     invoke<void>('bypass_device_cmd', { trackIndex, slotIndex, bypassed });
 
+/** Bypass or enable any plugin slot (instrument or effect) on a track by UUID.
+ *  Updates the project model and rebuilds the external FX processing snapshot. */
+export const setSlotBypass = (trackId: string, slotId: string, bypassed: boolean) =>
+    invoke<void>('set_slot_bypass_cmd', { trackId, slotId, bypassed });
+
 /** Set a parameter on a device in a track's insert chain. */
 export const setDeviceParam = (trackIndex: number, slotIndex: number, paramIndex: number, value: number) =>
     invoke<void>('set_device_param_cmd', { trackIndex, slotIndex, paramIndex, value });

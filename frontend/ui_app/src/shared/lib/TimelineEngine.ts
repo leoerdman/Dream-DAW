@@ -1059,6 +1059,9 @@ export class TimelineEngine {
                 } else {
                     // Header click/drag path: arm drag, start moving only after threshold.
                     this.onClipClick?.(hit.clipId, e.shiftKey || e.metaKey);
+                    // Move edit cursor to clip start so the cursor line hides on selection.
+                    this.setEditCursor(clip.startBeat, hit.trackIndex, hit.trackIndex);
+                    this.onEditCursorChange?.(clip.startBeat, hit.trackIndex, hit.trackIndex);
 
                     // Bug #100: Initialize co-movers if multiple clips are selected.
                     const selectedClipIds = this._clips.filter(c => c.selected).map(c => c.id);

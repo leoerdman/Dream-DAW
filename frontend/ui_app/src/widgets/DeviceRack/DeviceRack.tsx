@@ -911,14 +911,29 @@ export const DeviceRack = ({
         const nextBypassed = !currentBypassed;
         setLocalBypass((prev) => ({ ...prev, [device.id]: nextBypassed }));
 
-        // Internal effects are processed by runtime device chain -> keep bypass in sync.
-        if (!selectedTrack || device.source !== 'internal') return;
-        const trackIdx = projectTracks.findIndex((t) => t.id === selectedTrack.id);
-        const slotIdx = selectedTrack.effects.findIndex((fx) => fx.id === device.id);
-        if (trackIdx < 0 || slotIdx < 0) return;
-        void engineApi.bypassDevice(trackIdx, slotIdx, nextBypassed).catch((err) => {
-            console.error('[DeviceRack] bypassDevice failed:', err);
+        if (!selectedTrack) return;
+
+        // Always update the project model bypass state for every plugin type.
+        // This ensures rebuild_external_fx_snapshot respects bypass for external
+        // plugins (VSTs), instruments, and internal effects alike.
+        void engineApi.setSlotBypass(
+            selectedTrack.id.toString(),
+            device.id,
+            nextBypassed,
+        ).catch((err) => {
+            console.error('[DeviceRack] setSlotBypass failed:', err);
         });
+
+        // Internal effects also need the runtime device chain bypass sync.
+        if (device.source === 'internal') {
+            const trackIdx = projectTracks.findIndex((t) => t.id === selectedTrack.id);
+            const slotIdx = selectedTrack.effects.findIndex((fx) => fx.id === device.id);
+            if (trackIdx >= 0 && slotIdx >= 0) {
+                void engineApi.bypassDevice(trackIdx, slotIdx, nextBypassed).catch((err) => {
+                    console.error('[DeviceRack] bypassDevice failed:', err);
+                });
+            }
+        }
     }, [localBypass, selectedTrack, projectTracks]);
 
     const setPluginParam = useCallback((deviceId: string, paramName: string, value: number) => {

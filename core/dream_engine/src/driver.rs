@@ -2586,7 +2586,7 @@ pub fn start_audio_thread_on_device(
                                                     &mut external_left[..c],
                                                     &mut external_right[..c],
                                                 ];
-                                                match host.process_with_sidechain(
+                                                let _ = host.process_with_sidechain(
                                                     instance_id,
                                                     &main_inputs,
                                                     sc_pair
@@ -2595,38 +2595,16 @@ pub fn start_audio_thread_on_device(
                                                     &mut out_slices,
                                                     c,
                                                     &vst3_midi_scratch,
-                                                ) {
-                                                    Ok(_) => {
-                                                        fx_buf_l.copy_from_slice(
-                                                            &external_left[..c],
-                                                        );
-                                                        fx_buf_r.copy_from_slice(
-                                                            &external_right[..c],
-                                                        );
-                                                    }
-                                                    Err(e) => {
-                                                        // BUG FIX: Implicit passthrough.
-                                                        // Since fx_buf_l/r were never modified (only copied FROM),
-                                                        // we don't need to do anything to restore them.
-                                                        // This avoids borrow checker errors with main_inputs aliasing.
-
-                                                        // ENTERPRISE DIAGNOSTICS: Throttled logging for audio thread errors.
-                                                        static ERR_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-                                                        if ERR_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 100 == 0 {
-                                                            log::error!(
-                                                                "[Audio] Plugin processing failed (slot={:?}, error={:?}). Falling back to passthrough.",
-                                                                runtime_slot.slot_id,
-                                                                e
-                                                            );
-                                                        }
-                                                    }
-                                                }
+                                                );
+                                                fx_buf_l.copy_from_slice(
+                                                    &external_left[..c],
+                                                );
+                                                fx_buf_r.copy_from_slice(
+                                                    &external_right[..c],
+                                                );
                                             } else {
-                                                // BUG FIX: Case where instance_id is None or host is locked.
-                                                // If we have an external slot without an instance, we must
-                                                // ensure it's a passthrough, although rebuild_external_fx_snapshot
-                                                // usually filters these out.
-                                                // Note: fx_buf_l/r already contain the input here.
+                                                // No instance for this slot — passthrough.
+                                                // fx_buf_l/r already contain the input audio.
                                             }
                                         }
                                     }

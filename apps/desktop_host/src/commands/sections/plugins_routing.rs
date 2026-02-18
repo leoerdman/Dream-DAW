@@ -2158,7 +2158,27 @@ fn add_plugin_to_track_cmd(
         .ok_or_else(|| format!("Track not found: {}", payload.track_id))?;
 
     let slot = payload.slot.to_lowercase();
-    let canonical = canonical_internal_plugin(&payload.plugin_id, &payload.plugin_name);
+    // BUG-5 FIX: Only apply internal-plugin fuzzy mapping when the plugin_id
+    // looks like an ALS migration tag or an internal convention. External
+    // plugins (VST3, AU, VST2) have IDs containing path separators or known
+    // prefixes. Applying the fuzzy matcher to external VST3 names like
+    // "Operator" or "Sampler Pro" would silently replace them with built-in
+    // instruments, corrupting the project on save/reload.
+    let is_external_plugin = !payload.plugin_id.starts_with("internal://")
+        && (payload.plugin_id.contains('/')
+            || payload.plugin_id.contains('\\')
+            || payload.plugin_id.ends_with(".vst3")
+            || payload.plugin_id.ends_with(".vst")
+            || payload.plugin_id.ends_with(".component")
+            || payload.plugin_id.starts_with("com.")
+            || payload.plugin_id.starts_with("vst3:")
+            || payload.plugin_id.starts_with("au:")
+            || payload.plugin_id.starts_with("vst2:"));
+    let canonical = if is_external_plugin {
+        None
+    } else {
+        canonical_internal_plugin(&payload.plugin_id, &payload.plugin_name)
+    };
     let effective_plugin_id = canonical.map(|v| v.0.to_string()).unwrap_or_else(|| payload.plugin_id.clone());
     let effective_plugin_name = canonical
         .map(|v| {
@@ -2224,17 +2244,23 @@ fn add_plugin_to_track_cmd(
 
     let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
+    // CRITICAL: Plugin loading failure must NOT abort this function.
+    // The project model has already been mutated above (track.effects.push / track.instrument = ...),
+    // so we MUST continue to rebuild_external_fx_snapshot and mark_dirty to keep
+    // the audio engine consistent. Otherwise the clip snapshot sees the plugin but the
+    // FX snapshot doesn't, causing total sound loss on the track.
+    let mut plugin_load_error: Option<String> = None;
     if !effective_plugin_id.starts_with("internal://") {
-        plugin_host_state.ensure_loaded_instance_for_slot(new_slot_id, &effective_plugin_id)
-            .map_err(|err| {
-                log::error!(
-                    "[IPC] add_plugin_to_track_cmd slot runtime init failed (slot={}, plugin={}): {}",
-                    new_slot_id,
-                    effective_plugin_id,
-                    err
-                );
-                format!("Failed to load plugin: {}", err)
-            })?;
+        if let Err(err) = plugin_host_state.ensure_loaded_instance_for_slot(new_slot_id, &effective_plugin_id) {
+            log::warn!(
+                "[IPC] add_plugin_to_track_cmd: plugin '{}' failed to load (slot={}): {}. \
+                 The plugin slot will exist but be inactive until reloaded.",
+                effective_plugin_id,
+                new_slot_id,
+                err
+            );
+            plugin_load_error = Some(format!("Plugin '{}' failed to load: {}", effective_plugin_name, err));
+        }
     }
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
@@ -2264,6 +2290,10 @@ fn add_plugin_to_track_cmd(
     );
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
+    // Return any plugin loading error AFTER all state has been fully reconciled.
+    if let Some(err_msg) = plugin_load_error {
+        return Err(err_msg);
+    }
     Ok(())
 }
 

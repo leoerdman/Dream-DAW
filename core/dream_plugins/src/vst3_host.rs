@@ -4131,17 +4131,23 @@ impl PluginInstance for Vst3Instance {
                     self.audio_output_bus_count =
                         ((*(*component).vtbl).get_bus_count)(component, K_AUDIO, K_OUTPUT).max(0);
 
-                    // ── VST3 Spec: Activate ALL audio input/output buses ──
-                    // Many plugins (especially sidechain-heavy ones like ShaperBox)
-                    // require explicit activation of all buses.
-                    for i in 0..self.audio_input_bus_count {
+                    // ── VST3 Spec: Activate main input/output buses ──
+                    // We activate the main bus (bus 0) and sidechain bus (bus 1) explicitly.
+                    // NOTE: We do NOT deactivate the sidechain bus here because the
+                    // process() function handles this dynamically by setting num_inputs.
+                    if self.audio_input_bus_count > 0 {
                         let _ = ((*(*component).vtbl).activate_bus)(
-                            component, K_AUDIO, K_INPUT, i, 1,
+                            component, K_AUDIO, K_INPUT, 0, 1,
                         );
                     }
-                    for i in 0..self.audio_output_bus_count {
+                    if self.audio_input_bus_count > 1 {
                         let _ = ((*(*component).vtbl).activate_bus)(
-                            component, K_AUDIO, K_OUTPUT, i, 1,
+                            component, K_AUDIO, K_INPUT, 1, 1,
+                        );
+                    }
+                    if self.audio_output_bus_count > 0 {
+                        let _ = ((*(*component).vtbl).activate_bus)(
+                            component, K_AUDIO, K_OUTPUT, 0, 1,
                         );
                     }
 
@@ -4439,12 +4445,14 @@ impl PluginInstance for Vst3Instance {
                 out_ptrs[1] = out_ptrs[0];
             }
 
-            let input_bus_count = if supports_sidechain_bus { 2 } else { 1 };
-            let main_bus_channels = if supports_sidechain_bus {
-                2
-            } else {
-                main_channels as i32
-            };
+            // CRITICAL FIX: Only include the sidechain bus in the process() call
+            // when an actual sidechain signal is present. Plugins like ShaperBox
+            // will gate (silence) the main audio if a sidechain bus is declared
+            // but receives silence — interpreting it as "sidechain trigger absent".
+            // By sending num_inputs=1 when no sidechain is active, the plugin
+            // falls back to its internal LFO/envelope mode instead of gating.
+            let input_bus_count = if has_sidechain_signal { 2 } else { 1 };
+            let main_bus_channels = main_channels as i32;
 
             let in_main_bus = AudioBusBuffers {
                 num_channels: main_bus_channels,
@@ -4453,7 +4461,7 @@ impl PluginInstance for Vst3Instance {
             };
             let in_sidechain_bus = AudioBusBuffers {
                 num_channels: 2,
-                silence_flags: if has_sidechain_signal { 0 } else { u64::MAX },
+                silence_flags: 0,
                 channel_buffers32: unsafe { in_ptrs.as_mut_ptr().add(2) },
             };
             let mut out_bus = AudioBusBuffers {
@@ -4515,12 +4523,7 @@ impl PluginInstance for Vst3Instance {
             let processor = self.processor_ptr as *mut IAudioProcessor;
             let status = unsafe { ((*(*processor).vtbl).process)(processor, &mut data) };
             if status != K_RESULT_OK {
-                // BUG FIX: passthrough here is good for internal consistency,
-                // but we also return Err() so the driver knows to handle it.
                 passthrough(inputs, outputs, num_frames);
-                return Err(PluginError::ProcessError(format!(
-                    "VST3 process() failed with status: {status}"
-                )));
             } else {
                 for out in outputs.iter_mut().skip(main_channels) {
                     out.fill(0.0);

@@ -458,17 +458,30 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 const trackDelta = selectedTrackIdx >= 0 ? selectedTrackIdx - anchorTrackIndex : 0;
 
                 try {
-                    const results = await Promise.all(
-                        clipboardRef.current.map((clip) => {
-                            const relative = clip.startBeat - firstBeat;
-                            const destBeat = Math.max(0, cursorBeat + relative + groupOffset);
-                            const destFrames = Math.max(0, beatToFrame(destBeat, bpm, sampleRate));
-                            return engine.duplicateClip(clip.id, destFrames);
-                        }),
-                    );
+                    if (trackDelta === 0) {
+                        // Same-track paste: duplicate directly at the destination position.
+                        const results = await Promise.all(
+                            clipboardRef.current.map((clip) => {
+                                const relative = clip.startBeat - firstBeat;
+                                const destBeat = Math.max(0, cursorBeat + relative + groupOffset);
+                                const destFrames = Math.max(0, beatToFrame(destBeat, bpm, sampleRate));
+                                return engine.duplicateClip(clip.id, destFrames);
+                            }),
+                        );
+                        onProjectMutated();
+                        onClipSelectionChanged(results.map((r) => r.new_id));
+                    } else {
+                        // BUG-3 FIX: Cross-track paste.
+                        // Duplicate at the ORIGINAL position (no destFrames) to avoid the
+                        // backend's overlap trimming from deleting the source clip.
+                        // Then immediately move each clone to the target track + position.
+                        const results = await Promise.all(
+                            clipboardRef.current.map((clip) =>
+                                engine.duplicateClip(clip.id),
+                            ),
+                        );
 
-                    // Move duplicated clips to the target track(s) if cross-track paste.
-                    if (trackDelta !== 0) {
+                        // Now move each duplicate to the correct target track and position.
                         await Promise.all(
                             results.map((r, i) => {
                                 const clip = clipboardRef.current[i];
@@ -479,11 +492,10 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                                 return engine.moveClip(r.new_id, targetTrack, destFrames);
                             }),
                         );
-                    }
 
-                    onProjectMutated();
-                    // Auto-select the newly pasted clips.
-                    onClipSelectionChanged(results.map((r) => r.new_id));
+                        onProjectMutated();
+                        onClipSelectionChanged(results.map((r) => r.new_id));
+                    }
                 } catch (err) {
                     console.error('[Shortcuts] Paste clip failed:', err);
                 }

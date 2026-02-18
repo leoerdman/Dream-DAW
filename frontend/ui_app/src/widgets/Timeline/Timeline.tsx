@@ -605,7 +605,13 @@ export const Timeline = (props: TimelineProps) => {
             const engine = engineRef.current;
             const canvas = canvasRef.current;
             if (!engine || !canvas) {
-                useDragStore.getState().endDrag();
+                // BUG-1 FIX: Only end drag if no other zone will handle it.
+                // Use rAF so bubble-phase handlers run first.
+                requestAnimationFrame(() => {
+                    if (useDragStore.getState().draggingItem) {
+                        useDragStore.getState().endDrag();
+                    }
+                });
                 return;
             }
 
@@ -616,28 +622,43 @@ export const Timeline = (props: TimelineProps) => {
                 e.clientY >= rect.top &&
                 e.clientY <= rect.bottom;
 
-            const acceptance = canDropInZone(draggingItem, 'timeline-track');
-            if (inside && acceptance.allowed) {
-                const beat = Math.max(0, Math.round(engine.viewport.screenToBeats(e.clientX, rect)));
-                const track = engine.viewport.screenToTrack(e.clientY, rect);
-                commandBusRef.current.emit({
-                    type: 'drop',
-                    item: {
-                        id: draggingItem.id,
-                        name: draggingItem.name,
-                        type: draggingItem.type,
-                        path: draggingItem.path,
-                        durationSeconds: draggingItem.durationSeconds,
-                        slotHint: draggingItem.slotHint,
-                    },
-                    trackIndex: track,
-                    beat,
+            if (inside) {
+                // Drop happened inside the timeline canvas — handle it here.
+                const acceptance = canDropInZone(draggingItem, 'timeline-track');
+                if (acceptance.allowed) {
+                    const beat = Math.max(0, Math.round(engine.viewport.screenToBeats(e.clientX, rect)));
+                    const track = engine.viewport.screenToTrack(e.clientY, rect);
+                    commandBusRef.current.emit({
+                        type: 'drop',
+                        item: {
+                            id: draggingItem.id,
+                            name: draggingItem.name,
+                            type: draggingItem.type,
+                            path: draggingItem.path,
+                            durationSeconds: draggingItem.durationSeconds,
+                            slotHint: draggingItem.slotHint,
+                        },
+                        trackIndex: track,
+                        beat,
+                    });
+                }
+                engine.setDropTarget(null);
+                engine.setGhostClip(null);
+                useDragStore.getState().endDrag();
+            } else {
+                // BUG-1 FIX: Mouse is OUTSIDE the canvas — do NOT endDrag() here.
+                // Let other drop zones (sampler surface, device rack, track inspector)
+                // handle the drag in the bubble phase. Clean up the ghost clip only.
+                engine.setDropTarget(null);
+                engine.setGhostClip(null);
+                // Fallback: if no other zone consumed the drag after bubble phase,
+                // clean up the zombie drag state via rAF.
+                requestAnimationFrame(() => {
+                    if (useDragStore.getState().draggingItem) {
+                        useDragStore.getState().endDrag();
+                    }
                 });
             }
-
-            engine.setDropTarget(null);
-            engine.setGhostClip(null);
-            useDragStore.getState().endDrag();
         };
 
         window.addEventListener('mouseup', onMouseUp, { capture: true });

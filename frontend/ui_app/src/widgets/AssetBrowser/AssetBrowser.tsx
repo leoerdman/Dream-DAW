@@ -1802,6 +1802,10 @@ export const AssetBrowser = () => {
                                                     const dy = me.clientY - startY;
                                                     if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
                                                         dragStarted = true;
+                                                        // BUG-2 FIX: Suppress scroll on the browser file list while dragging.
+                                                        if (fileListRef.current) {
+                                                            fileListRef.current.style.pointerEvents = 'none';
+                                                        }
                                                         const knownDuration = isAudio
                                                             ? item.durationSeconds
                                                             ?? audioDurationSecRef.current[item.path!]
@@ -1831,6 +1835,10 @@ export const AssetBrowser = () => {
                                                 };
                                                 const onUp = () => {
                                                     cancelled = true;
+                                                    // BUG-2 FIX: Restore pointer-events on the file list.
+                                                    if (fileListRef.current) {
+                                                        fileListRef.current.style.pointerEvents = '';
+                                                    }
                                                     window.removeEventListener('mousemove', onMove);
                                                     window.removeEventListener('mouseup', onUp);
                                                 };
@@ -2008,6 +2016,10 @@ export const AssetBrowser = () => {
                                                     const dy = me.clientY - startY;
                                                     if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
                                                         dragStarted = true;
+                                                        // BUG-2 FIX: Suppress scroll on the browser file list while dragging.
+                                                        if (fileListRef.current) {
+                                                            fileListRef.current.style.pointerEvents = 'none';
+                                                        }
                                                         useDragStore.getState().startDrag({
                                                             id: item.id,
                                                             name: item.name,
@@ -2019,6 +2031,10 @@ export const AssetBrowser = () => {
                                                     }
                                                 };
                                                 const onUp = () => {
+                                                    // BUG-2 FIX: Restore pointer-events on the file list.
+                                                    if (fileListRef.current) {
+                                                        fileListRef.current.style.pointerEvents = '';
+                                                    }
                                                     window.removeEventListener('mousemove', onMove);
                                                     window.removeEventListener('mouseup', onUp);
                                                 };

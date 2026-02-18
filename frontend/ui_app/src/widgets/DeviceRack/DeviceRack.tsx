@@ -560,7 +560,11 @@ export const DeviceRack = ({
         prevTrackIdRef.current = selectedTrackId;
         if (prevId === selectedTrackId) return;
 
-        // Close editors for the track we are leaving
+        // Close editors for the track we are leaving and clear their state.
+        // BUG-4 FIX: Do NOT auto-reopen editors on track return, because the
+        // macOS red close button can silently close the native window without
+        // notifying the frontend. Clearing the state here means the user must
+        // toggle the UI button to reopen — the correct UX.
         const prevSlots = openEditorsByTrack[prevId];
         if (prevSlots && prevSlots.size > 0 && prevId) {
             for (const slotId of prevSlots) {
@@ -568,16 +572,10 @@ export const DeviceRack = ({
                     console.warn('[DeviceRack] close editor on track leave failed:', err),
                 );
             }
-        }
-
-        // Reopen editors for the track we are entering
-        const nextSlots = openEditorsByTrack[selectedTrackId];
-        if (nextSlots && nextSlots.size > 0 && selectedTrackId) {
-            for (const slotId of nextSlots) {
-                engineApi.openPluginWindowForSlot(selectedTrackId, slotId).catch((err) =>
-                    console.warn('[DeviceRack] reopen editor on track enter failed:', err),
-                );
-            }
+            // Clear the state so editors don't auto-reopen on re-entry.
+            useEngineStore.setState((s) => ({
+                openEditorsByTrack: { ...s.openEditorsByTrack, [prevId]: new Set<string>() },
+            }));
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedTrackId]);

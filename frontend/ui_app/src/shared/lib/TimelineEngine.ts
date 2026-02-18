@@ -1455,14 +1455,23 @@ export class TimelineEngine {
                     const isTinyMove =
                         Math.abs(deltaBeat) < beatCommitThreshold && Math.abs(deltaTrack) < 0.5;
                     if (isTinyMove) {
-                        // Bug #76: restore the clip's visual position to original since
-                        // we're not committing the move — otherwise it stays displaced.
+                        // Bug #76: restore the dragged clip's visual position.
                         const clipToRestore = this._clips.find(c => c.id === this._drag.clipId);
                         if (clipToRestore) {
                             clipToRestore.startBeat = this._drag.clipOriginalBeat;
                             clipToRestore.trackIndex = this._drag.clipOriginalTrack;
-                            this._requestRedraw();
                         }
+                        // Also restore co-movers to their original positions.
+                        if (this._drag.coMoverOrigins) {
+                            for (const [id, origin] of this._drag.coMoverOrigins) {
+                                const co = this._clips.find(c => c.id === id);
+                                if (co) {
+                                    co.startBeat = origin.beat;
+                                    co.trackIndex = origin.track;
+                                }
+                            }
+                        }
+                        this._requestRedraw();
                         break;
                     }
                     const finalBeat = this._snapBeat(
@@ -1473,12 +1482,22 @@ export class TimelineEngine {
                         Math.min(this._viewport.trackCount - 1, this._drag.clipOriginalTrack + deltaTrack),
                     );
 
-                    // Only fire callback if position actually changed
+                    // Fire callback for the primary dragged clip if position changed.
                     if (
                         finalBeat !== this._drag.clipOriginalBeat ||
                         finalTrack !== this._drag.clipOriginalTrack
                     ) {
                         this.onClipMove?.(this._drag.clipId, finalBeat, finalTrack);
+                    }
+                    // Fire callbacks for co-movers.
+                    if (this._drag.coMoverOrigins) {
+                        for (const [id, origin] of this._drag.coMoverOrigins) {
+                            const coFinalBeat = this._snapBeat(Math.max(0, origin.beat + deltaBeat));
+                            const coFinalTrack = Math.max(0, Math.min(this._viewport.trackCount - 1, origin.track + deltaTrack));
+                            if (coFinalBeat !== origin.beat || coFinalTrack !== origin.track) {
+                                this.onClipMove?.(id, coFinalBeat, coFinalTrack);
+                            }
+                        }
                     }
                 }
                 break;
@@ -1671,6 +1690,13 @@ export class TimelineEngine {
                             break;
                         }
                     }
+                    // Body double-click: place edit cursor (same as single-click) — do NOT open
+                    // the MIDI editor. Only a header double-click opens the MIDI editor.
+                    if (hit.region === 'body') {
+                        const snapped = this._snapBeat(hit.beat);
+                        this.onEditCursorChange?.(snapped, hit.trackIndex, hit.trackIndex);
+                        break;
+                    }
                     this.onDoubleClickClip?.(hit.clipId, hit.trackIndex);
                 }
                 break;
@@ -1679,6 +1705,50 @@ export class TimelineEngine {
                 this.onDoubleClickTrack?.(hit.trackIndex, snapped);
                 break;
             }
+        }
+    }
+
+    private _onKeyDown(e: KeyboardEvent): void {
+        // Escape cancels any active drag without committing changes.
+        if (e.key === 'Escape' && this._drag.mode !== DragMode.None) {
+            const canvas = this._canvas;
+
+            // Restore the primary dragged clip to its original position.
+            if (this._drag.clipId) {
+                const clip = this._clips.find(c => c.id === this._drag.clipId);
+                if (clip) {
+                    clip.startBeat = this._drag.clipOriginalBeat;
+                    clip.trackIndex = this._drag.clipOriginalTrack;
+                }
+            }
+            // Restore co-movers.
+            if (this._drag.coMoverOrigins) {
+                for (const [id, origin] of this._drag.coMoverOrigins) {
+                    const co = this._clips.find(c => c.id === id);
+                    if (co) {
+                        co.startBeat = origin.beat;
+                        co.trackIndex = origin.track;
+                    }
+                }
+            }
+            // Clear trim preview (resize cancel).
+            this._trimPreview = null;
+
+            if (canvas) canvas.style.cursor = 'default';
+            this._drag = {
+                mode: DragMode.None,
+                clipId: null,
+                startBeat: 0,
+                startTrack: 0,
+                currentBeat: 0,
+                currentTrack: 0,
+                clipOriginalBeat: 0,
+                clipOriginalTrack: 0,
+                clipOriginalDuration: 0,
+            };
+            this._setMarquee(null);
+            this._requestRedraw();
+            e.stopPropagation();
         }
     }
 

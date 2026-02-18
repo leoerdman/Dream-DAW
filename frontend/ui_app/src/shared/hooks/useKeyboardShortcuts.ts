@@ -411,7 +411,8 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                     .filter((c) => targets.includes(c.id))
                     .sort((a, b) => a.startBeat - b.startBeat);
                 if (selected.length === 0) return;
-                clipboardRef.current = selected;
+                // Bug #59: deep-clone to prevent later mutations from corrupting the clipboard.
+                clipboardRef.current = selected.map((c) => ({ ...c }));
                 return;
             }
 
@@ -457,7 +458,9 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                     .filter((c) => targets.includes(c.id))
                     .sort((a, b) => a.startBeat - b.startBeat);
                 if (selected.length === 0) return;
-                clipboardRef.current = selected;
+                // Bug #59: deep-clone snapshot before delete, so clipboard is not
+                // affected if the objects are mutated after the cut.
+                clipboardRef.current = selected.map((c) => ({ ...c }));
                 try {
                     await Promise.all(selected.map((c) => engine.deleteClip(c.id)));
                     onProjectMutated();

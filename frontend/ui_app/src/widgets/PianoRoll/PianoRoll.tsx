@@ -516,6 +516,10 @@ export const PianoRoll = memo(function PianoRoll({
         [noteHeight, visiblePitches],
     );
 
+    // Bug #24: debounce note insertion in pencil-click mode to prevent double-notes
+    // when a double-click fires two onClick events at nearly the same position.
+    const lastInsertPosRef = useRef<{ x: number; y: number; t: number } | null>(null);
+
     const auditionOffTimersRef = useRef<Map<number, number>>(new Map());
 
     const stopAudition = useCallback((pitch: number) => {
@@ -675,14 +679,24 @@ export const PianoRoll = memo(function PianoRoll({
             velocity: 100,
         };
         onNotesChange(enforceNoOverlap([...notes, newNote], new Set([newNote.id])));
-        setStepInputCursorBeat(Math.min(totalBeats, beat + duration));
+        setStepInputCursorBeat(Math.min(clipBeats, beat + duration));
         auditionNote(pitch, 100, 160);
-    }, [yToPitch, pixelsPerBeat, totalBeats, currentGridInterval, onNotesChange, notes, auditionNote, enforceNoOverlap, snapToCellStart]);
+    }, [yToPitch, pixelsPerBeat, clipBeats, currentGridInterval, onNotesChange, notes, auditionNote, enforceNoOverlap, snapToCellStart]);
 
     const handleGridClick = useCallback(
         (e: React.MouseEvent) => {
             editorRootRef.current?.focus();
             if (tool === 'draw' && pianoPencilMode) {
+                // Bug #24: debounce — ignore click if a note was just inserted
+                // at nearly the same position (double-click protection).
+                const now = Date.now();
+                const last = lastInsertPosRef.current;
+                const tooClose = last &&
+                    now - last.t < 250 &&
+                    Math.abs(e.clientX - last.x) < 6 &&
+                    Math.abs(e.clientY - last.y) < 6;
+                if (tooClose) return;
+                lastInsertPosRef.current = { x: e.clientX, y: e.clientY, t: now };
                 insertNoteFromPointer(e.clientX, e.clientY, e.currentTarget as HTMLElement);
             }
         },
@@ -692,6 +706,9 @@ export const PianoRoll = memo(function PianoRoll({
     const handleGridDoubleClick = useCallback((e: React.MouseEvent) => {
         editorRootRef.current?.focus();
         if (tool !== 'draw' || pianoPencilMode) return;
+        // In non-pencil draw mode, double-click inserts. Single-click does not.
+        // Record timestamp so a follow-up onClick (if any) won't re-insert.
+        lastInsertPosRef.current = { x: e.clientX, y: e.clientY, t: Date.now() };
         insertNoteFromPointer(e.clientX, e.clientY, e.currentTarget as HTMLElement);
     }, [tool, pianoPencilMode, insertNoteFromPointer]);
 

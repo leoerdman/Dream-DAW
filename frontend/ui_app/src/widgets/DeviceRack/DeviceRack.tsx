@@ -430,6 +430,9 @@ export const DeviceRack = ({
     const [externalParamsBySlotId, setExternalParamsBySlotId] = useState<Record<string, PluginParam[]>>({});
     const [inlineSettingsOpen, setInlineSettingsOpen] = useState<Record<string, boolean>>({});
     const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
+    // ── Plugin editor window persistence per track ──
+    const [openEditorsByTrack, setOpenEditorsByTrack] = useState<Record<string, Set<string>>>({});
+    const prevTrackIdRef = useRef<string>(selectedTrackId);
     const [paramSnapshotsByDevice, setParamSnapshotsByDevice] = useState<
         Record<string, { A?: Record<string, number>; B?: Record<string, number>; active?: 'A' | 'B' }>
     >({});
@@ -544,6 +547,34 @@ export const DeviceRack = ({
         statusClearRef.current = statusClear;
         statusErrorRef.current = statusError;
     }, [fetchProject, statusClear, statusError]);
+
+    // ── Close native editors on track leave, reopen on track return ──
+    useEffect(() => {
+        const prevId = prevTrackIdRef.current;
+        prevTrackIdRef.current = selectedTrackId;
+        if (prevId === selectedTrackId) return;
+
+        // Close editors for the track we are leaving
+        const prevSlots = openEditorsByTrack[prevId];
+        if (prevSlots && prevSlots.size > 0 && prevId) {
+            for (const slotId of prevSlots) {
+                engineApi.closePluginWindowForSlot(prevId, slotId).catch((err) =>
+                    console.warn('[DeviceRack] close editor on track leave failed:', err),
+                );
+            }
+        }
+
+        // Reopen editors for the track we are entering
+        const nextSlots = openEditorsByTrack[selectedTrackId];
+        if (nextSlots && nextSlots.size > 0 && selectedTrackId) {
+            for (const slotId of nextSlots) {
+                engineApi.openPluginWindowForSlot(selectedTrackId, slotId).catch((err) =>
+                    console.warn('[DeviceRack] reopen editor on track enter failed:', err),
+                );
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedTrackId]);
     const chain = useMemo((): DeviceSlot[] => {
         if (!selectedTrack) return [];
 
@@ -1575,6 +1606,7 @@ export const DeviceRack = ({
                                             statusError(`Failed to load sampler sample: ${errorMessage(err)}`);
                                         }
                                     }}
+                                    isNativeEditorOpen={!!(selectedTrack && openEditorsByTrack[selectedTrack.id]?.has(device.id))}
                                     onOpenGUI={async () => {
                                         console.log('[DeviceRack] onOpenGUI clicked device:', device.id, 'name:', device.name, 'source:', device.source, 'pluginId:', device.pluginId);
                                         selectDevice(device.id, false);
@@ -1591,6 +1623,27 @@ export const DeviceRack = ({
                                             console.warn('[DeviceRack] onOpenGUI: no selectedTrack, aborting');
                                             return;
                                         }
+                                        const trackId = selectedTrack.id;
+                                        const isCurrentlyOpen = openEditorsByTrack[trackId]?.has(device.id) ?? false;
+
+                                        if (isCurrentlyOpen) {
+                                            // Toggle OFF → close native editor
+                                            console.log('[DeviceRack] onOpenGUI: closing native editor');
+                                            setOpenEditorsByTrack((prev) => {
+                                                const next = { ...prev };
+                                                const set = new Set(prev[trackId] ?? []);
+                                                set.delete(device.id);
+                                                next[trackId] = set;
+                                                return next;
+                                            });
+                                            engineApi.closePluginWindowForSlot(trackId, device.id).catch((err) =>
+                                                console.warn('[DeviceRack] close native editor failed:', err),
+                                            );
+                                            statusClear();
+                                            return;
+                                        }
+
+                                        // Toggle ON → open native editor
                                         try {
                                             console.log('[DeviceRack] onOpenGUI: ensuring slot runtime active...');
                                             const status = await ensureSlotRuntimeActive(device.id);
@@ -1601,13 +1654,21 @@ export const DeviceRack = ({
                                             }
                                             try {
                                                 console.log('[DeviceRack] onOpenGUI: calling openPluginWindowForSlot...');
-                                                await engineApi.openPluginWindowForSlot(selectedTrack.id, device.id);
+                                                await engineApi.openPluginWindowForSlot(trackId, device.id);
                                                 console.log('[DeviceRack] onOpenGUI: openPluginWindowForSlot SUCCESS');
                                             } catch (slotErr) {
                                                 console.warn('[DeviceRack] slot-scoped plugin UI open failed, retrying by plugin key:', slotErr);
                                                 await engineApi.openPluginWindow(device.pluginId);
                                                 console.log('[DeviceRack] onOpenGUI: openPluginWindow (fallback by key) SUCCESS');
                                             }
+                                            // Mark this slot as open in our persistence map
+                                            setOpenEditorsByTrack((prev) => {
+                                                const next = { ...prev };
+                                                const set = new Set(prev[trackId] ?? []);
+                                                set.add(device.id);
+                                                next[trackId] = set;
+                                                return next;
+                                            });
                                             statusClear();
                                         } catch (err) {
                                             console.error('[DeviceRack] Failed to open native plugin UI:', err);
@@ -1829,6 +1890,7 @@ const DeviceNode = ({
     order,
     device, onToggle, onOpenGUI,
     isSelected,
+    isNativeEditorOpen,
     showSettings,
     onSelect,
     onOpenSettings,
@@ -1874,6 +1936,7 @@ const DeviceNode = ({
     onDropSample?: (samplePath: string) => void;
     onLoadSample?: () => void;
     onOpenGUI?: () => void;
+    isNativeEditorOpen?: boolean;
     editorSupported?: boolean;
     editorReason?: string;
     runtimeStatus?: engineApi.PluginSlotRuntimeStatus;
@@ -1946,6 +2009,7 @@ const DeviceNode = ({
                 ? 'VST'
                 : 'INT';
     const showUiButton = device.source === 'vst' || pluginFormat === 'VST3';
+    const nativeEditorOpen = isNativeEditorOpen ?? false;
     const nativeEditorUnavailable = showUiButton && editorSupported === false;
     const runtimeMessage = (runtimeStatus?.message || '').toLowerCase();
     const hasHardRuntimeError = runtimeMessage.includes('vst2 runtime is not supported')
@@ -2022,7 +2086,7 @@ const DeviceNode = ({
                             title={editorSupported === false
                                 ? (editorReason ?? 'Native plugin editor is unavailable; opening inline controls')
                                 : 'Open Native Plugin UI'}
-                            style={headerIconBtnStyle(false, showSettings)}
+                            style={headerIconBtnStyle(false, showSettings || nativeEditorOpen)}
                         >
                             UI
                         </button>

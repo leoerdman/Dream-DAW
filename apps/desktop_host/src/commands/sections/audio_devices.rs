@@ -38,7 +38,7 @@ fn restart_audio_engine_impl(
     log::info!("Audio device change requested: '{}'", device_name);
 
     // Build a fresh engine ring buffer and stream on requested device.
-    let (new_producer, new_consumer) = rtrb::RingBuffer::<EngineCommand>::new(1024);
+    let (new_producer, new_consumer) = rtrb::RingBuffer::<EngineCommand>::new(4096);
     let new_stream = dream_engine::driver::start_audio_thread_on_device(
         new_consumer,
         Arc::clone(&handle.master_clock),

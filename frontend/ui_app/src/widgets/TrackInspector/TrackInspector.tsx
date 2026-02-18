@@ -749,11 +749,15 @@ export const TrackInspector = ({
                 handleDuplicateSelectedTracks();
             }
             if ((e.key === 'Delete' || e.key === 'Backspace') && selectedTrackIdSet.size > 0) {
+                // Guard: don't delete tracks when typing in text fields
+                const tgt = e.target as HTMLElement;
+                if (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable) return;
                 // Guard: don't delete tracks if a device is focused in DeviceRack
                 const inDeviceRack = (e.target as HTMLElement | null)?.closest?.('[data-keyboard-scope="device-rack"]');
                 if (inDeviceRack) return;
                 if (renamingTrackId) return;
                 e.preventDefault();
+                e.stopPropagation();
                 handleDeleteSelectedTracks();
             }
         };
@@ -2527,7 +2531,7 @@ const TrackRow = ({
                 }}>
                     <div style={{
                         display: 'flex', alignItems: 'center',
-                        fontSize: 'var(--font-size-2xs)', fontWeight: 500,
+                        fontSize: 'var(--font-size-2xs)', fontWeight: 'var(--font-weight-medium)' as unknown as number,
                         color: 'var(--color-text-tertiary)',
                         background: 'var(--color-control-bg)',
                         border: '1px solid var(--color-control-border)',
@@ -2541,7 +2545,7 @@ const TrackRow = ({
                     </div>
                     <div style={{
                         display: 'flex', alignItems: 'center',
-                        fontSize: 'var(--font-size-2xs)', fontWeight: 500,
+                        fontSize: 'var(--font-size-2xs)', fontWeight: 'var(--font-weight-medium)' as unknown as number,
                         color: 'var(--color-text-secondary)',
                         background: 'var(--color-control-bg)',
                         border: '1px solid var(--color-control-border)',

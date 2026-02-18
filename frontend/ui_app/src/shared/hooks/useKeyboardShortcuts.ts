@@ -475,25 +475,13 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 const targets = selectedClipIds.length > 0
                     ? selectedClipIds
                     : (selectedClipId ? [selectedClipId] : []);
-                if (targets.length > 0) {
-                    try {
-                        await Promise.all(targets.map((id) => engine.deleteClip(id)));
-                        onProjectMutated();
-                    } catch (err) {
-                        console.error('[Shortcuts] Delete clip failed:', err);
-                    }
-                    return;
-                }
-
-                // No clip selected: delete selected track.
-                if (!selectedTrackId || selectedTrackId === 'master') return;
-                if (selectedTrackIndex < 0) return;
+                if (targets.length === 0) return;
 
                 try {
-                    await engine.deleteTrack(selectedTrackIndex);
+                    await Promise.all(targets.map((id) => engine.deleteClip(id)));
                     onProjectMutated();
                 } catch (err) {
-                    console.error('[Shortcuts] Delete track failed:', err);
+                    console.error('[Shortcuts] Delete clip failed:', err);
                 }
                 return;
             }

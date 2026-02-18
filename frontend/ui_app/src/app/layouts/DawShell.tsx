@@ -103,6 +103,7 @@ export const DawShell = () => {
     const [isDragOver, setIsDragOver] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
     const [bottomPanelMode, setBottomPanelMode] = useState<BottomPanelMode>('rack');
+    const [bottomPanelModeByTrack, setBottomPanelModeByTrack] = useState<Record<string, BottomPanelMode>>({});
     const [mainViewMode, setMainViewMode] = useState<MainViewMode>('arrangement');
     const [recordingState, setRecordingState] = useState<{ active: boolean; trackIndex: number }>({
         active: false,
@@ -152,6 +153,26 @@ export const DawShell = () => {
         startTrack: number;
         endTrack: number;
     } | null>(null);
+
+    const activePanelTrackKey = selectedTrackId && selectedTrackId.length > 0
+        ? selectedTrackId
+        : 'master';
+
+    const setBottomPanelModeForActiveTrack = useCallback(
+        (next: BottomPanelMode | ((prev: BottomPanelMode) => BottomPanelMode)) => {
+            setBottomPanelMode((prev) => {
+                const resolved = typeof next === 'function'
+                    ? (next as (prev: BottomPanelMode) => BottomPanelMode)(prev)
+                    : next;
+                setBottomPanelModeByTrack((byTrack) => ({
+                    ...byTrack,
+                    [activePanelTrackKey]: resolved,
+                }));
+                return resolved;
+            });
+        },
+        [activePanelTrackKey],
+    );
 
     // ── Enterprise Project Manager (Cmd+S/⇧S/N/O, auto-backup, dirty state)
     // Hook has side effects (keyboard shortcuts, auto-backup timer) — value intentionally unused
@@ -209,7 +230,7 @@ export const DawShell = () => {
                     tag === 'input' || tag === 'textarea' || target?.isContentEditable;
                 if (isTextInput) return;
                 e.preventDefault();
-                setBottomPanelMode((prev) => (prev === 'rack' ? 'clip' : 'rack'));
+                setBottomPanelModeForActiveTrack((prev) => (prev === 'rack' ? 'clip' : 'rack'));
             }
             // A key: toggle automation visibility
             if (e.key === 'a' && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -224,7 +245,7 @@ export const DawShell = () => {
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, []);
+    }, [setBottomPanelModeForActiveTrack]);
 
     // ── Tauri Drag & Drop → Import Audio ───────────────────────────
     useEffect(() => {
@@ -527,6 +548,12 @@ export const DawShell = () => {
             setSelectedTrackId(projectTracks[0].id);
         }
     }, [projectTracks, selectedTrackId]);
+
+    useEffect(() => {
+        const key = selectedTrackId && selectedTrackId.length > 0 ? selectedTrackId : 'master';
+        const saved = bottomPanelModeByTrack[key] ?? 'rack';
+        setBottomPanelMode((prev) => (prev === saved ? prev : saved));
+    }, [selectedTrackId, bottomPanelModeByTrack]);
 
     useEffect(() => {
         window.__dreamSelectedTrackId = selectedTrackId;
@@ -1134,8 +1161,8 @@ export const DawShell = () => {
 
     const handleOpenMidiClip = useCallback((clipId: string) => {
         setSelectedClipId(clipId);
-        setBottomPanelMode('clip');
-    }, []);
+        setBottomPanelModeForActiveTrack('clip');
+    }, [setBottomPanelModeForActiveTrack]);
 
     const flushPendingMidiEdits = useCallback(async () => {
         flushMidiThrottles();
@@ -1528,7 +1555,7 @@ export const DawShell = () => {
                 <div className="z-50">
                     <StatusBar
                         panelMode={bottomPanelMode}
-                        onPanelModeChange={setBottomPanelMode}
+                        onPanelModeChange={setBottomPanelModeForActiveTrack}
                         panelInfo={panelInfo}
                     />
                 </div>

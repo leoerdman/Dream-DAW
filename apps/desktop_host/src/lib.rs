@@ -2172,7 +2172,32 @@ impl ClipPoolState {
             .iter()
             .map(|track| {
                 let mut internal_slot_index: usize = 0;
-                track
+
+                // ── Include the instrument plugin (if external) first ──
+                // Without this, external instrument plugins (e.g. Serum2) never
+                // appear in the external_fx_map and thus never receive process()
+                // calls in the audio callback — causing "DAW suspended processing"
+                // and no MIDI input.
+                let instrument_slot = track.instrument.as_ref()
+                    .and_then(|inst| inst.as_single())
+                    .and_then(|slot| {
+                        if slot.plugin_id.starts_with("internal://") {
+                            None  // Internal instruments handled separately
+                        } else {
+                            if slot.is_bypassed {
+                                return None;
+                            }
+                            let instance_id = slot_instance_map.get(&slot.id).copied()?;
+                            Some(dream_engine::driver::ExternalFxRuntimeSlot {
+                                slot_id: Some(slot.id),
+                                internal_slot_index: None,
+                                instance_id: Some(instance_id),
+                                sidechain_track_index: None,
+                            })
+                        }
+                    });
+
+                let effects_iter = track
                     .effects
                     .iter()
                     .filter_map(|node| node.as_single())
@@ -2207,8 +2232,9 @@ impl ClipPoolState {
                                 sidechain_track_index,
                             })
                         }
-                    })
-                    .collect()
+                    });
+
+                instrument_slot.into_iter().chain(effects_iter).collect()
             })
             .collect();
 

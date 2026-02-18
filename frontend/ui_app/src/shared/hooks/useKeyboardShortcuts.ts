@@ -150,10 +150,16 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 e.preventDefault();
                 e.stopPropagation();
 
-                // Space always stops browser preview first.
-                void engine.stopPreview().catch((err) => {
-                    console.warn('[Keyboard] stopPreview before playback failed:', err);
-                });
+                // Bug #51: only stop a browser preview when the transport is
+                // currently stopped (i.e. we are about to START playback).
+                // Calling stopPreview while playing could interrupt sample audition.
+                const transportState = useEngineStore.getState().transport;
+                const isPlaying = transportState.is_playing;
+                if (!isPlaying) {
+                    void engine.stopPreview().catch((err) => {
+                        console.warn('[Keyboard] stopPreview before playback failed:', err);
+                    });
+                }
 
                 onTogglePlayback();
                 return;
@@ -250,7 +256,12 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                     const track = projectTracks[i];
                     if (!track) continue;
                     const trackType = (track.track_type ?? '').toLowerCase();
-                    if (trackType.includes('midi')) midiTrackIndices.push(i);
+                    // Bug #61: only create clips on true MIDI tracks — skip group,
+                    // master, bus, and return tracks.
+                    if (!trackType.includes('midi')) continue;
+                    if (trackType.includes('group') || trackType.includes('master') ||
+                        trackType.includes('bus') || trackType.includes('return')) continue;
+                    midiTrackIndices.push(i);
                 }
                 if (midiTrackIndices.length === 0) return;
 
@@ -430,11 +441,18 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 const cursorBeat = editCursorBeat >= 0 ? editCursorBeat : fallbackBeat;
                 const firstBeat = clipboardRef.current[0].startBeat;
 
+                // Bug #63: if cursor is near beat 0 and clipboard has clips with
+                // relative offsets, destBeat could go negative, collapsing the group.
+                // Clamp the group start to 0 and shift all clips accordingly.
+                const minRelative = Math.min(...clipboardRef.current.map((c) => c.startBeat - firstBeat));
+                const groupStartBeat = Math.max(0, cursorBeat + minRelative);
+                const groupOffset = groupStartBeat - (cursorBeat + minRelative);
+
                 try {
                     await Promise.all(
                         clipboardRef.current.map((clip) => {
                             const relative = clip.startBeat - firstBeat;
-                            const destBeat = cursorBeat + relative;
+                            const destBeat = Math.max(0, cursorBeat + relative + groupOffset);
                             const destFrames = Math.max(0, beatToFrame(destBeat, bpm, sampleRate));
                             return engine.duplicateClip(clip.id, destFrames);
                         }),
@@ -504,7 +522,8 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
             // ── 0: Toggle Clip Mute ──────────────────────────────
             // Muted clips remain on the timeline but don't play.
             // Visual: dark overlay, greyed out.
-            if (e.key === '0' && !isModKey(e) && !e.shiftKey) {
+            // Bug #57: accept both Digit0 and Numpad0.
+            if ((e.key === '0' || e.code === 'Numpad0') && !isModKey(e) && !e.shiftKey) {
                 if (inPianoRoll || inDeviceRack) return;
                 e.preventDefault();
                 e.stopPropagation();
@@ -546,8 +565,13 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 const track = projectTracks[selectedTrackIndex];
                 if (!track) return;
 
+                // Bug #56: await the command and propagate errors properly.
                 const newSoloed = !track.is_solo;
-                engine.setTrackSolo(selectedTrackIndex, newSoloed);
+                try {
+                    await engine.setTrackSolo(selectedTrackIndex, newSoloed);
+                } catch (err) {
+                    console.error('[Shortcuts] setTrackSolo failed:', err);
+                }
                 return;
             }
 
@@ -564,8 +588,13 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 const track = projectTracks[selectedTrackIndex];
                 if (!track) return;
 
+                // Bug #56: await the command and propagate errors properly.
                 const newMuted = !track.is_mute;
-                engine.setTrackMute(selectedTrackIndex, newMuted);
+                try {
+                    await engine.setTrackMute(selectedTrackIndex, newMuted);
+                } catch (err) {
+                    console.error('[Shortcuts] setTrackMute failed:', err);
+                }
                 return;
             }
 
@@ -670,9 +699,14 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                     endBeat = Math.max(endBeat, clip.startBeat + clip.durationBeats);
                 }
 
-                // Enforce minimum 4 beats (1 bar in 4/4)
-                if (endBeat - startBeat < 4) {
-                    endBeat = startBeat + 4;
+                // Bug #55: minimum loop length should be 1 bar, computed from the
+                // actual time signature, not hardcoded to 4 beats.
+                // Use beatsPerBar from store if available, otherwise fall back to 4.
+                const loopStore = useEngineStore.getState();
+                const loopBeatsPerBar =
+                    (loopStore as typeof loopStore & { projectBeatsPerBar?: number }).projectBeatsPerBar ?? 4;
+                if (endBeat - startBeat < loopBeatsPerBar) {
+                    endBeat = startBeat + loopBeatsPerBar;
                 }
 
                 // Convert beats → frames

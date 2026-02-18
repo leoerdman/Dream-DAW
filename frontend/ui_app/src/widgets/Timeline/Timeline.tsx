@@ -55,6 +55,8 @@ interface TimelineProps {
     onMarqueeSelectionStart?: () => void;
     onMarqueeSelectionChange?: (marquee: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null) => void;
     onScrollTop?: (scrollTop: number) => void;
+    /** External scroll position (e.g. from TrackInspector scroll). */
+    externalScrollTop?: number;
     followPlayhead?: boolean;
     automationVisible?: boolean;
     fitHorizontalToken?: number;
@@ -106,6 +108,7 @@ export const Timeline = (props: TimelineProps) => {
         onClipResize,
         followPlayhead = false,
         fitHorizontalToken = 0,
+        externalScrollTop,
     } = props;
 
     const beatsPerBar = timeSignature[0];
@@ -472,6 +475,17 @@ export const Timeline = (props: TimelineProps) => {
         if (!engine) return;
         engine.ensureBeatVisible(playheadBeat);
     }, [playheadBeat, isPlaying, followPlayhead, engineRef]);
+
+    // ── External scroll sync (TrackInspector → Canvas viewport) ───────
+    useEffect(() => {
+        if (externalScrollTop === undefined) return;
+        const engine = engineRef.current;
+        if (!engine) return;
+        const vp = engine.viewport;
+        // Only apply if the viewport's scrollY actually differs (avoids echo loops)
+        if (Math.abs(vp.scrollY - externalScrollTop) < 1) return;
+        engine.setScrollY(externalScrollTop);
+    }, [externalScrollTop, engineRef]);
 
     // ── Store-based drag overlay (DawShell → Timeline) ────────────────
     const draggingItem = useDragStore(s => s.draggingItem);

@@ -136,6 +136,8 @@ interface TrackInspectorProps {
     trackHeight?: number;
     rulerHeight?: number;
     scrollTop?: number;
+    /** Fires when the user scrolls the track header list (reverse sync to Timeline). */
+    onScrollTop?: (scrollTop: number) => void;
     mixerFocusMode?: boolean;
 }
 
@@ -147,6 +149,7 @@ export const TrackInspector = ({
     trackHeight = 48,
     rulerHeight = 24,
     scrollTop: externalScrollTop,
+    onScrollTop,
     mixerFocusMode = false,
 }: TrackInspectorProps) => {
     const projectTracks = useEngineStore((s) => s.projectTracks);
@@ -161,10 +164,15 @@ export const TrackInspector = ({
     const renameTrackAction = useEngineStore((s) => s.renameTrack);
     const meters = useEngineStore((s) => s.meters);
     const scrollRef = useRef<HTMLDivElement>(null);
+    /** Guard: skip onScroll callback when the scroll was set programmatically. */
+    const programmaticScrollRef = useRef(false);
 
     useEffect(() => {
         if (scrollRef.current && externalScrollTop !== undefined) {
+            programmaticScrollRef.current = true;
             scrollRef.current.scrollTop = externalScrollTop;
+            // Clear the guard after the browser processes the scroll update.
+            requestAnimationFrame(() => { programmaticScrollRef.current = false; });
         }
     }, [externalScrollTop]);
 
@@ -1142,6 +1150,11 @@ export const TrackInspector = ({
                     overflowX: 'hidden',
                     paddingRight: 2,
                     boxSizing: 'border-box',
+                }}
+                onScroll={() => {
+                    if (programmaticScrollRef.current) return;
+                    const el = scrollRef.current;
+                    if (el && onScrollTop) onScrollTop(el.scrollTop);
                 }}
                 onContextMenu={(e) => {
                     const target = e.target as HTMLElement | null;

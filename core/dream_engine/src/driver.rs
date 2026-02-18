@@ -2159,6 +2159,10 @@ pub fn start_audio_thread_on_device(
                                     rem,
                                 );
                             }
+
+                            // ── Mark slot active so the metering loop in
+                            //    render_callback sees MIDI/sampler tracks.
+                            slot.active = true;
                         }
 
                         // Graph pass: route pre-rendered tracks through DAG.
@@ -2395,20 +2399,28 @@ pub fn start_audio_thread_on_device(
                                         .map(|slot| slot.strip.is_output_enabled())
                                         .unwrap_or(true);
 
-                                    if post_sum_processed
-                                        && route_to_output
-                                        && let Some((meter_l, meter_r)) =
-                                            render_ctx.meter_bank.track(track_idx)
+                                    // ── Per-track metering (graph pass) ─────
+                                    // Post-sum tracks: meter the mixed graph output.
+                                    // Source tracks: meter after strip/FX processing
+                                    //   (graph output = slot buffer summed into left/right).
+                                    let decay = peak_decay_for_block(sample_rate_f64, c);
+                                    if let Some((meter_l, meter_r)) =
+                                        render_ctx.meter_bank.track(track_idx)
                                     {
-                                        let rms_l = linear_to_db(compute_rms(&left[..c]));
-                                        let rms_r = linear_to_db(compute_rms(&right[..c]));
-                                        let peak_l = linear_to_db(compute_peak(&left[..c]));
-                                        let peak_r =
-                                            linear_to_db(compute_peak(&right[..c]));
+                                        let (meter_src_l, meter_src_r): (&[f32], &[f32]) =
+                                            if post_sum_processed {
+                                                (&left[..c], &right[..c])
+                                            } else {
+                                                (&slot.buf_left[..c], &slot.buf_right[..c])
+                                            };
+                                        let rms_l = linear_to_db(compute_rms(meter_src_l));
+                                        let rms_r = linear_to_db(compute_rms(meter_src_r));
+                                        let peak_l = linear_to_db(compute_peak(meter_src_l));
+                                        let peak_r = linear_to_db(compute_peak(meter_src_r));
                                         meter_l.store_rms(rms_l);
                                         meter_r.store_rms(rms_r);
-                                        meter_l.store_peak(meter_l.load_peak().max(peak_l));
-                                        meter_r.store_peak(meter_r.load_peak().max(peak_r));
+                                        meter_l.store_peak_decay(peak_l, decay);
+                                        meter_r.store_peak_decay(peak_r, decay);
                                     }
                                 }
                             },

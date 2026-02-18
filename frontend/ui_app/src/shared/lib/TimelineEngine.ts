@@ -489,6 +489,11 @@ export class TimelineEngine {
         this._viewport.ensureBeatVisible(beat);
     }
 
+    /** Set vertical scroll position (for external sync, e.g. TrackInspector). */
+    setScrollY(y: number): void {
+        this._viewport.scrollTo(this._viewport.scrollX, y);
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // VIEWPORT ACCESS (for React cold-path)
     // ═══════════════════════════════════════════════════════════════════

@@ -1363,6 +1363,7 @@ export const DawShell = () => {
                                             handleSelectTrack(resolvedTrackId);
                                         }}
                                         onScrollTop={handleTimelineScrollTop}
+                                        externalScrollTop={timelineScrollTop}
                                         followPlayhead={followPlayhead}
                                         automationVisible={automationVisible}
                                         fitHorizontalToken={fitTimelineToken}
@@ -1389,6 +1390,7 @@ export const DawShell = () => {
                                             trackHeight={TRACK_HEIGHT_BASE}
                                             rulerHeight={RULER_HEIGHT}
                                             scrollTop={timelineScrollTop}
+                                            onScrollTop={handleTimelineScrollTop}
                                             mixerFocusMode={false}
                                         />
                                     </Suspense>

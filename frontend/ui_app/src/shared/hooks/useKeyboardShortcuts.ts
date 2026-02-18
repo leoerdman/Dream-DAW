@@ -44,7 +44,16 @@ export interface KeyboardShortcutsConfig {
 
 // ── Platform Detection ───────────────────────────────────────────────────
 
-const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+// Bug #47: navigator.platform is deprecated. Prefer userAgentData when available,
+// fall back to checking the user-agent string directly.
+const isMac = (() => {
+    if (typeof navigator === 'undefined') return false;
+    // Modern API (Chrome 90+, Edge 90+)
+    const uad = (navigator as Navigator & { userAgentData?: { platform: string } }).userAgentData;
+    if (uad?.platform) return uad.platform === 'macOS';
+    // Fallback: user-agent string
+    return /mac/i.test(navigator.userAgent) && !/iphone|ipad/i.test(navigator.userAgent);
+})();
 
 /**
  * Returns true if the OS-appropriate modifier key is held.

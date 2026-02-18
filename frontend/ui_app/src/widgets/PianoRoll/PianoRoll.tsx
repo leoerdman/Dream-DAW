@@ -119,7 +119,7 @@ const MAX_NOTE_HEIGHT = 32;
 const VELOCITY_LANE_HEIGHT = 64;
 const RULER_HEIGHT = 22;
 const LOWEST_PITCH = 0;
-const HIGHEST_PITCH = 115;
+const HIGHEST_PITCH = 127; // Bug #1: was 115, cutting off the top octave of MIDI
 const TOTAL_KEYS = HIGHEST_PITCH - LOWEST_PITCH + 1;
 const MIN_PPB = 4;
 const MAX_PPB = 200;
@@ -413,14 +413,15 @@ export const PianoRoll = memo(function PianoRoll({
             ? playheadBeat
             : Math.max(0, ...notes.map((n) => n.startBeat + n.durationBeats));
         const offset = pasteAt - minBeat;
+        // Bug #9: clamp to clipBeats (actual clip length), not totalBeats (zoom-derived).
         const pasted = clipboardRef.current.map((n) => ({
             ...n,
             id: genNoteId(),
-            startBeat: Math.max(0, Math.min(totalBeats - MIN_NOTE_BEATS, n.startBeat + offset)),
+            startBeat: Math.max(0, Math.min(clipBeats - MIN_NOTE_BEATS, n.startBeat + offset)),
         }));
         onNotesChange(enforceNoOverlap([...notes, ...pasted], new Set(pasted.map((n) => n.id))));
         setSelectedNotes(new Set(pasted.map((n) => n.id)));
-    }, [notes, playheadBeat, totalBeats, onNotesChange, enforceNoOverlap]);
+    }, [notes, playheadBeat, clipBeats, onNotesChange, enforceNoOverlap]);
 
     const visiblePitches = useMemo(() => {
         if (drumMode) {
@@ -496,10 +497,14 @@ export const PianoRoll = memo(function PianoRoll({
     }, [pixelsPerBeat]);
 
     // Pitch ↔ Y
+    // Returns -1 when the pitch is not in the visible row set (e.g. drum-mode
+    // pitches that aren't defined drum lanes). Callers must guard against -1
+    // to avoid rendering notes at y=0 (top of grid).
     const pitchToY = useCallback(
         (pitch: number) => {
             const rowIndex = pitchRowIndex.get(pitch);
-            return (rowIndex ?? 0) * noteHeight;
+            if (rowIndex === undefined) return -1; // Bug #15: was returning 0 (top of grid)
+            return rowIndex * noteHeight;
         },
         [noteHeight, pitchRowIndex],
     );
@@ -548,21 +553,30 @@ export const PianoRoll = memo(function PianoRoll({
         };
     }, []);
 
-    // On open, center vertical focus around C3 so drawing starts in the musical working range.
+    // On open/clip-change, center vertical focus around C3 so drawing starts in
+    // the musical working range. Bug #16: do NOT re-center on noteHeight changes —
+    // that jumps the view every time the user adjusts vertical zoom.
+    // We read noteHeight via a ref so it is available without being a dependency.
+    const noteHeightRef = useRef(noteHeight);
+    useEffect(() => { noteHeightRef.current = noteHeight; }, [noteHeight]);
+
     useEffect(() => {
         const gridEl = scrollRef.current;
         const kbEl = keyboardScrollRef.current;
         if (!gridEl) return;
+        const nh = noteHeightRef.current;
         requestAnimationFrame(() => {
             const focusPitch = visiblePitches.includes(DEFAULT_FOCUS_PITCH)
                 ? DEFAULT_FOCUS_PITCH
                 : visiblePitches[Math.floor(visiblePitches.length / 2)] ?? DEFAULT_FOCUS_PITCH;
             const targetY = pitchToY(focusPitch);
-            const centered = Math.max(0, targetY - gridEl.clientHeight * 0.5 + noteHeight * 0.5);
+            if (targetY < 0) return; // pitch not visible
+            const centered = Math.max(0, targetY - gridEl.clientHeight * 0.5 + nh * 0.5);
             gridEl.scrollTop = centered;
             if (kbEl) kbEl.scrollTop = centered;
         });
-    }, [clipLengthBeats, noteHeight, pitchToY, visiblePitches]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [clipLengthBeats, pitchToY, visiblePitches]);
 
     // Scale membership
     const scaleSet = useMemo(() => {
@@ -818,7 +832,9 @@ export const PianoRoll = memo(function PianoRoll({
                 const hits = new Set<string>();
                 for (const note of notes) {
                     const nx = note.startBeat * pixelsPerBeat;
-                    const ny = pitchToY(note.pitch) + 1;
+                    const rawNy = pitchToY(note.pitch);
+                    if (rawNy < 0) continue; // Bug #15: pitch not in visible row set
+                    const ny = rawNy + 1;
                     const nw = Math.max(4, note.durationBeats * pixelsPerBeat - 1);
                     const nh = noteHeight - 2;
                     const overlap = nx < maxX && nx + nw > minX && ny < maxY && ny + nh > minY;
@@ -1081,15 +1097,16 @@ export const PianoRoll = memo(function PianoRoll({
         const spanStart = Math.min(...targets.map((n) => n.startBeat));
         const spanEnd = Math.max(...targets.map((n) => n.startBeat + n.durationBeats));
         const shift = Math.max(currentGridInterval > 0 ? currentGridInterval : 0.25, spanEnd - spanStart);
+        // Bug #10: clamp to clipBeats (actual clip length), not totalBeats (zoom-derived).
         const clones = targets.map((n) => ({
             ...n,
             id: genNoteId(),
-            startBeat: Math.max(0, Math.min(totalBeats - MIN_NOTE_BEATS, n.startBeat + shift)),
+            startBeat: Math.max(0, Math.min(clipBeats - MIN_NOTE_BEATS, n.startBeat + shift)),
             selected: false,
         }));
         onNotesChange(enforceNoOverlap([...notes, ...clones], new Set(clones.map((n) => n.id))));
         setSelectedNotes(new Set(clones.map((n) => n.id)));
-    }, [selectedNotes, notes, currentGridInterval, totalBeats, onNotesChange, enforceNoOverlap]);
+    }, [selectedNotes, notes, currentGridInterval, clipBeats, onNotesChange, enforceNoOverlap]);
 
     const selectSamePitch = useCallback(() => {
         if (selectedNotes.size === 0) return;
@@ -1163,7 +1180,9 @@ export const PianoRoll = memo(function PianoRoll({
         // Ghost notes (same track, other clips) for harmony/rhythm context.
         for (const note of ghostNotes) {
             const x = note.startBeat * pixelsPerBeat;
-            const y = pitchToY(note.pitch) + 1;
+            const rawY = pitchToY(note.pitch);
+            if (rawY < 0) continue; // Bug #15: pitch not in visible row set
+            const y = rawY + 1;
             const w = Math.max(3, note.durationBeats * pixelsPerBeat - 1);
             const h = noteHeight - 2;
             if (x + w < 0 || x > canvasWidth) continue;
@@ -1174,7 +1193,9 @@ export const PianoRoll = memo(function PianoRoll({
 
         for (const note of notes) {
             const x = note.startBeat * pixelsPerBeat;
-            const y = pitchToY(note.pitch) + 1;
+            const rawY = pitchToY(note.pitch);
+            if (rawY < 0) continue; // Bug #15: pitch not in visible row set
+            const y = rawY + 1;
             const w = Math.max(4, note.durationBeats * pixelsPerBeat - 1);
             const h = noteHeight - 2;
 
@@ -2094,6 +2115,7 @@ export const PianoRoll = memo(function PianoRoll({
                             {notes.map((note) => {
                                 const x = note.startBeat * pixelsPerBeat;
                                 const y = pitchToY(note.pitch);
+                                if (y < 0) return null; // Bug #15: pitch not in visible row set
                                 const w = note.durationBeats * pixelsPerBeat;
                                 const isSelected = selectedNotes.has(note.id);
 

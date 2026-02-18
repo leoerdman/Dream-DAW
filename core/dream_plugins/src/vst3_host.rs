@@ -2305,15 +2305,27 @@ unsafe extern "C" fn plug_frame_resize_view(
     let window = frame.window_ptr as id;
     unsafe {
         let current_frame = window.frame();
-        // Keep the top-left corner fixed by adjusting origin.y
-        let new_origin_y = current_frame.origin.y
-            + current_frame.size.height
-            - height;
-        let new_frame = NSRect::new(
-            NSPoint::new(current_frame.origin.x, new_origin_y),
-            NSSize::new(width, height),
-        );
-        window.setFrame_display_(new_frame, true);
+
+        // ── BUG-W1 FIX: Use setContentSize to respect the title bar ──
+        // `setFrame:display:` sets the entire window frame (including chrome).
+        // Plugins provide the requested CONTENT size. If we use the plugin's
+        // width/height for the total frame, the content area (plugin UI)
+        // gets squished by exactly the title bar height (typically 28-32px).
+        // `setContentSize:` correctly adjusts the window frame to contain
+        // the requested width/height in its contentArea.
+        window.setContentSize_(NSSize::new(width, height));
+
+        // After setContentSize:, macOS keeps the bottom-left origin fixed.
+        // We want to keep the top-left origin fixed (industry standard for DAWs).
+        let frame_after = window.frame();
+        let y_adjustment = current_frame.size.height - frame_after.size.height;
+        if y_adjustment.abs() > 0.001 {
+            let adjusted_frame = NSRect::new(
+                NSPoint::new(frame_after.origin.x, frame_after.origin.y + y_adjustment),
+                frame_after.size,
+            );
+            window.setFrame_display_(adjusted_frame, true);
+        }
     }
 
     // BUG-E4 FIX: Notify the plugin that its view was resized.

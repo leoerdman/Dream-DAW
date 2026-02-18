@@ -64,7 +64,6 @@ export const PluginWindow = memo(function PluginWindow({
     initialY = 150,
     width = 480,
     height = 320,
-    pluginType = 'effect',
     presetName = 'Default',
     onNextPreset,
     onPrevPreset,
@@ -103,11 +102,8 @@ export const PluginWindow = memo(function PluginWindow({
 
     // ── Header colors ────────────────────────────────────────────────
 
-    const headerGradient = pluginType === 'instrument'
-        ? 'var(--plugin-header-instrument)'
-        : 'var(--plugin-header-effect)';
-
-    const accentColor = pluginType === 'instrument' ? 'var(--plugin-accent-instrument)' : 'var(--plugin-accent-effect)';
+    const headerGradient = 'var(--plugin-header-effect)'; // Unified dark header
+    const accentColor = 'var(--color-accent-primary)';    // Unified blue accent
 
     return (
         <div
@@ -149,8 +145,8 @@ export const PluginWindow = memo(function PluginWindow({
                     width: 8,
                     height: 8,
                     borderRadius: '50%',
-                    background: isBypassed ? 'var(--color-text-tertiary)' : accentColor,
-                    boxShadow: isBypassed ? 'none' : `0 0 6px ${accentColor}`,
+                    background: isBypassed ? 'var(--color-text-tertiary)' : 'var(--color-accent-primary)',
+                    boxShadow: isBypassed ? 'none' : '0 0 6px var(--color-accent-primary)',
                     transition: 'all var(--transition-fast)',
                 }} />
 

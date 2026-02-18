@@ -1947,33 +1947,6 @@ const DeviceNode = ({
     onEnsureActive?: () => void;
 }) => {
     // Color per device type (matching Ableton's device categories)
-    const typeColorMap: Record<string, string> = {
-        instrument: '#4a9eff',
-        sampler: '#4a9eff',
-        waveSynth: '#62d2a2',
-        eq: '#d9a625',
-        compressor: '#66cc33',
-        delay: '#33a6d9',
-        reverb: '#8844aa',
-        chorus: '#c850a0',
-        utility: '#999',
-        saturator: '#d97028',
-        limiter: '#59d3be',
-        gate: '#6cc66d',
-        autoFilter: '#3ed1d1',
-        autoPan: '#6db3ff',
-        phaser: '#8b7bff',
-        flanger: '#55a6ff',
-        distortion: '#ff844d',
-        bitcrusher: '#f0d65c',
-        spectrum: '#7cc4d4',
-        midiPitch: '#7aa3ff',
-        midiScale: '#8bc27a',
-        midiVelocity: '#d9a25c',
-        midiRandom: '#c58bdd',
-        vst: '#4a9eff',
-    };
-    const typeColor = typeColorMap[device.effectType] || 'var(--color-accent-primary)';
     const baseWidth = device.source === 'internal'
         ? device.effectType === 'waveSynth'
             ? 980
@@ -2074,7 +2047,7 @@ const DeviceNode = ({
                         style={{
                             width: 11, height: 11,
                             borderRadius: '50%',
-                            background: device.isEnabled ? typeColor : 'var(--color-text-tertiary)',
+                            background: device.isEnabled ? 'var(--color-accent-primary)' : 'var(--color-text-tertiary)',
                             border: 'none',
                             cursor: 'pointer',
                             flexShrink: 0,

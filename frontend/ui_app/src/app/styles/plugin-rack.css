@@ -58,7 +58,8 @@
 
 /* Effect-type color stripes — display:block enables the stripe */
 .device-node[data-effect]::before {
-    display: block;
+    display: none;
+    /* User request: remove these lines */
 }
 
 .device-node[data-effect="eq"]::before {
@@ -100,7 +101,6 @@
     align-items: center;
     justify-content: space-between;
     padding: 0 8px;
-    padding-top: var(--daw-color-stripe-width);
     border-bottom: var(--border-width-1) solid var(--color-divider);
 }
 
@@ -126,10 +126,11 @@
     width: 7px;
     height: 7px;
     border-radius: var(--radius-full);
-    background: var(--color-status-success);
+    background: var(--color-accent-primary);
+    /* Blue LED by default */
     cursor: pointer;
     transition: background var(--transition-fast), box-shadow var(--transition-fast);
-    box-shadow: 0 0 4px rgba(102, 204, 51, 0.4);
+    box-shadow: 0 0 4px rgba(74, 158, 255, 0.4);
 }
 
 .device-bypass-led:hover {

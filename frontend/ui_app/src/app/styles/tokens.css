@@ -315,8 +315,8 @@
   /* bgSelected: blue tint */
   --color-bg-input: #252525;
   /* bgInput: white 0.145 */
-  --color-bg-header: #353535;
-  /* alias for bgElevated */
+  --color-bg-header: #454545;
+  /* Brightened from #353535 per user request */
   --color-bg-active: #3a3a3a;
   /* alias for bgHover */
   --color-bg-sidebar: #282828;
@@ -486,7 +486,12 @@
   /* ── Piano Roll (from DarkTheme) ── */
   --color-piano-white: #474747;
   --color-piano-black: #2e2e2e;
+  --color-piano-white-row: #262626;
+  /* subtle light gray for white keys */
+  --color-piano-black-row: #1a1a1a;
+  /* deep dark gray for black keys */
   --color-piano-grid: #262626;
+  /* legacy alias */
   --color-piano-c-line: #404040;
   --color-piano-bar: #4d4d4d;
   --color-piano-beat: #333333;
@@ -645,6 +650,8 @@
   /* ── Piano Roll (light) ── */
   --color-piano-white: #e8e8e8;
   --color-piano-black: #d0d0d0;
+  --color-piano-white-row: #f0f0f0;
+  --color-piano-black-row: #e0e0e0;
   --color-piano-grid: #dcdcdc;
   --color-piano-c-line: #c0c0c0;
   --color-piano-bar: #b3b3b3;

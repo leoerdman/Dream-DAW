@@ -521,8 +521,8 @@ export const PianoRoll = memo(function PianoRoll({
         };
         el.addEventListener('wheel', onWheel, { passive: false });
         return () => el.removeEventListener('wheel', onWheel);
-    // Intentionally omit pixelsPerBeat — accessed via ref to avoid listener teardown on zoom.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // Intentionally omit pixelsPerBeat — accessed via ref to avoid listener teardown on zoom.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // Pitch ↔ Y
@@ -611,11 +611,11 @@ export const PianoRoll = memo(function PianoRoll({
             gridEl.scrollTop = centered;
             if (kbEl) kbEl.scrollTop = centered;
         });
-    // Bug fix: only re-center when the clip changes, not when pitchToY/visiblePitches change
-    // (which happens on every note add/delete in fold mode, causing jarring scroll resets).
-    // pitchToY and visiblePitches are accessed inside the RAF callback — stale values are fine
-    // for a one-time centering pass.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // Bug fix: only re-center when the clip changes, not when pitchToY/visiblePitches change
+        // (which happens on every note add/delete in fold mode, causing jarring scroll resets).
+        // pitchToY and visiblePitches are accessed inside the RAF callback — stale values are fine
+        // for a one-time centering pass.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [clipLengthBeats]);
 
     // Scale membership
@@ -1574,15 +1574,15 @@ export const PianoRoll = memo(function PianoRoll({
                     requestAnimationFrame(() => editorRootRef.current?.focus());
                 }}
                 style={{
-                height: 'var(--daw-transport-height)',
-                display: 'flex',
-                alignItems: 'center',
-                padding: '0 var(--space-2)',
-                gap: 'var(--space-1)',
-                background: 'var(--color-bg-elevated)',
-                borderBottom: '1px solid var(--color-divider)',
-                flexShrink: 0,
-            }}>
+                    height: 'var(--daw-transport-height)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '0 var(--space-2)',
+                    gap: 'var(--space-1)',
+                    background: 'var(--color-bg-elevated)',
+                    borderBottom: '1px solid var(--color-divider)',
+                    flexShrink: 0,
+                }}>
                 {/* Tool buttons */}
                 {(['draw', 'paint'] as const).map((t) => {
                     const isActive = tool === t;
@@ -1983,7 +1983,11 @@ export const PianoRoll = memo(function PianoRoll({
                             borderRight: '1px solid var(--color-divider)',
                         }}
                     >
-                        <div style={{ height: canvasHeight, position: 'relative' }}>
+                        {/* Total scrollable height must match the grid's scrollable height:
+                            grid scrolls RULER_HEIGHT + canvasHeight + VELOCITY_LANE_HEIGHT,
+                            but RULER_HEIGHT is a sticky spacer above this div (not scrolled),
+                            so we need canvasHeight + VELOCITY_LANE_HEIGHT here. */}
+                        <div style={{ height: canvasHeight + VELOCITY_LANE_HEIGHT, position: 'relative' }}>
                             {pianoKeys.map((k) => {
                                 // Keyboard key colors from design tokens
                                 let bg: string;
@@ -2008,7 +2012,7 @@ export const PianoRoll = memo(function PianoRoll({
                                             position: 'absolute',
                                             top: k.y,
                                             left: 0,
-                                            width: k.isBlack ? KEYBOARD_WIDTH * 0.65 : KEYBOARD_WIDTH,
+                                            width: KEYBOARD_WIDTH,
                                             height: noteHeight,
                                             background: bg,
                                             borderBottom: '1px solid var(--color-border-subtle)',
@@ -2153,7 +2157,8 @@ export const PianoRoll = memo(function PianoRoll({
                                     }
                                 } else {
                                     // Default — use piano grid token colors
-                                    fill = black ? 'var(--color-piano-black)' : 'var(--color-piano-grid)';
+                                    // Fix: White key rows should be lighter than black key rows
+                                    fill = black ? 'var(--color-piano-black-row)' : 'var(--color-piano-white-row)';
                                 }
 
                                 return (

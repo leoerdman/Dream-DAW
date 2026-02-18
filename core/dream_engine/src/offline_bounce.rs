@@ -521,8 +521,28 @@ impl OfflineBouncer {
             )));
         }
 
-        let total_frames = self.config.total_frames() as usize;
+        // ── CRITICAL: Convert total_frames to the export-rate domain ──
+        // BounceConfig.total_frames() returns frames in the project sample rate
+        // domain (since start_frame, end_frame, tail_frames are all in project SR).
+        // But the render loop produces output frames at the EXPORT sample rate.
+        // The playhead correctly advances by frame_count * (timeline_sr / sample_rate)
+        // per render call, so the render loop counter must be in export-rate frames.
+        // Without this conversion, exporting 44100Hz→48000Hz would be 8.2% too short.
+        let project_total_frames = self.config.total_frames() as f64;
         let sample_rate = self.config.sample_rate as f64;
+        let project_sr = self.config.project_sample_rate.max(1.0);
+        let sr_ratio = sample_rate / project_sr;
+        let total_frames = if (sr_ratio - 1.0).abs() > 0.001 {
+            // Domain conversion: project frames → export frames
+            let export_frames = (project_total_frames * sr_ratio).ceil() as usize;
+            info!(
+                "[Bounce] Frame domain conversion: {}(project@{:.0}Hz) → {}(export@{:.0}Hz), ratio={:.6}",
+                project_total_frames as usize, project_sr, export_frames, sample_rate, sr_ratio
+            );
+            export_frames
+        } else {
+            project_total_frames as usize
+        };
 
         info!(
             "[Bounce] Starting: {} frames @ {}Hz, {}-bit, output={}",

@@ -21,6 +21,7 @@ import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestra
 import { divisionToInterval } from '@/shared/lib/gridSnap';
 import { beatToFrame, beatDurationToFrames, frameToBeat } from '@/shared/lib/audioMath';
 import { getContrastColor } from '@/shared/lib/colorUtils';
+import { scrollSync } from '@/shared/lib/useScrollSync';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { ClipEditorShell } from '@/widgets/ClipEditor/ClipEditorShell';
 import { ClipEditorMetaRow, ClipEditorSection, ClipEditorSidebar } from '@/widgets/ClipEditor/ClipEditorSidebar';
@@ -645,8 +646,21 @@ export const DawShell = () => {
     }, [projectTracks, collapsedGroups]);
     const selectedTrackIndex = useMemo(() => {
         if (!selectedTrackId || selectedTrackId === 'master') return -1;
-        return projectTracks.findIndex((t) => t.id === selectedTrackId);
-    }, [projectTracks, selectedTrackId]);
+        const rawIndex = projectTracks.findIndex((t) => t.id === selectedTrackId);
+        // BUG-D FIX: If the selected track is hidden (inside a collapsed group),
+        // snap to the nearest visible track to keep highlight/edit cursor usable.
+        if (rawIndex >= 0 && hiddenTrackIndices.has(rawIndex)) {
+            // Search upward for the nearest visible track (likely the group header)
+            for (let i = rawIndex - 1; i >= 0; i--) {
+                if (!hiddenTrackIndices.has(i)) return i;
+            }
+            // Fallback: search downward
+            for (let i = rawIndex + 1; i < projectTracks.length; i++) {
+                if (!hiddenTrackIndices.has(i)) return i;
+            }
+        }
+        return rawIndex;
+    }, [projectTracks, selectedTrackId, hiddenTrackIndices]);
     const selectedTrackIndices = useMemo(() => {
         const byId = new Map(projectTracks.map((t, i) => [t.id, i] as const));
         const out: number[] = [];
@@ -860,22 +874,10 @@ export const DawShell = () => {
         return () => window.removeEventListener('pointerup', onPointerUp);
     }, [flushTrackControlFinals, flushMidiThrottles, selectedTimelineClip, serializeMidiNotesToFrames]);
 
-    // ── Scroll sync between Timeline and TrackInspector ─────────────
-    // Two unidirectional channels to prevent stale-state race conditions.
-    // Timeline-originated scroll → drives TrackInspector only.
-    const [timelineScrollTop, setTimelineScrollTop] = useState(0);
-    // Inspector-originated scroll → drives Timeline canvas only.
-    const [inspectorScrollTop, setInspectorScrollTop] = useState<number | undefined>(undefined);
-
-    /** Called when the Timeline canvas fires a scroll event (wheel). */
-    const handleTimelineScrollTop = useCallback((st: number) => {
-        setTimelineScrollTop(st);
-    }, []);
-
-    /** Called when the TrackInspector header list is scrolled by the user. */
-    const handleInspectorScrollTop = useCallback((st: number) => {
-        setInspectorScrollTop(st);
-    }, []);
+    // ── Scroll sync ──────────────────────────────────────────────────
+    // Scroll is synchronized via the scrollSync singleton (useScrollSync.ts).
+    // NO React state here — avoids re-rendering the entire DawShell tree
+    // on every scroll frame. Timeline and TrackInspector subscribe directly.
 
     // ── Track Height ────────────────────────────────────────────────
     const TRACK_HEIGHT_DEFAULT = 48;
@@ -902,7 +904,7 @@ export const DawShell = () => {
         if (timelineRoot && Number.isFinite(clientY)) {
             const rect = timelineRoot.getBoundingClientRect();
             const yInViewport = (clientY as number) - rect.top;
-            const yInTracks = yInViewport - RULER_HEIGHT + timelineScrollTop;
+            const yInTracks = yInViewport - RULER_HEIGHT + scrollSync.scrollY;
             if (yInTracks >= 0) {
                 let acc = 0;
                 for (const track of projectTracksSnapshot) {
@@ -921,7 +923,6 @@ export const DawShell = () => {
         return [];
     }, [
         RULER_HEIGHT,
-        timelineScrollTop,
         projectTracksSnapshot,
         clampTrackHeight,
         TRACK_HEIGHT_DEFAULT,
@@ -1429,8 +1430,7 @@ export const DawShell = () => {
                                             const resolvedTrackId = trackIds[trackIndex] ?? trackId;
                                             handleSelectTrack(resolvedTrackId);
                                         }}
-                                        onScrollTop={handleTimelineScrollTop}
-                                        externalScrollTop={inspectorScrollTop}
+
                                         followPlayhead={followPlayhead}
                                         automationVisible={automationVisible}
                                         fitHorizontalToken={fitTimelineToken}
@@ -1456,8 +1456,7 @@ export const DawShell = () => {
                                             onSelectTrack={handleSelectTrack}
                                             trackHeight={TRACK_HEIGHT_BASE}
                                             rulerHeight={RULER_HEIGHT}
-                                            scrollTop={timelineScrollTop}
-                                            onScrollTop={handleInspectorScrollTop}
+
                                             mixerFocusMode={false}
                                             collapsedGroups={collapsedGroups}
                                             onToggleGroupCollapse={toggleGroupCollapse}

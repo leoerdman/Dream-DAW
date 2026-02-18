@@ -2582,6 +2582,25 @@ pub fn start_audio_thread_on_device(
                                                     }
                                                 }
 
+                                                // CRITICAL FIX: Sort MIDI events by sample_offset.
+                                                // Events were pushed in scheduler iteration order
+                                                // (note-off then note-on per ScheduledNote), NOT
+                                                // by chronological sample_offset. VST3 plugins
+                                                // expect events sorted by offset. Without this,
+                                                // consecutive same-pitch notes (e.g. kick drums)
+                                                // randomly fail because a note-off at offset 1000
+                                                // appears before a note-on at offset 0.
+                                                // Tie-break: note-off (0x80) before note-on (0x90)
+                                                // at the same offset ensures clean retrigger.
+                                                vst3_midi_scratch.sort_by(|a, b| {
+                                                    a.sample_offset.cmp(&b.sample_offset)
+                                                        .then_with(|| {
+                                                            // Note-off status byte (0x80) < note-on (0x90)
+                                                            // so ascending sort naturally puts off first.
+                                                            a.data[0].cmp(&b.data[0])
+                                                        })
+                                                });
+
                                                 let mut out_slices: [&mut [f32]; 2] = [
                                                     &mut external_left[..c],
                                                     &mut external_right[..c],

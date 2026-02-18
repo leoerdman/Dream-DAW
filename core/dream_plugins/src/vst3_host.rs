@@ -2708,6 +2708,12 @@ pub struct Vst3Instance {
 
     /// Best-known external parameter count hint.
     parameter_count_hint: u32,
+
+    /// Tracks whether the sidechain input bus (bus 1) is currently activated.
+    /// Plugins like ShaperBox check bus activation state — if the bus is activated
+    /// but receives silence, they gate the main audio. We dynamically toggle this
+    /// based on whether actual sidechain signal is present.
+    sidechain_bus_active: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -4077,6 +4083,7 @@ impl Vst3Instance {
             pending_param_changes: Vec::with_capacity(MAX_HOST_PARAM_CHANGES),
             parameter_values: HashMap::with_capacity(128),
             parameter_count_hint: 0,
+            sidechain_bus_active: false,
         })
     }
 
@@ -4122,6 +4129,7 @@ impl Vst3Instance {
             pending_param_changes: Vec::with_capacity(MAX_HOST_PARAM_CHANGES),
             parameter_values: HashMap::with_capacity(128),
             parameter_count_hint: 0,
+            sidechain_bus_active: false,
         }
     }
 }
@@ -4176,18 +4184,21 @@ impl PluginInstance for Vst3Instance {
                         ((*(*component).vtbl).get_bus_count)(component, K_AUDIO, K_OUTPUT).max(0);
 
                     // ── VST3 Spec: Activate main input/output buses ──
-                    // We activate the main bus (bus 0) and sidechain bus (bus 1) explicitly.
-                    // NOTE: We do NOT deactivate the sidechain bus here because the
-                    // process() function handles this dynamically by setting num_inputs.
+                    // Activate the main bus (bus 0) but DEACTIVATE the sidechain bus
+                    // (bus 1). ShaperBox and similar plugins gate audio when the sidechain
+                    // bus is activated but receives silence. We dynamically activate bus 1
+                    // only when actual sidechain signal is present in process().
                     if self.audio_input_bus_count > 0 {
                         let _ = ((*(*component).vtbl).activate_bus)(
                             component, K_AUDIO, K_INPUT, 0, 1,
                         );
                     }
                     if self.audio_input_bus_count > 1 {
+                        // Deactivate sidechain bus by default — will be activated dynamically.
                         let _ = ((*(*component).vtbl).activate_bus)(
-                            component, K_AUDIO, K_INPUT, 1, 1,
+                            component, K_AUDIO, K_INPUT, 1, 0,
                         );
+                        self.sidechain_bus_active = false;
                     }
                     if self.audio_output_bus_count > 0 {
                         let _ = ((*(*component).vtbl).activate_bus)(
@@ -4495,6 +4506,34 @@ impl PluginInstance for Vst3Instance {
             // but receives silence — interpreting it as "sidechain trigger absent".
             // By sending num_inputs=1 when no sidechain is active, the plugin
             // falls back to its internal LFO/envelope mode instead of gating.
+            //
+            // Additionally, we dynamically activate/deactivate bus 1 because some
+            // plugins check bus activation state, not just num_inputs.
+            if supports_sidechain_bus && self.audio_input_bus_count > 1 {
+                if has_sidechain_signal && !self.sidechain_bus_active {
+                    // Activate sidechain bus
+                    let component = self.component_ptr as *mut IComponent;
+                    if !component.is_null() {
+                        unsafe {
+                            let _ = ((*(*component).vtbl).activate_bus)(
+                                component, K_AUDIO, K_INPUT, 1, 1,
+                            );
+                        }
+                    }
+                    self.sidechain_bus_active = true;
+                } else if !has_sidechain_signal && self.sidechain_bus_active {
+                    // Deactivate sidechain bus
+                    let component = self.component_ptr as *mut IComponent;
+                    if !component.is_null() {
+                        unsafe {
+                            let _ = ((*(*component).vtbl).activate_bus)(
+                                component, K_AUDIO, K_INPUT, 1, 0,
+                            );
+                        }
+                    }
+                    self.sidechain_bus_active = false;
+                }
+            }
             let input_bus_count = if has_sidechain_signal { 2 } else { 1 };
             let main_bus_channels = main_channels as i32;
 

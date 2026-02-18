@@ -2609,9 +2609,17 @@ const PluginGuiSurface = ({
             const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
             const gainValue = ((rect.height / 2 - y) / (rect.height / 2)) * 24;
             const roundedGain = Math.max(-24, Math.min(24, gainValue));
-            const lowFreq = 20 + xNorm * (1200 - 20);
-            const midFreq = 120 + xNorm * (9000 - 120);
-            const highFreq = 1200 + xNorm * (20000 - 1200);
+            // Logarithmic frequency interpolation matching the canvas rendering.
+            // Each band has its own frequency range but uses the same log10 scale
+            // as the SVG canvas xToFreq function for consistent drag behavior.
+            const logInterp = (minHz: number, maxHz: number) => {
+                const minF = Math.log10(minHz);
+                const maxF = Math.log10(maxHz);
+                return Math.pow(10, minF + xNorm * (maxF - minF));
+            };
+            const lowFreq = logInterp(20, 1200);
+            const midFreq = logInterp(120, 9000);
+            const highFreq = logInterp(1200, 20000);
             if (dragEqBand === 'low') {
                 onParamChange('Low', roundedGain);
                 onParamChange('LowFreq', Math.round(lowFreq));

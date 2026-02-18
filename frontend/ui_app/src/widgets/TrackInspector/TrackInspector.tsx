@@ -5,6 +5,7 @@ import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import * as engineApi from '@/shared/api/engine';
 import { getContrastColor } from '@/shared/lib/colorUtils';
 import { vuNorm } from '@/shared/lib/audioMath';
+import { scrollSync } from '@/shared/lib/useScrollSync';
 
 
 /**
@@ -135,9 +136,7 @@ interface TrackInspectorProps {
     onSelectTracks?: (ids: string[], primaryId: string) => void;
     trackHeight?: number;
     rulerHeight?: number;
-    scrollTop?: number;
-    /** Fires when the user scrolls the track header list (reverse sync to Timeline). */
-    onScrollTop?: (scrollTop: number) => void;
+    // Scroll sync handled by scrollSync singleton — no props needed.
     mixerFocusMode?: boolean;
     /** Controlled collapsed groups (owned by DawShell for Timeline sync). */
     collapsedGroups?: Set<string>;
@@ -152,8 +151,6 @@ export const TrackInspector = ({
     onSelectTracks,
     trackHeight = 48,
     rulerHeight = 24,
-    scrollTop: externalScrollTop,
-    onScrollTop,
     mixerFocusMode = false,
     collapsedGroups: collapsedGroupsProp,
     onToggleGroupCollapse: onToggleGroupCollapseProp,
@@ -171,18 +168,20 @@ export const TrackInspector = ({
     const meters = useEngineStore((s) => s.meters);
     const scrollRef = useRef<HTMLDivElement>(null);
     /**
-     * Enterprise scroll guard: stores the last programmatically-set scrollTop value.
-     * The onScroll handler compares against this to suppress echoes —
-     * timing-independent, unlike rAF-based boolean guards.
+     * Enterprise scroll sync: subscribe to scrollSync for timeline-originated scroll.
+     * Directly sets DOM scrollTop — no React state, no re-renders.
      */
     const lastProgrammaticScrollRef = useRef<number | null>(null);
 
     useEffect(() => {
-        if (scrollRef.current && externalScrollTop !== undefined) {
-            lastProgrammaticScrollRef.current = externalScrollTop;
-            scrollRef.current.scrollTop = externalScrollTop;
-        }
-    }, [externalScrollTop]);
+        const unsub = scrollSync.subscribe('inspector', (y) => {
+            if (scrollRef.current) {
+                lastProgrammaticScrollRef.current = y;
+                scrollRef.current.scrollTop = y;
+            }
+        });
+        return unsub;
+    }, []);
 
     const liveTracks = useMemo((): TrackData[] => {
         return projectTracks.map((pt, idx) =>
@@ -1188,7 +1187,7 @@ export const TrackInspector = ({
                 }}
                 onScroll={() => {
                     const el = scrollRef.current;
-                    if (!el || !onScrollTop) return;
+                    if (!el) return;
                     const pos = el.scrollTop;
                     // Suppress echo from programmatic scrollTop assignment
                     if (lastProgrammaticScrollRef.current !== null
@@ -1197,7 +1196,7 @@ export const TrackInspector = ({
                         return;
                     }
                     lastProgrammaticScrollRef.current = null;
-                    onScrollTop(pos);
+                    scrollSync.setScrollY(pos, 'inspector');
                 }}
                 onContextMenu={(e) => {
                     const target = e.target as HTMLElement | null;
@@ -2023,6 +2022,17 @@ const TriColorVU = ({
                 bottom: 0,
                 background: 'color-mix(in srgb, var(--text-primary) 6%, transparent)',
             }} />
+            {/* 0 dB horizontal divider line */}
+            <div style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: `${(60 / 66) * 100}%`,
+                height: 1,
+                background: 'color-mix(in srgb, var(--text-primary) 25%, transparent)',
+                pointerEvents: 'none',
+                zIndex: 1,
+            }} />
             {/* Right channel */}
             <div style={{
                 position: 'absolute',
@@ -2191,6 +2201,17 @@ const VerticalMixerStrip = ({
                     bottom: 0,
                     background: 'color-mix(in srgb, var(--text-primary) 6%, transparent)',
                     pointerEvents: 'none',
+                }} />
+                {/* 0 dB horizontal divider line */}
+                <div style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: `${(60 / 66) * 100}%`,
+                    height: 1,
+                    background: 'color-mix(in srgb, var(--text-primary) 25%, transparent)',
+                    pointerEvents: 'none',
+                    zIndex: 1,
                 }} />
                 <div style={{
                     position: 'absolute',

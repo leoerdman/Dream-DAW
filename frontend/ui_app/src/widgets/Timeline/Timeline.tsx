@@ -10,6 +10,7 @@ import { useTimelineEngine, type UseTimelineEngineConfig } from '@/shared/lib/us
 import { beatToFrame, secondsToBeat } from '@/shared/lib/audioMath';
 import type { TimelineClipData } from '@/shared/lib/CanvasClipRenderer';
 import { useDragStore } from '@/shared/stores/useDragStore';
+import { scrollSync } from '@/shared/lib/useScrollSync';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useTimelineStore } from '@/shared/stores/useTimelineStore';
 import { useGridStore } from '@/shared/stores/useGridStore';
@@ -54,9 +55,7 @@ interface TimelineProps {
     onTrackSelect?: (trackId: string, trackIndex: number) => void;
     onMarqueeSelectionStart?: () => void;
     onMarqueeSelectionChange?: (marquee: { startBeat: number; endBeat: number; startTrack: number; endTrack: number } | null) => void;
-    onScrollTop?: (scrollTop: number) => void;
-    /** External scroll position (e.g. from TrackInspector scroll). */
-    externalScrollTop?: number;
+    // Scroll sync handled by scrollSync singleton — no props needed.
     followPlayhead?: boolean;
     automationVisible?: boolean;
     fitHorizontalToken?: number;
@@ -104,11 +103,9 @@ export const Timeline = (props: TimelineProps) => {
         onTrackSelect,
         onMarqueeSelectionStart,
         onMarqueeSelectionChange,
-        onScrollTop,
         onClipResize,
         followPlayhead = false,
         fitHorizontalToken = 0,
-        externalScrollTop,
     } = props;
 
     const beatsPerBar = timeSignature[0];
@@ -159,7 +156,6 @@ export const Timeline = (props: TimelineProps) => {
         onTrackSelect,
         onMarqueeSelectionStart,
         onMarqueeSelectionChange,
-        onScrollTop,
     });
     callbacksRef.current = {
         onPlayheadChange,
@@ -176,7 +172,6 @@ export const Timeline = (props: TimelineProps) => {
         onTrackSelect,
         onMarqueeSelectionStart,
         onMarqueeSelectionChange,
-        onScrollTop,
     };
 
     useEffect(() => {
@@ -229,7 +224,7 @@ export const Timeline = (props: TimelineProps) => {
                     callbacksRef.current.onDropBrowserItem?.(command.item, command.trackIndex, command.beat);
                     break;
                 case 'scroll-top':
-                    callbacksRef.current.onScrollTop?.(command.value);
+                    scrollSync.setScrollY(command.value, 'timeline');
                     break;
                 default:
                     break;
@@ -301,6 +296,14 @@ export const Timeline = (props: TimelineProps) => {
         engine.onScrollTop = (scrollTop) => {
             commandBusRef.current.emit({ type: 'scroll-top', value: scrollTop });
         };
+
+        // ── Subscribe to scrollSync for inspector-originated scroll ──
+        // This replaces the old externalScrollTop prop/useEffect.
+        const unsubScroll = scrollSync.subscribe('timeline', (y) => {
+            engine.setScrollY(y);
+        });
+        // Store cleanup for the subscription
+        (engine as unknown as Record<string, () => void>)._scrollSyncUnsub = unsubScroll;
 
         engine.onLoopChange = (loop) => {
             pendingLoopRef.current = loop;
@@ -383,6 +386,10 @@ export const Timeline = (props: TimelineProps) => {
         }));
 
         engine.setClips(clipData);
+        // BUG-A FIX: Immediately re-apply clip selection AFTER setClips to prevent
+        // deselection on fetchProject. setClips resets all clip.selected flags to false,
+        // so we must re-apply the selection atomically within the same effect.
+        engine.setClipSelection(selectedClipIdsRef.current);
     }, [clips, engineRef]);
 
     useEffect(() => {
@@ -426,6 +433,9 @@ export const Timeline = (props: TimelineProps) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [fitHorizontalToken, engineRef, beatsPerBar]);
 
+    // Selection is now applied atomically inside the clips effect above.
+    // This separate effect handles only explicit selection changes (e.g. click, Shift+click)
+    // that happen WITHOUT a clips array change.
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
@@ -476,16 +486,16 @@ export const Timeline = (props: TimelineProps) => {
         engine.ensureBeatVisible(playheadBeat);
     }, [playheadBeat, isPlaying, followPlayhead, engineRef]);
 
-    // ── External scroll sync (TrackInspector → Canvas viewport) ───────
+    // ── Scroll sync cleanup ──────────────────────────────────────────
     useEffect(() => {
-        if (externalScrollTop === undefined) return;
-        const engine = engineRef.current;
-        if (!engine) return;
-        const vp = engine.viewport;
-        // Only apply if the viewport's scrollY actually differs (avoids echo loops)
-        if (Math.abs(vp.scrollY - externalScrollTop) < 1) return;
-        engine.setScrollY(externalScrollTop);
-    }, [externalScrollTop, engineRef]);
+        return () => {
+            const engine = engineRef.current;
+            if (engine) {
+                const unsub = (engine as unknown as Record<string, () => void>)._scrollSyncUnsub;
+                unsub?.();
+            }
+        };
+    }, [engineRef]);
 
     // ── Store-based drag overlay (DawShell → Timeline) ────────────────
     const draggingItem = useDragStore(s => s.draggingItem);

@@ -965,31 +965,7 @@ export class TimelineEngine {
                 const clip = this._clips.find(c => c.id === hit.clipId);
                 if (!clip) break;
 
-                // Body click: select clip and arm drag-to-move (same as header click).
-                // Standard DAW behavior — clicking anywhere on a clip selects it.
-                // Body click: place cursor ONLY (Liquid Industry model).
-                // Does NOT select clip, does NOT move global playhead line.
-                if (hit.region === 'body' && !hit.edge && !hit.fadeHandle && !hit.fadeCurveHandle) {
-                    const snapped = this._snapBeat(hit.beat);
-                    this.onEditCursorChange?.(snapped, hit.trackIndex, hit.trackIndex);
-                    // this.onPlayheadSeek?.(snapped); // DEPRECATED: Only Ruler or Transport moves playhead.
-
-                    this._drag = {
-                        mode: DragMode.MultiCursorSelect,
-                        clipId: null,
-                        startBeat: snapped,
-                        startTrack: hit.trackIndex,
-                        currentBeat: snapped,
-                        currentTrack: hit.trackIndex,
-                        clipOriginalBeat: 0,
-                        clipOriginalTrack: 0,
-                        clipOriginalDuration: 0,
-                        startClientX: e.clientX,
-                        startClientY: e.clientY,
-                    };
-                    break;
-                }
-
+                // ── Fade Curve Handle (highest priority) ──
                 if (hit.fadeCurveHandle === 'in' || hit.fadeCurveHandle === 'out') {
                     this.onClipClick?.(hit.clipId, false);
                     this._drag = {
@@ -1010,6 +986,7 @@ export class TimelineEngine {
                     break;
                 }
 
+                // ── Fade Handle ──
                 if (hit.fadeHandle === 'in' || hit.fadeHandle === 'out') {
                     this.onClipClick?.(hit.clipId, false);
                     this._drag = {
@@ -1025,9 +1002,11 @@ export class TimelineEngine {
                         clipOriginalFadeIn: this._clampFadeFraction(clip.fadeIn ?? 0),
                         clipOriginalFadeOut: this._clampFadeFraction(clip.fadeOut ?? 0),
                     };
-                } else if (hit.edge === 'left') {
-                    // Determine drag mode based on edge detection
-                    // Start left-edge resize
+                    break;
+                }
+
+                // ── Edge Resize (left / right) ──
+                if (hit.edge === 'left') {
                     this.onClipClick?.(hit.clipId, false);
                     this._drag = {
                         mode: DragMode.ClipResizeLeft,
@@ -1045,8 +1024,9 @@ export class TimelineEngine {
                         startBeat: clip.startBeat,
                         durationBeats: clip.durationBeats,
                     };
-                } else if (hit.edge === 'right') {
-                    // Start right-edge resize
+                    break;
+                }
+                if (hit.edge === 'right') {
                     this.onClipClick?.(hit.clipId, false);
                     this._drag = {
                         mode: DragMode.ClipResizeRight,
@@ -1064,39 +1044,56 @@ export class TimelineEngine {
                         startBeat: clip.startBeat,
                         durationBeats: clip.durationBeats,
                     };
-                } else {
-                    // Header click/drag path: arm drag, start moving only after threshold.
-                    this.onClipClick?.(hit.clipId, e.shiftKey || e.metaKey);
-                    // Move edit cursor to clip start so the cursor line hides on selection.
-                    this.setEditCursor(clip.startBeat, hit.trackIndex, hit.trackIndex);
-                    this.onEditCursorChange?.(clip.startBeat, hit.trackIndex, hit.trackIndex);
-
-                    // Bug #100: Initialize co-movers if multiple clips are selected.
-                    const selectedClipIds = this._clips.filter(c => c.selected).map(c => c.id);
-                    const coMovers = new Map<string, { beat: number; track: number }>();
-                    if (selectedClipIds.length > 1 && selectedClipIds.includes(hit.clipId)) {
-                        for (const sc of this._clips) {
-                            if (sc.selected && sc.id !== hit.clipId) {
-                                coMovers.set(sc.id, { beat: sc.startBeat, track: sc.trackIndex });
-                            }
-                        }
-                    }
-
-                    this._drag = {
-                        mode: DragMode.ClipMoveArmed,
-                        clipId: hit.clipId,
-                        startBeat: hit.beat,
-                        startTrack: hit.trackIndex,
-                        currentBeat: hit.beat,
-                        currentTrack: hit.trackIndex,
-                        clipOriginalBeat: clip.startBeat,
-                        clipOriginalTrack: clip.trackIndex,
-                        clipOriginalDuration: clip.durationBeats,
-                        startClientX: e.clientX,
-                        startClientY: e.clientY,
-                        coMoverOrigins: coMovers.size > 0 ? coMovers : undefined,
-                    };
+                    break;
                 }
+
+                // ── Header OR Body click → Select + Arm Drag ──
+                // Enterprise-grade multi-clip drag (matches Logic Pro / Ableton behavior):
+                //   • If the clicked clip is ALREADY selected in a multi-selection:
+                //     → DON'T call onClipClick (which would destroy the multi-select).
+                //     → Preserve existing selection, compute co-movers, arm drag.
+                //     → If user releases without dragging → THEN deselect to single (deferred).
+                //   • If the clicked clip is NOT selected:
+                //     → Call onClipClick to select it (replacing selection unless Shift held).
+                //   • Shift/Cmd click always toggles additive selection.
+                const isAdditive = e.shiftKey || e.metaKey;
+                const isAlreadySelected = clip.selected === true;
+                const multipleSelected = this._clips.filter(c => c.selected).length > 1;
+                const preserveMultiSelect = isAlreadySelected && multipleSelected && !isAdditive;
+
+                if (!preserveMultiSelect) {
+                    // Single clip click or additive toggle — update selection now.
+                    this.onClipClick?.(hit.clipId, isAdditive);
+                }
+
+                // Move edit cursor to clip start so the cursor line hides on selection.
+                this.setEditCursor(clip.startBeat, hit.trackIndex, hit.trackIndex);
+                this.onEditCursorChange?.(clip.startBeat, hit.trackIndex, hit.trackIndex);
+
+                // Compute co-movers BEFORE any async React update can change selection.
+                // When preserveMultiSelect is true, the _clips[i].selected flags are still
+                // intact because we didn't call onClipClick.
+                const coMovers = new Map<string, { beat: number; track: number }>();
+                for (const sc of this._clips) {
+                    if (sc.selected && sc.id !== hit.clipId) {
+                        coMovers.set(sc.id, { beat: sc.startBeat, track: sc.trackIndex });
+                    }
+                }
+
+                this._drag = {
+                    mode: DragMode.ClipMoveArmed,
+                    clipId: hit.clipId,
+                    startBeat: hit.beat,
+                    startTrack: hit.trackIndex,
+                    currentBeat: hit.beat,
+                    currentTrack: hit.trackIndex,
+                    clipOriginalBeat: clip.startBeat,
+                    clipOriginalTrack: clip.trackIndex,
+                    clipOriginalDuration: clip.durationBeats,
+                    startClientX: e.clientX,
+                    startClientY: e.clientY,
+                    coMoverOrigins: coMovers.size > 0 ? coMovers : undefined,
+                };
                 break;
             }
 
@@ -1406,7 +1403,13 @@ export class TimelineEngine {
 
         switch (this._drag.mode) {
             case DragMode.ClipMoveArmed: {
-                // Header click without passing drag threshold: selection already handled on mousedown.
+                // Click without passing drag threshold.
+                // If user clicked a selected clip in a multi-selection (preserveMultiSelect
+                // was true on mousedown), the selection was preserved for potential drag.
+                // Since no drag happened, NOW we deselect to single (deferred deselection).
+                if (this._drag.clipId && this._drag.coMoverOrigins && this._drag.coMoverOrigins.size > 0) {
+                    this.onClipClick?.(this._drag.clipId, false);
+                }
                 break;
             }
             case DragMode.ClipMove: {
@@ -1456,21 +1459,15 @@ export class TimelineEngine {
                     );
 
                     // Fire callback for the primary dragged clip if position changed.
+                    // NOTE: We ONLY fire onClipMove for the primary clip.
+                    // DawShell's handleClipMove detects moveAsGroup and automatically
+                    // moves ALL selected clips with the same delta. Firing onClipMove
+                    // per co-mover would cause N² redundant IPC calls.
                     if (
                         finalBeat !== this._drag.clipOriginalBeat ||
                         finalTrack !== this._drag.clipOriginalTrack
                     ) {
                         this.onClipMove?.(this._drag.clipId, finalBeat, finalTrack);
-                    }
-                    // Fire callbacks for co-movers.
-                    if (this._drag.coMoverOrigins) {
-                        for (const [id, origin] of this._drag.coMoverOrigins) {
-                            const coFinalBeat = this._snapBeat(Math.max(0, origin.beat + deltaBeat));
-                            const coFinalTrack = Math.max(0, Math.min(this._viewport.trackCount - 1, origin.track + deltaTrack));
-                            if (coFinalBeat !== origin.beat || coFinalTrack !== origin.track) {
-                                this.onClipMove?.(id, coFinalBeat, coFinalTrack);
-                            }
-                        }
                     }
                 }
                 break;

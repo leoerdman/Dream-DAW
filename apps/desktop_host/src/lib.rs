@@ -3296,6 +3296,12 @@ struct ExportSettingsPayload {
     /// Output format: "wav" or "mp3". Defaults to "wav" if omitted.
     #[serde(default = "default_export_format")]
     format: String,
+    /// Optional start frame for "selected" range export.
+    #[serde(default)]
+    start_frame: Option<i64>,
+    /// Optional end frame for "selected" range export.
+    #[serde(default)]
+    end_frame: Option<i64>,
 }
 
 fn default_export_format() -> String {

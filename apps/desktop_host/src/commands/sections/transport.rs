@@ -174,7 +174,17 @@ fn set_bpm(
                 continue;
             }
             if clip.warp_source_duration_frames <= 0 {
-                clip.warp_source_duration_frames = clip.duration.sample_frame.max(1);
+                // Look up the real file duration from the clip pool so we
+                // never accidentally capture an already-warped timeline length.
+                if let Ok(pool) = clip_pool_state.pool.lock() {
+                    if let Some(audio) = pool.get(&clip.file_path) {
+                        clip.warp_source_duration_frames = audio.num_frames.max(1) as i64;
+                    } else {
+                        clip.warp_source_duration_frames = clip.duration.sample_frame.max(1);
+                    }
+                } else {
+                    clip.warp_source_duration_frames = clip.duration.sample_frame.max(1);
+                }
             }
             let old_start = clip.position.sample_frame.max(0);
             let old_end = (old_start + clip.duration.sample_frame.max(1)).max(old_start + 1);

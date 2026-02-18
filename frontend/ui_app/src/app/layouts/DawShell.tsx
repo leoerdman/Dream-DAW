@@ -181,8 +181,7 @@ export const DawShell = () => {
     );
 
     // ── Enterprise Project Manager (Cmd+S/⇧S/N/O, auto-backup, dirty state)
-    // Hook has side effects (keyboard shortcuts, auto-backup timer) — value intentionally unused
-    useProjectManager(fetchProject);
+    const { filePath: projectFilePath } = useProjectManager(fetchProject);
 
     // ── Native macOS Menu Bar (File, Edit, Window) ──
     // NOTE: Do NOT pass fetchProject as onProjectChange here.
@@ -203,6 +202,7 @@ export const DawShell = () => {
         marqueeSelection,
         onProjectMutated: fetchProject,
         onTogglePlayback: togglePlay,
+        onClipSelectionChanged: setSelectedClipIds,
     });
 
     // ── ⌘, opens Settings ──
@@ -1629,7 +1629,17 @@ export const DawShell = () => {
                 <ExportModal
                     isOpen={exportOpen}
                     onClose={() => setExportOpen(false)}
-                    projectName="My Project"
+                    projectName={
+                        projectFilePath
+                            ? projectFilePath.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'Untitled'
+                            : 'Untitled'
+                    }
+                    selectedClipIds={selectedClipIds}
+                    allClips={timelineClipsForView}
+                    bpm={projectBpm || transportBpm || 120}
+                    sampleRate={projectSampleRate}
+                    loopStartBeat={loopStartBeat}
+                    loopEndBeat={loopEndBeat}
                 />
             </Suspense>
 

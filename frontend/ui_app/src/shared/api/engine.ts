@@ -1127,12 +1127,16 @@ export interface ExportSettings {
     outputPath: string;
     sampleRate: 44100 | 48000 | 96000;
     bitDepth: 16 | 24 | 32;
-    /** 'full' renders entire project, 'loop' renders only the loop region. */
-    range: 'full' | 'loop';
+    /** 'full' renders entire project, 'loop' renders loop region, 'selected' renders selected clips range. */
+    range: 'full' | 'loop' | 'selected';
     normalize: boolean;
     tailMs: number;
     /** Output format: 'wav' or 'mp3'. */
     format: 'wav' | 'mp3';
+    /** Start frame for 'selected' range export. */
+    startFrame?: number;
+    /** End frame for 'selected' range export. */
+    endFrame?: number;
 }
 
 export interface BackgroundJobSnapshot {

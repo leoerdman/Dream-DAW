@@ -779,6 +779,12 @@ export const PianoRoll = memo(function PianoRoll({
             const beat = Math.max(0, Math.min(clipBeats - duration, snapToCellStart(x / pixelsPerBeat)));
             const key = `${drawPitch}:${beatKey(beat)}`;
             if (occupied.has(key)) return;
+            // Spatial overlap check: don't insert if an existing note at this pitch
+            // physically covers the target beat range (handles float precision drift).
+            const hasOverlap = workingNotes.some(
+                (n) => n.pitch === drawPitch && n.startBeat < beat + duration && n.startBeat + n.durationBeats > beat,
+            );
+            if (hasOverlap) return;
             occupied.add(key);
             const newNote: MidiNote = {
                 id: genNoteId(),

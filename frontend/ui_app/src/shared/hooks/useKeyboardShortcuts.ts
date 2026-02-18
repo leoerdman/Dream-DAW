@@ -40,6 +40,9 @@ export interface KeyboardShortcutsConfig {
 
     /** Callback to toggle playback. */
     onTogglePlayback: () => void;
+
+    /** Callback to update clip selection (e.g. after duplicate/paste). */
+    onClipSelectionChanged: (clipIds: string[]) => void;
 }
 
 // ── Platform Detection ───────────────────────────────────────────────────
@@ -117,6 +120,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 marqueeSelection,
                 onProjectMutated,
                 onTogglePlayback,
+                onClipSelectionChanged,
             } = configRef.current;
 
             // Ignore if user is typing in an input
@@ -378,7 +382,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 const sampleRate = store.projectSampleRate || 44100;
 
                 try {
-                    await Promise.all(
+                    const results = await Promise.all(
                         selected.map((clip) => {
                             const destBeat = clip.startBeat + spanBeats;
                             const destFrames = Math.max(0, beatToFrame(destBeat, bpm, sampleRate));
@@ -386,6 +390,8 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                         }),
                     );
                     onProjectMutated();
+                    // Auto-select the newly duplicated clips.
+                    onClipSelectionChanged(results.map((r) => r.new_id));
                 } catch (err) {
                     console.error('[Shortcuts] Duplicate clip failed:', err);
                 }
@@ -455,8 +461,14 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 const groupStartBeat = Math.max(0, cursorBeat + minRelative);
                 const groupOffset = groupStartBeat - (cursorBeat + minRelative);
 
+                // Cross-track paste: compute track offset from clipboard anchor
+                // to the currently selected track.
+                const anchorTrackIndex = clipboardRef.current[0].trackIndex;
+                const selectedTrackIdx = projectTracks.findIndex((t) => t.id === selectedTrackId);
+                const trackDelta = selectedTrackIdx >= 0 ? selectedTrackIdx - anchorTrackIndex : 0;
+
                 try {
-                    await Promise.all(
+                    const results = await Promise.all(
                         clipboardRef.current.map((clip) => {
                             const relative = clip.startBeat - firstBeat;
                             const destBeat = Math.max(0, cursorBeat + relative + groupOffset);
@@ -464,7 +476,24 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                             return engine.duplicateClip(clip.id, destFrames);
                         }),
                     );
+
+                    // Move duplicated clips to the target track(s) if cross-track paste.
+                    if (trackDelta !== 0) {
+                        await Promise.all(
+                            results.map((r, i) => {
+                                const clip = clipboardRef.current[i];
+                                const relative = clip.startBeat - firstBeat;
+                                const destBeat = Math.max(0, cursorBeat + relative + groupOffset);
+                                const destFrames = Math.max(0, beatToFrame(destBeat, bpm, sampleRate));
+                                const targetTrack = Math.max(0, Math.min(projectTracks.length - 1, clip.trackIndex + trackDelta));
+                                return engine.moveClip(r.new_id, targetTrack, destFrames);
+                            }),
+                        );
+                    }
+
                     onProjectMutated();
+                    // Auto-select the newly pasted clips.
+                    onClipSelectionChanged(results.map((r) => r.new_id));
                 } catch (err) {
                     console.error('[Shortcuts] Paste clip failed:', err);
                 }
@@ -489,6 +518,8 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 try {
                     await Promise.all(selected.map((c) => engine.deleteClip(c.id)));
                     onProjectMutated();
+                    // Clear selection after cut — original clips are gone.
+                    onClipSelectionChanged([]);
                 } catch (err) {
                     console.error('[Shortcuts] Cut clip failed:', err);
                 }

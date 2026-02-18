@@ -986,7 +986,14 @@ async fn set_clip_warp_cmd(
     for track in &mut project.tracks {
         if let Some(clip) = track.clips.iter_mut().find(|c| c.id == uuid) {
             if clip.warp_source_duration_frames <= 0 {
-                clip.warp_source_duration_frames = clip.duration.sample_frame.max(1);
+                // Look up the real file duration from the clip pool so we
+                // never accidentally capture an already-warped timeline length.
+                let pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
+                let source_frames = pool
+                    .get(&clip.file_path)
+                    .map(|audio| audio.num_frames.max(1) as i64)
+                    .unwrap_or(clip.duration.sample_frame.max(1));
+                clip.warp_source_duration_frames = source_frames;
             }
 
             clip.is_warped = payload.is_warped;
@@ -1565,9 +1572,9 @@ async fn export_mix_cmd(
     let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
 
     let export_range = settings.range.trim().to_ascii_lowercase();
-    if export_range != "full" && export_range != "loop" {
+    if !["full", "loop", "selected"].contains(&export_range.as_str()) {
         return Err(format!(
-            "Unsupported export range '{}'. Use 'full' or 'loop'.",
+            "Unsupported export range '{}'. Use 'full', 'loop', or 'selected'.",
             settings.range
         ));
     }
@@ -1601,7 +1608,12 @@ async fn export_mix_cmd(
         .unwrap_or(0)
         .max(1);
 
-    let (start_frame, end_frame) = if export_range == "loop" {
+    let (start_frame, end_frame) = if export_range == "selected" {
+        match (settings.start_frame, settings.end_frame) {
+            (Some(s), Some(e)) if e > s => (s, e),
+            _ => return Err("Selected range requires valid start_frame and end_frame".to_string()),
+        }
+    } else if export_range == "loop" {
         let state = handle.playback_state.lock().map_err(|e| e.to_string())?;
         if state.loop_enabled && state.loop_end > state.loop_start {
             (state.loop_start, state.loop_end)

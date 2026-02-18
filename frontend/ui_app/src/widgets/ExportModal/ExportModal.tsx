@@ -12,20 +12,33 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import * as engineApi from '@/shared/api/engine';
+import type { TimelineClip } from '@/shared/lib/arrangementTypes';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
 type ExportFormat = 'wav' | 'mp3';
 type SampleRate = 44100 | 48000 | 96000;
 type BitDepth = 16 | 24 | 32;
-type ExportRange = 'full' | 'loop';
+type ExportRange = 'full' | 'loop' | 'selected';
 
 interface ExportModalProps {
     isOpen: boolean;
     onClose: () => void;
     projectName?: string;
+    /** Currently selected clip IDs in the timeline. */
+    selectedClipIds?: string[];
+    /** All clips in the timeline (used to compute selected range). */
+    allClips?: TimelineClip[];
+    /** Project BPM. */
+    bpm?: number;
+    /** Project sample rate. */
+    sampleRate?: number;
+    /** Loop start in beats. */
+    loopStartBeat?: number;
+    /** Loop end in beats. */
+    loopEndBeat?: number;
 }
 
 // ── Options ──────────────────────────────────────────────────────────────
@@ -54,12 +67,43 @@ const DIALOG_FILTERS: Record<ExportFormat, { name: string; extensions: string[] 
     mp3: [{ name: 'MP3 Audio', extensions: ['mp3'] }],
 };
 
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+/** Convert beats to sample frames. */
+function beatsToFrames(beats: number, bpm: number, sampleRate: number): number {
+    return Math.round((beats / bpm) * 60 * sampleRate);
+}
+
+/** Format duration in seconds to MM:SS.t */
+function formatDuration(seconds: number): string {
+    const totalMs = Math.round(seconds * 1000);
+    const mins = Math.floor(totalMs / 60000);
+    const secs = Math.floor((totalMs % 60000) / 1000);
+    const tenths = Math.floor((totalMs % 1000) / 100);
+    return `${mins}:${String(secs).padStart(2, '0')}.${tenths}`;
+}
+
+/** Convert beats to bar number (1-indexed, 4/4 time). */
+function beatsToBar(beats: number): number {
+    return Math.floor(beats / 4) + 1;
+}
+
 // ── Component ────────────────────────────────────────────────────────────
 
-export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: ExportModalProps) => {
+export const ExportModal = ({
+    isOpen,
+    onClose,
+    projectName = 'Untitled',
+    selectedClipIds = [],
+    allClips = [],
+    bpm = 120,
+    sampleRate: projectSampleRate = 48000,
+    loopStartBeat = 0,
+    loopEndBeat = 0,
+}: ExportModalProps) => {
     // ── Settings State ───────────────────────────────────────────────
     const [format, setFormat] = useState<ExportFormat>('wav');
-    const [sampleRate, setSampleRate] = useState<SampleRate>(48000);
+    const [exportSampleRate, setExportSampleRate] = useState<SampleRate>(48000);
     const [bitDepth, setBitDepth] = useState<BitDepth>(24);
     const [exportRange, setExportRange] = useState<ExportRange>('full');
     const [normalize, setNormalize] = useState(false);
@@ -76,6 +120,74 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
             setBounceError(null);
         }
     }, [isOpen]);
+
+    // ── Whether "Selected" range is available ────────────────────────
+    const hasSelection = selectedClipIds.length > 0;
+
+    // ── Selected clips range (beats) ─────────────────────────────────
+    const selectedRange = useMemo(() => {
+        if (!hasSelection || allClips.length === 0) return null;
+        const selectedSet = new Set(selectedClipIds);
+        const selected = allClips.filter(c => selectedSet.has(c.id));
+        if (selected.length === 0) return null;
+
+        let minBeat = Infinity;
+        let maxBeat = -Infinity;
+        for (const c of selected) {
+            minBeat = Math.min(minBeat, c.startBeat);
+            maxBeat = Math.max(maxBeat, c.startBeat + c.durationBeats);
+        }
+        return { startBeat: minBeat, endBeat: maxBeat };
+    }, [hasSelection, allClips, selectedClipIds]);
+
+    // ── Compute full project extent (beats) ──────────────────────────
+    const projectExtent = useMemo(() => {
+        if (allClips.length === 0) return { startBeat: 0, endBeat: 0 };
+        let maxBeat = 0;
+        for (const c of allClips) {
+            maxBeat = Math.max(maxBeat, c.startBeat + c.durationBeats);
+        }
+        return { startBeat: 0, endBeat: maxBeat };
+    }, [allClips]);
+
+    // ── Active range info (based on selected export range) ───────────
+    const rangeInfo = useMemo(() => {
+        let startBeat = 0;
+        let endBeat = 0;
+
+        if (exportRange === 'selected' && selectedRange) {
+            startBeat = selectedRange.startBeat;
+            endBeat = selectedRange.endBeat;
+        } else if (exportRange === 'loop' && loopEndBeat > loopStartBeat) {
+            startBeat = loopStartBeat;
+            endBeat = loopEndBeat;
+        } else {
+            startBeat = projectExtent.startBeat;
+            endBeat = projectExtent.endBeat;
+        }
+
+        const durationBeats = endBeat - startBeat;
+        const durationSeconds = (durationBeats / bpm) * 60;
+        const startBar = beatsToBar(startBeat);
+        const endBar = beatsToBar(endBeat);
+
+        return {
+            startBeat,
+            endBeat,
+            startBar,
+            endBar,
+            durationBeats,
+            durationSeconds,
+            durationFormatted: formatDuration(durationSeconds),
+        };
+    }, [exportRange, selectedRange, loopStartBeat, loopEndBeat, projectExtent, bpm]);
+
+    // ── Auto-switch away from "selected" if no selection ─────────────
+    useEffect(() => {
+        if (exportRange === 'selected' && !hasSelection) {
+            setExportRange('full');
+        }
+    }, [exportRange, hasSelection]);
 
     // ── Bounce Handler ───────────────────────────────────────────────
     const handleBounce = useCallback(async () => {
@@ -98,16 +210,25 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                 return;
             }
 
-            // 2. Fire export as background job (blocking popup is global).
-            await engineApi.exportMix({
+            // 2. Build export settings with optional frame data for 'selected' range.
+            const settings: engineApi.ExportSettings = {
                 outputPath,
-                sampleRate,
+                sampleRate: exportSampleRate,
                 bitDepth,
                 range: exportRange,
                 normalize,
                 tailMs,
                 format,
-            });
+            };
+
+            // For 'selected' range, compute and pass frame boundaries.
+            if (exportRange === 'selected' && selectedRange) {
+                settings.startFrame = beatsToFrames(selectedRange.startBeat, bpm, projectSampleRate);
+                settings.endFrame = beatsToFrames(selectedRange.endBeat, bpm, projectSampleRate);
+            }
+
+            // 3. Fire export as background job (blocking popup is global).
+            await engineApi.exportMix(settings);
             onClose();
 
         } catch (err) {
@@ -117,9 +238,18 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
         } finally {
             setIsSubmitting(false);
         }
-    }, [sampleRate, bitDepth, exportRange, normalize, tailMs, format, projectName, onClose]);
+    }, [exportSampleRate, bitDepth, exportRange, normalize, tailMs, format, projectName, onClose, selectedRange, bpm, projectSampleRate]);
 
     if (!isOpen) return null;
+
+    // ── Range options (dynamic based on selection availability) ───────
+    const rangeOptions: { value: ExportRange; label: string }[] = [
+        { value: 'full', label: 'Full Project' },
+        { value: 'loop', label: 'Loop Region' },
+    ];
+    if (hasSelection) {
+        rangeOptions.push({ value: 'selected', label: 'Selected' });
+    }
 
     return (
         <>
@@ -143,7 +273,7 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                 left: '50%',
                 transform: 'translate(-50%, -50%)',
                 zIndex: 'var(--z-modal-content)' as unknown as number,
-                width: 420,
+                width: 440,
                 background: 'var(--color-bg-panel)',
                 border: '1px solid var(--color-border-subtle)',
                 borderRadius: 'var(--radius-2xl)',
@@ -203,8 +333,8 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                 <SettingRow label="Sample Rate">
                     <ChipGroup
                         options={SAMPLE_RATES}
-                        value={sampleRate}
-                        onChange={setSampleRate}
+                        value={exportSampleRate}
+                        onChange={setExportSampleRate}
                     />
                 </SettingRow>
 
@@ -222,14 +352,34 @@ export const ExportModal = ({ isOpen, onClose, projectName = 'Untitled' }: Expor
                 {/* ── Export Range ── */}
                 <SettingRow label="Range">
                     <ChipGroup
-                        options={[
-                            { value: 'full' as ExportRange, label: 'Full Project' },
-                            { value: 'loop' as ExportRange, label: 'Loop Region' },
-                        ]}
+                        options={rangeOptions}
                         value={exportRange}
                         onChange={setExportRange}
                     />
                 </SettingRow>
+
+                {/* ── Range Info Display ── */}
+                {rangeInfo.durationBeats > 0 && (
+                    <div style={{
+                        padding: '8px 12px',
+                        background: 'color-mix(in srgb, var(--color-accent-primary) 6%, transparent)',
+                        border: '1px solid color-mix(in srgb, var(--color-accent-primary) 20%, transparent)',
+                        borderRadius: 'var(--radius-md)',
+                        fontSize: 'var(--font-size-xs)',
+                        color: 'var(--color-text-secondary)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        fontFamily: 'var(--font-mono)',
+                    }}>
+                        <span>
+                            Bar {rangeInfo.startBar}–{rangeInfo.endBar}
+                        </span>
+                        <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>
+                            {rangeInfo.durationFormatted}
+                        </span>
+                    </div>
+                )}
 
                 {/* ── Normalize ── */}
                 <SettingRow label="Normalize">

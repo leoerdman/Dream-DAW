@@ -206,6 +206,10 @@ export const PianoRoll = memo(function PianoRoll({
     }));
     const lanePersistTimerRef = useRef<number | null>(null);
     const lanePersistHashRef = useRef('');
+    // Always-current refs for use inside stable callbacks/closures that would
+    // otherwise capture stale values (e.g. drag handlers, wheel handler).
+    const notesRef = useRef(notes);
+    const pixelsPerBeatRef = useRef(0);
 
     const readLaneValue = useCallback((note: MidiNote, lane: PianoLaneType) => {
         if (lane === 'velocity') return note.velocity;
@@ -353,6 +357,9 @@ export const PianoRoll = memo(function PianoRoll({
     const pixelsPerBeat = zoomOverrideH != null
         ? Math.max(MIN_PPB, Math.min(MAX_PPB, zoomOverrideH))
         : autoFitPPB;
+    // Keep always-current refs in sync for use inside stable drag/wheel callbacks.
+    notesRef.current = notes;
+    pixelsPerBeatRef.current = pixelsPerBeat;
     const totalBeats = Math.max(clipBeats, gridAreaWidth / pixelsPerBeat);
 
     const enforceNoOverlap = useCallback((input: MidiNote[], aggressorIds: Set<string>): MidiNote[] => {
@@ -414,16 +421,27 @@ export const PianoRoll = memo(function PianoRoll({
 
     const pasteClipboard = useCallback(() => {
         if (clipboardRef.current.length === 0) return;
-        const minBeat = Math.min(...clipboardRef.current.map((n) => n.startBeat));
+        let minBeat = Infinity;
+        let maxEnd = -Infinity;
+        for (const n of clipboardRef.current) {
+            if (n.startBeat < minBeat) minBeat = n.startBeat;
+            const end = n.startBeat + n.durationBeats;
+            if (end > maxEnd) maxEnd = end;
+        }
         const pasteAt = playheadBeat != null
             ? playheadBeat
             : Math.max(0, ...notes.map((n) => n.startBeat + n.durationBeats));
-        const offset = pasteAt - minBeat;
+        let offset = pasteAt - minBeat;
+        // Bug fix: clamp the group offset so the last note stays within the clip,
+        // rather than clamping individual notes (which breaks relative timing).
+        const groupDuration = maxEnd - minBeat;
+        const maxOffset = Math.max(0, clipBeats - groupDuration);
+        offset = Math.max(-minBeat, Math.min(maxOffset, offset));
         // Bug #9: clamp to clipBeats (actual clip length), not totalBeats (zoom-derived).
         const pasted = clipboardRef.current.map((n) => ({
             ...n,
             id: genNoteId(),
-            startBeat: Math.max(0, Math.min(clipBeats - MIN_NOTE_BEATS, n.startBeat + offset)),
+            startBeat: Math.max(0, n.startBeat + offset),
         }));
         onNotesChange(enforceNoOverlap([...notes, ...pasted], new Set(pasted.map((n) => n.id))));
         setSelectedNotes(new Set(pasted.map((n) => n.id)));
@@ -493,14 +511,19 @@ export const PianoRoll = memo(function PianoRoll({
                 e.preventDefault();
                 const delta = e.deltaY > 0 ? -2 : 2;
                 setZoomOverrideH((prev) => {
-                    const current = prev ?? pixelsPerBeat;
+                    // Bug fix: use pixelsPerBeatRef.current (always fresh) instead of
+                    // the closed-over `pixelsPerBeat` which could be stale. This also
+                    // avoids the teardown/re-attach cycle on every ppb change.
+                    const current = prev ?? pixelsPerBeatRef.current;
                     return Math.max(MIN_PPB, Math.min(MAX_PPB, current + delta));
                 });
             }
         };
         el.addEventListener('wheel', onWheel, { passive: false });
         return () => el.removeEventListener('wheel', onWheel);
-    }, [pixelsPerBeat]);
+    // Intentionally omit pixelsPerBeat — accessed via ref to avoid listener teardown on zoom.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Pitch ↔ Y
     // Returns -1 when the pitch is not in the visible row set (e.g. drum-mode
@@ -588,8 +611,12 @@ export const PianoRoll = memo(function PianoRoll({
             gridEl.scrollTop = centered;
             if (kbEl) kbEl.scrollTop = centered;
         });
+    // Bug fix: only re-center when the clip changes, not when pitchToY/visiblePitches change
+    // (which happens on every note add/delete in fold mode, causing jarring scroll resets).
+    // pitchToY and visiblePitches are accessed inside the RAF callback — stale values are fine
+    // for a one-time centering pass.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [clipLengthBeats, pitchToY, visiblePitches]);
+    }, [clipLengthBeats]);
 
     // Scale membership
     const scaleSet = useMemo(() => {
@@ -1100,7 +1127,9 @@ export const PianoRoll = memo(function PianoRoll({
             moved = moved || Math.abs(dy) > 1;
 
             if (activeLane === 'velocity') {
-                onNotesChange(notes.map((n) => {
+                // Bug fix: use notesRef.current instead of the closed-over `notes` from
+                // drag-start — prevents overwriting backend updates that arrive during drag.
+                onNotesChange(notesRef.current.map((n) => {
                     if (!targets.has(n.id)) return n;
                     const base = startedValues.get(n.id) ?? n.velocity;
                     return { ...n, velocity: Math.max(1, Math.min(127, base + delta)) };
@@ -1127,7 +1156,7 @@ export const PianoRoll = memo(function PianoRoll({
 
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
-    }, [notes, onNotesChange, selectedNotes, activeLane, readLaneValue, auditionNote]);
+    }, [onNotesChange, selectedNotes, activeLane, readLaneValue, auditionNote]);
 
     const transposeNotes = useCallback((delta: number) => {
         // Bug #34: Only transpose selected notes. If nothing selected, do nothing
@@ -1156,7 +1185,9 @@ export const PianoRoll = memo(function PianoRoll({
             const blendedDur = n.durationBeats + (snappedDur - n.durationBeats) * amt;
             return {
                 ...n,
-                startBeat: Math.max(0, Math.min(clipBeats - step, blendedStart)),
+                // Bug fix: guard against step > clipBeats which makes (clipBeats - step) negative,
+                // causing the note to teleport to beat 0.
+                startBeat: Math.max(0, Math.min(Math.max(0, clipBeats - step), blendedStart)),
                 durationBeats: Math.max(step, Math.min(clipBeats - blendedStart, blendedDur)),
             };
         });

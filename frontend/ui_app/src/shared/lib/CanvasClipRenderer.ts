@@ -247,6 +247,7 @@ export class CanvasClipRenderer {
         snapBeats: number,
         theme: TimelineTheme,
     ): void {
+        ctx.save();
         const ppb = vp.pixelsPerBeat;
         const rulerH = vp.rulerHeight;
 
@@ -288,6 +289,7 @@ export class CanvasClipRenderer {
             ctx.lineTo(vp.viewportWidth, Math.round(y));
             ctx.stroke();
         }
+        ctx.restore();
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -304,6 +306,7 @@ export class CanvasClipRenderer {
         loop: LoopRegion | null,
         theme: TimelineTheme,
     ): void {
+        ctx.save();
         const rulerH = vp.rulerHeight;
 
         // Ruler background
@@ -424,6 +427,7 @@ export class CanvasClipRenderer {
                 ctx.restore();
             }
         }
+        ctx.restore();
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -673,6 +677,8 @@ export class CanvasClipRenderer {
         if (!clip.filePath || !clip.durationSamples) return;
 
         const ppb = vp.pixelsPerBeat;
+        // Guard divide-by-zero: a zero-width viewport hasn't laid out yet.
+        if (ppb <= 0) return;
         const clipX = vp.beatsToScreenX(clip.startBeat);
         const clipW = clip.durationBeats * ppb;
 
@@ -830,13 +836,15 @@ export class CanvasClipRenderer {
         ctx.stroke();
         ctx.restore();
 
-        // Core playhead line
+        // Core playhead line (save/restore to avoid leaking strokeStyle/lineWidth)
+        ctx.save();
         ctx.strokeStyle = theme.playhead;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(Math.round(x), rulerH);
         ctx.lineTo(Math.round(x), canvasH);
         ctx.stroke();
+        ctx.restore();
     }
 
     // ═══════════════════════════════════════════════════════════════════

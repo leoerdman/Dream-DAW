@@ -1165,8 +1165,10 @@ struct ProcessSetup {
 struct AudioBusBuffers {
     num_channels: i32,
     silence_flags: u64,
+    /// In the VST3 SDK this is a union of channelBuffers32 / channelBuffers64.
+    /// We only use kSample32, so a single pointer field matches the SDK layout
+    /// (24 bytes total with alignment padding after num_channels).
     channel_buffers32: *mut *mut f32,
-    channel_buffers64: *mut *mut f64,
 }
 
 #[repr(C)]
@@ -4086,19 +4088,16 @@ impl PluginInstance for Vst3Instance {
                 num_channels: main_bus_channels,
                 silence_flags: 0,
                 channel_buffers32: in_ptrs.as_mut_ptr(),
-                channel_buffers64: ptr::null_mut(),
             };
             let in_sidechain_bus = AudioBusBuffers {
                 num_channels: 2,
                 silence_flags: if has_sidechain_signal { 0 } else { u64::MAX },
                 channel_buffers32: unsafe { in_ptrs.as_mut_ptr().add(2) },
-                channel_buffers64: ptr::null_mut(),
             };
             let mut out_bus = AudioBusBuffers {
                 num_channels: main_channels as i32,
                 silence_flags: 0,
                 channel_buffers32: out_ptrs.as_mut_ptr(),
-                channel_buffers64: ptr::null_mut(),
             };
 
             let mut input_buses = [in_main_bus, in_sidechain_bus];

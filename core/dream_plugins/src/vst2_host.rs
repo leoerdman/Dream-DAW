@@ -65,14 +65,13 @@ const EFF_GET_CHUNK: i32 = 23;
 #[allow(dead_code)]
 const EFF_SET_CHUNK: i32 = 24;
 const EFF_PROCESS_EVENTS: i32 = 25;
-const EFF_CAN_DO: i32 = 26;
 #[allow(dead_code)]
-const EFF_GET_TAIL_SIZE: i32 = 27;
+const EFF_CAN_BE_AUTOMATED: i32 = 26;
 const EFF_GET_VENDOR_STRING: i32 = 47;
 const EFF_GET_PRODUCT_STRING: i32 = 48;
 const EFF_GET_VENDOR_VERSION: i32 = 49;
-#[allow(dead_code)]
-const EFF_CAN_BE_AUTOMATED: i32 = 26;
+const EFF_CAN_DO: i32 = 51;
+const EFF_GET_TAIL_SIZE: i32 = 52;
 const EFF_BEGIN_SET_PROGRAM: i32 = 67;
 const EFF_END_SET_PROGRAM: i32 = 68;
 const EFF_START_PROCESS: i32 = 71;
@@ -495,6 +494,18 @@ pub struct Vst2Instance {
 
     /// Stored transport context for VstTimeInfo.
     transport: TransportContext,
+
+    /// Pre-allocated silence buffer for missing input channels.
+    silence_buffer: Vec<f32>,
+
+    /// Pre-allocated input channel pointer array.
+    input_ptrs: Vec<*const f32>,
+
+    /// Pre-allocated output channel pointer array.
+    output_ptrs: Vec<*mut f32>,
+
+    /// Pre-allocated dummy output buffers for extra plugin channels.
+    dummy_output_buffers: Vec<Vec<f32>>,
 }
 
 // Safety: Vst2Instance is only used from a single thread (the audio thread).
@@ -647,6 +658,10 @@ impl Vst2Instance {
             vst_events_buffer,
             max_midi_events: max_midi,
             transport: TransportContext::default(),
+            silence_buffer: vec![0.0f32; 8192],
+            input_ptrs: Vec::with_capacity(num_inputs.max(2) as usize),
+            output_ptrs: Vec::with_capacity(num_outputs.max(2) as usize),
+            dummy_output_buffers: Vec::new(),
         })
     }
 
@@ -875,6 +890,29 @@ impl PluginInstance for Vst2Instance {
             0.0,
         );
 
+        // Pre-allocate scratch buffers for this block size
+        let num_plugin_inputs = unsafe { (*self.effect).num_inputs } as usize;
+        let num_plugin_outputs = unsafe { (*self.effect).num_outputs } as usize;
+
+        // Silence buffer for missing input channels
+        if self.silence_buffer.len() < max_buffer_size {
+            self.silence_buffer.resize(max_buffer_size, 0.0);
+        } else {
+            // Zero the buffer (it may have been used before)
+            self.silence_buffer[..max_buffer_size].fill(0.0);
+        }
+
+        // Input/output pointer arrays
+        self.input_ptrs.clear();
+        self.input_ptrs.reserve(num_plugin_inputs);
+        self.output_ptrs.clear();
+        self.output_ptrs.reserve(num_plugin_outputs);
+
+        // Dummy output buffers for extra plugin output channels
+        self.dummy_output_buffers.clear();
+        // We'll allocate these as needed; pre-reserve capacity
+        self.dummy_output_buffers.reserve(num_plugin_outputs);
+
         // Resume processing (effMainsChanged with value=1)
         self.dispatch(EFF_MAINS_CHANGED, 0, 1, ptr::null_mut(), 0.0);
 
@@ -936,33 +974,50 @@ impl PluginInstance for Vst2Instance {
             }
         }
 
-        // Prepare input channel pointers
+        // Prepare input channel pointers (no allocations — reuse pre-allocated vecs)
         let num_plugin_inputs = unsafe { (*self.effect).num_inputs } as usize;
         let num_plugin_outputs = unsafe { (*self.effect).num_outputs } as usize;
 
         // Build an array of input channel pointers
         // If the host provides fewer channels than the plugin expects, pad with silence
-        let silence = vec![0.0f32; num_frames];
-        let mut input_ptrs: Vec<*const f32> = Vec::with_capacity(num_plugin_inputs);
+        // Ensure silence buffer is large enough
+        if self.silence_buffer.len() < num_frames {
+            self.silence_buffer.resize(num_frames, 0.0);
+        }
+        self.input_ptrs.clear();
         for i in 0..num_plugin_inputs {
             if i < inputs.len() {
-                input_ptrs.push(inputs[i].as_ptr());
+                self.input_ptrs.push(inputs[i].as_ptr());
             } else {
-                input_ptrs.push(silence.as_ptr());
+                self.input_ptrs.push(self.silence_buffer.as_ptr());
             }
         }
 
         // Build an array of output channel pointers
-        let mut output_ptrs: Vec<*mut f32> = Vec::with_capacity(num_plugin_outputs);
-        // We need to provide mutable pointers for all channels the plugin expects
         // Use the provided output buffers for channels we have, and dummy buffers for the rest
-        let mut dummy_outputs: Vec<Vec<f32>> = Vec::new();
+        self.output_ptrs.clear();
+        let extra_outputs_needed = if num_plugin_outputs > outputs.len() {
+            num_plugin_outputs - outputs.len()
+        } else {
+            0
+        };
+        // Ensure we have enough dummy output buffers
+        while self.dummy_output_buffers.len() < extra_outputs_needed {
+            self.dummy_output_buffers.push(vec![0.0f32; self.max_buffer_size.max(num_frames)]);
+        }
+        // Ensure each dummy buffer is large enough
+        for buf in self.dummy_output_buffers.iter_mut() {
+            if buf.len() < num_frames {
+                buf.resize(num_frames, 0.0);
+            }
+        }
+        let mut dummy_idx = 0;
         for i in 0..num_plugin_outputs {
             if i < outputs.len() {
-                output_ptrs.push(outputs[i].as_mut_ptr());
+                self.output_ptrs.push(outputs[i].as_mut_ptr());
             } else {
-                dummy_outputs.push(vec![0.0f32; num_frames]);
-                output_ptrs.push(dummy_outputs.last_mut().unwrap().as_mut_ptr());
+                self.output_ptrs.push(self.dummy_output_buffers[dummy_idx].as_mut_ptr());
+                dummy_idx += 1;
             }
         }
 
@@ -973,8 +1028,8 @@ impl PluginInstance for Vst2Instance {
                 unsafe {
                     process_fn(
                         self.effect,
-                        input_ptrs.as_ptr(),
-                        output_ptrs.as_mut_ptr(),
+                        self.input_ptrs.as_ptr(),
+                        self.output_ptrs.as_mut_ptr(),
                         num_frames as i32,
                     );
                 }
@@ -990,8 +1045,8 @@ impl PluginInstance for Vst2Instance {
             unsafe {
                 process_fn(
                     self.effect,
-                    input_ptrs.as_ptr(),
-                    output_ptrs.as_mut_ptr(),
+                    self.input_ptrs.as_ptr(),
+                    self.output_ptrs.as_mut_ptr(),
                     num_frames as i32,
                 );
             }
@@ -1082,7 +1137,7 @@ impl PluginInstance for Vst2Instance {
             EFF_SET_CHUNK,
             0, // isPreset = 0 (full bank)
             data.len() as VstIntPtr,
-            data.as_ptr() as *mut c_void,
+            data.as_ptr() as *const c_void as *mut c_void,
             0.0,
         );
 
@@ -1124,6 +1179,9 @@ impl Drop for Vst2Instance {
 
 /// Gets a parameter name from a VST2 plugin.
 pub fn vst2_get_param_name(instance: &Vst2Instance, index: u32) -> String {
+    if index >= instance.parameter_count() {
+        return String::new();
+    }
     let mut buf = [0u8; 256];
     instance.dispatch(
         EFF_GET_PARAM_NAME,
@@ -1138,6 +1196,9 @@ pub fn vst2_get_param_name(instance: &Vst2Instance, index: u32) -> String {
 
 /// Gets a parameter display string from a VST2 plugin (formatted value).
 pub fn vst2_get_param_display(instance: &Vst2Instance, index: u32) -> String {
+    if index >= instance.parameter_count() {
+        return String::new();
+    }
     let mut buf = [0u8; 256];
     instance.dispatch(
         EFF_GET_PARAM_DISPLAY,
@@ -1152,6 +1213,9 @@ pub fn vst2_get_param_display(instance: &Vst2Instance, index: u32) -> String {
 
 /// Gets a parameter label from a VST2 plugin (unit string like "dB", "Hz").
 pub fn vst2_get_param_label(instance: &Vst2Instance, index: u32) -> String {
+    if index >= instance.parameter_count() {
+        return String::new();
+    }
     let mut buf = [0u8; 256];
     instance.dispatch(
         EFF_GET_PARAM_LABEL,

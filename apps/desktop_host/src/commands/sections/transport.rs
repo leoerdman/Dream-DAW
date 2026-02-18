@@ -141,6 +141,7 @@ fn set_bpm(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     if !(20.0..=999.0).contains(&bpm) {
         return Err(format!("BPM {bpm} out of range (20–999)"));
@@ -224,7 +225,8 @@ fn set_bpm(
 
     project.pulse_map = new_pulse_map;
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
+    project_state.mark_dirty(&project_name, Some(&app))?;
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
     rebuild_automation_snapshot_from_project(&project, &automation_runtime);

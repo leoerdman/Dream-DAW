@@ -124,8 +124,8 @@ pub struct ReverbProcessor {
     allpasses_l: Vec<AllpassFilter>,
     allpasses_r: Vec<AllpassFilter>,
     // Pre-delay
-    predelay_buf_l: [f32; MAX_PREDELAY_SAMPLES],
-    predelay_buf_r: [f32; MAX_PREDELAY_SAMPLES],
+    predelay_buf_l: Box<[f32]>,
+    predelay_buf_r: Box<[f32]>,
     predelay_pos: usize,
     predelay_samples: usize,
     // Parameters
@@ -173,8 +173,8 @@ impl ReverbProcessor {
             combs_r,
             allpasses_l,
             allpasses_r,
-            predelay_buf_l: [0.0; MAX_PREDELAY_SAMPLES],
-            predelay_buf_r: [0.0; MAX_PREDELAY_SAMPLES],
+            predelay_buf_l: vec![0.0; MAX_PREDELAY_SAMPLES].into_boxed_slice(),
+            predelay_buf_r: vec![0.0; MAX_PREDELAY_SAMPLES].into_boxed_slice(),
             predelay_pos: 0,
             predelay_samples: 0,
             room_size: 0.5,
@@ -348,8 +348,8 @@ impl DspProcessor for ReverbProcessor {
         for a in &mut self.allpasses_r {
             a.reset();
         }
-        self.predelay_buf_l = [0.0; MAX_PREDELAY_SAMPLES];
-        self.predelay_buf_r = [0.0; MAX_PREDELAY_SAMPLES];
+        self.predelay_buf_l.fill(0.0);
+        self.predelay_buf_r.fill(0.0);
         self.predelay_pos = 0;
         self.lfo_phase = 0.0;
         self.low_cut_l = 0.0;

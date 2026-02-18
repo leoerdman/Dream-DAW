@@ -10,6 +10,7 @@ async fn undo_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     // Keep lock order consistent with push_undo(): project -> undo
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -23,7 +24,8 @@ async fn undo_cmd(
     *project = previous.to_project();
     drop(undo);
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
+    project_state.mark_dirty(&project_name, Some(&app))?;
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_automation_snapshot_from_project(&project, &automation_runtime);
     rebuild_midi_snapshot_from_project(&project, &handle);
@@ -44,6 +46,7 @@ async fn redo_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     // Keep lock order consistent with push_undo(): project -> undo
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
@@ -57,7 +60,8 @@ async fn redo_cmd(
     *project = next.to_project();
     drop(undo);
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
+    project_state.mark_dirty(&project_name, Some(&app))?;
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_automation_snapshot_from_project(&project, &automation_runtime);
     rebuild_midi_snapshot_from_project(&project, &handle);

@@ -314,6 +314,7 @@ fn place_bounced_file_on_new_track(
     project_state: &tauri::State<'_, ProjectState>,
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
     handle: &tauri::State<'_, AudioEngineHandle>,
+    app: &tauri::AppHandle,
     bounced_file_path: &str,
     clip_name: &str,
     clip_start_frame: i64,
@@ -348,9 +349,11 @@ fn place_bounced_file_on_new_track(
     if let Some(track) = project.tracks.get_mut(new_track_index) {
         track.clips.push(clip);
     }
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_midi_snapshot_from_project(&project, handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(app))?;
     Ok(())
 }
 
@@ -358,6 +361,7 @@ fn place_stem_files_on_new_tracks(
     project_state: &tauri::State<'_, ProjectState>,
     clip_pool_state: &tauri::State<'_, ClipPoolState>,
     handle: &tauri::State<'_, AudioEngineHandle>,
+    app: &tauri::AppHandle,
     stems: &[(String, String)],
     clip_start_frame: i64,
 ) -> Result<(), String> {
@@ -414,9 +418,11 @@ fn place_stem_files_on_new_tracks(
         }
     }
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_midi_snapshot_from_project(&project, handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(app))?;
     Ok(())
 }
 
@@ -567,6 +573,7 @@ async fn move_clip_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&clip_id)
         .map_err(|e| format!("Invalid clip ID: {e}"))?;
@@ -592,9 +599,11 @@ async fn move_clip_cmd(
         }
     }
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
 
     Ok(())
 }
@@ -650,6 +659,7 @@ async fn resize_clip_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&clip_id)
         .map_err(|e| format!("Invalid clip ID: {e}"))?;
@@ -668,9 +678,11 @@ async fn resize_clip_cmd(
         }
     }
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
 
     Ok(())
 }
@@ -685,6 +697,7 @@ async fn split_clip_cmd(
     split_frame: i64,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
 ) -> Result<SplitClipResponse, String> {
     let uuid = Uuid::parse_str(&clip_id)
         .map_err(|e| format!("Invalid clip ID: {e}"))?;
@@ -697,8 +710,10 @@ async fn split_clip_cmd(
     let result = mutators::split_clip(&mut project, uuid, split_frame)
         .map_err(mutator_err_to_string)?;
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
 
     Ok(SplitClipResponse {
         left_id: result.left_id.to_string(),
@@ -715,6 +730,7 @@ async fn delete_clip_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&clip_id)
         .map_err(|e| format!("Invalid clip ID: {e}"))?;
@@ -731,9 +747,11 @@ async fn delete_clip_cmd(
         }
     }
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
 
     Ok(())
 }
@@ -746,6 +764,7 @@ async fn duplicate_clip_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
 ) -> Result<DuplicateClipResponse, String> {
     let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
     push_undo(&project_state)?;
@@ -763,9 +782,11 @@ async fn duplicate_clip_cmd(
     };
 
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
 
     Ok(DuplicateClipResponse {
         new_id: new_id.to_string(),
@@ -779,6 +800,7 @@ async fn merge_clips_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
 ) -> Result<MergeClipsResponse, String> {
     if clip_ids.is_empty() {
         return Err("No clips selected".to_string());
@@ -888,9 +910,11 @@ async fn merge_clips_cmd(
         track.midi_clips.insert(insert_at, merged);
     }
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
 
     Ok(MergeClipsResponse {
         new_id: new_id.to_string(),
@@ -904,6 +928,7 @@ async fn set_clip_source_offset_cmd(
     source_offset_frames: i64,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
     push_undo(&project_state)?;
@@ -922,8 +947,10 @@ async fn set_clip_source_offset_cmd(
         return Err(format!("Clip not found: {clip_id}"));
     }
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
 }
 
@@ -942,6 +969,7 @@ async fn set_clip_warp_cmd(
     payload: SetClipWarpPayload,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&payload.clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
     let base_bpm = payload.warp_base_bpm.unwrap_or(120.0);
@@ -982,8 +1010,10 @@ async fn set_clip_warp_cmd(
         return Err(format!("Clip not found: {}", payload.clip_id));
     }
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
 }
 
@@ -997,6 +1027,7 @@ async fn set_clip_fades_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
     push_undo(&project_state)?;
@@ -1031,9 +1062,11 @@ async fn set_clip_fades_cmd(
         return Err(format!("Clip not found: {clip_id}"));
     }
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
 
     log::info!(
         "[IPC] set_clip_fades_cmd clip={} fade_in={} fade_out={}",
@@ -1093,6 +1126,7 @@ async fn set_clip_muted_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
 
@@ -1117,9 +1151,11 @@ async fn set_clip_muted_cmd(
         return Ok(());
     }
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
 
     log::info!("[IPC] set_clip_muted_cmd clip={} muted={}", clip_id, muted);
     Ok(())
@@ -1135,6 +1171,7 @@ async fn set_clips_muted_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
 ) -> Result<usize, String> {
     let uuids: Vec<Uuid> = clip_ids
         .iter()
@@ -1183,9 +1220,11 @@ async fn set_clips_muted_cmd(
         return Ok(0);
     }
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
 
     log::info!(
         "[IPC] set_clips_muted_cmd clips={} muted={} applied={}",
@@ -1260,6 +1299,7 @@ async fn resolve_missing_file_cmd(
     new_path: String,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
     if !PathBuf::from(&new_path).exists() {
@@ -1294,8 +1334,10 @@ async fn resolve_missing_file_cmd(
         });
     }
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
 }
 
@@ -1307,6 +1349,7 @@ async fn set_automation_points_cmd(
     points: Vec<AutomationPointPayload>,
     project_state: tauri::State<'_, ProjectState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let track_uuid = Uuid::parse_str(&track_id).map_err(|e| format!("Invalid track ID: {e}"))?;
     let normalized_param_id = param_id.trim().to_string();
@@ -1351,8 +1394,10 @@ async fn set_automation_points_cmd(
         // Keep project clean: remove empty lanes.
         track.automation_lanes.retain(|lane| !lane.points.is_empty());
 
-        *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+        let project_name = project.name.clone();
         rebuild_automation_snapshot_from_project(&project, &automation_runtime);
+        drop(project);
+        project_state.mark_dirty(&project_name, Some(&app))?;
     }
 
     log::debug!(
@@ -1370,6 +1415,7 @@ async fn arm_track_cmd(
     track_index: usize,
     armed: bool,
     project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
     let track = project
@@ -1377,7 +1423,9 @@ async fn arm_track_cmd(
         .get_mut(track_index)
         .ok_or_else(|| format!("Track index out of range: {track_index}"))?;
     track.is_armed = armed;
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
 }
 
@@ -1447,6 +1495,7 @@ async fn stop_recording_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     recording_runtime: tauri::State<'_, RecordingRuntime>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let session = recording_runtime
         .session
@@ -1496,8 +1545,10 @@ async fn stop_recording_cmd(
         AbsoluteTime::new(timeline_frames.max(1)),
     );
     project.tracks[armed_idx].clips.push(clip);
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
 
     Ok(())
 }
@@ -1861,6 +1912,7 @@ async fn bounce_selection_to_track_cmd(
         &project_state,
         &clip_pool_state,
         &handle,
+        &app,
         &output_path,
         &bounce_track_name,
         start_frame,
@@ -1972,6 +2024,7 @@ async fn bounce_track_cmd(
         &project_state,
         &clip_pool_state,
         &handle,
+        &app,
         &output_path,
         &format!("{} Bounce", source_track.name),
         start_frame,
@@ -2108,6 +2161,7 @@ async fn bounce_group_cmd(
         &project_state,
         &clip_pool_state,
         &handle,
+        &app,
         &output_path,
         &format!("{} Bounce", group_track.name),
         start_frame,
@@ -2280,6 +2334,7 @@ async fn split_track_to_stems_cmd(
         &project_state,
         &clip_pool_state,
         &handle,
+        &app,
         &stem_tracks,
         start_frame,
     );

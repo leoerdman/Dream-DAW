@@ -26,6 +26,7 @@ async fn import_audio_file(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     project_state: tauri::State<'_, ProjectState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
 ) -> Result<ImportAudioResponse, String> {
     log::info!("[IPC] import_audio_file: path='{}' track={} pos={:?}", path, track_index, position_frames);
     let file_path = PathBuf::from(&path);
@@ -143,10 +144,12 @@ async fn import_audio_file(
         project.tracks[idx].clips.push(clip);
 
         // Mark project dirty
-        *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+        let project_name = project.name.clone();
 
         // Rebuild clip snapshot for audio thread
         clip_pool_state.rebuild_snapshot(&project);
+        drop(project);
+        project_state.mark_dirty(&project_name, Some(&app))?;
     }
 
     log::info!(

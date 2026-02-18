@@ -27,6 +27,7 @@ fn create_rack_from_devices_cmd(
     payload: CreateRackPayload,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
 ) -> Result<String, String> {
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
@@ -94,8 +95,10 @@ fn create_rack_from_devices_cmd(
     let rack_id = rack.id.to_string();
     track.effects.insert(insert_pos, DeviceNode::Rack(rack));
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
         "[IPC] create_rack_from_devices_cmd(track={}, devices={}, rack={})",
         payload.track_id,
@@ -113,6 +116,7 @@ fn add_chain_to_rack_cmd(
     payload: AddChainToRackPayload,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
 ) -> Result<String, String> {
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
@@ -142,8 +146,10 @@ fn add_chain_to_rack_cmd(
     let chain_id = chain.id.to_string();
     rack.chains.push(chain);
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
         "[IPC] add_chain_to_rack_cmd(track={}, rack={}, chain={})",
         payload.track_id,
@@ -161,6 +167,7 @@ fn add_device_to_rack_chain_cmd(
     payload: AddDeviceToRackChainPayload,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
 ) -> Result<String, String> {
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
@@ -194,8 +201,10 @@ fn add_device_to_rack_chain_cmd(
     let insert_pos = insert_index.min(chain.devices.len());
     chain.devices.insert(insert_pos, DeviceNode::Single(plugin_slot));
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
         "[IPC] add_device_to_rack_chain_cmd(track={}, rack={}, chain={}, device={})",
         payload.track_id,
@@ -218,6 +227,7 @@ fn remove_device_from_rack_cmd(
     payload: RemoveDeviceFromRackPayload,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
@@ -264,8 +274,10 @@ fn remove_device_from_rack_cmd(
         }
     }
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
         "[IPC] remove_device_from_rack_cmd(track={}, rack={}, device={})",
         payload.track_id,
@@ -339,6 +351,7 @@ fn load_device_preset_cmd(
     payload: LoadDevicePresetPayload,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
 ) -> Result<String, String> {
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
@@ -366,8 +379,10 @@ fn load_device_preset_cmd(
     let insert_pos = insert_index.min(track.effects.len());
     track.effects.insert(insert_pos, device);
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
         "[IPC] load_device_preset_cmd(track={}, preset='{}', device={})",
         payload.track_id,

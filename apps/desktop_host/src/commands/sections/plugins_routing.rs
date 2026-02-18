@@ -1012,6 +1012,7 @@ fn replace_missing_plugin_slot_cmd(
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
@@ -1072,10 +1073,12 @@ fn replace_missing_plugin_slot_cmd(
         );
     }
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
 }
 
@@ -1228,6 +1231,7 @@ fn set_external_plugin_param_for_slot_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let should_commit_snapshot = push_undo_step.unwrap_or(true);
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
@@ -1301,6 +1305,9 @@ fn set_external_plugin_param_for_slot_cmd(
                 &project_mut,
                 plugin_host_state.slot_instance_snapshot().as_ref(),
             );
+            let project_name = project_mut.name.clone();
+            drop(project_mut);
+            project_state.mark_dirty(&project_name, Some(&app))?;
         }
     }
 
@@ -1548,6 +1555,7 @@ fn set_track_routing_cmd(
     target_id: String,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let source_id = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let destination = if target_id == "master" {
@@ -1573,8 +1581,10 @@ fn set_track_routing_cmd(
         .ok_or_else(|| format!("Track not found: {track_id}"))?;
     track.output_destination_id = destination;
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!("[IPC] set_track_routing_cmd({track_id} -> {target_id})");
     Ok(())
 }
@@ -1586,6 +1596,7 @@ fn set_track_input_cmd(
     input_id: String,
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let source_id = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     push_undo(&project_state)?;
@@ -1608,8 +1619,10 @@ fn set_track_input_cmd(
     };
 
     let effective_input = track.input_source_id.clone();
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
         "[IPC] set_track_input_cmd({track_id} <- {})",
         effective_input.as_deref().unwrap_or("none")
@@ -1626,6 +1639,7 @@ fn set_plugin_sidechain_source_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
@@ -1689,10 +1703,12 @@ fn set_plugin_sidechain_source_cmd(
         return Err(format!("Plugin slot not found on track {}: {}", track_id, slot_id));
     }
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
         "[IPC] set_plugin_sidechain_source_cmd(track={} slot={} source={})",
         track_id,
@@ -1710,6 +1726,7 @@ fn add_plugin_to_track_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     fn canonical_internal_plugin(plugin_id: &str, plugin_name: &str) -> Option<(&'static str, &'static str, &'static str)> {
         let merged = format!("{} {}", plugin_id, plugin_name).to_lowercase();
@@ -2057,7 +2074,7 @@ fn add_plugin_to_track_cmd(
         }
     }
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
     if !effective_plugin_id.starts_with("internal://") {
         if let Err(err) = plugin_host_state.ensure_loaded_instance_for_slot(new_slot_id, &effective_plugin_id) {
@@ -2095,6 +2112,8 @@ fn add_plugin_to_track_cmd(
         effective_plugin_name,
         if use_instrument { "instrument" } else { "effect" }
     );
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
 }
 
@@ -2106,6 +2125,7 @@ fn remove_plugin_from_track_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
     plugin_host_state: tauri::State<'_, PluginHostState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
@@ -2152,7 +2172,7 @@ fn remove_plugin_from_track_cmd(
         ));
     }
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     let _ = plugin_host_state.unload_slot_instance(slot_uuid);
     clip_pool_state.rebuild_snapshot(&project);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
@@ -2170,6 +2190,8 @@ fn remove_plugin_from_track_cmd(
         payload.track_id,
         payload.slot_id
     );
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
 }
 
@@ -2210,6 +2232,7 @@ fn set_internal_plugin_param_cmd(
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     automation_runtime: tauri::State<'_, AutomationRuntime>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     fn waveform_token_and_code(value: f64) -> (&'static str, u8) {
         let idx = value.round().clamp(0.0, 3.0) as u8;
@@ -2413,13 +2436,17 @@ fn set_internal_plugin_param_cmd(
         }
     };
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     if should_commit_snapshot {
         // Expensive cold-path rebuilds are deferred during live gestures.
         // Real-time audio updates are already applied via EngineCommand path below.
         clip_pool_state.rebuild_snapshot(&project);
         rebuild_automation_snapshot_from_project(&project, &automation_runtime);
         rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
+        drop(project);
+        project_state.mark_dirty(&project_name, Some(&app))?;
+    } else {
+        *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
     }
 
     if sampler_command_needed
@@ -2532,6 +2559,7 @@ fn set_sampler_sample_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let track_uuid = Uuid::parse_str(&payload.track_id)
         .map_err(|_| format!("Invalid track_id: {}", payload.track_id))?;
@@ -2570,8 +2598,10 @@ fn set_sampler_sample_cmd(
         (idx, cfg.clone())
     };
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     handle
         .sampler_samples
         .set_track_sample(track_index, Some(sample_arc));

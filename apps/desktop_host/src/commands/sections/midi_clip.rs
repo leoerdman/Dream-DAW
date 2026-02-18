@@ -21,6 +21,7 @@ async fn create_midi_clip_cmd(
     name: Option<String>,
     project_state: tauri::State<'_, ProjectState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
 ) -> Result<CreateMidiClipResponse, String> {
     let clip_name = name.unwrap_or_else(|| "MIDI Clip".to_string());
     log::info!("[IPC] create_midi_clip_cmd: '{}' track={} pos={} dur={}", clip_name, track_index, position_frames, duration_frames);
@@ -45,8 +46,10 @@ async fn create_midi_clip_cmd(
 
         project.tracks[idx].midi_clips.push(clip);
 
-        *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+        let project_name = project.name.clone();
         rebuild_midi_snapshot_from_project(&project, &handle);
+        drop(project);
+        project_state.mark_dirty(&project_name, Some(&app))?;
     }
 
     log::info!(
@@ -414,6 +417,7 @@ async fn update_midi_clip_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&clip_id).map_err(|e| format!("Invalid clip ID: {e}"))?;
     enum UpdateTarget {
@@ -511,11 +515,13 @@ async fn update_midi_clip_cmd(
         UpdateTarget::Noop => {}
     }
 
-    *project_state.is_dirty.lock().map_err(|e| e.to_string())? = true;
+    let project_name = project.name.clone();
     if should_rebuild_clip_snapshot {
         clip_pool_state.rebuild_snapshot(&project);
     }
     rebuild_midi_snapshot_from_project(&project, &handle);
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
 }
 

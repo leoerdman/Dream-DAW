@@ -24,14 +24,16 @@ fn set_audio_device(
     device_name: String,
     handle: tauri::State<'_, AudioEngineHandle>,
     settings_state: tauri::State<'_, SettingsState>,
+    project_state: tauri::State<'_, ProjectState>,
 ) -> Result<String, String> {
-    restart_audio_engine_impl(device_name, handle, settings_state)
+    restart_audio_engine_impl(device_name, handle, settings_state, project_state)
 }
 
 fn restart_audio_engine_impl(
     device_name: String,
     handle: tauri::State<'_, AudioEngineHandle>,
     settings_state: tauri::State<'_, SettingsState>,
+    project_state: tauri::State<'_, ProjectState>,
 ) -> Result<String, String> {
     log::info!("Audio device change requested: '{}'", device_name);
 
@@ -100,6 +102,13 @@ fn restart_audio_engine_impl(
     push_command(&handle, EngineCommand::Seek(current_pos_frames.max(0)))?;
     push_command(&handle, EngineCommand::SetPlay(snapshot.is_playing))?;
 
+    // Re-apply per-track mixer state (volume, pan, mute, solo) + master volume.
+    // Without this, the new audio thread starts with all tracks unmuted.
+    {
+        let project = project_state.project.lock().map_err(|e| e.to_string())?;
+        sync_track_mix_state_from_project(&project, &handle)?;
+    }
+
     // Persist the resolved device only after successful hot-swap.
     {
         let mut settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
@@ -121,6 +130,7 @@ fn restart_audio_engine(
     device_name: String,
     handle: tauri::State<'_, AudioEngineHandle>,
     settings_state: tauri::State<'_, SettingsState>,
+    project_state: tauri::State<'_, ProjectState>,
 ) -> Result<String, String> {
-    restart_audio_engine_impl(device_name, handle, settings_state)
+    restart_audio_engine_impl(device_name, handle, settings_state, project_state)
 }

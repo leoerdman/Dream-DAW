@@ -2514,6 +2514,48 @@ const TrackRow = ({
                 </div>
             )}
 
+            {/* Master I/O labels — static, non-clickable */}
+            {isMasterFixed && (
+                <div style={{
+                    display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                    gap: 4, padding: 4,
+                    borderRight: '1px solid var(--color-border-subtle)',
+                    width: layout.routingColWidth,
+                    minWidth: layout.routingColWidth,
+                    maxWidth: layout.routingColWidth,
+                    boxSizing: 'border-box',
+                }}>
+                    <div style={{
+                        display: 'flex', alignItems: 'center',
+                        fontSize: 'var(--font-size-2xs)', fontWeight: 500,
+                        color: 'var(--color-text-tertiary)',
+                        background: 'var(--color-control-bg)',
+                        border: '1px solid var(--color-control-border)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '0 8px 0 6px',
+                        lineHeight: '15px', height: 15,
+                        cursor: 'default', userSelect: 'none',
+                    }}>
+                        <span style={{ marginRight: 4, fontSize: 'var(--font-size-micro)' }}>←</span>
+                        No Input
+                    </div>
+                    <div style={{
+                        display: 'flex', alignItems: 'center',
+                        fontSize: 'var(--font-size-2xs)', fontWeight: 500,
+                        color: 'var(--color-text-secondary)',
+                        background: 'var(--color-control-bg)',
+                        border: '1px solid var(--color-control-border)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '0 8px 0 6px',
+                        lineHeight: '15px', height: 15,
+                        cursor: 'default', userSelect: 'none',
+                    }}>
+                        <span style={{ marginRight: 4, fontSize: 'var(--font-size-micro)' }}>→</span>
+                        Out 1-2
+                    </div>
+                </div>
+            )}
+
             {showRoutingCompact && (
                 <div style={{
                     display: 'flex',

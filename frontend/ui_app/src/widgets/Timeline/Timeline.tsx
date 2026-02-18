@@ -389,13 +389,18 @@ export const Timeline = (props: TimelineProps) => {
         const viewportWidth = viewport.viewportWidth;
         if (viewportWidth <= 8) return;
 
+        // Read clips from ref to avoid triggering this effect on every clip
+        // mutation. The effect should ONLY run when fitHorizontalToken changes
+        // (explicit user action, e.g. pressing W).
+        const currentClips = propsRef.current.clips ?? [];
+
         let minBeat = 0;
         let maxBeat = Math.max(4, beatsPerBar * 4);
 
-        if (clips.length > 0) {
+        if (currentClips.length > 0) {
             minBeat = Infinity;
             maxBeat = -Infinity;
-            for (const clip of clips) {
+            for (const clip of currentClips) {
                 const start = clip.startBeat;
                 const end = clip.startBeat + Math.max(0.01, clip.durationBeats);
                 if (start < minBeat) minBeat = start;
@@ -415,7 +420,8 @@ export const Timeline = (props: TimelineProps) => {
 
         viewport.setZoom(targetPpb);
         viewport.scrollTo(paddedStart * viewport.pixelsPerBeat, viewport.scrollY);
-    }, [fitHorizontalToken, clips, engineRef, beatsPerBar]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [fitHorizontalToken, engineRef, beatsPerBar]);
 
     useEffect(() => {
         const engine = engineRef.current;

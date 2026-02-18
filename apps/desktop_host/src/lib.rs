@@ -2015,7 +2015,7 @@ fn sync_transport_from_project(
     Ok(())
 }
 
-fn sync_track_mix_state_from_project(
+pub(crate) fn sync_track_mix_state_from_project(
     project: &Project,
     handle: &AudioEngineHandle,
 ) -> Result<(), String> {

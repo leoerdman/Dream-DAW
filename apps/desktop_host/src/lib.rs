@@ -3853,6 +3853,18 @@ pub fn run() {
 
                         // Emit to all webviews (fire-and-forget)
                         let _ = telemetry_app.emit("telemetry_tick", payload);
+
+                        // ── Plugin dirty flag relay ──────────────────────
+                        // VST3 IComponentHandler callbacks (performEdit,
+                        // setDirty, restartComponent) set a global atomic.
+                        // Poll it here and mark the project dirty so the
+                        // title bar shows the unsaved asterisk (*).
+                        if dream_plugins::vst3_host::take_plugin_state_dirty() {
+                            let pstate: tauri::State<'_, ProjectState> = telemetry_app.state();
+                            if let Ok(project) = pstate.project.lock() {
+                                let _ = pstate.mark_dirty(&project.name, Some(&telemetry_app));
+                            }
+                        }
                     }
                 })
             {
@@ -3904,6 +3916,73 @@ pub fn run() {
                 })
             {
                 log::warn!("Failed to spawn audio stream error relay: {err}");
+            }
+
+            // ── macOS NSEvent Local Monitor (Space → Play/Stop) ────────
+            // When a native VST3 plugin editor window has focus, the WebView
+            // doesn't receive keyDown events, so the Space shortcut stops
+            // working. This local event monitor intercepts Space at the
+            // application level before it reaches any window.
+            #[cfg(target_os = "macos")]
+            {
+                use std::sync::Arc;
+                let transport_app = Arc::new(app.handle().clone());
+                unsafe {
+                    use objc::runtime::{Class, Object, BOOL, YES};
+                    use objc::{msg_send, sel, sel_impl};
+                    use std::os::raw::c_ulong;
+
+                    // NSEventMaskKeyDown = 1 << 10
+                    let mask: c_ulong = 1 << 10;
+
+                    let transport_app_clone = Arc::clone(&transport_app);
+                    let block = objc::rc::autoreleasepool(|| {
+                        let block = block::ConcreteBlock::new(move |event: *mut Object| -> *mut Object {
+                            let keycode: u16 = msg_send![event, keyCode];
+                            // keyCode 49 = Space bar on macOS
+                            if keycode == 49 {
+                                let is_repeat: BOOL = msg_send![event, isARepeat];
+                                if is_repeat != YES {
+                                    let app_ref = Arc::clone(&transport_app_clone);
+                                    // Mirror toggle_playback logic exactly
+                                    let handle: tauri::State<'_, AudioEngineHandle> = app_ref.state();
+                                    if let Ok(mut state) = handle.playback_state.lock() {
+                                        let new_state = !state.is_playing;
+                                        let sr = state.sample_rate;
+                                        state.is_playing = new_state;
+                                        drop(state);
+
+                                        if let Ok(mut prod) = handle.producer.lock() {
+                                            if new_state {
+                                                let _ = prod.push(EngineCommand::SetTimelineSampleRate(sr));
+                                            }
+                                            let _ = prod.push(EngineCommand::SetPlay(new_state));
+                                        }
+
+                                        log::info!(
+                                            "[NSEventMonitor] Space → {}",
+                                            if new_state { "play" } else { "stop" }
+                                        );
+                                    }
+                                    // Swallow the event so the plugin doesn't also receive Space
+                                    return std::ptr::null_mut();
+                                }
+                            }
+                            event
+                        });
+                        block.copy()
+                    });
+
+                    let ns_event_class = Class::get("NSEvent").expect("NSEvent class must exist on macOS");
+                    let _: *mut Object = msg_send![
+                        ns_event_class,
+                        addLocalMonitorForEventsMatchingMask: mask
+                        handler: &*block
+                    ];
+                    // Intentionally leak the block — it must live for the app's lifetime.
+                    std::mem::forget(block);
+                }
+                log::info!("[NSEventMonitor] Installed Space key local monitor for transport control");
             }
 
             log::info!(

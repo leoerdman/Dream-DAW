@@ -806,6 +806,10 @@ static LATENCY_CHANGED: AtomicBool = AtomicBool::new(false);
 /// BUG-H2 FIX: Global flag set when a plugin requests param re-read.
 static PARAM_VALUES_CHANGED: AtomicBool = AtomicBool::new(false);
 
+/// Set when any VST3 plugin signals a state change via IComponentHandler.
+/// Polled by the telemetry thread to mark the project dirty.
+static PLUGIN_STATE_DIRTY: AtomicBool = AtomicBool::new(false);
+
 /// restartComponent flag constants (from VST3 SDK ivstcomponent.h)
 const K_RESTART_LATENCY_CHANGED: i32 = 0x01;
 const K_RESTART_PARAM_VALUES_CHANGED: i32 = 0x02;
@@ -890,6 +894,7 @@ unsafe extern "C" fn handler_begin_edit(_this: *mut c_void, id: u32) -> Tresult 
 /// and parameter display updates.
 unsafe extern "C" fn handler_perform_edit(_this: *mut c_void, id: u32, value: f64) -> Tresult {
     PARAM_EDIT_RING.push(id, value);
+    PLUGIN_STATE_DIRTY.store(true, Ordering::Release);
     K_RESULT_OK
 }
 
@@ -909,6 +914,7 @@ unsafe extern "C" fn handler_restart_component(_this: *mut c_void, flags: i32) -
     if flags & K_RESTART_PARAM_VALUES_CHANGED != 0 {
         info!("[VST3-Handler]   → kParamValuesChanged — host should re-read all parameters");
         PARAM_VALUES_CHANGED.store(true, Ordering::Release);
+        PLUGIN_STATE_DIRTY.store(true, Ordering::Release);
     }
     if flags & K_RESTART_IO_CHANGED != 0 {
         info!("[VST3-Handler]   → kIoChanged — bus layout may have changed");
@@ -936,9 +942,12 @@ unsafe extern "C" fn handler2_qi(
 unsafe extern "C" fn handler2_add_ref(_this: *mut c_void) -> u32 { 1 }
 unsafe extern "C" fn handler2_release(_this: *mut c_void) -> u32 { 1 }
 
-unsafe extern "C" fn handler2_set_dirty(_this: *mut c_void, _state: i8) -> Tresult {
-    // BUG-H4: Acknowledge dirty state. In a full implementation this would
-    // mark the project as unsaved.
+unsafe extern "C" fn handler2_set_dirty(_this: *mut c_void, state: i8) -> Tresult {
+    // When the plugin signals dirty (e.g. Serum on preset change), propagate
+    // to the host so the project gets the unsaved asterisk.
+    if state != 0 {
+        PLUGIN_STATE_DIRTY.store(true, Ordering::Release);
+    }
     K_RESULT_OK
 }
 
@@ -998,6 +1007,13 @@ pub fn take_latency_changed() -> bool {
 /// Public API: Check and clear the param_values_changed flag.
 pub fn take_param_values_changed() -> bool {
     PARAM_VALUES_CHANGED.swap(false, Ordering::AcqRel)
+}
+
+/// Public API: Check and clear the plugin-state-dirty flag.
+/// Set by IComponentHandler::performEdit, IComponentHandler2::setDirty,
+/// and restartComponent(kParamValuesChanged). Polled by telemetry thread.
+pub fn take_plugin_state_dirty() -> bool {
+    PLUGIN_STATE_DIRTY.swap(false, Ordering::AcqRel)
 }
 
 #[repr(C)]

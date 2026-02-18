@@ -43,6 +43,32 @@ fn find_project_plugin_slot(project: &Project, plugin_id: &str) -> Option<Plugin
     None
 }
 
+/// Finds a `PluginSlot` anywhere in the project by its unique slot UUID.
+///
+/// Unlike `find_project_plugin_slot` (which matches by `plugin_id`), this
+/// returns the exact slot regardless of how many instances of the same plugin
+/// exist. Used for per-slot state restoration on project load.
+fn find_project_plugin_slot_by_slot_id(project: &Project, slot_id: Uuid) -> Option<PluginSlot> {
+    for track in &project.tracks {
+        if let Some(inst) = &track.instrument {
+            if let Some(found) = find_slot_in_node_by_id(inst, slot_id) {
+                return Some(found);
+            }
+        }
+        for fx in &track.effects {
+            if let Some(found) = find_slot_in_node_by_id(fx, slot_id) {
+                return Some(found);
+            }
+        }
+    }
+    for fx in &project.master_track.effects {
+        if let Some(found) = find_slot_in_node_by_id(fx, slot_id) {
+            return Some(found);
+        }
+    }
+    None
+}
+
 fn find_slot_in_node_by_id(node: &DeviceNode, slot_id: Uuid) -> Option<PluginSlot> {
     match node {
         DeviceNode::Single(slot) => {
@@ -577,6 +603,23 @@ fn open_plugin_window_for_slot(
     let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)?;
     plugin_host_state.bind_slot_instance(slot.id, instance_id);
 
+    // Restore per-slot saved state (preset, knob positions, etc.)
+    if slot.external_state_blob.is_some() || slot.external_preset_blob.is_some() {
+        if let Ok(mut host) = plugin_host_state.host.lock() {
+            if let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, &slot) {
+                log::warn!(
+                    "[IPC] open_plugin_window_for_slot: state restore failed for '{}': {}",
+                    slot.name, err
+                );
+            } else {
+                log::info!(
+                    "[IPC] open_plugin_window_for_slot: restored state for '{}' (slot {})",
+                    slot.name, slot.id
+                );
+            }
+        }
+    }
+
     let mut first_open_err: Option<String> = None;
     {
         let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
@@ -701,6 +744,13 @@ fn open_plugin_window_for_slot(
     }
 
     clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
+
+    // Mark project dirty — plugin editor opening implies parameters may be
+    // changed via the native GUI (which doesn't notify our project model).
+    if let Ok(project) = project_state.project.lock() {
+        let _ = project_state.mark_dirty(&project.name, Some(&app));
+    }
+
     log::info!(
         "[IPC] open_plugin_window_for_slot(track={}, slot={}) -> instance {}",
         track_id,
@@ -1092,6 +1142,7 @@ fn replace_missing_plugin_slot_cmd(
 fn close_plugin_window(
     plugin_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     plugin_host_state.close_in_sandbox(&plugin_id)?;
 
@@ -1103,13 +1154,28 @@ fn close_plugin_window(
         .copied();
 
     if let Some(instance_id) = maybe_instance {
-        let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-        if let Err(err) = host.close_editor(instance_id) {
+        // CRITICAL: close_editor performs AppKit calls (NSWindow close, NSView
+        // removed/release) that MUST happen on the main thread.
+        let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
+        let plugin_id_clone = plugin_id.clone();
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        app.run_on_main_thread(move || {
+            let result = (|| {
+                let mut host = host_arc.lock().map_err(|e| e.to_string())?;
+                host.close_editor(instance_id)
+                    .map_err(|e| e.to_string())
+            })();
+            let _ = tx.send(result);
+        })
+        .map_err(|e| format!("Failed to schedule editor close on main thread: {e}"))?;
+        if let Err(err) = rx.recv().map_err(|e| format!("Failed to receive editor close result: {e}"))? {
             log::warn!(
-                "[IPC] close_plugin_window({plugin_id}) editor close failed for {instance_id}: {err}"
+                "[IPC] close_plugin_window({plugin_id_clone}) editor close failed for {instance_id}: {err}"
             );
         }
-        log::info!("[IPC] close_plugin_window({plugin_id}) -> closed editor for instance {instance_id}");
+        log::info!(
+            "[IPC] close_plugin_window({plugin_id}) -> closed editor for instance {instance_id}"
+        );
     } else {
         log::info!("[IPC] close_plugin_window({plugin_id}) -> no loaded instance");
     }
@@ -1123,6 +1189,7 @@ fn close_plugin_window_for_slot(
     slot_id: String,
     plugin_host_state: tauri::State<'_, PluginHostState>,
     project_state: tauri::State<'_, ProjectState>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
     let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
@@ -1134,13 +1201,28 @@ fn close_plugin_window_for_slot(
         return Ok(());
     }
 
+    // CRITICAL: close_editor performs AppKit calls (NSWindow close, NSView
+    // removed/release) that MUST happen on the main thread. Calling from an
+    // IPC thread corrupts Cocoa state and causes SIGSEGV on next editor open.
     if let Some(instance_id) = plugin_host_state.slot_instance_snapshot().get(&slot.id).copied() {
-        let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
-        if let Err(err) = host.close_editor(instance_id) {
+        let host_arc = std::sync::Arc::clone(&plugin_host_state.host);
+        let track_id_log = track_id.clone();
+        let slot_id_log = slot_id.clone();
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        app.run_on_main_thread(move || {
+            let result = (|| {
+                let mut host = host_arc.lock().map_err(|e| e.to_string())?;
+                host.close_editor(instance_id)
+                    .map_err(|e| e.to_string())
+            })();
+            let _ = tx.send(result);
+        })
+        .map_err(|e| format!("Failed to schedule editor close on main thread: {e}"))?;
+        if let Err(err) = rx.recv().map_err(|e| format!("Failed to receive editor close result: {e}"))? {
             log::warn!(
                 "[IPC] close_plugin_window_for_slot(track={}, slot={}) failed to close in-process editor for {}: {}",
-                track_id,
-                slot_id,
+                track_id_log,
+                slot_id_log,
                 instance_id,
                 err
             );
@@ -2750,6 +2832,35 @@ fn eager_activate_external_plugins(
                     loaded,
                     total
                 );
+
+                // Restore the per-slot saved state (preset, knob positions, etc.)
+                // Uses slot UUID lookup to ensure multi-instance plugins each get
+                // their own unique state blob (not the first match by plugin_id).
+                if let Some(slot) = find_project_plugin_slot_by_slot_id(&project, *slot_id) {
+                    if slot.external_state_blob.is_some() || slot.external_preset_blob.is_some() {
+                        let mut host = match plugin_host_state.host.lock() {
+                            Ok(h) => h,
+                            Err(e) => {
+                                log::warn!(
+                                    "[EagerActivate] Host lock failed for state restore of '{}': {}",
+                                    plugin_id, e
+                                );
+                                continue;
+                            }
+                        };
+                        if let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, &slot) {
+                            log::warn!(
+                                "[EagerActivate] State restore failed for '{}' (slot {}): {}",
+                                slot.name, slot_id, err
+                            );
+                        } else {
+                            log::info!(
+                                "[EagerActivate] Restored state for '{}' (slot {})",
+                                slot.name, slot_id
+                            );
+                        }
+                    }
+                }
             }
             Err(err) => {
                 // Don't fail the whole operation for one bad plugin

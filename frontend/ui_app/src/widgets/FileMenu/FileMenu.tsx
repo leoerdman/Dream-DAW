@@ -81,6 +81,10 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             }
             await fetchProject('file-menu:open');
             await syncProjectHistory();
+            // Eagerly activate external VST3 plugins and restore their saved state
+            engineApi.eagerActivateExternalPlugins().catch((err) =>
+                console.warn('[FileMenu] Eager plugin activation (non-fatal):', err)
+            );
             onProjectChange?.();
             console.log('[FileMenu] Opened project:', path);
         } catch (err) {
@@ -99,6 +103,10 @@ export const FileMenu = ({ onProjectChange }: FileMenuProps) => {
             }
             await fetchProject('file-menu:open-recent');
             await syncProjectHistory();
+            // Eagerly activate external VST3 plugins and restore their saved state
+            engineApi.eagerActivateExternalPlugins().catch((err) =>
+                console.warn('[FileMenu] Eager plugin activation (non-fatal):', err)
+            );
             onProjectChange?.();
             console.log('[FileMenu] Opened recent:', path);
         } catch (err) {

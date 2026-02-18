@@ -186,6 +186,10 @@ export function useProjectManager(onProjectLoaded?: () => void) {
                 await fetchProject('project-manager:open');
                 await syncProjectHistory();
                 await refreshStatus();
+                // Eagerly activate external VST3 plugins and restore their saved state
+                engineApi.eagerActivateExternalPlugins().catch((err) =>
+                    console.warn('[ProjectManager] Eager plugin activation failed (non-fatal):', err)
+                );
                 onProjectLoaded?.();
             }
         } catch (err) {

@@ -101,6 +101,10 @@ async function buildNativeMenu(onProjectChange?: () => void) {
                 }
                 await fetchProject('native-menu:open');
                 console.warn('[NativeMenu:Open] fetchProject completed');
+                // Eagerly activate external VST3 plugins and restore their saved state
+                engineApi.eagerActivateExternalPlugins().catch((err) =>
+                    console.warn('[NativeMenu] Eager plugin activation (non-fatal):', err)
+                );
                 onProjectChange?.();
                 console.log('[NativeMenu] Opened project:', path);
             } catch (err) {
@@ -274,6 +278,10 @@ async function buildRecentSubmenu(
                                 }
                                 await fetchProject('native-menu:open-recent');
                                 console.warn('[NativeMenu:OpenRecent] fetchProject completed');
+                                // Eagerly activate external VST3 plugins and restore their saved state
+                                engineApi.eagerActivateExternalPlugins().catch((err) =>
+                                    console.warn('[NativeMenu] Eager plugin activation (non-fatal):', err)
+                                );
                                 onProjectChange?.();
                                 console.log('[NativeMenu] Opened recent:', rp.path);
                             } catch (err) {

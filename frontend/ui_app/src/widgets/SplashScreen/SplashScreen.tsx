@@ -58,6 +58,10 @@ export function SplashScreen({ minDuration = 2600, onComplete }: SplashScreenPro
                     await engineApi.openProject(lastProject.path)
                     console.log('[Splash] step 2b: openProject DONE')
                     if (cancelledRef.current) { console.log('[Splash] cancelled after openProject'); return }
+                    // Eagerly activate external VST3 plugins and restore their saved state
+                    engineApi.eagerActivateExternalPlugins().catch((err) =>
+                        console.warn('[Splash] Eager plugin activation (non-fatal):', err)
+                    )
                     console.info('[Splash] Opened last project on startup:', lastProject.path)
                 } else {
                     console.info('[Splash] startupBehavior=last but recent list is empty')

@@ -1535,10 +1535,9 @@ export const DeviceRack = ({
 
                     {/* Device slots */}
                     {visibleChain.length > 0 ? (
-                        visibleChain.map((device, idx) => (
+                        visibleChain.map((device) => (
                             <Fragment key={device.id}>
                                 <DeviceNode
-                                    order={idx + 1}
                                     device={device}
                                     isSelected={selectedDeviceIds.includes(device.id)}
                                     editorSupported={pluginCapability[device.id]?.supported ?? true}
@@ -1912,7 +1911,6 @@ const autoCtxMenuItemStyle: React.CSSProperties = {
 };
 
 const DeviceNode = ({
-    order,
     device, onToggle, onOpenGUI,
     isSelected,
     isNativeEditorOpen,
@@ -1940,7 +1938,6 @@ const DeviceNode = ({
     onSidechainSourceChange,
     onEnsureActive,
 }: {
-    order: number;
     device: DeviceSlot;
     onToggle: () => void;
     isSelected: boolean;

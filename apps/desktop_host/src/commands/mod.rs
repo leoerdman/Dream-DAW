@@ -178,6 +178,7 @@ pub(crate) fn invoke_handler(
         set_sampler_sample_cmd,
         eager_activate_external_plugins,
         set_slot_bypass_cmd,
+        move_effect_slot_cmd,
         // Device Chain
         add_device_cmd,
         remove_device_cmd,

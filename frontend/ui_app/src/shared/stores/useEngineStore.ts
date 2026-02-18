@@ -660,6 +660,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     arrangement_grid_ntoles?: number;
                     arrangement_snap_to_grid?: boolean;
                     arrangement_grid_fixed?: boolean;
+                    key_sig_enabled?: boolean;
+                    key_sig_tonic?: string;
+                    key_sig_mode?: string;
                 }>,
                 engine.getProjectHistory({
                     limit: PROJECT_HISTORY_WINDOW,

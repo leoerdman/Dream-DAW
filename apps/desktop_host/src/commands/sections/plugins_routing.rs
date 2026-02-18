@@ -3034,3 +3034,62 @@ fn set_slot_bypass_cmd(
 
     Ok(())
 }
+
+/// Move an effect slot to a new position within the same track's FX chain.
+#[tauri::command]
+async fn move_effect_slot_cmd(
+    track_id: String,
+    slot_id: String,
+    target_index: usize,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    _handle: tauri::State<'_, AudioEngineHandle>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let track_uuid = Uuid::parse_str(&track_id).map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let slot_uuid = Uuid::parse_str(&slot_id).map_err(|_| format!("Invalid slot_id: {slot_id}"))?;
+
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+
+    // Find the effects vec to operate on (regular track or master)
+    let effects: &mut Vec<DeviceNode> = if track_id == "master" || project.master_track.id == track_uuid {
+        &mut project.master_track.effects
+    } else {
+        let track = project
+            .tracks
+            .iter_mut()
+            .find(|t| t.id == track_uuid)
+            .ok_or_else(|| format!("Track not found: {track_id}"))?;
+        &mut track.effects
+    };
+
+    // Find the slot's current position
+    let from_index = effects
+        .iter()
+        .position(|node| node.id() == slot_uuid)
+        .ok_or_else(|| format!("Effect slot not found: {slot_id}"))?;
+
+    if from_index == target_index {
+        return Ok(());
+    }
+
+    let clamped_target = target_index.min(effects.len().saturating_sub(1));
+
+    // Remove from current position and insert at target
+    let node = effects.remove(from_index);
+    effects.insert(clamped_target, node);
+
+    // Rebuild FX snapshot so the audio engine picks up the new order
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+
+    let project_name = project.name.clone();
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+    log::info!(
+        "[IPC] move_effect_slot_cmd(track={track_id}, slot={slot_id}, {from_index} → {clamped_target})"
+    );
+    Ok(())
+}

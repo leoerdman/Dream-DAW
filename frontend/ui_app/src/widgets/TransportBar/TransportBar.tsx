@@ -81,9 +81,28 @@ export const TransportBar = ({
 
     const [timeSigIndex, setTimeSigIndex] = useState(0);
     const [timeSigNum, timeSigDen] = TIME_SIGNATURES[timeSigIndex] ?? [4, 4];
-    const [keyEnabled, setKeyEnabled] = useState(false);
-    const [keyTonic, setKeyTonic] = useState(0);
-    const [keyMode, setKeyMode] = useState(0);
+    const storeKeySigEnabled = useEngineStore((s) => s.keySigEnabled);
+    const storeKeySigTonic = useEngineStore((s) => s.keySigTonic);
+    const storeKeySigMode = useEngineStore((s) => s.keySigMode);
+
+    const [keyEnabled, setKeyEnabled] = useState(storeKeySigEnabled);
+    const [keyTonic, setKeyTonic] = useState(() => {
+        const idx = KEY_TONICS.indexOf(storeKeySigTonic as typeof KEY_TONICS[number]);
+        return idx >= 0 ? idx : 0;
+    });
+    const [keyMode, setKeyMode] = useState(() => {
+        const idx = KEY_MODES.indexOf(storeKeySigMode as typeof KEY_MODES[number]);
+        return idx >= 0 ? idx : 0;
+    });
+
+    // Sync local key sig state when project changes (e.g. project load).
+    useEffect(() => {
+        setKeyEnabled(storeKeySigEnabled);
+        const tonicIdx = KEY_TONICS.indexOf(storeKeySigTonic as typeof KEY_TONICS[number]);
+        if (tonicIdx >= 0) setKeyTonic(tonicIdx);
+        const modeIdx = KEY_MODES.indexOf(storeKeySigMode as typeof KEY_MODES[number]);
+        if (modeIdx >= 0) setKeyMode(modeIdx);
+    }, [storeKeySigEnabled, storeKeySigTonic, storeKeySigMode]);
 
     const position = (() => {
         const bar = Math.floor(posBeats / timeSigNum) + 1;
@@ -189,8 +208,16 @@ export const TransportBar = ({
         setBpmEditing(false);
     };
 
-    const cycleKeyTonic = () => setKeyTonic((i) => (i + 1) % KEY_TONICS.length);
-    const cycleKeyMode = () => setKeyMode((i) => (i + 1) % KEY_MODES.length);
+    const cycleKeyTonic = () => {
+        const next = (keyTonic + 1) % KEY_TONICS.length;
+        setKeyTonic(next);
+        void engineApi.setKeySignature(keyEnabled, KEY_TONICS[next], KEY_MODES[keyMode]);
+    };
+    const cycleKeyMode = () => {
+        const next = (keyMode + 1) % KEY_MODES.length;
+        setKeyMode(next);
+        void engineApi.setKeySignature(keyEnabled, KEY_TONICS[keyTonic], KEY_MODES[next]);
+    };
     const cycleTimeSignature = () => setTimeSigIndex((i) => (i + 1) % TIME_SIGNATURES.length);
     const posString = `${position.bar}.${position.beat}.${position.sub.toString().padStart(2, '0')}`;
     const valueChipStyle: React.CSSProperties = {
@@ -393,7 +420,11 @@ export const TransportBar = ({
                             title="Enable Key"
                             isActive={keyEnabled}
                             activeColor="var(--color-accent-primary)"
-                            onClick={() => setKeyEnabled(!keyEnabled)}
+                            onClick={() => {
+                                const next = !keyEnabled;
+                                setKeyEnabled(next);
+                                void engineApi.setKeySignature(next, KEY_TONICS[keyTonic], KEY_MODES[keyMode]);
+                            }}
                         />
                         <ControlButton label={KEY_TONICS[keyTonic]} onClick={cycleKeyTonic} />
                         <ControlButton label={KEY_MODES[keyMode]} onClick={cycleKeyMode} />

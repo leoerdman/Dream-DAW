@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { resolvePlugin, formatBadgeColor } from '@/shared/config/pluginManifest';
 import { useEngineStore } from '@/shared/stores/useEngineStore';
 import { useDragStore } from '@/shared/stores/useDragStore';
@@ -1541,10 +1541,62 @@ export const DeviceRack = ({
                     {/* Input meter — real data */}
                     <MeterBar level={inLevel} levelL={inLevelL} levelR={inLevelR} isInput isMidiInput={selectedTrack?.track_type === 'Midi'} />
 
-                    {/* Device slots */}
+                    {/* Device slots — drag to reorder */}
                     {visibleChain.length > 0 ? (
-                        visibleChain.map((device) => (
-                            <Fragment key={device.id}>
+                        visibleChain.map((device, deviceIndex) => (
+                            <div
+                                key={device.id}
+                                draggable
+                                onDragStart={(e) => {
+                                    e.dataTransfer.setData('application/x-dream-device-id', device.id);
+                                    e.dataTransfer.setData('application/x-dream-device-index', String(deviceIndex));
+                                    e.dataTransfer.effectAllowed = 'move';
+                                    (e.currentTarget as HTMLElement).style.opacity = '0.4';
+                                }}
+                                onDragEnd={(e) => {
+                                    (e.currentTarget as HTMLElement).style.opacity = '1';
+                                    // Clear all drop indicators
+                                    document.querySelectorAll('.dream-device-drop-indicator').forEach((el) => {
+                                        (el as HTMLElement).style.borderLeft = '';
+                                        (el as HTMLElement).style.borderRight = '';
+                                    });
+                                }}
+                                onDragOver={(e) => {
+                                    e.preventDefault();
+                                    e.dataTransfer.dropEffect = 'move';
+                                    // Show drop indicator
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const midX = rect.left + rect.width / 2;
+                                    const isLeftHalf = e.clientX < midX;
+                                    (e.currentTarget as HTMLElement).style.borderLeft = isLeftHalf ? '3px solid #5ab2ff' : '';
+                                    (e.currentTarget as HTMLElement).style.borderRight = !isLeftHalf ? '3px solid #5ab2ff' : '';
+                                }}
+                                onDragLeave={(e) => {
+                                    (e.currentTarget as HTMLElement).style.borderLeft = '';
+                                    (e.currentTarget as HTMLElement).style.borderRight = '';
+                                }}
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    (e.currentTarget as HTMLElement).style.borderLeft = '';
+                                    (e.currentTarget as HTMLElement).style.borderRight = '';
+                                    const draggedId = e.dataTransfer.getData('application/x-dream-device-id');
+                                    const fromIndex = parseInt(e.dataTransfer.getData('application/x-dream-device-index'), 10);
+                                    if (!draggedId || isNaN(fromIndex) || fromIndex === deviceIndex) return;
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const midX = rect.left + rect.width / 2;
+                                    const isLeftHalf = e.clientX < midX;
+                                    let targetIdx = isLeftHalf ? deviceIndex : deviceIndex + 1;
+                                    // Compensate for removal of source element
+                                    if (fromIndex < targetIdx) targetIdx = Math.max(0, targetIdx - 1);
+                                    if (selectedTrack) {
+                                        void engineApi.moveEffectSlot(selectedTrack.id, draggedId, targetIdx)
+                                            .then(() => fetchProject())
+                                            .catch((err) => console.error('[DeviceRack] moveEffectSlot failed:', err));
+                                    }
+                                }}
+                                className="dream-device-drop-indicator"
+                                style={{ display: 'flex', flexShrink: 0, height: '100%', transition: 'border 0.1s ease' }}
+                            >
                                 <DeviceNode
                                     device={device}
                                     isSelected={selectedDeviceIds.includes(device.id)}
@@ -1668,7 +1720,7 @@ export const DeviceRack = ({
                                     }}
                                 />
                                 <MeterBar level={device.vuLevel} levelL={device.vuLevelL} levelR={device.vuLevelR} />
-                            </Fragment>
+                            </div>
                         ))
                     ) : (
                         /* ── Empty State ── */
@@ -2992,97 +3044,212 @@ const PluginGuiSurface = ({
     }
 
     if (device.effectType === 'eq') {
-        const isBandEq = normalizedInternalId === 'internal://effect/eq-three';
-        const eqTitle = isBandEq ? 'Band EQ' : 'EQ';
+        const eqTitle = normalizedInternalId === 'internal://effect/eq-three' ? 'Band EQ' : 'EQ';
+
+        /* ── EQ params from backend (3 bands: Low, Mid, High) ── */
         const lowFreq = device.params.find((p) => p.name.toLowerCase() === 'lowfreq')?.value ?? 120;
         const low = device.params.find((p) => p.name.toLowerCase() === 'low')?.value ?? 0;
+        const lowQ = device.params.find((p) => p.name.toLowerCase() === 'lowq')?.value ?? 0.71;
         const midFreq = device.params.find((p) => p.name.toLowerCase() === 'midfreq')?.value ?? 1800;
         const mid = device.params.find((p) => p.name.toLowerCase() === 'mid')?.value ?? 0;
+        const midQ = device.params.find((p) => p.name.toLowerCase() === 'midq')?.value ?? 1.0;
         const highFreq = device.params.find((p) => p.name.toLowerCase() === 'highfreq')?.value ?? 9500;
         const high = device.params.find((p) => p.name.toLowerCase() === 'high')?.value ?? 0;
+        const highQ = device.params.find((p) => p.name.toLowerCase() === 'highq')?.value ?? 0.71;
         const out = device.params.find((p) => p.name.toLowerCase() === 'out')?.value ?? 0;
-        const norm = (v: number) => Math.max(-1, Math.min(1, v / 24));
-        const normFreq = (freq: number, min: number, max: number) =>
-            (Math.log10(Math.max(min, Math.min(max, freq))) - Math.log10(min)) / (Math.log10(max) - Math.log10(min));
-        const yFromDb = (v: number) => 46 - norm(v) * 34;
-        const xLow = 20 + normFreq(lowFreq, 20, 1200) * 140;
-        const xMid = 170 + normFreq(midFreq, 120, 9000) * 150;
-        const xHigh = 330 + normFreq(highFreq, 1200, 20000) * 130;
-        const yL = yFromDb(low);
-        const yM = yFromDb(mid);
-        const yH = yFromDb(high);
-        const curve = `M 0 ${yL.toFixed(2)} C 40 ${yL.toFixed(2)}, ${xLow - 32} ${yL.toFixed(2)} ${xLow} ${yL.toFixed(2)} C ${xLow + 45} ${yL.toFixed(2)}, ${xMid - 35} ${yM.toFixed(2)} ${xMid} ${yM.toFixed(2)} C ${xMid + 35} ${yM.toFixed(2)}, ${xHigh - 45} ${yH.toFixed(2)} ${xHigh} ${yH.toFixed(2)} C ${xHigh + 35} ${yH.toFixed(2)}, 450 ${yH.toFixed(2)} 480 ${yH.toFixed(2)}`;
+
+        /* ── Build band array from 3 backend bands ── */
+        type EqFilterType = 'lowCut' | 'lowShelf' | 'peak' | 'highShelf' | 'highCut' | 'notch';
+        interface EqBand { id: number; freq: number; gain: number; q: number; filterType: EqFilterType; color: string; backendBand?: 'low' | 'mid' | 'high' }
+        const bandColors = ['#5ab2ff', '#d9a625', '#ff8b5b', '#7ceb8a', '#e06cf5', '#ff5c5c', '#5cf5e0', '#f0c430'];
+
+        const bands: EqBand[] = [
+            { id: 0, freq: lowFreq, gain: low, q: lowQ, filterType: 'peak', color: bandColors[0], backendBand: 'low' },
+            { id: 1, freq: midFreq, gain: mid, q: midQ, filterType: 'peak', color: bandColors[1], backendBand: 'mid' },
+            { id: 2, freq: highFreq, gain: high, q: highQ, filterType: 'peak', color: bandColors[2], backendBand: 'high' },
+        ];
+        const sortedBands = [...bands].sort((a, b) => a.freq - b.freq);
+
+        /* ── Coordinate helpers ── */
+        const VB_W = 480;
+        const VB_H = 120;
+        const MARGIN_L = 8;
+        const MARGIN_R = 8;
+        const plotW = VB_W - MARGIN_L - MARGIN_R;
+
+        const freqToX = (freq: number) => {
+            const minF = Math.log10(20);
+            const maxF = Math.log10(20000);
+            return MARGIN_L + ((Math.log10(Math.max(20, Math.min(20000, freq))) - minF) / (maxF - minF)) * plotW;
+        };
+        const xToFreq = (x: number) => {
+            const minF = Math.log10(20);
+            const maxF = Math.log10(20000);
+            const norm = Math.max(0, Math.min(1, (x - MARGIN_L) / plotW));
+            return Math.pow(10, minF + norm * (maxF - minF));
+        };
+        const gainToY = (gain: number) => {
+            const clamped = Math.max(-24, Math.min(24, gain));
+            return VB_H / 2 - (clamped / 24) * (VB_H / 2 - 6);
+        };
+
+        /* ── Build smooth EQ curve from all bands ── */
+        const curvePoints: string[] = [];
+        const steps = 200;
+        for (let i = 0; i <= steps; i++) {
+            const x = MARGIN_L + (i / steps) * plotW;
+            const freq = xToFreq(x);
+            let totalGain = 0;
+            for (const band of sortedBands) {
+                const octaves = Math.log2(freq / band.freq);
+                const bw = 1 / Math.max(0.1, band.q);
+                const response = band.gain * Math.exp(-0.5 * Math.pow(octaves / (bw * 0.5), 2));
+                totalGain += response;
+            }
+            const y = gainToY(totalGain);
+            curvePoints.push(`${x.toFixed(2)},${y.toFixed(2)}`);
+        }
+        const curvePath = `M ${curvePoints.join(' L ')}`;
+        const fillPath = `${curvePath} L ${VB_W - MARGIN_R},${VB_H / 2} L ${MARGIN_L},${VB_H / 2} Z`;
+
+
+        /* ── Frequency grid labels ── */
+        const freqLabels = [
+            { freq: 50, label: '50' }, { freq: 100, label: '100' }, { freq: 200, label: '200' },
+            { freq: 500, label: '500' }, { freq: 1000, label: '1k' }, { freq: 2000, label: '2k' },
+            { freq: 5000, label: '5k' }, { freq: 10000, label: '10k' },
+        ];
+
         return (
-            <div style={{ ...pluginPanelLayoutStyle, gridTemplateRows: '96px auto' }}>
+            <div style={{ ...pluginPanelLayoutStyle, gridTemplateRows: '120px auto' }}>
                 <div style={{
                     ...pluginPanelCardBaseStyle,
                     background: 'var(--plugin-bg-eq)',
                     overflow: 'hidden',
                     padding: 0,
+                    position: 'relative',
                 }}>
-                    <svg ref={eqSurfaceRef} width="100%" height="100%" viewBox="0 0 480 92" preserveAspectRatio="none">
-                        {Array.from({ length: 12 }).map((_, i) => (
-                            <line key={`vx-${i}`} x1={i * 40} y1={0} x2={i * 40} y2={92} stroke="rgba(90,178,255,0.12)" strokeWidth="1" />
-                        ))}
-                        {Array.from({ length: 5 }).map((_, i) => (
-                            <line key={`hx-${i}`} x1={0} y1={i * 23} x2={480} y2={i * 23} stroke="rgba(90,178,255,0.12)" strokeWidth="1" />
-                        ))}
-                        {isBandEq && (
-                            <>
-                                <rect x={xLow - 10} y={0} width="2" height="92" fill="rgba(122,191,255,0.4)" />
-                                <rect x={xHigh - 10} y={0} width="2" height="92" fill="rgba(255,172,89,0.4)" />
-                            </>
-                        )}
-                        <path d={curve} fill="none" stroke="#d9a625" strokeWidth="3" strokeLinecap="round" />
-                        <path d={`${curve} L 480 46 L 0 46 Z`} fill="url(#eqGradient)" opacity="0.25" />
+                    <svg
+                        ref={eqSurfaceRef}
+                        width="100%"
+                        height="100%"
+                        viewBox={`0 0 ${VB_W} ${VB_H}`}
+                        preserveAspectRatio="xMidYMid meet"
+                        style={{ cursor: 'crosshair' }}
+                        onMouseDown={(e) => {
+                            /* ── Click on empty space → begin drag on nearest band ── */
+                            const svg = eqSurfaceRef.current;
+                            if (!svg) return;
+                            const rect = svg.getBoundingClientRect();
+                            const svgX = ((e.clientX - rect.left) / rect.width) * VB_W;
+                            const svgY = ((e.clientY - rect.top) / rect.height) * VB_H;
+                            /* Find nearest band dot */
+                            let nearest: EqBand | null = null;
+                            let nearestDist = Infinity;
+                            for (const band of bands) {
+                                const bx = freqToX(band.freq);
+                                const by = gainToY(band.gain);
+                                const dist = Math.sqrt((svgX - bx) ** 2 + (svgY - by) ** 2);
+                                if (dist < nearestDist) {
+                                    nearestDist = dist;
+                                    nearest = band;
+                                }
+                            }
+                            if (nearest && nearestDist < 20) {
+                                const bandKey = nearest.backendBand ?? 'low';
+                                beginEqBandGesture(bandKey as 'low' | 'mid' | 'high');
+                                setDragEqBand(bandKey as 'low' | 'mid' | 'high');
+                            }
+                        }}
+                    >
                         <defs>
-                            <linearGradient id="eqGradient" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#d9a625" stopOpacity="0.6" />
+                            <linearGradient id={`eqGrad-${device.id}`} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#d9a625" stopOpacity="0.4" />
                                 <stop offset="100%" stopColor="#d9a625" stopOpacity="0" />
                             </linearGradient>
                         </defs>
-                        <line x1="0" y1="46" x2="480" y2="46" stroke="rgba(90,178,255,0.18)" strokeWidth="1" />
-                        {[
-                            { key: 'low', x: xLow, y: yL, color: '#5ab2ff' },
-                            { key: 'mid', x: xMid, y: yM, color: '#d9a625' },
-                            { key: 'high', x: xHigh, y: yH, color: '#ff8b5b' },
-                        ].map((band) => (
-                            <g
-                                key={band.key}
-                                style={{ cursor: 'ns-resize' }}
-                                onMouseDown={() => {
-                                    const eqBand = band.key as 'low' | 'mid' | 'high';
-                                    beginEqBandGesture(eqBand);
-                                    setDragEqBand(eqBand);
-                                }}
-                            >
-                                <circle cx={band.x} cy={band.y} r="9" fill="rgba(0,0,0,0.55)" stroke={band.color} strokeWidth="1.5" />
-                                <circle cx={band.x} cy={band.y} r="3.2" fill={band.color} />
+                        {/* Grid lines — horizontal (gain) */}
+                        {[-18, -12, -6, 0, 6, 12, 18].map((db) => (
+                            <line key={`hg-${db}`} x1={MARGIN_L} y1={gainToY(db)} x2={VB_W - MARGIN_R} y2={gainToY(db)}
+                                stroke={db === 0 ? 'rgba(90,178,255,0.25)' : 'rgba(90,178,255,0.08)'} strokeWidth={db === 0 ? 1 : 0.5} />
+                        ))}
+                        {/* Grid lines — vertical (frequency) */}
+                        {freqLabels.map((fl) => (
+                            <g key={`vf-${fl.freq}`}>
+                                <line x1={freqToX(fl.freq)} y1={0} x2={freqToX(fl.freq)} y2={VB_H} stroke="rgba(90,178,255,0.08)" strokeWidth="0.5" />
+                                <text x={freqToX(fl.freq)} y={VB_H - 2} textAnchor="middle" fill="rgba(160,190,220,0.4)" fontSize="7" fontFamily="Inter, sans-serif">{fl.label}</text>
                             </g>
                         ))}
+                        {/* dB labels */}
+                        {[-12, 0, 12].map((db) => (
+                            <text key={`dblabel-${db}`} x={MARGIN_L + 2} y={gainToY(db) - 2} fill="rgba(160,190,220,0.35)" fontSize="6.5" fontFamily="Inter, sans-serif">
+                                {db > 0 ? '+' : ''}{db}dB
+                            </text>
+                        ))}
+                        {/* EQ curve fill */}
+                        <path d={fillPath} fill={`url(#eqGrad-${device.id})`} opacity="0.6" />
+                        {/* EQ curve line */}
+                        <path d={curvePath} fill="none" stroke="#d9a625" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        {/* Band dots — perfectly circular */}
+                        {bands.map((band) => {
+                            const bx = freqToX(band.freq);
+                            const by = gainToY(band.gain);
+                            const isSelected = dragEqBand === band.backendBand;
+                            return (
+                                <g key={band.id} style={{ cursor: 'grab' }}>
+                                    {isSelected && (
+                                        <circle cx={bx} cy={by} r="14" fill="none" stroke={band.color} strokeWidth="1" opacity="0.4" />
+                                    )}
+                                    <circle cx={bx} cy={by} r="8" fill="rgba(0,0,0,0.65)" stroke={band.color} strokeWidth="2" />
+                                    <circle cx={bx} cy={by} r="3" fill={band.color} />
+                                </g>
+                            );
+                        })}
                     </svg>
                 </div>
-                <div style={pluginPanelKnobGrid('repeat(10, minmax(0, 1fr))')}>
-                    {['LowFreq', 'Low', 'LowQ', 'MidFreq', 'Mid', 'MidQ', 'HighFreq', 'High', 'HighQ', 'Out'].map((name) => {
-                        const p = device.params.find((x) => x.name.toLowerCase() === name.toLowerCase());
-                        return p ? (
-                            <PluginKnob
-                                key={p.name}
-                                param={p}
-                                onChange={onParamChange}
-                                onGestureStart={onParamGestureStart}
-                                onGestureEnd={onParamGestureEnd}
-                                compact
-                            />
-                        ) : null;
-                    })}
+                {/* ── 3 shared knobs: Freq, Gain, Q + Out ── */}
+                <div style={pluginPanelKnobGrid('repeat(4, minmax(0, 1fr))')}>
+                    {(() => {
+                        /* Pick active band based on dragEqBand or first band */
+                        const activeKey = dragEqBand ?? 'low';
+                        const freqParam = device.params.find((x) =>
+                            x.name.toLowerCase() === (activeKey === 'low' ? 'lowfreq' : activeKey === 'mid' ? 'midfreq' : 'highfreq'));
+                        const gainParam = device.params.find((x) =>
+                            x.name.toLowerCase() === (activeKey === 'low' ? 'low' : activeKey === 'mid' ? 'mid' : 'high'));
+                        const qParam = device.params.find((x) =>
+                            x.name.toLowerCase() === (activeKey === 'low' ? 'lowq' : activeKey === 'mid' ? 'midq' : 'highq'));
+                        const outParam = device.params.find((x) => x.name.toLowerCase() === 'out');
+                        return (
+                            <>
+                                {freqParam && <PluginKnob key={`freq-${activeKey}`} param={{ ...freqParam, name: 'Frequency' }} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
+                                {gainParam && <PluginKnob key={`gain-${activeKey}`} param={{ ...gainParam, name: 'Gain' }} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
+                                {qParam && <PluginKnob key={`q-${activeKey}`} param={{ ...qParam, name: 'Q' }} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
+                                {outParam && <PluginKnob key="out" param={outParam} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
+                            </>
+                        );
+                    })()}
                 </div>
-                <div style={{ ...pluginPanelMetaStyle, alignItems: 'center' }}>
-                    <span>{eqTitle}</span>
-                    <span style={{ color: '#5ab2ff' }}>Low {low > 0 ? '+' : ''}{low.toFixed(1)}dB @ {lowFreq.toFixed(0)}Hz</span>
-                    <span style={{ color: '#d9a625' }}>Mid {mid > 0 ? '+' : ''}{mid.toFixed(1)}dB @ {midFreq.toFixed(0)}Hz</span>
-                    <span style={{ color: '#ff8b5b' }}>High {high > 0 ? '+' : ''}{high.toFixed(1)}dB @ {highFreq.toFixed(0)}Hz</span>
-                    <span>Out {out.toFixed(1)}dB</span>
+                <div style={{ ...pluginPanelMetaStyle, alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 600 }}>{eqTitle}</span>
+                    {bands.map((band) => (
+                        <span
+                            key={band.id}
+                            style={{
+                                color: band.color,
+                                cursor: 'pointer',
+                                padding: '1px 6px',
+                                borderRadius: 4,
+                                background: dragEqBand === band.backendBand ? 'rgba(255,255,255,0.08)' : 'transparent',
+                                fontSize: 11,
+                                fontWeight: dragEqBand === band.backendBand ? 700 : 400,
+                                transition: 'all 0.15s ease',
+                            }}
+                            onClick={() => setDragEqBand(band.backendBand as 'low' | 'mid' | 'high')}
+                        >
+                            {band.gain > 0 ? '+' : ''}{band.gain.toFixed(1)}dB @ {band.freq >= 1000 ? `${(band.freq / 1000).toFixed(1)}k` : band.freq.toFixed(0)}Hz
+                        </span>
+                    ))}
+                    <span style={{ marginLeft: 'auto', fontSize: 11, opacity: 0.6 }}>Out {out > 0 ? '+' : ''}{out.toFixed(1)}dB</span>
                 </div>
             </div>
         );

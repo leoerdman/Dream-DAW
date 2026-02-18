@@ -284,6 +284,10 @@ export const bypassDevice = (trackIndex: number, slotIndex: number, bypassed: bo
 export const setSlotBypass = (trackId: string, slotId: string, bypassed: boolean) =>
     invoke<void>('set_slot_bypass_cmd', { trackId, slotId, bypassed });
 
+/** Move an effect slot to a new position within the same track's FX chain (drag-reorder). */
+export const moveEffectSlot = (trackId: string, slotId: string, targetIndex: number) =>
+    invoke<void>('move_effect_slot_cmd', { trackId, slotId, targetIndex });
+
 /** Set a parameter on a device in a track's insert chain. */
 export const setDeviceParam = (trackIndex: number, slotIndex: number, paramIndex: number, value: number) =>
     invoke<void>('set_device_param_cmd', { trackIndex, slotIndex, paramIndex, value });

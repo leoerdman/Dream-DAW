@@ -66,9 +66,11 @@ pub struct BounceConfig {
     pub bit_depth: u16,
 
     /// Start frame of the bounce region (0 = project start).
+    /// NOTE: frames are in the **project** sample-rate domain.
     pub start_frame: i64,
 
     /// End frame of the bounce region (total project length).
+    /// NOTE: frames are in the **project** sample-rate domain.
     pub end_frame: i64,
 
     /// Whether to normalize the output to 0 dBFS.
@@ -80,6 +82,13 @@ pub struct BounceConfig {
 
     /// Output format: "wav" or "mp3". Defaults to "wav" if unset.
     pub format: String,
+
+    /// The project's internal sample rate (Hz).
+    /// Clip positions and durations are stored in this domain.
+    /// Must be set so the offline render can correctly separate the
+    /// timeline domain from the export sample rate — matching how the
+    /// real-time driver uses `SetTimelineSampleRate`.
+    pub project_sample_rate: f64,
 }
 
 impl BounceConfig {
@@ -451,6 +460,22 @@ impl OfflineBouncer {
             OFFLINE_CHANNELS,
             meter_bank,
         );
+
+        // ── CRITICAL: Set timeline sample rate to project SR ────────
+        // Clip positions and durations are stored in the project's SR
+        // domain. Without this, the playhead advances at the export SR
+        // rate, causing incorrect clip scheduling when project SR ≠
+        // export SR. This mirrors what the real-time driver does via
+        // EngineCommand::SetTimelineSampleRate(project.sample_rate).
+        let project_sr = self.config.project_sample_rate;
+        if project_sr > 0.0 && project_sr.is_finite() && (project_sr - sample_rate).abs() > 0.001 {
+            render_ctx.set_timeline_sample_rate(project_sr);
+            info!(
+                "[Bounce] Timeline SR set to {:.0}Hz (export SR={:.0}Hz, ratio={:.4})",
+                project_sr, sample_rate, project_sr / sample_rate
+            );
+        }
+
         Self::configure_render_ctx_track_mix_state(project, &mut render_ctx);
         render_ctx.loop_region = loop_region.cloned();
         render_ctx.playhead.seek(self.config.start_frame);
@@ -540,6 +565,40 @@ impl OfflineBouncer {
             .collect();
         let is_mp3 = self.config.format.eq_ignore_ascii_case("mp3");
         let master_gain = project.master_track.volume.clamp(0.0, 2.0) as f32;
+
+        // ── Diagnostic: pool coverage check ─────────────────────
+        {
+            let total_clip_refs: usize = clips_per_track.iter().map(|v| v.len()).sum();
+            let mut pool_hits = 0usize;
+            let mut pool_misses = 0usize;
+            for clips in &clips_per_track {
+                for clip in clips {
+                    if clip.file_path.is_empty() {
+                        continue;
+                    }
+                    if clip_pool.get(&clip.file_path).is_some() {
+                        pool_hits += 1;
+                    } else {
+                        pool_misses += 1;
+                        info!(
+                            "[Bounce] POOL MISS: clip '{}' file_path='{}' — will be SILENT",
+                            clip.name, clip.file_path
+                        );
+                    }
+                }
+            }
+            info!(
+                "[Bounce] Pool coverage: {}/{} clips loaded ({} misses), master_gain={:.3}, project_sr={:.0}",
+                pool_hits, total_clip_refs, pool_misses, master_gain,
+                self.config.project_sample_rate
+            );
+            if pool_misses > 0 && pool_hits == 0 {
+                log::error!(
+                    "[Bounce] ALL clips missing from pool — export will be 100% silent! \
+                     Check that audio files are loaded before calling export."
+                );
+            }
+        }
 
         if is_mp3 {
             // MP3 path: streaming encode to avoid full-render RAM growth.
@@ -826,6 +885,7 @@ mod tests {
             normalize: false,
             tail_frames: 4410,
             format: "wav".to_string(),
+            project_sample_rate: 44100.0,
         };
         assert_eq!(config.total_frames(), 48510);
     }
@@ -841,6 +901,7 @@ mod tests {
             normalize: false,
             tail_frames: 0,
             format: "wav".to_string(),
+            project_sample_rate: 44100.0,
         };
 
         let bouncer = OfflineBouncer::new(config);
@@ -862,6 +923,7 @@ mod tests {
             normalize: false,
             tail_frames: 0,
             format: "wav".to_string(),
+            project_sample_rate: 44100.0,
         };
 
         let bouncer = OfflineBouncer::new(config);
@@ -884,6 +946,7 @@ mod tests {
             normalize: false,
             tail_frames: 0,
             format: "wav".to_string(),
+            project_sample_rate: 44100.0,
         };
 
         let bouncer = OfflineBouncer::new(config);
@@ -918,6 +981,7 @@ mod tests {
             normalize: true,
             tail_frames: 0,
             format: "wav".to_string(),
+            project_sample_rate: 44100.0,
         };
 
         let bouncer = OfflineBouncer::new(config);

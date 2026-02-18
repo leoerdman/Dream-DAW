@@ -1671,6 +1671,7 @@ async fn export_mix_cmd(
         normalize: settings.normalize,
         tail_frames: ((settings.tail_ms as f64 / 1000.0) * settings.sample_rate as f64) as i64,
         format: export_format,
+        project_sample_rate: project.sample_rate.max(1.0),
     };
 
     let (job_id, job_cancel) = start_job(&app, "export_mix", true)?;
@@ -1915,6 +1916,7 @@ async fn bounce_selection_to_track_cmd(
         normalize: false,
         tail_frames: 0,
         format: "wav".to_string(),
+        project_sample_rate: project.sample_rate.max(1.0),
     };
 
     let (job_id, job_cancel) = start_job(&app, "bounce_selection", true)?;
@@ -2029,6 +2031,7 @@ async fn bounce_track_cmd(
         normalize: false,
         tail_frames: 0,
         format: "wav".to_string(),
+        project_sample_rate: project.sample_rate.max(1.0),
     };
 
     let (job_id, job_cancel) = start_job(&app, "bounce_track", true)?;
@@ -2168,6 +2171,7 @@ async fn bounce_group_cmd(
         normalize: false,
         tail_frames: 0,
         format: "wav".to_string(),
+        project_sample_rate: project.sample_rate.max(1.0),
     };
 
     let (job_id, job_cancel) = start_job(&app, "bounce_group", true)?;
@@ -2307,6 +2311,7 @@ async fn split_track_to_stems_cmd(
         normalize: false,
         tail_frames: 0,
         format: "wav".to_string(),
+        project_sample_rate: project.sample_rate.max(1.0),
     };
 
     let (job_id, job_cancel) = start_job(&app, "split_to_stems", true)?;

@@ -70,7 +70,7 @@ async fn add_track_cmd(
         .flatten();
 
     let inherited_group_color = inherited_parent_group
-        .and_then(|gid| project.tracks.iter().find(|t| t.id == gid).map(|t| t.color));
+        .and_then(|gid| project.tracks.iter().find(|t| t.id == gid).map(|t| (t.color, t.color_hex.clone())));
 
     let insert_index = insert_after_index
         .map(|idx| idx.saturating_add(1))
@@ -85,7 +85,15 @@ async fn add_track_cmd(
     track.parent_track_id = inherited_parent_group;
     track.output_destination_id = inherited_parent_group;
     // Keep deterministic colors by visual order after insert unless inheriting group color.
-    track.color = inherited_group_color.unwrap_or_else(|| TrackColor::for_index(insert_index));
+    match inherited_group_color {
+        Some((color_enum, color_hex)) => {
+            track.color = color_enum;
+            track.color_hex = color_hex;
+        }
+        None => {
+            track.color = TrackColor::for_index(insert_index);
+        }
+    }
     project.tracks.insert(insert_index, track);
 
     let project_name = project.name.clone();

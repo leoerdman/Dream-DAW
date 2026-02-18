@@ -2141,31 +2141,39 @@ impl ClipPoolState {
             .collect();
         self.routing_snapshot.swap(routing);
         let routing_now = self.routing_snapshot.load();
-        self.prepared_graph_snapshot
-            .rebuild_for_routing(project.tracks.len(), routing_now.as_ref());
-
         let sidechains: Vec<Vec<Option<usize>>> = project
             .tracks
             .iter()
             .map(|track| {
-                track
-                    .effects
-                    .iter()
-                    .filter_map(|node| node.as_single())
-                    .filter(|slot| slot.plugin_id.starts_with("internal://effect/"))
-                    .map(|slot| {
-                        slot.sidechain_source_track_id
-                            .as_ref()
-                            .and_then(|source_id| {
-                                project
-                                    .tracks
-                                    .iter()
-                                    .position(|candidate| candidate.id.to_string() == *source_id)
-                            })
-                    })
-                    .collect()
+                // Collect sidechain sources from ALL plugins on the track.
+                // Instrument (if external) + all effects.
+                let mut sources = Vec::new();
+
+                if let Some(inst) = track.instrument.as_ref().and_then(|i| i.as_single()) {
+                    if let Some(source_id) = &inst.sidechain_source_track_id {
+                        let idx = project.tracks.iter().position(|t| t.id.to_string() == *source_id);
+                        sources.push(idx);
+                    }
+                }
+
+                for node in &track.effects {
+                    if let Some(slot) = node.as_single() {
+                        if let Some(source_id) = &slot.sidechain_source_track_id {
+                            let idx = project.tracks.iter().position(|t| t.id.to_string() == *source_id);
+                            sources.push(idx);
+                        }
+                    }
+                }
+                sources
             })
             .collect();
+
+        // ── ENTERPRISE GRAPH UPDATE: ──
+        // Now that we have the full sidechain map, rebuild the audio graph
+        // so that the processing order is correct.
+        self.prepared_graph_snapshot
+            .rebuild_for_routing(project.tracks.len(), routing_now.as_ref(), &sidechains);
+
         self.sidechain_snapshot.swap(sidechains);
 
         // Sync decoded audio data to the lock-free ArcSwap pool

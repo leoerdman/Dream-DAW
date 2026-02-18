@@ -2225,14 +2225,16 @@ fn add_plugin_to_track_cmd(
     let project_name = project.name.clone();
     clip_pool_state.rebuild_snapshot(&project);
     if !effective_plugin_id.starts_with("internal://") {
-        if let Err(err) = plugin_host_state.ensure_loaded_instance_for_slot(new_slot_id, &effective_plugin_id) {
-            log::warn!(
-                "[IPC] add_plugin_to_track_cmd slot runtime init failed (slot={}, plugin={}): {}",
-                new_slot_id,
-                effective_plugin_id,
-                err
-            );
-        }
+        plugin_host_state.ensure_loaded_instance_for_slot(new_slot_id, &effective_plugin_id)
+            .map_err(|err| {
+                log::error!(
+                    "[IPC] add_plugin_to_track_cmd slot runtime init failed (slot={}, plugin={}): {}",
+                    new_slot_id,
+                    effective_plugin_id,
+                    err
+                );
+                format!("Failed to load plugin: {}", err)
+            })?;
     }
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());

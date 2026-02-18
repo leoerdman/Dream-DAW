@@ -220,6 +220,7 @@ pub struct EdgeDelayCompensation {
 ///     .add_edge(NodeId(1), NodeId(0))?  // Piano → Master
 ///     .build()?;
 /// ```
+#[derive(Clone)]
 pub struct GraphBuilder {
     graph: DiGraph<AudioNode, AudioEdge>,
 }

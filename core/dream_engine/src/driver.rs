@@ -866,7 +866,11 @@ fn build_linear_dag(track_count: usize) -> AudioDag {
     })
 }
 
-fn build_dag_for_tracks(track_count: usize, routing: &[Option<usize>]) -> AudioDag {
+fn build_dag_for_tracks(
+    track_count: usize,
+    routing: &[Option<usize>],
+    sidechains: &[Vec<Option<usize>>],
+) -> AudioDag {
     let mut builder =
         GraphBuilder::new().add_node(AudioNode::new(NodeId(0), NodeKind::MasterOutput));
 
@@ -882,11 +886,13 @@ fn build_dag_for_tracks(track_count: usize, routing: &[Option<usize>]) -> AudioD
     let mut wired_to_master = vec![false; track_count];
     for (track_idx, wired_master) in wired_to_master.iter_mut().enumerate().take(track_count) {
         let from = NodeId((track_idx as u64) + 1);
+
+        // ── Main Routing Edge ──
         if let Some(Some(dest_idx)) = routing.get(track_idx) {
             if *dest_idx < track_count && *dest_idx != track_idx {
                 let to = NodeId((*dest_idx as u64) + 1);
-                let next = match builder.add_edge(from, to) {
-                    Ok(next) => next,
+                match builder.clone().add_edge(from, to) {
+                    Ok(next) => builder = next,
                     Err(err) => {
                         log::warn!(
                             "[Graph] routing edge {} -> {} rejected ({}), fallback to linear graph",
@@ -897,12 +903,37 @@ fn build_dag_for_tracks(track_count: usize, routing: &[Option<usize>]) -> AudioD
                         return build_linear_dag(track_count);
                     }
                 };
-                builder = next;
             } else {
                 *wired_master = true;
             }
         } else {
             *wired_master = true;
+        }
+
+        // ── Sidechain Dependencies ──
+        // If track A depends on track B as a sidechain source, B MUST be rendered
+        // before A. We add edges B -> A to ensure this topological order.
+        if let Some(sources) = sidechains.get(track_idx) {
+            for maybe_source in sources {
+                if let Some(source_idx) = maybe_source {
+                    if *source_idx < track_count && *source_idx != track_idx {
+                        let source_node = NodeId((*source_idx as u64) + 1);
+                        match builder.clone().add_edge(source_node, from) {
+                            Ok(next) => builder = next,
+                            Err(err) => {
+                                // IMPORTANT: If adding a sidechain edge creates a cycle,
+                                // we ignore the sidechain edge to preserve stability.
+                                log::warn!(
+                                    "[Graph] sidechain edge {} -> {} ignored (cycle/error: {})",
+                                    source_idx,
+                                    track_idx,
+                                    err
+                                );
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -967,10 +998,11 @@ impl PreparedGraphSnapshot {
 pub fn prepare_graph_snapshot_for_routing(
     track_count: usize,
     routing: &[Option<usize>],
+    sidechains: &[Vec<Option<usize>>],
     generation: u64,
 ) -> PreparedGraphSnapshot {
     let safe_track_count = track_count.min(MAX_TRACKS);
-    let dag = build_dag_for_tracks(safe_track_count, routing);
+    let dag = build_dag_for_tracks(safe_track_count, routing, sidechains);
     let plan = LiveGraph::from_dag(&dag)
         .map(|live| (*live.load_full()).clone())
         .unwrap_or_else(|_| ExecutionPlan {
@@ -1002,12 +1034,17 @@ impl SharedPreparedGraphSnapshot {
         }
     }
 
-    pub fn rebuild_for_routing(&self, track_count: usize, routing: &[Option<usize>]) {
+    pub fn rebuild_for_routing(
+        &self,
+        track_count: usize,
+        routing: &[Option<usize>],
+        sidechains: &[Vec<Option<usize>>],
+    ) {
         let generation = self
             .generation
             .fetch_add(1, Ordering::Relaxed)
             .saturating_add(1);
-        let snapshot = prepare_graph_snapshot_for_routing(track_count, routing, generation);
+        let snapshot = prepare_graph_snapshot_for_routing(track_count, routing, sidechains, generation);
         self.inner.store(Arc::new(snapshot));
     }
 
@@ -2549,7 +2586,7 @@ pub fn start_audio_thread_on_device(
                                                     &mut external_left[..c],
                                                     &mut external_right[..c],
                                                 ];
-                                                let _ = host.process_with_sidechain(
+                                                match host.process_with_sidechain(
                                                     instance_id,
                                                     &main_inputs,
                                                     sc_pair
@@ -2558,13 +2595,38 @@ pub fn start_audio_thread_on_device(
                                                     &mut out_slices,
                                                     c,
                                                     &vst3_midi_scratch,
-                                                );
-                                                fx_buf_l.copy_from_slice(
-                                                    &external_left[..c],
-                                                );
-                                                fx_buf_r.copy_from_slice(
-                                                    &external_right[..c],
-                                                );
+                                                ) {
+                                                    Ok(_) => {
+                                                        fx_buf_l.copy_from_slice(
+                                                            &external_left[..c],
+                                                        );
+                                                        fx_buf_r.copy_from_slice(
+                                                            &external_right[..c],
+                                                        );
+                                                    }
+                                                    Err(e) => {
+                                                        // BUG FIX: Implicit passthrough.
+                                                        // Since fx_buf_l/r were never modified (only copied FROM),
+                                                        // we don't need to do anything to restore them.
+                                                        // This avoids borrow checker errors with main_inputs aliasing.
+
+                                                        // ENTERPRISE DIAGNOSTICS: Throttled logging for audio thread errors.
+                                                        static ERR_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                                                        if ERR_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 100 == 0 {
+                                                            log::error!(
+                                                                "[Audio] Plugin processing failed (slot={:?}, error={:?}). Falling back to passthrough.",
+                                                                runtime_slot.slot_id,
+                                                                e
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                // BUG FIX: Case where instance_id is None or host is locked.
+                                                // If we have an external slot without an instance, we must
+                                                // ensure it's a passthrough, although rebuild_external_fx_snapshot
+                                                // usually filters these out.
+                                                // Note: fx_buf_l/r already contain the input here.
                                             }
                                         }
                                     }

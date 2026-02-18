@@ -4131,22 +4131,17 @@ impl PluginInstance for Vst3Instance {
                     self.audio_output_bus_count =
                         ((*(*component).vtbl).get_bus_count)(component, K_AUDIO, K_OUTPUT).max(0);
 
-                    // Activate main input bus (bus 0)
-                    if self.audio_input_bus_count > 0 {
+                    // ── VST3 Spec: Activate ALL audio input/output buses ──
+                    // Many plugins (especially sidechain-heavy ones like ShaperBox)
+                    // require explicit activation of all buses.
+                    for i in 0..self.audio_input_bus_count {
                         let _ = ((*(*component).vtbl).activate_bus)(
-                            component, K_AUDIO, K_INPUT, 0, 1,
+                            component, K_AUDIO, K_INPUT, i, 1,
                         );
                     }
-                    // Activate sidechain input bus (bus 1) if present
-                    if self.audio_input_bus_count > 1 {
+                    for i in 0..self.audio_output_bus_count {
                         let _ = ((*(*component).vtbl).activate_bus)(
-                            component, K_AUDIO, K_INPUT, 1, 1,
-                        );
-                    }
-                    // Activate main output bus (bus 0)
-                    if self.audio_output_bus_count > 0 {
-                        let _ = ((*(*component).vtbl).activate_bus)(
-                            component, K_AUDIO, K_OUTPUT, 0, 1,
+                            component, K_AUDIO, K_OUTPUT, i, 1,
                         );
                     }
 
@@ -4520,7 +4515,12 @@ impl PluginInstance for Vst3Instance {
             let processor = self.processor_ptr as *mut IAudioProcessor;
             let status = unsafe { ((*(*processor).vtbl).process)(processor, &mut data) };
             if status != K_RESULT_OK {
+                // BUG FIX: passthrough here is good for internal consistency,
+                // but we also return Err() so the driver knows to handle it.
                 passthrough(inputs, outputs, num_frames);
+                return Err(PluginError::ProcessError(format!(
+                    "VST3 process() failed with status: {status}"
+                )));
             } else {
                 for out in outputs.iter_mut().skip(main_channels) {
                     out.fill(0.0);

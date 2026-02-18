@@ -64,6 +64,8 @@ interface DeviceSlot {
     isEnabled: boolean;
     params: PluginParam[];
     vuLevel: number;
+    vuLevelL: number;
+    vuLevelR: number;
     pluginId: string;
     isVst: boolean;
     source: 'internal' | 'vst' | 'unknown';
@@ -488,18 +490,19 @@ export const DeviceRack = ({
         (t) => t.id === selectedTrackId
     );
 
-    // Get real-time meter levels for the selected track
-    const inLevel = isMaster
+    // Get real-time stereo meter levels for the selected track
+    const meterPair = isMaster ? null : (trackIndex >= 0 ? meters.tracks[trackIndex] : null);
+    const inLevelL = isMaster
         ? vuNorm(meters.master_left.peak)
-        : trackIndex >= 0 && meters.tracks[trackIndex]
-            ? vuNorm(meters.tracks[trackIndex][0].peak)
-            : 0;
-
-    const outLevel = isMaster
+        : meterPair ? vuNorm(meterPair[0].peak) : 0;
+    const inLevelR = isMaster
         ? vuNorm(meters.master_right.peak)
-        : trackIndex >= 0 && meters.tracks[trackIndex]
-            ? vuNorm(meters.tracks[trackIndex][1].peak)
-            : 0;
+        : meterPair ? vuNorm(meterPair[1].peak) : 0;
+    const outLevelL = inLevelL;
+    const outLevelR = inLevelR;
+    // Legacy single-value for backward compat
+    const inLevel = Math.max(inLevelL, inLevelR);
+    const outLevel = Math.max(outLevelL, outLevelR);
 
     const masterProjectTrack = useMemo(
         () => projectTracks.find((t) => t.track_type === 'Master') ?? null,
@@ -614,6 +617,8 @@ export const DeviceRack = ({
                     isEnabled: !(localBypass[rackId] ?? rackNode.is_bypassed),
                     params: [],
                     vuLevel: outLevel,
+                    vuLevelL: outLevelL,
+                    vuLevelR: outLevelR,
                     pluginId: `rack://${rackNode.rack_type}/${rackId}`,
                     isVst: false,
                     source: 'internal',
@@ -764,6 +769,8 @@ export const DeviceRack = ({
                 isEnabled: !(localBypass[id] ?? isBypassed),
                 params: vstParams.length > 0 ? vstParams : defaultParams,
                 vuLevel: outLevel,
+                vuLevelL: outLevelL,
+                vuLevelR: outLevelR,
                 pluginId,
                 isVst,
                 source: isInternal ? 'internal' : (isVst || pluginTypeHint.includes('vst')) ? 'vst' : 'unknown',
@@ -1524,7 +1531,7 @@ export const DeviceRack = ({
                 }}>
 
                     {/* Input meter — real data */}
-                    <MeterBar level={inLevel} isInput />
+                    <MeterBar level={inLevel} levelL={inLevelL} levelR={inLevelR} isInput isMidiInput={selectedTrack?.track_type === 'Midi'} />
 
                     {/* Device slots */}
                     {visibleChain.length > 0 ? (
@@ -1699,7 +1706,7 @@ export const DeviceRack = ({
                                         }
                                     }}
                                 />
-                                <MeterBar level={device.vuLevel} />
+                                <MeterBar level={device.vuLevel} levelL={device.vuLevelL} levelR={device.vuLevelR} />
                             </Fragment>
                         ))
                     ) : (
@@ -4233,11 +4240,17 @@ const PluginSettingsPanel = ({
     );
 };
 
-// ── MeterBar (small vertical signal meter) ──────────────
+// ── MeterBar (stereo vertical signal meter) ──────────────
 
-const MeterBar = ({ level, isInput }: { level: number; isInput?: boolean }) => {
-    const h = Math.max(0, Math.min(100, level * 100));
-    const meterColor = level > 0.85 ? 'var(--color-meter-clip)' : level > 0.6 ? 'var(--color-meter-hot)' : 'var(--color-meter-normal)';
+const MeterBar = ({ level, levelL, levelR, isInput, isMidiInput }: { level: number; levelL?: number; levelR?: number; isInput?: boolean; isMidiInput?: boolean }) => {
+    const lNorm = levelL ?? level;
+    const rNorm = levelR ?? level;
+    const hL = Math.max(0, Math.min(100, lNorm * 100));
+    const hR = Math.max(0, Math.min(100, rNorm * 100));
+    const peakNorm = Math.max(lNorm, rNorm);
+    const meterColor = peakNorm > 0.85 ? 'var(--color-meter-clip)' : peakNorm > 0.6 ? 'var(--color-meter-hot)' : 'var(--color-meter-normal)';
+    // MIDI tracks get yellow indicator at input; audio/group tracks get green
+    const barColor = (isInput && isMidiInput) ? 'var(--color-midi-indicator)' : meterColor;
 
     return (
         <div style={{
@@ -4248,21 +4261,40 @@ const MeterBar = ({ level, isInput }: { level: number; isInput?: boolean }) => {
             alignSelf: 'stretch',
         }}>
             <div style={{
-                width: 6,
+                width: 8,
                 flex: 1,
                 background: 'var(--color-meter-bg)',
                 borderRadius: 'var(--radius-2xs)',
                 position: 'relative',
                 overflow: 'hidden',
             }}>
+                {/* Left channel */}
                 <div style={{
                     position: 'absolute',
                     bottom: 0,
                     left: 0,
-                    width: '100%',
-                    height: `${h}%`,
-                    background: isInput ? 'var(--color-midi-indicator)' : meterColor,
-                    borderRadius: 'var(--radius-2xs)',
+                    width: 3,
+                    height: `${hL}%`,
+                    background: barColor,
+                    transition: 'height 0.08s linear',
+                }} />
+                {/* Center divider */}
+                <div style={{
+                    position: 'absolute',
+                    left: 3,
+                    width: 2,
+                    top: 0,
+                    bottom: 0,
+                    background: 'color-mix(in srgb, var(--text-primary) 6%, transparent)',
+                }} />
+                {/* Right channel */}
+                <div style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    right: 0,
+                    width: 3,
+                    height: `${hR}%`,
+                    background: barColor,
                     transition: 'height 0.08s linear',
                 }} />
             </div>

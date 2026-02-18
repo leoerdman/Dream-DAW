@@ -1928,10 +1928,10 @@ const TriColorVU = ({
     const midColor = isMidi ? 'var(--color-meter-mid-midi)' : 'var(--color-meter-mid-audio)';
     const grad = `linear-gradient(to top, ${lowColor} 0%, ${midColor} 70%, var(--color-status-record) 100%)`;
 
-    // 2px left bar + 1px gap + 2px right bar = 5px inner
+    // 3px left bar + 1px divider + 3px right bar = 7px inner (9px outer with border)
     return (
         <div style={{
-            width: 7,
+            width: 9,
             height: meterHeight,
             background: 'color-mix(in srgb, var(--surface-elevated) 84%, #000)',
             borderRadius: 'var(--radius-xs)',
@@ -1948,17 +1948,26 @@ const TriColorVU = ({
             <div style={{
                 position: 'absolute',
                 left: 0,
-                width: 2,
+                width: 3,
                 bottom: 0,
                 height: `${normL * 100}%`,
                 background: grad,
                 transition: 'height 70ms linear',
             }} />
+            {/* Center divider */}
+            <div style={{
+                position: 'absolute',
+                left: 3,
+                width: 1,
+                top: 0,
+                bottom: 0,
+                background: 'color-mix(in srgb, var(--text-primary) 6%, transparent)',
+            }} />
             {/* Right channel */}
             <div style={{
                 position: 'absolute',
                 right: 0,
-                width: 2,
+                width: 3,
                 bottom: 0,
                 height: `${normR * 100}%`,
                 background: grad,
@@ -2105,17 +2114,28 @@ const VerticalMixerStrip = ({
                 <div style={{
                     position: 'absolute',
                     left: 2,
-                    width: 2,
+                    width: 3,
                     bottom: 0,
                     height: `${meterNormL * 100}%`,
                     background: isMidi ? 'color-mix(in srgb, var(--color-btn-mute) 50%, transparent)' : 'color-mix(in srgb, var(--color-meter-normal) 50%, transparent)',
                     pointerEvents: 'none',
                     filter: 'inherit',
                 }} />
+                {/* Center divider */}
+                <div style={{
+                    position: 'absolute',
+                    left: '50%',
+                    marginLeft: 0,
+                    width: 1,
+                    top: 0,
+                    bottom: 0,
+                    background: 'color-mix(in srgb, var(--text-primary) 6%, transparent)',
+                    pointerEvents: 'none',
+                }} />
                 <div style={{
                     position: 'absolute',
                     right: 2,
-                    width: 2,
+                    width: 3,
                     bottom: 0,
                     height: `${meterNormR * 100}%`,
                     background: isMidi ? 'color-mix(in srgb, var(--color-btn-mute) 50%, transparent)' : 'color-mix(in srgb, var(--color-meter-normal) 50%, transparent)',

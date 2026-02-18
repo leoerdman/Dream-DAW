@@ -1853,12 +1853,12 @@ const SessionWorkspace = ({
                                         position: 'relative',
                                         overflow: 'hidden',
                                     }}>
-                                        {/* Stereo meter: 2px L + 1px gap + 2px R */}
+                                        {/* Stereo meter: 3px L + 1px gap + 3px R */}
                                         <div style={{
                                             position: 'absolute',
-                                            left: 'calc(50% - 3px)',
+                                            left: 'calc(50% - 4px)',
                                             bottom: 4,
-                                            width: 2,
+                                            width: 3,
                                             height: `${Math.max(2, trackMeterL * 100)}%`,
                                             background: 'linear-gradient(180deg, #8cff73 0%, #5ee162 45%, #30c451 100%)',
                                             boxShadow: '0 0 6px color-mix(in srgb, var(--color-status-success) 30%, transparent)',
@@ -1868,7 +1868,7 @@ const SessionWorkspace = ({
                                             position: 'absolute',
                                             left: 'calc(50% + 1px)',
                                             bottom: 4,
-                                            width: 2,
+                                            width: 3,
                                             height: `${Math.max(2, trackMeterR * 100)}%`,
                                             background: 'linear-gradient(180deg, #8cff73 0%, #5ee162 45%, #30c451 100%)',
                                             boxShadow: '0 0 6px color-mix(in srgb, var(--color-status-success) 30%, transparent)',
@@ -1886,9 +1886,9 @@ const SessionWorkspace = ({
                 <div style={{ width: SESSION_MASTER_WIDTH, padding: '8px 8px 6px', borderLeft: '1px solid #3b3b3b', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6 }}>
                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 700 }}>MASTER</div>
                     <div style={{ position: 'relative', border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-base)' }}>
-                        {/* Stereo master: 2px L + 1px gap + 2px R */}
-                        <div style={{ position: 'absolute', left: 'calc(50% - 3px)', bottom: 0, width: 2, height: `${Math.max(4, Math.min(100, masterLevelL * 100))}%`, background: 'linear-gradient(180deg, #92ff73 0%, #3ac95b 80%, #ffe35e 100%)' }} />
-                        <div style={{ position: 'absolute', left: 'calc(50% + 1px)', bottom: 0, width: 2, height: `${Math.max(4, Math.min(100, masterLevelR * 100))}%`, background: 'linear-gradient(180deg, #92ff73 0%, #3ac95b 80%, #ffe35e 100%)' }} />
+                        {/* Stereo master: 3px L + 1px gap + 3px R */}
+                        <div style={{ position: 'absolute', left: 'calc(50% - 4px)', bottom: 0, width: 3, height: `${Math.max(4, Math.min(100, masterLevelL * 100))}%`, background: 'linear-gradient(180deg, #92ff73 0%, #3ac95b 80%, #ffe35e 100%)' }} />
+                        <div style={{ position: 'absolute', left: 'calc(50% + 1px)', bottom: 0, width: 3, height: `${Math.max(4, Math.min(100, masterLevelR * 100))}%`, background: 'linear-gradient(180deg, #92ff73 0%, #3ac95b 80%, #ffe35e 100%)' }} />
                     </div>
                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>Out</div>
                 </div>

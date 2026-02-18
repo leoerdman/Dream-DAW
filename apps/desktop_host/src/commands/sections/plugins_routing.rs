@@ -1685,17 +1685,37 @@ fn set_plugin_sidechain_source_cmd(
         updated = true;
     }
     if !updated {
-        for node in &mut track.effects {
-            if let Some(slot) = node.as_single_mut()
-                && slot.id == slot_uuid
-            {
-                if slot.supports_sidechain_input == Some(false) {
-                    return Err("Plugin does not expose sidechain input".to_string());
+        // Recursively search for the slot in effects (including inside Rack chains).
+        fn find_and_set_sidechain(
+            nodes: &mut [DeviceNode],
+            slot_uuid: Uuid,
+            source_value: &Option<String>,
+        ) -> Result<bool, String> {
+            for node in nodes.iter_mut() {
+                match node {
+                    DeviceNode::Single(slot) if slot.id == slot_uuid => {
+                        if slot.supports_sidechain_input == Some(false) {
+                            return Err("Plugin does not expose sidechain input".to_string());
+                        }
+                        slot.sidechain_source_track_id = source_value.clone();
+                        return Ok(true);
+                    }
+                    DeviceNode::Rack(rack) => {
+                        for chain in &mut rack.chains {
+                            if find_and_set_sidechain(&mut chain.devices, slot_uuid, source_value)? {
+                                return Ok(true);
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                slot.sidechain_source_track_id = source_value.clone();
-                updated = true;
-                break;
             }
+            Ok(false)
+        }
+        match find_and_set_sidechain(&mut track.effects, slot_uuid, &source_value) {
+            Ok(true) => updated = true,
+            Err(e) => return Err(e),
+            _ => {}
         }
     }
 
@@ -2029,12 +2049,19 @@ fn add_plugin_to_track_cmd(
         })
         .unwrap_or_else(|| payload.plugin_name.clone());
     let canonical_slot_hint = canonical.map(|v| v.2);
-    let use_instrument = match slot.as_str() {
-        "instrument" => true,
-        "effect" => false,
-        "auto" => canonical_slot_hint == Some("instrument")
-            || (track.track_type == TrackType::Midi && track.instrument.is_none()),
-        _ => track.track_type == TrackType::Midi && track.instrument.is_none(),
+    // Only MIDI tracks can host instrument slots. Audio/Group/Master tracks
+    // always route plugin additions to the effects chain to avoid corrupting
+    // the audio bus (groups receive summed child audio, not MIDI).
+    let use_instrument = if track.track_type != TrackType::Midi {
+        false
+    } else {
+        match slot.as_str() {
+            "instrument" => true,
+            "effect" => false,
+            "auto" => canonical_slot_hint == Some("instrument")
+                || track.instrument.is_none(),
+            _ => track.instrument.is_none(),
+        }
     };
 
     let plugin_id_lower = effective_plugin_id.to_lowercase();

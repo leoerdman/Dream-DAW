@@ -2393,12 +2393,6 @@ pub fn start_audio_thread_on_device(
                                         );
                                     }
 
-                                    let route_to_output = render_ctx
-                                        .track_slots
-                                        .get(track_idx)
-                                        .map(|slot| slot.strip.is_output_enabled())
-                                        .unwrap_or(true);
-
                                     // ── Per-track metering (graph pass) ─────
                                     // Post-sum tracks: meter the mixed graph output.
                                     // Source tracks: meter after strip/FX processing

@@ -807,9 +807,20 @@ export const DawShell = () => {
     }, [flushTrackControlFinals, flushMidiThrottles, selectedTimelineClip, serializeMidiNotesToFrames]);
 
     // ── Scroll sync between Timeline and TrackInspector ─────────────
+    // Two unidirectional channels to prevent stale-state race conditions.
+    // Timeline-originated scroll → drives TrackInspector only.
     const [timelineScrollTop, setTimelineScrollTop] = useState(0);
+    // Inspector-originated scroll → drives Timeline canvas only.
+    const [inspectorScrollTop, setInspectorScrollTop] = useState<number | undefined>(undefined);
+
+    /** Called when the Timeline canvas fires a scroll event (wheel). */
     const handleTimelineScrollTop = useCallback((st: number) => {
         setTimelineScrollTop(st);
+    }, []);
+
+    /** Called when the TrackInspector header list is scrolled by the user. */
+    const handleInspectorScrollTop = useCallback((st: number) => {
+        setInspectorScrollTop(st);
     }, []);
 
     // ── Track Height ────────────────────────────────────────────────
@@ -1363,7 +1374,7 @@ export const DawShell = () => {
                                             handleSelectTrack(resolvedTrackId);
                                         }}
                                         onScrollTop={handleTimelineScrollTop}
-                                        externalScrollTop={timelineScrollTop}
+                                        externalScrollTop={inspectorScrollTop}
                                         followPlayhead={followPlayhead}
                                         automationVisible={automationVisible}
                                         fitHorizontalToken={fitTimelineToken}
@@ -1390,7 +1401,7 @@ export const DawShell = () => {
                                             trackHeight={TRACK_HEIGHT_BASE}
                                             rulerHeight={RULER_HEIGHT}
                                             scrollTop={timelineScrollTop}
-                                            onScrollTop={handleTimelineScrollTop}
+                                            onScrollTop={handleInspectorScrollTop}
                                             mixerFocusMode={false}
                                         />
                                     </Suspense>

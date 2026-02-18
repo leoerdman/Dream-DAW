@@ -164,15 +164,17 @@ export const TrackInspector = ({
     const renameTrackAction = useEngineStore((s) => s.renameTrack);
     const meters = useEngineStore((s) => s.meters);
     const scrollRef = useRef<HTMLDivElement>(null);
-    /** Guard: skip onScroll callback when the scroll was set programmatically. */
-    const programmaticScrollRef = useRef(false);
+    /**
+     * Enterprise scroll guard: stores the last programmatically-set scrollTop value.
+     * The onScroll handler compares against this to suppress echoes —
+     * timing-independent, unlike rAF-based boolean guards.
+     */
+    const lastProgrammaticScrollRef = useRef<number | null>(null);
 
     useEffect(() => {
         if (scrollRef.current && externalScrollTop !== undefined) {
-            programmaticScrollRef.current = true;
+            lastProgrammaticScrollRef.current = externalScrollTop;
             scrollRef.current.scrollTop = externalScrollTop;
-            // Clear the guard after the browser processes the scroll update.
-            requestAnimationFrame(() => { programmaticScrollRef.current = false; });
         }
     }, [externalScrollTop]);
 
@@ -1152,9 +1154,17 @@ export const TrackInspector = ({
                     boxSizing: 'border-box',
                 }}
                 onScroll={() => {
-                    if (programmaticScrollRef.current) return;
                     const el = scrollRef.current;
-                    if (el && onScrollTop) onScrollTop(el.scrollTop);
+                    if (!el || !onScrollTop) return;
+                    const pos = el.scrollTop;
+                    // Suppress echo from programmatic scrollTop assignment
+                    if (lastProgrammaticScrollRef.current !== null
+                        && Math.abs(pos - lastProgrammaticScrollRef.current) < 1) {
+                        lastProgrammaticScrollRef.current = null;
+                        return;
+                    }
+                    lastProgrammaticScrollRef.current = null;
+                    onScrollTop(pos);
                 }}
                 onContextMenu={(e) => {
                     const target = e.target as HTMLElement | null;

@@ -2352,7 +2352,7 @@ export const PianoRoll = memo(function PianoRoll({
                         {/* ── Playhead ── */}
                         {/* Bug #38: Clamp playhead display to clip length so it doesn't
                             render past the visible clip boundary when looping. */}
-                        {playheadBeat !== undefined && playheadBeat < clipBeats && (
+                        {playheadBeat !== undefined && playheadBeat >= 0 && playheadBeat < clipBeats && (
                             <div style={{
                                 position: 'absolute',
                                 left: Math.min(playheadBeat, clipBeats) * pixelsPerBeat,
@@ -2366,16 +2366,18 @@ export const PianoRoll = memo(function PianoRoll({
                             }} />
                         )}
 
-                        <div style={{
-                            position: 'absolute',
-                            left: stepInputCursorBeat * pixelsPerBeat,
-                            top: RULER_HEIGHT,
-                            width: 1,
-                            height: canvasHeight,
-                            background: 'color-mix(in srgb, var(--color-accent-primary) 90%, transparent)',
-                            zIndex: 'var(--z-ui-overlay)' as unknown as number,
-                            pointerEvents: 'none',
-                        }} />
+                        {stepInputCursorBeat > 0 && (
+                            <div style={{
+                                position: 'absolute',
+                                left: stepInputCursorBeat * pixelsPerBeat,
+                                top: RULER_HEIGHT,
+                                width: 1,
+                                height: canvasHeight,
+                                background: 'color-mix(in srgb, var(--color-accent-primary) 90%, transparent)',
+                                zIndex: 'var(--z-ui-overlay)' as unknown as number,
+                                pointerEvents: 'none',
+                            }} />
+                        )}
 
                         {/* ── Velocity Lane ── */}
                         <div style={{

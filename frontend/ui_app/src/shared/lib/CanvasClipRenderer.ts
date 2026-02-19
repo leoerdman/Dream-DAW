@@ -226,16 +226,24 @@ export class CanvasClipRenderer {
         ctx.fillRect(0, rulerH, vp.viewportWidth, vp.viewportHeight - rulerH);
 
         // Highlight selected tracks (primary gets stronger)
+        // The highlight must be clipped to the actual track bounds so it scrolls
+        // with the track and disappears under the ruler / below the viewport edge.
         const list = (selectedTracks && selectedTracks.length > 0) ? selectedTracks : (selectedTrack >= 0 ? [selectedTrack] : []);
         for (const t of list) {
             if (t < 0) continue;
             const y = rulerH + vp.trackOffsetY(t) - vp.scrollY;
             const h = vp.trackHeightAt(t);
+            // Fully off-screen — skip
             if (y + h < rulerH || y > vp.viewportHeight) continue;
+            // Clip top to ruler and bottom to viewport
+            const clippedTop = Math.max(rulerH, y);
+            const clippedBottom = Math.min(vp.viewportHeight, y + h);
+            const clippedH = clippedBottom - clippedTop;
+            if (clippedH <= 0) continue;
             ctx.save();
             ctx.globalAlpha = (t === selectedTrack) ? 1.0 : 0.55;
             ctx.fillStyle = theme.trackSelected;
-            ctx.fillRect(0, Math.max(rulerH, y), vp.viewportWidth, h);
+            ctx.fillRect(0, clippedTop, vp.viewportWidth, clippedH);
             ctx.restore();
         }
     }

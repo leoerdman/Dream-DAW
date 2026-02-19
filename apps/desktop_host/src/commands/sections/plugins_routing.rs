@@ -884,7 +884,7 @@ fn get_plugin_slot_runtime_status_cmd(
             loaded: true,
             editor_supported: false,
             runtime: "internal".to_string(),
-            sidechain_ready: slot.supports_sidechain_input.unwrap_or(false) || slot.plugin_id.contains("compressor") || slot.plugin_id.contains("gate"),
+            sidechain_ready: slot.supports_sidechain_input.unwrap_or(false) || slot.plugin_id.contains("compressor") || slot.plugin_id.contains("gate") || slot.plugin_id.contains("shaper"),
             latency_frames: Some(0),
             message: None,
         });
@@ -946,7 +946,10 @@ fn get_plugin_slot_runtime_status_cmd(
             loaded,
             editor_supported,
             runtime: "in-process".to_string(),
-            sidechain_ready: slot.supports_sidechain_input.unwrap_or(false),
+            // For external (VST3/VST2) plugins, allow sidechain routing by default
+            // since the scanner cannot determine bus layout without instantiation.
+            // The runtime handles sidechain bus activation dynamically.
+            sidechain_ready: slot.supports_sidechain_input.unwrap_or(!slot.plugin_id.starts_with("internal://")),
             latency_frames,
             message: if loaded {
                 None
@@ -964,7 +967,7 @@ fn get_plugin_slot_runtime_status_cmd(
         } else {
             "unloaded".to_string()
         },
-        sidechain_ready: slot.supports_sidechain_input.unwrap_or(false),
+        sidechain_ready: slot.supports_sidechain_input.unwrap_or(!slot.plugin_id.starts_with("internal://")),
         latency_frames: None,
         message: if sandbox_loaded {
             Some("Sandbox runtime active. Native plugin editor window is not available in this host path yet; use inline controls.".to_string())
@@ -1107,7 +1110,12 @@ fn replace_missing_plugin_slot_cmd(
         .map(|v| v.to_string())
         .unwrap_or_else(|| descriptor.name.clone());
     slot.external_audio_inputs = Some(descriptor.audio_inputs);
-    slot.supports_sidechain_input = Some(descriptor.audio_inputs > 2);
+    // VST3 scanner does NOT populate audio_inputs (it's always 0).
+    // Sidechain bus presence is only known after IComponent::get_bus_count()
+    // at activation time. Leave as None for VST3 to indicate "unknown".
+    if descriptor.format != PluginFormat::VST3 {
+        slot.supports_sidechain_input = Some(descriptor.audio_inputs > 2);
+    }
     slot.external_format = Some(descriptor.format.to_string().to_lowercase());
     slot.external_uid = descriptor.unique_id.clone();
     slot.external_plugin_version = descriptor.version.clone();
@@ -1799,7 +1807,7 @@ fn set_plugin_sidechain_source_cmd(
         && let Some(slot) = inst.as_single_mut()
         && slot.id == slot_uuid
     {
-        if slot.supports_sidechain_input == Some(false) {
+        if slot.supports_sidechain_input == Some(false) && slot.plugin_id.starts_with("internal://") {
             return Err("Plugin does not expose sidechain input".to_string());
         }
         slot.sidechain_source_track_id = source_value.clone();
@@ -1815,7 +1823,7 @@ fn set_plugin_sidechain_source_cmd(
             for node in nodes.iter_mut() {
                 match node {
                     DeviceNode::Single(slot) if slot.id == slot_uuid => {
-                        if slot.supports_sidechain_input == Some(false) {
+                        if slot.supports_sidechain_input == Some(false) && slot.plugin_id.starts_with("internal://") {
                             return Err("Plugin does not expose sidechain input".to_string());
                         }
                         slot.sidechain_source_track_id = source_value.clone();
@@ -1841,6 +1849,29 @@ fn set_plugin_sidechain_source_cmd(
     }
 
     if !updated {
+        // Diagnostic: dump all slot IDs on this track for debugging.
+        let mut all_ids: Vec<String> = Vec::new();
+        if let Some(inst) = track.instrument.as_ref() {
+            all_ids.push(format!("instrument:{}", inst.id()));
+        }
+        fn collect_effect_ids(nodes: &[DeviceNode], out: &mut Vec<String>) {
+            for node in nodes {
+                match node {
+                    DeviceNode::Single(s) => out.push(format!("effect:{}", s.id)),
+                    DeviceNode::Rack(r) => {
+                        out.push(format!("rack:{}", r.id));
+                        for chain in &r.chains {
+                            collect_effect_ids(&chain.devices, out);
+                        }
+                    }
+                }
+            }
+        }
+        collect_effect_ids(&track.effects, &mut all_ids);
+        log::warn!(
+            "[IPC] set_plugin_sidechain_source_cmd: slot {} NOT FOUND on track {}. Available slots: {:?}",
+            slot_id, track_id, all_ids
+        );
         return Err(format!("Plugin slot not found on track {}: {}", track_id, slot_id));
     }
 
@@ -2215,7 +2246,12 @@ fn add_plugin_to_track_cmd(
         && let Ok(desc) = plugin_host_state.resolve_descriptor(&effective_plugin_id)
     {
         slot_data.external_audio_inputs = Some(desc.audio_inputs);
-        slot_data.supports_sidechain_input = Some(desc.audio_inputs > 2);
+        // VST3 scanner cannot determine bus layout without loading the plugin.
+        // Leave supports_sidechain_input as None (unknown) for VST3.
+        // Sidechain bus detection happens at runtime via IComponent::get_bus_count().
+        if desc.format != PluginFormat::VST3 {
+            slot_data.supports_sidechain_input = Some(desc.audio_inputs > 2);
+        }
     }
     let plugin_slot = DeviceNode::Single(slot_data);
     let mut runtime_add: Option<(Uuid, u8, u8)> = None;

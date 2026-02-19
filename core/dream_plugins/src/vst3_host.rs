@@ -4435,7 +4435,10 @@ impl PluginInstance for Vst3Instance {
                 return Ok(());
             }
 
-            let supports_sidechain_bus = self.descriptor.audio_inputs > 2;
+            // Use the actual runtime bus count (from IComponent::get_bus_count)
+            // instead of descriptor.audio_inputs which is unreliable for VST3
+            // (the scanner cannot determine bus layout without loading the plugin).
+            let supports_sidechain_bus = self.audio_input_bus_count > 1;
             let has_sidechain_signal = supports_sidechain_bus && inputs.len() > 2;
 
             // Main bus input copy (L/R)

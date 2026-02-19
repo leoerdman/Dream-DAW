@@ -109,7 +109,7 @@ export const DawShell = () => {
     const [editCursorBeat, setEditCursorBeat] = useState(-1);
     const [editCursorTrackIndex, setEditCursorTrackIndex] = useState(0);
     const [editCursorTrackIndexEnd, setEditCursorTrackIndexEnd] = useState(0);
-    const [isDragOver, setIsDragOver] = useState(false);
+    const [_isDragOver, setIsDragOver] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
     const [bottomPanelMode, setBottomPanelMode] = useState<BottomPanelMode>('rack');
     const [bottomPanelModeByTrack, setBottomPanelModeByTrack] = useState<Record<string, BottomPanelMode>>({});
@@ -1573,7 +1573,7 @@ export const DawShell = () => {
                                         }}
                                         onGenerateVariation={handleGenerateMidiVariation}
                                         aiVariationBusy={aiVariationBusy}
-                                        playheadBeat={playheadBeat}
+                                        playheadBeat={playheadBeat - selectedTimelineClip.startBeat}
                                         totalBars={selectedMidiTotalBars}
                                         clipLengthBeats={selectedTimelineClip.durationBeats}
                                         color={selectedTimelineClip.color || projectTracks.find((t) => t.id === selectedTrackId)?.color || '#4a9eff'}

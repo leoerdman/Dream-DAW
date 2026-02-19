@@ -148,15 +148,19 @@ const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<
     Record<string, number>
 >> = {
     eq: {
-        lowfreq: 4,
-        low: 5,
-        lowq: 6,
-        midfreq: 12,
-        mid: 13,
-        midq: 14,
-        highfreq: 24,
-        high: 25,
-        highq: 26,
+        // Backend: 8 bands × 4 params (band*4+0=freq, band*4+1=gain, band*4+2=Q, band*4+3=enable) + param 32=output
+        b0freq: 0, b0gain: 1, b0q: 2, b0en: 3,       // Band 0: Low Cut (HP)
+        b1freq: 4, b1gain: 5, b1q: 6, b1en: 7,       // Band 1: Low Shelf
+        b2freq: 8, b2gain: 9, b2q: 10, b2en: 11,     // Band 2: Peaking
+        b3freq: 12, b3gain: 13, b3q: 14, b3en: 15,   // Band 3: Peaking
+        b4freq: 16, b4gain: 17, b4q: 18, b4en: 19,   // Band 4: Peaking
+        b5freq: 20, b5gain: 21, b5q: 22, b5en: 23,   // Band 5: Peaking
+        b6freq: 24, b6gain: 25, b6q: 26, b6en: 27,   // Band 6: High Shelf
+        b7freq: 28, b7gain: 29, b7q: 30, b7en: 31,   // Band 7: High Cut (LP)
+        // Legacy 3-band aliases (for backward compat with existing presets):
+        lowfreq: 4, low: 5, lowq: 6,
+        midfreq: 12, mid: 13, midq: 14,
+        highfreq: 24, high: 25, highq: 26,
         out: 32,
     },
     utility: { gain: 0, pan: 1, width: 2, mono: 3 },
@@ -185,6 +189,49 @@ const DEVICE_PARAM_PRESETS: Record<
     Array<Omit<PluginParam, 'value'> & { value: number }>
 > = {
     eq: [
+        // Band 0: Low Cut (Highpass) — disabled by default
+        { name: 'B0Freq', value: 30, min: 20, max: 20000, suffix: 'Hz', step: 1 },
+        { name: 'B0Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
+        { name: 'B0Q', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
+        { name: 'B0En', value: 0, min: 0, max: 1, suffix: '', step: 1 },
+        // Band 1: Low Shelf
+        { name: 'B1Freq', value: 100, min: 20, max: 20000, suffix: 'Hz', step: 1 },
+        { name: 'B1Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
+        { name: 'B1Q', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
+        { name: 'B1En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
+        // Band 2: Peaking
+        { name: 'B2Freq', value: 250, min: 20, max: 20000, suffix: 'Hz', step: 1 },
+        { name: 'B2Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
+        { name: 'B2Q', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
+        { name: 'B2En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
+        // Band 3: Peaking
+        { name: 'B3Freq', value: 800, min: 20, max: 20000, suffix: 'Hz', step: 1 },
+        { name: 'B3Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
+        { name: 'B3Q', value: 1.0, min: 0.1, max: 18, suffix: '', step: 0.01 },
+        { name: 'B3En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
+        // Band 4: Peaking
+        { name: 'B4Freq', value: 2500, min: 20, max: 20000, suffix: 'Hz', step: 1 },
+        { name: 'B4Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
+        { name: 'B4Q', value: 1.0, min: 0.1, max: 18, suffix: '', step: 0.01 },
+        { name: 'B4En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
+        // Band 5: Peaking
+        { name: 'B5Freq', value: 6000, min: 20, max: 20000, suffix: 'Hz', step: 1 },
+        { name: 'B5Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
+        { name: 'B5Q', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
+        { name: 'B5En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
+        // Band 6: High Shelf
+        { name: 'B6Freq', value: 12000, min: 20, max: 20000, suffix: 'Hz', step: 1 },
+        { name: 'B6Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
+        { name: 'B6Q', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
+        { name: 'B6En', value: 1, min: 0, max: 1, suffix: '', step: 1 },
+        // Band 7: High Cut (Lowpass) — disabled by default
+        { name: 'B7Freq', value: 18000, min: 20, max: 20000, suffix: 'Hz', step: 1 },
+        { name: 'B7Gain', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
+        { name: 'B7Q', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
+        { name: 'B7En', value: 0, min: 0, max: 1, suffix: '', step: 1 },
+        // Output gain
+        { name: 'Out', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
+        // Legacy aliases (for backward compat)
         { name: 'LowFreq', value: 120, min: 20, max: 1200, suffix: 'Hz', step: 1 },
         { name: 'Low', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'LowQ', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
@@ -194,7 +241,6 @@ const DEVICE_PARAM_PRESETS: Record<
         { name: 'HighFreq', value: 9500, min: 1200, max: 20000, suffix: 'Hz', step: 1 },
         { name: 'High', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
         { name: 'HighQ', value: 0.71, min: 0.1, max: 18, suffix: '', step: 0.01 },
-        { name: 'Out', value: 0, min: -24, max: 24, suffix: 'dB', step: 0.1 },
     ],
     compressor: [
         { name: 'Thr', value: -18, min: -60, max: 0, suffix: 'dB', step: 0.1 },
@@ -797,12 +843,18 @@ export const DeviceRack = ({
     const setPluginSidechainSource = useCallback(async (slotId: string, sourceTrackId: string) => {
         if (!selectedTrack) return;
         try {
+            console.log('[DeviceRack] setPluginSidechainSource:', {
+                trackId: selectedTrack.id,
+                slotId,
+                sourceTrackId: sourceTrackId || 'none',
+            });
             await engineApi.setPluginSidechainSource(selectedTrack.id, slotId, sourceTrackId || 'none');
             await fetchProject();
             statusClear();
         } catch (err) {
             console.error('[DeviceRack] setPluginSidechainSource failed:', err);
-            statusError('Failed to set plugin sidechain source.');
+            const msg = err instanceof Error ? err.message : String(err);
+            statusError(`Failed to set plugin sidechain source: ${msg}`);
         }
     }, [selectedTrack, fetchProject, statusClear, statusError]);
 
@@ -1582,39 +1634,9 @@ export const DeviceRack = ({
                                 className="dream-device-drop-indicator"
                                 style={{ display: 'flex', flexShrink: 0, height: '100%', transition: 'border 0.1s ease', position: 'relative' }}
                             >
-                                {/* ── Drag Handle: only this small grip area initiates device reorder ── */}
-                                {/* This prevents draggable from capturing EQ band/plugin UI interactions */}
-                                <div
-                                    draggable
-                                    onDragStart={(e) => {
-                                        e.dataTransfer.setData('application/x-dream-device-id', device.id);
-                                        e.dataTransfer.setData('application/x-dream-device-index', String(deviceIndex));
-                                        e.dataTransfer.effectAllowed = 'move';
-                                        // Find the closest device-drop-indicator parent and dim it
-                                        const slot = (e.target as HTMLElement).closest('.dream-device-drop-indicator') as HTMLElement | null;
-                                        if (slot) slot.style.opacity = '0.4';
-                                    }}
-                                    onDragEnd={(e) => {
-                                        const slot = (e.target as HTMLElement).closest('.dream-device-drop-indicator') as HTMLElement | null;
-                                        if (slot) slot.style.opacity = '1';
-                                        document.querySelectorAll('.dream-device-drop-indicator').forEach((el) => {
-                                            (el as HTMLElement).style.borderLeft = '';
-                                            (el as HTMLElement).style.borderRight = '';
-                                        });
-                                    }}
-                                    title="Drag to reorder"
-                                    style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        height: 18,
-                                        cursor: 'grab',
-                                        zIndex: 10,
-                                    }}
-                                />
                                 <DeviceNode
                                     device={device}
+                                    deviceIndex={deviceIndex}
                                     isSelected={selectedDeviceIds.includes(device.id)}
                                     editorSupported={pluginCapability[device.id]?.supported ?? true}
                                     editorReason={pluginCapability[device.id]?.reason}
@@ -1942,6 +1964,7 @@ const autoCtxMenuItemStyle: React.CSSProperties = {
 
 const DeviceNode = ({
     device, onToggle, onOpenGUI,
+    deviceIndex,
     isSelected,
     isNativeEditorOpen,
     showSettings,
@@ -1969,6 +1992,7 @@ const DeviceNode = ({
     onEnsureActive,
 }: {
     device: DeviceSlot;
+    deviceIndex: number;
     onToggle: () => void;
     isSelected: boolean;
     showSettings: boolean;
@@ -2006,7 +2030,7 @@ const DeviceNode = ({
     const baseWidth = device.source === 'internal' && device.effectType === 'waveSynth'
         ? 980
         : device.source === 'internal' && device.effectType === 'eq'
-            ? 860
+            ? 540
             : manifest.cardWidth;
     const settingsWidth = Math.min(1460, Math.max(baseWidth, 280 + device.params.length * 110));
     const rackWidth = showSettings ? settingsWidth : baseWidth;
@@ -2051,19 +2075,43 @@ const DeviceNode = ({
             }}
         >
             {/* ── Unified Header: Enable → UI → Wrench → Name → Format ── */}
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '3px 6px',
-                borderBottom: '1px solid var(--color-divider)',
-                background: 'var(--color-bg-header)',
-                cursor: 'pointer',
-            }}
+            <div
+                draggable
+                onDragStart={(e) => {
+                    // Prevent drag when clicking interactive elements (buttons, inputs)
+                    const target = e.target as HTMLElement;
+                    if (target.closest('button, input, select, [data-no-drag]')) {
+                        e.preventDefault();
+                        return;
+                    }
+                    e.dataTransfer.setData('application/x-dream-device-id', device.id);
+                    e.dataTransfer.setData('application/x-dream-device-index', String(deviceIndex));
+                    e.dataTransfer.effectAllowed = 'move';
+                    const slot = (e.currentTarget as HTMLElement).closest('.dream-device-drop-indicator') as HTMLElement | null;
+                    if (slot) slot.style.opacity = '0.4';
+                }}
+                onDragEnd={() => {
+                    const slot = document.querySelector('.dream-device-drop-indicator[style*="opacity"]') as HTMLElement | null;
+                    if (slot) slot.style.opacity = '1';
+                    document.querySelectorAll('.dream-device-drop-indicator').forEach((el) => {
+                        (el as HTMLElement).style.borderLeft = '';
+                        (el as HTMLElement).style.borderRight = '';
+                    });
+                }}
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    padding: '3px 6px',
+                    borderBottom: '1px solid var(--color-divider)',
+                    background: 'var(--color-bg-header)',
+                    cursor: 'grab',
+                }}
                 onClick={(e) => { e.stopPropagation(); onSelect(e); }}
             >
                 {/* ● Enable toggle */}
                 <button
+                    draggable={false}
                     onClick={onToggle}
                     title={device.isEnabled ? 'Disable' : 'Enable'}
                     style={{
@@ -2078,6 +2126,7 @@ const DeviceNode = ({
                 {/* UI button — only for plugins with a native editor */}
                 {showUiButton && (
                     <button
+                        draggable={false}
                         onClick={(e) => { e.stopPropagation(); onOpenGUI?.(); }}
                         title={editorSupported === false
                             ? (editorReason ?? 'Native plugin editor is unavailable; opening inline controls')
@@ -2090,6 +2139,7 @@ const DeviceNode = ({
                 {/* Fix button — only when plugin runtime is dead */}
                 {showRecoverAction && (
                     <button
+                        draggable={false}
                         onClick={(e) => { e.stopPropagation(); onEnsureActive?.(); }}
                         title="Recover plugin runtime"
                         style={headerIconBtnStyle(false)}
@@ -2100,6 +2150,7 @@ const DeviceNode = ({
                 {/* 🔧 Wrench — settings / params panel */}
                 {supportsSettingsToggle && (
                     <button
+                        draggable={false}
                         onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
                         title="Plugin Settings / Automatable Params"
                         style={headerIconBtnStyle(false, showSettings)}
@@ -2484,6 +2535,9 @@ function clampAndSnapParamValue(param: PluginParam, value: number): number {
     return Math.max(param.min, Math.min(param.max, snapped));
 }
 
+/* ── Module-level EQ filter type cache (persists across component remounts) ── */
+const eqFilterTypeCache = new Map<string, string[]>();
+
 function randomParamValue(param: PluginParam): number {
     const range = param.max - param.min;
     if (!Number.isFinite(range) || range <= 0) return param.value;
@@ -2514,7 +2568,15 @@ const PluginGuiSurface = ({
 }) => {
     const [waveformPeaks, setWaveformPeaks] = useState<engineApi.PeakPair[] | null>(null);
     const eqSurfaceRef = useRef<SVGSVGElement | null>(null);
-    const [dragEqBand, setDragEqBand] = useState<'low' | 'mid' | 'high' | null>(null);
+    const [dragEqBand, setDragEqBand] = useState<number | null>(null);
+    const [selectedEqBand, setSelectedEqBand] = useState<number | null>(null);
+    const [eqContextMenu, setEqContextMenu] = useState<{ x: number; y: number; bandIdx: number } | null>(null);
+    // Persist EQ filter types across component remounts via module-level cache
+    const [eqBandFilterTypes, setEqBandFilterTypes] = useState<string[]>(() => {
+        const cached = eqFilterTypeCache.get(device.id);
+        return cached ?? ['highpass', 'lowshelf', 'peaking', 'peaking', 'peaking', 'peaking', 'highshelf', 'lowpass'];
+    });
+    useEffect(() => { eqFilterTypeCache.set(device.id, eqBandFilterTypes); }, [device.id, eqBandFilterTypes]);
     const guiMode = (device.guiMode || '').toLowerCase();
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || guiMode || device.name.toLowerCase());
 
@@ -2588,69 +2650,38 @@ const PluginGuiSurface = ({
         return `M ${top.join(' L ')} L ${bottom.join(' L ')} Z`;
     }, [waveformPeaks]);
 
-    const beginEqBandGesture = useCallback((band: 'low' | 'mid' | 'high') => {
-        const gestureGroupId = `${device.id}:eq-band:${band}:${Date.now()}`;
-        if (band === 'low') {
-            onParamGestureStart?.('Low', gestureGroupId);
-            onParamGestureStart?.('LowFreq', gestureGroupId);
-        } else if (band === 'mid') {
-            onParamGestureStart?.('Mid', gestureGroupId);
-            onParamGestureStart?.('MidFreq', gestureGroupId);
-        } else {
-            onParamGestureStart?.('High', gestureGroupId);
-            onParamGestureStart?.('HighFreq', gestureGroupId);
-        }
+    /* ── 8-band EQ gesture helpers ── */
+    const beginEqBandGesture = useCallback((bandIdx: number) => {
+        const gestureGroupId = `${device.id}:eq-band:${bandIdx}:${Date.now()}`;
+        onParamGestureStart?.(`B${bandIdx}Freq`, gestureGroupId);
+        onParamGestureStart?.(`B${bandIdx}Gain`, gestureGroupId);
     }, [device.id, onParamGestureStart]);
 
-    const endEqBandGesture = useCallback((band: 'low' | 'mid' | 'high') => {
-        if (band === 'low') {
-            onParamGestureEnd?.('Low');
-            onParamGestureEnd?.('LowFreq');
-        } else if (band === 'mid') {
-            onParamGestureEnd?.('Mid');
-            onParamGestureEnd?.('MidFreq');
-        } else {
-            onParamGestureEnd?.('High');
-            onParamGestureEnd?.('HighFreq');
-        }
+    const endEqBandGesture = useCallback((bandIdx: number) => {
+        onParamGestureEnd?.(`B${bandIdx}Freq`);
+        onParamGestureEnd?.(`B${bandIdx}Gain`);
     }, [onParamGestureEnd]);
 
     useEffect(() => {
-        if (!dragEqBand) return;
+        if (dragEqBand === null) return;
+        const bandIdx = dragEqBand;
         const onMove = (e: MouseEvent) => {
             const surface = eqSurfaceRef.current;
             if (!surface) return;
             const rect = surface.getBoundingClientRect();
             const xNorm = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
-            const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
-            const gainValue = ((rect.height / 2 - y) / (rect.height / 2)) * 24;
+            const yNorm = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+            const gainValue = ((rect.height / 2 - yNorm) / (rect.height / 2)) * 24;
             const roundedGain = Math.max(-24, Math.min(24, gainValue));
-            // Logarithmic frequency interpolation matching the canvas rendering.
-            // Each band has its own frequency range but uses the same log10 scale
-            // as the SVG canvas xToFreq function for consistent drag behavior.
-            const logInterp = (minHz: number, maxHz: number) => {
-                const minF = Math.log10(minHz);
-                const maxF = Math.log10(maxHz);
-                return Math.pow(10, minF + xNorm * (maxF - minF));
-            };
-            const lowFreq = logInterp(20, 1200);
-            const midFreq = logInterp(120, 9000);
-            const highFreq = logInterp(1200, 20000);
-            if (dragEqBand === 'low') {
-                onParamChange('Low', roundedGain);
-                onParamChange('LowFreq', Math.round(lowFreq));
-            }
-            if (dragEqBand === 'mid') {
-                onParamChange('Mid', roundedGain);
-                onParamChange('MidFreq', Math.round(midFreq));
-            }
-            if (dragEqBand === 'high') {
-                onParamChange('High', roundedGain);
-                onParamChange('HighFreq', Math.round(highFreq));
-            }
+            // Universal logarithmic frequency interpolation 20Hz–20kHz
+            const minF = Math.log10(20);
+            const maxF = Math.log10(20000);
+            const freq = Math.pow(10, minF + xNorm * (maxF - minF));
+            onParamChange(`B${bandIdx}Gain`, roundedGain);
+            onParamChange(`B${bandIdx}Freq`, Math.round(freq));
         };
         const onUp = () => {
-            if (dragEqBand) endEqBandGesture(dragEqBand);
+            endEqBandGesture(bandIdx);
             setDragEqBand(null);
         };
         window.addEventListener('mousemove', onMove);
@@ -2660,6 +2691,14 @@ const PluginGuiSurface = ({
             window.removeEventListener('mouseup', onUp);
         };
     }, [dragEqBand, onParamChange, endEqBandGesture]);
+
+    // Close context menu on click outside
+    useEffect(() => {
+        if (!eqContextMenu) return;
+        const handler = () => setEqContextMenu(null);
+        window.addEventListener('mousedown', handler);
+        return () => window.removeEventListener('mousedown', handler);
+    }, [eqContextMenu]);
 
     if (device.effectType === 'waveSynth') {
         const osc1 = Math.round(device.params.find((x) => x.name.toLowerCase() === 'osc1wave')?.value ?? 0);
@@ -3068,35 +3107,40 @@ const PluginGuiSurface = ({
     }
 
     if (device.effectType === 'eq') {
+        const EQ_FILTER_LABELS: Record<string, string> = {
+            highpass: 'HP', lowshelf: 'L.Shelf', peaking: 'Bell',
+            highshelf: 'H.Shelf', lowpass: 'LP', notch: 'Notch',
+        };
+        // Filter type SVG icon paths — properly scaled 12×12 mini-icons
+        const EQ_FILTER_ICONS: Record<string, string> = {
+            highpass: 'M1 11 C2 11 3 10 4 8 C5 5 6 3 7 3 L11 3',
+            lowpass: 'M1 3 L5 3 C6 3 7 5 8 8 C9 10 10 11 11 11',
+            lowshelf: 'M1 9 C2 9 3 8 4 7 C5 5 5 3 6 3 L11 3',
+            highshelf: 'M1 3 L6 3 C7 3 7 5 8 7 C9 8 10 9 11 9',
+            peaking: 'M1 8 C3 8 4 3 6 3 C8 3 9 8 11 8',
+            notch: 'M1 3 C3 3 4 3 5 9 C5.5 11 6.5 11 7 9 C8 3 9 3 11 3',
+        };
+        const EQ_BAND_COLORS = [
+            '#e06cf5', '#5ab2ff', '#5cf5e0', '#d9a625', '#ff8b5b', '#7ceb8a', '#ff5c5c', '#f0c430',
+        ];
         const eqTitle = normalizedInternalId === 'internal://effect/eq-three' ? 'Band EQ' : 'EQ';
 
-        /* ── EQ params from backend (3 bands: Low, Mid, High) ── */
-        const lowFreq = device.params.find((p) => p.name.toLowerCase() === 'lowfreq')?.value ?? 120;
-        const low = device.params.find((p) => p.name.toLowerCase() === 'low')?.value ?? 0;
-        const lowQ = device.params.find((p) => p.name.toLowerCase() === 'lowq')?.value ?? 0.71;
-        const midFreq = device.params.find((p) => p.name.toLowerCase() === 'midfreq')?.value ?? 1800;
-        const mid = device.params.find((p) => p.name.toLowerCase() === 'mid')?.value ?? 0;
-        const midQ = device.params.find((p) => p.name.toLowerCase() === 'midq')?.value ?? 1.0;
-        const highFreq = device.params.find((p) => p.name.toLowerCase() === 'highfreq')?.value ?? 9500;
-        const high = device.params.find((p) => p.name.toLowerCase() === 'high')?.value ?? 0;
-        const highQ = device.params.find((p) => p.name.toLowerCase() === 'highq')?.value ?? 0.71;
+        /* ── Read all 8 bands from device params ── */
+        interface EqBand8 { idx: number; freq: number; gain: number; q: number; enabled: boolean; filterType: string; color: string }
+        const bands: EqBand8[] = [];
+        for (let i = 0; i < 8; i++) {
+            const freq = device.params.find((p) => p.name.toLowerCase() === `b${i}freq`)?.value ?? [30, 100, 250, 800, 2500, 6000, 12000, 18000][i];
+            const gain = device.params.find((p) => p.name.toLowerCase() === `b${i}gain`)?.value ?? 0;
+            const q = device.params.find((p) => p.name.toLowerCase() === `b${i}q`)?.value ?? 0.71;
+            const en = device.params.find((p) => p.name.toLowerCase() === `b${i}en`)?.value ?? 0;
+            bands.push({ idx: i, freq, gain, q, enabled: en > 0.5, filterType: eqBandFilterTypes[i], color: EQ_BAND_COLORS[i] });
+        }
         const out = device.params.find((p) => p.name.toLowerCase() === 'out')?.value ?? 0;
-
-        /* ── Build band array from 3 backend bands ── */
-        type EqFilterType = 'lowCut' | 'lowShelf' | 'peak' | 'highShelf' | 'highCut' | 'notch';
-        interface EqBand { id: number; freq: number; gain: number; q: number; filterType: EqFilterType; color: string; backendBand?: 'low' | 'mid' | 'high' }
-        const bandColors = ['#5ab2ff', '#d9a625', '#ff8b5b', '#7ceb8a', '#e06cf5', '#ff5c5c', '#5cf5e0', '#f0c430'];
-
-        const bands: EqBand[] = [
-            { id: 0, freq: lowFreq, gain: low, q: lowQ, filterType: 'peak', color: bandColors[0], backendBand: 'low' },
-            { id: 1, freq: midFreq, gain: mid, q: midQ, filterType: 'peak', color: bandColors[1], backendBand: 'mid' },
-            { id: 2, freq: highFreq, gain: high, q: highQ, filterType: 'peak', color: bandColors[2], backendBand: 'high' },
-        ];
-        const sortedBands = [...bands].sort((a, b) => a.freq - b.freq);
+        const activeBandIdx = selectedEqBand ?? dragEqBand ?? 2;
 
         /* ── Coordinate helpers ── */
         const VB_W = 480;
-        const VB_H = 120;
+        const VB_H = 200;
         const MARGIN_L = 8;
         const MARGIN_R = 8;
         const plotW = VB_W - MARGIN_L - MARGIN_R;
@@ -3114,21 +3158,51 @@ const PluginGuiSurface = ({
         };
         const gainToY = (gain: number) => {
             const clamped = Math.max(-24, Math.min(24, gain));
-            return VB_H / 2 - (clamped / 24) * (VB_H / 2 - 6);
+            return VB_H / 2 - (clamped / 24) * (VB_H / 2 - 10);
         };
 
-        /* ── Build smooth EQ curve from all bands ── */
+        /* ── Build smooth EQ curve from enabled bands ── */
         const curvePoints: string[] = [];
         const steps = 200;
         for (let i = 0; i <= steps; i++) {
             const x = MARGIN_L + (i / steps) * plotW;
             const freq = xToFreq(x);
             let totalGain = 0;
-            for (const band of sortedBands) {
+            for (const band of bands) {
+                if (!band.enabled) continue;
                 const octaves = Math.log2(freq / band.freq);
                 const bw = 1 / Math.max(0.1, band.q);
-                const response = band.gain * Math.exp(-0.5 * Math.pow(octaves / (bw * 0.5), 2));
-                totalGain += response;
+                // Shape response based on filter type — proper audio filter curves
+                if (band.filterType === 'highpass') {
+                    // 2nd-order Butterworth-style HP: continuous rolloff below cutoff
+                    if (freq < band.freq) {
+                        const ratio = freq / band.freq;
+                        const order = Math.max(1, band.q * 2); // Q controls steepness
+                        totalGain -= 24 * (1 - Math.pow(ratio, order * 2) / (1 + Math.pow(ratio, order * 2)));
+                    }
+                } else if (band.filterType === 'lowpass') {
+                    // 2nd-order Butterworth-style LP: continuous rolloff above cutoff
+                    if (freq > band.freq) {
+                        const ratio = band.freq / freq;
+                        const order = Math.max(1, band.q * 2);
+                        totalGain -= 24 * (1 - Math.pow(ratio, order * 2) / (1 + Math.pow(ratio, order * 2)));
+                    }
+                } else if (band.filterType === 'lowshelf') {
+                    // Low shelf: smooth sigmoid transition, gain below cutoff
+                    const transition = 1 / (1 + Math.pow(freq / band.freq, 2 * Math.max(0.5, band.q)));
+                    totalGain += band.gain * transition;
+                } else if (band.filterType === 'highshelf') {
+                    // High shelf: smooth sigmoid transition, gain above cutoff
+                    const transition = 1 / (1 + Math.pow(band.freq / freq, 2 * Math.max(0.5, band.q)));
+                    totalGain += band.gain * transition;
+                } else if (band.filterType === 'notch') {
+                    // Notch: narrow rejection band
+                    const narrowBw = bw * 0.12;
+                    totalGain -= Math.abs(band.gain || 12) * Math.exp(-0.5 * Math.pow(octaves / narrowBw, 2));
+                } else {
+                    // Peaking (bell): symmetric boost/cut
+                    totalGain += band.gain * Math.exp(-0.5 * Math.pow(octaves / (bw * 0.5), 2));
+                }
             }
             const y = gainToY(totalGain);
             curvePoints.push(`${x.toFixed(2)},${y.toFixed(2)}`);
@@ -3136,144 +3210,315 @@ const PluginGuiSurface = ({
         const curvePath = `M ${curvePoints.join(' L ')}`;
         const fillPath = `${curvePath} L ${VB_W - MARGIN_R},${VB_H / 2} L ${MARGIN_L},${VB_H / 2} Z`;
 
-
         /* ── Frequency grid labels ── */
         const freqLabels = [
-            { freq: 50, label: '50' }, { freq: 100, label: '100' }, { freq: 200, label: '200' },
-            { freq: 500, label: '500' }, { freq: 1000, label: '1k' }, { freq: 2000, label: '2k' },
-            { freq: 5000, label: '5k' }, { freq: 10000, label: '10k' },
+            { freq: 30, label: '30' }, { freq: 50, label: '50' }, { freq: 100, label: '100' },
+            { freq: 200, label: '200' }, { freq: 500, label: '500' }, { freq: 1000, label: '1k' },
+            { freq: 2000, label: '2k' }, { freq: 5000, label: '5k' }, { freq: 10000, label: '10k' },
+            { freq: 20000, label: '20k' },
         ];
 
+        /* ── Resolve knob params for active band ── */
+        const bi = activeBandIdx;
+        const freqParam = device.params.find((x) => x.name.toLowerCase() === `b${bi}freq`);
+        const gainParam = device.params.find((x) => x.name.toLowerCase() === `b${bi}gain`);
+        const qParam = device.params.find((x) => x.name.toLowerCase() === `b${bi}q`);
+        const outParam = device.params.find((x) => x.name.toLowerCase() === 'out');
+        const activeBand = bands[activeBandIdx];
+        const enabledBands = bands.filter(b => b.enabled);
+
         return (
-            <div style={{ ...pluginPanelLayoutStyle, gridTemplateRows: '120px auto' }}>
+            <div style={{ display: 'flex', gap: 6, height: '100%' }}>
+                {/* ── Left sidebar: Knobs + band controls ── */}
                 <div style={{
-                    ...pluginPanelCardBaseStyle,
-                    background: 'var(--plugin-bg-eq)',
-                    overflow: 'hidden',
-                    padding: 0,
-                    position: 'relative',
+                    width: 110,
+                    flexShrink: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                    padding: '6px 4px',
+                    background: 'var(--color-bg-secondary)',
+                    borderRadius: 'var(--plugin-card-radius)',
+                    border: '1px solid var(--plugin-card-border)',
                 }}>
-                    <svg
-                        ref={eqSurfaceRef}
-                        width="100%"
-                        height="100%"
-                        viewBox={`0 0 ${VB_W} ${VB_H}`}
-                        preserveAspectRatio="xMidYMid meet"
-                        style={{ cursor: 'crosshair' }}
-                        onMouseDown={(e) => {
-                            /* ── Click on empty space → begin drag on nearest band ── */
-                            const svg = eqSurfaceRef.current;
-                            if (!svg) return;
-                            const rect = svg.getBoundingClientRect();
-                            const svgX = ((e.clientX - rect.left) / rect.width) * VB_W;
-                            const svgY = ((e.clientY - rect.top) / rect.height) * VB_H;
-                            /* Find nearest band dot */
-                            let nearest: EqBand | null = null;
-                            let nearestDist = Infinity;
-                            for (const band of bands) {
+                    {/* Active band indicator */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '4px 6px',
+                        borderRadius: 4,
+                        background: activeBand ? `${activeBand.color}18` : 'transparent',
+                        border: activeBand ? `1px solid ${activeBand.color}40` : '1px solid transparent',
+                    }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: activeBand?.color ?? '#666' }} />
+                        <span style={{ fontSize: 10, color: activeBand?.color ?? '#888', fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+                            {activeBand ? `Band ${activeBandIdx + 1}` : 'No Band'}
+                        </span>
+                    </div>
+
+                    {/* Filter type selector for active band */}
+                    {activeBand && (
+                        <select
+                            value={activeBand.filterType}
+                            onChange={(e) => {
+                                setEqBandFilterTypes(prev => {
+                                    const next = [...prev];
+                                    next[activeBandIdx] = e.target.value;
+                                    return next;
+                                });
+                            }}
+                            style={{
+                                background: 'var(--color-bg-input, #181c24)',
+                                color: activeBand.color,
+                                border: '1px solid rgba(90,178,255,0.15)',
+                                borderRadius: 4,
+                                fontSize: 10,
+                                fontWeight: 600,
+                                padding: '3px 4px',
+                                cursor: 'pointer',
+                                fontFamily: 'Inter, sans-serif',
+                            }}
+                        >
+                            {Object.entries(EQ_FILTER_LABELS).map(([type, label]) => (
+                                <option key={type} value={type}>{label}</option>
+                            ))}
+                        </select>
+                    )}
+
+                    {/* Knobs */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, justifyContent: 'center' }}>
+                        {freqParam && <PluginKnob key={`freq-${bi}`} param={{ ...freqParam, name: 'Freq' }} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
+                        {gainParam && <PluginKnob key={`gain-${bi}`} param={{ ...gainParam, name: 'Gain' }} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
+                        {qParam && <PluginKnob key={`q-${bi}`} param={{ ...qParam, name: 'Q' }} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
+                        {outParam && <PluginKnob key="out" param={outParam} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
+                    </div>
+
+                    {/* Active bands count */}
+                    <div style={{ fontSize: 9, color: 'rgba(160,190,220,0.4)', textAlign: 'center', fontFamily: 'Inter, sans-serif' }}>
+                        {enabledBands.length}/8 bands
+                    </div>
+                </div>
+
+                {/* ── Right: EQ graph + band strip ── */}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{
+                        ...pluginPanelCardBaseStyle,
+                        background: 'var(--plugin-bg-eq)',
+                        overflow: 'visible',
+                        padding: 0,
+                        position: 'relative',
+                        flex: 1,
+                    }}>
+                        <svg
+                            ref={eqSurfaceRef}
+                            width="100%"
+                            height="100%"
+                            viewBox={`0 0 ${VB_W} ${VB_H}`}
+                            preserveAspectRatio="none"
+                            style={{ cursor: 'crosshair', display: 'block' }}
+                            onMouseDown={(e) => {
+                                if (e.button === 2) return;
+                                const svg = eqSurfaceRef.current;
+                                if (!svg) return;
+                                const rect = svg.getBoundingClientRect();
+                                const svgX = ((e.clientX - rect.left) / rect.width) * VB_W;
+                                const svgY = ((e.clientY - rect.top) / rect.height) * VB_H;
+                                let nearest: EqBand8 | null = null;
+                                let nearestDist = Infinity;
+                                for (const band of bands) {
+                                    if (!band.enabled) continue;
+                                    const bx = freqToX(band.freq);
+                                    const by = gainToY(band.gain);
+                                    const dist = Math.sqrt((svgX - bx) ** 2 + (svgY - by) ** 2);
+                                    if (dist < nearestDist) { nearestDist = dist; nearest = band; }
+                                }
+                                if (nearest && nearestDist < 25) {
+                                    setSelectedEqBand(nearest.idx);
+                                    beginEqBandGesture(nearest.idx);
+                                    setDragEqBand(nearest.idx);
+                                }
+                            }}
+                            onDoubleClick={(e) => {
+                                const svg = eqSurfaceRef.current;
+                                if (!svg) return;
+                                const rect = svg.getBoundingClientRect();
+                                const svgX = ((e.clientX - rect.left) / rect.width) * VB_W;
+                                const svgY = ((e.clientY - rect.top) / rect.height) * VB_H;
+
+                                // Check if clicked on existing enabled band → disable it
+                                let clickedBand: EqBand8 | null = null;
+                                let clickedDist = Infinity;
+                                for (const band of bands) {
+                                    if (!band.enabled) continue;
+                                    const bx = freqToX(band.freq);
+                                    const by = gainToY(band.gain);
+                                    const dist = Math.sqrt((svgX - bx) ** 2 + (svgY - by) ** 2);
+                                    if (dist < clickedDist) { clickedDist = dist; clickedBand = band; }
+                                }
+                                if (clickedBand && clickedDist < 20) {
+                                    onParamChange(`B${clickedBand.idx}En`, 0);
+                                    return;
+                                }
+
+                                // Create new band at click position
+                                const clickFreq = xToFreq(svgX);
+                                const clickGain = ((VB_H / 2 - svgY) / (VB_H / 2 - 10)) * 24;
+                                const clampedGain = Math.max(-24, Math.min(24, clickGain));
+                                const disabledBands = bands.filter(b => !b.enabled);
+                                if (disabledBands.length === 0) return;
+
+                                let bestBand = disabledBands[0];
+                                let bestDelta = Infinity;
+                                for (const db of disabledBands) {
+                                    const delta = Math.abs(Math.log2(clickFreq / db.freq));
+                                    if (delta < bestDelta) { bestDelta = delta; bestBand = db; }
+                                }
+                                onParamChange(`B${bestBand.idx}Freq`, Math.round(clickFreq));
+                                onParamChange(`B${bestBand.idx}Gain`, Math.round(clampedGain * 10) / 10);
+                                onParamChange(`B${bestBand.idx}En`, 1);
+                                setSelectedEqBand(bestBand.idx);
+                            }}
+                            onContextMenu={(e) => {
+                                e.preventDefault();
+                                const svg = eqSurfaceRef.current;
+                                if (!svg) return;
+                                const rect = svg.getBoundingClientRect();
+                                const svgX = ((e.clientX - rect.left) / rect.width) * VB_W;
+                                const svgY = ((e.clientY - rect.top) / rect.height) * VB_H;
+                                let nearest: EqBand8 | null = null;
+                                let nearestDist = Infinity;
+                                for (const band of bands) {
+                                    if (!band.enabled) continue;
+                                    const bx = freqToX(band.freq);
+                                    const by = gainToY(band.gain);
+                                    const dist = Math.sqrt((svgX - bx) ** 2 + (svgY - by) ** 2);
+                                    if (dist < nearestDist) { nearestDist = dist; nearest = band; }
+                                }
+                                if (nearest && nearestDist < 30) {
+                                    setEqContextMenu({ x: e.clientX, y: e.clientY, bandIdx: nearest.idx });
+                                }
+                            }}
+                        >
+                            <defs>
+                                <linearGradient id={`eqGrad-${device.id}`} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#5ab2ff" stopOpacity="0.3" />
+                                    <stop offset="100%" stopColor="#5ab2ff" stopOpacity="0" />
+                                </linearGradient>
+                            </defs>
+                            {[-18, -12, -6, 0, 6, 12, 18].map((db) => (
+                                <line key={`hg-${db}`} x1={MARGIN_L} y1={gainToY(db)} x2={VB_W - MARGIN_R} y2={gainToY(db)}
+                                    stroke={db === 0 ? 'rgba(90,178,255,0.25)' : 'rgba(90,178,255,0.06)'} strokeWidth={db === 0 ? 0.8 : 0.4} />
+                            ))}
+                            {freqLabels.map((fl) => (
+                                <g key={`vf-${fl.freq}`}>
+                                    <line x1={freqToX(fl.freq)} y1={4} x2={freqToX(fl.freq)} y2={VB_H - 12} stroke="rgba(90,178,255,0.06)" strokeWidth="0.4" />
+                                    <text x={freqToX(fl.freq)} y={VB_H - 3} textAnchor="middle" fill="rgba(160,190,220,0.35)" fontSize="7" fontFamily="Inter, sans-serif">{fl.label}</text>
+                                </g>
+                            ))}
+                            {[-12, 0, 12].map((db) => (
+                                <text key={`dblabel-${db}`} x={MARGIN_L + 2} y={gainToY(db) - 2} fill="rgba(160,190,220,0.3)" fontSize="6.5" fontFamily="Inter, sans-serif">
+                                    {db > 0 ? '+' : ''}{db}dB
+                                </text>
+                            ))}
+                            <path d={fillPath} fill={`url(#eqGrad-${device.id})`} opacity="0.5" />
+                            <path d={curvePath} fill="none" stroke="rgba(90,178,255,0.7)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            {/* Band dots — only render enabled bands */}
+                            {bands.filter(b => b.enabled).map((band) => {
                                 const bx = freqToX(band.freq);
                                 const by = gainToY(band.gain);
-                                const dist = Math.sqrt((svgX - bx) ** 2 + (svgY - by) ** 2);
-                                if (dist < nearestDist) {
-                                    nearestDist = dist;
-                                    nearest = band;
-                                }
-                            }
-                            if (nearest && nearestDist < 20) {
-                                const bandKey = nearest.backendBand ?? 'low';
-                                beginEqBandGesture(bandKey as 'low' | 'mid' | 'high');
-                                setDragEqBand(bandKey as 'low' | 'mid' | 'high');
-                            }
-                        }}
-                    >
-                        <defs>
-                            <linearGradient id={`eqGrad-${device.id}`} x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#d9a625" stopOpacity="0.4" />
-                                <stop offset="100%" stopColor="#d9a625" stopOpacity="0" />
-                            </linearGradient>
-                        </defs>
-                        {/* Grid lines — horizontal (gain) */}
-                        {[-18, -12, -6, 0, 6, 12, 18].map((db) => (
-                            <line key={`hg-${db}`} x1={MARGIN_L} y1={gainToY(db)} x2={VB_W - MARGIN_R} y2={gainToY(db)}
-                                stroke={db === 0 ? 'rgba(90,178,255,0.25)' : 'rgba(90,178,255,0.08)'} strokeWidth={db === 0 ? 1 : 0.5} />
+                                const isActive = dragEqBand === band.idx || selectedEqBand === band.idx;
+                                const iconPath = EQ_FILTER_ICONS[band.filterType] ?? EQ_FILTER_ICONS['peaking'];
+                                return (
+                                    <g key={band.idx} style={{ cursor: 'grab' }}>
+                                        {isActive && (
+                                            <circle cx={bx} cy={by} r="16" fill="none" stroke={band.color} strokeWidth="0.8" opacity="0.5" />
+                                        )}
+                                        <circle cx={bx} cy={by} r="9" fill="rgba(0,0,0,0.75)" stroke={band.color} strokeWidth="1.8" />
+                                        <g transform={`translate(${bx - 6}, ${by - 6}) scale(1.2)`}>
+                                            <path d={iconPath} fill="none" stroke={band.color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                                        </g>
+                                        <text x={bx} y={by - 14} textAnchor="middle" fill={band.color} fontSize="6.5" fontFamily="Inter, sans-serif" fontWeight="600" opacity={isActive ? 1 : 0}>
+                                            {EQ_FILTER_LABELS[band.filterType] ?? 'Bell'}
+                                        </text>
+                                    </g>
+                                );
+                            })}
+                            {/* Empty state hint */}
+                            {enabledBands.length === 0 && (
+                                <text x={VB_W / 2} y={VB_H / 2} textAnchor="middle" fill="rgba(160,190,220,0.25)" fontSize="10" fontFamily="Inter, sans-serif">
+                                    Double-click to add EQ point
+                                </text>
+                            )}
+                        </svg>
+                        {/* Right-click context menu */}
+                        {eqContextMenu && (
+                            <div
+                                style={{
+                                    position: 'fixed',
+                                    left: eqContextMenu.x,
+                                    top: eqContextMenu.y,
+                                    zIndex: 9999,
+                                    background: 'var(--color-bg-elevated, #1e2128)',
+                                    border: '1px solid rgba(90,178,255,0.2)',
+                                    borderRadius: 6,
+                                    padding: '4px 0',
+                                    boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+                                    minWidth: 120,
+                                }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                            >
+                                {Object.entries(EQ_FILTER_LABELS).map(([type, label]) => (
+                                    <div
+                                        key={type}
+                                        style={{
+                                            padding: '5px 14px',
+                                            fontSize: 12,
+                                            color: bands[eqContextMenu.bandIdx].filterType === type ? '#5ab2ff' : 'rgba(220,230,240,0.85)',
+                                            cursor: 'pointer',
+                                            fontWeight: bands[eqContextMenu.bandIdx].filterType === type ? 700 : 400,
+                                        }}
+                                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(90,178,255,0.12)'; }}
+                                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                                        onClick={() => {
+                                            setEqBandFilterTypes(prev => {
+                                                const next = [...prev];
+                                                next[eqContextMenu.bandIdx] = type;
+                                                return next;
+                                            });
+                                            setEqContextMenu(null);
+                                        }}
+                                    >
+                                        {label}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    {/* Band strip */}
+                    <div style={{ ...pluginPanelMetaStyle, alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 600, marginRight: 4, fontSize: 10 }}>{eqTitle}</span>
+                        {bands.filter(b => b.enabled).map((band) => (
+                            <span
+                                key={band.idx}
+                                style={{
+                                    color: band.color,
+                                    cursor: 'pointer',
+                                    padding: '1px 5px',
+                                    borderRadius: 3,
+                                    background: (selectedEqBand === band.idx || dragEqBand === band.idx) ? 'rgba(255,255,255,0.08)' : 'transparent',
+                                    fontSize: 10,
+                                    fontWeight: (selectedEqBand === band.idx || dragEqBand === band.idx) ? 700 : 400,
+                                    transition: 'all 0.15s ease',
+                                }}
+                                onClick={() => setSelectedEqBand(band.idx)}
+                                onDoubleClick={() => onParamChange(`B${band.idx}En`, 0)}
+                            >
+                                {band.freq >= 1000 ? `${(band.freq / 1000).toFixed(1)}k` : band.freq.toFixed(0)}
+                            </span>
                         ))}
-                        {/* Grid lines — vertical (frequency) */}
-                        {freqLabels.map((fl) => (
-                            <g key={`vf-${fl.freq}`}>
-                                <line x1={freqToX(fl.freq)} y1={0} x2={freqToX(fl.freq)} y2={VB_H} stroke="rgba(90,178,255,0.08)" strokeWidth="0.5" />
-                                <text x={freqToX(fl.freq)} y={VB_H - 2} textAnchor="middle" fill="rgba(160,190,220,0.4)" fontSize="7" fontFamily="Inter, sans-serif">{fl.label}</text>
-                            </g>
-                        ))}
-                        {/* dB labels */}
-                        {[-12, 0, 12].map((db) => (
-                            <text key={`dblabel-${db}`} x={MARGIN_L + 2} y={gainToY(db) - 2} fill="rgba(160,190,220,0.35)" fontSize="6.5" fontFamily="Inter, sans-serif">
-                                {db > 0 ? '+' : ''}{db}dB
-                            </text>
-                        ))}
-                        {/* EQ curve fill */}
-                        <path d={fillPath} fill={`url(#eqGrad-${device.id})`} opacity="0.6" />
-                        {/* EQ curve line */}
-                        <path d={curvePath} fill="none" stroke="#d9a625" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        {/* Band dots — perfectly circular */}
-                        {bands.map((band) => {
-                            const bx = freqToX(band.freq);
-                            const by = gainToY(band.gain);
-                            const isSelected = dragEqBand === band.backendBand;
-                            return (
-                                <g key={band.id} style={{ cursor: 'grab' }}>
-                                    {isSelected && (
-                                        <circle cx={bx} cy={by} r="14" fill="none" stroke={band.color} strokeWidth="1" opacity="0.4" />
-                                    )}
-                                    <circle cx={bx} cy={by} r="8" fill="rgba(0,0,0,0.65)" stroke={band.color} strokeWidth="2" />
-                                    <circle cx={bx} cy={by} r="3" fill={band.color} />
-                                </g>
-                            );
-                        })}
-                    </svg>
-                </div>
-                {/* ── 3 shared knobs: Freq, Gain, Q + Out ── */}
-                <div style={pluginPanelKnobGrid('repeat(4, minmax(0, 1fr))')}>
-                    {(() => {
-                        /* Pick active band based on dragEqBand or first band */
-                        const activeKey = dragEqBand ?? 'low';
-                        const freqParam = device.params.find((x) =>
-                            x.name.toLowerCase() === (activeKey === 'low' ? 'lowfreq' : activeKey === 'mid' ? 'midfreq' : 'highfreq'));
-                        const gainParam = device.params.find((x) =>
-                            x.name.toLowerCase() === (activeKey === 'low' ? 'low' : activeKey === 'mid' ? 'mid' : 'high'));
-                        const qParam = device.params.find((x) =>
-                            x.name.toLowerCase() === (activeKey === 'low' ? 'lowq' : activeKey === 'mid' ? 'midq' : 'highq'));
-                        const outParam = device.params.find((x) => x.name.toLowerCase() === 'out');
-                        return (
-                            <>
-                                {freqParam && <PluginKnob key={`freq-${activeKey}`} param={{ ...freqParam, name: 'Frequency' }} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
-                                {gainParam && <PluginKnob key={`gain-${activeKey}`} param={{ ...gainParam, name: 'Gain' }} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
-                                {qParam && <PluginKnob key={`q-${activeKey}`} param={{ ...qParam, name: 'Q' }} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
-                                {outParam && <PluginKnob key="out" param={outParam} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
-                            </>
-                        );
-                    })()}
-                </div>
-                <div style={{ ...pluginPanelMetaStyle, alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontWeight: 600 }}>{eqTitle}</span>
-                    {bands.map((band) => (
-                        <span
-                            key={band.id}
-                            style={{
-                                color: band.color,
-                                cursor: 'pointer',
-                                padding: '1px 6px',
-                                borderRadius: 4,
-                                background: dragEqBand === band.backendBand ? 'rgba(255,255,255,0.08)' : 'transparent',
-                                fontSize: 11,
-                                fontWeight: dragEqBand === band.backendBand ? 700 : 400,
-                                transition: 'all 0.15s ease',
-                            }}
-                            onClick={() => setDragEqBand(band.backendBand as 'low' | 'mid' | 'high')}
-                        >
-                            {band.gain > 0 ? '+' : ''}{band.gain.toFixed(1)}dB @ {band.freq >= 1000 ? `${(band.freq / 1000).toFixed(1)}k` : band.freq.toFixed(0)}Hz
-                        </span>
-                    ))}
-                    <span style={{ marginLeft: 'auto', fontSize: 11, opacity: 0.6 }}>Out {out > 0 ? '+' : ''}{out.toFixed(1)}dB</span>
+                        <span style={{ marginLeft: 'auto', fontSize: 10, opacity: 0.6 }}>Out {out > 0 ? '+' : ''}{out.toFixed(1)}dB</span>
+                    </div>
                 </div>
             </div>
         );
@@ -4409,6 +4654,7 @@ const MeterBar = ({ level, levelL, levelR, isInput, isMidiInput }: { level: numb
             alignItems: 'center',
             flexShrink: 0,
             alignSelf: 'stretch',
+            margin: '0 6px',
         }}>
             <div style={{
                 width: 8,

@@ -18,6 +18,12 @@ async fn add_track_cmd(
 ) -> Result<(), String> {
     let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
 
+    // BUG-46 FIX: Enforce MAX_TRACKS limit to prevent silent audio failures.
+    // The render engine pre-allocates buffers for MAX_TRACKS (256).
+    if project.tracks.len() >= 256 {
+        return Err("Maximum track count (256) reached. Remove existing tracks to add more.".to_string());
+    }
+
     // Snapshot for undo BEFORE mutation
     drop(project);
     push_undo(&project_state)?;
@@ -235,7 +241,15 @@ async fn rename_track_cmd(
         return Err(format!("Track index {} out of range ({})", index, project.tracks.len()));
     }
     let old_name = project.tracks[index].name.clone();
-    project.tracks[index].name = name.clone();
+    // BUG-48 FIX: Sanitize track name — strip control chars, truncate at 256.
+    let sanitized: String = name.chars()
+        .filter(|c| !c.is_control())
+        .take(256)
+        .collect();
+    if sanitized.is_empty() {
+        return Err("Track name cannot be empty".to_string());
+    }
+    project.tracks[index].name = sanitized.clone();
     let project_name = project.name.clone();
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;

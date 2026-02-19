@@ -62,16 +62,19 @@ pub struct PlaybackState {
 
 impl Default for PlaybackState {
     fn default() -> Self {
+        let sample_rate = 44100.0_f64;
+        // BUG-16 FIX: Compute loop region from sample_rate, not hardcoded.
+        // At 120 BPM, 1 beat = 0.5 seconds = sample_rate / 2 frames.
+        let frames_per_beat = (sample_rate / 2.0) as i64; // 120 BPM
         Self {
             is_playing: false,
             bpm: 120.0,
             test_tone_freq: 440.0,
-            sample_rate: 44100.0,
+            sample_rate,
             loop_enabled: false,
-            // Default loop region: bars 9–17 (beats 32–64 at 120 BPM / 44100 SR).
-            // At 120 BPM, 1 beat = 0.5 seconds = 22050 frames.
-            loop_start: 32 * 22050, // beat 32 = bar 9 = frame 705600
-            loop_end: 64 * 22050,   // beat 64 = bar 17 = frame 1411200
+            // Default loop region: bars 9–17 (beats 32–64).
+            loop_start: 32 * frames_per_beat,
+            loop_end: 64 * frames_per_beat,
         }
     }
 }

@@ -476,6 +476,16 @@ impl Default for SharedAutomationSnapshot {
 // Import it from there to eliminate SSOT violation.
 use crate::render_callback::soft_clip;
 
+// BUG-8/9 FIX: Equal-power (constant-power) pan law.
+// Linear pan causes ~3dB drop at center. This uses cos/sin for constant perceived volume.
+// pan ∈ [-1.0, 1.0], where -1 = hard left, 0 = center, +1 = hard right.
+#[inline]
+fn equal_power_pan_gains(pan: f32) -> (f32, f32) {
+    // Map pan [-1, 1] to angle [0, π/2]
+    let angle = (pan + 1.0) * 0.25 * std::f32::consts::PI;
+    (angle.cos(), angle.sin())
+}
+
 #[inline]
 fn eval_automation_with_cursor(
     points: &[AutomationPoint],
@@ -493,12 +503,14 @@ fn eval_automation_with_cursor(
         return Some(points[0].value);
     }
 
-    // Reset cursor on backward seek / loop wrap — the cursor only advances
-    // forward, so if the requested frame is before the current cursor's segment,
-    // we must restart. This is the canonical fix for stale cursors after transport
-    // loop-back or manual seek-backward.
+    // BUG-24 FIX: Use binary search for backward seek / loop wrap instead of
+    // resetting cursor to 0 (linear scan). With many automation points, this
+    // prevents CPU spikes at loop boundaries.
     if *cursor > 0 && at_frame < points[*cursor].sample_frame {
-        *cursor = 0;
+        *cursor = match points.binary_search_by_key(&at_frame, |p| p.sample_frame) {
+            Ok(exact) => exact,
+            Err(insert_pos) => insert_pos.saturating_sub(1),
+        };
     }
 
     let last_pair = points.len().saturating_sub(2);
@@ -584,8 +596,7 @@ fn apply_plugin_automation_sample_accurate(
             raw_pan
         }
         .clamp(-1.0, 1.0);
-        let left_mul = if pan > 0.0 { 1.0 - pan } else { 1.0 };
-        let right_mul = if pan < 0.0 { 1.0 + pan } else { 1.0 };
+        let (left_mul, right_mul) = equal_power_pan_gains(pan);
         for i in 0..n {
             left[i] *= gain * left_mul;
             right[i] *= gain * right_mul;
@@ -617,8 +628,7 @@ fn apply_plugin_automation_sample_accurate(
         }
         .clamp(-1.0, 1.0);
 
-        let left_mul = if pan > 0.0 { 1.0 - pan } else { 1.0 };
-        let right_mul = if pan < 0.0 { 1.0 + pan } else { 1.0 };
+        let (left_mul, right_mul) = equal_power_pan_gains(pan);
 
         left[i] *= gain * left_mul;
         right[i] *= gain * right_mul;
@@ -661,8 +671,7 @@ fn apply_track_mixer_automation_sample_accurate(
             raw_pan
         }
         .clamp(-1.0, 1.0);
-        let left_mul = if pan > 0.0 { 1.0 - pan } else { 1.0 };
-        let right_mul = if pan < 0.0 { 1.0 + pan } else { 1.0 };
+        let (left_mul, right_mul) = equal_power_pan_gains(pan);
         for i in 0..n {
             left[i] *= vol * left_mul;
             right[i] *= vol * right_mul;
@@ -694,8 +703,7 @@ fn apply_track_mixer_automation_sample_accurate(
         }
         .clamp(-1.0, 1.0);
 
-        let left_mul = if pan > 0.0 { 1.0 - pan } else { 1.0 };
-        let right_mul = if pan < 0.0 { 1.0 + pan } else { 1.0 };
+        let (left_mul, right_mul) = equal_power_pan_gains(pan);
 
         left[i] *= vol * left_mul;
         right[i] *= vol * right_mul;

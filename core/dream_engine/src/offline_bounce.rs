@@ -208,16 +208,21 @@ impl OfflineBouncer {
     /// - `routing[i] = Some(j)` means track `i` routes to track `j`
     /// - `post_sum_mask[i] = true` means track `i` is a group/bus
     fn build_routing(project: &Project) -> (Vec<Option<usize>>, Vec<bool>) {
+        // BUG-26 FIX: Build O(1) index map instead of O(n²) linear scan per track.
+        let id_to_index: std::collections::HashMap<uuid::Uuid, usize> = project
+            .tracks
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.id, i))
+            .collect();
+
         let routing: Vec<Option<usize>> = project
             .tracks
             .iter()
             .map(|track| {
-                track.output_destination_id.and_then(|dest_id| {
-                    project
-                        .tracks
-                        .iter()
-                        .position(|candidate| candidate.id == dest_id)
-                })
+                track
+                    .output_destination_id
+                    .and_then(|dest_id| id_to_index.get(&dest_id).copied())
             })
             .collect();
 
@@ -274,22 +279,28 @@ impl OfflineBouncer {
                     continue;
                 }
 
-                // Copy source buffers to avoid borrow checker issues
+                // BUG-5 FIX: Use split-borrow instead of Vec copy to eliminate
+                // per-buffer allocations. Sound because src_idx != *group_idx.
                 let c = frame_count
                     .min(render_ctx.track_slots[src_idx].buf_left.len())
                     .min(render_ctx.track_slots[src_idx].buf_right.len());
-                let src_left: Vec<f32> =
-                    render_ctx.track_slots[src_idx].buf_left[..c].to_vec();
-                let src_right: Vec<f32> =
-                    render_ctx.track_slots[src_idx].buf_right[..c].to_vec();
 
-                // Sum into group buffer
-                let group = &mut render_ctx.track_slots[*group_idx];
+                // Safe split-borrow: we need &track_slots[src_idx] read and
+                // &mut track_slots[*group_idx] write simultaneously.
+                assert_ne!(src_idx, *group_idx, "Track cannot route to itself");
+                let (src_slot, group_slot) = if src_idx < *group_idx {
+                    let (left, right) = render_ctx.track_slots.split_at_mut(*group_idx);
+                    (&left[src_idx], &mut right[0])
+                } else {
+                    let (left, right) = render_ctx.track_slots.split_at_mut(src_idx);
+                    (&right[0], &mut left[*group_idx])
+                };
+
                 for i in 0..c {
-                    group.buf_left[i] += src_left[i];
-                    group.buf_right[i] += src_right[i];
+                    group_slot.buf_left[i] += src_slot.buf_left[i];
+                    group_slot.buf_right[i] += src_slot.buf_right[i];
                 }
-                group.active = true;
+                group_slot.active = true;
             }
         }
 

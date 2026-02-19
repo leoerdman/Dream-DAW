@@ -25,8 +25,8 @@ use std::sync::Arc;
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-/// Maximum polyphony — pre-allocated voice count.
-pub const MAX_VOICES: usize = 16;
+/// BUG-47 FIX: Increased from 16 to 32 for complex chord / pad arrangements.
+pub const MAX_VOICES: usize = 32;
 
 /// Default root note: C4 (middle C).
 pub const DEFAULT_ROOT_NOTE: u8 = 60;
@@ -322,6 +322,10 @@ impl SamplerVoice {
         self.pitch_ratio = 2.0_f64.powf((note as f64 - root_note as f64) / 12.0);
         let freq_hz = 440.0_f64 * 2.0_f64.powf((note as f64 - 69.0) / 12.0);
         self.phase_increment = (freq_hz / self.sample_rate).clamp(0.0, 0.5);
+        // BUG-12 FIX: Warn when note exceeds Nyquist (clamped to 0.5).
+        if freq_hz > self.sample_rate * 0.5 {
+            log::debug!("[Sampler] Note {} ({:.0}Hz) exceeds Nyquist ({:.0}Hz), clamped", note, freq_hz, self.sample_rate * 0.5);
+        }
         self.envelope.note_on();
         self.filter_state.reset(); // Fresh filter state per note
         self.lfo_phase = 0.0; // Restart LFO per note for consistent timbre
@@ -616,12 +620,18 @@ impl SamplerEngine {
             return;
         }
 
-        // No idle voice — steal the one with the lowest envelope level
+        // BUG-10 FIX: Improved voice stealing — prefer releasing voices,
+        // then steal the one with the lowest envelope level.
         let steal = self.voices.iter_mut().min_by(|a, b| {
-            a.envelope
-                .level
-                .partial_cmp(&b.envelope.level)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            // Prefer stealing releasing voices over sustained ones
+            let a_releasing = a.envelope.is_releasing() as u8;
+            let b_releasing = b.envelope.is_releasing() as u8;
+            b_releasing.cmp(&a_releasing).then_with(|| {
+                a.envelope
+                    .level
+                    .partial_cmp(&b.envelope.level)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
         });
 
         if let Some(voice) = steal {

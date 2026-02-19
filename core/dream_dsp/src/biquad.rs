@@ -77,10 +77,14 @@ impl BiquadCoeffs {
     /// - `sample_rate`: Sample rate in Hz
     /// - `gain_db`: Gain in dB (only used for shelf and peaking filters).
     pub fn new(filter_type: BiquadType, freq: f64, q: f64, sample_rate: f64, gain_db: f64) -> Self {
-        let omega = 2.0 * PI * freq / sample_rate;
+        // BUG-93 FIX: Clamp frequency to Nyquist to prevent unstable coefficients.
+        let safe_freq = freq.clamp(10.0, sample_rate * 0.499);
+        // Guard Q to prevent division by zero in alpha calculation.
+        let safe_q = q.max(0.01);
+        let omega = 2.0 * PI * safe_freq / sample_rate;
         let cos_w = omega.cos();
         let sin_w = omega.sin();
-        let alpha = sin_w / (2.0 * q);
+        let alpha = sin_w / (2.0 * safe_q);
 
         // For shelf and peaking filters
         let a_lin = 10.0_f64.powf(gain_db / 40.0); // sqrt of linear gain
@@ -266,7 +270,8 @@ impl BiquadFilter {
         self.x2 = self.x1;
         self.x1 = x;
         self.y2 = self.y1;
-        self.y1 = y;
+        // BUG-85 FIX: Flush denormals in IIR feedback to prevent CPU spikes on x86.
+        self.y1 = if y.is_normal() || y == 0.0 { y } else { 0.0 };
 
         y
     }

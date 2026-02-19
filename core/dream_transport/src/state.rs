@@ -170,10 +170,14 @@ impl TransportController {
                 }
             }
             TransportCommand::SetTempo { bpm } => {
-                if bpm > 0.0 && bpm <= 999.0 {
+                // BUG-54 FIX: Enforce minimum 20 BPM (was 0) to prevent division-by-zero
+                // in beat-to-sample conversions.
+                if bpm >= 20.0 && bpm <= 999.0 {
                     self.bpm = bpm;
-                    log::info!("Transport: Tempo → {bpm} BPM");
+                    log::debug!("Transport: Tempo → {bpm} BPM");
                     return true;
+                } else {
+                    log::warn!("[Transport] Rejected tempo {bpm} BPM (valid: 20–999)");
                 }
             }
             TransportCommand::SetMetronomeEnabled { enabled } => {

@@ -35,7 +35,10 @@ const DEFAULT_FADE_LENGTH: usize = 88;
 /// The curve starts at 0.0 and ends at 1.0, following an S-shaped
 /// trajectory that eliminates discontinuity clicks.
 pub fn generate_hann_fade_in(length: usize) -> Vec<f32> {
-    assert!(length >= 2, "Fade length must be >= 2 samples");
+    // BUG-91 FIX: Graceful fallback instead of panic for short fades.
+    if length < 2 {
+        return vec![1.0; length.max(1)];
+    }
     let mut curve = Vec::with_capacity(length);
     let len_f = (length - 1) as f32;
 
@@ -52,7 +55,10 @@ pub fn generate_hann_fade_in(length: usize) -> Vec<f32> {
 ///
 /// This is the mirror of the fade-in curve.
 pub fn generate_hann_fade_out(length: usize) -> Vec<f32> {
-    assert!(length >= 2, "Fade length must be >= 2 samples");
+    // BUG-91 FIX: Graceful fallback for short fades.
+    if length < 2 {
+        return vec![1.0; length.max(1)];
+    }
     let mut curve = Vec::with_capacity(length);
     let len_f = (length - 1) as f32;
 

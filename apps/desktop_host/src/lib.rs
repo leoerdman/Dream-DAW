@@ -2147,16 +2147,21 @@ impl ClipPoolState {
             .collect();
         self.snapshot.swap(clips_per_track);
 
+        // O(1) index lookup for routing resolution (BUG-26 fix in lib.rs)
+        let id_to_index: std::collections::HashMap<uuid::Uuid, usize> = project
+            .tracks
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.id, i))
+            .collect();
+
         let routing: Vec<Option<usize>> = project
             .tracks
             .iter()
             .map(|track| {
-                track.output_destination_id.and_then(|dest_id| {
-                    project
-                        .tracks
-                        .iter()
-                        .position(|candidate| candidate.id == dest_id)
-                })
+                track
+                    .output_destination_id
+                    .and_then(|dest_id| id_to_index.get(&dest_id).copied())
             })
             .collect();
         self.routing_snapshot.swap(routing);
@@ -2199,6 +2204,24 @@ impl ClipPoolState {
         // Sync decoded audio data to the lock-free ArcSwap pool
         // so the audio thread can read it without locks.
         self.sync_pool_to_arc();
+    }
+
+    /// Lightweight clip-only snapshot rebuild for position/duration changes.
+    ///
+    /// Used by move_clip_cmd and resize_clip_cmd where only clip positions
+    /// change — routing, sidechains, DAG, and clip pool are unchanged.
+    /// This is ~10x faster than full rebuild_snapshot() because it skips:
+    ///   - Routing resolution (O(n) with HashMap, but still unnecessary)
+    ///   - Sidechain resolution
+    ///   - Audio DAG rebuild
+    ///   - Pool sync (Mutex lock + log::info! allocation)
+    fn rebuild_clips_only(&self, project: &Project) {
+        let clips_per_track: Vec<Vec<AudioClip>> = project
+            .tracks
+            .iter()
+            .map(|track| track.clips.clone())
+            .collect();
+        self.snapshot.swap(clips_per_track);
     }
 
     fn rebuild_external_fx_snapshot(

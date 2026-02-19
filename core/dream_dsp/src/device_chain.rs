@@ -16,8 +16,8 @@
 
 use crate::dsp_processor::{BuiltinEffectType, DspProcessor};
 
-/// Maximum number of device slots per track.
-pub const MAX_DEVICE_SLOTS: usize = 8;
+/// BUG-95 FIX: Increased from 8 to 16 for professional effect chains.
+pub const MAX_DEVICE_SLOTS: usize = 16;
 
 /// A single device slot in the effect chain.
 pub struct DeviceChainSlot {

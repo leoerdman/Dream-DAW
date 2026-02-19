@@ -278,8 +278,8 @@ impl RenderContext {
 
         // ── 2. Schedule clips per track ─────────────────────────────
         // Diagnostic: track total active clips this buffer
-        let mut _total_active = 0usize;
-        let mut _total_pool_hits = 0usize;
+        let mut total_active = 0usize;
+        let mut total_pool_hits = 0usize;
         let mut pro_warp_budget = if frame_count >= 1024 { 6usize } else { 12usize };
 
         for (track_idx, clips) in clips_per_track.iter().enumerate() {
@@ -300,7 +300,7 @@ impl RenderContext {
                 continue;
             }
 
-            _total_active += self.scratch_active_clips.len();
+            total_active += self.scratch_active_clips.len();
             let slot = &mut self.track_slots[track_idx];
             slot.active = true;
 
@@ -337,7 +337,7 @@ impl RenderContext {
                 }
 
                 if let Some(audio) = clip_pool.get(&clip.file_path) {
-                    _total_pool_hits += 1;
+                    total_pool_hits += 1;
                     let source_to_timeline_rate = (audio.sample_rate.max(1) as f64
                         / self.sample_rate.max(1.0))
                     .clamp(0.125, 8.0);
@@ -374,7 +374,7 @@ impl RenderContext {
                         );
                     }
                 } else if let Some(window) = self.streaming_windows.get(&clip.file_path) {
-                    _total_pool_hits += 1;
+                    total_pool_hits += 1;
                     let source_to_timeline_rate = (window.sample_rate().max(1) as f64
                         / self.sample_rate.max(1.0))
                     .clamp(0.125, 8.0);
@@ -469,7 +469,13 @@ impl RenderContext {
             }
         }
 
-        let _ = (_total_active, _total_pool_hits, playhead_pos);
+        // BUG-65 FIX: Wire diagnostics to debug log instead of suppressing.
+        if total_active > 0 {
+            log::trace!(
+                "[RenderCtx] pos={} active_clips={} pool_hits={}",
+                playhead_pos, total_active, total_pool_hits
+            );
+        }
 
         // ── 4. Process channel strips (gain + pan) per track ────────
         let sr = self.sample_rate as f32;
@@ -597,11 +603,19 @@ impl RenderContext {
 
         // ── Feed spectrum analyzer (lock-free push) ───────────────
         if let Some(producer) = &mut self.spectrum_producer {
+            // BUG-81 FIX: Count dropped samples for diagnostics.
+            let mut drops = 0u32;
             for i in 0..frame_count {
                 let mono = (master_l[i] + master_r[i]) * 0.5;
                 // Best-effort push: if ring buffer is full, drop oldest
                 // (no stalling the audio thread under any circumstances)
-                let _ = producer.push(mono);
+                if producer.push(mono).is_err() {
+                    drops += 1;
+                }
+            }
+            if drops > 0 {
+                POOL_MISS_COUNT.fetch_add(drops, std::sync::atomic::Ordering::Relaxed);
+                log::trace!("[Spectrum] Dropped {} samples (ring full)", drops);
             }
         }
     }

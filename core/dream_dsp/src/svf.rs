@@ -36,6 +36,8 @@ pub enum SvfMode {
     Lowpass,
     Highpass,
     Bandpass,
+    /// BUG-14 FIX: Notch filter output = LP + HP (rejects band center).
+    Notch,
 }
 
 // ── SVF State ──────────────────────────────────────────────────────────────
@@ -88,7 +90,9 @@ impl SvfCoeffs {
     /// - `resonance`: Resonance amount (0.0 = no resonance, 1.0 = self-oscillation)
     /// - `sample_rate`: Sample rate in Hz
     pub fn new(cutoff: f64, resonance: f64, sample_rate: f64) -> Self {
-        let g = (PI * cutoff / sample_rate).tan() as f32;
+        // BUG-71 FIX: Clamp cutoff to Nyquist to prevent coefficient explosion.
+        let safe_cutoff = cutoff.clamp(20.0, sample_rate * 0.499);
+        let g = (PI * safe_cutoff / sample_rate).tan() as f32;
         let k = (2.0 * (1.0 - resonance.clamp(0.0, 0.99))) as f32;
         let a1 = 1.0 / (1.0 + g * (g + k));
         let a2 = g * a1;
@@ -152,6 +156,7 @@ impl SvfFilter {
             SvfMode::Lowpass => all.0,
             SvfMode::Highpass => all.1,
             SvfMode::Bandpass => all.2,
+            SvfMode::Notch => all.0 + all.1, // LP + HP = Notch
         }
     }
 
@@ -249,6 +254,7 @@ impl StereoSvf {
             SvfMode::Lowpass => v2,
             SvfMode::Highpass => input - c.k * v1 - v2,
             SvfMode::Bandpass => v1,
+            SvfMode::Notch => v2 + (input - c.k * v1 - v2), // LP + HP
         }
     }
 

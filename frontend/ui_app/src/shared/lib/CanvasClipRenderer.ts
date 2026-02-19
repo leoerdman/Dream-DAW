@@ -465,11 +465,38 @@ export class CanvasClipRenderer {
             return true;
         });
 
+        // ── Compute per-track pitch range across ALL MIDI clips ──────
+        // This ensures octave differences between clips on the same track
+        // are visually represented (higher octave = higher position).
+        const trackPitchRange = new Map<number, { min: number; max: number }>();
+        for (const c of filtered) {
+            if (c.type !== 'midi' || !c.midiNotes || c.midiNotes.length === 0) continue;
+            let existing = trackPitchRange.get(c.trackIndex);
+            if (!existing) {
+                existing = { min: 127, max: 0 };
+                trackPitchRange.set(c.trackIndex, existing);
+            }
+            for (const n of c.midiNotes) {
+                if (n.pitch < existing.min) existing.min = n.pitch;
+                if (n.pitch > existing.max) existing.max = n.pitch;
+            }
+        }
+        // Enforce minimum range of 12 semitones (1 octave) for readable rendering.
+        // Center the padding around the actual note range.
+        for (const [, pr] of trackPitchRange) {
+            const span = pr.max - pr.min + 1;
+            if (span < 12) {
+                const pad = Math.ceil((12 - span) / 2);
+                pr.min = Math.max(0, pr.min - pad);
+                pr.max = Math.min(127, pr.max + pad);
+            }
+        }
+
         // Sort: non-selected first, then selected (so selection glow is on top)
         filtered.sort((a, b) => (a.selected ? 1 : 0) - (b.selected ? 1 : 0));
 
         for (const clip of filtered) {
-            this._drawSingleClip(ctx, vp, clip, sampleRate);
+            this._drawSingleClip(ctx, vp, clip, sampleRate, trackPitchRange.get(clip.trackIndex));
         }
     }
 
@@ -478,6 +505,7 @@ export class CanvasClipRenderer {
         vp: ViewportMatrix,
         clip: TimelineClipData,
         sampleRate: number,
+        trackPitch?: { min: number; max: number },
     ): void {
         const ppb = vp.pixelsPerBeat;
         const trackH = vp.trackHeightAt(clip.trackIndex);
@@ -541,7 +569,7 @@ export class CanvasClipRenderer {
             if (clip.type === 'audio' && clip.filePath && clip.durationSamples) {
                 this._drawWaveform(ctx, vp, clip, bodyY, bodyH, sampleRate, clip.muted === true);
             } else if (clip.type === 'midi' && clip.midiNotes && clip.midiNotes.length > 0) {
-                this._drawMidiNotes(ctx, vp, clip, bodyY, bodyH, clip.muted === true);
+                this._drawMidiNotes(ctx, vp, clip, bodyY, bodyH, clip.muted === true, trackPitch);
             }
         }
 
@@ -786,19 +814,21 @@ export class CanvasClipRenderer {
         bodyY: number,
         bodyH: number,
         muted: boolean,
+        trackPitch?: { min: number; max: number },
     ): void {
         if (!clip.midiNotes || clip.midiNotes.length === 0) return;
 
         const ppb = vp.pixelsPerBeat;
         const clipX = vp.beatsToScreenX(clip.startBeat);
 
-        // Find pitch range
-        let minPitch = 127, maxPitch = 0;
-        for (const note of clip.midiNotes) {
-            if (note.pitch < minPitch) minPitch = note.pitch;
-            if (note.pitch > maxPitch) maxPitch = note.pitch;
-        }
+        // Use track-wide pitch range for octave-aware positioning.
+        // Notes in higher octaves appear higher, lower octaves appear lower,
+        // consistent across all clips on the same track.
+        const minPitch = trackPitch?.min ?? 60;
+        const maxPitch = trackPitch?.max ?? 72;
         const pitchSlots = Math.max(1, maxPitch - minPitch + 1);
+
+        // Adaptive note height: thicker bars when few pitch slots, thinner when many
         const noteH = Math.max(1, Math.min(4, Math.floor(bodyH / Math.max(1, pitchSlots))));
         const rowGap = pitchSlots > 1
             ? Math.max(0, Math.min(1, (bodyH - pitchSlots * noteH) / (pitchSlots - 1)))
@@ -812,9 +842,11 @@ export class CanvasClipRenderer {
             : (contrastColor === 'black' ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.5)');
 
         for (const note of clip.midiNotes) {
+            // Clamp pitch to track range to avoid rendering outside clip body
+            const clampedPitch = Math.max(minPitch, Math.min(maxPitch, note.pitch));
             const noteX = clipX + note.startBeat * ppb;
             const noteW = Math.max(1, note.durationBeats * ppb);
-            const pitchIndexFromTop = maxPitch - note.pitch;
+            const pitchIndexFromTop = maxPitch - clampedPitch;
             const noteY = bodyY + topOffset + pitchIndexFromTop * (noteH + rowGap);
 
             ctx.globalAlpha = 0.3 + (note.velocity / 127) * 0.7;

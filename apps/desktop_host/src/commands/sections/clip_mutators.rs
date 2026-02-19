@@ -623,7 +623,8 @@ async fn move_clip_cmd(
     }
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    // Use lightweight clip-only rebuild — move doesn't change routing/DAG/pool.
+    clip_pool_state.rebuild_clips_only(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -702,7 +703,8 @@ async fn resize_clip_cmd(
     }
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    // Use lightweight clip-only rebuild — resize doesn't change routing/DAG/pool.
+    clip_pool_state.rebuild_clips_only(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;

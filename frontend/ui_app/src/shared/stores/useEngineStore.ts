@@ -78,6 +78,16 @@ export interface ProjectTrack {
         detune_cents?: number;
         sub_level?: number;
     } | null;
+    /** Automation lanes carrying persisted param values (volume, pan, internal plugin params). */
+    automation_lanes: Array<{
+        param_id: string;
+        points: Array<{
+            beat: number;
+            value: number;
+            curve_type?: string;
+            tension?: number;
+        }>;
+    }>;
 }
 
 // ── Track color mapping (matches Rust TrackColor enum hex values) ─────────
@@ -757,6 +767,9 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                     effects: track.effects ?? [],
                     instrument: track.instrument ?? null,
                     sampler: ((track as Record<string, unknown>).sampler as ProjectTrack['sampler']) ?? null,
+                    automation_lanes: (Array.isArray((track as Record<string, unknown>).automation_lanes)
+                        ? (track as Record<string, unknown>).automation_lanes as ProjectTrack['automation_lanes']
+                        : []),
                 });
 
                 for (const clip of track.clips) {

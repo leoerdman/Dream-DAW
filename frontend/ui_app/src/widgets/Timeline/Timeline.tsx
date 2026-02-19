@@ -345,6 +345,7 @@ export const Timeline = (props: TimelineProps) => {
             const pending = pendingLoopRef.current;
             if (!pending) return;
             commitLoopRef.current(pending);
+            pendingLoopRef.current = null;
         };
         window.addEventListener('mouseup', flush, true);
         window.addEventListener('touchend', flush, true);

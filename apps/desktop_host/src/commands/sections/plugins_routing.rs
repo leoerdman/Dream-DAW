@@ -2007,7 +2007,10 @@ fn add_plugin_to_track_cmd(
             return Some(("internal://midi-fx/note-length", "Note Length", "effect"));
         }
         if merged.contains("spectrum") || compact.contains("spectrumanalyzer") {
-            return Some(("internal://effect/spectrum", "Spectrum", "effect"));
+            return Some(("internal://effect/analyzer", "Analyzer", "effect"));
+        }
+        if merged.contains("analyzer") || compact.contains("analyzer") {
+            return Some(("internal://effect/analyzer", "Analyzer", "effect"));
         }
         if merged.contains("tuner") {
             return Some(("internal://effect/tuner", "Tuner", "effect"));

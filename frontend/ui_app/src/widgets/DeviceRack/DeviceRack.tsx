@@ -51,6 +51,7 @@ interface DeviceSlot {
     | 'distortion'
     | 'bitcrusher'
     | 'noiseMachine'
+    | 'analyzer'
     | 'spectrum'
     | 'midiPitch'
     | 'midiScale'
@@ -131,7 +132,8 @@ const INTERNAL_EFFECT_TYPE_BY_PLUGIN_ID: Partial<Record<string, DeviceSlot['effe
     'internal://effect/bitcrusher': 'bitcrusher',
 
     'internal://effect/noise-machine': 'noiseMachine',
-    'internal://effect/spectrum': 'spectrum',
+    'internal://effect/spectrum': 'analyzer',
+    'internal://effect/analyzer': 'analyzer',
 
     'internal://midi-fx/pitch': 'midiPitch',
     'internal://midi-fx/scale': 'midiScale',
@@ -179,6 +181,7 @@ const RUNTIME_PARAM_INDEX_BY_EFFECT: Partial<Record<
     distortion: { drive: 0, tone: 1, mix: 2, mode: 3 },
     bitcrusher: { bits: 0, down: 1, mix: 2 },
     noiseMachine: { level: 0, type: 1, stereo: 2, lpfreq: 3, hpfreq: 4, pan: 5 },
+    analyzer: { reset: 0 },
     midiPitch: { semitones: 0 },
     midiScale: { root: 0, mask: 1 },
     midiVelocity: { gain: 0, offset: 1 },
@@ -377,6 +380,9 @@ const DEVICE_PARAM_PRESETS: Record<
         { name: 'Pan', value: 0, min: -100, max: 100, suffix: '%', step: 1 },
     ],
     spectrum: [],
+    analyzer: [
+        { name: 'Reset', value: 0, min: 0, max: 1, suffix: '', step: 1 },
+    ],
     midiPitch: [{ name: 'Semitones', value: 0, min: -48, max: 48, suffix: 'st', step: 1 }],
     midiScale: [
         { name: 'Root', value: 0, min: 0, max: 11, suffix: '', step: 1 },
@@ -572,11 +578,11 @@ export const DeviceRack = ({
     );
     const staticLaneValueByParamId = useMemo(() => {
         const map = new Map<string, number>();
-        const lanes = ((selectedTrack as unknown as { automation_lanes?: unknown[] } | null)?.automation_lanes) ?? [];
+        const lanes = selectedTrack?.automation_lanes ?? [];
         for (const lane of lanes) {
-            const paramId = String((lane as { param_id?: unknown }).param_id ?? '').trim();
+            const paramId = (lane.param_id ?? '').trim();
             if (!paramId) continue;
-            const points = ((lane as { points?: Array<{ value?: number }> }).points ?? []);
+            const points = lane.points ?? [];
             if (points.length === 0) continue;
             const last = points[points.length - 1];
             const value = Number(last?.value ?? 0);
@@ -2578,6 +2584,8 @@ const PluginGuiSurface = ({
     useEffect(() => { eqFilterTypeCache.set(device.id, eqBandFilterTypes); }, [device.id, eqBandFilterTypes]);
     const guiMode = (device.guiMode || '').toLowerCase();
     const normalizedInternalId = normalizeInternalPluginId(device.pluginId || guiMode || device.name.toLowerCase());
+    // SSOT: canonical source of sample rate — consumed by EQ biquad curve renderer
+    const projectSampleRate = useEngineStore(s => s.projectSampleRate) || 44100;
 
     useEffect(() => {
         const samplePath = device.samplePath?.trim();
@@ -3161,7 +3169,8 @@ const PluginGuiSurface = ({
         };
 
         /* ── Exact biquad coefficient computation (mirrors Rust BiquadCoeffs::new) ── */
-        const PROJECT_SR = 44100; // standard project sample rate
+        // Uses projectSampleRate from useEngineStore (SSOT — hoisted to top of PluginGuiSurface)
+        const PROJECT_SR = projectSampleRate;
         type BiquadCoeffs = { b0: number; b1: number; b2: number; a1: number; a2: number };
 
         function computeBiquadCoeffs(
@@ -4245,9 +4254,9 @@ const PluginGuiSurface = ({
         );
     }
 
-    if (device.effectType === 'spectrum' || device.effectType === 'midiPitch' || device.effectType === 'midiScale' || device.effectType === 'midiVelocity' || device.effectType === 'midiRandom') {
-        const title = device.effectType === 'spectrum'
-            ? 'Spectrum'
+    if (device.effectType === 'analyzer' || device.effectType === 'spectrum' || device.effectType === 'midiPitch' || device.effectType === 'midiScale' || device.effectType === 'midiVelocity' || device.effectType === 'midiRandom') {
+        const title = device.effectType === 'analyzer' || device.effectType === 'spectrum'
+            ? 'Analyzer'
             : device.effectType === 'midiPitch'
                 ? 'MIDI Pitch'
                 : device.effectType === 'midiScale'
@@ -4290,6 +4299,50 @@ const PluginGuiSurface = ({
                                 />
                             ))}
                         </svg>
+                    )}
+                    {device.effectType === 'analyzer' && (
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr',
+                            gap: 6,
+                            padding: '4px 8px',
+                            height: 80,
+                            background: 'rgba(8, 10, 14, 0.7)',
+                            borderRadius: 'var(--radius-md)',
+                        }}>
+                            {/* Left channel meter */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                <div style={{ fontSize: 9, color: '#7a9ec4', fontFamily: 'var(--font-mono)', letterSpacing: '0.05em' }}>PEAK L</div>
+                                <div style={{ flex: 1, background: '#0d1117', borderRadius: 2, overflow: 'hidden', position: 'relative' }}>
+                                    <div style={{
+                                        position: 'absolute', bottom: 0, left: 0, right: 0,
+                                        height: `${Math.max(1, Math.min(100, (1 - Math.max(0, -device.vuLevelL) / 60) * 100))}%`,
+                                        background: device.vuLevelL > -3 ? 'linear-gradient(0deg, #ff6b35 0%, #ff3b3b 100%)' : device.vuLevelL > -12 ? 'linear-gradient(0deg, #4ca0ff 0%, #ffb347 100%)' : 'linear-gradient(0deg, #2d7adc 0%, #4ca0ff 100%)',
+                                        borderRadius: 2,
+                                        transition: 'height 60ms linear',
+                                    }} />
+                                </div>
+                                <div style={{ fontSize: 10, color: '#95bdff', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>
+                                    {device.vuLevelL > -100 ? device.vuLevelL.toFixed(1) : '-∞'}
+                                </div>
+                            </div>
+                            {/* Right channel meter */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                <div style={{ fontSize: 9, color: '#7a9ec4', fontFamily: 'var(--font-mono)', letterSpacing: '0.05em' }}>PEAK R</div>
+                                <div style={{ flex: 1, background: '#0d1117', borderRadius: 2, overflow: 'hidden', position: 'relative' }}>
+                                    <div style={{
+                                        position: 'absolute', bottom: 0, left: 0, right: 0,
+                                        height: `${Math.max(1, Math.min(100, (1 - Math.max(0, -device.vuLevelR) / 60) * 100))}%`,
+                                        background: device.vuLevelR > -3 ? 'linear-gradient(0deg, #ff6b35 0%, #ff3b3b 100%)' : device.vuLevelR > -12 ? 'linear-gradient(0deg, #4ca0ff 0%, #ffb347 100%)' : 'linear-gradient(0deg, #2d7adc 0%, #4ca0ff 100%)',
+                                        borderRadius: 2,
+                                        transition: 'height 60ms linear',
+                                    }} />
+                                </div>
+                                <div style={{ fontSize: 10, color: '#95bdff', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>
+                                    {device.vuLevelR > -100 ? device.vuLevelR.toFixed(1) : '-∞'}
+                                </div>
+                            </div>
+                        </div>
                     )}
                     {device.effectType === 'midiPitch' && (
                         <div style={{ display: 'grid', placeItems: 'center', height: 46 }}>
@@ -4361,7 +4414,7 @@ const PluginGuiSurface = ({
                         </div>
                     )}
                     <div style={pluginPanelMetaStyle}>
-                        <span>{device.effectType === 'spectrum' ? 'Analyzer (native)' : 'MIDI FX (import-compatible)'}</span>
+                        <span>{device.effectType === 'analyzer' || device.effectType === 'spectrum' ? 'Analyzer (native)' : 'MIDI FX (import-compatible)'}</span>
                     </div>
                 </div>
                 {device.params.length > 0 && (

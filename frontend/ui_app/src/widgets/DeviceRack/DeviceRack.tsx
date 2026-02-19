@@ -3160,50 +3160,100 @@ const PluginGuiSurface = ({
             return VB_H / 2 - (clamped / 24) * (VB_H / 2 - 10);
         };
 
-        /* ── Build smooth EQ curve from enabled bands ── */
+        /* ── Exact biquad coefficient computation (mirrors Rust BiquadCoeffs::new) ── */
+        const PROJECT_SR = 44100; // standard project sample rate
+        type BiquadCoeffs = { b0: number; b1: number; b2: number; a1: number; a2: number };
+
+        function computeBiquadCoeffs(
+            filterType: string, freq: number, q: number, gainDb: number, sr: number,
+        ): BiquadCoeffs {
+            const omega = 2 * Math.PI * freq / sr;
+            const cosW = Math.cos(omega);
+            const sinW = Math.sin(omega);
+            const alpha = sinW / (2 * Math.max(0.01, q));
+            const A = Math.pow(10, gainDb / 40); // sqrt of linear gain
+            const twoSqrtAAlpha = 2 * Math.sqrt(A) * alpha;
+            let b0: number, b1: number, b2: number, a0: number, a1n: number, a2n: number;
+            switch (filterType) {
+                case 'lowpass': {
+                    b1 = 1 - cosW; b0 = b1 / 2; b2 = b0;
+                    a0 = 1 + alpha; a1n = -2 * cosW; a2n = 1 - alpha;
+                    break;
+                }
+                case 'highpass': {
+                    b1 = -(1 + cosW); b0 = (1 + cosW) / 2; b2 = b0;
+                    a0 = 1 + alpha; a1n = -2 * cosW; a2n = 1 - alpha;
+                    break;
+                }
+                case 'notch': {
+                    b0 = 1; b1 = -2 * cosW; b2 = 1;
+                    a0 = 1 + alpha; a1n = -2 * cosW; a2n = 1 - alpha;
+                    break;
+                }
+                case 'lowshelf': {
+                    b0 = A * ((A + 1) - (A - 1) * cosW + twoSqrtAAlpha);
+                    b1 = 2 * A * ((A - 1) - (A + 1) * cosW);
+                    b2 = A * ((A + 1) - (A - 1) * cosW - twoSqrtAAlpha);
+                    a0 = (A + 1) + (A - 1) * cosW + twoSqrtAAlpha;
+                    a1n = -2 * ((A - 1) + (A + 1) * cosW);
+                    a2n = (A + 1) + (A - 1) * cosW - twoSqrtAAlpha;
+                    break;
+                }
+                case 'highshelf': {
+                    b0 = A * ((A + 1) + (A - 1) * cosW + twoSqrtAAlpha);
+                    b1 = -2 * A * ((A - 1) + (A + 1) * cosW);
+                    b2 = A * ((A + 1) + (A - 1) * cosW - twoSqrtAAlpha);
+                    a0 = (A + 1) - (A - 1) * cosW + twoSqrtAAlpha;
+                    a1n = 2 * ((A - 1) - (A + 1) * cosW);
+                    a2n = (A + 1) - (A - 1) * cosW - twoSqrtAAlpha;
+                    break;
+                }
+                default: { // peaking (bell)
+                    b0 = 1 + alpha * A; b1 = -2 * cosW; b2 = 1 - alpha * A;
+                    a0 = 1 + alpha / A; a1n = -2 * cosW; a2n = 1 - alpha / A;
+                    break;
+                }
+            }
+            const inv = 1 / a0;
+            return { b0: b0 * inv, b1: b1 * inv, b2: b2 * inv, a1: a1n * inv, a2: a2n * inv };
+        }
+
+        /** Exact biquad magnitude response at a given frequency in dB */
+        function biquadMagnitudeDb(c: BiquadCoeffs, freq: number, sr: number): number {
+            const w = 2 * Math.PI * freq / sr;
+            const cosW = Math.cos(w);
+            const cos2W = Math.cos(2 * w);
+            const sinW = Math.sin(w);
+            const sin2W = Math.sin(2 * w);
+            const numRe = c.b0 + c.b1 * cosW + c.b2 * cos2W;
+            const numIm = -(c.b1 * sinW + c.b2 * sin2W);
+            const denRe = 1 + c.a1 * cosW + c.a2 * cos2W;
+            const denIm = -(c.a1 * sinW + c.a2 * sin2W);
+            const num2 = numRe * numRe + numIm * numIm;
+            const den2 = denRe * denRe + denIm * denIm;
+            if (den2 < 1e-30) return 0;
+            return 10 * Math.log10(num2 / den2);
+        }
+
+        /* ── Build smooth EQ curve using exact biquad magnitude response ── */
         const curvePoints: string[] = [];
         const steps = 200;
+        // Pre-compute coefficients for all enabled bands
+        const bandCoeffs: (BiquadCoeffs | null)[] = bands.map((band) =>
+            band.enabled
+                ? computeBiquadCoeffs(band.filterType, band.freq, band.q, band.gain, PROJECT_SR)
+                : null,
+        );
         for (let i = 0; i <= steps; i++) {
             const x = MARGIN_L + (i / steps) * plotW;
             const freq = xToFreq(x);
-            let totalGain = 0;
-            for (const band of bands) {
-                if (!band.enabled) continue;
-                const octaves = Math.log2(freq / band.freq);
-                const bw = 1 / Math.max(0.1, band.q);
-                // Shape response based on filter type — proper audio filter curves
-                if (band.filterType === 'highpass') {
-                    // 2nd-order Butterworth-style HP: continuous rolloff below cutoff
-                    if (freq < band.freq) {
-                        const ratio = freq / band.freq;
-                        const order = Math.max(1, band.q * 2); // Q controls steepness
-                        totalGain -= 24 * (1 - Math.pow(ratio, order * 2) / (1 + Math.pow(ratio, order * 2)));
-                    }
-                } else if (band.filterType === 'lowpass') {
-                    // 2nd-order Butterworth-style LP: continuous rolloff above cutoff
-                    if (freq > band.freq) {
-                        const ratio = band.freq / freq;
-                        const order = Math.max(1, band.q * 2);
-                        totalGain -= 24 * (1 - Math.pow(ratio, order * 2) / (1 + Math.pow(ratio, order * 2)));
-                    }
-                } else if (band.filterType === 'lowshelf') {
-                    // Low shelf: smooth sigmoid transition, gain below cutoff
-                    const transition = 1 / (1 + Math.pow(freq / band.freq, 2 * Math.max(0.5, band.q)));
-                    totalGain += band.gain * transition;
-                } else if (band.filterType === 'highshelf') {
-                    // High shelf: smooth sigmoid transition, gain above cutoff
-                    const transition = 1 / (1 + Math.pow(band.freq / freq, 2 * Math.max(0.5, band.q)));
-                    totalGain += band.gain * transition;
-                } else if (band.filterType === 'notch') {
-                    // Notch: narrow rejection band
-                    const narrowBw = bw * 0.12;
-                    totalGain -= Math.abs(band.gain || 12) * Math.exp(-0.5 * Math.pow(octaves / narrowBw, 2));
-                } else {
-                    // Peaking (bell): symmetric boost/cut
-                    totalGain += band.gain * Math.exp(-0.5 * Math.pow(octaves / (bw * 0.5), 2));
-                }
+            let totalGainDb = 0;
+            for (let bi = 0; bi < bands.length; bi++) {
+                const c = bandCoeffs[bi];
+                if (!c) continue;
+                totalGainDb += biquadMagnitudeDb(c, freq, PROJECT_SR);
             }
-            const y = gainToY(totalGain);
+            const y = gainToY(totalGainDb);
             curvePoints.push(`${x.toFixed(2)},${y.toFixed(2)}`);
         }
         const curvePath = `M ${curvePoints.join(' L ')}`;

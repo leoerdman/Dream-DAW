@@ -74,7 +74,7 @@ export interface GhostClipData {
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
-const HEADER_HEIGHT = 22;
+const HEADER_HEIGHT = 20;
 const CLIP_RADIUS = 4;
 const CLIP_BODY_ALPHA = 0.65;
 const CLIP_HEADER_ALPHA = 1.0;

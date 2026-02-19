@@ -164,23 +164,26 @@ fn normalize_internal_plugins_for_import(project: &mut Project) {
     for track in &mut project.tracks {
         if let Some(inst) = &mut track.instrument {
             let pid = inst.plugin_id();
-            let pname = inst.name().to_string();
-            if let Some((canonical_id, canonical_name, slot)) =
-                canonical_internal_plugin_for_import(&pid, &pname)
-                && slot == "instrument"
-            {
-                inst.set_plugin_id(canonical_id);
-                if pname.trim().is_empty() || pname.to_lowercase() != canonical_name.to_lowercase() {
-                    inst.set_name(canonical_name);
-                }
-                if track.sampler.is_none() {
-                    track.sampler = Some(SamplerConfig::default());
-                }
-                if canonical_id == "internal://instrument/wave-synth"
-                    && let Some(cfg) = &mut track.sampler
-                    && cfg.sample_path.trim().is_empty()
+            // CRITICAL: Never normalize external VST3 instrument plugins.
+            if pid.is_empty() || pid.starts_with("internal://") {
+                let pname = inst.name().to_string();
+                if let Some((canonical_id, canonical_name, slot)) =
+                    canonical_internal_plugin_for_import(&pid, &pname)
+                    && slot == "instrument"
                 {
-                    cfg.sample_path = "internal://waveform/sine".to_string();
+                    inst.set_plugin_id(canonical_id);
+                    if pname.trim().is_empty() || pname.to_lowercase() != canonical_name.to_lowercase() {
+                        inst.set_name(canonical_name);
+                    }
+                    if track.sampler.is_none() {
+                        track.sampler = Some(SamplerConfig::default());
+                    }
+                    if canonical_id == "internal://instrument/wave-synth"
+                        && let Some(cfg) = &mut track.sampler
+                        && cfg.sample_path.trim().is_empty()
+                    {
+                        cfg.sample_path = "internal://waveform/sine".to_string();
+                    }
                 }
             }
         }
@@ -198,6 +201,17 @@ fn normalize_effect_node(node: &mut DeviceNode, depth: usize) {
     }
     match node {
         DeviceNode::Single(slot) => {
+            // CRITICAL: Never normalize external VST3 plugins.
+            // The keyword matcher (e.g. "shaper" → Distortion) was destroying
+            // external plugins like ShaperBox by matching their names.
+            // Only apply normalization to plugins that are already internal
+            // or have empty/placeholder IDs (from Ableton import).
+            if !slot.plugin_id.is_empty()
+                && !slot.plugin_id.starts_with("internal://")
+            {
+                // External plugin — preserve as-is, never replace.
+                return;
+            }
             let pid = slot.plugin_id.clone();
             let pname = slot.name.clone();
             if let Some((canonical_id, canonical_name, _slot_kind)) =

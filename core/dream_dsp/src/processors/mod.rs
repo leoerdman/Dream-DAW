@@ -19,3 +19,4 @@ pub mod gate;
 pub mod limiter;
 pub mod noise_machine;
 pub mod phaser;
+pub mod analyzer;

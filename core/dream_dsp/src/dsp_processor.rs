@@ -86,6 +86,8 @@ pub enum BuiltinEffectType {
     Bitcrusher = 13,
     NoiseMachine = 14,
     AutoPan = 15,
+    // Wave 2 — Metering & Analysis
+    Analyzer = 16,
 }
 
 impl BuiltinEffectType {
@@ -108,6 +110,7 @@ impl BuiltinEffectType {
             13 => Some(Self::Bitcrusher),
             14 => Some(Self::NoiseMachine),
             15 => Some(Self::AutoPan),
+            16 => Some(Self::Analyzer),
             _ => None,
         }
     }
@@ -146,6 +149,9 @@ impl BuiltinEffectType {
             Self::AutoPan => Box::new(super::processors::auto_pan::AutoPanProcessor::new(
                 sample_rate,
             )),
+            Self::Analyzer => Box::new(super::processors::analyzer::AnalyzerProcessor::new(
+                sample_rate,
+            )),
         }
     }
 }
@@ -160,18 +166,18 @@ mod tests {
 
     #[test]
     fn builtin_effect_type_roundtrip() {
-        for i in 0..=15u8 {
+        for i in 0..=16u8 {
             let ty = BuiltinEffectType::from_u8(i).unwrap();
             assert_eq!(ty as u8, i);
         }
-        assert!(BuiltinEffectType::from_u8(16).is_none());
+        assert!(BuiltinEffectType::from_u8(17).is_none());
         assert!(BuiltinEffectType::from_u8(255).is_none());
     }
 
     #[test]
     fn create_all_processors() {
         let sr = 44100.0;
-        for i in 0..=15u8 {
+        for i in 0..=16u8 {
             let ty = BuiltinEffectType::from_u8(i).unwrap();
             let mut proc = ty.create_processor(sr);
             // Process silence — should produce silence

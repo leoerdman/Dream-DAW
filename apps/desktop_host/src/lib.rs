@@ -1361,6 +1361,7 @@ fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
     const FX_BITCRUSHER: u8 = 13;
     const FX_NOISE_MACHINE: u8 = 14;
     const FX_AUTO_PAN: u8 = 15;
+    const FX_ANALYZER: u8 = 16;
 
     let key = plugin_id.to_lowercase();
 
@@ -1383,6 +1384,7 @@ fn builtin_effect_type_from_plugin_id(plugin_id: &str) -> Option<u8> {
             "internal://effect/bitcrusher" => Some(FX_BITCRUSHER),
             "internal://effect/noise-machine" => Some(FX_NOISE_MACHINE),
             "internal://effect/auto-pan" => Some(FX_AUTO_PAN),
+            "internal://effect/analyzer" => Some(FX_ANALYZER),
             _ => None,
         };
     }

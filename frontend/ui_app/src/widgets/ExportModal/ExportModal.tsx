@@ -107,7 +107,7 @@ export const ExportModal = ({
     const [bitDepth, setBitDepth] = useState<BitDepth>(24);
     const [exportRange, setExportRange] = useState<ExportRange>('full');
     const [normalize, setNormalize] = useState(false);
-    const [tailMs, setTailMs] = useState(500);
+    const [tailMs, setTailMs] = useState(0);
 
     // ── Submit State ─────────────────────────────────────────────────
     const [isSubmitting, setIsSubmitting] = useState(false);

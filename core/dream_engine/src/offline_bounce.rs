@@ -39,7 +39,7 @@ use dream_ipc::metering::MeterBank;
 use dream_models::project::{AudioClip, Project};
 use dream_models::time::AbsoluteTime;
 
-use crate::render_callback::RenderContext;
+use crate::render_callback::{soft_clip, RenderContext};
 use crate::sampler::{AdsrParams, SamplerEngine, Waveform};
 
 // ── Constants ──────────────────────────────────────────────────────────
@@ -147,8 +147,32 @@ pub struct OfflineBouncer {
 }
 
 impl OfflineBouncer {
-    fn configure_render_ctx_track_mix_state(project: &Project, render_ctx: &mut RenderContext) {
+    fn configure_render_ctx_track_mix_state(
+        project: &Project,
+        render_ctx: &mut RenderContext,
+        routing: &[Option<usize>],
+    ) {
         let any_solo = project.tracks.iter().any(|t| t.is_solo);
+
+        // ── Phase 1: Determine per-track enabled state ──────────────
+        let track_enabled: Vec<bool> = project
+            .tracks
+            .iter()
+            .map(|track| !track.is_mute && (!any_solo || track.is_solo))
+            .collect();
+
+        // ── Phase 2: Propagate group mute/solo to children ──────────
+        // If a group track is disabled, all tracks routing to it must
+        // also be disabled. Walk the routing chain transitively.
+        let mut effective_enabled = track_enabled.clone();
+        for (src_idx, dest) in routing.iter().enumerate() {
+            if let Some(group_idx) = dest {
+                if !effective_enabled[*group_idx] {
+                    effective_enabled[src_idx] = false;
+                }
+            }
+        }
+
         for (idx, slot) in render_ctx.track_slots.iter_mut().enumerate() {
             let Some(track) = project.tracks.get(idx) else {
                 slot.strip.set_volume(1.0);
@@ -161,10 +185,173 @@ impl OfflineBouncer {
             slot.strip.set_volume(track.volume.clamp(0.0, 2.0) as f32);
             slot.strip.set_pan(track.pan.clamp(-1.0, 1.0) as f32);
 
-            let enabled = !track.is_mute && (!any_solo || track.is_solo);
+            let enabled = effective_enabled.get(idx).copied().unwrap_or(false);
             slot.strip
                 .set_effective_gain(if enabled { 1.0 } else { 0.0 });
             slot.strip.set_output_enabled(enabled);
+        }
+    }
+
+    // ── Routing Helpers ───────────────────────────────────────────────
+
+    /// Builds routing map and post-sum processing mask from project.
+    ///
+    /// Returns `(routing, post_sum_mask)` where:
+    /// - `routing[i] = Some(j)` means track `i` routes to track `j`
+    /// - `post_sum_mask[i] = true` means track `i` is a group/bus
+    fn build_routing(project: &Project) -> (Vec<Option<usize>>, Vec<bool>) {
+        let routing: Vec<Option<usize>> = project
+            .tracks
+            .iter()
+            .map(|track| {
+                track.output_destination_id.and_then(|dest_id| {
+                    project
+                        .tracks
+                        .iter()
+                        .position(|candidate| candidate.id == dest_id)
+                })
+            })
+            .collect();
+
+        let mut mask = vec![false; project.tracks.len()];
+        for (src_idx, dest) in routing.iter().enumerate() {
+            if let Some(dest_idx) = dest {
+                if *dest_idx < mask.len() {
+                    mask[*dest_idx] = true;
+                }
+            }
+        }
+
+        (routing, mask)
+    }
+
+    /// Routing-aware render: replaces `RenderContext::render()` with
+    /// DAG-ordered summing that correctly processes group/bus tracks.
+    ///
+    /// This replicates what `GraphRenderer::render()` does in the
+    /// real-time driver, producing identical audio output.
+    fn render_routing_aware(
+        render_ctx: &mut RenderContext,
+        output: &mut [f32],
+        clips_per_track: &[Vec<AudioClip>],
+        clip_pool: &ClipPool,
+        routing: &[Option<usize>],
+        post_sum_mask: &[bool],
+    ) {
+        let channels = render_ctx.channels.max(1);
+        let frame_count = output.len() / channels;
+
+        // Phase 1: Fill source track slots (skip strip for group tracks)
+        render_ctx.render_tracks_with_post_sum_mask(
+            frame_count,
+            clips_per_track,
+            clip_pool,
+            Some(post_sum_mask),
+        );
+
+        // Phase 2: Route source tracks into their group buses
+        // For each source track that routes to a group, add its audio
+        // into the group track's buffer.
+        for (src_idx, dest) in routing.iter().enumerate() {
+            if let Some(group_idx) = dest {
+                if *group_idx >= render_ctx.track_slots.len()
+                    || src_idx >= render_ctx.track_slots.len()
+                {
+                    continue;
+                }
+
+                // Only route if the source is enabled (not muted/solo-excluded)
+                let src_enabled = render_ctx.track_slots[src_idx].strip.is_output_enabled();
+                if !src_enabled {
+                    continue;
+                }
+
+                // Copy source buffers to avoid borrow checker issues
+                let c = frame_count
+                    .min(render_ctx.track_slots[src_idx].buf_left.len())
+                    .min(render_ctx.track_slots[src_idx].buf_right.len());
+                let src_left: Vec<f32> =
+                    render_ctx.track_slots[src_idx].buf_left[..c].to_vec();
+                let src_right: Vec<f32> =
+                    render_ctx.track_slots[src_idx].buf_right[..c].to_vec();
+
+                // Sum into group buffer
+                let group = &mut render_ctx.track_slots[*group_idx];
+                for i in 0..c {
+                    group.buf_left[i] += src_left[i];
+                    group.buf_right[i] += src_right[i];
+                }
+                group.active = true;
+            }
+        }
+
+        // Phase 3: Process group/bus track strips (gain, pan)
+        for (idx, is_group) in post_sum_mask.iter().enumerate() {
+            if !*is_group || idx >= render_ctx.track_slots.len() {
+                continue;
+            }
+            let slot = &mut render_ctx.track_slots[idx];
+            if slot.strip.is_output_enabled() {
+                slot.strip.process_stereo(
+                    &mut slot.buf_left[..frame_count],
+                    &mut slot.buf_right[..frame_count],
+                );
+            } else {
+                // Group is muted or solo-excluded — zero its buffer
+                slot.buf_left[..frame_count].fill(0.0);
+                slot.buf_right[..frame_count].fill(0.0);
+            }
+        }
+
+        // Phase 4: Sum all terminal tracks into master bus
+        // A source track routed to a group does NOT contribute directly;
+        // its audio already went through the group in Phase 2.
+        render_ctx.master_bus.clear(frame_count);
+        for (idx, slot) in render_ctx.track_slots.iter().enumerate() {
+            if !slot.active {
+                continue;
+            }
+
+            let is_routed_to_group = routing
+                .get(idx)
+                .map(|r| r.is_some())
+                .unwrap_or(false);
+            let is_group = post_sum_mask
+                .get(idx)
+                .copied()
+                .unwrap_or(false);
+
+            // Skip source tracks that route to a group (already summed in Phase 2)
+            if is_routed_to_group && !is_group {
+                continue;
+            }
+
+            // Only include enabled tracks in master sum
+            if !slot.strip.is_output_enabled() && !is_group {
+                continue;
+            }
+
+            render_ctx.master_bus.add_stereo(
+                &slot.buf_left[..frame_count],
+                &slot.buf_right[..frame_count],
+            );
+        }
+
+        // Phase 5: Interleave master bus into output with soft clipping
+        let master_l = &render_ctx.master_bus.left()[..frame_count];
+        let master_r = &render_ctx.master_bus.right()[..frame_count];
+        for i in 0..frame_count {
+            let base = i * channels;
+            if base + 1 < output.len() {
+                output[base] = soft_clip(master_l[i]);
+                output[base + 1] = soft_clip(master_r[i]);
+                for ch in 2..channels {
+                    let idx = base + ch;
+                    if idx < output.len() {
+                        output[idx] = 0.0;
+                    }
+                }
+            }
         }
     }
 
@@ -476,7 +663,8 @@ impl OfflineBouncer {
             );
         }
 
-        Self::configure_render_ctx_track_mix_state(project, &mut render_ctx);
+        let (routing, _) = Self::build_routing(project);
+        Self::configure_render_ctx_track_mix_state(project, &mut render_ctx, &routing);
         render_ctx.loop_region = loop_region.cloned();
         render_ctx.playhead.seek(self.config.start_frame);
         render_ctx.playhead.set_advancing(true);
@@ -583,6 +771,7 @@ impl OfflineBouncer {
             .iter()
             .map(|track| track.clips.clone())
             .collect();
+        let (routing, post_sum_mask) = Self::build_routing(project);
         let is_mp3 = self.config.format.eq_ignore_ascii_case("mp3");
         let master_gain = project.master_track.volume.clamp(0.0, 2.0) as f32;
 
@@ -643,10 +832,13 @@ impl OfflineBouncer {
                     let chunk_samples = chunk_frames * OFFLINE_CHANNELS;
                     interleaved_buf[..chunk_samples].fill(0.0);
 
-                    render_ctx.render(
+                    Self::render_routing_aware(
+                        &mut render_ctx,
                         &mut interleaved_buf[..chunk_samples],
                         &clips_per_track,
                         clip_pool,
+                        &routing,
+                        &post_sum_mask,
                     );
 
                     for &s in &interleaved_buf[..chunk_samples] {
@@ -700,10 +892,13 @@ impl OfflineBouncer {
                 let chunk_samples = chunk_frames * OFFLINE_CHANNELS;
                 interleaved_buf[..chunk_samples].fill(0.0);
 
-                render_ctx.render(
+                Self::render_routing_aware(
+                    &mut render_ctx,
                     &mut interleaved_buf[..chunk_samples],
                     &clips_per_track,
                     clip_pool,
+                    &routing,
+                    &post_sum_mask,
                 );
 
                 left.clear();
@@ -762,10 +957,13 @@ impl OfflineBouncer {
                     let chunk_samples = chunk_frames * OFFLINE_CHANNELS;
                     interleaved_buf[..chunk_samples].fill(0.0);
 
-                    render_ctx.render(
+                    Self::render_routing_aware(
+                        &mut render_ctx,
                         &mut interleaved_buf[..chunk_samples],
                         &clips_per_track,
                         clip_pool,
+                        &routing,
+                        &post_sum_mask,
                     );
                     for &s in &interleaved_buf[..chunk_samples] {
                         peak = peak.max((s * master_gain).abs());
@@ -819,10 +1017,13 @@ impl OfflineBouncer {
                 let chunk_samples = chunk_frames * OFFLINE_CHANNELS;
                 interleaved_buf[..chunk_samples].fill(0.0);
 
-                render_ctx.render(
+                Self::render_routing_aware(
+                    &mut render_ctx,
                     &mut interleaved_buf[..chunk_samples],
                     &clips_per_track,
                     clip_pool,
+                    &routing,
+                    &post_sum_mask,
                 );
 
                 let total_gain = gain * master_gain;

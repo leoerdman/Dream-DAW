@@ -102,7 +102,11 @@ export class ViewportMatrix {
             // Soft-fail: ignore invalid arrays to avoid corrupting camera math.
             return;
         }
-        this._trackHeights = heights ? heights.map((h) => Math.max(1, Math.round(h))) : null;
+        // SCROLL DESYNC FIX: Allow height 0 for hidden/collapsed tracks.
+        // Previously Math.max(1, ...) converted 0→1, adding N extra pixels
+        // (N = hidden track count) to canvasContentHeight, while the DOM
+        // TrackInspector renders 0 height for the same tracks → scroll drift.
+        this._trackHeights = heights ? heights.map((h) => Math.max(0, Math.round(h))) : null;
         this._rebuildTrackOffsets();
         this._clampScroll();
         this._markDirty();
@@ -255,7 +259,8 @@ export class ViewportMatrix {
         offsets[0] = 0;
         for (let i = 0; i < this._trackCount; i++) {
             const h = this._trackHeights ? (this._trackHeights[i] ?? this._trackHeight) : this._trackHeight;
-            offsets[i + 1] = offsets[i] + Math.max(1, Math.round(h));
+            // SCROLL DESYNC FIX: Allow 0-height tracks (collapsed/hidden).
+            offsets[i + 1] = offsets[i] + Math.max(0, Math.round(h));
         }
         this._trackOffsets = offsets;
     }

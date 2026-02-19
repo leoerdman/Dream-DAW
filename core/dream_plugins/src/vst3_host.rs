@@ -35,7 +35,7 @@ use crate::sandbox_instance::SandboxedPluginInstance;
 
 #[cfg(target_os = "macos")]
 use cocoa::appkit::{
-    NSApp, NSApplication, NSApplicationActivationPolicyRegular, NSBackingStoreType, NSWindow,
+    NSApp, NSApplication, NSApplicationActivationPolicyRegular, NSBackingStoreType, NSScreen, NSWindow,
     NSWindowStyleMask,
 };
 #[cfg(target_os = "macos")]
@@ -3722,8 +3722,14 @@ impl Vst3Instance {
             };
             let post_size_ok = ((*(*plug_view).vtbl).get_size)(plug_view, &mut post_rect);
             if post_size_ok == K_RESULT_OK {
-                let post_w = ((post_rect.right - post_rect.left).max(420) as f64).min(960.0);
-                let post_h = ((post_rect.bottom - post_rect.top).max(300) as f64).min(720.0);
+                // Use screen dimensions as upper bound (no arbitrary cap).
+                // Professional DAWs trust the plugin's reported size.
+                let screen = NSScreen::mainScreen(nil);
+                let screen_frame = NSScreen::visibleFrame(screen);
+                let max_w = screen_frame.size.width.max(1920.0);
+                let max_h = screen_frame.size.height.max(1080.0);
+                let post_w = ((post_rect.right - post_rect.left).max(420) as f64).min(max_w);
+                let post_h = ((post_rect.bottom - post_rect.top).max(300) as f64).min(max_h);
                 if (post_w - width).abs() > 1.0 || (post_h - height).abs() > 1.0 {
                     info!(
                         "[VST3-EDITOR] Step 8c: post-attached getSize differs: {}x{} → {}x{}, resizing window",

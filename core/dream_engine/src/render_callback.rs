@@ -146,7 +146,7 @@ pub struct RenderContext {
 /// This replaces the previous `x / (1 + |x|)` waveshaper which compressed
 /// ALL signals (even –6 dBFS content was crushed by 34%).
 #[inline]
-fn soft_clip(sample: f32) -> f32 {
+pub fn soft_clip(sample: f32) -> f32 {
     let abs = sample.abs();
     if abs <= 1.0 {
         sample // transparent below 0 dBFS

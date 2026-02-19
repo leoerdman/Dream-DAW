@@ -5,7 +5,8 @@ import { useDragStore } from '@/shared/stores/useDragStore';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
 import { useAutomationStore } from '@/shared/stores/useAutomationStore';
 import * as engineApi from '@/shared/api/engine';
-import { vuNorm } from '@/shared/lib/audioMath';
+import { MeterStrip } from '@/shared/ui/MeterStrip';
+import { linearToMeterNorm, dbToMeterNorm } from '@/shared/lib/meterManifest';
 import {
     PluginKnob,
     type PluginParam,
@@ -541,11 +542,11 @@ export const DeviceRack = ({
     // Get real-time stereo meter levels for the selected track
     const meterPair = isMaster ? null : (trackIndex >= 0 ? meters.tracks[trackIndex] : null);
     const inLevelL = isMaster
-        ? vuNorm(meters.master_left.peak)
-        : meterPair ? vuNorm(meterPair[0].peak) : 0;
+        ? dbToMeterNorm(meters.master_left.peak)
+        : meterPair ? dbToMeterNorm(meterPair[0].peak) : 0;
     const inLevelR = isMaster
-        ? vuNorm(meters.master_right.peak)
-        : meterPair ? vuNorm(meterPair[1].peak) : 0;
+        ? dbToMeterNorm(meters.master_right.peak)
+        : meterPair ? dbToMeterNorm(meterPair[1].peak) : 0;
     const outLevelL = inLevelL;
     const outLevelR = inLevelR;
     // Legacy single-value for backward compat
@@ -1591,7 +1592,7 @@ export const DeviceRack = ({
                 }}>
 
                     {/* Input meter — real data */}
-                    <MeterBar level={inLevel} levelL={inLevelL} levelR={inLevelR} isInput isMidiInput={selectedTrack?.track_type === 'Midi'} />
+                    <MeterStrip levelL={inLevelL} levelR={inLevelR} isMidi={selectedTrack?.track_type === 'Midi'} />
 
                     {/* Device slots — drag to reorder */}
                     {visibleChain.length > 0 ? (
@@ -1757,7 +1758,7 @@ export const DeviceRack = ({
                                         }
                                     }}
                                 />
-                                <MeterBar level={device.vuLevel} levelL={device.vuLevelL} levelR={device.vuLevelR} />
+                                <MeterStrip levelL={linearToMeterNorm(device.vuLevelL ?? device.vuLevel)} levelR={linearToMeterNorm(device.vuLevelR ?? device.vuLevel)} />
                             </div>
                         ))
                     ) : (
@@ -4635,65 +4636,4 @@ const PluginSettingsPanel = ({
     );
 };
 
-// ── MeterBar (stereo vertical signal meter) ──────────────
-
-const MeterBar = ({ level, levelL, levelR, isInput, isMidiInput }: { level: number; levelL?: number; levelR?: number; isInput?: boolean; isMidiInput?: boolean }) => {
-    const lNorm = levelL ?? level;
-    const rNorm = levelR ?? level;
-    const hL = Math.max(0, Math.min(100, lNorm * 100));
-    const hR = Math.max(0, Math.min(100, rNorm * 100));
-    const peakNorm = Math.max(lNorm, rNorm);
-    const meterColor = peakNorm > 0.85 ? 'var(--color-meter-clip)' : peakNorm > 0.6 ? 'var(--color-meter-hot)' : 'var(--color-meter-normal)';
-    // MIDI tracks get yellow indicator at input; audio/group tracks get green
-    const barColor = (isInput && isMidiInput) ? 'var(--color-midi-indicator)' : meterColor;
-
-    return (
-        <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            flexShrink: 0,
-            alignSelf: 'stretch',
-            margin: '0 6px',
-        }}>
-            <div style={{
-                width: 8,
-                flex: 1,
-                background: 'var(--color-meter-bg)',
-                borderRadius: 'var(--radius-2xs)',
-                position: 'relative',
-                overflow: 'hidden',
-            }}>
-                {/* Left channel */}
-                <div style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: 0,
-                    width: 3,
-                    height: `${hL}%`,
-                    background: barColor,
-                    transition: 'height 0.08s linear',
-                }} />
-                {/* Center divider */}
-                <div style={{
-                    position: 'absolute',
-                    left: 3,
-                    width: 2,
-                    top: 0,
-                    bottom: 0,
-                    background: 'color-mix(in srgb, var(--text-primary) 6%, transparent)',
-                }} />
-                {/* Right channel */}
-                <div style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    right: 0,
-                    width: 3,
-                    height: `${hR}%`,
-                    background: barColor,
-                    transition: 'height 0.08s linear',
-                }} />
-            </div>
-        </div>
-    );
-};
+// MeterBar removed — all meters now use the unified <MeterStrip> from @/shared/ui/MeterStrip.

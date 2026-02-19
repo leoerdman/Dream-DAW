@@ -20,6 +20,8 @@ import * as engineApi from '@/shared/api/engine';
 import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestrator';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
 import { beatToFrame, beatDurationToFrames, frameToBeat } from '@/shared/lib/audioMath';
+import { MeterStrip } from '@/shared/ui/MeterStrip';
+import { dbToMeterNorm, formatDb } from '@/shared/lib/meterManifest';
 import { getContrastColor } from '@/shared/lib/colorUtils';
 import { scrollSync } from '@/shared/lib/useScrollSync';
 import { useStatusStore } from '@/shared/stores/useStatusStore';
@@ -1712,8 +1714,8 @@ const SessionWorkspace = ({
 
     const masterMeterL = meters.master_left;
     const masterMeterR = meters.master_right;
-    const masterLevelL = Math.max(0, Math.min(1, ((masterMeterL?.peak ?? -60) + 60) / 60));
-    const masterLevelR = Math.max(0, Math.min(1, ((masterMeterR?.peak ?? -60) + 60) / 60));
+    const masterLevelL = dbToMeterNorm(masterMeterL?.peak ?? -60);
+    const masterLevelR = dbToMeterNorm(masterMeterR?.peak ?? -60);
 
     return (
         <div style={{
@@ -1864,8 +1866,8 @@ const SessionWorkspace = ({
                         const meterPair = meters.tracks[trackIndex];
                         const peakDbL = meterPair ? meterPair[0].peak : -60;
                         const peakDbR = meterPair ? meterPair[1].peak : -60;
-                        const trackMeterL = Math.max(0, Math.min(1, (peakDbL + 60) / 60));
-                        const trackMeterR = Math.max(0, Math.min(1, (peakDbR + 60) / 60));
+                        const trackMeterL = dbToMeterNorm(peakDbL);
+                        const trackMeterR = dbToMeterNorm(peakDbR);
                         const peakDb = Math.max(peakDbL, peakDbR);
                         const peakLabel = `${peakDb >= 0 ? '+' : ''}${peakDb.toFixed(1)} dB`;
                         return (
@@ -1898,27 +1900,13 @@ const SessionWorkspace = ({
                                         position: 'relative',
                                         overflow: 'hidden',
                                     }}>
-                                        {/* Stereo meter: 3px L + 1px gap + 3px R */}
-                                        <div style={{
-                                            position: 'absolute',
-                                            left: 'calc(50% - 4px)',
-                                            bottom: 4,
-                                            width: 3,
-                                            height: `${Math.max(2, trackMeterL * 100)}%`,
-                                            background: 'linear-gradient(180deg, #8cff73 0%, #5ee162 45%, #30c451 100%)',
-                                            boxShadow: '0 0 6px color-mix(in srgb, var(--color-status-success) 30%, transparent)',
-                                            transition: `height var(--transition-linear)`,
-                                        }} />
-                                        <div style={{
-                                            position: 'absolute',
-                                            left: 'calc(50% + 1px)',
-                                            bottom: 4,
-                                            width: 3,
-                                            height: `${Math.max(2, trackMeterR * 100)}%`,
-                                            background: 'linear-gradient(180deg, #8cff73 0%, #5ee162 45%, #30c451 100%)',
-                                            boxShadow: '0 0 6px color-mix(in srgb, var(--color-status-success) 30%, transparent)',
-                                            transition: `height var(--transition-linear)`,
-                                        }} />
+                                        {/* Stereo meter: unified MeterStrip */}
+                                        <MeterStrip
+                                            levelL={trackMeterL}
+                                            levelR={trackMeterR}
+                                            width={8}
+                                            style={{ position: 'absolute', inset: 4 }}
+                                        />
                                     </div>
                                 </div>
                                 <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
@@ -1931,14 +1919,18 @@ const SessionWorkspace = ({
                 <div style={{ width: SESSION_MASTER_WIDTH, padding: '8px 8px 6px', borderLeft: '1px solid #3b3b3b', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 6 }}>
                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 700 }}>MASTER</div>
                     <div style={{ position: 'relative', border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-base)' }}>
-                        {/* Stereo master: 3px L + 1px gap + 3px R */}
-                        <div style={{ position: 'absolute', left: 'calc(50% - 4px)', bottom: 0, width: 3, height: `${Math.max(4, Math.min(100, masterLevelL * 100))}%`, background: 'linear-gradient(180deg, #92ff73 0%, #3ac95b 80%, #ffe35e 100%)' }} />
-                        <div style={{ position: 'absolute', left: 'calc(50% + 1px)', bottom: 0, width: 3, height: `${Math.max(4, Math.min(100, masterLevelR * 100))}%`, background: 'linear-gradient(180deg, #92ff73 0%, #3ac95b 80%, #ffe35e 100%)' }} />
+                        {/* Stereo master: unified MeterStrip */}
+                        <MeterStrip
+                            levelL={masterLevelL}
+                            levelR={masterLevelR}
+                            width={8}
+                            style={{ position: 'absolute', inset: 2 }}
+                        />
                     </div>
                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>Out</div>
                 </div>
             </div>
-        </div>
+        </div >
     );
 };
 

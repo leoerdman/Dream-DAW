@@ -96,7 +96,7 @@ fn create_rack_from_devices_cmd(
     track.effects.insert(insert_pos, DeviceNode::Rack(rack));
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_routing_only(&project);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
@@ -147,7 +147,7 @@ fn add_chain_to_rack_cmd(
     rack.chains.push(chain);
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_routing_only(&project);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
@@ -202,7 +202,7 @@ fn add_device_to_rack_chain_cmd(
     chain.devices.insert(insert_pos, DeviceNode::Single(plugin_slot));
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_routing_only(&project);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
@@ -275,7 +275,7 @@ fn remove_device_from_rack_cmd(
     }
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_routing_only(&project);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
@@ -380,7 +380,7 @@ fn load_device_preset_cmd(
     track.effects.insert(insert_pos, device);
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_routing_only(&project);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(

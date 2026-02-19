@@ -1544,6 +1544,7 @@ export const AssetBrowser = () => {
                 {/* ── RIGHT PANE: Filters + File List ── */}
                 <div style={{
                     flex: 1,
+                    minHeight: 0,
                     display: 'flex',
                     flexDirection: 'column',
                     overflow: 'hidden',
@@ -1743,6 +1744,7 @@ export const AssetBrowser = () => {
                         tabIndex={0}
                         style={{
                             flex: 1,
+                            minHeight: 0,
                             overflowY: 'auto',
                             overflowX: 'hidden',
                             outline: 'none',

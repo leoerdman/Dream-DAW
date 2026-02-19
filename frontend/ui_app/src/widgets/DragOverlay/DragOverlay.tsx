@@ -2,51 +2,58 @@
  * DragOverlay — Floating label that follows the cursor during store-based drag.
  *
  * Renders only when `useDragStore.draggingItem` is set.
- * Follows the mouse cursor with a slight offset (+12px, +12px).
+ * BUG-089 FIX: Uses ref-based DOM manipulation instead of React state
+ * to eliminate 60fps re-renders during drag.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useDragStore } from '@/shared/stores/useDragStore';
 
 export const DragOverlay = () => {
     const draggingItem = useDragStore(s => s.draggingItem);
-    const [pos, setPos] = useState({ x: 0, y: 0 });
+    const overlayRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!draggingItem) return;
 
-        const onMove = (e: MouseEvent) => {
-            setPos({ x: e.clientX, y: e.clientY });
+        const handleMouseMove = (e: MouseEvent) => {
+            if (overlayRef.current) {
+                overlayRef.current.style.transform = `translate(${e.clientX + 12}px, ${e.clientY + 12}px)`;
+            }
         };
-        window.addEventListener('mousemove', onMove);
-        return () => window.removeEventListener('mousemove', onMove);
+
+        window.addEventListener('mousemove', handleMouseMove);
+        return () => window.removeEventListener('mousemove', handleMouseMove);
     }, [draggingItem]);
 
     if (!draggingItem) return null;
 
-    const icon = draggingItem.type === 'plugin' ? '🧩' : '🎵';
+    const label = draggingItem.type === 'plugin'
+        ? `🧩 ${draggingItem.name}`
+        : `🎵 ${draggingItem.name}`;
 
     return (
         <div
+            ref={overlayRef}
             style={{
                 position: 'fixed',
-                left: pos.x + 12,
-                top: pos.y + 12,
-                padding: '4px 10px',
-                borderRadius: 'var(--radius-md)',
-                background: 'var(--color-accent-primary)',
-                color: 'var(--color-text-on-accent)',
-                fontSize: 'var(--font-size-sm)',
-                fontWeight: 'var(--font-weight-semibold)' as unknown as number,
-                fontFamily: 'var(--font-mono)',
-                whiteSpace: 'nowrap',
+                left: 0,
+                top: 0,
+                transform: 'translate(0px, 0px)',
                 pointerEvents: 'none',
-                boxShadow: '0 4px 12px var(--color-overlay-dark)',
-                zIndex: 'var(--z-drag-overlay)' as unknown as number,
-                userSelect: 'none',
+                zIndex: 99999,
+                background: 'rgba(30, 30, 40, 0.85)',
+                backdropFilter: 'blur(8px)',
+                color: '#fff',
+                padding: '5px 10px',
+                borderRadius: 6,
+                fontSize: 12,
+                whiteSpace: 'nowrap',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+                willChange: 'transform',
             }}
         >
-            {icon} {draggingItem.name}
+            {label}
         </div>
     );
 };

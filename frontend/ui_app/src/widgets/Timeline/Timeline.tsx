@@ -78,13 +78,13 @@ export const Timeline = (props: TimelineProps) => {
         trackHeight = DEFAULT_TRACK_HEIGHT,
         trackHeights,
         clips = [],
-        playheadBeat = 0,
+        // playheadBeat — now read from store directly (effectivePlayheadBeat)
         editCursorBeat = 0,
         editCursorTrackIndex = 0,
         editCursorTrackIndexEnd = 0,
         selectedTrackIndex = -1,
         selectedTrackIndices,
-        isPlaying = false,
+        // isPlaying — now read from store directly (effectiveIsPlaying)
         trackIds = [],
         loopStart = 0,
         loopEnd = 4,
@@ -112,6 +112,11 @@ export const Timeline = (props: TimelineProps) => {
     const totalBeats = totalBars * beatsPerBar;
     // Read live sample rate from engine (could be 44100, 48000, 96000+)
     const engineSampleRate = useEngineStore((s) => s.transport.sample_rate);
+    // Subscribe to playhead position directly — avoids DawShell 30fps re-render.
+    const storePositionBeats = useEngineStore((s) => s.transport.position_beats ?? 0);
+    const storeIsPlaying = useEngineStore((s) => s.transport.is_playing);
+    const effectivePlayheadBeat = storePositionBeats;
+    const effectiveIsPlaying = storeIsPlaying;
 
     // ── Grid store for dynamic snap ───────────────────────────────────
     const gridInterval = useGridStore((s) => s.gridInterval);
@@ -447,8 +452,8 @@ export const Timeline = (props: TimelineProps) => {
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
-        engine.setPlayheadBeat(playheadBeat);
-    }, [playheadBeat, engineRef]);
+        engine.setPlayheadBeat(effectivePlayheadBeat);
+    }, [effectivePlayheadBeat, engineRef]);
 
     // ── Feed edit cursor ──────────────────────────────────────────────
     useEffect(() => {
@@ -481,11 +486,11 @@ export const Timeline = (props: TimelineProps) => {
 
     // ── Playhead follow ───────────────────────────────────────────────
     useEffect(() => {
-        if (!isPlaying || !followPlayhead) return;
+        if (!effectiveIsPlaying || !followPlayhead) return;
         const engine = engineRef.current;
         if (!engine) return;
-        engine.ensureBeatVisible(playheadBeat);
-    }, [playheadBeat, isPlaying, followPlayhead, engineRef]);
+        engine.ensureBeatVisible(effectivePlayheadBeat);
+    }, [effectivePlayheadBeat, effectiveIsPlaying, followPlayhead, engineRef]);
 
     // ── Scroll sync cleanup ──────────────────────────────────────────
     useEffect(() => {

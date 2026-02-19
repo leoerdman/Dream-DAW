@@ -1152,7 +1152,7 @@ fn replace_missing_plugin_slot_cmd(
     }
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_routing_only(&project);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     drop(project);
@@ -1739,7 +1739,7 @@ fn set_track_routing_cmd(
     track.output_destination_id = destination;
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_routing_only(&project);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!("[IPC] set_track_routing_cmd({track_id} -> {target_id})");
@@ -1777,7 +1777,7 @@ fn set_track_input_cmd(
 
     let effective_input = track.input_source_id.clone();
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_routing_only(&project);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     log::info!(
@@ -1904,7 +1904,7 @@ fn set_plugin_sidechain_source_cmd(
     }
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_routing_only(&project);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     drop(project);
@@ -2318,7 +2318,7 @@ fn add_plugin_to_track_cmd(
     }
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_routing_only(&project);
     // CRITICAL: Plugin loading failure must NOT abort this function.
     // The project model has already been mutated above (track.effects.push / track.instrument = ...),
     // so we MUST continue to rebuild_external_fx_snapshot and mark_dirty to keep
@@ -2429,7 +2429,7 @@ fn remove_plugin_from_track_cmd(
 
     let project_name = project.name.clone();
     let _ = plugin_host_state.unload_slot_instance(slot_uuid);
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_routing_only(&project);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     if let Some(slot_index) = runtime_remove_slot
@@ -2695,7 +2695,7 @@ fn set_internal_plugin_param_cmd(
     if should_commit_snapshot {
         // Expensive cold-path rebuilds are deferred during live gestures.
         // Real-time audio updates are already applied via EngineCommand path below.
-        clip_pool_state.rebuild_snapshot(&project);
+        clip_pool_state.rebuild_routing_only(&project);
         rebuild_automation_snapshot_from_project(&project, &automation_runtime);
         rebuild_sampler_snapshot_from_project(&project, &clip_pool_state, &handle);
         drop(project);
@@ -2854,7 +2854,7 @@ fn set_sampler_sample_cmd(
     };
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_routing_only(&project);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     handle
@@ -3087,7 +3087,7 @@ fn set_slot_bypass_cmd(
     );
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_routing_only(&project);
     let slot_instance_map = plugin_host_state.slot_instance_snapshot();
     clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
     drop(project);

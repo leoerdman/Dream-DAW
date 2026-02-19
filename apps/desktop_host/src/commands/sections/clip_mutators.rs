@@ -744,7 +744,7 @@ async fn split_clip_cmd(
     };
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_clips_only(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -782,7 +782,7 @@ async fn delete_clip_cmd(
     }
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_clips_only(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -817,7 +817,7 @@ async fn duplicate_clip_cmd(
 
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_clips_only(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -986,7 +986,7 @@ async fn set_clip_source_offset_cmd(
     }
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_clips_only(&project);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
@@ -1056,7 +1056,7 @@ async fn set_clip_warp_cmd(
     }
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_clips_only(&project);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
     Ok(())
@@ -1108,7 +1108,7 @@ async fn set_clip_fades_cmd(
     }
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_clips_only(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -1197,7 +1197,7 @@ async fn set_clip_muted_cmd(
     }
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_clips_only(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -1266,7 +1266,7 @@ async fn set_clips_muted_cmd(
     }
 
     let project_name = project.name.clone();
-    clip_pool_state.rebuild_snapshot(&project);
+    clip_pool_state.rebuild_clips_only(&project);
     rebuild_midi_snapshot_from_project(&project, &handle);
     drop(project);
     project_state.mark_dirty(&project_name, Some(&app))?;
@@ -1325,7 +1325,7 @@ async fn paint_track_clips_with_track_color_cmd(
     }
 
     if changed {
-        clip_pool_state.rebuild_snapshot(&project);
+        clip_pool_state.rebuild_clips_only(&project);
         rebuild_midi_snapshot_from_project(&project, &handle);
         let project_name = project.name.clone();
         drop(project);

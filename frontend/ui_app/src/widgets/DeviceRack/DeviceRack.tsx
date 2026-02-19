@@ -3417,11 +3417,11 @@ const PluginGuiSurface = ({
                     justifyContent: 'center',
                 }}>
                     {/* FREQ knob — always shown */}
-                    {freqParam && <PluginKnob key={`freq-${bi}`} param={{ ...freqParam, name: 'FREQ' }} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
+                    {freqParam && <PluginKnob key={`freq-${bi}`} param={freqParam} label="FREQ" onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
                     {/* GAIN knob — only for Peaking / Shelf */}
-                    {!activeFilterOnly && gainParam && <PluginKnob key={`gain-${bi}`} param={{ ...gainParam, name: 'GAIN' }} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
+                    {!activeFilterOnly && gainParam && <PluginKnob key={`gain-${bi}`} param={gainParam} label="GAIN" onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
                     {/* RES (Q) knob — only for LP / HP / Notch */}
-                    {activeFilterOnly && qParam && <PluginKnob key={`q-${bi}`} param={{ ...qParam, name: 'RES' }} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
+                    {activeFilterOnly && qParam && <PluginKnob key={`q-${bi}`} param={qParam} label="RES" onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
                     {/* OUT knob — always shown */}
                     {outParam && <PluginKnob key="out" param={outParam} onChange={onParamChange} onGestureStart={onParamGestureStart} onGestureEnd={onParamGestureEnd} compact />}
                     {/* Active bands count */}

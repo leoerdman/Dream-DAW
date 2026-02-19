@@ -64,6 +64,7 @@ export const PluginSlider = ({
 export const PluginKnob = ({
     param,
     compact = false,
+    label,
     onChange,
     onContextMenu,
     onGestureStart,
@@ -71,6 +72,8 @@ export const PluginKnob = ({
 }: {
     param: PluginParam;
     compact?: boolean;
+    /** Override display name without changing param.name (used as onChange key). */
+    label?: string;
     onChange: (paramName: string, value: number) => void;
     onContextMenu?: (e: React.MouseEvent, paramName: string) => void;
     onGestureStart?: (paramName: string, gestureGroupId?: string) => void;
@@ -204,7 +207,7 @@ export const PluginKnob = ({
                     </span>
                 )}
             </div>
-            <span style={knobParamNameStyle}>{formatPluginParamName(param.name)}</span>
+            <span style={knobParamNameStyle}>{formatPluginParamName(label ?? param.name)}</span>
             {isEditingValue ? (
                 <input
                     autoFocus

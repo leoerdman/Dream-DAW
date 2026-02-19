@@ -125,7 +125,7 @@ impl PeakCache {
             })
             .collect();
 
-        log::info!(
+        log::debug!(
             "Peak cache generated for '{}': {} samples → {} levels ({}/{}/{}/{} peaks)",
             source_id,
             total_samples,

@@ -20,6 +20,7 @@
 
 import { useState, useCallback, useRef, useMemo, useEffect, memo } from 'react';
 import { useGridStore } from '@/shared/stores/useGridStore';
+import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { GridDivision } from '@/shared/lib/gridSnap';
 import { divisionToInterval } from '@/shared/lib/gridSnap';
 import * as engineApi from '@/shared/api/engine';
@@ -63,6 +64,8 @@ interface PianoRollProps {
     timeSignature?: [number, number];
     totalBars?: number;
     playheadBeat?: number;
+    /** Clip start beat for computing relative playhead from transport (store-driven). */
+    clipStartBeat?: number;
     clipLengthBeats?: number;
 }
 
@@ -182,9 +185,13 @@ export const PianoRoll = memo(function PianoRoll({
     color = '#4a9eff',
     timeSignature = [4, 4],
     totalBars = 8,
-    playheadBeat,
+    playheadBeat: playheadBeatProp,
+    clipStartBeat = 0,
     clipLengthBeats,
 }: PianoRollProps) {
+    // Subscribe to transport position directly — avoids DawShell 30fps re-render.
+    const storePositionBeats = useEngineStore((s) => s.transport.position_beats ?? 0);
+    const playheadBeat = playheadBeatProp ?? (storePositionBeats - clipStartBeat);
     const [tool, setTool] = useState<PianoRollTool>('draw');
     const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set());
     const [selectionRect, setSelectionRect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);

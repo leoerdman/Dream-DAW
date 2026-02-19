@@ -613,7 +613,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
 
     fetchProject: async (reason: string = 'manual') => {
         const requestSeq = ++projectFetchSeq;
-        console.warn(`[fetchProject] START #${requestSeq} reason="${reason}"`);
+        console.debug(`[fetchProject] START #${requestSeq} reason="${reason}"`);
         if (DEBUG_PROJECT_FETCH) {
             console.debug(`[ProjectFetch] start #${requestSeq} reason=${reason}`);
         }
@@ -699,13 +699,13 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
             // Ignore stale/out-of-order responses (e.g. startup fetch resolving
             // after Open Project fetch). Latest invocation always wins.
             if (requestSeq !== projectFetchSeq) {
-                console.warn(`[fetchProject] STALE #${requestSeq} reason="${reason}" latest=${projectFetchSeq} tracks=${project.tracks?.length ?? '?'} — DISCARDED`);
+                console.debug(`[fetchProject] STALE #${requestSeq} reason="${reason}" latest=${projectFetchSeq} tracks=${project.tracks?.length ?? '?'} — DISCARDED`);
                 if (DEBUG_PROJECT_FETCH) {
                     console.debug(`[ProjectFetch] stale #${requestSeq} reason=${reason} latest=${projectFetchSeq}`);
                 }
                 return;
             }
-            console.warn(`[fetchProject] ACCEPTED #${requestSeq} reason="${reason}" tracks=${project.tracks?.length ?? '?'} name="${project.name ?? '?'}"`);
+            console.debug(`[fetchProject] ACCEPTED #${requestSeq} reason="${reason}" tracks=${project.tracks?.length ?? '?'} name="${project.name ?? '?'}"`);
 
             // CRITICAL: Use the project's own PulseMap BPM as the authoritative SSOT
             // for frame↔beat conversion. transport.bpm may be stale immediately
@@ -903,7 +903,7 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
                 }
             }
         } catch (e) {
-            console.warn(`[fetchProject] ERROR #${requestSeq} reason="${reason}":`, e);
+            console.debug(`[fetchProject] ERROR #${requestSeq} reason="${reason}":`, e);
             console.error('[Engine] fetchProject failed:', e);
             if (DEBUG_PROJECT_FETCH) {
                 console.debug(`[ProjectFetch] error #${requestSeq} reason=${reason}`);

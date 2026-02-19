@@ -499,7 +499,10 @@ export const DawShell = () => {
     // ── Engine state for Timeline ───────────────────────────────────
     const transportBpm = useEngineStore(s => s.transport.bpm);
     const transportIsPlaying = useEngineStore(s => s.transport.is_playing);
-    const transportPositionBeats = useEngineStore(s => s.transport.position_beats);
+    // NOTE: transport.position_beats is intentionally NOT subscribed here.
+    // DawShell is the root layout (2327 lines). Subscribing to position_beats
+    // caused 30fps re-renders of the entire component tree. Timeline and
+    // PianoRoll now subscribe directly via useEngineStore.
     const transportLoopStart = useEngineStore(s => s.transport.loop_start);
     const transportLoopEnd = useEngineStore(s => s.transport.loop_end);
     const transportLoopEnabled = useEngineStore(s => s.transport.loop_enabled);
@@ -540,7 +543,7 @@ export const DawShell = () => {
         projectRefreshTimerRef.current = window.setTimeout(() => {
             projectRefreshTimerRef.current = null;
             void fetchProject(reason);
-        }, 240);
+        }, 500);
     }, [transportIsPlaying, fetchProject]);
 
     useEffect(() => () => {
@@ -590,8 +593,9 @@ export const DawShell = () => {
         return `${name} · ${deviceCount} devices`;
     }, [projectTracks, selectedTrackId]);
 
-    // Use position_beats directly from engine (single-source, no float round-trip)
-    const playheadBeat = transportPositionBeats ?? 0;
+    // playheadBeat removed — was: transportPositionBeats ?? 0
+    // Timeline and PianoRoll now read transport.position_beats directly
+    // from useEngineStore, avoiding 30fps re-renders of DawShell.
 
     const trackCountRaw = Math.max(projectTracks.length, 1);
     const trackIds = useMemo(() => projectTracks.map((t) => t.id), [projectTracks]);
@@ -1365,7 +1369,7 @@ export const DawShell = () => {
                                     <Timeline
                                         bpm={projectBpm || transportBpm || 120}
                                         clips={timelineClipsForView}
-                                        playheadBeat={playheadBeat}
+                                        /* playheadBeat — now read from store directly by Timeline */
                                         editCursorBeat={editCursorBeat}
                                         editCursorTrackIndex={editCursorTrackIndex}
                                         editCursorTrackIndexEnd={editCursorTrackIndexEnd}
@@ -1578,7 +1582,7 @@ export const DawShell = () => {
                                         }}
                                         onGenerateVariation={handleGenerateMidiVariation}
                                         aiVariationBusy={aiVariationBusy}
-                                        playheadBeat={playheadBeat - selectedTimelineClip.startBeat}
+                                        clipStartBeat={selectedTimelineClip.startBeat}
                                         totalBars={selectedMidiTotalBars}
                                         clipLengthBeats={selectedTimelineClip.durationBeats}
                                         color={selectedTimelineClip.color || projectTracks.find((t) => t.id === selectedTrackId)?.color || '#4a9eff'}

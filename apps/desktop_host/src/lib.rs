@@ -2206,6 +2206,73 @@ impl ClipPoolState {
         self.sync_pool_to_arc();
     }
 
+    /// Routing-only snapshot rebuild for device chain topology changes.
+    ///
+    /// Used by device_rack operations (create rack, add chain, add/remove device,
+    /// load preset) where the effect chain topology changes but no new audio files
+    /// are added or removed.
+    ///
+    /// ~5x faster than full rebuild_snapshot() because it skips:
+    ///   - Pool sync (Mutex lock + decode + Arc swap)
+    ///
+    /// Still rebuilds: clips, routing, sidechains, and audio DAG.
+    fn rebuild_routing_only(&self, project: &Project) {
+        let clips_per_track: Vec<Vec<AudioClip>> = project
+            .tracks
+            .iter()
+            .map(|track| track.clips.clone())
+            .collect();
+        self.snapshot.swap(clips_per_track);
+
+        let id_to_index: std::collections::HashMap<uuid::Uuid, usize> = project
+            .tracks
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.id, i))
+            .collect();
+
+        let routing: Vec<Option<usize>> = project
+            .tracks
+            .iter()
+            .map(|track| {
+                track
+                    .output_destination_id
+                    .and_then(|dest_id| id_to_index.get(&dest_id).copied())
+            })
+            .collect();
+        self.routing_snapshot.swap(routing);
+        let routing_now = self.routing_snapshot.load();
+
+        let sidechains: Vec<Vec<Option<usize>>> = project
+            .tracks
+            .iter()
+            .map(|track| {
+                let mut sources = Vec::new();
+                if let Some(inst) = track.instrument.as_ref().and_then(|i| i.as_single()) {
+                    if let Some(source_id) = &inst.sidechain_source_track_id {
+                        let idx = project.tracks.iter().position(|t| t.id.to_string() == *source_id);
+                        sources.push(idx);
+                    }
+                }
+                for node in &track.effects {
+                    if let Some(slot) = node.as_single() {
+                        if let Some(source_id) = &slot.sidechain_source_track_id {
+                            let idx = project.tracks.iter().position(|t| t.id.to_string() == *source_id);
+                            sources.push(idx);
+                        }
+                    }
+                }
+                sources
+            })
+            .collect();
+
+        self.prepared_graph_snapshot
+            .rebuild_for_routing(project.tracks.len(), routing_now.as_ref(), &sidechains);
+        self.sidechain_snapshot.swap(sidechains);
+        // NOTE: Deliberately skips sync_pool_to_arc() — device topology changes
+        // don't add/remove audio files from the pool.
+    }
+
     /// Lightweight clip-only snapshot rebuild for position/duration changes.
     ///
     /// Used by move_clip_cmd and resize_clip_cmd where only clip positions
@@ -2311,7 +2378,9 @@ impl ClipPoolState {
     fn sync_pool_to_arc(&self) {
         if let Ok(pool) = self.pool.lock() {
             let cloned = pool.clone();
-            log::info!(
+            // Demoted from info! → debug! to eliminate heap allocation string formatting
+            // during real-time playback. This runs on every rebuild_snapshot (34+ call sites).
+            log::debug!(
                 "[ClipPool] synced {} entries ({:.1} MB) to audio thread",
                 cloned.len(),
                 cloned.total_memory_bytes() as f64 / (1024.0 * 1024.0),

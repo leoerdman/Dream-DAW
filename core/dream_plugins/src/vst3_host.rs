@@ -2341,7 +2341,7 @@ unsafe extern "C" fn plug_frame_resize_view(
     let height = (rect.bottom - rect.top).max(100) as f64;
     let window = frame.window_ptr as id;
     unsafe {
-        let current_frame = window.frame();
+        let current_frame = NSWindow::frame(window);
 
         // ── BUG-W1 FIX: Use setContentSize to respect the title bar ──
         // `setFrame:display:` sets the entire window frame (including chrome).
@@ -2354,7 +2354,7 @@ unsafe extern "C" fn plug_frame_resize_view(
 
         // After setContentSize:, macOS keeps the bottom-left origin fixed.
         // We want to keep the top-left origin fixed (industry standard for DAWs).
-        let frame_after = window.frame();
+        let frame_after = NSWindow::frame(window);
         let y_adjustment = current_frame.size.height - frame_after.size.height;
         if y_adjustment.abs() > 0.001 {
             let adjusted_frame = NSRect::new(

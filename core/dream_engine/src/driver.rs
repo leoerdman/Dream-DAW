@@ -2308,6 +2308,15 @@ pub fn start_audio_thread_on_device(
                                 );
                             }
 
+                            // Safety cap: prevent active_notes from leaking unboundedly
+                            // if note-off UIDs are missed (e.g., rapid seek edge cases).
+                            // 128 simultaneous mapped notes is far beyond any legitimate
+                            // polyphony — drain oldest entries if exceeded.
+                            if note_state.active_notes.len() > 128 {
+                                let excess = note_state.active_notes.len() - 128;
+                                note_state.active_notes.drain(..excess);
+                            }
+
                             // ── Mark slot active so the metering loop in
                             //    render_callback sees MIDI/sampler tracks.
                             slot.active = true;

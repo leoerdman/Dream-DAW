@@ -631,6 +631,26 @@ export const DeviceRack = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedTrackId]);
 
+    // ── SSOT: Clear ephemeral UI state on track switch ──────────────
+    // `localParams` and `localBypass` are short-lived caches for in-flight
+    // gestures.  They must NOT survive a track switch, because the backend
+    // automation_lanes are the Single Source of Truth for persisted values.
+    // Keeping stale localParams would override any backend changes made
+    // while the user was on another track (automation, undo, fetchProject).
+    useEffect(() => {
+        setLocalParams({});
+        setLocalBypass({});
+        // Cancel in-flight throttled sends — they target the OLD track.
+        for (const sender of throttledParamSendsRef.current.values()) sender.cancel();
+        throttledParamSendsRef.current.clear();
+        for (const sender of throttledExternalParamSendsRef.current.values()) sender.cancel();
+        throttledExternalParamSendsRef.current.clear();
+        pendingGestureCommitsRef.current.clear();
+        activeParamGesturesRef.current.clear();
+        pushedUndoForGestureRef.current.clear();
+        gestureGroupByParamKeyRef.current.clear();
+    }, [selectedTrackId]);
+
     // NOTE: We intentionally do NOT close all plugin editors on DeviceRack
     // unmount. The panel switch (Shift+Tab: rack ↔ clip) unmounts/remounts
     // DeviceRack, and closing editors here would crash because the audio
@@ -3176,11 +3196,18 @@ const PluginGuiSurface = ({
         function computeBiquadCoeffs(
             filterType: string, freq: number, q: number, gainDb: number, sr: number,
         ): BiquadCoeffs {
-            const omega = 2 * Math.PI * freq / sr;
+            // SSOT: clamp ranges must match Rust eq.rs set_param()
+            //   freq → clamp(20.0, 20000.0)
+            //   gain → clamp(-24.0, 24.0)
+            //   Q    → clamp(0.1, 18.0)
+            const clampedFreq = Math.max(20, Math.min(20000, freq));
+            const clampedQ = Math.max(0.1, Math.min(18, q));
+            const clampedGain = Math.max(-24, Math.min(24, gainDb));
+            const omega = 2 * Math.PI * clampedFreq / sr;
             const cosW = Math.cos(omega);
             const sinW = Math.sin(omega);
-            const alpha = sinW / (2 * Math.max(0.01, q));
-            const A = Math.pow(10, gainDb / 40); // sqrt of linear gain
+            const alpha = sinW / (2 * clampedQ);
+            const A = Math.pow(10, clampedGain / 40); // sqrt of linear gain
             const twoSqrtAAlpha = 2 * Math.sqrt(A) * alpha;
             let b0: number, b1: number, b2: number, a0: number, a1n: number, a2n: number;
             switch (filterType) {
@@ -3241,7 +3268,10 @@ const PluginGuiSurface = ({
             const num2 = numRe * numRe + numIm * numIm;
             const den2 = denRe * denRe + denIm * denIm;
             if (den2 < 1e-30) return 0;
-            return 10 * Math.log10(num2 / den2);
+            const ratio = num2 / den2;
+            // Floor to prevent -Infinity from log10(≈0) at deep notch points
+            if (ratio < 1e-20) return -200;
+            return 10 * Math.log10(ratio);
         }
 
         /* ── Build smooth EQ curve using exact biquad magnitude response ── */

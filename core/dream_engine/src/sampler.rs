@@ -594,6 +594,19 @@ impl SamplerEngine {
             return;
         }
 
+        // Prefer re-triggering a releasing voice on the same pitch.
+        // When note-off and note-on for the same pitch arrive at the same frame
+        // (common in rapid drum patterns and adjacent MIDI notes), re-using the
+        // releasing voice avoids wasting a voice slot on a silent release tail.
+        let retrigger = self.voices.iter_mut().find(|v| {
+            v.active && v.note == note && v.envelope.is_releasing()
+        });
+        if let Some(voice) = retrigger {
+            voice.envelope.set_params(&self.adsr_params);
+            voice.trigger(note, velocity, self.root_note);
+            return;
+        }
+
         // First: find an idle voice
         let slot = self.voices.iter_mut().find(|v| !v.active);
 

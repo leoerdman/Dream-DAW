@@ -549,8 +549,6 @@ export const DeviceRack = ({
         : meterPair ? dbToMeterNorm(meterPair[1].peak) : 0;
     const outLevelL = inLevelL;
     const outLevelR = inLevelR;
-    // Legacy single-value for backward compat
-    const inLevel = Math.max(inLevelL, inLevelR);
     const outLevel = Math.max(outLevelL, outLevelR);
 
     const masterProjectTrack = useMemo(

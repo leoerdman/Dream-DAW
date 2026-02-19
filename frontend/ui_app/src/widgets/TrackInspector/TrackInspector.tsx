@@ -4,6 +4,8 @@ import { useEngineStore } from '@/shared/stores/useEngineStore';
 import type { ProjectTrack } from '@/shared/stores/useEngineStore';
 import * as engineApi from '@/shared/api/engine';
 import { getContrastColor } from '@/shared/lib/colorUtils';
+import { MeterStrip } from '@/shared/ui/MeterStrip';
+import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import { vuNorm } from '@/shared/lib/audioMath';
 import { scrollSync } from '@/shared/lib/useScrollSync';
 
@@ -1979,70 +1981,27 @@ const TriColorVU = ({
 }) => {
     const lDb = peakDbL ?? peakDb;
     const rDb = peakDbR ?? peakDb;
-    const normL = vuNorm(lDb);
-    const normR = vuNorm(rDb);
+    const normL = dbToMeterNorm(lDb);
+    const normR = dbToMeterNorm(rDb);
     const meterHeight = trackHeight ? Math.max(14, trackHeight - 6) : (compact ? 28 : 32);
 
-    const lowColor = isMidi ? 'var(--color-meter-low-midi)' : 'var(--color-meter-low-audio)';
-    const midColor = isMidi ? 'var(--color-meter-mid-midi)' : 'var(--color-meter-mid-audio)';
-    const grad = `linear-gradient(to top, ${lowColor} 0%, ${midColor} 70%, var(--color-status-record) 100%)`;
-
-    // 3px left bar + 1px divider + 3px right bar = 7px inner (9px outer with border)
     return (
         <div style={{
             width: 9,
             height: meterHeight,
-            background: 'color-mix(in srgb, var(--surface-elevated) 84%, #000)',
-            borderRadius: 'var(--radius-xs)',
-            overflow: 'hidden',
             flexShrink: 0,
             position: 'relative',
-            border: '1px solid color-mix(in srgb, var(--text-primary) 14%, transparent)',
-            marginLeft: 0,
             filter: isEnabled ? 'none' : 'grayscale(1)',
             opacity: isEnabled ? 1 : 0.5,
             transition: `filter var(--transition-fast), opacity var(--transition-fast)`,
         }}>
-            {/* Left channel */}
-            <div style={{
-                position: 'absolute',
-                left: 0,
-                width: 3,
-                bottom: 0,
-                height: `${normL * 100}%`,
-                background: grad,
-                transition: 'height 70ms linear',
-            }} />
-            {/* Center divider */}
-            <div style={{
-                position: 'absolute',
-                left: 3,
-                width: 1,
-                top: 0,
-                bottom: 0,
-                background: 'color-mix(in srgb, var(--text-primary) 6%, transparent)',
-            }} />
-            {/* 0 dB horizontal divider line */}
-            <div style={{
-                position: 'absolute',
-                left: 0,
-                right: 0,
-                bottom: `${(60 / 66) * 100}%`,
-                height: 1,
-                background: 'color-mix(in srgb, var(--text-primary) 25%, transparent)',
-                pointerEvents: 'none',
-                zIndex: 1,
-            }} />
-            {/* Right channel */}
-            <div style={{
-                position: 'absolute',
-                right: 0,
-                width: 3,
-                bottom: 0,
-                height: `${normR * 100}%`,
-                background: grad,
-                transition: 'height 70ms linear',
-            }} />
+            <MeterStrip
+                levelL={normL}
+                levelR={normR}
+                isMidi={isMidi}
+                width={9}
+                style={{ position: 'absolute', inset: 0 }}
+            />
         </div>
     );
 };
@@ -2181,48 +2140,19 @@ const VerticalMixerStrip = ({
                     touchAction: 'none',
                 }}
             >
-                <div style={{
-                    position: 'absolute',
-                    left: 2,
-                    width: 3,
-                    bottom: 0,
-                    height: `${meterNormL * 100}%`,
-                    background: isMidi ? 'color-mix(in srgb, var(--color-btn-mute) 50%, transparent)' : 'color-mix(in srgb, var(--color-meter-normal) 50%, transparent)',
-                    pointerEvents: 'none',
-                    filter: 'inherit',
-                }} />
-                {/* Center divider */}
-                <div style={{
-                    position: 'absolute',
-                    left: '50%',
-                    marginLeft: 0,
-                    width: 1,
-                    top: 0,
-                    bottom: 0,
-                    background: 'color-mix(in srgb, var(--text-primary) 6%, transparent)',
-                    pointerEvents: 'none',
-                }} />
-                {/* 0 dB horizontal divider line */}
-                <div style={{
-                    position: 'absolute',
-                    left: 0,
-                    right: 0,
-                    bottom: `${(60 / 66) * 100}%`,
-                    height: 1,
-                    background: 'color-mix(in srgb, var(--text-primary) 25%, transparent)',
-                    pointerEvents: 'none',
-                    zIndex: 1,
-                }} />
-                <div style={{
-                    position: 'absolute',
-                    right: 2,
-                    width: 3,
-                    bottom: 0,
-                    height: `${meterNormR * 100}%`,
-                    background: isMidi ? 'color-mix(in srgb, var(--color-btn-mute) 50%, transparent)' : 'color-mix(in srgb, var(--color-meter-normal) 50%, transparent)',
-                    pointerEvents: 'none',
-                    filter: 'inherit',
-                }} />
+                {/* Meter bars — unified MeterStrip layer */}
+                <MeterStrip
+                    levelL={meterNormL}
+                    levelR={meterNormR}
+                    isMidi={isMidi}
+                    width={16}
+                    show0dBLine={true}
+                    style={{
+                        position: 'absolute',
+                        inset: 0,
+                        pointerEvents: 'none',
+                    }}
+                />
                 <div style={{
                     position: 'absolute',
                     left: 0,

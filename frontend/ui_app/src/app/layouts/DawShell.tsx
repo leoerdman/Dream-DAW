@@ -21,7 +21,7 @@ import { useBrowserDnDOrchestrator } from '@/shared/hooks/useBrowserDnDOrchestra
 import { divisionToInterval } from '@/shared/lib/gridSnap';
 import { beatToFrame, beatDurationToFrames, frameToBeat } from '@/shared/lib/audioMath';
 import { MeterStrip } from '@/shared/ui/MeterStrip';
-import { dbToMeterNorm, formatDb } from '@/shared/lib/meterManifest';
+import { dbToMeterNorm } from '@/shared/lib/meterManifest';
 import { getContrastColor } from '@/shared/lib/colorUtils';
 import { scrollSync } from '@/shared/lib/useScrollSync';
 import { useStatusStore } from '@/shared/stores/useStatusStore';

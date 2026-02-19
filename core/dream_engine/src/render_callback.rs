@@ -31,6 +31,14 @@ use std::sync::Arc;
 /// Module-level atomic counter for pool misses (RT-safe, no per-miss allocation).
 static POOL_MISS_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+/// BUG-64 FIX: Expose pool miss count for runtime diagnostics.
+/// Returns the total number of clips that could not be found in the clip pool
+/// or streaming windows since engine start.
+#[inline]
+pub fn pool_miss_count() -> u32 {
+    POOL_MISS_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────
 
 /// Maximum number of tracks supported per project.
@@ -194,7 +202,8 @@ impl RenderContext {
             sample_rate,
             timeline_sample_rate: sample_rate,
             timeline_advance_accumulator: 0.0,
-            channels,
+            // BUG-94 FIX: Guard against 0 channels to prevent div-by-zero in interleave.
+            channels: channels.max(1),
             meter_bank,
             loop_region: None,
             streaming_windows: std::collections::HashMap::new(),
@@ -214,6 +223,9 @@ impl RenderContext {
         self.timeline_sample_rate = sr;
         self.playhead.set_sample_rate(sr);
         self.timeline_advance_accumulator = 0.0;
+        // BUG-13 FIX: Recompute fade curves when timeline SR changes.
+        // Without this, fades use the original SR → wrong duration.
+        self.fade_cache = FadeCache::new(sr);
     }
 
     /// The core render function — called once per audio buffer.

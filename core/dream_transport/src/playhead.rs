@@ -157,6 +157,13 @@ impl Playhead {
     pub fn set_sample_rate(&mut self, sample_rate: f64) {
         if sample_rate.is_finite() && sample_rate > 0.0 {
             self.sample_rate = sample_rate;
+        } else {
+            // BUG-92 FIX: Don't silently ignore invalid sample rates.
+            log::warn!(
+                "[Playhead] Rejected invalid sample rate: {} (keeping {:.0}Hz)",
+                sample_rate,
+                self.sample_rate
+            );
         }
     }
 }

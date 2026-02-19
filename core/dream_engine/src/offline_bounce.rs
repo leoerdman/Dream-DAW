@@ -162,14 +162,22 @@ impl OfflineBouncer {
             .collect();
 
         // ── Phase 2: Propagate group mute/solo to children ──────────
-        // If a group track is disabled, all tracks routing to it must
-        // also be disabled. Walk the routing chain transitively.
+        // BUG-21 FIX: Use transitive closure instead of single pass.
+        // If group A→B→C and C is muted, both B and A must be disabled.
+        // Iterate until no changes occur (convergence in O(depth) passes).
         let mut effective_enabled = track_enabled.clone();
-        for (src_idx, dest) in routing.iter().enumerate() {
-            if let Some(group_idx) = dest {
-                if !effective_enabled[*group_idx] {
-                    effective_enabled[src_idx] = false;
+        loop {
+            let mut changed = false;
+            for (src_idx, dest) in routing.iter().enumerate() {
+                if let Some(group_idx) = dest {
+                    if effective_enabled[src_idx] && !effective_enabled[*group_idx] {
+                        effective_enabled[src_idx] = false;
+                        changed = true;
+                    }
                 }
+            }
+            if !changed {
+                break;
             }
         }
 

@@ -278,6 +278,11 @@ impl SharedExternalFxSnapshot {
     pub fn load(&self) -> arc_swap::Guard<Arc<Vec<Vec<ExternalFxRuntimeSlot>>>> {
         self.inner.load()
     }
+
+    // BUG-100 FIX: Expose generation counter for consistency with other snapshots.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
+    }
 }
 
 impl Default for SharedExternalFxSnapshot {
@@ -467,29 +472,9 @@ impl Default for SharedAutomationSnapshot {
     }
 }
 
-/// Transparent soft-knee limiter for the master bus.
-///
-/// - Below ±1.0: passes through **unchanged** (0 dB of compression).
-/// - Above ±1.0: soft-knee compression that asymptotically approaches ±1.5,
-///   preventing hard digital clipping while preserving transient shape.
-///
-/// This replaces the previous `x / (1 + |x|)` waveshaper which compressed
-/// ALL signals (even –6 dBFS content was crushed by 34%).
-#[inline]
-fn soft_clip(sample: f32) -> f32 {
-    let abs = sample.abs();
-    if abs <= 1.0 {
-        sample // transparent below 0 dBFS
-    } else {
-        // Soft-knee: 1.0 + 0.5 * tanh(excess)
-        // Uses the identity tanh(x) = 1 - 2/(e^(2x)+1) to avoid libm dependency.
-        // Clamp excess to prevent exp() overflow → inf/inf = NaN at extreme levels.
-        let excess = (abs - 1.0).min(20.0);
-        let e2x = (2.0 * excess).exp();
-        let tanh_val = (e2x - 1.0) / (e2x + 1.0);
-        sample.signum() * (1.0 + 0.5 * tanh_val)
-    }
-}
+// BUG-2 FIX: soft_clip is canonically defined in render_callback.rs.
+// Import it from there to eliminate SSOT violation.
+use crate::render_callback::soft_clip;
 
 #[inline]
 fn eval_automation_with_cursor(

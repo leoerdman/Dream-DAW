@@ -579,6 +579,17 @@ const INTERNAL_PLUGINS: PluginManifestEntry[] = [
         supportsSettings: true,
         supportsSidechain: false,
     },
+    {
+        id: 'internal://effect/analyzer',
+        name: 'Analyzer',
+        category: 'effect',
+        effectType: 'spectrum',
+        format: 'INT',
+        hasEditor: false,
+        cardWidth: 520,
+        supportsSettings: true,
+        supportsSidechain: false,
+    },
 
     // ─── MIDI FX ───
     {

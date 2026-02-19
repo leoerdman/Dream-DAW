@@ -138,20 +138,20 @@ impl TransportController {
             TransportCommand::Play => {
                 if self.state == TransportState::Stopped {
                     self.state = TransportState::Playing;
-                    log::info!("Transport: Playing");
+                    log::debug!("Transport: Playing");
                     return true;
                 }
             }
             TransportCommand::Stop => {
                 if self.state != TransportState::Stopped {
                     self.state = TransportState::Stopped;
-                    log::info!("Transport: Stopped");
+                    log::debug!("Transport: Stopped");
                     return true;
                 }
             }
             TransportCommand::ReturnToZero => {
                 self.state = TransportState::Stopped;
-                log::info!("Transport: Return to zero");
+                log::debug!("Transport: Return to zero");
                 return true;
             }
             TransportCommand::Seek { .. } => {
@@ -159,9 +159,13 @@ impl TransportController {
                 return true;
             }
             TransportCommand::Record => {
-                if self.state == TransportState::Stopped {
+                // BUG-66 FIX: Allow recording from both Stopped AND Playing states.
+                // Professional DAWs support punch-in recording while playing.
+                if self.state == TransportState::Stopped
+                    || self.state == TransportState::Playing
+                {
                     self.state = TransportState::Recording;
-                    log::info!("Transport: Recording");
+                    log::debug!("Transport: Recording");
                     return true;
                 }
             }

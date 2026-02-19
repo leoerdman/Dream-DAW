@@ -9,7 +9,7 @@
 //   1. Iterates nodes in topological order (sources first, master last).
 //   2. Reads clip audio for Track nodes.
 //   3. Calls PluginInstance::process() for Effect nodes.
-//   4. Sums input buffers for Bus nodes.
+//   4. Sums input buffers for Bus nodes (Routing edges only, NOT Sidechain).
 //   5. Applies PDC delay compensation.
 //   6. Writes the final result to the output buffer.
 //
@@ -323,8 +323,8 @@ pub struct GraphRenderer {
     /// Edge-level PDC delay lines.
     edge_pdc_delays: Vec<EdgeDelayRuntime>,
 
-    /// Incoming edge lookup per destination node: (src_idx, edge_runtime_idx).
-    edge_inputs_by_dst: Vec<Vec<(usize, usize)>>,
+    /// Incoming edge lookup per destination node: (src_idx, edge_runtime_idx, edge_kind).
+    edge_inputs_by_dst: Vec<Vec<(usize, usize, crate::dag::AudioEdgeKind)>>,
 
     /// Scratch buffer reused for edge delay processing.
     edge_scratch: NodeBuffer,
@@ -413,7 +413,7 @@ impl GraphRenderer {
             }
         }
 
-        self.configure_edge_pdc(&plan.edge_delay_compensation);
+        self.configure_edge_pdc(&plan.edge_delay_compensation, dag);
 
         // Topology/latency changes can leave stale samples in delay lines.
         // Reset runtime buffers after every plan reconfiguration.
@@ -430,11 +430,9 @@ impl GraphRenderer {
                 .filter(|e| e.delay_samples > 0)
                 .count(),
         );
-
-        let _ = dag; // Used in future for per-node metadata inspection
     }
 
-    fn configure_edge_pdc(&mut self, edge_plan: &[EdgeDelayCompensation]) {
+    fn configure_edge_pdc(&mut self, edge_plan: &[EdgeDelayCompensation], dag: &crate::dag::AudioDag) {
         self.edge_pdc_delays.clear();
         for dst in &mut self.edge_inputs_by_dst {
             dst.clear();
@@ -447,12 +445,19 @@ impl GraphRenderer {
                 continue;
             }
 
+            // Look up edge kind from the DAG to differentiate Routing from Sidechain.
+            let edge_kind = dag.graph()
+                .edges_directed(edge.to, petgraph::Direction::Incoming)
+                .find(|e| e.source() == edge.from)
+                .map(|e| e.weight().kind)
+                .unwrap_or(crate::dag::AudioEdgeKind::Routing);
+
             let mut delay = PdcDelayLine::new(MAX_PDC_DELAY_SAMPLES);
             delay.set_delay(edge.delay_samples as usize);
 
             let runtime_idx = self.edge_pdc_delays.len();
             self.edge_pdc_delays.push(EdgeDelayRuntime { delay });
-            self.edge_inputs_by_dst[dst_idx].push((src_idx, runtime_idx));
+            self.edge_inputs_by_dst[dst_idx].push((src_idx, runtime_idx, edge_kind));
         }
     }
 
@@ -499,11 +504,19 @@ impl GraphRenderer {
 
         let node = dag.node(node_idx);
 
-        // a) Sum inputs into node buffer (edge-level PDC if configured).
+        // a) Sum inputs into node buffer (Routing edges ONLY).
+        //    Sidechain edges are ordering-only — their audio is read separately
+        //    by the plugin host via sidechain_track_index lookups.
         if idx < self.edge_inputs_by_dst.len() && !self.edge_inputs_by_dst[idx].is_empty() {
             let edge_input_len = self.edge_inputs_by_dst[idx].len();
             for i in 0..edge_input_len {
-                let (src_idx, edge_runtime_idx) = self.edge_inputs_by_dst[idx][i];
+                let (src_idx, edge_runtime_idx, edge_kind) = self.edge_inputs_by_dst[idx][i];
+
+                // CRITICAL: Skip sidechain edges — do NOT mix their audio.
+                if edge_kind == crate::dag::AudioEdgeKind::Sidechain {
+                    continue;
+                }
+
                 if src_idx >= self.node_buffers.len()
                     || src_idx == idx
                     || edge_runtime_idx >= self.edge_pdc_delays.len()
@@ -543,6 +556,11 @@ impl GraphRenderer {
                 .graph()
                 .edges_directed(node_idx, petgraph::Direction::Incoming)
             {
+                // CRITICAL: Skip sidechain edges — do NOT mix their audio.
+                if edge.weight().kind == crate::dag::AudioEdgeKind::Sidechain {
+                    continue;
+                }
+
                 let src_idx = edge.source().index();
                 if src_idx >= self.node_buffers.len() || src_idx == idx {
                     continue;

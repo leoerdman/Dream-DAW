@@ -18,7 +18,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.3.26"
+version = "0.3.33"
 edition = "2024"
 license = "Proprietary"
 
@@ -41,6 +41,7 @@ hound = "3.5"
 mp3lame-encoder = "0.2"
 parking_lot = "0.12"
 arc-swap = "1.7"
+rustfft = "6.4"
 libloading = "0.8"
 
 # ── Release Profile (Enterprise) ────────────────────────────────────────

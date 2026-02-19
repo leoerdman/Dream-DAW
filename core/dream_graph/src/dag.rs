@@ -83,11 +83,23 @@ impl AudioNode {
 
 // ── Edge Type ───────────────────────────────────────────────────────────
 
-/// An edge in the audio graph. Currently carries no data (audio buffers
-/// are managed separately by the execution plan), but the type exists
-/// for future extension (e.g., gain, channel mapping).
+/// Distinguishes edges that carry audio signal from ordering-only edges.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AudioEdgeKind {
+    /// Normal audio routing edge — audio is mixed into the destination.
+    #[default]
+    Routing,
+    /// Sidechain dependency edge — ensures topological ordering but
+    /// audio is NOT mixed into the destination's main bus.
+    /// The sidechain audio is read separately by the plugin host.
+    Sidechain,
+}
+
+/// An edge in the audio graph.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct AudioEdge;
+pub struct AudioEdge {
+    pub kind: AudioEdgeKind,
+}
 
 // ── Audio DAG ───────────────────────────────────────────────────────────
 
@@ -245,12 +257,25 @@ impl GraphBuilder {
     /// # Errors
     /// - `NodeNotFound` if either ID doesn't exist.
     /// - `ConnectionWouldCycle` if the edge would create a feedback loop.
-    pub fn add_edge(mut self, from_id: NodeId, to_id: NodeId) -> Result<Self, GraphError> {
+    pub fn add_edge(self, from_id: NodeId, to_id: NodeId) -> Result<Self, GraphError> {
+        self.add_edge_typed(from_id, to_id, AudioEdgeKind::Routing)
+    }
+
+    /// Connects two nodes with an explicit edge kind.
+    ///
+    /// `AudioEdgeKind::Sidechain` edges enforce topological ordering
+    /// but do NOT cause audio mixing in the renderer.
+    pub fn add_edge_typed(
+        mut self,
+        from_id: NodeId,
+        to_id: NodeId,
+        kind: AudioEdgeKind,
+    ) -> Result<Self, GraphError> {
         let from_idx = self.find_index(from_id)?;
         let to_idx = self.find_index(to_id)?;
 
         // Temporarily add the edge to check for cycles.
-        let edge_idx = self.graph.add_edge(from_idx, to_idx, AudioEdge);
+        let edge_idx = self.graph.add_edge(from_idx, to_idx, AudioEdge { kind });
 
         if algo::is_cyclic_directed(&self.graph) {
             // Remove the offending edge before returning the error.

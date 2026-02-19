@@ -1604,6 +1604,7 @@ async fn export_mix_cmd(
     project_state: tauri::State<'_, ProjectState>,
     clip_pool_state: tauri::State<'_, ClipPoolState>,
     handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
 ) -> Result<String, String> {
     let project = project_state.project.lock().map_err(|e| e.to_string())?.clone();
 
@@ -1674,6 +1675,10 @@ async fn export_mix_cmd(
         project_sample_rate: project.sample_rate.max(1.0),
     };
 
+    // ── VST3 instrument pre-render: clone host + slot map for spawn_blocking ──
+    let plugin_host_arc = std::sync::Arc::clone(&plugin_host_state.host);
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+
     let (job_id, job_cancel) = start_job(&app, "export_mix", true)?;
     
     // Reset cancel flag and execute export as detached background worker.
@@ -1684,10 +1689,218 @@ async fn export_mix_cmd(
     let job_id_for_progress = job_id.clone();
     let job_id_for_finish = job_id.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let export_sample_rate = cfg.sample_rate;
         let mut bouncer = OfflineBouncer::new(cfg);
         bouncer.cancel_flag = std::sync::Arc::clone(&cancel_flag);
         let mut project = project;
         let mut local_pool = local_pool;
+
+        // ── CRITICAL: Pre-render VST3 instrument MIDI tracks ──────────
+        // Tracks with MIDI clips but NO sampler config are VST3 instrument
+        // tracks (e.g. Serum). The built-in OfflineBouncer::pre_render_midi_tracks()
+        // only handles sampler-based instruments. We must pre-render VST3
+        // instrument tracks HERE where we have access to the PluginHost.
+        {
+            let sample_rate = export_sample_rate;
+            let total_frames = (end_frame - start_frame).max(0) as usize;
+            const CHUNK_FRAMES: usize = 4096;
+
+            if total_frames > 0 {
+                let mut vst3_rendered = 0usize;
+
+                for track_idx in 0..project.tracks.len() {
+                    let track = &project.tracks[track_idx];
+
+                    // Skip tracks without MIDI clips.
+                    if track.midi_clips.is_empty() {
+                        continue;
+                    }
+
+                    // Skip tracks WITH a sampler config — those are handled
+                    // by OfflineBouncer::pre_render_midi_tracks().
+                    if track.sampler.is_some() {
+                        continue;
+                    }
+
+                    // ── Find VST3 instrument instance for this track ──
+                    let instrument_slot_id = match &track.instrument {
+                        Some(DeviceNode::Single(slot)) => Some(slot.id),
+                        Some(DeviceNode::Rack(rack)) => {
+                            // For instrument racks, find the first plugin slot
+                            rack.chains
+                                .iter()
+                                .flat_map(|chain| chain.devices.iter())
+                                .find_map(|dev| match dev {
+                                    DeviceNode::Single(slot) => Some(slot.id),
+                                    _ => None,
+                                })
+                        }
+                        None => None,
+                    };
+
+                    let Some(slot_id) = instrument_slot_id else {
+                        log::warn!(
+                            "[Export/VST3-MIDI] Track '{}' has {} MIDI clips but no instrument — skipping",
+                            track.name, track.midi_clips.len()
+                        );
+                        continue;
+                    };
+
+                    let Some(instance_id) = slot_instance_map.get(&slot_id).copied() else {
+                        log::warn!(
+                            "[Export/VST3-MIDI] Track '{}': instrument slot {} not bound to any instance — skipping",
+                            track.name, slot_id
+                        );
+                        continue;
+                    };
+
+                    log::info!(
+                        "[Export/VST3-MIDI] Pre-rendering track '{}': {} clips, instance={}, {} frames",
+                        track.name, track.midi_clips.len(), instance_id, total_frames
+                    );
+
+                    // ── Pre-render buffer by buffer ───────────────
+                    let midi_clips = track.midi_clips.clone();
+                    let track_name = track.name.clone();
+
+                    let mut out_left = vec![0.0f32; total_frames];
+                    let mut out_right = vec![0.0f32; total_frames];
+
+                    let mut schedule_scratch: Vec<dream_clip_engine::midi_scheduler::ScheduledNote> = Vec::new();
+                    let mut frames_done = 0usize;
+                    let mut playhead = start_frame;
+
+                    while frames_done < total_frames {
+                        let remaining = total_frames - frames_done;
+                        let chunk_frames = remaining.min(CHUNK_FRAMES);
+
+                        // Schedule MIDI events for this buffer window.
+                        MidiScheduler::fill_active(
+                            &midi_clips,
+                            playhead,
+                            chunk_frames,
+                            &mut schedule_scratch,
+                        );
+
+                        // Convert to VST3 MidiEvent format.
+                        let mut midi_events: Vec<PluginMidiEvent> = Vec::new();
+                        for event in &schedule_scratch {
+                            if event.is_note_off {
+                                midi_events.push(PluginMidiEvent::note_off(
+                                    event.buffer_offset_end.min(chunk_frames) as i32,
+                                    0,
+                                    event.pitch,
+                                    0,
+                                ));
+                            }
+                            if event.is_note_on {
+                                midi_events.push(PluginMidiEvent::note_on(
+                                    event.buffer_onset.min(chunk_frames) as i32,
+                                    0,
+                                    event.pitch,
+                                    event.velocity,
+                                ));
+                            }
+                        }
+
+                        // Sort: by sample_offset, then note-off before note-on at same offset
+                        midi_events.sort_by(|a, b| {
+                            a.sample_offset.cmp(&b.sample_offset)
+                                .then_with(|| a.data[0].cmp(&b.data[0]))
+                        });
+
+                        // ── Process through VST3 plugin ──────────
+                        let mut chunk_left = vec![0.0f32; chunk_frames];
+                        let mut chunk_right = vec![0.0f32; chunk_frames];
+
+                        // Lock plugin host, process one chunk, release immediately.
+                        {
+                            let silence_l = vec![0.0f32; chunk_frames];
+                            let silence_r = vec![0.0f32; chunk_frames];
+                            let inputs: [&[f32]; 2] = [&silence_l, &silence_r];
+                            let mut outputs: [&mut [f32]; 2] = [&mut chunk_left, &mut chunk_right];
+
+                            match plugin_host_arc.lock() {
+                                Ok(mut host) => {
+                                    if let Err(e) = host.process_with_sidechain(
+                                        instance_id,
+                                        &inputs,
+                                        None,
+                                        &mut outputs,
+                                        chunk_frames,
+                                        &midi_events,
+                                    ) {
+                                        log::warn!(
+                                            "[Export/VST3-MIDI] process_with_sidechain failed for '{}': {}",
+                                            track_name, e
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    log::error!(
+                                        "[Export/VST3-MIDI] PluginHost lock poisoned: {}",
+                                        e
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+
+                        // Copy chunk into output buffers.
+                        out_left[frames_done..frames_done + chunk_frames]
+                            .copy_from_slice(&chunk_left[..chunk_frames]);
+                        out_right[frames_done..frames_done + chunk_frames]
+                            .copy_from_slice(&chunk_right[..chunk_frames]);
+
+                        frames_done += chunk_frames;
+                        playhead += chunk_frames as i64;
+                    }
+
+                    // ── Check if anything was rendered ──────────
+                    let peak = out_left.iter().chain(out_right.iter())
+                        .fold(0.0f32, |acc, &s| acc.max(s.abs()));
+
+                    if peak < 1e-7 {
+                        log::warn!(
+                            "[Export/VST3-MIDI] Track '{}': pre-render produced silence (peak={:.2e})",
+                            track_name, peak
+                        );
+                        // Still add the clip — silence is valid (e.g. if all notes are outside range)
+                    } else {
+                        log::info!(
+                            "[Export/VST3-MIDI] Track '{}': pre-render complete, peak={:.4}, {} frames",
+                            track_name, peak, total_frames
+                        );
+                    }
+
+                    // ── Create synthetic ClipAudio + AudioClip ──
+                    let synth_path = format!("__vst3_midi_prerender__/track_{}", track_idx);
+                    let clip_audio = ClipAudio::new(
+                        synth_path.clone(),
+                        vec![out_left, out_right],
+                        sample_rate,
+                    );
+                    local_pool.insert(clip_audio);
+
+                    let synth_clip = AudioClip::new(
+                        format!("{} (VST3 Pre-render)", track_name),
+                        synth_path,
+                        AbsoluteTime::new(start_frame),
+                        AbsoluteTime::new(total_frames as i64),
+                    );
+                    project.tracks[track_idx].clips.push(synth_clip);
+                    vst3_rendered += 1;
+                }
+
+                if vst3_rendered > 0 {
+                    log::info!(
+                        "[Export/VST3-MIDI] Pre-rendered {} VST3 instrument track(s)",
+                        vst3_rendered
+                    );
+                }
+            }
+        }
+
         let result = bouncer
             .bounce(&mut project, &mut local_pool, None, move |progress| {
                 let payload = serde_json::json!({

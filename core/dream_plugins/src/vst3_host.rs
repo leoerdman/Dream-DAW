@@ -4221,9 +4221,22 @@ impl PluginInstance for Vst3Instance {
                         );
                         self.sidechain_bus_active = false;
                     }
-                    if self.audio_output_bus_count > 0 {
+                    // ── VST3 Spec: Activate ALL audio output buses ──
+                    // Plugins like ShaperBox 3 declare 2 output buses:
+                    //   bus 0 = main audio output
+                    //   bus 1 = sidechain monitor output
+                    //
+                    // If bus 1 is NOT activated, the plugin has no place to
+                    // write its sidechain monitor signal and MIXES it into
+                    // bus 0, causing sidechain audio to be heard in the
+                    // main output (duplication bug).
+                    //
+                    // Fix: activate ALL declared output buses. Bus 0 output
+                    // is used as the track's audio; bus 1+ outputs go to
+                    // scratch buffers and are discarded (see process()).
+                    for bus_idx in 0..self.audio_output_bus_count {
                         let _ = ((*(*component).vtbl).activate_bus)(
-                            component, K_AUDIO, K_OUTPUT, 0, 1,
+                            component, K_AUDIO, K_OUTPUT, bus_idx, 1,
                         );
                     }
 

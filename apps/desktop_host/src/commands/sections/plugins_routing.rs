@@ -1010,6 +1010,26 @@ fn ensure_plugin_slot_active_cmd(
 
     let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)?;
     plugin_host_state.bind_slot_instance(slot.id, instance_id);
+
+    // Restore per-slot saved state (preset, knob positions, EQ, etc.)
+    // Without this, plugins activated for audio processing after project
+    // reload would lose their saved settings (e.g., ShaperBox3 EQ points).
+    if slot.external_state_blob.is_some() || slot.external_preset_blob.is_some() {
+        if let Ok(mut host) = plugin_host_state.host.lock() {
+            if let Err(err) = apply_imported_external_state_blob(&mut host, instance_id, &slot) {
+                log::warn!(
+                    "[IPC] ensure_plugin_slot_active_cmd: state restore failed for '{}': {}",
+                    slot.name, err
+                );
+            } else {
+                log::info!(
+                    "[IPC] ensure_plugin_slot_active_cmd: restored state for '{}' (slot {})",
+                    slot.name, slot.id
+                );
+            }
+        }
+    }
+
     clip_pool_state.rebuild_external_fx_snapshot(&project, plugin_host_state.slot_instance_snapshot().as_ref());
     log::info!(
         "[IPC] ensure_plugin_slot_active_cmd(track={}, slot={}) -> instance {}",
@@ -1589,6 +1609,14 @@ fn get_external_plugin_params_for_slot(
     let instance_id = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id)?;
     plugin_host_state.bind_slot_instance(slot.id, instance_id);
 
+    // Restore saved state before reading parameters so we report the
+    // actual preset values instead of plugin defaults.
+    if slot.external_state_blob.is_some() || slot.external_preset_blob.is_some() {
+        if let Ok(mut host) = plugin_host_state.host.lock() {
+            let _ = apply_imported_external_state_blob(&mut host, instance_id, &slot);
+        }
+    }
+
     let mut host = plugin_host_state.host.lock().map_err(|e| e.to_string())?;
     let Some(instance) = host.get_mut(instance_id) else {
         return Ok(fallback_param_block(metadata_count));
@@ -2033,8 +2061,16 @@ fn add_plugin_to_track_cmd(
         if merged.contains("redux") {
             return Some(("internal://effect/bitcrusher", "Bitcrusher", "effect"));
         }
-        if merged.contains("overdrive") || merged.contains("pedal") || merged.contains("cabinet") || merged.contains("amp") {
-            return Some(("internal://effect/distortion", "Distortion", "effect"));
+        {
+            let pid = plugin_id.to_lowercase();
+            let pname = plugin_name.to_lowercase();
+            if merged.contains("overdrive")
+                || pid == "pedal" || pname == "pedal"
+                || pid == "cabinet" || pname == "cabinet"
+                || pid == "amp" || pname == "amp"
+            {
+                return Some(("internal://effect/distortion", "Distortion", "effect"));
+            }
         }
 
         None

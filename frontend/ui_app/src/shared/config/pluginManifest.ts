@@ -810,7 +810,10 @@ export function resolvePlugin(
     const isVstFormat = format === 'VST2' || format === 'VST3' || format === 'AU';
     const effectType = detectExternalEffectType(name, isInstrumentSlot);
     const category: PluginCategory = isInstrumentSlot ? 'instrument' : 'effect';
-    const cardWidth = EFFECT_TYPE_DEFAULT_WIDTHS[effectType] ?? 160;
+    // External VST/AU plugins use native editor windows — the card is only
+    // a compact header (bypass, UI, sidechain). Use a uniform width for
+    // consistent visual appearance regardless of detected effectType.
+    const cardWidth = isVstFormat ? 200 : (EFFECT_TYPE_DEFAULT_WIDTHS[effectType] ?? 200);
 
     return {
         effectType,

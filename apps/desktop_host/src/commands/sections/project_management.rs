@@ -5,6 +5,66 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
     let merged = format!("{} {}", plugin_id, plugin_name).to_lowercase();
     let compact = merged.replace(|c: char| !c.is_ascii_alphanumeric(), "");
 
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // CRITICAL GUARD: Known third-party VST3/VST2 plugin families.
+    // These must NEVER be mapped to internal devices. If any keyword in
+    // the merged string matches a known third-party signature, bail out
+    // immediately so the caller can create a proper missing:// placeholder.
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const THIRD_PARTY_SIGNATURES: &[&str] = &[
+        // Cableguys
+        "shaperbox", "volumeshaper", "pancake", "filtershaper", "timeshaper",
+        "midishaper", "wideshaper", "kickshaper", "noiseshaper", "driveshaper",
+        // FabFilter
+        "fabfilter", "pro-q", "proq", "pro-c", "proc2", "pro-r", "pror",
+        "pro-l", "prol2", "pro-mb", "promb", "pro-ds", "pro-g",
+        // iZotope
+        "izotope", "ozone", "neutron", "nectar", "rx ", "vinyl",
+        // Waves
+        "waves ", "waveshell", "ssl ", "abbey road",
+        // Xfer Records
+        "serum", "serumfx", "ott ", "lfotool",
+        // Native Instruments
+        "kontakt", "reaktor", "massive", "battery", "guitar rig",
+        "fm8", "absynth", "supercharger",
+        // Soundtoys
+        "soundtoys", "decapitator", "echoboy", "crystallizer", "panman",
+        "radiator", "ein", "little",
+        // Valhalla
+        "valhalla", "val ",
+        // U-he
+        "u-he", "diva", "repro", "zebra", "hive", "presswerk",
+        // Arturia
+        "arturia", "pigments", "mini v", "jupiter", "jup-8",
+        // Slate Digital
+        "slate", "eiosis",
+        // Plugin Alliance
+        "plugin alliance", "brainworx", "bx_",
+        // Tokyo Dawn
+        "tdr ", "kotelnikov", "nova ",
+        // Kilohearts
+        "kilohearts", "phaseplant", "snapheap", "multipass",
+        // Spectrasonics
+        "omnisphere", "keyscape", "trilian",
+        // IK Multimedia
+        "amplitube", "t-racks", "tracks",
+        // Softube
+        "softube",
+        // Cherry Audio
+        "cherry audio",
+        // Output
+        "output portal", "output thermal",
+    ];
+    for sig in THIRD_PARTY_SIGNATURES {
+        if merged.contains(sig) {
+            log::debug!(
+                "[CanonicalPlugin] Skipping third-party plugin: '{}' / '{}' (matched '{}')",
+                plugin_id, plugin_name, sig
+            );
+            return None;
+        }
+    }
+
     if compact.contains("originalsimpler") || compact.contains("drift") || compact.contains("instrumentvector") {
         if compact.contains("originalsimpler") {
             return Some(("internal://instrument/sampler", "Sampler", "instrument"));
@@ -36,10 +96,15 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
         return Some(("internal://instrument/sampler", "Sampler", "instrument"));
     }
 
-    if merged.contains("eq") || merged.contains("channel eq") {
-        return Some(("internal://effect/eq-eight", "EQ", "effect"));
-    }
-    if compact.contains("proq") {
+    // EQ matching — ONLY match Ableton-native EQ device tags/display names.
+    // Never match broad substrings like "eq" that would catch third-party
+    // plugins (Pro-Q 3, SlickEQ, etc.). The third-party guard above also
+    // catches FabFilter Pro-Q explicitly.
+    if compact.contains("eq8") || compact.contains("eqeight")
+        || compact.contains("channeleq") || compact.contains("eqthree")
+        || compact.contains("filtereq") || compact == "eq"
+        || merged == "eq eight" || merged == "channel eq" || merged == "eq three"
+    {
         return Some(("internal://effect/eq-eight", "EQ", "effect"));
     }
     if merged.contains("compressor") || merged.contains("glue") || compact.contains("multibanddynamics") || compact.contains("drumbuss")
@@ -47,9 +112,9 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
     {
         return Some(("internal://effect/compressor", "Compressor", "effect"));
     }
-    if compact.contains("prol") || compact.contains("nectar") {
-        return Some(("internal://effect/compressor", "Compressor", "effect"));
-    }
+    // prol/nectar → Compressor: REMOVED. FabFilter Pro-L and iZotope Nectar
+    // are third-party plugins and are handled by the THIRD_PARTY_SIGNATURES
+    // guard above. They should never be mapped to internal devices.
     if merged.contains("delay") || merged.contains("echo") || merged.contains("ping pong")
         || compact.contains("beatrepeat") || compact.contains("graindelay")
         || compact.contains("filterdelay") || compact.contains("spectraltime")
@@ -146,13 +211,27 @@ fn canonical_internal_plugin_for_import(plugin_id: &str, plugin_name: &str) -> O
     if merged.contains("flanger") {
         return Some(("internal://effect/flanger", "Flanger", "effect"));
     }
-    if merged.contains("distortion") || merged.contains("overdrive") || merged.contains("pedal")
-        || merged.contains("cabinet") || merged.contains("amp") || merged.contains("shaper")
-        || merged.contains("erosion") || merged.contains("vocoder") || merged.contains("vinyl")
-        || merged.contains("transmute")
-        || compact.contains("roar")
+    // Ableton native distortion family — use precise matching to avoid
+    // catching third-party plugins (ShaperBox → "shaper", AmpliTube → "amp").
     {
-        return Some(("internal://effect/distortion", "Distortion", "effect"));
+        let pid = plugin_id.to_lowercase();
+        let pname = plugin_name.to_lowercase();
+        if merged.contains("distortion") || merged.contains("overdrive")
+            || merged.contains("erosion") || merged.contains("transmute")
+            || compact.contains("roar")
+            || merged.contains("transient shaper") || compact.contains("transientshaper")
+            || merged.contains("vinyl distortion") || compact.contains("vinyldistortion")
+            // Exact Ableton native device names (XML tags or display names).
+            // Only match when plugin_id IS the device tag or plugin_name IS
+            // the exact device name — never match substrings that could be
+            // part of third-party plugin names.
+            || pid == "pedal" || pname == "pedal"
+            || pid == "cabinet" || pname == "cabinet"
+            || pid == "amp" || pname == "amp"
+            || pid == "vocoder" || pname == "vocoder"
+        {
+            return Some(("internal://effect/distortion", "Distortion", "effect"));
+        }
     }
     if compact.contains("hybrid") {
         return Some(("internal://effect/reverb", "Reverb", "effect"));
@@ -5368,7 +5447,7 @@ fn import_track_devices(
                 canonical_internal_plugin_for_import("PluginDevice", &preferred_name)
             {
                 log::info!(
-                    "[ALS Import] Instrument CANONICAL: '{}' → internal '{}' (kind='{}')",
+                    "[ALS Import] PluginDevice CANONICAL: '{}' → internal '{}' (kind='{}')",
                     preferred_name, pid, slot_kind
                 );
                 import_internal_device_static_params(track, pid, device);
@@ -7378,8 +7457,12 @@ fn open_project(
             .sample_rate;
         import_als_project_with_target_sample_rate(&file_path, Some(runtime_sample_rate))?
     } else {
-        let mut project = ProjectFile::load(&file_path).map_err(|e| e.to_string())?;
-        normalize_internal_plugins_for_import(&mut project);
+        let project = ProjectFile::load(&file_path).map_err(|e| e.to_string())?;
+        // CRITICAL: Do NOT call normalize_internal_plugins_for_import() here.
+        // That normalizer is intended for ALS imports (where plugin names need
+        // mapping to internal://). Calling it on native .ddpj projects destroys
+        // external VST3 plugin IDs (e.g. ShaperBox3 → Distortion) because the
+        // keyword matcher hits on substrings like "shaper" in "ShaperBox".
         project
     };
     if importing_als {

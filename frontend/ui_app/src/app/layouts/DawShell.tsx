@@ -593,7 +593,7 @@ export const DawShell = () => {
     // Use position_beats directly from engine (single-source, no float round-trip)
     const playheadBeat = transportPositionBeats ?? 0;
 
-    const trackCount = Math.max(projectTracks.length, 1);
+    const trackCountRaw = Math.max(projectTracks.length, 1);
     const trackIds = useMemo(() => projectTracks.map((t) => t.id), [projectTracks]);
 
     // ── Sync collapsed groups from backend is_expanded field ──
@@ -646,6 +646,9 @@ export const DawShell = () => {
         }
         return hidden;
     }, [projectTracks, collapsedGroups]);
+    // ── trackCount must reflect VISIBLE tracks only (excluding collapsed children) ──
+    // Keeps Timeline canvas total height in sync with TrackInspector's visibleTracks.
+    const trackCount = Math.max(trackCountRaw - hiddenTrackIndices.size, 1);
     const selectedTrackIndex = useMemo(() => {
         if (!selectedTrackId || selectedTrackId === 'master') return -1;
         const rawIndex = projectTracks.findIndex((t) => t.id === selectedTrackId);

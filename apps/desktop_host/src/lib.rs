@@ -40,6 +40,7 @@ use std::time::Duration;
 
 use arc_swap::ArcSwap;
 
+use dream_clip_engine::midi_scheduler::MidiScheduler;
 use dream_clip_engine::pool::{ClipAudio, ClipPool};
 use dream_engine::driver::{
     parse_external_param_target, AutomationPoint, ExternalParamAutomationLane,
@@ -65,8 +66,8 @@ use dream_models::project::{
 use dream_models::time::AbsoluteTime;
 use dream_plugins::format::{PluginCategory, PluginFormat};
 use dream_plugins::{
-    PluginDescriptor, PluginHost, PluginSandboxConfig, PluginSandboxSnapshot,
-    PluginSandboxSupervisor, PluginScanner,
+    MidiEvent as PluginMidiEvent, PluginDescriptor, PluginHost, PluginSandboxConfig,
+    PluginSandboxSnapshot, PluginSandboxSupervisor, PluginScanner,
 };
 use midir::MidiInput;
 use serde::{Deserialize, Serialize};
@@ -128,6 +129,23 @@ struct AudioEngineHandle {
 
     /// Global shutdown flag (BUG-14)
     pub is_shutting_down: Arc<std::sync::atomic::AtomicBool>,
+}
+
+// ── Spectrum Analyzer State ────────────────────────────────────────────
+
+/// Inner mutable state for the spectrum analyzer (protected by Mutex).
+struct SpectrumStateInner {
+    /// Lock-free consumer of mono master output samples from the audio thread
+    consumer: rtrb::Consumer<f32>,
+    /// FFT analyzer — accumulates samples and computes spectrum
+    analyzer: dream_dsp::spectrum_analyzer::SpectrumAnalyzer,
+    /// Cached last magnitudes for when no new data is available
+    last_magnitudes: Vec<f32>,
+}
+
+/// Thread-safe Tauri managed state for the real-time spectrum analyzer.
+struct SpectrumState {
+    inner: Mutex<SpectrumStateInner>,
 }
 
 impl AudioEngineHandle {
@@ -3742,7 +3760,7 @@ pub fn run() {
     // Start the audio engine on a dedicated thread
     let clock_for_engine = Arc::clone(&master_clock);
     let meter_for_engine = Arc::clone(&meter_bank);
-    let stream = match dream_engine::driver::start_audio_thread_on_device(
+    let mut stream = match dream_engine::driver::start_audio_thread_on_device(
         consumer,
         clock_for_engine,
         meter_for_engine,
@@ -3772,6 +3790,28 @@ pub fn run() {
     // Capture output latency from the stream handle before boxing
     let output_latency_frames = stream.output_latency_frames;
     let resolved_output_device = stream.output_device_name.clone();
+
+    // Extract spectrum consumer from stream handle for real-time EQ display
+    let spectrum_consumer = stream.spectrum_consumer.take();
+    let spectrum_state = if let Some(consumer) = spectrum_consumer {
+        SpectrumState {
+            inner: Mutex::new(SpectrumStateInner {
+                consumer,
+                analyzer: dream_dsp::spectrum_analyzer::SpectrumAnalyzer::new(stream.sample_rate_hz as f32),
+                last_magnitudes: vec![dream_dsp::spectrum_analyzer::FLOOR_DB; dream_dsp::spectrum_analyzer::OUTPUT_BINS],
+            }),
+        }
+    } else {
+        // Fallback: create a dummy consumer (no audio data)
+        let (_producer, consumer) = rtrb::RingBuffer::<f32>::new(64);
+        SpectrumState {
+            inner: Mutex::new(SpectrumStateInner {
+                consumer,
+                analyzer: dream_dsp::spectrum_analyzer::SpectrumAnalyzer::new(stream.sample_rate_hz as f32),
+                last_magnitudes: vec![dream_dsp::spectrum_analyzer::FLOOR_DB; dream_dsp::spectrum_analyzer::OUTPUT_BINS],
+            }),
+        }
+    };
 
     let mut should_persist_resolved_output = false;
     {
@@ -3831,6 +3871,7 @@ pub fn run() {
         .manage(automation_runtime)
         .manage(midi_input_runtime)
         .manage(plugin_host_state)
+        .manage(spectrum_state)
         .invoke_handler(commands::invoke_handler())
         .setup(|app| {
             // ── Telemetry Push Thread (30fps) ─────────────────────────

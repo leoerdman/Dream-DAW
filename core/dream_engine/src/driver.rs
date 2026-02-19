@@ -26,7 +26,8 @@ use std::time::Instant;
 use arc_swap::ArcSwap;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use dream_graph::{
-    AudioDag, AudioNode, ExecutionPlan, GraphBuilder, GraphRenderer, LiveGraph, NodeId, NodeKind,
+    AudioDag, AudioEdgeKind, AudioNode, ExecutionPlan, GraphBuilder, GraphRenderer, LiveGraph,
+    NodeId, NodeKind,
 };
 use dream_plugins::{MidiEvent, PluginHost, TransportContext};
 use log::{error, info, warn};
@@ -918,7 +919,12 @@ fn build_dag_for_tracks(
                 if let Some(source_idx) = maybe_source {
                     if *source_idx < track_count && *source_idx != track_idx {
                         let source_node = NodeId((*source_idx as u64) + 1);
-                        match builder.clone().add_edge(source_node, from) {
+                        // Sidechain edges: ordering-only, audio NOT mixed.
+                        match builder.clone().add_edge_typed(
+                            source_node,
+                            from,
+                            AudioEdgeKind::Sidechain,
+                        ) {
                             Ok(next) => builder = next,
                             Err(err) => {
                                 // IMPORTANT: If adding a sidechain edge creates a cycle,
@@ -1263,6 +1269,11 @@ pub struct AudioStreamHandle {
 
     /// Resolved output device name that the stream is actually bound to.
     pub output_device_name: String,
+
+    /// Lock-free consumer for spectrum analyzer data.
+    /// The audio thread pushes master mono output samples into the paired producer.
+    /// The Tauri host reads from this consumer to compute FFT for the EQ display.
+    pub spectrum_consumer: Option<rtrb::Consumer<f32>>,
 }
 
 // ── Error Type ──────────────────────────────────────────────────────────
@@ -1486,6 +1497,11 @@ pub fn start_audio_thread_on_device(
         channels,
         Arc::clone(&meter_bank),
     );
+
+    // ── Spectrum analyzer ring buffer (lock-free: audio thread → UI thread) ──
+    let (spectrum_producer, spectrum_consumer) = rtrb::RingBuffer::new(8192);
+    render_ctx.spectrum_producer = Some(spectrum_producer);
+
     let mut graph_renderer = GraphRenderer::new(256, 8192);
     let prepared_graph = prepared_graph_snapshot.load();
     let mut graph_dag = prepared_graph.dag.clone();
@@ -2885,6 +2901,7 @@ pub fn start_audio_thread_on_device(
         sample_rate_hz: sample_rate,
         output_latency_frames,
         output_device_name: device_name,
+        spectrum_consumer: Some(spectrum_consumer),
     })
 }
 

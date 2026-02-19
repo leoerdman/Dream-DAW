@@ -8,5 +8,6 @@ license.workspace = true
 [dependencies]
 rubato = { workspace = true }
 log = { workspace = true }
+rustfft = { workspace = true }
 
 [dev-dependencies]

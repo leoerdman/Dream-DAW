@@ -20,6 +20,7 @@ include!("sections/audio_devices.rs");
 include!("sections/plugins_routing.rs");
 include!("sections/midi_input.rs");
 include!("sections/device_rack.rs");
+include!("sections/spectrum.rs");
 
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -196,5 +197,7 @@ pub(crate) fn invoke_handler(
         mark_dirty_cmd,
         sync_title_cmd,
         set_key_signature_cmd,
+        // Spectrum Analyzer
+        get_spectrum_data,
     ]
 }

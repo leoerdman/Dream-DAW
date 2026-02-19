@@ -135,6 +135,11 @@ pub struct RenderContext {
     scratch_active_clips: Vec<ActiveClipInfo>,
     /// Secondary scratch for loop-wrap scheduling.
     scratch_post_wrap_clips: Vec<ActiveClipInfo>,
+
+    /// Lock-free producer for spectrum analyzer feed.
+    /// Audio thread pushes mono-mixed master output samples here.
+    /// The consumer lives on the UI/spectrum thread and feeds FFT.
+    pub spectrum_producer: Option<rtrb::Producer<f32>>,
 }
 
 /// Transparent soft-knee limiter.
@@ -195,6 +200,7 @@ impl RenderContext {
             streaming_windows: std::collections::HashMap::new(),
             scratch_active_clips: Vec::with_capacity(1024),
             scratch_post_wrap_clips: Vec::with_capacity(1024),
+            spectrum_producer: None,
         }
     }
 
@@ -574,6 +580,16 @@ impl RenderContext {
                         output[idx] = 0.0;
                     }
                 }
+            }
+        }
+
+        // ── Feed spectrum analyzer (lock-free push) ───────────────
+        if let Some(producer) = &mut self.spectrum_producer {
+            for i in 0..frame_count {
+                let mono = (master_l[i] + master_r[i]) * 0.5;
+                // Best-effort push: if ring buffer is full, drop oldest
+                // (no stalling the audio thread under any circumstances)
+                let _ = producer.push(mono);
             }
         }
     }

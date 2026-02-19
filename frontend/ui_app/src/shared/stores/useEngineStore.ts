@@ -495,16 +495,32 @@ export const useEngineStore = create<EngineStore>((set, get) => ({
     },
 
     setTrackMute: async (trackIndex: number, muted: boolean) => {
+        // Optimistic update — UI reflects state instantly.
+        set((s) => ({
+            projectTracks: s.projectTracks.map((t, i) =>
+                i === trackIndex ? { ...t, is_mute: muted } : t
+            ),
+        }));
         try {
             await engine.setTrackMute(trackIndex, muted);
+            await get().fetchProject('setTrackMute');
+            set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
         }
     },
 
     setTrackSolo: async (trackIndex: number, soloed: boolean) => {
+        // Optimistic update — UI reflects state instantly.
+        set((s) => ({
+            projectTracks: s.projectTracks.map((t, i) =>
+                i === trackIndex ? { ...t, is_solo: soloed } : t
+            ),
+        }));
         try {
             await engine.setTrackSolo(trackIndex, soloed);
+            await get().fetchProject('setTrackSolo');
+            set({ lastError: null });
         } catch (e) {
             set({ lastError: String(e) });
         }

@@ -2642,6 +2642,15 @@ pub struct Vst3Instance {
     scratch_sidechain_left: Vec<f32>,
     scratch_sidechain_right: Vec<f32>,
 
+    /// VST3 SPEC FIX: Scratch buffers for auxiliary output buses (bus index 1+).
+    /// The VST3 spec mandates: "The host prepares AudioBusBuffers for each
+    /// input/output bus, regardless of the bus activation state."
+    /// Plugins like ShaperBox 3 declare 2 output buses (main + sidechain monitor).
+    /// If the host only provides bus 0, the plugin may mix auxiliary output into
+    /// the main bus — causing sidechain audio to leak into the output.
+    scratch_aux_out_left: Vec<f32>,
+    scratch_aux_out_right: Vec<f32>,
+
     /// Optional native DSP bridge symbol for block processing.
     process_fn: Option<DreamDawProcessF32Fn>,
 
@@ -4057,6 +4066,8 @@ impl Vst3Instance {
             scratch_right: Vec::new(),
             scratch_sidechain_left: Vec::new(),
             scratch_sidechain_right: Vec::new(),
+            scratch_aux_out_left: Vec::new(),
+            scratch_aux_out_right: Vec::new(),
             process_fn,
             open_editor_fn,
             set_parameter_fn,
@@ -4103,6 +4114,8 @@ impl Vst3Instance {
             scratch_right: Vec::new(),
             scratch_sidechain_left: Vec::new(),
             scratch_sidechain_right: Vec::new(),
+            scratch_aux_out_left: Vec::new(),
+            scratch_aux_out_right: Vec::new(),
             process_fn: None,
             open_editor_fn: None,
             set_parameter_fn: None,
@@ -4167,6 +4180,8 @@ impl PluginInstance for Vst3Instance {
         self.scratch_right = vec![0.0; max_buffer_size];
         self.scratch_sidechain_left = vec![0.0; max_buffer_size];
         self.scratch_sidechain_right = vec![0.0; max_buffer_size];
+        self.scratch_aux_out_left = vec![0.0; max_buffer_size];
+        self.scratch_aux_out_right = vec![0.0; max_buffer_size];
         if self.processor_ptr != 0 {
             let processor = self.processor_ptr as *mut IAudioProcessor;
             if self.component_ptr != 0 {
@@ -4550,11 +4565,57 @@ impl PluginInstance for Vst3Instance {
                 silence_flags: 0,
                 channel_buffers32: unsafe { in_ptrs.as_mut_ptr().add(2) },
             };
-            let mut out_bus = AudioBusBuffers {
+
+            // ═══════════════════════════════════════════════════════════════
+            // VST3 SPEC FIX: Provide AudioBusBuffers for ALL output buses.
+            //
+            // The VST3 spec mandates: "The host prepares AudioBusBuffers for
+            // each input/output bus, regardless of the bus activation state."
+            //
+            // Previously we hardcoded num_outputs=1, but plugins like
+            // ShaperBox 3 declare 2 output buses (main + sidechain monitor).
+            // When bus 1 was missing, the plugin mixed auxiliary output into
+            // bus 0, causing sidechain audio to leak into the main output.
+            //
+            // Fix: provide all declared output buses. Bus 0 = real output.
+            // Bus 1+ = scratch buffers (discarded after process).
+            // ═══════════════════════════════════════════════════════════════
+            let actual_out_bus_count = self.audio_output_bus_count.max(1) as usize;
+
+            // Ensure auxiliary scratch buffers are large enough.
+            // (They are pre-allocated in activate(), but guard against edge cases.)
+            if self.scratch_aux_out_left.len() < num_frames {
+                self.scratch_aux_out_left.resize(num_frames, 0.0);
+            }
+            if self.scratch_aux_out_right.len() < num_frames {
+                self.scratch_aux_out_right.resize(num_frames, 0.0);
+            }
+            // Zero auxiliary output scratch so plugins don't read stale data.
+            self.scratch_aux_out_left[..num_frames].fill(0.0);
+            self.scratch_aux_out_right[..num_frames].fill(0.0);
+
+            // Auxiliary output bus pointers (for bus index 1+).
+            let mut aux_out_ptrs = [
+                self.scratch_aux_out_left.as_mut_ptr(),
+                self.scratch_aux_out_right.as_mut_ptr(),
+            ];
+
+            let mut out_main_bus = AudioBusBuffers {
                 num_channels: main_channels as i32,
                 silence_flags: 0,
                 channel_buffers32: out_ptrs.as_mut_ptr(),
             };
+            let mut out_aux_bus = AudioBusBuffers {
+                num_channels: 2,
+                silence_flags: 0,
+                channel_buffers32: aux_out_ptrs.as_mut_ptr(),
+            };
+
+            // Build output bus array: [main, aux, ...]
+            // For plugins with >2 output buses, extra buses share the same
+            // aux scratch (safe: we only care about bus 0 output).
+            let mut output_buses = [out_main_bus, out_aux_bus];
+            let output_bus_count_for_process = actual_out_bus_count.min(output_buses.len());
 
             let mut input_buses = [in_main_bus, in_sidechain_bus];
 
@@ -4592,9 +4653,9 @@ impl PluginInstance for Vst3Instance {
                 symbolic_sample_size: K_SAMPLE32,
                 num_samples: num_frames as i32,
                 num_inputs: input_bus_count,
-                num_outputs: 1,
+                num_outputs: output_bus_count_for_process as i32,
                 inputs: input_buses.as_mut_ptr(),
-                outputs: &mut out_bus,
+                outputs: output_buses.as_mut_ptr(),
                 input_parameter_changes: input_param_ptr,
                 // BUG-A3 FIX: Provide writable output param changes.
                 output_parameter_changes: output_param_ptr,
@@ -4709,6 +4770,8 @@ impl PluginInstance for Vst3Instance {
         self.scratch_right.fill(0.0);
         self.scratch_sidechain_left.fill(0.0);
         self.scratch_sidechain_right.fill(0.0);
+        self.scratch_aux_out_left.fill(0.0);
+        self.scratch_aux_out_right.fill(0.0);
     }
 
     fn set_transport_context(&mut self, ctx: TransportContext) {

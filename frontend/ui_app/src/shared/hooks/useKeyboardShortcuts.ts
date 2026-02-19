@@ -609,6 +609,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 const newSoloed = !track.is_solo;
                 try {
                     await engine.setTrackSolo(selectedTrackIndex, newSoloed);
+                    onProjectMutated();
                 } catch (err) {
                     console.error('[Shortcuts] setTrackSolo failed:', err);
                 }
@@ -632,6 +633,7 @@ export function useKeyboardShortcuts(config: KeyboardShortcutsConfig) {
                 const newMuted = !track.is_mute;
                 try {
                     await engine.setTrackMute(selectedTrackIndex, newMuted);
+                    onProjectMutated();
                 } catch (err) {
                     console.error('[Shortcuts] setTrackMute failed:', err);
                 }

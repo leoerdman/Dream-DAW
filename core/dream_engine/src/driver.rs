@@ -2348,10 +2348,20 @@ pub fn start_audio_thread_on_device(
                                         .unwrap_or(false);
 
                                     if post_sum_processed {
-                                        slot.strip.process_stereo(
-                                            &mut left[..c],
-                                            &mut right[..c],
-                                        );
+                                        // ── Output gate for group/bus tracks ──────────
+                                        // If this group track is muted or excluded by
+                                        // solo, silence its contribution so downstream
+                                        // graph nodes (MasterOutput) receive zero signal.
+                                        // Metering still runs below (shows gray/silent).
+                                        if slot.strip.is_output_enabled() {
+                                            slot.strip.process_stereo(
+                                                &mut left[..c],
+                                                &mut right[..c],
+                                            );
+                                        } else {
+                                            left[..c].fill(0.0);
+                                            right[..c].fill(0.0);
+                                        }
                                     }
 
                                     // Process external FX chain for ALL tracks

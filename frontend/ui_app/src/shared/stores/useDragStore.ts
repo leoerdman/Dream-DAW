@@ -44,8 +44,9 @@ interface DragState {
 
 /** Internal cleanup handle for the global mousemove listener. */
 let _cleanupMouseMove: (() => void) | null = null;
+let _cleanupSafetyMouseUp: (() => void) | null = null;
 
-export const useDragStore = create<DragState>((set) => ({
+export const useDragStore = create<DragState>((set, get) => ({
     draggingItem: null,
     cursorX: 0,
     cursorY: 0,
@@ -68,6 +69,25 @@ export const useDragStore = create<DragState>((set) => ({
         _cleanupMouseMove = () => {
             window.removeEventListener('mousemove', onMove);
         };
+
+        // Safety-net: global mouseup ensures endDrag is ALWAYS called,
+        // even when the mouse is released outside any drop zone.
+        // Uses setTimeout(0) so drop-zone handlers fire first.
+        _cleanupSafetyMouseUp?.();
+        const onSafetyUp = () => {
+            window.removeEventListener('mouseup', onSafetyUp);
+            _cleanupSafetyMouseUp = null;
+            setTimeout(() => {
+                if (get().draggingItem) {
+                    console.log('[DragStore] safety-net endDrag (no drop zone handled it)');
+                    get().endDrag();
+                }
+            }, 0);
+        };
+        window.addEventListener('mouseup', onSafetyUp);
+        _cleanupSafetyMouseUp = () => {
+            window.removeEventListener('mouseup', onSafetyUp);
+        };
     },
 
     endDrag: () => {
@@ -79,6 +99,8 @@ export const useDragStore = create<DragState>((set) => ({
         });
         _cleanupMouseMove?.();
         _cleanupMouseMove = null;
+        _cleanupSafetyMouseUp?.();
+        _cleanupSafetyMouseUp = null;
         window.__dreamInAppDrag = false;
     },
 

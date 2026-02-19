@@ -103,12 +103,50 @@ const STATIC_CATEGORIES: BrowserCategory[] = [
     { id: 'sec-library', title: 'Library', icon: 'folder-tree', kind: 'section' },
     { id: 'all', title: 'All', icon: 'grid', kind: 'leaf' },
     { id: 'samples', title: 'Samples', icon: 'wave-bars', kind: 'leaf' },
-    { id: 'sounds', title: 'Sounds', icon: 'music', kind: 'leaf' },
     { id: 'drums', title: 'Drums', icon: 'drum', kind: 'leaf' },
     { id: 'instruments', title: 'Instruments', icon: 'piano', kind: 'leaf' },
     { id: 'plugins', title: 'Plug-Ins', icon: 'plug', kind: 'leaf' },
     { id: 'audioEffects', title: 'Audio Eff…', icon: 'sliders', kind: 'leaf' },
 ];
+
+const COLLECTION_IDS = ['collection-red', 'collection-yellow', 'collection-green'] as const;
+type CollectionId = typeof COLLECTION_IDS[number];
+const COLLECTION_LABELS_DEFAULT: Record<CollectionId, string> = {
+    'collection-red': 'Red',
+    'collection-yellow': 'Yellow',
+    'collection-green': 'Green',
+};
+const COLLECTION_ICONS: Record<CollectionId, string> = {
+    'collection-red': '🔴',
+    'collection-yellow': '🟡',
+    'collection-green': '🟢',
+};
+
+// ── Collection persistence (localStorage) ──────────────────────
+const COLLECTION_STORAGE_KEY = 'dream-daw-browser-collections';
+
+function loadCollections(): Record<CollectionId, Set<string>> {
+    try {
+        const raw = localStorage.getItem(COLLECTION_STORAGE_KEY);
+        if (!raw) return { 'collection-red': new Set(), 'collection-yellow': new Set(), 'collection-green': new Set() };
+        const parsed = JSON.parse(raw) as Record<string, string[]>;
+        return {
+            'collection-red': new Set(parsed['collection-red'] ?? []),
+            'collection-yellow': new Set(parsed['collection-yellow'] ?? []),
+            'collection-green': new Set(parsed['collection-green'] ?? []),
+        };
+    } catch {
+        return { 'collection-red': new Set(), 'collection-yellow': new Set(), 'collection-green': new Set() };
+    }
+}
+
+function saveCollections(collections: Record<CollectionId, Set<string>>): void {
+    const serializable: Record<string, string[]> = {};
+    for (const id of COLLECTION_IDS) {
+        serializable[id] = Array.from(collections[id]);
+    }
+    localStorage.setItem(COLLECTION_STORAGE_KEY, JSON.stringify(serializable));
+}
 
 const SOURCE_FILTERS = ['Source: All', 'Source: Library', 'Source: Samples', 'Source: Plug-ins'] as const;
 const FORMAT_FILTERS = ['Format: All', 'WAV', 'AIFF', 'MP3', 'FLAC'] as const;
@@ -211,46 +249,60 @@ function selectBestPeakLevel(levels: { peaks: PeakPair[] }[]): PeakPair[] | null
     return null;
 }
 
-function fuzzyScore(text: string, query: string): number | null {
-    const t = text.toLowerCase();
-    const q = query.toLowerCase().trim();
-    if (!q) return 0;
+/**
+ * Score a single token against text. Lower = better match, null = no match.
+ */
+function singleTokenScore(t: string, token: string): number | null {
+    if (t === token) return 0;
+    if (t.startsWith(token)) return 1 + (t.length - token.length) * 0.02;
 
-    if (t === q) return 0;
-
-    const starts = t.startsWith(q);
-    if (starts) {
-        return 1 + (t.length - q.length) * 0.02;
-    }
-
-    const wordMatch = t.match(new RegExp(`(^|[^a-z0-9])${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    const wordMatch = t.match(new RegExp(`(^|[^a-z0-9])${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
     if (wordMatch) {
         const idx = wordMatch.index ?? 0;
-        return 6 + idx * 0.2 + (t.length - q.length) * 0.02;
+        return 6 + idx * 0.2 + (t.length - token.length) * 0.02;
     }
 
-    const idx = t.indexOf(q);
-    if (idx >= 0) {
-        return 12 + idx * 0.35 + (t.length - q.length) * 0.03;
-    }
+    const idx = t.indexOf(token);
+    if (idx >= 0) return 12 + idx * 0.35 + (t.length - token.length) * 0.03;
 
-    // Subsequence fallback: good for short fuzzy typing like "zbr" -> "Zebra".
+    // Subsequence fallback: "zbr" → "Zebra"
     let ti = 0;
     let qi = 0;
     let first = -1;
     let last = -1;
-    while (ti < t.length && qi < q.length) {
-        if (t[ti] === q[qi]) {
+    while (ti < t.length && qi < token.length) {
+        if (t[ti] === token[qi]) {
             if (first < 0) first = ti;
             last = ti;
             qi += 1;
         }
         ti += 1;
     }
-    if (qi !== q.length) return null;
+    if (qi !== token.length) return null;
     const span = Math.max(1, last - first + 1);
-    const gaps = span - q.length;
-    return 40 + gaps * 1.8 + first * 0.3 + (t.length - q.length) * 0.04;
+    const gaps = span - token.length;
+    return 40 + gaps * 1.8 + first * 0.3 + (t.length - token.length) * 0.04;
+}
+
+/**
+ * Multi-word fuzzy score. Split query into space-separated tokens.
+ * ALL tokens must match (AND logic). Final score = sum of individual scores.
+ */
+function fuzzyScore(text: string, query: string): number | null {
+    const t = text.toLowerCase();
+    const q = query.toLowerCase().trim();
+    if (!q) return 0;
+
+    const tokens = q.split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) return 0;
+
+    let totalScore = 0;
+    for (const token of tokens) {
+        const s = singleTokenScore(t, token);
+        if (s === null) return null; // Any token miss → no match
+        totalScore += s;
+    }
+    return totalScore;
 }
 
 function renderHighlightedMatch(name: string, query: string) {
@@ -304,6 +356,13 @@ export const AssetBrowser = () => {
     const updateAllSettings = useSettingsStore((s) => s.updateAllSettings);
 
     const [searchQuery, setSearchQuery] = useState('');
+    const [debouncedQuery, setDebouncedQuery] = useState('');
+    const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // ── Collections (localStorage-backed) ──
+    const [collectionItems, setCollectionItems] = useState<Record<CollectionId, Set<string>>>(loadCollections);
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: BrowserItem } | null>(null);
+    const contextMenuRef = useRef<HTMLDivElement>(null);
     const [selectedCategoryId, setSelectedCategoryId] = useState('samples');
     const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
     const [sourceFilter, setSourceFilter] = useState(0);
@@ -417,6 +476,7 @@ export const AssetBrowser = () => {
             }
             if (typeof detail?.query === 'string') {
                 setSearchQuery(detail.query);
+                setDebouncedQuery(detail.query);
             }
             searchRef.current?.focus();
         };
@@ -427,6 +487,25 @@ export const AssetBrowser = () => {
             window.removeEventListener('dream:browser-set-search', setBrowserSearch as EventListener);
         };
     }, []);
+
+    // ── Close collection context menu on click-outside or Escape ──
+    useEffect(() => {
+        if (!contextMenu) return;
+        const onClick = (e: MouseEvent) => {
+            if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+                setContextMenu(null);
+            }
+        };
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setContextMenu(null);
+        };
+        window.addEventListener('mousedown', onClick, true);
+        window.addEventListener('keydown', onKey);
+        return () => {
+            window.removeEventListener('mousedown', onClick, true);
+            window.removeEventListener('keydown', onKey);
+        };
+    }, [contextMenu]);
 
     useEffect(() => {
         if (selectedCategoryId !== 'currentProject') return;
@@ -497,7 +576,7 @@ export const AssetBrowser = () => {
     const [scanError, setScanError] = useState<string | null>(null);
     const scanTriggeredRef = useRef(false);
 
-    const isSamplesCategory = ['samples', 'all', 'sounds', 'drums'].includes(selectedCategoryId);
+    const isSamplesCategory = ['samples', 'all', 'drums'].includes(selectedCategoryId);
 
     useEffect(() => {
         if (!isSamplesCategory || scanTriggeredRef.current) return;
@@ -696,7 +775,7 @@ export const AssetBrowser = () => {
     // Get items based on selected category
     const items = useMemo(() => {
         let base: BrowserItem[] = [];
-        const pluginSearchMode = selectedCategoryId === 'plugins' && searchQuery.trim().length > 0;
+        const pluginSearchMode = selectedCategoryId === 'plugins' && debouncedQuery.trim().length > 0;
 
         // Check if this is a user-folder category
         if (activeCategory?.folderPath || folderStack.length > 0) {
@@ -714,9 +793,7 @@ export const AssetBrowser = () => {
                 case 'samples':
                     base = realBrowserItems;
                     break;
-                case 'sounds':
-                    base = realBrowserItems.filter((i) => !isLikelyDrumAudio(i));
-                    break;
+
                 case 'drums':
                     base = realBrowserItems.filter((i) => isLikelyDrumAudio(i));
                     break;
@@ -731,9 +808,18 @@ export const AssetBrowser = () => {
                     break;
                 case 'collection-red':
                 case 'collection-yellow':
-                case 'collection-green':
-                    base = realBrowserItems.filter(i => i.favorite);
+                case 'collection-green': {
+                    const collId = selectedCategoryId as CollectionId;
+                    const memberPaths = collectionItems[collId];
+                    const allKnown = [
+                        ...realBrowserItems,
+                        ...INTERNAL_INSTRUMENT_ITEMS,
+                        ...INTERNAL_EFFECT_ITEMS,
+                        ...pluginBrowserItems,
+                    ];
+                    base = allKnown.filter(i => i.path && memberPaths.has(i.path));
                     break;
+                }
                 case 'currentProject':
                 case 'userLibrary':
                     base = folderBrowserItems;
@@ -747,24 +833,20 @@ export const AssetBrowser = () => {
             base = base.filter((i) => i.type !== 'project');
         }
 
-        if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase();
-            if (selectedCategoryId === 'plugins') {
-                base = base
-                    .map((item) => {
-                        const sourceHint = item.pluginSource ? ` ${item.pluginSource}` : '';
-                        const score = fuzzyScore(`${item.name} ${item.format ?? ''} ${item.meta ?? ''}${sourceHint}`, q);
-                        return { item, score };
-                    })
-                    .filter((entry) => entry.score !== null)
-                    .sort((a, b) => {
-                        if (a.score !== b.score) return (a.score ?? 0) - (b.score ?? 0);
-                        return a.item.name.toLowerCase().localeCompare(b.item.name.toLowerCase());
-                    })
-                    .map((entry) => entry.item);
-            } else {
-                base = base.filter(i => i.name.toLowerCase().includes(q));
-            }
+        if (debouncedQuery.trim()) {
+            const q = debouncedQuery.trim();
+            base = base
+                .map((item) => {
+                    const searchText = `${item.name} ${item.format ?? ''} ${item.meta ?? ''}${item.pluginSource ? ` ${item.pluginSource}` : ''}`;
+                    const score = fuzzyScore(searchText, q);
+                    return { item, score };
+                })
+                .filter((entry) => entry.score !== null)
+                .sort((a, b) => {
+                    if (a.score !== b.score) return (a.score ?? 0) - (b.score ?? 0);
+                    return a.item.name.toLowerCase().localeCompare(b.item.name.toLowerCase());
+                })
+                .map((entry) => entry.item);
         }
 
         if (selectedCategoryId === 'plugins' && pluginSourceFilter !== 'all') {
@@ -792,7 +874,7 @@ export const AssetBrowser = () => {
         }
 
         return base;
-    }, [selectedCategoryId, searchQuery, realBrowserItems, pluginBrowserItems, folderBrowserItems, activeCategory, folderStack, sizeFilter, sortFilter, pluginSourceFilter]);
+    }, [selectedCategoryId, debouncedQuery, realBrowserItems, pluginBrowserItems, folderBrowserItems, activeCategory, folderStack, sizeFilter, sortFilter, pluginSourceFilter, collectionItems]);
 
     const pluginGroupedRows = useMemo(() => {
         if (selectedCategoryId !== 'plugins') return [] as Array<
@@ -1130,6 +1212,8 @@ export const AssetBrowser = () => {
                 e.preventDefault();
                 e.stopPropagation();
                 setSearchQuery('');
+                setDebouncedQuery('');
+                if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
                 setScrollTop(0);
                 if (fileListRef.current) fileListRef.current.scrollTop = 0;
             }
@@ -1238,6 +1322,11 @@ export const AssetBrowser = () => {
                     onChange={e => {
                         const nextQuery = e.target.value;
                         setSearchQuery(nextQuery);
+                        // Debounce the heavy filtering
+                        if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+                        searchTimerRef.current = setTimeout(() => {
+                            setDebouncedQuery(nextQuery);
+                        }, 150);
                         if (nextQuery.trim().length > 0 && selectedCategoryId !== 'all') {
                             setSelectedCategoryId('all');
                         }
@@ -1779,6 +1868,7 @@ export const AssetBrowser = () => {
                                                 itemRowRefs.current[item.id] = el;
                                             }}
                                             onClick={() => {
+                                                setContextMenu(null);
                                                 if (item.isDirectory && item.path) {
                                                     navigateInto(item.path);
                                                     return;
@@ -1787,6 +1877,12 @@ export const AssetBrowser = () => {
                                                 const nextId = selectedItemId === item.id ? null : item.id;
                                                 setSelectedItemId(nextId);
                                                 syncPreviewForItem(nextId ? item : null);
+                                            }}
+                                            onContextMenu={(e) => {
+                                                e.preventDefault();
+                                                if (item.path) {
+                                                    setContextMenu({ x: e.clientX, y: e.clientY, item });
+                                                }
                                             }}
                                             onMouseDown={(e) => {
                                                 if (!isDraggable || !item.path || e.button !== 0) return;
@@ -1802,9 +1898,10 @@ export const AssetBrowser = () => {
                                                     const dy = me.clientY - startY;
                                                     if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
                                                         dragStarted = true;
-                                                        // BUG-2 FIX: Suppress scroll on the browser file list while dragging.
+                                                        // BUG-2 FIX: Suppress scroll & pointer-events on the browser file list while dragging.
                                                         if (fileListRef.current) {
                                                             fileListRef.current.style.pointerEvents = 'none';
+                                                            fileListRef.current.style.overflow = 'hidden';
                                                         }
                                                         const knownDuration = isAudio
                                                             ? item.durationSeconds
@@ -1835,9 +1932,10 @@ export const AssetBrowser = () => {
                                                 };
                                                 const onUp = () => {
                                                     cancelled = true;
-                                                    // BUG-2 FIX: Restore pointer-events on the file list.
+                                                    // BUG-2 FIX: Restore pointer-events and overflow on the file list.
                                                     if (fileListRef.current) {
                                                         fileListRef.current.style.pointerEvents = '';
+                                                        fileListRef.current.style.overflow = '';
                                                     }
                                                     window.removeEventListener('mousemove', onMove);
                                                     window.removeEventListener('mouseup', onUp);
@@ -1999,9 +2097,16 @@ export const AssetBrowser = () => {
                                                 itemRowRefs.current[item.id] = el;
                                             }}
                                             onClick={() => {
+                                                setContextMenu(null);
                                                 const nextId = selectedItemId === item.id ? null : item.id;
                                                 setSelectedItemId(nextId);
                                                 syncPreviewForItem(nextId ? item : null);
+                                            }}
+                                            onContextMenu={(e) => {
+                                                e.preventDefault();
+                                                if (item.path) {
+                                                    setContextMenu({ x: e.clientX, y: e.clientY, item });
+                                                }
                                             }}
                                             onMouseDown={(e) => {
                                                 if (!isDraggable || !item.path || e.button !== 0) return;
@@ -2016,9 +2121,10 @@ export const AssetBrowser = () => {
                                                     const dy = me.clientY - startY;
                                                     if (!dragStarted && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
                                                         dragStarted = true;
-                                                        // BUG-2 FIX: Suppress scroll on the browser file list while dragging.
+                                                        // BUG-2 FIX: Suppress scroll & pointer-events on the browser file list while dragging.
                                                         if (fileListRef.current) {
                                                             fileListRef.current.style.pointerEvents = 'none';
+                                                            fileListRef.current.style.overflow = 'hidden';
                                                         }
                                                         useDragStore.getState().startDrag({
                                                             id: item.id,
@@ -2031,9 +2137,10 @@ export const AssetBrowser = () => {
                                                     }
                                                 };
                                                 const onUp = () => {
-                                                    // BUG-2 FIX: Restore pointer-events on the file list.
+                                                    // BUG-2 FIX: Restore pointer-events and overflow on the file list.
                                                     if (fileListRef.current) {
                                                         fileListRef.current.style.pointerEvents = '';
+                                                        fileListRef.current.style.overflow = '';
                                                     }
                                                     window.removeEventListener('mousemove', onMove);
                                                     window.removeEventListener('mouseup', onUp);
@@ -2219,6 +2326,80 @@ export const AssetBrowser = () => {
                         <span style={columnMenuCheckStyle}>{showTypeColumn ? '✓' : ''}</span>
                         Type
                     </button>
+                </div>
+            )}
+
+            {/* ── Context Menu for Collections ────────── */}
+            {contextMenu && contextMenu.item.path && (
+                <div
+                    ref={contextMenuRef}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                        position: 'fixed',
+                        left: contextMenu.x,
+                        top: contextMenu.y,
+                        background: 'var(--color-bg-elevated)',
+                        border: '1px solid var(--color-divider)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: 4,
+                        zIndex: 'var(--z-drag-overlay)' as unknown as number,
+                        minWidth: 180,
+                        boxShadow: '0 8px 24px var(--color-overlay-dark)',
+                    }}
+                >
+                    {COLLECTION_IDS.map((collId) => {
+                        const path = contextMenu.item.path!;
+                        const isInCollection = collectionItems[collId].has(path);
+                        const isInCollectionView = selectedCategoryId === collId;
+                        return (
+                            <button
+                                key={collId}
+                                onClick={() => {
+                                    setCollectionItems((prev) => {
+                                        const next = {
+                                            'collection-red': new Set(prev['collection-red']),
+                                            'collection-yellow': new Set(prev['collection-yellow']),
+                                            'collection-green': new Set(prev['collection-green']),
+                                        };
+                                        if (isInCollection) {
+                                            next[collId].delete(path);
+                                        } else {
+                                            next[collId].add(path);
+                                        }
+                                        saveCollections(next);
+                                        return next;
+                                    });
+                                    setContextMenu(null);
+                                }}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    width: '100%',
+                                    padding: '6px 10px',
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: 'var(--color-text-primary)',
+                                    fontSize: 'var(--font-size-xs)',
+                                    cursor: 'pointer',
+                                    borderRadius: 'var(--radius-sm)',
+                                    textAlign: 'left',
+                                }}
+                                onMouseEnter={(e) => {
+                                    (e.currentTarget as HTMLElement).style.background = 'var(--color-bg-hover)';
+                                }}
+                                onMouseLeave={(e) => {
+                                    (e.currentTarget as HTMLElement).style.background = 'transparent';
+                                }}
+                            >
+                                <span>{COLLECTION_ICONS[collId]}</span>
+                                <span>{isInCollection
+                                    ? (isInCollectionView ? `Remove from ${COLLECTION_LABELS_DEFAULT[collId]}` : `✓ In ${COLLECTION_LABELS_DEFAULT[collId]}`)
+                                    : `Add to ${COLLECTION_LABELS_DEFAULT[collId]}`
+                                }</span>
+                            </button>
+                        );
+                    })}
                 </div>
             )}
 

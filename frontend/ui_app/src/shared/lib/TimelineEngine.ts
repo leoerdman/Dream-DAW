@@ -1047,7 +1047,22 @@ export class TimelineEngine {
                     break;
                 }
 
-                // ── Header OR Body click → Select + Arm Drag ──
+                // ── Body click → Move playhead cursor to clicked position ──
+                // Clicking the waveform/note area positions the cursor, NOT select the clip.
+                // This matches industry-standard DAW behavior (Logic, Ableton, Pro Tools).
+                // Shift/Cmd click on body still does additive selection for power users.
+                const isAdditive = e.shiftKey || e.metaKey;
+
+                if (hit.region === 'body' && !isAdditive) {
+                    // Body click: move edit cursor to click position (snapped)
+                    const snapped = this._snapBeat(hit.beat);
+                    this.setEditCursor(snapped, hit.trackIndex, hit.trackIndex);
+                    this.onEditCursorChange?.(snapped, hit.trackIndex, hit.trackIndex);
+                    // Do NOT select the clip, do NOT arm drag.
+                    break;
+                }
+
+                // ── Header click (or additive body click) → Select + Arm Drag ──
                 // Enterprise-grade multi-clip drag (matches Logic Pro / Ableton behavior):
                 //   • If the clicked clip is ALREADY selected in a multi-selection:
                 //     → DON'T call onClipClick (which would destroy the multi-select).
@@ -1056,7 +1071,6 @@ export class TimelineEngine {
                 //   • If the clicked clip is NOT selected:
                 //     → Call onClipClick to select it (replacing selection unless Shift held).
                 //   • Shift/Cmd click always toggles additive selection.
-                const isAdditive = e.shiftKey || e.metaKey;
                 const isAlreadySelected = clip.selected === true;
                 const multipleSelected = this._clips.filter(c => c.selected).length > 1;
                 const preserveMultiSelect = isAlreadySelected && multipleSelected && !isAdditive;

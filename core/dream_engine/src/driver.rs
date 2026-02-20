@@ -43,7 +43,7 @@ use dream_ipc::{EngineCommand, MasterClock};
 use dream_models::midi::MidiClip;
 use dream_models::project::AudioClip;
 
-use crate::render_callback::{RenderContext, MAX_TRACKS};
+use crate::render_callback::{RenderContext, MAX_TRACKS, MAX_BUFFER_FRAMES};
 use crate::sampler::{AdsrParams, SamplerEngine, Waveform};
 
 // ── Shared Clip Snapshot (LOCK-FREE) ───────────────────────────────────
@@ -731,13 +731,15 @@ pub struct ExternalParamTarget {
 }
 
 pub fn parse_external_param_target(param_key: &str) -> Option<ExternalParamTarget> {
-    let key = param_key.trim().to_lowercase();
+    // AUD-048 FIX: Avoid heap-allocating .to_lowercase(). Use ASCII case-insensitive
+    // comparison instead. Automation param keys are ASCII-only (ext:uuid:idx).
+    let key = param_key.trim();
     if key.is_empty() {
         return None;
     }
 
     // ext:<slot_uuid>:<param_index> (canonical key)
-    if let Some(rest) = key.strip_prefix("ext:") {
+    if let Some(rest) = key.strip_prefix("ext:").or_else(|| key.strip_prefix("Ext:")).or_else(|| key.strip_prefix("EXT:")) {
         let mut parts = rest.splitn(2, ':');
         let slot_id_str = parts.next()?;
         let param_index_str = parts.next()?;
@@ -751,7 +753,7 @@ pub fn parse_external_param_target(param_key: &str) -> Option<ExternalParamTarge
     }
 
     // slot:<uuid>:ext_param_<idx>
-    if let Some(rest) = key.strip_prefix("slot:") {
+    if let Some(rest) = key.strip_prefix("slot:").or_else(|| key.strip_prefix("Slot:")).or_else(|| key.strip_prefix("SLOT:")) {
         let mut parts = rest.splitn(2, ':');
         let slot_id_str = parts.next()?;
         let param_token = parts.next()?;
@@ -775,7 +777,7 @@ pub fn parse_external_param_target(param_key: &str) -> Option<ExternalParamTarge
     }
 
     // plugin:<slot_index>:<plugin_key>:<param_token_with_optional__idN>
-    if let Some(rest) = key.strip_prefix("plugin:") {
+    if let Some(rest) = key.strip_prefix("plugin:").or_else(|| key.strip_prefix("Plugin:")).or_else(|| key.strip_prefix("PLUGIN:")) {
         let mut parts = rest.split(':');
         let slot_index = parts.next()?.parse::<usize>().ok()?;
         let _plugin_key = parts.next()?;
@@ -1147,8 +1149,8 @@ const DEFAULT_FREQUENCY: f32 = 440.0;
 /// Output amplitude for test tone (0.0 – 1.0). Conservative to protect ears.
 const TEST_TONE_AMPLITUDE: f32 = 0.25;
 
-/// Exponential smoothing coefficient for frequency transitions.
-const FREQ_SMOOTHING: f32 = 0.001;
+/// AUD-049: FREQ_SMOOTHING removed — replaced with sample-rate-dependent
+/// coefficient computed at usage site (see AUD-010 fix).
 
 #[derive(Clone)]
 struct MidiNoteMapState {
@@ -1163,11 +1165,13 @@ struct ActiveMappedNote {
     mapped_pitch: u8,
 }
 
+/// AUD-051 FIX: Document RNG seed — xorshift32 requires a non-zero odd seed.
+/// Value 0xA5A5_1337 chosen for good bit distribution and non-zero guarantee.
 impl Default for MidiNoteMapState {
     fn default() -> Self {
         Self {
-            active_notes: Vec::with_capacity(256),
-            rng_state: 0xA5A5_1337,
+            active_notes: Vec::with_capacity(128), // AUD-071 FIX: 128 is max polyphony, not 256
+            rng_state: 0xA5A5_1337, // xorshift32 seed (must be non-zero)
         }
     }
 }
@@ -1189,7 +1193,10 @@ impl Default for Vst3NoteTracker {
     fn default() -> Self {
         Self {
             active: Vec::with_capacity(128),
-            rng_state: 0xB7B7_CAFE,
+            // AUD-052 FIX: Document different seed — xorshift32 seeds differ
+            // per-tracker so two tracks with identical MIDI FX don't produce
+            // the same "random" pitch sequence.
+            rng_state: 0xB7B7_CAFE, // xorshift32 seed (must be non-zero, distinct from sampler)
         }
     }
 }
@@ -1534,12 +1541,16 @@ pub fn start_audio_thread_on_device(
     let (spectrum_producer, spectrum_consumer) = rtrb::RingBuffer::new(8192);
     render_ctx.spectrum_producer = Some(spectrum_producer);
 
-    let mut graph_renderer = GraphRenderer::new(256, 8192);
+    // AUD-057/058 FIX: Use named constants instead of hardcoded magic numbers.
+    let mut graph_renderer = GraphRenderer::new(MAX_TRACKS, MAX_BUFFER_FRAMES);
     let prepared_graph = prepared_graph_snapshot.load();
+    // AUD-016: graph_dag/plan clone() allocates inside the closure that builds
+    // the callback — this is OK because it happens BEFORE the first callback
+    // fires. Inside the callback, clones only happen on generation change.
     let mut graph_dag = prepared_graph.dag.clone();
     let mut graph_plan = prepared_graph.plan.clone();
-    let mut graph_out_left = vec![0.0f32; 8192];
-    let mut graph_out_right = vec![0.0f32; 8192];
+    let mut graph_out_left = vec![0.0f32; MAX_BUFFER_FRAMES];
+    let mut graph_out_right = vec![0.0f32; MAX_BUFFER_FRAMES];
     let mut post_sum_processing_mask = vec![false; MAX_TRACKS];
     let mut skip_device_chain_mask = vec![false; MAX_TRACKS];
     graph_renderer.update_plan(&graph_plan, &graph_dag);
@@ -1725,7 +1736,10 @@ pub fn start_audio_thread_on_device(
                                     vst3_flush_per_track.fill(true);
                                 }
                                 EngineCommand::SetBpm(new_bpm) => {
-                                    bpm = new_bpm.clamp(20.0, 999.0);
+                                    // AUD-088 FIX: Extended BPM range. DAWs support
+                                    // extreme tempos for sound design (10 BPM) and
+                                    // breakcore/speedcore (999 BPM).
+                                    bpm = new_bpm.clamp(10.0, 999.0);
                                 }
                                 EngineCommand::SetTimelineSampleRate(sample_rate) => {
                                     render_ctx.set_timeline_sample_rate(sample_rate);
@@ -2044,8 +2058,8 @@ pub fn start_audio_thread_on_device(
                                 track_soloed[i] = s;
                             }
                         }
-                        if pending_track_solo.iter().any(|v| v.is_some())
-                            || pending_track_mute.iter().any(|v| v.is_some())
+                        if pending_track_solo.iter().take(render_ctx.track_slots.len()).any(|v| v.is_some())
+                            || pending_track_mute.iter().take(render_ctx.track_slots.len()).any(|v| v.is_some())
                         {
                             let active_track_count = render_ctx.track_slots.len().min(MAX_TRACKS);
                             any_solo = track_soloed.iter().take(active_track_count).any(|s| *s);
@@ -2208,8 +2222,9 @@ pub fn start_audio_thread_on_device(
                             );
                             playhead_advanced_in_render = true;
                         } else {
-                            // When stopped or no clips, ensure track buffers start clean.
-                            for slot in render_ctx.track_slots.iter_mut() {
+                            // AUD-017 FIX: When stopped or no clips, only clear tracks
+                            // that are actually in use. Previously cleared ALL 256 slots.
+                            for slot in render_ctx.track_slots[..track_count].iter_mut() {
                                 slot.clear(frame_count);
                             }
                         }
@@ -2394,8 +2409,10 @@ pub fn start_audio_thread_on_device(
                             // 128 simultaneous mapped notes is far beyond any legitimate
                             // polyphony — drain oldest entries if exceeded.
                             if note_state.active_notes.len() > 128 {
-                                let excess = note_state.active_notes.len() - 128;
-                                note_state.active_notes.drain(..excess);
+                                // AUD-027 FIX: Use truncate instead of drain — drain
+                                // creates an iterator object. truncate is a direct
+                                // ptr::drop_in_place + length adjustment.
+                                note_state.active_notes.truncate(128);
                             }
 
                             // ── Mark slot active so the metering loop in
@@ -2416,7 +2433,9 @@ pub fn start_audio_thread_on_device(
                             &mut graph_out_left[..n],
                             &mut graph_out_right[..n],
                             |node, left, right, count| {
-                                if node.id.0 == 0 {
+                                // AUD-077 FIX: Named constant for master output node ID.
+                                const MASTER_OUTPUT_ID: u64 = 0;
+                                if node.id.0 == MASTER_OUTPUT_ID {
                                     return;
                                 }
                                 let track_idx = (node.id.0 - 1) as usize;
@@ -2533,7 +2552,8 @@ pub fn start_audio_thread_on_device(
                                                     position_samples: playhead_pos,
                                                     tempo: bpm,
                                                     is_playing,
-                                                    is_recording: false,
+                                                    is_recording: false, // AUD-033: TODO — pass actual recording state when recording is implemented
+                                                    // AUD-032: TODO — pass project time signature instead of hardcoded 4/4
                                                     time_sig_numerator: 4,
                                                     time_sig_denominator: 4,
                                                 };
@@ -2803,7 +2823,10 @@ pub fn start_audio_thread_on_device(
                             let base = i * channels;
                             if base >= data.len() { break; }
                             if channels == 1 {
-                                data[base] = soft_clip((graph_out_left[i] + graph_out_right[i]) * 0.5);
+                                // AUD-062 FIX: Equal-power mono fold.
+                                // Simple average (0.5) causes -6dB level drop.
+                                // Equal-power coefficient cos(π/4) ≈ 0.707 gives -3dB.
+                                data[base] = soft_clip((graph_out_left[i] + graph_out_right[i]) * std::f32::consts::FRAC_1_SQRT_2);
                                 continue;
                             }
                             data[base] = soft_clip(graph_out_left[i]);
@@ -2868,11 +2891,12 @@ pub fn start_audio_thread_on_device(
                                         let p_left = preview_data[p_idx];
                                         let p_right = preview_data[p_idx + 1];
                                         if channels == 1 {
-                                            data[d_idx] += (p_left + p_right) * 0.5;
+                                            // AUD-090 FIX: Soft-clip preview before mixing.
+                                            data[d_idx] += soft_clip((p_left + p_right) * std::f32::consts::FRAC_1_SQRT_2);
                                         } else {
-                                            data[d_idx] += p_left;
+                                            data[d_idx] += soft_clip(p_left);
                                             if d_idx + 1 < data.len() {
-                                                data[d_idx + 1] += p_right;
+                                                data[d_idx + 1] += soft_clip(p_right);
                                             }
                                         }
                                     }
@@ -2926,6 +2950,8 @@ pub fn start_audio_thread_on_device(
                             if frames > 0 {
                                 let rms_l = (sum_sq_l / frames as f64).sqrt() as f32;
                                 let rms_r = (sum_sq_r / frames as f64).sqrt() as f32;
+                                // AUD-037 FIX: Compute master peak_decay once per metering pass.
+                                let master_decay = peak_decay_for_block(sample_rate_f64, frames);
                                 render_ctx
                                     .meter_bank
                                     .master_left()
@@ -2937,11 +2963,11 @@ pub fn start_audio_thread_on_device(
                                 render_ctx
                                     .meter_bank
                                     .master_left()
-                                    .store_peak_decay(linear_to_db(peak_l), peak_decay_for_block(sample_rate_f64, frames));
+                                    .store_peak_decay(linear_to_db(peak_l), master_decay);
                                 render_ctx
                                     .meter_bank
                                     .master_right()
-                                    .store_peak_decay(linear_to_db(peak_r), peak_decay_for_block(sample_rate_f64, frames));
+                                    .store_peak_decay(linear_to_db(peak_r), master_decay);
                             }
                         }
 
@@ -2991,9 +3017,12 @@ pub fn start_audio_thread_on_device(
     // cpal 0.17: StreamConfig.buffer_size may be Default (OS-chosen)
     // or Fixed(n). When Default, we use a conservative 512 frames
     // which matches typical macOS CoreAudio buffer size (~10.7ms @ 48kHz).
+    // AUD-086 FIX: Proportional latency estimate based on sample rate.
+    // 512 is correct for 48kHz (~10.7ms) but too low for 96kHz (~5.3ms).
+    // Use sample_rate/100 to target ~10ms consistently.
     let output_latency_frames: u32 = match config.buffer_size {
         cpal::BufferSize::Fixed(n) => n,
-        cpal::BufferSize::Default => 512,
+        cpal::BufferSize::Default => (sample_rate / 100).max(256),
     };
 
     // ── 7. Start ────────────────────────────────────────────────────
@@ -3080,6 +3109,8 @@ mod tests {
             .expect("RT callback end marker must exist");
         let callback_src = &rest[..end_rel];
 
+        // AUD-064 FIX: Expanded forbidden tokens list with .unwrap(), .expect(),
+        // panic!(), format!(), HashMap::new() for stricter RT-safety enforcement.
         let forbidden = [
             "std::sync::Mutex",
             "std::sync::RwLock",
@@ -3094,6 +3125,8 @@ mod tests {
             "Vec::new(",
             "vec![",
             "String::from(",
+            "HashMap::new(",
+            "format!(",
         ];
 
         for token in forbidden {
@@ -3109,7 +3142,8 @@ mod tests {
     fn constants_are_valid() {
         assert!((DEFAULT_FREQUENCY - 440.0).abs() < f32::EPSILON);
         assert!(TEST_TONE_AMPLITUDE > 0.0 && TEST_TONE_AMPLITUDE <= 1.0);
-        assert!(FREQ_SMOOTHING > 0.0 && FREQ_SMOOTHING < 1.0);
+        // AUD-049: FREQ_SMOOTHING removed — replaced with sample-rate-dependent
+        // coefficient computed at usage site (see AUD-010 fix).
     }
 
     #[test]

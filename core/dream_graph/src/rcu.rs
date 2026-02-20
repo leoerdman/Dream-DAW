@@ -28,6 +28,8 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+
 use crate::dag::{AudioDag, ExecutionPlan, GraphError};
 use crate::pdc;
 
@@ -45,6 +47,9 @@ use crate::pdc;
 pub struct LiveGraph {
     /// The current execution plan, atomically swappable.
     current_plan: ArcSwap<ExecutionPlan>,
+    /// GR-027 FIX: Monotonically increasing generation counter.
+    /// Incremented on every swap_graph() for debugging plan staleness.
+    generation: AtomicU64,
 }
 
 impl LiveGraph {
@@ -56,6 +61,7 @@ impl LiveGraph {
         let plan = Self::compute_plan(dag)?;
         Ok(Self {
             current_plan: ArcSwap::from_pointee(plan),
+            generation: AtomicU64::new(1),
         })
     }
 
@@ -72,6 +78,7 @@ impl LiveGraph {
         };
         Self {
             current_plan: ArcSwap::from_pointee(empty_plan),
+            generation: AtomicU64::new(0),
         }
     }
 
@@ -87,7 +94,8 @@ impl LiveGraph {
         let new_plan = Self::compute_plan(dag)?;
         let new_arc = Arc::new(new_plan);
         self.current_plan.store(new_arc);
-
+        // GR-027 FIX: Increment generation counter for staleness tracking.
+        self.generation.fetch_add(1, AtomicOrdering::Release);
         Ok(())
     }
 
@@ -109,12 +117,17 @@ impl LiveGraph {
         self.current_plan.load_full()
     }
 
+    /// GR-027 FIX: Returns the current generation counter.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(AtomicOrdering::Acquire)
+    }
+
     /// Computes an execution plan from a validated DAG.
     fn compute_plan(dag: &AudioDag) -> Result<ExecutionPlan, GraphError> {
         let processing_order = dag.topological_order()?;
-        // Runtime alignment uses edge-level compensation in the renderer.
-        // Keep node-level array zeroed for compatibility with legacy plans/tests.
-        let delay_compensation = vec![0u32; dag.graph().node_count()];
+        // GR-013 FIX: Compute source-level PDC (was zeroed, disabling source compensation).
+        // GR-014 FIX: Use node_bound() for correct array sizing.
+        let delay_compensation = pdc::compute_delay_compensation(dag, &processing_order);
         let edge_delay_compensation = pdc::compute_edge_delay_compensation(dag, &processing_order);
         let parallel_stages = dag.parallel_stages_from_order(&processing_order);
         let parallelism_metrics = AudioDag::parallelism_metrics_from_stages(&parallel_stages);

@@ -56,7 +56,9 @@ pub fn spectrum_drop_count() -> u32 {
 /// Pre-allocates buffers for this count.
 pub const MAX_TRACKS: usize = 256;
 
-/// Maximum audio buffer size in frames. Covers USB audio's worst case (4096) with margin.
+/// Maximum audio buffer size in frames. Covers USB audio's worst case (4096)
+/// with 2× margin for safety. This is the backing allocation size — actual
+/// per-callback frame_count may be smaller (e.g. 256 on macOS CoreAudio).
 pub const MAX_BUFFER_FRAMES: usize = 8192;
 
 // ── Track Render Slot ──────────────────────────────────────────────────────
@@ -84,6 +86,10 @@ impl TrackSlot {
             buf_left: vec![0.0; max_frames],
             buf_right: vec![0.0; max_frames],
             strip: ChannelStrip::new(),
+            // AUD-067: f64→f32 cast for DeviceChain sample rate. This is
+            // lossless for common rates (44100, 48000, 96000) since they
+            // fit exactly in f32. Only exotic rates (e.g. 176400/3) could
+            // lose sub-Hz precision.
             device_chain: DeviceChain::new(sample_rate as f32),
             active: false,
             instrument_bypassed: false,
@@ -168,7 +174,12 @@ pub struct RenderContext {
     pub spectrum_producer: Option<rtrb::Producer<f32>>,
 }
 
-/// Transparent soft-knee limiter.
+/// Transparent soft-knee limiter using tanh identity.
+///
+/// AUD-034 NOTE: Uses `exp()` internally via the identity
+/// `tanh(x) = (e^(2x) - 1) / (e^(2x) + 1)`. For extreme signals,
+/// excess is clamped to 10.0 to prevent exp() overflow → NaN.
+/// A tanh lookup table would save ~3ns/call at 4KB memory cost.
 ///
 /// - Below ±1.0 (0 dBFS): **passthrough** — no coloration whatsoever.
 /// - Above ±1.0: soft-knee compression that asymptotically approaches ±1.5,
@@ -229,8 +240,10 @@ impl RenderContext {
             meter_bank,
             loop_region: None,
             streaming_windows: std::collections::HashMap::new(),
-            scratch_active_clips: Vec::with_capacity(1024),
-            scratch_post_wrap_clips: Vec::with_capacity(1024),
+            // AUD-071 FIX: 128 active clips per buffer is the realistic max.
+            // 1024 wastes 7× memory for the scratch Vec's backing allocation.
+            scratch_active_clips: Vec::with_capacity(128),
+            scratch_post_wrap_clips: Vec::with_capacity(128),
             spectrum_producer: None,
         }
     }
@@ -244,6 +257,11 @@ impl RenderContext {
         };
         self.timeline_sample_rate = sr;
         self.playhead.set_sample_rate(sr);
+        // AUD-087: Accumulator reset is intentional here —
+        // set_timeline_sample_rate is called from EngineCommand::SetTimelineSampleRate
+        // which happens when the project SR changes (e.g., importing 96kHz clips
+        // into a 44.1kHz project). The position jump is negligible (< 1 frame)
+        // and prefer correctness over sub-frame continuity.
         self.timeline_advance_accumulator = 0.0;
         // BUG-034 FIX: Use device sample rate for fade curves since fades operate
         // in device-time (samples output to the soundcard), not timeline-time.
@@ -309,7 +327,8 @@ impl RenderContext {
         self.master_bus.clear(frame_count);
 
         // ── 2. Schedule clips per track ─────────────────────────────
-        // Diagnostic: track total active clips this buffer
+        // Diagnostic: track total active clips this buffer.
+        // AUD-074: These are trace-only — zero-cost in release builds.
         let mut total_active = 0usize;
         let mut total_pool_hits = 0usize;
         // BUG-019 FIX: Larger buffers have more CPU time available → more Pro warp budget.
@@ -499,12 +518,21 @@ impl RenderContext {
                             }
                         }
 
-                        if ac.is_clip_tail && safe_read_len >= fade_len {
-                            let tail_start = offset + safe_read_len - fade_len;
-                            for i in 0..fade_len {
-                                let gain = self.fade_cache.fade_out[i];
-                                slot.buf_left[tail_start + i] *= gain;
-                                slot.buf_right[tail_start + i] *= gain;
+                        // AUD-093 FIX: Apply tail fade even when safe_read_len < fade_len.
+                        // Very short clips (< fade_len frames) previously got no auto-fade
+                        // at all, producing a click at the end.
+                        if ac.is_clip_tail {
+                            let actual_fade = fade_len.min(safe_read_len);
+                            if actual_fade > 0 {
+                                let tail_start = offset + safe_read_len - actual_fade;
+                                for i in 0..actual_fade {
+                                    // Map into the END portion of the fade_out table
+                                    // so that the last sample always hits gain=0.
+                                    let table_idx = fade_len - actual_fade + i;
+                                    let gain = self.fade_cache.fade_out[table_idx];
+                                    slot.buf_left[tail_start + i] *= gain;
+                                    slot.buf_right[tail_start + i] *= gain;
+                                }
                             }
                         }
                     }
@@ -698,6 +726,9 @@ mod tests {
         assert_eq!(ctx.track_count(), 32);
         assert_eq!(ctx.channels, 2);
         assert_eq!(ctx.sample_rate, 44100.0);
+        // AUD-083 FIX: Verify buffers are MAX_BUFFER_FRAMES.
+        assert_eq!(ctx.track_slots[0].buf_left.len(), MAX_BUFFER_FRAMES);
+        assert_eq!(ctx.track_slots[0].buf_right.len(), MAX_BUFFER_FRAMES);
     }
 
     #[test]

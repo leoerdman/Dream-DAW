@@ -20,6 +20,8 @@ use petgraph::algo;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::{EdgeRef, NodeIndexable};
 
+use std::collections::HashMap;
+
 use std::fmt;
 
 // ── Node Types ──────────────────────────────────────────────────────────
@@ -235,6 +237,8 @@ pub struct EdgeDelayCompensation {
 #[derive(Clone)]
 pub struct GraphBuilder {
     graph: DiGraph<AudioNode, AudioEdge>,
+    /// GR-001 FIX: O(1) NodeId→NodeIndex lookup (was O(n) linear scan).
+    id_map: HashMap<NodeId, NodeIndex>,
 }
 
 impl GraphBuilder {
@@ -242,12 +246,15 @@ impl GraphBuilder {
     pub fn new() -> Self {
         Self {
             graph: DiGraph::new(),
+            id_map: HashMap::new(),
         }
     }
 
     /// Adds a node to the graph. Returns the builder for chaining.
     pub fn add_node(mut self, node: AudioNode) -> Self {
-        self.graph.add_node(node);
+        let id = node.id;
+        let idx = self.graph.add_node(node);
+        self.id_map.insert(id, idx);  // GR-001 FIX: O(1) lookup
         self
     }
 
@@ -271,21 +278,30 @@ impl GraphBuilder {
         to_id: NodeId,
         kind: AudioEdgeKind,
     ) -> Result<Self, GraphError> {
-        let from_idx = self.find_index(from_id)?;
-        let to_idx = self.find_index(to_id)?;
+        let from_idx = *self.id_map.get(&from_id)
+            .ok_or(GraphError::NodeNotFound(from_id))?;  // GR-001 FIX: O(1)
+        let to_idx = *self.id_map.get(&to_id)
+            .ok_or(GraphError::NodeNotFound(to_id))?;     // GR-001 FIX: O(1)
 
-        // Temporarily add the edge to check for cycles.
-        let edge_idx = self.graph.add_edge(from_idx, to_idx, AudioEdge { kind });
+        // GR-030 FIX: Prevent duplicate edges (would cause double-summing).
+        let already_exists = self.graph
+            .edges_directed(to_idx, petgraph::Direction::Incoming)
+            .any(|e| e.source() == from_idx);
+        if already_exists {
+            return Ok(self); // Idempotent — silently deduplicate.
+        }
 
-        if algo::is_cyclic_directed(&self.graph) {
-            // Remove the offending edge before returning the error.
-            self.graph.remove_edge(edge_idx);
+        // GR-002 FIX: Incremental cycle check via targeted DFS from `to_idx`.
+        // Only checks if `from_idx` is reachable from `to_idx` — O(reachable)
+        // instead of full DFS O(V+E) on every edge.
+        if algo::has_path_connecting(&self.graph, to_idx, from_idx, None) {
             return Err(GraphError::ConnectionWouldCycle {
                 from: from_id,
                 to: to_id,
             });
         }
 
+        self.graph.add_edge(from_idx, to_idx, AudioEdge { kind });
         Ok(self)
     }
 
@@ -296,10 +312,14 @@ impl GraphBuilder {
     /// 2. The graph must be acyclic (enforced per-edge, but double-checked here).
     /// 3. Graph depth must not exceed MAX_GRAPH_DEPTH (BUG-027 FIX).
     pub fn build(self) -> Result<AudioDag, GraphError> {
-        // ── 1. Check acyclicity ──────────────────────────────────
-        if algo::is_cyclic_directed(&self.graph) {
-            return Err(GraphError::CycleDetected);
-        }
+        // GR-003 FIX: Removed redundant full cycle check.
+        // Every edge is individually cycle-checked in add_edge_typed(),
+        // so the graph is guaranteed acyclic at this point.
+        // A debug_assert guards against API misuse in tests.
+        debug_assert!(
+            !algo::is_cyclic_directed(&self.graph),
+            "BUG: graph has cycle despite per-edge checking"
+        );
 
         // ── 2. Find master output ────────────────────────────────
         let master_indices: Vec<NodeIndex> = self
@@ -348,11 +368,9 @@ impl GraphBuilder {
     }
 
     /// Finds the petgraph NodeIndex for a given stable NodeId.
+    /// GR-001 FIX: O(1) via HashMap (was O(n) linear scan).
     fn find_index(&self, id: NodeId) -> Result<NodeIndex, GraphError> {
-        self.graph
-            .node_indices()
-            .find(|&idx| self.graph[idx].id == id)
-            .ok_or(GraphError::NodeNotFound(id))
+        self.id_map.get(&id).copied().ok_or(GraphError::NodeNotFound(id))
     }
 }
 
@@ -445,7 +463,8 @@ impl AudioDag {
         let total_nodes = stages.iter().map(Vec::len).sum::<usize>();
         let max_stage_width = stages.iter().map(Vec::len).max().unwrap_or(0);
         let avg_stage_width = total_nodes as f32 / stage_count as f32;
-        let recommended_workers = max_stage_width.max(1);
+        // GR-007 FIX: Cap at 16 to prevent absurd thread counts for wide graphs.
+        let recommended_workers = max_stage_width.max(1).min(16);
 
         ParallelismMetrics {
             stage_count,

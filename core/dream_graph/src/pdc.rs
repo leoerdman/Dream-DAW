@@ -26,7 +26,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 use petgraph::graph::NodeIndex;
-use petgraph::visit::EdgeRef;
+use petgraph::visit::{EdgeRef, NodeIndexable};
 
 use crate::dag::{AudioDag, EdgeDelayCompensation};
 
@@ -51,8 +51,9 @@ pub fn compute_delay_compensation(dag: &AudioDag, topo_order: &[NodeIndex]) -> V
     let graph = dag.graph();
     let node_count = graph.node_count();
 
-    // ── Step 1: Reverse pass — max latency from node to master ───────
-    let mut max_to_master: Vec<u32> = vec![0; node_count];
+    // GR-004 FIX: Use node_bound() not node_count(). petgraph indices
+    // can exceed node_count() after removals, causing index OOB panic.
+    let mut max_to_master: Vec<u32> = vec![0; graph.node_bound()];
     for &node_idx in topo_order.iter().rev() {
         let own_latency = dag.node(node_idx).latency_samples();
         let best_child = graph
@@ -76,7 +77,7 @@ pub fn compute_delay_compensation(dag: &AudioDag, topo_order: &[NodeIndex]) -> V
     }
 
     // ── Step 3: Compensation only on sources ─────────────────────────
-    let mut compensation = vec![0u32; node_count];
+    let mut compensation = vec![0u32; graph.node_bound()];
     for node_idx in graph.node_indices() {
         let is_source = graph
             .edges_directed(node_idx, petgraph::Direction::Incoming)
@@ -104,8 +105,8 @@ pub fn compute_edge_delay_compensation(
     let graph = dag.graph();
     let node_count = graph.node_count();
 
-    // Max latency from any source to the output of each node.
-    let mut max_to_output = vec![0u32; node_count];
+    // GR-005 FIX: Use node_bound() not node_count() — same as GR-004.
+    let mut max_to_output = vec![0u32; graph.node_bound()];
 
     for &node_idx in topo_order {
         let max_input = graph

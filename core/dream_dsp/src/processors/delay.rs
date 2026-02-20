@@ -68,8 +68,9 @@ impl DelayProcessor {
     pub fn new(sample_rate: f32) -> Self {
         // BUG-8 FIX: Pre-allocate at maximum possible size so we NEVER
         // resize on the audio thread. This covers SR up to 192kHz.
-        let max_buf_size = (MAX_SAMPLE_RATE * MAX_DELAY_SECONDS) as usize + 1;
-        let buf_size = (sample_rate * MAX_DELAY_SECONDS) as usize + 1;
+        // BUG-033 FIX: Round to next power-of-2 for bitwise AND masking in read_interp.
+        let max_buf_size = ((MAX_SAMPLE_RATE * MAX_DELAY_SECONDS) as usize + 1).next_power_of_two();
+        let buf_size = ((sample_rate * MAX_DELAY_SECONDS) as usize + 1).next_power_of_two();
         let mut proc = Self {
             buf_l: vec![0.0; max_buf_size],
             buf_r: vec![0.0; max_buf_size],
@@ -121,12 +122,12 @@ impl DelayProcessor {
             && (sample_rate - self.sample_rate).abs() > 0.5
         {
             self.sample_rate = sample_rate;
-            // BUG-8 FIX: Update logical buf_size without resizing.
-            // Physical allocation already covers up to MAX_SAMPLE_RATE.
+            // BUG-8 + BUG-033 FIX: Update logical buf_size (power-of-2) without resizing.
             let required_size = ((sample_rate * MAX_DELAY_SECONDS) as usize + 1)
+                .next_power_of_two()
                 .min(self.buf_capacity);
             self.buf_size = required_size;
-            self.write_pos = self.write_pos % self.buf_size;
+            self.write_pos = self.write_pos & (self.buf_size - 1);
             self.update_filter();
             self.update_delay_l();
             self.update_delay_r();
@@ -134,12 +135,15 @@ impl DelayProcessor {
     }
 
     /// Read with linear interpolation for fractional delays.
+    /// BUG-033 FIX: Uses bitwise AND instead of modulo for ring buffer indices
+    /// (eliminates 2 DIV instructions per sample → ~2x faster index computation).
     #[inline]
     fn read_interp(buf: &[f32], write_pos: usize, delay: f32, buf_size: usize) -> f32 {
         let int_d = delay as usize;
         let frac = delay - int_d as f32;
-        let i0 = (write_pos + buf_size - int_d) % buf_size;
-        let i1 = (write_pos + buf_size - int_d - 1) % buf_size;
+        let mask = buf_size - 1; // buf_size is always power-of-2 aligned
+        let i0 = (write_pos + buf_size - int_d) & mask;
+        let i1 = (write_pos + buf_size - int_d - 1) & mask;
         buf[i0] * (1.0 - frac) + buf[i1] * frac
     }
 }
@@ -203,7 +207,7 @@ impl DspProcessor for DelayProcessor {
             left[i] = dry_l * dry + delayed_l * wet;
             right[i] = dry_r * dry + delayed_r * wet;
 
-            self.write_pos = (self.write_pos + 1) % bs;
+            self.write_pos = (self.write_pos + 1) & (bs - 1);
         }
     }
 
@@ -241,8 +245,10 @@ impl DspProcessor for DelayProcessor {
     }
 
     fn reset(&mut self) {
-        self.buf_l.iter_mut().for_each(|s| *s = 0.0);
-        self.buf_r.iter_mut().for_each(|s| *s = 0.0);
+        // BUG-022 FIX: Only clear the active region (buf_size) instead of full
+        // buf_capacity (384K samples). At 44.1kHz this is 4.3x less work.
+        self.buf_l[..self.buf_size].fill(0.0);
+        self.buf_r[..self.buf_size].fill(0.0);
         self.write_pos = 0;
         self.fb_filter_l = 0.0;
         self.fb_filter_r = 0.0;

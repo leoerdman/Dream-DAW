@@ -200,11 +200,12 @@ impl PluginScanner {
         ];
 
         // BUG-039 FIX: Expanded effect keywords for better categorization.
+        // Note: 'analyzer' and 'meter' are in analyzer_keywords below, not here.
         let effect_keywords = [
             "eq", "compressor", "comp", "limiter", "reverb", "delay",
             "chorus", "flanger", "phaser", "distortion", "saturator",
             "gate", "de-esser", "deesser", "filter", "exciter",
-            "multi", "stereo", "utility", "analyzer", "meter",
+            "multi", "stereo", "utility",
             "pro-q", "pro-c", "pro-l", "pro-r", "pro-mb",
             "ozone", "neutron", "nectar",
         ];

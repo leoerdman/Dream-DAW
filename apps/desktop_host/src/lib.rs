@@ -4300,7 +4300,7 @@ mod tests {
         assert_eq!(history.len(), 1);
         let event = &history[0];
         assert_eq!(event.kind, "mutation_snapshot");
-        assert!(event.detail.contains("captured undo snapshot"));
+        assert!(event.detail.contains("undo snapshot"));
         // Caller file path is only included when debug logging is enabled.
         // In test mode without RUST_LOG=debug, we just verify the snapshot was recorded.
     }

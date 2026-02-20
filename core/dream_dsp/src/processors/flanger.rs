@@ -160,14 +160,16 @@ impl DspProcessor for FlangerProcessor {
             let lfo_r = self.lfo(phase_r.fract(), self.lfo_shape);
 
             // Modulated delay
+            // BUG-027 FIX: Clamp TZ mode to minimum 1.0 sample (was 0.1).
+            // Sub-sample delays cause read_interp to read from ~write_pos,
+            // producing harsh metallic self-oscillation artifacts.
             let delay_l = if self.tz_mode {
-                // Through-zero: modulate around zero crossing
-                (base + lfo_l * (base * self.depth)).max(0.1)
+                (base + lfo_l * (base * self.depth)).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32)
             } else {
                 (base + lfo_l * mod_depth).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32)
             };
             let delay_r = if self.tz_mode {
-                (base + lfo_r * (base * self.depth)).max(0.1)
+                (base + lfo_r * (base * self.depth)).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32)
             } else {
                 (base + lfo_r * mod_depth).clamp(1.0, (MAX_DELAY_SAMPLES - 2) as f32)
             };

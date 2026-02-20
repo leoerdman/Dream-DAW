@@ -271,9 +271,11 @@ impl BiquadFilter {
         self.x1 = x;
         self.y2 = self.y1;
         // BUG-85 FIX: Flush denormals in IIR feedback to prevent CPU spikes on x86.
+        // BUG-008 FIX: Return the flushed value so downstream biquad stages
+        // never process denormals (previously returned raw `y` which could be denormal).
         self.y1 = if y.is_normal() || y == 0.0 { y } else { 0.0 };
 
-        y
+        self.y1
     }
 
     /// Processes a single f32 sample (convenience for audio buffers).

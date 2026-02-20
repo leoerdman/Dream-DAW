@@ -113,7 +113,9 @@ impl MidiScheduler {
         out: &mut Vec<ScheduledNote>,
     ) {
         out.clear();
-        let buffer_end = playhead_pos + frame_count as i64;
+        // BUG-021 FIX: saturating_add prevents i64 overflow in long sessions
+        // (matching ClipScheduler::fill_active which already has this guard).
+        let buffer_end = playhead_pos.saturating_add(frame_count as i64);
 
         for clip in clips {
             // Skip muted clips — they remain visible but produce no MIDI output.

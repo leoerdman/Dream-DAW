@@ -549,7 +549,9 @@ fn recording_worker(
 
     // ── Drain loop ──────────────────────────────────────────────
     loop {
-        let is_active = state.is_recording.load(Ordering::Relaxed);
+        // BUG-006 FIX: Acquire ordering ensures this thread sees all writes
+        // that happened-before the controller stored false (Release/SeqCst).
+        let is_active = state.is_recording.load(Ordering::Acquire);
         let mut drained = 0usize;
 
         // Drain all available samples from ring buffer
@@ -565,7 +567,7 @@ fn recording_worker(
                     total_samples_written + drained as u64
                 );
                 // Signal the recording to stop
-                state.is_recording.store(false, Ordering::Relaxed);
+                state.is_recording.store(false, Ordering::Release);
                 break;
             }
 

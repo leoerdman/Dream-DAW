@@ -138,6 +138,12 @@ async fn delete_track_cmd(
     push_undo(&project_state)?;
     project = project_state.project.lock().map_err(|e| e.to_string())?;
 
+    // BUG-013 FIX: Re-validate after lock re-acquisition. Between drop(project)
+    // and re-acquisition, another command could have modified the track list.
+    if index >= project.tracks.len() {
+        return Err(format!("Track index {} became invalid after undo snapshot", index));
+    }
+
     let removed_track = project.tracks.remove(index);
     let removed_id = removed_track.id;
     let removed_name = removed_track.name;

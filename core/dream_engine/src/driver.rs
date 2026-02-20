@@ -1547,6 +1547,8 @@ pub fn start_audio_thread_on_device(
     let mut track_disabled: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
     let mut track_soloed: [bool; MAX_TRACKS] = [false; MAX_TRACKS];
     let mut any_solo: bool = false;
+    // BUG-026 FIX: Persist the last loop region so SetLoopEnabled(true) can restore it.
+    let mut last_loop_region: Option<LoopRegion> = None;
 
     // ── 6. Per-track sampler engines ─────────────────────────────────
     // Pre-allocated sampler engines (one per track max).
@@ -1692,8 +1694,10 @@ pub fn start_audio_thread_on_device(
                                     test_tone_enabled = true;
                                 }
                                 EngineCommand::Seek(frame) => {
-                                    clock.set_position(frame);
-                                    render_ctx.playhead.seek(frame);
+                                    // BUG-056 FIX: Clamp negative seek to 0.
+                                    let safe_frame = frame.max(0);
+                                    clock.set_position(safe_frame);
+                                    render_ctx.playhead.seek(safe_frame);
                                     // Prevent stuck/stacked notes after timeline jumps.
                                     for idx in 0..sampler_engines.len() {
                                         sampler_engines[idx].all_notes_off();
@@ -1709,17 +1713,20 @@ pub fn start_audio_thread_on_device(
                                     render_ctx.set_timeline_sample_rate(sample_rate);
                                 }
                                 EngineCommand::SetLoopEnabled(enabled) => {
-                                    if enabled {
-                                        // If region was cleared, we can't recreate it here.
-                                        // The IPC always sends SetLoopRegion BEFORE SetLoopEnabled,
-                                        // so the region should already exist. This is a no-op guard.
-                                    } else {
+                                    // BUG-026 FIX: Store last loop region so re-enabling
+                                    // restores it. Previously SetLoopEnabled(false) destroyed
+                                    // the region irreversibly.
+                                    if !enabled {
                                         render_ctx.loop_region = None;
+                                    } else if let Some(ref lr) = last_loop_region {
+                                        render_ctx.loop_region = Some(lr.clone());
                                     }
                                 }
                                 EngineCommand::SetLoopRegion { start, end } => {
                                     if end > start {
-                                        render_ctx.loop_region = Some(LoopRegion { start, end });
+                                        let region = LoopRegion { start, end };
+                                        last_loop_region = Some(region.clone());
+                                        render_ctx.loop_region = Some(region);
                                     }
                                 }
                                 EngineCommand::SetTrackVolume {
@@ -3104,7 +3111,14 @@ mod tests {
 
         assert!(left[0] < left[7]);
         assert!(right[0] < right[7]);
-        assert!((left[7] - 2.0).abs() < 0.05);
+        // With equal-power pan at center, gain is multiplied by cos(π/4) ≈ 0.707.
+        // So gain=2.0 → left[7] ≈ 2.0 * cos(π/4) ≈ 1.414.
+        let expected = 2.0 * std::f32::consts::FRAC_PI_4.cos();
+        assert!(
+            (left[7] - expected).abs() < 0.05,
+            "Expected left[7] ≈ {:.3} (gain=2.0 * cos(π/4)), got {:.3}",
+            expected, left[7]
+        );
     }
 
     #[test]

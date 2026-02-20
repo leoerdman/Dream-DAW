@@ -462,7 +462,20 @@ impl Drop for DiskStreamerHandle {
     fn drop(&mut self) {
         self.kill.store(true, Ordering::SeqCst);
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            // BUG-053 FIX: Timeout on thread join to prevent infinite hang
+            // if the DiskIO thread is stuck on a slow I/O operation.
+            let (tx, rx) = std::sync::mpsc::channel();
+            let join_thread = std::thread::spawn(move || {
+                let _ = thread.join();
+                let _ = tx.send(());
+            });
+            match rx.recv_timeout(std::time::Duration::from_secs(2)) {
+                Ok(()) => {}
+                Err(_) => {
+                    log::warn!("DiskStreamer: thread join timed out for '{}', detaching", self.source_path);
+                    drop(join_thread); // Detach — OS will clean up
+                }
+            }
         }
         log::info!("DiskStreamer: stopped for '{}'", self.source_path);
     }

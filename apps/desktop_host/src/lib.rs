@@ -849,6 +849,9 @@ struct ProjectState {
     /// Undo/Redo history.
     undo: Mutex<UndoState>,
     history: Mutex<ProjectHistory>,
+
+    /// Device clipboard — stores a copied DeviceNode for cross-track paste.
+    device_clipboard: Mutex<Option<DeviceNode>>,
 }
 
 impl ProjectState {
@@ -860,6 +863,7 @@ impl ProjectState {
             is_dirty: Mutex::new(false),
             undo: Mutex::new(UndoState::new()),
             history: Mutex::new(ProjectHistory::new()),
+            device_clipboard: Mutex::new(None),
         }
     }
 
@@ -2344,7 +2348,7 @@ impl ClipPoolState {
         project: &Project,
         slot_instance_map: &HashMap<Uuid, Uuid>,
     ) {
-        let external_fx: Vec<Vec<dream_engine::driver::ExternalFxRuntimeSlot>> = project
+        let mut external_fx: Vec<Vec<dream_engine::driver::ExternalFxRuntimeSlot>> = project
             .tracks
             .iter()
             .map(|track| {
@@ -2414,6 +2418,67 @@ impl ClipPoolState {
                 instrument_slot.into_iter().chain(effects_iter).collect()
             })
             .collect();
+
+        // ── Master track external FX (CRITICAL FIX) ──────────────────────
+        // The master track is stored separately from project.tracks,
+        // so its external plugins (e.g., Muse, OTT, limiter VSTs) were
+        // never included in the external FX map — meaning they NEVER
+        // received process() calls in the audio callback.
+        // Appending master FX as the LAST entry makes them available
+        // at index `project.tracks.len()` for the post-graph master
+        // FX processing pass in driver.rs.
+        {
+            let master = &project.master_track;
+            let mut master_internal_idx: usize = 0;
+
+            let master_instrument = master.instrument.as_ref()
+                .and_then(|inst| inst.as_single())
+                .and_then(|slot| {
+                    if slot.plugin_id.starts_with("internal://") || slot.is_bypassed {
+                        None
+                    } else {
+                        let instance_id = slot_instance_map.get(&slot.id).copied()?;
+                        Some(dream_engine::driver::ExternalFxRuntimeSlot {
+                            slot_id: Some(slot.id),
+                            internal_slot_index: None,
+                            instance_id: Some(instance_id),
+                            sidechain_track_index: None,
+                        })
+                    }
+                });
+
+            let master_effects_iter = master.effects
+                .iter()
+                .filter_map(|node| node.as_single())
+                .filter_map(|slot| {
+                    if slot.plugin_id.starts_with("internal://effect/") {
+                        let idx = master_internal_idx;
+                        master_internal_idx = master_internal_idx.saturating_add(1);
+                        Some(dream_engine::driver::ExternalFxRuntimeSlot {
+                            slot_id: Some(slot.id),
+                            internal_slot_index: Some(idx),
+                            instance_id: None,
+                            sidechain_track_index: None,
+                        })
+                    } else {
+                        if slot.is_bypassed {
+                            return None;
+                        }
+                        let instance_id = slot_instance_map.get(&slot.id).copied()?;
+                        Some(dream_engine::driver::ExternalFxRuntimeSlot {
+                            slot_id: Some(slot.id),
+                            internal_slot_index: None,
+                            instance_id: Some(instance_id),
+                            sidechain_track_index: None,
+                        })
+                    }
+                });
+
+            let master_fx_chain: Vec<_> = master_instrument.into_iter()
+                .chain(master_effects_iter)
+                .collect();
+            external_fx.push(master_fx_chain);
+        }
 
         self.external_fx_snapshot.swap(external_fx);
     }

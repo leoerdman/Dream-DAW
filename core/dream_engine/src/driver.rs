@@ -2855,6 +2855,85 @@ pub fn start_audio_thread_on_device(
                         // should retain their flush flag until they become active.
                         vst3_flush_per_track[..track_count.min(MAX_TRACKS)].fill(false);
 
+                        // ── Post-graph master external FX processing ─────────
+                        // CRITICAL FIX: External VST3 plugins on the master bus
+                        // (e.g. Muse, OTT, limiter) were never processed because:
+                        //   1. The graph callback returns early for MASTER_OUTPUT_ID=0
+                        //   2. master_track was separate from project.tracks
+                        // Now that rebuild_external_fx_snapshot appends master FX
+                        // at index track_count, process them on graph_out_left/right
+                        // BEFORE interleaving to the output buffer.
+                        let master_fx_idx = track_count; // master FX appended after all tracks
+                        if let Some(master_slots) = external_fx_map.get(master_fx_idx) {
+                            if !master_slots.is_empty() {
+                                for runtime_slot in master_slots.iter() {
+                                    // Internal effects on master bus (EQ, compressor, etc.)
+                                    // are processed via the master's device_chain — skip them here.
+                                    if runtime_slot.internal_slot_index.is_some() {
+                                        // TODO: If we add per-master DeviceChain, process here.
+                                        continue;
+                                    }
+
+                                    if let Some(instance_id) = runtime_slot.instance_id
+                                        && let Some(host) = plugin_host_guard.as_deref_mut()
+                                    {
+                                        let c = n;
+                                        let main_inputs: [&[f32]; 2] = [
+                                            &graph_out_left[..c],
+                                            &graph_out_right[..c],
+                                        ];
+                                        let transport = TransportContext {
+                                            sample_rate: sample_rate_f64,
+                                            position_samples: playhead_pos,
+                                            tempo: bpm,
+                                            is_playing,
+                                            is_recording: false,
+                                            time_sig_numerator: 4,
+                                            time_sig_denominator: 4,
+                                        };
+                                        let _ = host.set_transport_context(
+                                            instance_id,
+                                            transport,
+                                        );
+
+                                        // Master bus plugins don't receive MIDI.
+                                        // Use empty slice (zero-alloc) for RT-safety.
+                                        let empty_midi: &[MidiEvent] = &[];
+
+                                        let mut out_slices: [&mut [f32]; 2] = [
+                                            &mut external_left[..c],
+                                            &mut external_right[..c],
+                                        ];
+                                        let _ = host.process_with_sidechain(
+                                            instance_id,
+                                            &main_inputs,
+                                            None, // No sidechain on master bus
+                                            &mut out_slices,
+                                            c,
+                                            &empty_midi,
+                                        );
+
+                                        // Write processed output back to graph_out buffers.
+                                        graph_out_left[..c].copy_from_slice(&external_left[..c]);
+                                        graph_out_right[..c].copy_from_slice(&external_right[..c]);
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── Master bus metering (post-FX) ─────────────────────
+                        {
+                            let decay = graph_peak_decay;
+                            let rms_l = linear_to_db(compute_rms(&graph_out_left[..n]));
+                            let rms_r = linear_to_db(compute_rms(&graph_out_right[..n]));
+                            let peak_l = linear_to_db(compute_peak(&graph_out_left[..n]));
+                            let peak_r = linear_to_db(compute_peak(&graph_out_right[..n]));
+                            render_ctx.meter_bank.master_left().store_rms(rms_l);
+                            render_ctx.meter_bank.master_right().store_rms(rms_r);
+                            render_ctx.meter_bank.master_left().store_peak_decay(peak_l, decay);
+                            render_ctx.meter_bank.master_right().store_peak_decay(peak_r, decay);
+                        }
+
                         for i in 0..n {
                             let base = i * channels;
                             if base >= data.len() { break; }

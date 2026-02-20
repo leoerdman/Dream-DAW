@@ -1034,6 +1034,20 @@ export const removePluginFromTrack = (trackId: string, slotId: string) =>
         payload: { trackId, slotId },
     });
 
+/** Copy a device (instrument, effect, VST, rack) to the backend clipboard.
+ *  Returns the display name of the copied device. */
+export const copyDeviceFromTrack = (trackId: string, deviceId: string) =>
+    invoke<string>('copy_device_from_track_cmd', { trackId, deviceId });
+
+/** Paste the previously copied device to a target track.
+ *  Creates a fully independent copy with regenerated UUIDs.
+ *  slot_hint: 'instrument' | 'effect' | 'auto' (default: 'auto'). */
+export const pasteDeviceToTrack = (
+    trackId: string,
+    slotHint: 'instrument' | 'effect' | 'auto' = 'auto',
+) =>
+    invoke<void>('paste_device_to_track_cmd', { trackId, slotHint });
+
 /** Set an internal plugin parameter (Utility/Sampler/EQ UI -> backend state). */
 export const setInternalPluginParam = (
     trackId: string,

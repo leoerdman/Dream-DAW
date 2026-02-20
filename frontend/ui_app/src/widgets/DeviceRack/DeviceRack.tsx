@@ -1332,10 +1332,46 @@ export const DeviceRack = ({
 
     useEffect(() => {
         const onKeyDown = async (e: KeyboardEvent) => {
-            if ((e.key !== 'Delete' && e.key !== 'Backspace') || selectedDeviceIds.length === 0) return;
             const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
             if (tag === 'input' || tag === 'textarea' || (e.target as HTMLElement | null)?.isContentEditable) return;
             if (!selectedTrack) return;
+
+            // ── Cmd+C: Copy selected device to clipboard ──
+            if ((e.metaKey || e.ctrlKey) && e.key === 'c' && selectedDeviceIds.length > 0) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                try {
+                    const deviceName = await engineApi.copyDeviceFromTrack(
+                        selectedTrack.id,
+                        selectedDeviceIds[0],
+                    );
+                    statusClear();
+                    console.log(`[DeviceRack] Copied device: ${deviceName}`);
+                } catch (err) {
+                    console.error('[DeviceRack] copyDeviceFromTrack failed:', err);
+                    statusError('Failed to copy device.');
+                }
+                return;
+            }
+
+            // ── Cmd+V: Paste device to current track ──
+            if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                try {
+                    await engineApi.pasteDeviceToTrack(selectedTrack.id, 'auto');
+                    await fetchProject();
+                    statusClear();
+                    console.log('[DeviceRack] Pasted device to track:', selectedTrack.id);
+                } catch (err) {
+                    console.error('[DeviceRack] pasteDeviceToTrack failed:', err);
+                    statusError(String(err));
+                }
+                return;
+            }
+
+            // ── Delete / Backspace: Remove selected devices ──
+            if ((e.key !== 'Delete' && e.key !== 'Backspace') || selectedDeviceIds.length === 0) return;
             e.preventDefault();
             e.stopImmediatePropagation();
             try {

@@ -180,6 +180,8 @@ pub(crate) fn invoke_handler(
         eager_activate_external_plugins,
         set_slot_bypass_cmd,
         move_effect_slot_cmd,
+        copy_device_from_track_cmd,
+        paste_device_to_track_cmd,
         // Device Chain
         add_device_cmd,
         remove_device_cmd,

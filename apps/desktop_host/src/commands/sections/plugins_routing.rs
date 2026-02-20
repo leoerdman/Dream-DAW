@@ -3193,3 +3193,250 @@ async fn move_effect_slot_cmd(
     );
     Ok(())
 }
+
+// ── Device Copy / Paste ────────────────────────────────────────────────
+
+/// Find a `DeviceNode` by its UUID on a track (searches instrument + effects recursively).
+fn find_device_node_on_track(project: &Project, track_id: Uuid, device_id: Uuid) -> Option<DeviceNode> {
+    let track = project.tracks.iter().find(|t| t.id == track_id)?;
+    // Check instrument slot.
+    if let Some(inst) = &track.instrument {
+        if inst.id() == device_id {
+            return Some(inst.clone());
+        }
+        // Search inside racks recursively.
+        if let Some(found) = find_device_node_recursive(inst, device_id) {
+            return Some(found);
+        }
+    }
+    // Check effects chain.
+    for fx in &track.effects {
+        if fx.id() == device_id {
+            return Some(fx.clone());
+        }
+        if let Some(found) = find_device_node_recursive(fx, device_id) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Recursively search inside a DeviceNode (rack chains) for a nested device by ID.
+fn find_device_node_recursive(node: &DeviceNode, device_id: Uuid) -> Option<DeviceNode> {
+    match node {
+        DeviceNode::Single(_) => None, // Already checked at caller
+        DeviceNode::Rack(rack) => {
+            for chain in &rack.chains {
+                for device in &chain.devices {
+                    if device.id() == device_id {
+                        return Some(device.clone());
+                    }
+                    if let Some(found) = find_device_node_recursive(device, device_id) {
+                        return Some(found);
+                    }
+                }
+            }
+            None
+        }
+    }
+}
+
+/// Copy a device (instrument, effect, VST, rack) to the clipboard.
+///
+/// The device is deep-cloned from the source track — the original remains untouched.
+/// The clipboard stores the full DeviceNode with all parameters, state blobs, etc.
+#[tauri::command]
+fn copy_device_from_track_cmd(
+    track_id: String,
+    device_id: String,
+    project_state: tauri::State<'_, ProjectState>,
+) -> Result<String, String> {
+    let track_uuid = Uuid::parse_str(&track_id)
+        .map_err(|_| format!("Invalid track_id: {track_id}"))?;
+    let device_uuid = Uuid::parse_str(&device_id)
+        .map_err(|_| format!("Invalid device_id: {device_id}"))?;
+
+    let project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let device_node = find_device_node_on_track(&project, track_uuid, device_uuid)
+        .ok_or_else(|| format!("Device not found on track {track_id}: {device_id}"))?;
+
+    let device_name = device_node.name().to_owned();
+    let mut clipboard = project_state.device_clipboard.lock().map_err(|e| e.to_string())?;
+    *clipboard = Some(device_node);
+
+    log::info!("[IPC] copy_device_from_track_cmd(track={track_id}, device={device_id}, name='{device_name}')");
+    Ok(device_name)
+}
+
+/// Paste the copied device to a target track.
+///
+/// Creates a fresh copy with regenerated UUIDs so it's fully independent.
+/// For instrument devices on MIDI tracks, replaces the instrument slot;
+/// for effects, appends to the effects chain.
+/// Handles external plugin loading and engine device chain updates.
+#[tauri::command]
+fn paste_device_to_track_cmd(
+    track_id: String,
+    slot_hint: Option<String>,
+    project_state: tauri::State<'_, ProjectState>,
+    clip_pool_state: tauri::State<'_, ClipPoolState>,
+    handle: tauri::State<'_, AudioEngineHandle>,
+    plugin_host_state: tauri::State<'_, PluginHostState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    // Read clipboard (don't consume it — allow multiple pastes).
+    let clipboard = project_state.device_clipboard.lock().map_err(|e| e.to_string())?;
+    let Some(ref source_node) = *clipboard else {
+        return Err("Device clipboard is empty".to_string());
+    };
+    let mut pasted_node = source_node.clone();
+    drop(clipboard); // Release clipboard lock before taking project lock.
+
+    // Regenerate all UUIDs to make the pasted device independent.
+    pasted_node.regenerate_ids();
+
+    let track_uuid = Uuid::parse_str(&track_id)
+        .map_err(|_| format!("Invalid track_id: {track_id}"))?;
+
+    push_undo(&project_state)?;
+    let mut project = project_state.project.lock().map_err(|e| e.to_string())?;
+    let track = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.id == track_uuid)
+        .ok_or_else(|| format!("Track not found: {track_id}"))?;
+
+    // Determine placement: instrument slot vs effects chain.
+    let hint = slot_hint.as_deref().unwrap_or("auto").to_lowercase();
+    let plugin_id = pasted_node.plugin_id();
+    let is_instrument_plugin = plugin_id.contains("instrument/");
+    let use_instrument = match hint.as_str() {
+        "instrument" => track.track_type == TrackType::Midi,
+        "effect" => false,
+        _ => { // "auto"
+            if track.track_type != TrackType::Midi {
+                false
+            } else {
+                is_instrument_plugin
+            }
+        }
+    };
+
+    // Collect all new slot IDs for plugin host loading.
+    let new_slots: Vec<PluginSlot> = pasted_node.collect_plugin_slots().into_iter().cloned().collect();
+
+    let mut runtime_add: Option<(Uuid, u8, u8)> = None;
+    if use_instrument {
+        // Set up sampler config if pasting a sampler/wave-synth instrument.
+        let pid_lower = plugin_id.to_lowercase();
+        if (pid_lower.contains("sampler") || pid_lower.contains("wave-synth"))
+            && track.sampler.is_none()
+        {
+            track.sampler = Some(SamplerConfig::default());
+        }
+        track.instrument = Some(pasted_node);
+    } else {
+        // Compute AddDevice info for internal effects.
+        if let DeviceNode::Single(slot) = &pasted_node {
+            if slot.plugin_id.starts_with("internal://effect/") {
+                if let Some(effect_type) = builtin_effect_type_from_plugin_id_copy(&slot.plugin_id) {
+                    let internal_slot_index = track.effects.iter()
+                        .filter_map(|node| node.as_single())
+                        .filter(|s| s.plugin_id.starts_with("internal://effect/"))
+                        .count()
+                        .min(u8::MAX as usize) as u8;
+                    runtime_add = Some((track.id, internal_slot_index, effect_type));
+                }
+            }
+        }
+        track.effects.push(pasted_node);
+    }
+
+    // Load external plugins for all slots in the pasted device.
+    let mut plugin_load_error: Option<String> = None;
+    for slot in &new_slots {
+        if !slot.plugin_id.starts_with("internal://") {
+            if let Err(err) = plugin_host_state.ensure_loaded_instance_for_slot(slot.id, &slot.plugin_id) {
+                log::warn!(
+                    "[IPC] paste_device_to_track_cmd: plugin '{}' failed to load (slot={}): {}",
+                    slot.plugin_id, slot.id, err
+                );
+                plugin_load_error = Some(format!("Plugin '{}' failed to load: {}", slot.name, err));
+            }
+        }
+    }
+
+    // Rebuild engine state.
+    let project_name = project.name.clone();
+    clip_pool_state.rebuild_routing_only(&project);
+    let slot_instance_map = plugin_host_state.slot_instance_snapshot();
+    clip_pool_state.rebuild_external_fx_snapshot(&project, slot_instance_map.as_ref());
+
+    // Send AddDevice engine command for internal effects.
+    if let Some((tid, slot_index, effect_type)) = runtime_add {
+        if let Some(runtime_track_index) = project.tracks.iter().position(|t| t.id == tid) {
+            let _ = push_command(&handle, EngineCommand::AddDevice {
+                track_index: runtime_track_index as u16,
+                slot_index,
+                effect_type,
+            });
+        }
+    }
+
+    log::info!(
+        "[IPC] paste_device_to_track_cmd(track={track_id}, slot={})",
+        if use_instrument { "instrument" } else { "effect" }
+    );
+    drop(project);
+    project_state.mark_dirty(&project_name, Some(&app))?;
+
+    if let Some(err_msg) = plugin_load_error {
+        return Err(err_msg);
+    }
+    Ok(())
+}
+
+/// Resolves internal plugin ID to builtin effect type discriminant (for paste).
+/// Mirrors `builtin_effect_type_from_plugin_id` in `add_plugin_to_track_cmd`.
+fn builtin_effect_type_from_plugin_id_copy(plugin_id: &str) -> Option<u8> {
+    const FX_EQ: u8 = 0;
+    const FX_COMPRESSOR: u8 = 1;
+    const FX_DELAY: u8 = 2;
+    const FX_REVERB: u8 = 3;
+    const FX_CHORUS: u8 = 4;
+    const FX_UTILITY: u8 = 5;
+    const FX_SATURATOR: u8 = 6;
+    const FX_LIMITER: u8 = 7;
+    const FX_GATE: u8 = 8;
+    const FX_AUTO_FILTER: u8 = 9;
+    const FX_PHASER: u8 = 10;
+    const FX_FLANGER: u8 = 11;
+    const FX_DISTORTION: u8 = 12;
+    const FX_BITCRUSHER: u8 = 13;
+    const FX_NOISE_MACHINE: u8 = 14;
+    const FX_AUTO_PAN: u8 = 15;
+
+    let key = plugin_id.to_lowercase();
+    if !key.starts_with("internal://effect/") {
+        return None;
+    }
+    match key.as_str() {
+        "internal://effect/eq-eight" | "internal://effect/channel-eq" | "internal://effect/eq-three" => Some(FX_EQ),
+        "internal://effect/compressor" | "internal://effect/glue-compressor" | "internal://effect/multiband-dynamics" | "internal://effect/transient-shaper" => Some(FX_COMPRESSOR),
+        "internal://effect/delay" | "internal://effect/echo" | "internal://effect/simple-delay" | "internal://effect/filter-delay" | "internal://effect/grain-delay" | "internal://effect/beat-repeat" | "internal://effect/looper" | "internal://effect/spectral-time" => Some(FX_DELAY),
+        "internal://effect/reverb" | "internal://effect/hybrid-reverb" | "internal://effect/corpus" | "internal://effect/resonators" | "internal://effect/spectral-resonator" => Some(FX_REVERB),
+        "internal://effect/chorus" => Some(FX_CHORUS),
+        "internal://effect/utility" | "internal://effect/tuner" | "internal://effect/external-audio-effect" | "internal://effect/auto-shift" | "internal://effect/shifter" => Some(FX_UTILITY),
+        "internal://effect/saturator" | "internal://effect/drum-buss" | "internal://effect/dynamic-tube" => Some(FX_SATURATOR),
+        "internal://effect/limiter" => Some(FX_LIMITER),
+        "internal://effect/gate" => Some(FX_GATE),
+        "internal://effect/auto-filter" | "internal://effect/vocoder" => Some(FX_AUTO_FILTER),
+        "internal://effect/phaser" | "internal://effect/phaser-flanger" => Some(FX_PHASER),
+        "internal://effect/flanger" => Some(FX_FLANGER),
+        "internal://effect/distortion" | "internal://effect/amp" | "internal://effect/cabinet" | "internal://effect/overdrive" | "internal://effect/pedal" | "internal://effect/roar" | "internal://effect/erosion" => Some(FX_DISTORTION),
+        "internal://effect/bitcrusher" => Some(FX_BITCRUSHER),
+        "internal://effect/noise-machine" => Some(FX_NOISE_MACHINE),
+        "internal://effect/auto-pan" => Some(FX_AUTO_PAN),
+        _ => None,
+    }
+}

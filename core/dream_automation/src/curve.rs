@@ -43,9 +43,12 @@ pub struct AutomationPoint {
 
 impl AutomationPoint {
     /// Creates a new automation point.
+    ///
+    /// # BUG-100 FIX
+    /// Position is clamped to >= 0 to prevent invalid negative sample frame positions.
     pub fn new(position: i64, value: f64) -> Self {
         Self {
-            position,
+            position: position.max(0),
             value: value.clamp(0.0, 1.0),
             interpolation: InterpolationMode::Linear,
         }
@@ -54,7 +57,7 @@ impl AutomationPoint {
     /// Creates a point with specified interpolation.
     pub fn with_interpolation(position: i64, value: f64, interp: InterpolationMode) -> Self {
         Self {
-            position,
+            position: position.max(0),
             value: value.clamp(0.0, 1.0),
             interpolation: interp,
         }
@@ -101,12 +104,19 @@ impl AutomationCurve {
 
     /// Removes the point closest to `position` within `tolerance` frames.
     /// Returns `true` if a point was removed.
+    ///
+    /// # BUG-020 FIX
+    /// Now finds the *closest* point within tolerance, not the first match.
+    /// This prevents removing the wrong point when multiple points are nearby.
     pub fn remove_near(&mut self, position: i64, tolerance: i64) -> bool {
-        if let Some(idx) = self
+        let closest = self
             .points
             .iter()
-            .position(|p| (p.position - position).abs() <= tolerance)
-        {
+            .enumerate()
+            .filter(|(_, p)| (p.position - position).abs() <= tolerance)
+            .min_by_key(|(_, p)| (p.position - position).abs());
+
+        if let Some((idx, _)) = closest {
             self.points.remove(idx);
             true
         } else {
@@ -165,8 +175,10 @@ impl AutomationCurve {
             }
 
             InterpolationMode::Exponential => {
-                // Exponential curve (good for faders)
-                let exp_t = t * t; // Simple quadratic approximation
+                // BUG-076 FIX: Use cubic (t³) for proper perceptual fader feel.
+                // Quadratic (t²) was too linear; cubic gives the standard
+                // dB-linear response expected for volume/pan faders.
+                let exp_t = t * t * t;
                 p0.value + (p1.value - p0.value) * exp_t
             }
         }

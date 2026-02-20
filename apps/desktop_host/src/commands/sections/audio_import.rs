@@ -101,7 +101,7 @@ async fn import_audio_file(
     // Insert into pool
     {
         let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
-        pool.insert(clip_audio);
+        if let Err(e) = pool.insert(clip_audio) { log::error!("ClipPool: {}", e); }
     }
     // Publish updated pool snapshot to audio thread
     {

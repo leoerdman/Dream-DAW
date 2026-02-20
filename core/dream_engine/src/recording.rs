@@ -59,6 +59,10 @@ pub struct RecordingState {
 
     /// Total frames captured so far.
     pub frames_captured: Arc<std::sync::atomic::AtomicU64>,
+
+    /// BUG-006 FIX: Total samples dropped due to ring buffer overflow.
+    /// Non-zero value indicates audio gaps in the recording.
+    pub samples_dropped: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl RecordingState {
@@ -68,6 +72,7 @@ impl RecordingState {
             peak_left: Arc::new(AtomicU32::new(0)),
             peak_right: Arc::new(AtomicU32::new(0)),
             frames_captured: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            samples_dropped: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -94,6 +99,11 @@ impl RecordingState {
     /// Returns total frames captured.
     pub fn total_frames(&self) -> u64 {
         self.frames_captured.load(Ordering::Relaxed)
+    }
+
+    /// BUG-006 FIX: Returns total samples dropped due to ring buffer overflow.
+    pub fn total_dropped(&self) -> u64 {
+        self.samples_dropped.load(Ordering::Relaxed)
     }
 }
 
@@ -267,6 +277,7 @@ impl RecordingSession {
             peak_left: Arc::clone(&state.peak_left),
             peak_right: Arc::clone(&state.peak_right),
             frames_captured: Arc::clone(&state.frames_captured),
+            samples_dropped: Arc::clone(&state.samples_dropped),
         };
 
         let worker_tmp_path = tmp_path.clone();
@@ -292,6 +303,7 @@ impl RecordingSession {
         let is_rec = Arc::clone(&state.is_recording);
         let peak_l = Arc::clone(&state.peak_left);
         let peak_r = Arc::clone(&state.peak_right);
+        let dropped_counter = Arc::clone(&state.samples_dropped);
         let mut producer = producer;
 
         let stream = device
@@ -326,9 +338,15 @@ impl RecordingSession {
                     RecordingState::store_peak(&peak_r, max_r);
 
                     // Push all samples into ring buffer
+                    // BUG-006 FIX: Track dropped samples instead of silently ignoring
+                    let mut drops = 0u64;
                     for &sample in data {
-                        // If ring buffer is full, drop samples (better than blocking)
-                        let _ = producer.push(sample);
+                        if producer.push(sample).is_err() {
+                            drops += 1;
+                        }
+                    }
+                    if drops > 0 {
+                        dropped_counter.fetch_add(drops, Ordering::Relaxed);
                     }
                 },
                 move |err| {

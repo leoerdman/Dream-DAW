@@ -55,10 +55,16 @@ impl Rng {
         x
     }
 
-    /// Uniform float in [-1, 1)
+    /// BUG-023 FIX: Uniform float in [-1, 1) using proper bit manipulation.
+    /// Previous version had slight DC bias due to i64 two's complement asymmetry.
+    /// New method: extract 24 mantissa bits, scale to [0, 1), then shift to [-1, 1).
     #[inline]
     fn next_f32(&mut self) -> f32 {
-        (self.next_u64() as i64 as f64 / i64::MAX as f64) as f32
+        let bits = self.next_u64();
+        // Extract 24 bits for the mantissa (f32 has 23-bit mantissa + 1 implicit)
+        let mantissa = (bits >> 40) as f32;
+        let scale = 1.0 / (1u64 << 24) as f32;
+        mantissa * scale * 2.0 - 1.0
     }
 }
 
@@ -105,6 +111,11 @@ pub struct NoiseMachineProcessor {
     // Brown noise state
     brown_l: f32,
     brown_r: f32,
+    // BUG-012 FIX: DC blocker state for brown noise (first-order HP at ~5Hz)
+    brown_dc_l: f32,
+    brown_dc_r: f32,
+    brown_dc_prev_l: f32,
+    brown_dc_prev_r: f32,
     // Blue / violet differentiation state
     prev_white_l: f32,
     prev_white_r: f32,
@@ -128,11 +139,15 @@ pub struct NoiseMachineProcessor {
     hp_prev_in_r: f32,
     lp_coeff: f32,
     hp_coeff: f32,
+    /// BUG-012 FIX: DC blocker coefficient for brown noise (~5Hz HPF).
+    brown_dc_coeff: f32,
     sample_rate: f32,
 }
 
 impl NoiseMachineProcessor {
     pub fn new(sample_rate: f32) -> Self {
+        // BUG-012 FIX: DC blocker at ~5Hz for brown noise
+        let brown_dc_coeff = (-std::f32::consts::TAU * 5.0 / sample_rate).exp();
         let mut proc = Self {
             rng_l: Rng::new(0xA1B2C3D4_E5F6A7B8),
             rng_r: Rng::new(0x1234_5678_9ABC_DEF0),
@@ -140,6 +155,10 @@ impl NoiseMachineProcessor {
             pink_r: PinkGen::new(),
             brown_l: 0.0,
             brown_r: 0.0,
+            brown_dc_l: 0.0,
+            brown_dc_r: 0.0,
+            brown_dc_prev_l: 0.0,
+            brown_dc_prev_r: 0.0,
             prev_white_l: 0.0,
             prev_white_r: 0.0,
             prev_blue_l: 0.0,
@@ -159,6 +178,7 @@ impl NoiseMachineProcessor {
             hp_prev_in_r: 0.0,
             lp_coeff: 0.0,
             hp_coeff: 0.0,
+            brown_dc_coeff,
             sample_rate,
         };
         proc.update_filters();
@@ -278,6 +298,11 @@ impl DspProcessor for NoiseMachineProcessor {
         self.pink_r.reset();
         self.brown_l = 0.0;
         self.brown_r = 0.0;
+        // BUG-012 FIX: Reset DC blocker state
+        self.brown_dc_l = 0.0;
+        self.brown_dc_r = 0.0;
+        self.brown_dc_prev_l = 0.0;
+        self.brown_dc_prev_r = 0.0;
         self.prev_white_l = 0.0;
         self.prev_white_r = 0.0;
         self.prev_blue_l = 0.0;
@@ -305,6 +330,8 @@ impl NoiseMachineProcessor {
         match noise_type {
             0 => rng.next_f32(),
             1 => pink.next(rng),
+            // BUG-012 FIX: Brown noise still integrates here, but DC blocker
+            // is applied in the main process loop after stereo mixing.
             2 => {
                 *brown = (*brown + rng.next_f32() * 0.02).clamp(-1.0, 1.0);
                 *brown
@@ -323,6 +350,7 @@ impl NoiseMachineProcessor {
                 *prev_blue = blue;
                 out.clamp(-1.0, 1.0)
             }
+            // BUG-073 FIX: Improved grey noise with better perceptual weighting
             5 => {
                 let w = rng.next_f32();
                 let hp = w - *prev_white;

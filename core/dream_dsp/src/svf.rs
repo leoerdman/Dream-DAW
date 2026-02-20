@@ -176,6 +176,11 @@ impl SvfFilter {
         s.ic1eq = 2.0 * v1 - s.ic1eq;
         s.ic2eq = 2.0 * v2 - s.ic2eq;
 
+        // BUG-032 FIX: Flush denormals to prevent CPU spikes on x86.
+        // Denormal floats (< 1e-18) cause 10-100x slowdown on x86 CPUs.
+        if s.ic1eq.abs() < 1e-18 { s.ic1eq = 0.0; }
+        if s.ic2eq.abs() < 1e-18 { s.ic2eq = 0.0; }
+
         let lowpass = v2;
         let bandpass = v1;
         let highpass = input - c.k * v1 - v2;
@@ -249,6 +254,10 @@ impl StereoSvf {
 
         state.ic1eq = 2.0 * v1 - state.ic1eq;
         state.ic2eq = 2.0 * v2 - state.ic2eq;
+
+        // BUG-032 FIX: Flush denormals in stereo SVF path too.
+        if state.ic1eq.abs() < 1e-18 { state.ic1eq = 0.0; }
+        if state.ic2eq.abs() < 1e-18 { state.ic2eq = 0.0; }
 
         match mode {
             SvfMode::Lowpass => v2,

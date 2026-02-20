@@ -2476,7 +2476,7 @@ impl ClipPoolState {
             }
             match AudioReader::read(&path) {
                 Ok(decoded) => {
-                    pool.insert(ClipAudio {
+                    let _ = pool.insert(ClipAudio {
                         source_path: source_path.to_string(),
                         channels: decoded.channels,
                         sample_rate: decoded.sample_rate,

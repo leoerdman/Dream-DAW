@@ -119,6 +119,19 @@ impl ChannelStrip {
         self.target_pan = pan.clamp(-1.0, 1.0);
     }
 
+    /// BUG-010 FIX: Recalculates smoothing coefficients for the given sample rate.
+    ///
+    /// Without this, the hardcoded `GAIN_SMOOTH_COEFF` (tuned for ~44.1kHz)
+    /// produces 2x faster smoothing at 96kHz and 2x slower at 22.05kHz.
+    #[inline]
+    pub fn set_sample_rate(&mut self, sample_rate: f32) {
+        use crate::gain::gain_smooth_coeff_for_sr;
+        // 5ms smoothing time — matches the default GAIN_SMOOTH_COEFF at 44.1kHz
+        let coeff = gain_smooth_coeff_for_sr(5.0, sample_rate);
+        self.volume_smooth_coeff = coeff;
+        self.pan_smooth_coeff = coeff;
+    }
+
     /// Sets effective gain from mute/solo resolver.
     ///
     /// 1.0 = normal, 0.0 = fully silenced.

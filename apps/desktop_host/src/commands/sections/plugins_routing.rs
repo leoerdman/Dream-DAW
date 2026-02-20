@@ -2854,7 +2854,7 @@ fn set_sampler_sample_cmd(
 
     let sample_arc = {
         let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
-        pool.insert(clip_audio);
+        if let Err(e) = pool.insert(clip_audio) { log::error!("ClipPool: {}", e); }
         pool.get(&sample_path)
             .ok_or_else(|| "Failed to cache decoded sampler sample".to_string())?
     };

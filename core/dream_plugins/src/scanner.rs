@@ -101,13 +101,27 @@ impl PluginScanner {
         results
     }
 
-    /// Scans ALL supported formats and returns a combined list.
+    /// Scans ALL supported formats and returns a combined, deduplicated list.
+    ///
+    /// # BUG-019 FIX
+    /// Deduplicates by plugin name (case-insensitive). When the same plugin
+    /// exists in multiple formats, the preferred order is:
+    /// VST3 > CLAP > AudioUnit > VST2
     pub fn scan_all(&self) -> Vec<PluginDescriptor> {
         let mut all = Vec::new();
-        all.extend(self.scan_format(PluginFormat::VST2));
+        // Scan in priority order — VST3 first so it "wins" on dedup
         all.extend(self.scan_format(PluginFormat::VST3));
         all.extend(self.scan_format(PluginFormat::CLAP));
         all.extend(self.scan_format(PluginFormat::AudioUnit));
+        all.extend(self.scan_format(PluginFormat::VST2));
+
+        // BUG-019 FIX: Deduplicate by lowercase name.
+        // First occurrence wins (which is the highest-priority format).
+        let mut seen = HashSet::new();
+        all.retain(|desc| {
+            let key = desc.name.to_lowercase();
+            seen.insert(key)
+        });
 
         // Sort by name for deterministic output
         all.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));

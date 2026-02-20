@@ -71,6 +71,17 @@ pub struct AutomationLane {
     /// Whether the user is currently touching the fader (for Touch/Latch).
     #[serde(skip)]
     pub fader_touched: bool,
+
+    /// BUG-007 FIX: Whether latch mode is actively latching a value.
+    /// Set to `true` when user touches fader in Latch mode, stays `true`
+    /// after release until transport stops or mode changes.
+    #[serde(skip)]
+    pub latch_active: bool,
+
+    /// BUG-007 FIX: The last value set by the user in Latch mode.
+    /// Used as the output value when `latch_active` is true and fader is released.
+    #[serde(skip)]
+    pub latched_value: f64,
 }
 
 impl AutomationLane {
@@ -83,7 +94,31 @@ impl AutomationLane {
             mode: AutomationMode::Read,
             visible: true,
             fader_touched: false,
+            latch_active: false,
+            latched_value: default_value,
         }
+    }
+
+    /// BUG-007 FIX: Properly manages fader touch state with latch lifecycle.
+    ///
+    /// In Latch mode, touching the fader activates latching. Releasing the fader
+    /// keeps latch active — the lane continues outputting the last written value
+    /// until `reset_latch()` is called (e.g., on transport stop).
+    pub fn set_fader_touch(&mut self, touched: bool) {
+        self.fader_touched = touched;
+        if touched && self.mode == AutomationMode::Latch {
+            self.latch_active = true;
+        }
+    }
+
+    /// BUG-007 FIX: Sets the latched value (called from parameter write path).
+    pub fn set_latched_value(&mut self, value: f64) {
+        self.latched_value = value.clamp(0.0, 1.0);
+    }
+
+    /// BUG-007 FIX: Resets latch state (called on transport stop or mode change).
+    pub fn reset_latch(&mut self) {
+        self.latch_active = false;
     }
 
     /// Evaluates the automation value at the given position,
@@ -115,11 +150,17 @@ impl AutomationLane {
                 }
             }
 
+            // BUG-007 FIX: Latch mode now correctly latches.
+            // - While fader is touched: user controls (returns None)
+            // - After release with latch active: returns latched value
+            // - Before first touch: reads automation curve
             AutomationMode::Latch => {
                 if self.fader_touched {
-                    None // User is controlling
+                    None // User is actively controlling
+                } else if self.latch_active {
+                    Some(self.latched_value) // Latch holds the last written value
                 } else {
-                    Some(self.curve.evaluate(position))
+                    Some(self.curve.evaluate(position)) // Not yet latched
                 }
             }
         }

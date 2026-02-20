@@ -67,6 +67,9 @@ impl ClipAudio {
     }
 }
 
+/// BUG-024 FIX: Default memory limit — 2GB. Configurable per-project.
+const DEFAULT_MEMORY_LIMIT_BYTES: usize = 2 * 1024 * 1024 * 1024;
+
 /// Pool of pre-loaded audio data, keyed by source file path.
 ///
 /// The pool uses `Arc<ClipAudio>` for zero-copy sharing:
@@ -76,23 +79,44 @@ impl ClipAudio {
 pub struct ClipPool {
     /// Loaded audio data, keyed by source file path.
     entries: HashMap<String, Arc<ClipAudio>>,
+    /// BUG-082 FIX: Running total of memory usage (bytes).
+    running_memory_bytes: usize,
+    /// BUG-024 FIX: Maximum allowed memory usage before rejecting new clips.
+    memory_limit_bytes: usize,
 }
 
 impl ClipPool {
-    /// Creates an empty pool.
+    /// Creates an empty pool with default 2GB memory limit.
     pub fn new() -> Self {
         Self {
             entries: HashMap::new(),
+            running_memory_bytes: 0,
+            memory_limit_bytes: DEFAULT_MEMORY_LIMIT_BYTES,
         }
     }
 
     /// Inserts pre-loaded audio data into the pool.
     ///
-    /// If an entry already exists for the path, it is replaced.
-    pub fn insert(&mut self, audio: ClipAudio) {
+    /// # BUG-024 FIX
+    /// Returns `Err` if the insert would exceed the memory limit.
+    pub fn insert(&mut self, audio: ClipAudio) -> Result<(), String> {
         let path = audio.source_path.clone();
         let bytes = audio.memory_bytes();
         let frames = audio.num_frames;
+
+        // Remove old entry first to keep running total accurate
+        if let Some(old) = self.entries.remove(&path) {
+            self.running_memory_bytes = self.running_memory_bytes.saturating_sub(old.memory_bytes());
+        }
+
+        // Check memory limit
+        if self.running_memory_bytes + bytes > self.memory_limit_bytes {
+            return Err(format!(
+                "ClipPool memory limit exceeded: {:.1}MB / {:.1}MB",
+                self.running_memory_bytes as f64 / 1_048_576.0,
+                self.memory_limit_bytes as f64 / 1_048_576.0,
+            ));
+        }
 
         log::info!(
             "ClipPool: loaded '{}' — {} frames, {:.1} MB",
@@ -101,7 +125,9 @@ impl ClipPool {
             bytes as f64 / (1024.0 * 1024.0),
         );
 
+        self.running_memory_bytes += bytes;
         self.entries.insert(path, Arc::new(audio));
+        Ok(())
     }
 
     /// Gets a reference to loaded audio data.
@@ -113,7 +139,12 @@ impl ClipPool {
 
     /// Removes loaded audio data from the pool.
     pub fn remove(&mut self, source_path: &str) -> bool {
-        self.entries.remove(source_path).is_some()
+        if let Some(removed) = self.entries.remove(source_path) {
+            self.running_memory_bytes = self.running_memory_bytes.saturating_sub(removed.memory_bytes());
+            true
+        } else {
+            false
+        }
     }
 
     /// Returns the number of loaded clips.
@@ -127,16 +158,25 @@ impl ClipPool {
     }
 
     /// Returns total memory usage in bytes.
+    /// BUG-082 FIX: O(1) via running counter instead of O(n) linear scan.
     pub fn total_memory_bytes(&self) -> usize {
-        self.entries
-            .values()
-            .map(|audio| audio.memory_bytes())
-            .sum()
+        self.running_memory_bytes
+    }
+
+    /// Returns the configured memory limit in bytes.
+    pub fn memory_limit_bytes(&self) -> usize {
+        self.memory_limit_bytes
+    }
+
+    /// Sets a new memory limit.
+    pub fn set_memory_limit(&mut self, limit_bytes: usize) {
+        self.memory_limit_bytes = limit_bytes;
     }
 
     /// Clears all loaded audio data.
     pub fn clear(&mut self) {
         self.entries.clear();
+        self.running_memory_bytes = 0;
     }
 
     /// Returns all loaded source paths.
@@ -177,7 +217,7 @@ mod tests {
     #[test]
     fn insert_and_get() {
         let mut pool = ClipPool::new();
-        pool.insert(make_audio("test.wav", 44100));
+        pool.insert(make_audio("test.wav", 44100)).unwrap();
 
         assert_eq!(pool.len(), 1);
         assert!(pool.get("test.wav").is_some());
@@ -187,7 +227,7 @@ mod tests {
     #[test]
     fn remove_entry() {
         let mut pool = ClipPool::new();
-        pool.insert(make_audio("test.wav", 44100));
+        pool.insert(make_audio("test.wav", 44100)).unwrap();
 
         assert!(pool.remove("test.wav"));
         assert!(pool.is_empty());
@@ -197,8 +237,8 @@ mod tests {
     #[test]
     fn memory_tracking() {
         let mut pool = ClipPool::new();
-        pool.insert(make_audio("a.wav", 44100));
-        pool.insert(make_audio("b.wav", 44100));
+        pool.insert(make_audio("a.wav", 44100)).unwrap();
+        pool.insert(make_audio("b.wav", 44100)).unwrap();
 
         // 2 files × 2 channels × 44100 frames × 4 bytes
         let expected = 2 * 2 * 44100 * 4;
@@ -208,8 +248,8 @@ mod tests {
     #[test]
     fn clear_empties_pool() {
         let mut pool = ClipPool::new();
-        pool.insert(make_audio("a.wav", 100));
-        pool.insert(make_audio("b.wav", 100));
+        pool.insert(make_audio("a.wav", 100)).unwrap();
+        pool.insert(make_audio("b.wav", 100)).unwrap();
         pool.clear();
 
         assert!(pool.is_empty());
@@ -233,7 +273,7 @@ mod tests {
     #[test]
     fn arc_sharing() {
         let mut pool = ClipPool::new();
-        pool.insert(make_audio("shared.wav", 100));
+        pool.insert(make_audio("shared.wav", 100)).unwrap();
 
         let ref1 = pool.get("shared.wav").unwrap();
         let ref2 = pool.get("shared.wav").unwrap();

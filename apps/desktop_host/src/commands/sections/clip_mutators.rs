@@ -287,7 +287,7 @@ fn build_local_pool_for_project(
                 continue;
             }
             if let Ok(decoded) = AudioReader::read(PathBuf::from(&clip.file_path)) {
-                local_pool.insert(ClipAudio {
+                let _ = local_pool.insert(ClipAudio {
                     source_path: clip.file_path.clone(),
                     channels: decoded.channels,
                     sample_rate: decoded.sample_rate,
@@ -304,7 +304,7 @@ fn build_local_pool_for_project(
                 let path = PathBuf::from(&sampler_cfg.sample_path);
                 if path.exists() {
                     if let Ok(decoded) = AudioReader::read(path) {
-                        local_pool.insert(ClipAudio {
+                        let _ = local_pool.insert(ClipAudio {
                             source_path: sampler_cfg.sample_path.clone(),
                             channels: decoded.channels,
                             sample_rate: decoded.sample_rate,
@@ -350,7 +350,7 @@ fn place_bounced_file_on_new_track(
 
     {
         let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
-        pool.insert(ClipAudio {
+        let _ = pool.insert(ClipAudio {
             source_path: bounced_file_path.to_string(),
             channels: decoded.channels,
             sample_rate: decoded.sample_rate,
@@ -430,7 +430,7 @@ fn place_stem_files_on_new_tracks(
     {
         let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
         for stem in &metas {
-            pool.insert(ClipAudio {
+            let _ = pool.insert(ClipAudio {
                 source_path: stem.path.clone(),
                 channels: stem.channels_data.clone(),
                 sample_rate: stem.sample_rate,
@@ -1445,7 +1445,7 @@ async fn resolve_missing_file_cmd(
         .map_err(|e| format!("Failed to decode resolved audio: {e}"))?;
     {
         let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
-        pool.insert(ClipAudio {
+        let _ = pool.insert(ClipAudio {
             source_path: new_path.clone(),
             channels: decoded.channels,
             sample_rate: decoded.sample_rate,
@@ -1639,7 +1639,7 @@ async fn stop_recording_cmd(
         .map_err(|e| format!("Failed to decode recorded file: {e}"))?;
     {
         let mut pool = clip_pool_state.pool.lock().map_err(|e| e.to_string())?;
-        pool.insert(ClipAudio {
+        let _ = pool.insert(ClipAudio {
             source_path: path.clone(),
             channels: decoded.channels,
             sample_rate: decoded.sample_rate,
@@ -1960,7 +1960,7 @@ async fn export_mix_cmd(
                         vec![out_left, out_right],
                         sample_rate,
                     );
-                    local_pool.insert(clip_audio);
+                    let _ = local_pool.insert(clip_audio);
 
                     let synth_clip = AudioClip::new(
                         format!("{} (VST3 Pre-render)", track_name),

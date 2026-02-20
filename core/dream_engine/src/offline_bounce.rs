@@ -619,7 +619,7 @@ impl OfflineBouncer {
                 vec![out_left, out_right],
                 self.config.sample_rate,
             );
-            clip_pool.insert(clip_audio);
+            let _ = clip_pool.insert(clip_audio);
 
             let synth_clip = AudioClip::new(
                 format!("{} (MIDI Pre-render)", track_name),

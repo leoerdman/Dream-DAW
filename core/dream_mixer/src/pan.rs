@@ -82,8 +82,11 @@ pub fn apply_pan(left: &mut [f32], right: &mut [f32], pan: f32, law: PanLaw) {
 
 /// Applies panning with per-sample smoothing for click-free pan changes.
 ///
+/// BUG-011 FIX: Computes target gains ONCE and interpolates gain coefficients
+/// linearly instead of calling cos/sin trig per sample (~80 cycles saved per sample).
+///
 /// # Real-Time Safety
-/// Real-time safe.
+/// Real-time safe — no allocations, bounded iteration, no trig in inner loop.
 #[inline]
 pub fn apply_pan_smoothed(
     left: &mut [f32],
@@ -93,12 +96,22 @@ pub fn apply_pan_smoothed(
     smoothing_coeff: f32,
     law: PanLaw,
 ) {
+    // Pre-compute target gains (trig done ONCE, not per-sample)
+    let target_gains = law.gains(target_pan);
+    let start_gains = law.gains(*current_pan);
+    let mut gl = start_gains.left;
+    let mut gr = start_gains.right;
+
     for (l, r) in left.iter_mut().zip(right.iter_mut()) {
-        *current_pan += (target_pan - *current_pan) * smoothing_coeff;
-        let gains = law.gains(*current_pan);
-        *l *= gains.left;
-        *r *= gains.right;
+        // Smooth the gain coefficients directly (no trig)
+        gl += (target_gains.left - gl) * smoothing_coeff;
+        gr += (target_gains.right - gr) * smoothing_coeff;
+        *l *= gl;
+        *r *= gr;
     }
+
+    // Update current_pan to match the smoothed position
+    *current_pan += (target_pan - *current_pan) * (1.0 - (1.0 - smoothing_coeff).powi(left.len() as i32));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

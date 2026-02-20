@@ -296,7 +296,8 @@ impl TimeSignature {
         if self.denominator == 0 {
             return 4;
         }
-        (self.numerator as u16 * 4 / self.denominator as u16) as u8
+        // BUG-058 FIX: Ensure at least 1 beat per bar for unusual signatures (e.g. 1/16).
+        ((self.numerator as u16 * 4 / self.denominator as u16) as u8).max(1)
     }
 
     /// Returns a display string (e.g., "4/4", "6/8").

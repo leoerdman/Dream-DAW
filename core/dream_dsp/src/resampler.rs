@@ -162,7 +162,8 @@ pub fn resample_channels(
     }
 
     // Trim output to expected length
-    let expected_len = (input_len as f64 * ratio).round() as usize;
+    // BUG-055 FIX: Use ceil() instead of round() to prevent losing the last few samples.
+    let expected_len = (input_len as f64 * ratio).ceil() as usize;
     for ch in &mut output_channels {
         ch.truncate(expected_len);
     }

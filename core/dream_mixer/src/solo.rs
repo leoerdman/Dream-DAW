@@ -58,6 +58,25 @@ impl SoloResolver {
     /// 2. If ANY solo exists: silence all non-soloed, non-master tracks.
     /// 3. Muted tracks are always silenced, even if soloed.
     /// 4. Master track is never silenced by solo logic.
+    /// BUG-012 FIX: Zero-alloc variant — writes results into a caller-provided slice.
+    ///
+    /// `out` must be at least `tracks.len()` elements long.
+    /// Returns the number of tracks resolved.
+    #[inline]
+    pub fn resolve_into(tracks: &[TrackFlags], out: &mut [ResolvedTrack]) -> usize {
+        let any_solo = tracks.iter().any(|t| t.is_solo && !t.is_master);
+        let count = tracks.len().min(out.len());
+
+        for (i, flags) in tracks.iter().enumerate().take(count) {
+            out[i] = ResolvedTrack {
+                index: i,
+                effective_gain: Self::resolve_single(flags, any_solo),
+            };
+        }
+        count
+    }
+
+    /// Convenience wrapper — allocates. For non-RT contexts only.
     pub fn resolve(tracks: &[TrackFlags]) -> Vec<ResolvedTrack> {
         let any_solo = tracks.iter().any(|t| t.is_solo && !t.is_master);
 

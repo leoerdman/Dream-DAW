@@ -447,7 +447,9 @@ impl RenderContext {
                                 let fade_out_start = clip_len_frames.saturating_sub(user_fade_out);
                                 if clip_frame >= fade_out_start {
                                     let rel = clip_frame.saturating_sub(fade_out_start);
-                                    let t = rel as f32 / user_fade_out.max(1) as f32;
+                                    // BUG-017 FIX: Clamp t to [0,1] — prevents negative
+                                    // Hann window values when clip_frame > clip_len_frames.
+                                    let t = (rel as f32 / user_fade_out.max(1) as f32).min(1.0);
                                     let fade = 1.0 - (t * t * (3.0 - 2.0 * t));
                                     g *= fade;
                                 }

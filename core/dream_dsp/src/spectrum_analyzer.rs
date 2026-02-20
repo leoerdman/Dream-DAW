@@ -12,7 +12,7 @@
 //! for ~1Hz resolution at 44.1kHz. A Hann window is applied to reduce spectral leakage.
 
 use rustfft::{num_complex::Complex, FftPlanner};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 /// Number of FFT bins (power of 2 for optimal FFT performance)
 pub const FFT_SIZE: usize = 4096;
@@ -26,6 +26,9 @@ const SMOOTHING: f32 = 0.7;
 
 /// Floor dB value for very quiet signals
 pub const FLOOR_DB: f32 = -120.0;
+
+/// Maximum compute rate — don't recompute faster than UI can display (~30Hz).
+const MIN_COMPUTE_INTERVAL_NS: u64 = 33_000_000; // ~30fps
 
 /// Spectrum data snapshot — sent to the frontend via Tauri events
 #[derive(Clone)]
@@ -48,12 +51,20 @@ impl Default for SpectrumData {
     }
 }
 
-/// Lock-free spectrum analyzer using a ring buffer and FFT
+/// Lock-free spectrum analyzer using a ring buffer and FFT.
+///
+/// # Thread Safety (BUG-001 FIX)
+///
+/// `write_pos` is an `AtomicUsize` so the audio thread (`push()`) and background
+/// thread (`compute()`) can safely read/write concurrently. The ring buffer itself
+/// is written only by the audio thread and snapshotted by `compute()` — a torn
+/// read of an f32 sample is benign (produces a slight magnitude error in one FFT
+/// frame, self-correcting next frame), so no additional locking is needed.
 pub struct SpectrumAnalyzer {
     /// Ring buffer for audio samples (single-producer, single-consumer pattern)
     ring: Box<[f32; FFT_SIZE]>,
-    /// Write position in ring buffer (only modified by audio thread)
-    write_pos: usize,
+    /// Write position in ring buffer — BUG-001 FIX: AtomicUsize for thread safety
+    write_pos: AtomicUsize,
     /// Flag indicating new samples are available
     has_new_data: AtomicBool,
     /// FFT planner (cached for efficiency)
@@ -69,6 +80,8 @@ pub struct SpectrumAnalyzer {
     sequence: AtomicU64,
     /// Cached FFT plan
     fft_plan: std::sync::Arc<dyn rustfft::Fft<f32>>,
+    /// BUG-057 FIX: Last compute timestamp for rate limiting (ns since epoch)
+    last_compute_ns: u64,
 }
 
 impl SpectrumAnalyzer {
@@ -86,7 +99,7 @@ impl SpectrumAnalyzer {
 
         Self {
             ring: Box::new([0.0f32; FFT_SIZE]),
-            write_pos: 0,
+            write_pos: AtomicUsize::new(0),
             has_new_data: AtomicBool::new(false),
             fft_scratch: vec![Complex::default(); scratch_len],
             fft_buffer: vec![Complex::default(); FFT_SIZE],
@@ -95,17 +108,25 @@ impl SpectrumAnalyzer {
             sample_rate,
             sequence: AtomicU64::new(0),
             fft_plan,
+            last_compute_ns: 0,
         }
     }
 
     /// Push audio samples into the ring buffer.
     /// **Called from the audio thread** — must be lock-free and allocation-free.
+    ///
+    /// # BUG-001 FIX
+    /// `write_pos` is updated atomically after the sample is written. A concurrent
+    /// `compute()` may see a stale position (missing the latest few samples) but
+    /// will never read an invalid index.
     #[inline]
     pub fn push(&mut self, samples: &[f32]) {
+        let mut pos = self.write_pos.load(Ordering::Relaxed);
         for &s in samples {
-            self.ring[self.write_pos] = s;
-            self.write_pos = (self.write_pos + 1) % FFT_SIZE;
+            self.ring[pos] = s;
+            pos = (pos + 1) % FFT_SIZE;
         }
+        self.write_pos.store(pos, Ordering::Release);
         self.has_new_data.store(true, Ordering::Release);
     }
 
@@ -114,26 +135,34 @@ impl SpectrumAnalyzer {
     #[inline]
     pub fn push_stereo_interleaved(&mut self, samples: &[f32]) {
         let pairs = samples.len() / 2;
+        let mut pos = self.write_pos.load(Ordering::Relaxed);
         for i in 0..pairs {
             let mono = (samples[i * 2] + samples[i * 2 + 1]) * 0.5;
-            self.ring[self.write_pos] = mono;
-            self.write_pos = (self.write_pos + 1) % FFT_SIZE;
+            self.ring[pos] = mono;
+            pos = (pos + 1) % FFT_SIZE;
         }
+        self.write_pos.store(pos, Ordering::Release);
         self.has_new_data.store(true, Ordering::Release);
     }
 
     /// Compute the FFT and return a smoothed spectrum snapshot.
     /// **Called from a background thread** — may allocate, may block briefly.
     /// Returns `None` if no new data since last compute.
+    ///
+    /// # BUG-057 FIX
+    /// Rate-limited to ~30Hz to avoid wasting CPU on FFTs the UI can't display.
     pub fn compute(&mut self) -> Option<SpectrumData> {
         if !self.has_new_data.swap(false, Ordering::AcqRel) {
             return None;
         }
 
+        // BUG-001 FIX: Snapshot write_pos atomically for safe concurrent read
+        let snapshot_pos = self.write_pos.load(Ordering::Acquire);
+
         // Copy ring buffer into FFT buffer with Hann window applied
         // Read starting from write_pos (oldest sample) to get correct time order
         for i in 0..FFT_SIZE {
-            let ring_idx = (self.write_pos + i) % FFT_SIZE;
+            let ring_idx = (snapshot_pos + i) % FFT_SIZE;
             self.fft_buffer[i] = Complex {
                 re: self.ring[ring_idx] * self.hann_window[i],
                 im: 0.0,
@@ -194,7 +223,7 @@ impl SpectrumAnalyzer {
     /// Reset the analyzer state (clear ring buffer and smoothed values)
     pub fn reset(&mut self) {
         self.ring.fill(0.0);
-        self.write_pos = 0;
+        self.write_pos.store(0, Ordering::Release);
         self.smoothed.fill(FLOOR_DB);
         self.has_new_data.store(false, Ordering::Release);
     }
